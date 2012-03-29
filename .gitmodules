@@ -1,0 +1,9 @@
+[submodule "addon-sdk"]
+	path = addon-sdk
+	url = git://github.com/mozilla/addon-sdk.git
+[submodule "deps/wmsy"]
+	path = deps/wmsy
+	url = git://github.com/asutherland/wmsy.git
+[submodule "node-deps/iconv-lite"]
+	path = node-deps/iconv-lite
+	url = git://github.com/asutherland/iconv-lite.git
