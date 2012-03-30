@@ -7,3 +7,9 @@
 [submodule "node-deps/iconv-lite"]
 	path = node-deps/iconv-lite
 	url = git://github.com/asutherland/iconv-lite.git
+[submodule "node-deps/mailparser"]
+	path = node-deps/mailparser
+	url = git://github.com/andris9/mailparser.git
+[submodule "node-deps/mimelib"]
+	path = node-deps/mimelib
+	url = git://github.com/andris9/mimelib.git
