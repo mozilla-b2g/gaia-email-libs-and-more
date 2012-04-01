@@ -26,8 +26,11 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 
 
 xpi: $(DEP_NODE_PKGS)
-	echo $(RSYNC) deps/wmsy/lib/wmsy data/deps/
-	echo cfx xpi
+	$(RSYNC) deps/wmsy/lib/wmsy data/deps/
+	cfx xpi
+
+run: xpi
+	wget --post-file=jetpack-tcp-imap-demo.xpi http://localhost:8222/
 
 clean:
 	rm -rf data/deps

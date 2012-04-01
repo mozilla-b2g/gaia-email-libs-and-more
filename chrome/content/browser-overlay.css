@@ -1,0 +1,7 @@
+#webapi-tcp-notification-icon {
+  list-style-image: url(chrome://global/skin/icons/question-16.png);
+}
+.popup-notification-icon[popupid="webapi-tcp-permission-prompt"],
+.popup-notification-icon[popupid="webapi-tcp-exception-prompt"] {
+  list-style-image: url(chrome://global/skin/icons/question-64.png);
+}

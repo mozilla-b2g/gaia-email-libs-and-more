@@ -1,0 +1,3 @@
+content    jetpack-tcp-imap-demo    chrome/content/
+overlay chrome://browser/content/browser.xul chrome://jetpack-tcp-imap-demo/content/browser-overlay.xul
+style   chrome://browser/content/browser.xul chrome://jetpack-tcp-imap-demo/content/browser-overlay.css
