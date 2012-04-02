@@ -39,14 +39,13 @@
 
 var resultsNode = document.getElementById("results");
 function logResult(styleClass, msg) {
-  var node = document.createElement("span");
+  var node = document.createElement("div");
   node.class = styleClass;
   node.textContent = msg;
   resultsNode.insertBefore(node, resultsNode.firstChild);
 }
 
 function checkImapServer(host, port, crypto) {
-console.log("TCPSocket:", TCPSocket);
   var socket = TCPSocket();
   socket.onopen = function(evt) {
     logResult("status", "Connection opened!");
