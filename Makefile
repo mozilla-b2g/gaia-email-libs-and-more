@@ -27,7 +27,7 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 
 xpi: $(DEP_NODE_PKGS)
 	$(RSYNC) deps/wmsy/lib/wmsy data/deps/
-	cfx xpi
+	cfx --templatedir=xpi-template xpi
 
 run: xpi
 	wget --post-file=jetpack-tcp-imap-demo.xpi http://localhost:8222/

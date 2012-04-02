@@ -19,23 +19,24 @@
 <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAAXNSR0IArs4c6QAAAVxQTFRFLjQ2MDY4MTc5PUNEP0RGQEVHQEZIQkdJSU5QSU9QTFFTT1RWUFVXVltdWF1eWV5fW2BiXmJkZnz/Z33/aGxtaW5vaX//am5waoD/bHBxbXJzbYL/boP/cYX/cob/c3d5dYj/dnp7d3t8d4r/eHx9eIv/e36Ae43/gJL/gZP/gpT/i5z/jZCRjZGSkqL/maf/nJ+gnKr/naChn6GioK7/paipqLT/qbX/qbb/q62urK6vr7GysLKzsbO0sbz/sr3/tL//tri4t8H/ubu8ury8vb+/v8HCwMn/wcPDwsTEw8TFxs7/x8//yszMzNP/z9DR0Nb/0tj/09r/1dv/2N3/2d//3eL/3uL/3uP/4ub/4+Pk4+Tk5OXl5Of/5en/5un/6Onp6erq6u3/6+7/7O3t7e7u7+/w8PL/8/X/9PX/9/j/+Pj4+fn5+fn//Pz//f39/f3//v7+/v7/////BvG6swAAAT1JREFUOMtjKCYAGMhTkGWnKafggFtBpKqQkJBcEk4FgdJAeYkwnFYEiQHlhfxwuiFUAiTvhNORybIgeROcvsjSAMlr52FRkOtjnl5cbAiSV8/AEg7hQKMtin1A8tJx2ALKDuT1WBmQggCsIekuBAP22IM6AiavV4RdQYEcRF45E1dkmYHlhUNxxmY8WIEFnujWB8prZeFRkBfsHZJHrRSFqgCEeAqB7EJusHJjRmOwDAMDm1oaTAGfG1DIlQ+kIJ/DlDMfojVBXgmmwFkQKCTgAlLgwVvM7wm1PIUZpiCfy7/YlysfJChuXWwjjqGg2FKqWMQKxIxiyS7OZokGCycqKsIV5LA7sueAmDoMIKALdiSrSipcQbEBkxGIzmaJARodDTSGAcWbcE/bSIIZora4FPB5gRlu/EgKKAxqAMryefXvHv3iAAAAAElFTkSuQmCC" />
 </head>
 <body id="body">
-  <form id="connectomatic">
-    <label for="hostname">Host:</label> <input id="hostname" type="text"></input><br />
-    <label for="port">Port:</label> <input id="port" type="number">993</input><br />
+  <div id="connectomatic">
+    <label for="hostname">Host:</label> <input id="hostname" type="text" value="localhost"/><br />
+    <label for="port">Port:</label> <input id="port" type="number" value="143" /><br />
     <label for="crypto">Security:</label>
     <select id="crypto">
+      <option>plaintext</option>
       <option>ssl</option>
       <option>starttls</option>
-      <option>plaintext</option>
     </select>
 
     <button id="connect">Connect</button>
-  </form>
+  </div>
   <h3>Log: (newest to oldest)</h3>
   <div id="results">
   </div>
   <button id="clear">Clear Output</button>
 <script type="text/javascript">//<![CDATA[
+
 var resultsNode = document.getElementById("results");
 function logResult(styleClass, msg) {
   var node = document.createElement("span");
@@ -45,7 +46,8 @@ function logResult(styleClass, msg) {
 }
 
 function checkImapServer(host, port, crypto) {
-  var socket = new TCPSocket();
+console.log("TCPSocket:", TCPSocket);
+  var socket = TCPSocket();
   socket.onopen = function(evt) {
     logResult("status", "Connection opened!");
     sendNextCommand();
@@ -151,9 +153,14 @@ document.getElementById("clear").addEventListener("click", function(evt) {
 }, false);
 
 document.getElementById("connect").addEventListener("click", function(evt) {
-  checkImapServer(document.getElementById("hostname").value,
-                  parseInt(document.getElementById("port").value),
-                  document.getElementById("crypto").value);
+  try {
+    checkImapServer(document.getElementById("hostname").value,
+                    parseInt(document.getElementById("port").value),
+                    document.getElementById("crypto").value);
+  }
+  catch (ex) {
+    console.error("Exception during call to checkImapServer", ex, "\n", ex.stack);
+  }
 }, false);
 //]]></script>
 </body>
