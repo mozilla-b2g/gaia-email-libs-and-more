@@ -84,15 +84,13 @@ function checkImapServer(host, port, crypto) {
 
   function sendNextCommand() {
     var curImapCommand = imapCommands[idxImapCommand],
-        //buffer = new ArrayBuffer(curImapCommand.send.length), 
-        //u8View = new Uint8Array(buffer);
-        u8View = [];
+        buffer = new Uint8Array(curImapCommand.send.length);
     // We are only sending 7-bit ASCII, so this is fine.
-    for (var i = 0; i < u8View.length; i++) {
-      //u8View[i] = curImapCommand.send.charCodeAt(i);
-      u8View.push(curImapCommand.send.charCodeAt(i));
+    for (var i = 0; i < buffer.length; i++) {
+      buffer[i] = curImapCommand.send.charCodeAt(i);
+      //u8View.push(curImapCommand.send.charCodeAt(i));
     }
-    socket.send(u8View);
+    socket.send(buffer);
   }
 
   var buffered = "";
