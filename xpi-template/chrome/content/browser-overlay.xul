@@ -1,7 +1,0 @@
-<?xml version="1.0"?>
-<overlay id="sample" 
-         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <box id="notification-popup-box">
-    <image id="webapi-tcp-notification-icon" class="notification-anchor-icon" role="button"/>
-  </box>
-</overlay>
