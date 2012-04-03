@@ -14,25 +14,26 @@
       #port { width: 3em; }
       .status { color: blue; }
       .error { color: red; }
-      .data { color: #333; }
+      .send { color: #888; }
+      .data { color: #333; white-space: pre; }
     </style>
 <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAAXNSR0IArs4c6QAAAVxQTFRFLjQ2MDY4MTc5PUNEP0RGQEVHQEZIQkdJSU5QSU9QTFFTT1RWUFVXVltdWF1eWV5fW2BiXmJkZnz/Z33/aGxtaW5vaX//am5waoD/bHBxbXJzbYL/boP/cYX/cob/c3d5dYj/dnp7d3t8d4r/eHx9eIv/e36Ae43/gJL/gZP/gpT/i5z/jZCRjZGSkqL/maf/nJ+gnKr/naChn6GioK7/paipqLT/qbX/qbb/q62urK6vr7GysLKzsbO0sbz/sr3/tL//tri4t8H/ubu8ury8vb+/v8HCwMn/wcPDwsTEw8TFxs7/x8//yszMzNP/z9DR0Nb/0tj/09r/1dv/2N3/2d//3eL/3uL/3uP/4ub/4+Pk4+Tk5OXl5Of/5en/5un/6Onp6erq6u3/6+7/7O3t7e7u7+/w8PL/8/X/9PX/9/j/+Pj4+fn5+fn//Pz//f39/f3//v7+/v7/////BvG6swAAAT1JREFUOMtjKCYAGMhTkGWnKafggFtBpKqQkJBcEk4FgdJAeYkwnFYEiQHlhfxwuiFUAiTvhNORybIgeROcvsjSAMlr52FRkOtjnl5cbAiSV8/AEg7hQKMtin1A8tJx2ALKDuT1WBmQggCsIekuBAP22IM6AiavV4RdQYEcRF45E1dkmYHlhUNxxmY8WIEFnujWB8prZeFRkBfsHZJHrRSFqgCEeAqB7EJusHJjRmOwDAMDm1oaTAGfG1DIlQ+kIJ/DlDMfojVBXgmmwFkQKCTgAlLgwVvM7wm1PIUZpiCfy7/YlysfJChuXWwjjqGg2FKqWMQKxIxiyS7OZokGCycqKsIV5LA7sueAmDoMIKALdiSrSipcQbEBkxGIzmaJARodDTSGAcWbcE/bSIIZora4FPB5gRlu/EgKKAxqAMryefXvHv3iAAAAAElFTkSuQmCC" />
 </head>
 <body id="body">
   <div id="connectomatic">
     <label for="hostname">Host:</label> <input id="hostname" type="text" value="localhost"/><br />
-    <label for="port">Port:</label> <input id="port" type="number" value="993" /><br />
+    <label for="port">Port:</label> <input id="port" type="number" value="143" /><br />
     <label for="crypto">Security:</label>
     <select id="crypto">
-      <option>ssl</option>
       <option>starttls</option>
+      <option>ssl</option>
       <option>plaintext</option>
     </select>
 
     <button id="connect">Connect</button>
   </div>
   <h3>Log: (newest to oldest)</h3>
-  <div id="results">
+  <div id="results" style="height: 480px; overflow: auto;">
   </div>
   <button id="clear">Clear Output</button>
 <script type="text/javascript">//<![CDATA[
@@ -40,9 +41,11 @@
 var resultsNode = document.getElementById("results");
 function logResult(styleClass, msg) {
   var node = document.createElement("div");
-  node.class = styleClass;
+  node.setAttribute("class", styleClass);
   node.textContent = msg;
-  resultsNode.insertBefore(node, resultsNode.firstChild);
+  //resultsNode.insertBefore(node, resultsNode.firstChild);
+  resultsNode.appendChild(node);
+  node.scrollIntoView();
 }
 
 function checkImapServer(host, port, crypto) {
@@ -50,12 +53,6 @@ function checkImapServer(host, port, crypto) {
   socket.onopen = function(evt) {
     logResult("status", "Connection opened!");
     sendNextCommand();
-  };
-  var invokeOnSecure = null;
-  socket.onsecure = function(evt) {
-    logResult("status", "Connection secured.");
-    if (invokeOnSecure)
-      invokeOnSecure();
   };
   socket.onclose = function(evt) {
     logResult("status", "Connection closed.");
@@ -77,14 +74,17 @@ function checkImapServer(host, port, crypto) {
   var imapCommands = [
     {
       send: "a001 CAPABILITY\n",
-      waitFor: /^a0001 OK .+$/m,
+      waitFor: /^a001 OK .+$/m,
     },
   ];
   var idxImapCommand = 0;
 
   function sendNextCommand() {
+    if (idxImapCommand >= imapCommands.length)
+      return;
     var curImapCommand = imapCommands[idxImapCommand],
         buffer = new Uint8Array(curImapCommand.send.length);
+    logResult("send", curImapCommand.send);
     // We are only sending 7-bit ASCII, so this is fine.
     for (var i = 0; i < buffer.length; i++) {
       buffer[i] = curImapCommand.send.charCodeAt(i);
@@ -124,24 +124,22 @@ function checkImapServer(host, port, crypto) {
     sslOptions = { allowOverride: true };
   }
   else if (crypto === "starttls") { 
+    sslOptions = { allowOverride: true };
     // add the TLS upgrade command
     imapCommands.push({
       send: "a002 STARTTLS\n",
-      waitFor: /^a0002 OK .+$/m,
+      waitFor: /^a002 OK .+$/m,
       callback: function() {
         socket.startTLS({ allowOverride: true });
       }
     });
-    // ask for the capabilities again once the encryption is established
-    invokeOnSecure = function() {
-      imapCommands.push({
-        send: "a003 CAPABILITY\n",
-        waitFor: /^a0003 OK .+$/m,
-      });
-      sendNextCommand();
-    }
+    imapCommands.push({
+      send: "a003 CAPABILITY\n",
+      waitFor: /^a003 OK .+$/m,
+    });
   }
-  socket.open(host, port, sslOptions);
+  logResult("status", "open(" + host + ", " + port + ", " + crypto + ", " + JSON.stringify(sslOptions) + ")");
+  socket.open(host, port, crypto, sslOptions);
   logResult("status", "connecting... (readyState: " + socket.readyState + ")");
 }
 
