@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <base href="resource://jid1-reoZ1pC7LQZcEA-at-jetpack/jetpack-tcp-imap-demo/data/" />
+    <title>IMAP</title>
+    <style type="text/css">
+      html {
+        font-family: "Lucida Grande", Verdana, sans-serif;
+        font-size: 9pt;
+      }
+    </style>
+  <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAAXNSR0IArs4c6QAAABhQTFRFIEqHLjQ2iIqF09fP7u7s9XkA/K8+////Ga9XSQAAAIJJREFUKM/F0DEOwjAMhWFvnasOzOQIuHfgBuUaVAX9169jJxUkgrWOlOR9sZeIiCBl80sHCMhzyKevf9CNfAJ1AHo4mn4CTfWwjl91MdB7fX1phuTyjpwMNI0zLA/PaoCmabYOz2RAryaRA7iZRC6wmUQukCVyBZPIB7DRAKdD84U7Lb2fKUPDzZ8AAAAASUVORK5CYII=" />
+  <script type="text/javascript" src="lib/require.js"></script>
+  <script>
+    require.onError = function(ex) {
+      console.error("RequireJS load error:", ex, ex.stack);
+      throw ex;
+    }
+    require({
+      baseUrl: "resource://jid1-reoZ1pC7LQZcEA-at-jetpack/jetpack-tcp-imap-demo/data/",
+      paths: {
+        "text": "lib/text",
+      },
+      packages: [
+        { name: "rdimap", location: "lib/rdimap" },
+        { name: "wmsy", location: "deps/wmsy" },
+      ],
+      // make the text plugin always use XHR because it gets confused by
+      //  the protocol/origin change or what not.
+      text: { useXhr: function () { return true; } }
+    },
+    ["rdimap/ui/app"]);
+  </script>
+</head>
+<body id="body">
+</body>
+</html>
