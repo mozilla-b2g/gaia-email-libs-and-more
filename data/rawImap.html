@@ -116,7 +116,7 @@ function($imap) {
   }
   function tablifyObj(obj, depthAllowed) {
     if (depthAllowed === undefined)
-      depthAllowed = 4;
+      depthAllowed = 9;
     var tableNode = document.createElement("table");
     for (var key in obj) {
       if (!obj.hasOwnProperty(key) || key[0] === "_")
