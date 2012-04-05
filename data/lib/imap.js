@@ -1,7 +1,9 @@
-var util = require('util'), net = require('net'),
-    tls = require('tls'), EventEmitter = require('events').EventEmitter,
-    Socket = net.Socket;
-var emptyFn = function() {}, CRLF = '\r\n', debug=emptyFn,
+define(function(require, exports, module) {
+var util = require('util'),
+    EventEmitter = require('events').EventEmitter,
+    mailparser = require('mailparser/mailparser');
+
+var emptyFn = function() {}, CRLF = '\r\n', debug=null,
     STATES = {
       NOCONNECT: 0,
       NOAUTH: 1,
@@ -11,7 +13,7 @@ var emptyFn = function() {}, CRLF = '\r\n', debug=emptyFn,
     }, BOX_ATTRIBS = ['NOINFERIORS', 'NOSELECT', 'MARKED', 'UNMARKED'],
     MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
               'Oct', 'Nov', 'Dec'],
-    reFetch = /^\* (\d+) FETCH .+? \{(\d+)\}\r\n/;
+    reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}\r\n/;
 
 var IDLE_NONE = 1,
     IDLE_WAIT = 2,
@@ -104,34 +106,37 @@ ImapConnection.prototype.connect = function(loginCb) {
   loginCb = loginCb || emptyFn;
   this._reset();
 
-  this._state.conn = new Socket();
-  this._state.conn.setKeepAlive(true);
+  this._state.conn = TCPSocket();
 
-  if (this._options.secure) {
-    // TODO: support STARTTLS
-    this._state.conn.cleartext = this._state.conn.setSecure();
-    this._state.conn.on('secure', function() {
-      debug('Secure connection made.');
-    });
-    //this._state.conn.cleartext.setEncoding('utf8');
-  } else {
-    //this._state.conn.setEncoding('utf8');
-    this._state.conn.cleartext = this._state.conn;
-  }
+  var sslOptions = undefined;
+  if (this._options.crypto)
+    sslOptions = { allowOverride: true };
 
-  this._state.conn.on('connect', function() {
+  this._state.conn.onopen = function(evt) {
+    if (debug)
+      debug('status', 'Connected to host.');
     clearTimeout(self._state.tmrConn);
-    debug('Connected to host.');
-    self._state.conn.cleartext.write('');
     self._state.status = STATES.NOAUTH;
-  });
-  this._state.conn.on('ready', function() {
     fnInit();
-  });
-  this._state.conn.cleartext.on('data', function(data) {
+  };
+  this._state.conn.ondata = function(evt) {
+    var buffer = Buffer(evt.data);
+    if (debug)
+      debug('data', buffer.toString());
+    processData(buffer);
+  };
+  /**
+   * Process up to one thing.  Generally:
+   * - If we are processing a literal, we make sure we have the data for the
+   *   whole literal, then we process it.
+   * - If we are not in a literal, we buffer until we have one newline.
+   * - If we have leftover data, we invoke ourselves in a quasi-tail-recursive
+   *   fashion or in subsequent ticks.  It's not clear that the logic that
+   *   defers to future ticks is sound.
+   */
+  function processData(data) {
     if (data.length === 0) return;
     var trailingCRLF = false, literalInfo;
-    debug('\n<<RECEIVED>>: ' + util.inspect(data.toString()) + '\n');
 
     if (self._state.curExpected === 0) {
       if (bufferIndexOf(data, CRLF) === -1) {
@@ -147,6 +152,7 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
     }
 
+    // -- Literal
     // Don't mess with incoming data if it's part of a literal
     var strdata;
     if (self._state.curExpected > 0) {
@@ -190,7 +196,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         else
           self._state.curData = data;
 
-        if (restDesc = self._state.curData.toString().match(/^(.*?)\)\r\n/)) {
+        if ((restDesc = self._state.curData.toString().match(/^(.*?)\)\r\n/))) {
           if (restDesc[1]) {
             restDesc[1] = restDesc[1].trim();
             if (restDesc[1].length)
@@ -206,13 +212,14 @@ ImapConnection.prototype.connect = function(loginCb) {
           self._state.curData = null;
           curReq._msg.emit('end');
           if (data.length && data[0] === 42/* '*' */) {
-            self._state.conn.cleartext.emit('data', data);
+            processData(data);
             return;
           }
         } else
           return;
       } else
         return;
+    // -- Fetch (all data received)
     } else if (self._state.curExpected === 0
                && (literalInfo = (strdata = data.toString()).match(reFetch))) {
       self._state.curExpected = parseInt(literalInfo[2], 10);
@@ -231,7 +238,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         self._state.curData = new Buffer(self._state.curExpected);
         curReq.curPos = 0;
       }
-      self._state.conn.cleartext.emit('data', data.slice(idxCRLF + 2));
+      processData(data.slice(idxCRLF + 2));
       return;
     }
 
@@ -252,7 +259,7 @@ ImapConnection.prototype.connect = function(loginCb) {
               b[b.length-2] = 13;
               b[b.length-1] = 10;
             }
-            self._state.conn.cleartext.emit('data', b);
+            processData(b);
           });
         })(data[i], i === len-1);
       }
@@ -270,10 +277,8 @@ ImapConnection.prototype.connect = function(loginCb) {
           self._state.conn.end();
           return;
         }
-        if (!self._state.isReady) {
+        if (!self._state.isReady)
           self._state.isReady = true;
-          self._state.conn.emit('ready');
-        }
         // Restrict the type of server responses when unauthenticated
         if (data[1] !== 'CAPABILITY' && data[1] !== 'ALERT')
           return;
@@ -509,26 +514,26 @@ ImapConnection.prototype.connect = function(loginCb) {
     } else {
       // unknown response
     }
-  });
-  this._state.conn.on('end', function() {
+  };
+
+  this._state.conn.onclose = function onClose() {
     self._reset();
-    debug('FIN packet received. Disconnecting...');
-    self.emit('end');
-  });
-  this._state.conn.on('error', function(err) {
+    if (debug)
+      debug('status', 'FIN packet received. Disconnecting...');
+    self.emit('close');
+  };
+  this._state.conn.onerror = function(evt) {
+    var err = evt.data;
     clearTimeout(self._state.tmrConn);
     if (self._state.status === STATES.NOCONNECT)
       loginCb(new Error('Unable to connect. Reason: ' + err));
     self.emit('error', err);
-    debug('Error occurred: ' + err);
-  });
-  this._state.conn.on('close', function(had_error) {
-    self._reset();
-    debug('Connection forcefully closed.');
-    self.emit('close', had_error);
-  });
+    if (debug)
+      debug('status', 'Error occurred: ' + err);
+  };
 
-  this._state.conn.connect(this._options.port, this._options.host);
+  this._state.conn.open(this._options.host, this._options.port,
+                        this._options.crypto, sslOptions);
   this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
                                    this._options.connTimeout, loginCb);
 };
@@ -618,7 +623,7 @@ ImapConnection.prototype.renameBox = function(oldname, newname, cb) {
   if (this._state.status === STATES.BOXSELECTED
       && oldname === this._state.box.name && oldname !== 'INBOX')
     this._state.box._newName = oldname;
-    
+
   this._send('RENAME "' + escape(oldname) + '" "' + escape(newname) + '"', cb);
 };
 
@@ -669,9 +674,10 @@ ImapConnection.prototype.append = function(data, options, cb) {
   this._send(cmd, function(err) {
     if (err || step++ === 2)
       return cb(err);
-    self._state.conn.cleartext.write(data);
-    self._state.conn.cleartext.write(CRLF);
-    debug('\n<<SENT>>: ' + util.inspect(data.toString()) + '\n');
+    self._state.conn.send(data);
+    self._state.conn.send(CRLF);
+    if (debug)
+      debug('sent', data.toString());
   });
 }
 
@@ -894,7 +900,7 @@ ImapConnection.prototype.__defineGetter__('seq', function() {
 
 ImapConnection.prototype._fnTmrConn = function(loginCb) {
   loginCb(new Error('Connection timed out'));
-  this._state.conn.destroy();
+  this._state.conn.close();
 }
 
 ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
@@ -1018,10 +1024,11 @@ ImapConnection.prototype._send = function(cmdstr, cb, bypass) {
     }
     if (cmd !== 'IDLE' && cmd !== 'DONE')
       prefix = 'A' + ++this._state.curId + ' ';
-    this._state.conn.cleartext.write(prefix);
-    this._state.conn.cleartext.write(cmd);
-    this._state.conn.cleartext.write(CRLF);
-    debug('\n<<SENT>>: ' + prefix + cmd + '\n');
+    this._state.conn.send(prefix);
+    this._state.conn.send(cmd);
+    this._state.conn.send(CRLF);
+    if (debug)
+      debug('sent', prefix + cmd);
   }
 };
 
@@ -1242,6 +1249,13 @@ function parseFetch(str, literalData, fetchData) {
       fetchData[result[i].toLowerCase()] = result[i+1];
     else if (Array.isArray(result[i]) && typeof result[i][0] === 'string' &&
              result[i][0].indexOf('HEADER') === 0 && literalData) {
+      var mparser = new mailparser.MailParser();
+      mparser._remainder = literalData;
+      // invoke mailparser's logic in a fully synchronous fashion
+      process.immediate = true;
+      mparser._process(true);
+      process.immediate = false;
+      /*
       var headers = literalData.split(/\r\n(?=[\w])/), header;
       fetchData.headers = {};
       for (var j=0,len2=headers.length; j<len2; ++j) {
@@ -1252,6 +1266,8 @@ function parseFetch(str, literalData, fetchData) {
                                                  .indexOf(': ')+2)
                                                  .replace(/\r\n/g, '').trim());
       }
+      */
+      fetchData.msg = mparser._currentNode;
     }
   }
 }
@@ -1559,21 +1575,21 @@ function extend() {
     if (!obj || toString.call(obj) !== "[object Object]" || obj.nodeType
         || obj.setInterval)
       return false;
-    
+
     var has_own_constructor = hasOwnProperty.call(obj, "constructor");
     var has_is_prop_of_method = hasOwnProperty.call(obj.constructor.prototype,
                                                     "isPrototypeOf");
     // Not own constructor property must be Object
     if (obj.constructor && !has_own_constructor && !has_is_prop_of_method)
       return false;
-    
+
     // Own properties are enumerated firstly, so to speed up,
     // if last one is own, then all properties are own.
 
     var last_key;
     for (var key in obj)
       last_key = key;
-    
+
     return last_key === undefined || hasOwnProperty.call(obj, last_key);
   };
 
@@ -1640,7 +1656,7 @@ function bufferSplit(buf, str) {
     ret = [buf];
   else if (start < buf.length)
     ret.push(buf.slice(start));
-  
+
   return ret;
 };
 
@@ -1671,40 +1687,4 @@ function bufferIndexOf(buf, str, start) {
   }
   return ret;
 };
-
-net.Stream.prototype.setSecure = function() {
-  var pair = tls.createSecurePair();
-  var cleartext = pipe(pair, this);
-
-  pair.on('secure', function() {
-    process.nextTick(function() { cleartext.socket.emit('secure'); });
-  });
-
-  cleartext._controlReleased = true;
-  return cleartext;
-};
-
-function pipe(pair, socket) {
-  pair.encrypted.pipe(socket);
-  socket.pipe(pair.encrypted);
-
-  pair.fd = socket.fd;
-  var cleartext = pair.cleartext;
-  cleartext.socket = socket;
-  cleartext.encrypted = pair.encrypted;
-
-  function onerror(e) {
-    if (cleartext._controlReleased)
-      cleartext.emit('error', e);
-  }
-
-  function onclose() {
-    socket.removeListener('error', onerror);
-    socket.removeListener('close', onclose);
-  }
-
-  socket.on('error', onerror);
-  socket.on('close', onclose);
-
-  return cleartext;
-}
+});

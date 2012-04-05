@@ -7,7 +7,7 @@ VOLO=./scripts/volo
 
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.
-NODE_PKGS := mailparser mimelib iconv-lite
+NODE_PKGS := mailparser mimelib iconv-lite browserify-builtins
 
 TRANS_NODE_PKGS := $(addprefix node-transformed-deps/,$(NODE_PKGS))
 DEP_NODE_PKGS := $(addprefix data/deps/,$(NODE_PKGS))
@@ -27,6 +27,7 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 
 xpi: $(DEP_NODE_PKGS)
 	$(RSYNC) deps/wmsy/lib/wmsy data/deps/
+	$(RSYNC) deps/stringencoding/encoding.js data/deps
 	cfx --templatedir=xpi-template xpi
 
 run: xpi

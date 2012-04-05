@@ -48,9 +48,6 @@ define(
     'q',
     'rdcommon/log',
     'rdcommon/taskidiom', 'rdcommon/taskerrors',
-    'rdcommon/crypto/keyops',
-    'rdcommon/identities/pubident', 'rdcommon/crypto/pubring',
-    'rdcommon/messages/generator',
     './schema', './notifking', './lstasks',
     'module',
     'exports'
@@ -59,9 +56,6 @@ define(
     $Q,
     $log,
     $task, $taskerrors,
-    $keyops,
-    $pubident, $pubring,
-    $msg_gen,
     $lss, $notifking, $ls_tasks,
     $module,
     exports
@@ -1454,131 +1448,6 @@ LocalStore.prototype = {
     }
   },
 
-  //////////////////////////////////////////////////////////////////////////////
-  // Contact Requests
-
-  _proc_reqmsg: function(reqmsg) {
-    // - open the inner envelope
-    var reqEnv = JSON.parse(
-      this._keyring.openBoxUtf8With(reqmsg.innerEnvelope.envelope, reqmsg.nonce,
-                                    reqmsg.senderKey,
-                                    'messaging', 'envelopeBox'));
-    if (!reqEnv.hasOwnProperty('type') ||
-        reqEnv.type !== 'contactRequest')
-      throw new $taskerrors.MalformedOrReplayPayloadError(
-        "request type is '" + reqEnv.type + "' instead of 'contactRequest'");
-
-    // - open the body
-    var reqBody = JSON.parse(
-      this._keyring.openBoxUtf8With(reqEnv.body, reqmsg.nonce,
-                                    reqmsg.senderKey,
-                                    'messaging', 'bodyBox'));
-
-    // - validate the enclosed self-ident matches the sender key
-    var othSelfIdentPayload = $pubident.assertGetPersonSelfIdent(
-                                reqBody.selfIdent);
-    var othPubring = $pubring.createPersonPubringFromSelfIdentDO_NOT_VERIFY(
-                       reqBody.selfIdent);
-    if (othPubring.getPublicKeyFor('messaging', 'tellBox') !== reqmsg.senderKey)
-      throw new $taskerrors.SelfIdentKeyMismatchError(
-        "self-ident inconsistent with sender of connect request");
-
-    // - validate they enclosed a vaid other person ident for us
-    var theirOthIdentOfUsPayload = $pubident.assertGetOtherPersonIdent(
-                                     reqBody.otherPersonIdent, othPubring,
-                                     reqmsg.receivedAt);
-    // (we know it's of us because the root key will be checked against ours)
-    var enclosedSelfIdentPayload = $pubident.assertGetPersonSelfIdent(
-                                     theirOthIdentOfUsPayload.personSelfIdent,
-                                     this._keyring.rootPublicKey);
-    var theirPocoForUs = theirOthIdentOfUsPayload.localPoco;
-
-    // - build persisted rep
-    var persistRep = {
-      selfIdent: reqBody.selfIdent,
-      receivedAt: reqmsg.receivedAt,
-      theirPocoForUs: theirPocoForUs,
-      messageText: reqBody.messageText,
-    };
-    var cells = {'d:req': persistRep};
-    var indexValues = [
-      [$lss.IDX_CONNREQ_RECEIVED, '',
-       othPubring.rootPublicKey, reqmsg.receivedAt],
-    ];
-
-    // - persist
-    // We key the record by the sender's root key.  The other possibility would
-    //  be to use their tell key, which might be a better idea because the
-    //  duplicate suppression is keyed off of the tell key rather than the
-    //  root key.
-    var self = this;
-    return when($Q.all([
-        this._db.putCells($lss.TBL_CONNREQ_RECV, othPubring.rootPublicKey,
-                          cells),
-        this._db.updateMultipleIndexValues($lss.TBL_CONNREQ_RECV,
-                                           indexValues)
-      ]),
-      function() {
-        // - notify
-        self._notif.namespaceItemAdded(
-          NS_CONNREQS, othPubring.rootPublicKey, cells, null, indexValues,
-          function(clientData, querySource) {
-            return self._convertConnectRequest(
-              persistRep, othPubring.rootPublicKey, querySource, clientData);
-          });
-        self._log.contactRequest(reqmsg.senderKey);
-      }); // rejection pass-through is fine
-  },
-
-  _cmd_trackOutgoingConnRequest: function(recipRootKey, details) {
-    var indexValues = [
-      [$lss.IDX_CONNREQ_SENT, '', recipRootKey, details.sentAt],
-    ], self = this;
-    return when(
-      $Q.all([this._db.putCells($lss.TBL_CONNREQ_SENT, recipRootKey, details),
-              this._db.updateMultipleIndexValues($lss.TBL_CONNREQ_SENT,
-                                                 indexValues)]),
-      function() {
-        // if there is a phonebook result for this person, let us remove it.
-        self._notif.namespaceItemDeleted(NS_POSSFRIENDS, recipRootKey);
-    });
-  },
-
-  getRootKeysForAllSentContactRequests: function() {
-    return when(this._db.scanIndex($lss.TBL_CONNREQ_SENT,
-                                   $lss.IDX_CONNREQ_SENT, '',
-                                   -1),
-      function(rootKeysWithScores) {
-        var rootKeys = [];
-        for (var i = 0; i < rootKeysWithScores.length; i += 2) {
-          rootKeys.push(rootKeysWithScores[i]);
-        }
-        return rootKeys;
-      }); // failure pass-through is fine
-  },
-
-  _cmd_rejectContact: function(peepRootKey, ignored) {
-    this._nukeConnectRequest(peepRootKey);
-  },
-
-  /**
-   * Erase a received connection request from our knowledge.  This should be
-   *  done when the contact addition command is completed.
-   */
-  _nukeConnectRequest: function(peepRootKey) {
-    var self = this;
-    var delIndices = [
-      // Current semantics do not require us to have the index's value to
-      //  delete it.  This may need to be revisited.
-      [$lss.IDX_CONNREQ_RECEIVED, '', peepRootKey, null],
-    ];
-    return $Q.all([
-      this._notif.namespaceItemDeleted(NS_CONNREQS, peepRootKey),
-      this._db.deleteMultipleIndexValues($lss.TBL_CONNREQ_RECV, delIndices),
-      this._db.deleteRowCell($lss.TBL_CONNREQ_RECV, peepRootKey)
-    ]);
-  },
-
 
   /**
    * Create a peepClientData rep from a self-ident blob; for use in creating
@@ -1607,41 +1476,6 @@ LocalStore.prototype = {
     return clientData;
   },
 
-  _convertConnectRequest: function(reqRep, fullName, querySource, clientData) {
-    // backside data: we need the receivedAt date, we get the rest via the peep
-    clientData.data = {
-      receivedAt: reqRep.receivedAt
-    };
-
-    // - synthesize the peep rep
-    var selfIdentPayload = $pubident.peekPersonSelfIdentNOVERIFY(
-                             reqRep.selfIdent),
-        peepClientData = this._convertSynthPeep(querySource, fullName,
-                                                reqRep.selfIdent,
-                                                selfIdentPayload);
-    clientData.deps.push(peepClientData);
-
-    // - synthesize the peep's server info rep
-    var serverIdent = $pubident.peekServerSelfIdentNOVERIFY(
-                        selfIdentPayload.transitServerIdent);
-    var serverClientData = this._notif.reuseIfAlreadyKnown(
-                             querySource, NS_SERVERS,
-                             serverIdent.rootPublicKey);
-    if (!serverClientData)
-      serverClientData = this._convertServerInfo(
-                           querySource, serverIdent,
-                           selfIdentPayload.transferServerIdent);
-    clientData.deps.push(serverClientData);
-
-    return {
-      peepLocalName: peepClientData.localName,
-      serverLocalName: serverClientData.localName,
-      theirPocoForUs: reqRep.theirPocoForUs,
-      receivedAt: reqRep.receivedAt,
-      messageText: reqRep.messageText,
-    };
-  },
-
   _convertServerInfo: function(querySource, serverIdent,
                                serverIdentBlob) {
     var clientData = this._notif.generateClientData(
@@ -1661,72 +1495,6 @@ LocalStore.prototype = {
       url: serverIdent.url,
       displayName: serverIdent.meta.displayName,
     };
-  },
-
-  queryAndWatchConnRequests: function(queryHandle) {
-    var self = this, querySource = queryHandle.owner;
-    queryHandle.index = $lss.IDX_CONNREQ_RECEIVED;
-    queryHandle.indexParam = '';
-    queryHandle.testFunc = function() {
-      return true;
-    };
-    queryHandle.cmpFunc = function(a, b) {
-      return b.receivedAt - a.receivedAt;
-    };
-    return this.runMutexed(function() {
-     // XXX try and rejigger this to use _indexScanLookupAndReport
-     return when(self._db.scanIndex(
-                  $lss.TBL_CONNREQ_RECV, $lss.IDX_CONNREQ_RECEIVED, '', -1),
-      function(results) {
-        var rootKeys = [];
-        for (var iRes = 0; iRes < results.length; iRes += 2) {
-          rootKeys.push(results[iRes]);
-        }
-
-        var viewItems = [],
-            clientDataItems = queryHandle.items = [];
-        queryHandle.splices.push({index: 0, howMany: 0, items: viewItems});
-
-        var iKey = 0;
-        function getNextMaybeGot(reqRep) {
-          var clientData;
-          if (reqRep) {
-            var fullName = rootKeys[iKey - 1]; // (infinite loop protection)
-            clientData = self._notif.generateClientData(
-                           querySource, NS_CONNREQS, fullName);
-
-            querySource.dataMap[NS_CONNREQS][clientData.localName] =
-              self._convertConnectRequest(reqRep, fullName,
-                                          queryHandle.owner, clientData);
-            viewItems.push(clientData.localName);
-            clientDataItems.push(clientData);
-            reqRep = null;
-          }
-          // (use a while loop so in the event this is a duplicate conn req
-          //  query our reuse invocations can fast-path without blowing the
-          //  stack on non-tail-call optimized impls.)
-          while (iKey < rootKeys.length) {
-            if ((clientData = self._notif.reuseIfAlreadyKnown(
-                                queryHandle.owner, NS_CONNREQS,
-                                rootKeys[iKey]))) {
-              viewItems.push(clientData.localName);
-              clientDataItems.push(clientData);
-              iKey++;
-              continue;
-            }
-
-            // increment every time to avoid ending up in an infinite loop
-            //  in case of data invariant violation
-            return when(self._db.getRowCell($lss.TBL_CONNREQ_RECV,
-                                            rootKeys[iKey++], 'd:req'),
-                        getNextMaybeGot);
-          }
-          return self._fillOutQueryDepsAndSend(queryHandle);
-        }
-
-        return getNextMaybeGot();
-      }); // rejection pass-through is desired
-    });
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1785,27 +1553,6 @@ LocalStore.prototype = {
     }
   },
 
-  _cmd_convCreate: function() {
-
-  },
-
-  /**
-   * Our own meta-data about a conversation (pinned, etc.)
-   */
-  _cmd_setConvMeta: function() {
-    // -- update any subscribed queries on pinned
-    // -- update any blurbs for this conversation
-  },
-
-  /**
-   * Our user has composed a message to a conversation; track it for UI display
-   *  but be ready to nuke it when the actual message successfully hits the
-   *  conversation.
-   */
-  /*
-  _cmd_outghostAddConversationMessage: function() {
-  },
-  */
 
   //////////////////////////////////////////////////////////////////////////////
   // Peep Lookup

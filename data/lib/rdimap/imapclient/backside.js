@@ -52,16 +52,12 @@ define(
   [
     'q',
     'rdcommon/log',
-    'rdcommon/serverlist',
-    'rdcommon/identities/pubident', 'rdcommon/crypto/pubring',
     'module',
     'exports'
   ],
   function(
     $Q,
     $log,
-    $serverlist,
-    $pubident, $pubring,
     $module,
     exports
   ) {
@@ -194,29 +190,6 @@ ModaBackside.prototype = {
 
   _cmd_disconnect: function() {
     this._rawClient.disconnect();
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Connection Requests
-
-  _cmd_connectToPeep: function(_ignored, payload) {
-    var clientData = this._notif.mapLocalNameToClientData(
-                       this._querySource, NS_PEEPS, payload.peepLocalName);
-    this._rawClient.connectToPeepUsingSelfIdent(clientData.data.sident,
-                                                payload.localPoco,
-                                                payload.messageText);
-  },
-
-  _cmd_rejectConnectRequest: function(_ignored, payload) {
-    var reqData = this._notif.mapLocalNameToClientData(
-                    this._querySource, NS_CONNREQS, payload.localName),
-        peepData = reqData.deps[0],
-        pubring = $pubring.createPersonPubringFromSelfIdentDO_NOT_VERIFY(
-                    peepData.data.sident);
-
-    this._rawClient.rejectConnectRequest(
-      pubring.rootPublicKey, pubring.getPublicKeyFor('messaging', 'tellBox'),
-      reqData.data.receivedAt, payload.reportAs);
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -404,101 +377,6 @@ ModaBackside.prototype = {
          this._needsbind_queryProblem.bind(this, queryHandle));
   },
 
-  /**
-   * Get a list of all known servers.
-   */
-  _cmd_queryServers: function(bridgeQueryName, payload) {
-    var querySource = this._querySource,
-        queryHandle = this._notif.newTrackedQuery(
-                        querySource, bridgeQueryName,
-                        NS_SERVERS, payload.query);
-
-    var viewItems = [], clientDataItems = null;
-    queryHandle.items = clientDataItems = [];
-    queryHandle.splices.push({index: 0, howMany: 0, items: viewItems});
-
-    var serverIdentBlobs = $serverlist.serverSelfIdents;
-    for (var iServer = 0; iServer < serverIdentBlobs.length; iServer++) {
-      var serverIdentBlob = serverIdentBlobs[iServer].selfIdent;
-      var serverIdent = $pubident.assertGetServerSelfIdent(serverIdentBlob);
-
-      var clientData = this._notif.reuseIfAlreadyKnown(querySource,
-                                                       NS_SERVERS,
-                                                       serverIdent.rootPublicKey);
-      if (!clientData)
-        clientData = this._store._convertServerInfo(
-                       querySource, serverIdent, serverIdentBlob);
-      viewItems.push(clientData.localName);
-      clientDataItems.push(clientData);
-    }
-    this._notif.sendQueryResults(queryHandle);
-  },
-
-  _cmd_queryPossibleFriends: function(bridgeQueryName) {
-    var querySource = this._querySource,
-        queryHandle = this._notif.newTrackedQuery(
-                        querySource, bridgeQueryName,
-                        NS_POSSFRIENDS, {}),
-        self = this;
-
-    // note: they come back sorted by display name already
-    when(this._rawClient.queryServerForPossibleFriends(queryHandle),
-      function resolved(blobsAndPayloads) {
-        var viewItems = [];
-        for (var i = 0; i < blobsAndPayloads.length; i++) {
-          var blobAndPayload = blobsAndPayloads[i],
-              selfIdentBlob = blobAndPayload.blob,
-              selfIdentPayload = blobAndPayload.payload,
-              fullName = selfIdentPayload.root.rootSignPubKey;
-
-          var peepClientData = self._store._convertSynthPeep(
-                                 querySource, fullName, selfIdentBlob,
-                                 selfIdentPayload),
-              serverIdent = $pubident.peekServerSelfIdentNOVERIFY(
-                              selfIdentPayload.transitServerIdent),
-              serverClientData = self._notif.reuseIfAlreadyKnown(
-                                   querySource, NS_SERVERS,
-                                   serverIdent.rootPublicKey);
-          if (!serverClientData)
-            serverClientData = self._store._convertServerInfo(
-                                 querySource, serverIdent,
-                                 selfIdentPayload.transferServerIdent);
-
-          var clientData = self._notif.generateClientData(
-                             querySource, NS_POSSFRIENDS, fullName);
-          clientData.deps.push(peepClientData);
-          clientData.deps.push(serverClientData);
-          querySource.dataMap[NS_POSSFRIENDS][clientData.localName] = {
-            peepLocalName: peepClientData.localName,
-            serverLocalName: serverClientData.localName,
-          };
-
-          viewItems.push(clientData.localName);
-          queryHandle.items.push(clientData);
-        }
-
-        queryHandle.splices.push(
-          { index: 0, howMany: 0, items: viewItems });
-
-        // no dep analysis is required, these are just peeps
-        self._notif.sendQueryResults(queryHandle);
-      },
-      function rejected(err) {
-        // Although something bad happened, let's pretend like we just didn't
-        //  get any results.  we should probably sideband an error message to
-        //  the UI though.
-        self._notif.sendQueryResults(queryHandle);
-      });
-  },
-
-  _cmd_queryConnRequests: function(bridgeQueryName) {
-    var queryHandle = this._notif.newTrackedQuery(
-                        this._querySource, bridgeQueryName,
-                        NS_CONNREQS, {});
-    when(this._store.queryAndWatchConnRequests(queryHandle), null,
-         this._needsbind_queryProblem.bind(this, queryHandle));
-  },
-
   _cmd_queryNewConversationActivity: function(bridgeQueryName, queryDef) {
     var queryHandle = this._notif.newTrackedQuery(
                         this._querySource, bridgeQueryName,
@@ -558,44 +436,6 @@ ModaBackside.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
   // Signup
-
-  _cmd_provideProofOfIdentity: function(_ignored, proof) {
-    this._rawClient.provideProofOfIdentity(proof);
-  },
-
-  _cmd_insecureServerDomainQuery: function(bridgeQueryName, query) {
-    var querySource = this._querySource,
-        queryHandle = this._notif.newTrackedQuery(
-                        querySource, bridgeQueryName,
-                        NS_SERVERS, query),
-        viewItems = [],
-        clientDataItems = queryHandle.items = [], self = this;
-    queryHandle.splices.push({ index: 0, howMany: 0, items: viewItems });
-
-    when(this._rawClient.insecurelyGetServerSelfIdentUsingDomainName(
-           query.domain),
-      function (selfIdentInfo) {
-        var serverInfo = null;
-
-        if (selfIdentInfo) {
-          var serverIdentBlob = selfIdentInfo.selfIdent;
-          var serverIdent = $pubident.assertGetServerSelfIdent(serverIdentBlob);
-
-          var clientData = self._store._convertServerInfo(
-                             querySource, serverIdent, serverIdentBlob);
-          viewItems.push(clientData.localName);
-          clientDataItems.push(clientData);
-        }
-
-        // no dep analysis is required, just the one server
-        self._notif.sendQueryResults(queryHandle);
-      },
-      function rejected(err) {
-        // return an empty result set to convey errors. sorta jerky.
-        self._notif.sendQueryResults(queryHandle);
-      }
-    );
-  },
 
   _cmd_signup: function(_ignored, serverLocalName) {
     // the clientData data is just the self ident blob.

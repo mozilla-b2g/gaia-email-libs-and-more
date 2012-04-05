@@ -21,16 +21,32 @@
       baseUrl: "resource://jid1-reoZ1pC7LQZcEA-at-jetpack/jetpack-tcp-imap-demo/data/",
       paths: {
         "text": "lib/text",
+        "imap": "lib/imap",
+
+        "assert": "deps/browserify-builtins/assert",
+        "buffer": "deps/browserify-builtins/buffer",
+        "buffer_ieee754": "deps/browserify-builtins/buffer_iee754",
+        "events": "deps/browserify-builtins/events",
+        "stream": "deps/browserify-builtins/stream",
+        "util": "deps/browserify-builtins/util",
       },
       packages: [
         { name: "rdimap", location: "lib/rdimap" },
         { name: "wmsy", location: "deps/wmsy" },
+        { name: "mimelib", location: "deps/mimelib" },
+        { name: "iconv", location: "deps/iconv-lite" },
+        { name: "mailparser", location: "deps/mailparser/lib" },
       ],
-      // make the text plugin always use XHR because it gets confused by
-      //  the protocol/origin change or what not.
-      text: { useXhr: function () { return true; } }
+      text: {
+        // make the text plugin always use XHR because it gets confused by
+        //  the protocol/origin change or what not.
+        useXhr: function () { return true; },
+      }
     },
-    ["rdimap/devui/app"]);
+    ["rdimap/devui/app"],
+    function(app) {
+      app.main();
+    });
   </script>
 </head>
 <body id="body">

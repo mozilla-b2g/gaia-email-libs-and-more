@@ -42,7 +42,6 @@
 define(
   [
     'wmsy/wmsy',
-    'modality',
     './tabs',
     './tab-home',
     './tab-signup',
@@ -52,7 +51,6 @@ define(
   ],
   function(
     $wmsy,
-    $modality,
     $_tabs,
     $_tab_home,
     $_tab_signup,
@@ -148,7 +146,7 @@ wy.defineWidget({
 });
 
 exports.main = function(doc) {
-  var moda = $modality;
+  var moda = null; // XXX put moda back
   var me = moda.whoAmI({
     onCompleted: function() {
       var rootObj = {

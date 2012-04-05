@@ -13,3 +13,6 @@
 [submodule "node-deps/mimelib"]
 	path = node-deps/mimelib
 	url = git://github.com/andris9/mimelib.git
+[submodule "deps/stringencoding"]
+	path = deps/stringencoding
+	url = https://code.google.com/p/stringencoding/
