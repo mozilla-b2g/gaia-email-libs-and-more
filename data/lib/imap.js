@@ -80,6 +80,11 @@ exports.ImapConnection = ImapConnection;
 ImapConnection.prototype.connect = function(loginCb) {
   var self = this,
       fnInit = function() {
+        if (self._options.crypto === "starttls") {
+          self._send('STARTTLS', function() {
+            self._state.conn.startTLS();
+          });
+        }
         // First get pre-auth capabilities, including server-supported auth
         // mechanisms
         self._send('CAPABILITY', function() {
@@ -1027,8 +1032,12 @@ ImapConnection.prototype._send = function(cmdstr, cb, bypass) {
     this._state.conn.send(prefix);
     this._state.conn.send(cmd);
     this._state.conn.send(CRLF);
-    if (debug)
-      debug('sent', prefix + cmd);
+    if (debug) {
+      if (/^LOGIN /.test(cmd))
+        debug('sent', '***BLEEPING OUT LOGON***');
+      else
+        debug('sent', prefix + cmd);
+    }
   }
 };
 
