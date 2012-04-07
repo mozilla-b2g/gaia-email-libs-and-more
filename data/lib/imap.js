@@ -52,6 +52,9 @@ function ImapConnection (options) {
       _flags: [],
       _newKeywords: false,
       validity: 0,
+      // undefined when unknown, null is nomodseq, string of the actual
+      // highestmodseq once retrieved.
+      highestModSeq: undefined,
       keywords: [],
       permFlags: [],
       name: null,
@@ -73,6 +76,7 @@ function ImapConnection (options) {
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
+  this.enabledCapabilities = [];
 };
 util.inherits(ImapConnection, EventEmitter);
 exports.ImapConnection = ImapConnection;
@@ -80,7 +84,7 @@ exports.ImapConnection = ImapConnection;
 ImapConnection.prototype.connect = function(loginCb) {
   var self = this,
       fnInit = function() {
-        if (self._options.crypto === "starttls") {
+        if (self._options.crypto === 'starttls') {
           self._send('STARTTLS', function() {
             self._state.conn.startTLS();
           });
@@ -270,9 +274,10 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
     }
 
-    data = data[0].toString().explode(' ', 3);
+    data = stringExplode(data[0], ' ', 3);
 
-    if (data[0] === '*') { // Untagged server response
+    // -- Untagged server responses
+    if (data[0] === '*') {
       if (self._state.status === STATES.NOAUTH) {
         if (data[1] === 'PREAUTH') { // the server pre-authenticated us
           self._state.status = STATES.AUTH;
@@ -294,6 +299,13 @@ ImapConnection.prototype.connect = function(loginCb) {
             self._state.numCapRecvs++;
           self.capabilities = data[2].split(' ').map(up);
         break;
+        // Feedback from the ENABLE command.
+        case 'ENABLED':
+          self.enabledCapabilities = self.enabledCapabilities.concat(
+                                       data[2].split(' '));
+          self.enabledCapabilities.sort();
+        break;
+        // The system-defined flags for this mailbox; during SELECT/EXAMINE
         case 'FLAGS':
           if (self._state.status === STATES.BOXSELECTING) {
             self._state.box._flags = data[2].substr(1, data[2].length-2)
@@ -303,15 +315,17 @@ ImapConnection.prototype.connect = function(loginCb) {
           }
         break;
         case 'OK':
-          if (result = /^\[ALERT\] (.*)$/i.exec(data[2]))
+          if ((result = /^\[ALERT\] (.*)$/i.exec(data[2])))
             self.emit('alert', result[1]);
           else if (self._state.status === STATES.BOXSELECTING) {
             var result;
-            if (result = /^\[UIDVALIDITY (\d+)\]/i.exec(data[2]))
+            if ((result = /^\[UIDVALIDITY (\d+)\]/i.exec(data[2])))
               self._state.box.validity = result[1];
-            else if (result = /^\[UIDNEXT (\d+)\]/i.exec(data[2]))
+            else if ((result = /^\[UIDNEXT (\d+)\]/i.exec(data[2])))
               self._state.box._uidnext = result[1];
-            else if (result = /^\[PERMANENTFLAGS \((.*)\)\]/i.exec(data[2])) {
+            // Flags the client can change permanently.  If \* is included, it
+            // means we can make up new keywords.
+            else if ((result = /^\[PERMANENTFLAGS \((.*)\)\]/i.exec(data[2]))) {
               self._state.box.permFlags = result[1].split(' ');
               var idx;
               if ((idx = self._state.box.permFlags.indexOf('\\*')) > -1) {
@@ -328,6 +342,14 @@ ImapConnection.prototype.connect = function(loginCb) {
                                               .map(function(flag) {
                                                 return flag.substr(1);
                                               });
+            }
+            else if ((result = /^\[HIGHESTMODSEQ (\d+)\]/i.exec(data[2]))) {
+              // Kept as a string since it may be a full 64-bit value.
+              self._state.box.highestModSeq = result[1];
+            }
+            // The server does not support mod sequences for the folder.
+            else if ((result = /^\[NOMODSEQ\]/i.exec(data[2]))) {
+              self._state.box.highestModSeq = null;
             }
           }
         break;
@@ -381,6 +403,21 @@ ImapConnection.prototype.connect = function(loginCb) {
             }
             curChildren[name] = box;
           }
+        break;
+        // QRESYNC (when successful) generates a "VANISHED (EARLIER) uids"
+        // payload to tell us about deleted/expunged messages when selecting
+        // a folder.
+        // It will also generate untagged VANISHED updates as the result of an
+        // expunge on this connection or other connections (for this folder).
+        case 'VANISHED':
+          var earlier = false;
+          if (data[2].lastIndexOf('(EARLIER) ', 0) === 0) {
+            earlier = true;
+            data[2] = data[2].substring(10);
+          }
+          // Using vanished because the existing 'deleted' event uses sequence
+          // numbers.
+          self.emit('vanished', parseUIDListString(data[2]), earlier);
         break;
         default:
           if (/^\d+$/.test(data[1])) {
@@ -554,6 +591,19 @@ ImapConnection.prototype.logout = function(cb) {
     throw new Error('Not connected');
 };
 
+/**
+ * Enable one or more optional capabilities.  This is additive and there's no
+ * way to un-enable things once enabled.  So enable(["a", "b"]), followed by
+ * enable(["c"]) is the same as enable(["a", "b", "c"]).
+ *
+ * http://tools.ietf.org/html/rfc5161
+ */
+ImapConnection.prototype.enable = function(capabilities, cb) {
+  if (this._state.status < STATES.AUTH)
+    throw new Error('Not connected or authenticated');
+  this._send('ENABLE ' + capabilities.join(' '), cb || emptyFn);
+};
+
 ImapConnection.prototype.openBox = function(name, readOnly, cb) {
   if (this._state.status < STATES.AUTH)
     throw new Error('Not connected or authenticated');
@@ -571,6 +621,37 @@ ImapConnection.prototype.openBox = function(name, readOnly, cb) {
 
   this._send((readOnly ? 'EXAMINE' : 'SELECT') + ' "' + escape(name) + '"', cb);
 };
+
+/**
+ * SELECT/EXAMINE a box using the QRESYNC extension.  The last known UID
+ * validity and last known modification sequence are required.  The set of
+ * known UIDs is optional.
+ */
+ImapConnection.prototype.qresyncBox = function(name, readOnly, cb,
+                                               uidValidity, modSeq,
+                                               knownUids) {
+  if (this._state.status < STATES.AUTH)
+    throw new Error('Not connected or authenticated');
+  if (this.enabledCapabilities.indexOf('QRESYNC') === -1)
+    throw new Error('QRESYNC is not enabled');
+  if (this._state.status === STATES.BOXSELECTED)
+    this._resetBox();
+  if (cb === undefined) {
+    if (readOnly === undefined)
+      cb = emptyFn;
+    else
+      cb = readOnly;
+    readOnly = false;
+  }
+  this._state.status = STATES.BOXSELECTING;
+  this._state.box.name = name;
+
+  this._send((readOnly ? 'EXAMINE' : 'SELECT') + ' "' + escape(name) + '"' +
+             ' (QRESYNC (' + uidValidity + ' ' + modSeq +
+             (knownUids ? (' ' + knownUids) : '') + '))', cb);
+};
+
+
 
 // also deletes any messages in this box marked with \Deleted
 ImapConnection.prototype.closeBox = function(cb) {
@@ -998,6 +1079,7 @@ ImapConnection.prototype._reset = function() {
 ImapConnection.prototype._resetBox = function() {
   this._state.box._uidnext = 0;
   this._state.box.validity = 0;
+  this._state.box.highestModSeq = null;
   this._state.box._flags = [];
   this._state.box._newKeywords = false;
   this._state.box.permFlags = [];
@@ -1212,6 +1294,52 @@ function validateUIDList(uids) {
     } else if (typeof uids[i] !== 'number')
       uids[i] = intval;
   }
+}
+
+/**
+ * Parse a UID list string (which can include ranges) into an array of integers
+ * (without ranges).  This should not be used in cases where "*" is allowed.
+ */
+function parseUIDListString(str) {
+  var uids = [];
+  if (!str.length)
+    return uids;
+  // the first character has to be a digit.
+  var uidStart = 0, rangeStart = -1, rangeEnd, uid;
+  for (var i = 1; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    // ':'
+    if (c === 48) {
+      rangeStart = parseInt(str.substring(uidStart, i));
+      uidStart = ++i; // the next char must be a digit
+    }
+    // ','
+    else if (c === '44') {
+      if (rangeStart === -1) {
+        uids.push(parseInt(str.substring(uidStart, i)));
+      }
+      else {
+        rangeEnd = parseInt(str.substring(uidStart, i));
+        for (uid = rangeStart; uid <= rangeEnd; uid++) {
+          uids.push(uid);
+        }
+      }
+      rangeStart = -1;
+      start = ++i; // the next char must be a digit
+    }
+    // (digit!)
+  }
+  // we ran out of characters!  something must still be active
+  if (rangeStart === -1) {
+    uids.push(parseInt(str.substring(uidStart, i)));
+  }
+  else {
+    rangeEnd = parseInt(str.substring(uidStart, i));
+    for (uid = rangeStart; uid <= rangeEnd; uid++) {
+      uids.push(uid);
+    }
+  }
+  return uids;
 }
 
 function parseNamespaces(str, namespaces) {
@@ -1454,9 +1582,9 @@ function parseStructExtra(part, partLen, cur, next) {
   }
 }
 
-String.prototype.explode = function(delimiter, limit) {
-  if (arguments.length < 2 || arguments[0] === undefined
-      || arguments[1] === undefined
+function stringExplode(string, delimiter, limit) {
+  if (arguments.length < 3 || arguments[1] === undefined
+      || arguments[2] === undefined
       || !delimiter || delimiter === '' || typeof delimiter === 'function'
       || typeof delimiter === 'object')
       return false;
@@ -1464,11 +1592,11 @@ String.prototype.explode = function(delimiter, limit) {
   delimiter = (delimiter === true ? '1' : delimiter.toString());
 
   if (!limit || limit === 0)
-    return this.split(delimiter);
+    return string.split(delimiter);
   else if (limit < 0)
     return false;
   else if (limit > 0) {
-    var splitted = this.split(delimiter);
+    var splitted = string.split(delimiter);
     var partA = splitted.splice(0, limit - 1);
     var partB = splitted.join(delimiter);
     partA.push(partB);

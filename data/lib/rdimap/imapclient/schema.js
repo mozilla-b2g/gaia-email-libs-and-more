@@ -48,6 +48,27 @@ define(
   ) {
 
 /**
+ * Configuration, account configuration, and IMAP folder state data.
+ */
+exports.TBL_CONFIG = 'config';
+/**
+ * The root configuration object.
+ */
+exports.ROW_CONFIG_ROOT = 'config';
+/**
+ * The account definition which contains host/user information and (currently)
+ * passwords.  Lives outside 'config' because it is sensitive.
+ */
+exports.ROWPREFIX_CONFIG_ACCOUNT_DEF = 'accountDef';
+/**
+ * Maps folder id's (which are unique across accounts) to the state data we
+ * have on the folder.  Lives outside 'config' because it has high turnover
+ * and is fairly dry reading.
+ */
+exports.ROWPREFIX_CONFIG_ACCOUNT_FOLDERS = 'accountFolders';
+
+
+/**
  * Data on peeps, be they a contact or a transitive-acquaintance we heard of
  *  through a conversation.
  *
@@ -108,33 +129,6 @@ exports.IDX_PEEP_RECIP_INVOLVEMENT = "idxPeepRecip";
  */
 exports.IDX_PEEP_ANY_INVOLVEMENT = "idxPeepAny";
 
-/**
- * Contact requests, keyed by the root key of the requester.  This is not a
- *  particularly efficient way to store the requests.  We could just be keying
- *  off of "timestamp + rootkey" with the rootkey present just for uniqueness.
- *  However, our redis gendb implementation is not amenable to such a
- *  representation, so that's a future refactoring once we dump redis or what
- *  not.
- * XXX potentially refactor our storage of this, ideally with gendb change
- *
- * - d:req {selfIdent: selfIdentBlob, receivedAt: timestamp, mesageText: "..."}
- */
-exports.TBL_CONNREQ_RECV = "connRequestsRecv";
-/**
- * Timestamp of when the connect request was received.
- */
-exports.IDX_CONNREQ_RECEIVED = "idxReceived";
-
-/**
- * Connection requests we have sent.  Keyed by the root key of the recipient.
- *
- * - d:req {othIdent, sentAt, messageText}
- */
-exports.TBL_CONNREQ_SENT = "connRequestsSent";
-/**
- * Timestamp of when the connect request was sent.
- */
-exports.IDX_CONNREQ_SENT = "idxSent";
 
 /**
  * Table for tracking
@@ -175,7 +169,6 @@ exports.dbSchemaDef = {
   tables: [
     {
       name: exports.TBL_PEEP_DATA,
-      columnFamilies: ['d'],
       indices: [
         exports.IDX_PEEP_CONTACT_NAME,
         exports.IDX_PEEP_WRITE_INVOLVEMENT,
@@ -184,22 +177,7 @@ exports.dbSchemaDef = {
       ],
     },
     {
-      name: exports.TBL_CONNREQ_RECV,
-      columnFamilies: ['d'],
-      indices: [
-        exports.IDX_CONNREQ_RECEIVED,
-      ],
-    },
-    {
-      name: exports.TBL_CONNREQ_SENT,
-      columnFamilies: ['d'],
-      indices: [
-        exports.IDX_CONNREQ_SENT,
-      ],
-    },
-    {
       name: exports.TBL_CONV_DATA,
-      columnFamilies: ['d'],
       indices: [
         exports.IDX_ALL_CONVS,
         exports.IDX_CONV_PEEP_WRITE_INVOLVEMENT,
@@ -209,7 +187,6 @@ exports.dbSchemaDef = {
     },
     {
       name: exports.TBL_NEW_TRACKING,
-      columnFamilies: ['d'],
       indices: [],
     },
   ],
