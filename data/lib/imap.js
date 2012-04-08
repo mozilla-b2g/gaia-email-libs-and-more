@@ -274,7 +274,7 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
     }
 
-    data = stringExplode(data[0], ' ', 3);
+    data = stringExplode(data[0].toString(), ' ', 3);
 
     // -- Untagged server responses
     if (data[0] === '*') {
@@ -627,9 +627,10 @@ ImapConnection.prototype.openBox = function(name, readOnly, cb) {
  * validity and last known modification sequence are required.  The set of
  * known UIDs is optional.
  */
-ImapConnection.prototype.qresyncBox = function(name, readOnly, cb,
+ImapConnection.prototype.qresyncBox = function(name, readOnly,
                                                uidValidity, modSeq,
-                                               knownUids) {
+                                               knownUids,
+                                               cb) {
   if (this._state.status < STATES.AUTH)
     throw new Error('Not connected or authenticated');
   if (this.enabledCapabilities.indexOf('QRESYNC') === -1)
@@ -836,6 +837,9 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
   var extensions = '';
   if (this.capabilities.indexOf('X-GM-EXT-1') > -1)
     extensions = 'X-GM-THRID X-GM-MSGID X-GM-LABELS ';
+  // google is mutually exclusive with QRESYNC
+  else if (this.enabledCapabilities.indexOf('QRESYNC') > -1)
+    extensions = 'MODSEQ ';
 
   this._send(which + 'FETCH ' + uids.join(',') + ' (' + extensions
              + 'UID FLAGS INTERNALDATE'
@@ -1380,6 +1384,9 @@ function parseFetch(str, literalData, fetchData) {
       fetchData.date = result[i+1];
     else if (result[i] === 'FLAGS')
       fetchData.flags = result[i+1].filter(isNotEmpty);
+    // MODSEQ (####)
+    else if (result[i] === 'MODSEQ')
+      fetchData.modseq = result[i+1].slice(1, -1);
     else if (result[i] === 'BODYSTRUCTURE')
       fetchData.structure = parseBodyStructure(result[i+1]);
     else if (typeof result[i] === 'string') // simple extensions

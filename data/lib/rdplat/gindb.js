@@ -1,46 +1,13 @@
-/* ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0/LGPL 2.1
- *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at:
- * http://www.mozilla.org/MPL/
- *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * The Original Code is Mozilla Raindrop Code.
- *
- * The Initial Developer of the Original Code is
- *   The Mozilla Foundation
- * Portions created by the Initial Developer are Copyright (C) 2011
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *   Andrew Sutherland <asutherland@asutherland.org>
- *
- * Alternatively, the contents of this file may be used under the terms of
- * either the GNU General Public License Version 2 or later (the "GPL"), or
- * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
- * in which case the provisions of the GPL or the LGPL are applicable instead
- * of those above. If you wish to allow use of your version of this file only
- * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the MPL, indicate your
- * decision by deleting the provisions above and replace them with the notice
- * and other provisions required by the GPL or the LGPL. If you do not delete
- * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the MPL, the GPL or the LGPL.
- *
- * ***** END LICENSE BLOCK ***** */
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * IndexedDB implementation of our database abstraction.  For now, all the
- *  generic documentation lives on the `redis.js` implementation.  Specifics
- *  about the IndexedDB mapping do live in here.  Note that we are targeting
- *  an IndexedDB backed by LevelDB; our performance when using
- *  IndexedDB-on-SQLite is likely to be worse and we are fine with that.
+ * Forked version of deuxdrop's gendb IndexedDB implementation, renamed to
+ *  "gindb" to make the difference clear.  The primary change is to the index
+ *  implementation to change to an always-ordered model where the caller is
+ *  responsible for assisting in removing the old index entry when updating
+ *  an index.
  **/
 
 define(
@@ -60,19 +27,22 @@ const when = $Q.when;
 
 const LOGFAB = exports.LOGFAB = $_logdef.LOGFAB;
 
-/*
- * We are assuming that mozIndexedDB and the various IDB* interfaces are
- *  available in our global context by virtue of us having been loaded into
- *  a content page using RequireJS rather than using the Jetpack loader.
- *  Accordingly, we also explode if we cannot find our beloved constant.
- */
-
-if (!mozIndexedDB) {
-  console.error("No mozIndexedDB!");
-  throw new Error("I need mozIndexedDB; load me in a content page universe!");
+var IndexedDB;
+if (("IndexedDB" in window) && window.indexedDB) {
+  IndexedDB = window.indexedDB;
+}
+else if (("mozIndexedDB" in window) && window.mozIndexedDB) {
+  IndexedDB = window.mozIndexedDB;
+}
+else if (("webkitIndexedDB" in window) && window.webkitIndexedDB) {
+  IndexedDB = window.webkitIndexedDB;
+  window.IDBTransaction = window.webkitIDBTransaction;
+}
+else {
+  console.error("No IndexedDB!");
+  throw new Error("I need IndexedDB; load me in a content page universe!");
 }
 
-var IndexedDB = mozIndexedDB;
 
 /**
  * The version to use for now; not a proper version, as we perform no upgrading,
@@ -80,6 +50,10 @@ var IndexedDB = mozIndexedDB;
  */
 const DB_ONLY_VERSION = 1;
 
+/**
+ * Delimit the cell name from the row name in our faux-hbase model.  @ is
+ *  chosen because if we used ':' it would not be clear where the split is.
+ */
 const CELL_DELIM = '@', CELL_DELIM_LEN = CELL_DELIM.length,
       INDEX_DELIM = '_', INDEX_PARAM_DELIM = '@';
 
@@ -227,7 +201,24 @@ IndexedDbConn.prototype = {
     return deferred.promise;
   },
 
-  getRow: function(tableName, rowId, columnFamilies) {
+  /**
+   * Retrieve all of the cell rows associated with our row identifier.  As an
+   *  IndexedDB advancement, an optional start and end prefix can be
+   *  specified in order to select a subset of the cells.  This is
+   *  conceptually somewhat similar to hbase's column families except that
+   *  we are using the same storage and accordingly is more flexible.
+   *
+   * @args[
+   *   @param[startPrefix #:optional]
+   *   @param[endPrefix #:optional]{
+   *     Inclusive end prefix; we will scan up to the lexicographically last
+   *     suffix of the end prefix.  For example, if "e" is specified, then
+   *     cells with the name "eAAA" and "eZZZ" would be included, but
+   *     "f" and "fAAA" would not be included.
+   *   }
+   * ]
+   */
+  getRow: function(tableName, rowId, startPrefix, endPrefix) {
     var deferred = $Q.defer();
     this._log.getRow(tableName, rowId, columnFamilies);
     var transaction = this._db.transaction([tableName],
@@ -242,7 +233,11 @@ IndexedDbConn.prototype = {
     var store = transaction.objectStore(tableName);
 
     // we need to open a cursor to spin over all possible cells
-    var range = IDBKeyRange.bound(rowId, rowId + '\ufff0', true, false);
+    var range = IDBKeyRange.bound(
+      startPrefix ? (rowId + CELL_DELIM + startPrefix) : rowId,
+      endPrefix ? (rowId + CELL_DELIM + endPrefix + '\ufff0')
+                : (rowId + '\ufff0'),
+      true, false);
     const cellNameOffset = rowId.length + CELL_DELIM_LEN;
     store.openCursor(range).onsuccess = function(event) {
       var cursor = event.target.result;
@@ -372,44 +367,15 @@ IndexedDbConn.prototype = {
   // - we may update indices without actually issuing a write against the things
   //   the indices are referencing.
   //
-  // In terms of how to handle the "delete the old index value" case, there are
-  //  broadly five strategies that can be used:
-  // 1) Ordered keys, require the caller to always know the old value so we can
-  //    issue a delete.  This is potentially annoying to calling code.
-  // 2) Ordered keys, issue a read request to another location if the old value
-  //    is not provided/known to find the old value for deletion purposes.
-  // 3) Ordered keys, blind writes with 'scan deletion' nuking the old value.
-  //    This would be assuming the cost of the scan is cheaper than the cost of
-  //    the random I/O.
-  // 4) Ordered keys, blindly issue writes that include metadata so that on
-  //    reads we can perform a 'compaction' pass where we notice out-of-date
-  //    values and ignore and possibly issue deletes against the moot values.
-  //    This is only viable at large-scale if we assume that values only can
-  //    migrate towards the 'front' and that we always start our scans from the
-  //    'front' moving towards the back so our mooting algorithm always makes
-  //    the correct choice.  (Whereas if we seek to the middle we might see
-  //    a mooted value and not know it is mooted.)  A mechanism by which the
-  //    'dirtiness' of indices could be tracked might be helpful, but unlikely
-  //    to pay for itself.
-  // 5) "Amortized dirty bucket" that overflows to ordered keys.  Whenever we
-  //    issue an index change, we issue it directly into the "dirty bucket".
-  //    In the simple case where the index is small, we only ever load the
-  //    contents of the dirty bucket and we just perform an in-memory sort and
-  //    use that.  When the bucket gets too large, we do the sort again but
-  //    now persist all of the keys beyond a certain value horizon into an
-  //    ordered keyspace and make note of that in the dirty bucket.  Whenever
-  //    we have a query that just wants "recent" data, we can just grab it
-  //    from the dirty bucket.  When we have a query that wants "older" data,
-  //    it grabs the contents of the dirty bucket and issues a value range
-  //    query against the ordered older data, then apply any changes from the
-  //    dirty bucket to the ordered data.
+  // Our indexes take the form of composite keys that look like:
+  //  <INDEX PARAM> DELIM <INDEX VALUE> DELIM <OBJECT NAME>
+  // And the value is empty.
   //
-  // We are currently implementing a variant on #5, "infinitely big unordered
-  //  bucket" with the expectation that the overflow case is a good idea and
-  //  we will eventually get around to it.  Ideally we will also do a literature
-  //  search and figure out what the name for that general strategy is and
-  //  if there are any fundamental issues with impementing it on top of a
-  //  log-structured-merge datastore.
+  // Because our indices are stored in object stores, duplicates are not allowed
+  //  and so the object name/data gets to be encoded as part of the key.
+  //
+  // The caller is responsible for providing the information required to delete
+  //  old index values.
 
   scanIndex: function(tableName, indexName, indexParam, desiredDir,
                       lowValue, lowObjectName, lowInclusive,

@@ -156,7 +156,8 @@ function($imap) {
     node.scrollIntoView();
   }
 
-  function goForthAndImap(host, port, crypto, username, password) {
+  function goForthAndImap(host, port, crypto, username, password,
+                          enableQResync) {
     var conn = new $imap.ImapConnection({
       username: username,
       password: password,
@@ -180,6 +181,12 @@ function($imap) {
       },
       function() {
         conn.getBoxes(nextCommand);
+      },
+      function() {
+        if (enableQResync)
+          conn.enable(["QRESYNC"], nextCommand);
+        else
+          nextCommand();
       },
       function(boxes) {
         dumpObj(boxes);
@@ -219,7 +226,8 @@ function($imap) {
                    parseInt(document.getElementById("port").value),
                    document.getElementById("crypto").value,
                    document.getElementById("username").value,
-                   document.getElementById("password").value);
+                   document.getElementById("password").value,
+                   document.getElementById("qresync").checked);
   }
   catch (ex) {
     console.error("Exception during call to imap invoc", ex, "\n", ex.stack);
@@ -242,8 +250,11 @@ function($imap) {
 
     <label for="username">Username: </label> <input id="username" type="text" /> <br />
     <label for="password">Password: </label> <input id="password" type="password" /><br />
-
+    <br />
+    <label for="qresync"><input id="qresync" type="checkbox" checked="checked" /> ENABLE QRESYNC</label><br />
+    <br />
     <button id="connect">Connect</button>
+    <hr />
   </div>
   <div id="results">
   </div>

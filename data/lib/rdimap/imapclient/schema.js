@@ -67,6 +67,7 @@ exports.ROWPREFIX_CONFIG_ACCOUNT_DEF = 'accountDef';
  */
 exports.ROWPREFIX_CONFIG_ACCOUNT_FOLDERS = 'accountFolders';
 
+exports.TBL_FOLDER_MESSAGES = 'folderMessages';
 
 /**
  * Data on peeps, be they a contact or a transitive-acquaintance we heard of
