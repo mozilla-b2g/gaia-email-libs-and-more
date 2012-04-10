@@ -12,7 +12,45 @@
     </style>
   <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAAXNSR0IArs4c6QAAABhQTFRFIEqHLjQ2iIqF09fP7u7s9XkA/K8+////Ga9XSQAAAIJJREFUKM/F0DEOwjAMhWFvnasOzOQIuHfgBuUaVAX9169jJxUkgrWOlOR9sZeIiCBl80sHCMhzyKevf9CNfAJ1AHo4mn4CTfWwjl91MdB7fX1phuTyjpwMNI0zLA/PaoCmabYOz2RAryaRA7iZRC6wmUQukCVyBZPIB7DRAKdD84U7Lb2fKUPDzZ8AAAAASUVORK5CYII=" />
   <script type="text/javascript" src="lib/require.js"></script>
-  <script>
+  <script>//<![CDATA[
+    // Only add setZeroTimeout to the window object, and hide everything
+    // else in a closure.
+    (function() {
+        var timeouts = [];
+        var messageName = "zero-timeout-message";
+
+        // Like setTimeout, but only takes a function argument.  There's
+        // no time argument (always zero) and no arguments (you have to
+        // use a closure).
+        function setZeroTimeout(fn) {
+            timeouts.push(fn);
+            window.postMessage(messageName, "*");
+        }
+
+        function handleMessage(event) {
+            if (event.source == window && event.data == messageName) {
+                event.stopPropagation();
+                if (timeouts.length > 0) {
+                    var fn = timeouts.shift();
+                    fn();
+                }
+            }
+        }
+
+        window.addEventListener("message", handleMessage, true);
+
+        // Add the one thing we want added to the window object.
+        window.setZeroTimeout = setZeroTimeout;
+    })();
+    var process = {
+      immediate: false,
+      nextTick: function(cb) {
+        if (this.immediate)
+          cb();
+        else
+          window.setZeroTimeout(cb);
+      }
+    };
     require.onError = function(ex) {
       console.error("RequireJS load error:", ex, ex.stack);
       throw ex;
@@ -20,21 +58,31 @@
     require({
       baseUrl: "resource://jid1-reoZ1pC7LQZcEA-at-jetpack/jetpack-tcp-imap-demo/data/",
       paths: {
+        "q": "lib/q",
         "text": "lib/text",
+        // silly shims
+        "event-queue": "lib/js-shims/event-queue",
+        "microtime": "lib/js-shims/microtime",
+        "path": "lib/js-shims/path",
+
         "imap": "lib/imap",
 
+        "rdplat": "lib/rdplat",
+        "rdcommon": "lib/rdcommon",
+        "rdimap": "lib/rdimap",
+
+        "buffer": "lib/node-buffer",
+        "crypto": "lib/node-crypto",
+
         "assert": "deps/browserify-builtins/assert",
-        "buffer": "deps/browserify-builtins/buffer",
-        "buffer_ieee754": "deps/browserify-builtins/buffer_iee754",
         "events": "deps/browserify-builtins/events",
         "stream": "deps/browserify-builtins/stream",
         "util": "deps/browserify-builtins/util",
+
       },
       packages: [
-        { name: "rdimap", location: "lib/rdimap" },
-        { name: "wmsy", location: "deps/wmsy" },
-        { name: "mimelib", location: "deps/mimelib" },
-        { name: "iconv", location: "deps/iconv-lite" },
+        { name: "mimelib", location: "deps/mimelib", main: "index" },
+        { name: "iconv", location: "deps/iconv-lite", main: "index" },
         { name: "mailparser", location: "deps/mailparser/lib" },
       ],
       text: {
@@ -43,11 +91,19 @@
         useXhr: function () { return true; },
       }
     },
-    ["rdimap/devui/app"],
-    function(app) {
-      app.main();
-    });
-  </script>
+
+    ["deps/encoding.js", "buffer"],
+function(ignored, $buffer) {
+window.Buffer = $buffer.Buffer;
+require(
+["rdimap/imapclient/same-frame-setup", /*"rdimap/devui/app"*/],
+function(setup) {
+  window.goSync = function(accountDef) {
+    setup.goSync(accountDef);
+  };
+});
+});
+//]]></script>
 </head>
 <body id="body">
 </body>

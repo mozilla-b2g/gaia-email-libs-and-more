@@ -176,6 +176,7 @@ function ImapFolderSyncer(conn, db) {
 
   this._activeTask = null;
 }
+exports.ImapFolderSyncer = ImapFolderSyncer;
 ImapFolderSyncer.prototype = {
   /**
    * Select the given folder using QRESYNC if previously syncronized, otherwise
