@@ -1,29 +1,20 @@
 /* tab signup! */
 
-#signup-tab {
-  #userInfoBlock, #emailInfoBlock, #serverListBlock {
-    border: 1px solid black;
-    margin: 1em;
-    padding: 1em;
-    border-radius: 4px;
+#account-tab {
+  #serverBlock {
+  }
+  #hostLabel, #portLabel {
+  }
+
+  #host {
+    width: 16em;
+  }
+  #port {
+    width: 2em;
   }
 
   #errMsg: {
     color: red;
     font-size: 140%;
-  }
-}
-
-#server-info {
-  #root[selected="true"] {
-    font-weight: bold;
-    background-color: #ffc;
-  }
-
-  #urlBlock {
-    margin-right: 1em;
-  }
-  #urlBlock0, #dnBlock0 {
-    font-style: italic;
   }
 }

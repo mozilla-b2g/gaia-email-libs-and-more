@@ -67,9 +67,6 @@ const NS_PEEPS = 'peeps',
       NS_CONVBLURBS = 'convblurbs',
       NS_CONVMSGS = 'convmsgs',
       NS_CONVNEW = 'convnew',
-      NS_SERVERS = 'servers',
-      NS_POSSFRIENDS = 'possfriends',
-      NS_CONNREQS = 'connreqs',
       NS_ERRORS = 'errors';
 
 /**

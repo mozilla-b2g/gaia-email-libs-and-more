@@ -55,104 +55,50 @@ define(
 
 // define our tab type in the tabs domain
 var ty = exports.ty =
-  new $wmsy.WmsyDomain({id: "tab-signup", domain: "tabs", css: $_css});
+  new $wmsy.WmsyDomain({id: "tab-account", domain: "tabs", css: $_css});
 
 var wy = exports.wy =
-  new $wmsy.WmsyDomain({id: "tab-signup", domain: "moda", css: $_css});
+  new $wmsy.WmsyDomain({id: "tab-account", domain: "moda", css: $_css});
 
 ty.defineWidget({
-  name: 'signup-tab',
+  name: 'account-tab',
   constraint: {
     type: 'tab',
-    obj: { kind: 'signup' },
+    obj: { kind: 'account' },
   },
-  focus: wy.focus.container.vertical('userPoco', 'servers', 'otherServer',
-                                     'btnSignup'),
-  emit: ['openTab', 'closeTab'],
+  focus: wy.focus.container.vertical('host', 'port', 'starttls',
+                                     'username', 'password', 'btnSave'),
   structure: {
     errBlock: {
-      errMsg: "",
+      errMsg: '',
+    },
+    serverBlock: {
+      hostLine: wy.flow({
+        hostLabel: 'Host: ',
+        host: wy.text('host'),
+      }),
+      portLine: wy.flow({
+        portLabel: 'Port: ',
+        port: wy.text('port'),
+      }),
+      starttls: wy.checkbox(
+                  'upgrade to encrypted rather than starting encrypted',
+                  'starttls'),
     },
     userInfoBlock: {
-      userPoco: wy.widget({type: 'poco-edit'},
-                          ['userAccount', 'poco']),
-    },
-    emailInfoBlock: {
-      eiLabel: "browserid goes here.",
-    },
-    serverListBlock: {
-      siLabel: "Pick a known server to use:",
-      servers: wy.vertList({type: 'server'}),
-      saLabel: "Or type in the domain name of a server (DANGER! MITM-able!):",
-      otherServer: wy.text(),
+      usernameLabel: 'Username: ',
+      username: wy.text('username'),
+      passwordLabel: 'Password: ',
+      password: wy.password('password'),
     },
     buttonBar: {
-      btnSignup: wy.button("Signup"),
+      btnSave: wy.button('Use Server'),
     },
   },
   impl: {
-    postInit: function() {
-      var moda = this.__context.moda;
-
-      var serverSet = moda.queryServers();
-      var vs = new $liveset.LiveSetListenerViewSliceAdapter(serverSet);
-      this.servers_set(vs);
-
-      this.selectedServerBinding = null;
-
-      this.otherServerQuery = null;
-    },
-
-    // notification the signup completed
-    onCompleted: function(err) {
-      var serverInfo = this.signupServerInfo;
-      if (err !== null) {
-        this.errMsg_element.textContent = "" + err;
-        this.FOCUS.updateFocusRing();
-      }
-      else {
-        console.log("success, doing things");
-        var successTabObj = {
-          kind: "signed-up",
-          name: "Signed Up!",
-          serverInfo: serverInfo,
-        };
-        this.emit_openTab(successTabObj, false, this.obj);
-        var homeTabObj = {
-          kind: "home",
-          name: "Home",
-          userAccount: this.obj.userAccount,
-        };
-        this.emit_openTab(homeTabObj, true, successTabObj);
-
-        this.emit_closeTab(this.obj);
-        console.log("completed being successful!");
-      }
-    },
-
-    destroy: function() {
-      if (this.otherServerQuery)
-        this.otherServerQuery.destroy();
-    },
   },
   events: {
-    servers: {
-      command: function(serverBinding) {
-        if (this.selectedServerBinding)
-          this.selectedServerBinding.domNode.removeAttribute("selected");
-        this.selectedServerBinding = serverBinding;
-        this.selectedServerBinding.domNode.setAttribute("selected", "true");
-      },
-    },
-    otherServer: {
-      // use this to
-      command: function() {
-        if (this.selectedServerBinding)
-          this.selectedServerBinding.domNode.removeAttribute("selected");
-        this.selectedServerBinding = null;
-      },
-    },
-    btnSignup: {
+    btnSave: {
       command: function() {
         var self = this, moda = this.__context.moda;
 
@@ -162,9 +108,9 @@ ty.defineWidget({
           this.userPoco_element.binding.gimmePoco());
 
         if (this.selectedServerBinding) {
-          var serverInfo = this.signupServerInfo =
+          var serverInfo = this.accountServerInfo =
             this.selectedServerBinding.obj;
-          this.obj.userAccount.signupWithServer(serverInfo, this);
+          this.obj.userAccount.accountWithServer(serverInfo, this);
         }
         else {
           var serverDomain = this.otherServer_element.value;
@@ -183,8 +129,8 @@ ty.defineWidget({
                       "No server info available for: '" + serverDomain + "'";
                     return;
                   }
-                  self.signupServerInfo = serverInfo;
-                  self.obj.userAccount.signupWithServer(serverInfo, self);
+                  self.accountServerInfo = serverInfo;
+                  self.obj.userAccount.accountWithServer(serverInfo, self);
                 },
               });
           }
@@ -195,60 +141,6 @@ ty.defineWidget({
         }
       },
     }
-  },
-});
-
-wy.defineWidget({
-  name: 'poco-editor',
-  constraint: {
-    type: 'poco-edit',
-  },
-  focus: wy.focus.container.vertical('displayName'),
-  structure: {
-    dnLabel: { // want a wy.label for this.
-      ldn0: "I want to be known to the world as ",
-      displayName: wy.text('displayName'),
-      ldn1: "."
-    },
-  },
-  impl: {
-    gimmePoco: function() {
-      return {
-        displayName: this.displayName_element.value,
-      };
-    },
-  },
-});
-
-wy.defineWidget({
-  name: 'server-info',
-  constraint: {
-    type: 'server',
-  },
-  focus: wy.focus.item,
-  structure: {
-    urlBlock: [
-      'Server URL: ', wy.bind('url'),
-    ],
-    dnBlock: [
-      'Server Description: ', wy.bind('displayName'),
-    ],
-  },
-});
-
-
-ty.defineWidget({
-  name: 'signed-up-tab',
-  constraint: {
-    type: 'tab',
-    obj: { kind: 'signed-up' },
-  },
-  structure: {
-    headerLabel: "Signed Up with Server!",
-    descBlock: {
-      longLabel: ['You signed up with: ',
-                  wy.bind(['serverInfo', 'displayName'])],
-    },
   },
 });
 

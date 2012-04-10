@@ -56,9 +56,6 @@ const NS_PEEPS = 'peeps',
       NS_CONVBLURBS = 'convblurbs',
       NS_CONVMSGS = 'convmsgs',
       NS_CONVNEW = 'convnew',
-      NS_SERVERS = 'servers',
-      NS_POSSFRIENDS = 'possfriends',
-      NS_CONNREQS = 'connreqs',
       NS_ERRORS = 'errors';
 
 function itemOnImpl(event, listener) {
@@ -516,34 +513,18 @@ LiveOrderedSet.prototype = {
 };
 
 /**
- * Represents the account information for the human being using this messaging
- *  system.  Provides the current portable contacts schema identifying the user
- *  to others and a means to change it.  Provides information on the account
- *  server being used, if any, and a way to perform initial signup.  There is
- *  no way to change the server used right now because we don't have migration
- *  implemented.
+ * Holds the list of the user's accounts, which is currently limited to ONE.
  */
-function OurUserAccount(_bridge, poco, usingServer) {
+function OurUserAccount(_bridge, accounts) {
   this._bridge = _bridge;
-  this.poco = poco;
-  this.usingServer = usingServer;
-  /**
-   * The crypto self-ident blob for the user.  This is being introduced to
-   *  allow the selenium webdriver-based testing framework to extract the
-   *  public keys of the user in a reasonably clean fashion.
-   */
-  this.selfIdentBlob = null;
-  /**
-   * The public key for this client.  Also being introduced for unit tests.
-   */
-  this.clientPublicKey = null;
+
+  this.accounts = accounts;
 
   /**
    * Callers who have invoked `whoAmI` but not gotten an onCompleted callback
    *  yet.
    */
   this._pendingListeners = [];
-  this._signupListener = null;
 }
 OurUserAccount.prototype = {
   toString: function() {
@@ -787,9 +768,7 @@ ModaBridge.prototype = {
 
   _receiveWhoAmI: function(msg) {
     // update the representation
-    this._ourUser.poco = msg.poco;
-    this._ourUser.selfIdentBlob = msg.selfIdentBlob;
-    this._ourUser.clientPublicKey = msg.clientPublicKey;
+    this._ourUser.accounts = msg.accounts;
 
     // notify listeners
     for (var i = 0; i < this._ourUser._pendingListeners.length; i++) {
@@ -1377,7 +1356,7 @@ ModaBridge.prototype = {
    */
   whoAmI: function(listener) {
     if (!this._ourUser) {
-      this._ourUser = new OurUserAccount(this, null);
+      this._ourUser = new OurUserAccount(this, []);
     }
     if (listener)
       this._ourUser._pendingListeners.push(listener);
