@@ -177,49 +177,6 @@ function msgCommonMarkAsLastReadMessage() {
 }
 
 /**
- * A message indicating that the `invitee` who was invited by the `inviter` has
- *  joined the conversation.
- *
- * @args[
- *   @param[_owner ConversationBlurb]
- *   @param[inviter PeepBlurb]
- *   @param[invitee PeepBlurb]
- *   @param[receivedAt Date]
- * ]
- */
-function JoinMessage(_liveset, _localName, inviter, invitee, receivedAt,
-                     mostRecentReadMessageBy) {
-  this._eventMap = null;
-  this._liveset = _liveset;
-  this._localName = _localName;
-  this.inviter = inviter;
-  this.invitee = invitee;
-  this.receivedAt = receivedAt;
-  this.mostRecentReadMessageBy = mostRecentReadMessageBy;
-}
-JoinMessage.prototype = {
-  __namespace: 'convmsgs',
-  __clone: function(liveset, cloneHelper) {
-    return new JoinMessage(
-      liveset, this._localName,
-      cloneHelper(this.inviter), cloneHelper(this.invitee),
-      this.receivedAt);
-  },
-  __forget: function(forgetHelper) {
-    forgetHelper(this.inviter);
-    forgetHelper(this.invitee);
-  },
-  toString: function() {
-    return '[JoinMessage ' + this._localName + ']';
-  },
-
-  type: 'join',
-  markAsLastReadMessage: msgCommonMarkAsLastReadMessage,
-
-  on: itemOnImpl,
-};
-
-/**
  * Message representation; this is only ever provided in a single
  *  representation.
  *
@@ -389,9 +346,6 @@ function LiveOrderedSet(_bridge, handle, ns, query, listener, data) {
     convblurbs: {},
     convmsgs: {},
     convnew: {},
-    servers: {},
-    possfriends: {},
-    connreqs: {},
     errors: {},
   };
   this._listener = listener;
@@ -562,38 +516,6 @@ LiveOrderedSet.prototype = {
 };
 
 /**
- * Provides information about a server.
- *
- * For pragmatic/laziness reasons, this representation unusually has the full
- *  crypto self-ident present, but it should never be exposed/to used by the
- *  user interface directly.
- */
-function ServerInfo(_liveset, _localName, url, displayName) {
-  this._eventMap = null;
-  this._liveset = _liveset,
-  this._localName = _localName;
-  this.url = url;
-  this.displayName = displayName;
-}
-ServerInfo.prototype = {
-  __namespace: 'servers',
-  __clone: function(liveset, cloneHelper) {
-    return new ServerInfo(liveset, this._localName, this.url, this.displayName);
-  },
-  __forget: function(forgetHelper) {
-  },
-  toString: function() {
-    return '[ServerInfo ' + this._localName + ']';
-  },
-
-  get id() {
-    return this._localName;
-  },
-
-  on: itemOnImpl,
-};
-
-/**
  * Represents the account information for the human being using this messaging
  *  system.  Provides the current portable contacts schema identifying the user
  *  to others and a means to change it.  Provides information on the account
@@ -666,110 +588,6 @@ OurUserAccount.prototype = {
   },
 };
 
-/**
- * An attempt to establish a contact relationship with our user by someone.
- *  This includes how that person identifies themself represented as a
- *  `PeepBlurb`, when the request was received by our transit server, how they
- *  are identifying us, and an optional message text sent with their request.
- *
- * In the future, we may also include extra information like conversations we
- *  are already involved in with the person, existing contacts who have
- *  indicated a contact relationship with the person via conversation joins
- *  or other mechanisms, etc.
- *
- * Note that `theirPocoForUs` is not guaranteed to be the poco for us they will
- *  use when inviting us to join conversations.  They could call us "the king"
- *  in the connect request but call us "the king's fool" when inviting us to
- *  join conversations.
- */
-function ConnectRequest(_liveset, localName, peep, serverInfo, theirPocoForUs,
-                        receivedAt, messageText) {
-  this._eventMap = null;
-  this._liveset = _liveset;
-  this._localName = localName;
-  this.peep = peep;
-  this.peepServer = serverInfo;
-  this.theirPocoForUs = theirPocoForUs;
-  this.receivedAt = new Date(receivedAt);
-  this.messageText = messageText;
-}
-ConnectRequest.prototype = {
-  __namespace: 'connreqs',
-  __clone: function(liveset, cloneHelper) {
-    return new ConnectRequest(
-      liveset, this._localName, cloneHelper(this.peep),
-      cloneHelper(this.peepServer), this.theirPocoForUs,
-      this.receivedAt, this.messageText);
-  },
-  __forget: function(forgetHelper) {
-    forgetHelper(this.peep);
-    forgetHelper(this.peepServer);
-  },
-  toString: function() {
-    return '[ConnectRequest ' + this._localName + ']';
-  },
-
-  get id() {
-    return this._localName;
-  },
-
-  /**
-   * Accept this connection request, providing a portable contacts
-   *  representation that we will include in our assertion of this person's
-   *  identity.
-   */
-  acceptConnectRequest: function(ourPocoForThem) {
-    this._liveset._bridge.connectToPeep(this.peep, ourPocoForThem);
-  },
-
-
-  /**
-   * Reject this connection request permanently, removing it from the connect
-   *  request list and never allowing any new requests to be issued by this
-   *  person.  If you simply want to ignore a request, then don't call any
-   *  methods.
-   */
-  rejectConnectRequest: function() {
-    this._liveset._bridge._send('rejectConnectRequest', null,
-      { localName: this._localName, reportAs: null });
-  },
-
-  on: itemOnImpl,
-};
-
-/**
- * Represents a possible friend with a rationale of why that person is a
- *  candidate and perhaps how good a candidate they are.
- */
-function PossibleFriend(_liveset, localName, peep, server) {
-  this._eventMap = null;
-  this._liveset = _liveset;
-  this._localName = localName;
-  this.peep = peep;
-  this.peepServer = server;
-}
-PossibleFriend.prototype = {
-  __namespace: 'possfriends',
-  __clone: function(liveset, cloneHelper) {
-    return new PossibleFriend(
-      liveset, this._localName,
-      cloneHelper(this.peep),
-      cloneHelper(this.peepServer));
-  },
-  __forget: function(forgetHelper) {
-    forgetHelper(this.peep);
-    forgetHelper(this.peepServer);
-  },
-  toString: function() {
-    return '[PossibleFriend ' + this._localName + ']';
-  },
-
-  get id() {
-    return this._localName;
-  },
-
-  on: itemOnImpl,
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 // Error Representations
@@ -892,9 +710,6 @@ function ModaBridge() {
     convblurbs: {},
     convmsgs: {},
     convnew: {},
-    servers: {},
-    possfriends: {},
-    connreqs: {},
     errors: {},
   };
 
@@ -970,20 +785,11 @@ ModaBridge.prototype = {
     }
   },
 
-  _transform_servers: function(_localName, serialized, lookup) {
-    if (!serialized)
-      return null;
-    return new ServerInfo(null, _localName,
-                          serialized.url, serialized.displayName);
-  },
-
   _receiveWhoAmI: function(msg) {
     // update the representation
     this._ourUser.poco = msg.poco;
     this._ourUser.selfIdentBlob = msg.selfIdentBlob;
     this._ourUser.clientPublicKey = msg.clientPublicKey;
-    this._ourUser.usingServer = this._transform_servers(null,
-                                                        msg.server);
 
     // notify listeners
     for (var i = 0; i < this._ourUser._pendingListeners.length; i++) {
@@ -1202,8 +1008,6 @@ ModaBridge.prototype = {
     //  _transform_* funcs to directly grab references.
     var i, key, attr, values, val, dataMap, curRep, delta;
 
-    // servers have no deps
-    this._commonProcess(NS_SERVERS, msg);
     // peeps have no deps
     this._commonProcess(NS_PEEPS, msg);
     // messages depend on peeps
@@ -1212,10 +1016,6 @@ ModaBridge.prototype = {
     this._commonProcess(NS_CONVBLURBS, msg);
     // conv activity depends on conv blurbs, messages, peeps
     this._commonProcess(NS_CONVNEW, msg);
-    // possible friends depend on peeps
-    this._commonProcess(NS_POSSFRIENDS, msg);
-    // connection requests depend on peeps
-    this._commonProcess(NS_CONNREQS, msg);
 
     // errors depend on nothing
     this._commonProcess(NS_ERRORS, msg);
@@ -1529,30 +1329,6 @@ ModaBridge.prototype = {
     return explainDelta;
   },
 
-  _transform_possfriends: function(localName, wireRep, lookup) {
-    var peepRep = this._dataByNS.peeps[wireRep.peepLocalName],
-        serverRep = this._dataByNS.servers[wireRep.serverLocalName];
-    return new PossibleFriend(null, localName, peepRep, serverRep);
-  },
-
-  _delta_possfriends: function(curRep, delta) {
-    // no delta processing at this time because no deltas
-  },
-
-  /**
-   * Create a `ConnectRequest` representation from the wire rep.
-   */
-  _transform_connreqs: function(localName, wireRep, lookup) {
-    var peepRep = this._dataByNS.peeps[wireRep.peepLocalName],
-        serverRep = this._dataByNS.servers[wireRep.serverLocalName];
-    return new ConnectRequest(null, localName, peepRep, serverRep,
-      wireRep.theirPocoForUs, wireRep.receivedAt, wireRep.messageText);
-  },
-
-  _delta_connreqs: function(curRep, delta) {
-    // no deltas yet
-  },
-
   /**
    * Create an `ErrorRep` from the wire rep.
    */
@@ -1607,48 +1383,6 @@ ModaBridge.prototype = {
       this._ourUser._pendingListeners.push(listener);
     this._send('whoAmI', null, null);
     return this._ourUser;
-  },
-
-  /**
-   * Ask for a list of well-know/trusted servers we can sign up with.
-   */
-  queryServers: function(listener, data) {
-    var handle = this._nextHandle++;
-    var query = {};
-    var liveset = new LiveOrderedSet(this, handle, NS_SERVERS, query, listener,
-                                     data);
-    this._handleMap[handle] = liveset;
-    this._sets.push(liveset);
-    this._send('queryServers', handle, query);
-    return liveset;
-  },
-
-  insecurelyQueryServerUsingDomainName: function(domain, listener, data) {
-    var handle = this._nextHandle++;
-    var query = { domain: domain };
-    var liveset = new LiveOrderedSet(this, handle, NS_SERVERS, query, listener,
-                                     data);
-    this._handleMap[handle] = liveset;
-    this._sets.push(liveset);
-    this._send('insecureServerDomainQuery', handle, query);
-    return liveset;
-  },
-
-  /**
-   * Ask all the servers known to our client/server for the list of their users
-   *  who are willing to be known to us.  Presumably they told their server it
-   *  was okay to let it be known to the public or some friend-graph thing was
-   *  satisfied.
-   */
-  queryPossibleFriends: function(listener, data) {
-    var handle = this._nextHandle++;
-    var query = {};
-    var liveset = new LiveOrderedSet(this, handle, NS_POSSFRIENDS, query,
-                                     listener, data);
-    this._handleMap[handle] = liveset;
-    this._sets.push(liveset);
-    this._send('queryPossibleFriends', handle, query);
-    return liveset;
   },
 
   /**
@@ -1714,18 +1448,6 @@ ModaBridge.prototype = {
     this._handleMap[handle] = liveset;
     this._sets.push(liveset);
     this._send('queryAllConversations', handle, { query: query });
-    return liveset;
-  },
-
-  queryConnectRequests: function(listener, data) {
-    var handle = this._nextHandle++;
-    // passing null for the query def because there is nothing useful we can
-    //  track on this side.
-    var liveset = new LiveOrderedSet(this, handle, NS_CONNREQS, null, listener,
-                                     data);
-    this._handleMap[handle] = liveset;
-    this._sets.push(liveset);
-    this._send('queryConnRequests', handle);
     return liveset;
   },
 
