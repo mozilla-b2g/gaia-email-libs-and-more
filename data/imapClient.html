@@ -98,6 +98,7 @@ window.Buffer = $buffer.Buffer;
 require(
 ["rdimap/imapclient/same-frame-setup", /*"rdimap/devui/app"*/],
 function(setup) {
+  console.log("exposing API");
   window.goSync = function(accountDef) {
     setup.goSync(accountDef);
   };

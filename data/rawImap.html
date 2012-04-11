@@ -15,6 +15,7 @@
       .data { color: #333; white-space: pre-wrap; }
       .debug { color: #777; white-space: pre-wrap; }
       table { border: 1px solid gray; }
+      table.array { border: 1px solid purple; }
       td { border: 1px dashed #ccc; }
     </style>
   <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAAXNSR0IArs4c6QAAABhQTFRFIEqHLjQ2iIqF09fP7u7s9XkA/K8+////Ga9XSQAAAIJJREFUKM/F0DEOwjAMhWFvnasOzOQIuHfgBuUaVAX9169jJxUkgrWOlOR9sZeIiCBl80sHCMhzyKevf9CNfAJ1AHo4mn4CTfWwjl91MdB7fX1phuTyjpwMNI0zLA/PaoCmabYOz2RAryaRA7iZRC6wmUQukCVyBZPIB7DRAKdD84U7Lb2fKUPDzZ8AAAAASUVORK5CYII=" />
@@ -96,6 +97,7 @@ require(["imap"],
 function($imap) {
   function tablifyArray(arr, depthAllowed) {
     var tableNode = document.createElement("table");
+    tableNode.setAttribute("class", "array");
     for (var i = 0; i < arr.length; i++) {
       var val = arr[i],
           rowNode = document.createElement("tr"),
@@ -175,6 +177,28 @@ function($imap) {
         commands[iNextCommand++](result);
     }
     var inbox;
+
+    function fetchMessages(results) {
+      var fetch = conn.fetch(
+        // get a max of 10 of them
+        results.slice(0, 10),
+        { request: { headers: true, struct: true } });
+      fetch.on("message", function(msg) {
+        logResult("status", "message!");
+        msg.on("data", function(chunk) {
+          logResult("data", chunk);
+        });
+        msg.on("end", function() {
+          dumpObj(msg);
+          logResult("status", "(message done)");
+        });
+      });
+      fetch.on("end", function() {
+        logResult("status", "Done fetching.");
+        conn.logout(nextCommand);
+      });
+    }
+
     commands = [
       function() {
         conn.connect(nextCommand);
@@ -192,30 +216,12 @@ function($imap) {
         dumpObj(boxes);
         conn.openBox("INBOX", false, nextCommand);
       },
+      // - get the flagged messages
       function(box) {
         inbox = box;
         conn.search(["FLAGGED"], nextCommand);
       },
-      function(results) {
-        var fetch = conn.fetch(
-          // get a max of 10 of them
-          results.slice(0, 10),
-          { request: { headers: true, struct: true } });
-        fetch.on("message", function(msg) {
-          logResult("status", "message!");
-          msg.on("data", function(chunk) {
-            logResult("data", chunk);
-          });
-          msg.on("end", function() {
-            dumpObj(msg);
-            logResult("status", "(message done)");
-          });
-        });
-        fetch.on("end", function() {
-          logResult("status", "Done fetching.");
-          conn.logout(nextCommand);
-        });
-      },
+      fetchMessages,
     ];
     nextCommand();
   }

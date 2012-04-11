@@ -33,7 +33,7 @@ exports.goSync = function(accountDef) {
   var db = $db.makeProductionDBConnection('', null, null, null),
       conn = new $imap.ImapConnection(accountDef);
 
-  var syncer = $imapSync.ImapFolderSyncer(conn, db);
+  var syncer = new $imapSync.ImapFolderSyncer(conn, db);
 
   when(
     db.defineSchema($schema.dbSchemaDef),
