@@ -3,7 +3,7 @@ var util = require('util'),
     EventEmitter = require('events').EventEmitter,
     mailparser = require('mailparser/mailparser');
 
-var emptyFn = function() {}, CRLF = '\r\n', debug=null,
+var emptyFn = function() {}, CRLF = '\r\n',
     STATES = {
       NOCONNECT: 0,
       NOAUTH: 1,
@@ -72,7 +72,9 @@ function ImapConnection (options) {
   this._options = extend(true, this._options, options);
 
   if (typeof this._options.debug === 'function')
-    debug = this._options.debug;
+    this.debug = this._options.debug;
+  else
+    this.debug = null;
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
@@ -108,7 +110,10 @@ ImapConnection.prototype.connect = function(loginCb) {
             }
             // Lastly, get the top-level mailbox hierarchy delimiter used by the
             // server
-            self._send('LIST "" ""', loginCb);
+            self._send(
+              ((self.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST') +
+                ' "" ""',
+              loginCb);
           });
         });
       };
@@ -122,16 +127,16 @@ ImapConnection.prototype.connect = function(loginCb) {
     sslOptions = { allowOverride: true };
 
   this._state.conn.onopen = function(evt) {
-    if (debug)
-      debug('status', 'Connected to host.');
+    if (self.debug)
+      self.debug('status', 'Connected to host.');
     clearTimeout(self._state.tmrConn);
     self._state.status = STATES.NOAUTH;
     fnInit();
   };
   this._state.conn.ondata = function(evt) {
     var buffer = Buffer(evt.data);
-    if (debug)
-      debug('data', buffer.toString());
+    if (self.debug)
+      self.debug('data', buffer.toString());
     processData(buffer);
   };
   /**
@@ -361,11 +366,8 @@ ImapConnection.prototype.connect = function(loginCb) {
                                             || data[2].length === 0
                                             ? [] : data[2].split(' '));
         break;
-        /*case 'STATUS':
-          var result = /UIDNEXT ([\d]+)\)$/.exec(data[2]);
-          self._state.requests[0].args.push(parseInt(result[1]));
-        break;*/
         case 'LIST':
+        case 'XLIST':
           var result;
           if (self.delim === null
               && (result = /^\(\\No[sS]elect\) (.+?) .*$/.exec(data[2])))
@@ -376,16 +378,16 @@ ImapConnection.prototype.connect = function(loginCb) {
               self._state.requests[0].args.push({});
             result = /^\((.*)\) (.+?) "?([^"]+)"?$/.exec(data[2]);
             var box = {
-              attribs: result[1].split(' ').map(function(attrib) {
-                         return attrib.substr(1).toUpperCase();
-                       }).filter(function(attrib) {
-                         return (BOX_ATTRIBS.indexOf(attrib) > -1);
-                       }),
-              delim: (result[2] === 'NIL'
-                      ? false : result[2].substring(1, result[2].length-1)),
-              children: null,
-              parent: null
-            }, name = result[3], curChildren = self._state.requests[0].args[0];
+                  attribs: result[1].split(' ').map(function(attrib) {
+                             return attrib.substr(1).toUpperCase();
+                           }),
+                  delim: (result[2] === 'NIL'
+                          ? false : result[2].substring(1, result[2].length-1)),
+                  children: null,
+                  parent: null
+                }, name = result[3], curChildren = self._state.requests[0].args[0];
+            if (name[0] === '"' && name[name.length-1] === '"')
+              name = name.substring(1, name.length - 1);
 
             if (box.delim) {
               var path = name.split(box.delim).filter(isNotEmpty),
@@ -560,8 +562,8 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   this._state.conn.onclose = function onClose() {
     self._reset();
-    if (debug)
-      debug('status', 'FIN packet received. Disconnecting...');
+    if (self.debug)
+      self.debug('status', 'FIN packet received. Disconnecting...');
     self.emit('close');
   };
   this._state.conn.onerror = function(evt) {
@@ -570,8 +572,8 @@ ImapConnection.prototype.connect = function(loginCb) {
     if (self._state.status === STATES.NOCONNECT)
       loginCb(new Error('Unable to connect. Reason: ' + err));
     self.emit('error', err);
-    if (debug)
-      debug('status', 'Error occurred: ' + err);
+    if (self.debug)
+      self.debug('status', 'Error occurred: ' + err);
   };
 
   this._state.conn.open(this._options.host, this._options.port,
@@ -680,7 +682,10 @@ ImapConnection.prototype.getBoxes = function(namespace, cb) {
   cb = arguments[arguments.length-1];
   if (arguments.length !== 2)
     namespace = '';
-  this._send('LIST "' + escape(namespace) + '" "*"', cb);
+  this._send(
+    ((this.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST') + ' "' +
+      escape(namespace) + '" "*"',
+    cb);
 };
 
 ImapConnection.prototype.addBox = function(name, cb) {
@@ -763,8 +768,8 @@ ImapConnection.prototype.append = function(data, options, cb) {
       return cb(err);
     self._state.conn.send(data);
     self._state.conn.send(CRLF);
-    if (debug)
-      debug('sent', data.toString());
+    if (self.debug)
+      self.debug('sent', data.toString());
   });
 }
 
@@ -1054,14 +1059,17 @@ ImapConnection.prototype._login = function(cb) {
       cb(new Error('Logging in is disabled on this server'));
       return;
     }
-    //if (typeof this._state.capabilities['AUTH=PLAIN'] !== 'undefined') {
+
+    if (this.capabilities.indexOf('AUTH=XOAUTH') !== -1 &&
+        'xoauth' in this._options)
+      this._send('AUTHENTICATE XOAUTH ' + escape(this._options.xoauth), fnReturn);
+    else if (this.capabilities.indexOf('AUTH=PLAIN') !== -1) {
       this._send('LOGIN "' + escape(this._options.username) + '" "'
                  + escape(this._options.password) + '"', fnReturn);
-    /*} else {
-      cb(new Error('Unsupported authentication mechanism(s) detected. '
-                   + 'Unable to login.'));
-      return;
-    }*/
+    } else {
+      return cb(new Error('Unsupported authentication mechanism(s) detected. '
+                          + 'Unable to login.'));
+    }
   }
 };
 ImapConnection.prototype._reset = function() {
@@ -1118,11 +1126,11 @@ ImapConnection.prototype._send = function(cmdstr, cb, bypass) {
     this._state.conn.send(prefix);
     this._state.conn.send(cmd);
     this._state.conn.send(CRLF);
-    if (debug) {
+    if (this.debug) {
       if (/^LOGIN /.test(cmd))
-        debug('sent', '***BLEEPING OUT LOGON***');
+        this.debug('sent', '***BLEEPING OUT LOGON***');
       else
-        debug('sent', prefix + cmd);
+        this.debug('sent', prefix + cmd);
     }
   }
 };
