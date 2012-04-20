@@ -502,6 +502,10 @@ ImapFolderSyncer.prototype = {
       else
         filename = null;
 
+      // XXX check explicit content-disposition which is dependent on an
+      //  imap.js fix; we want to do inline display of inline things
+      //  that we actually can display/want to display.
+
       // - But we don't care if they are signatures...
       if ((type === 'application') &&
           (subtype === 'pgp-signature' || subtype === 'pkcs7-signature'))
