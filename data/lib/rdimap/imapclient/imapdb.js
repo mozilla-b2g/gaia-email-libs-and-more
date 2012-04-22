@@ -9,6 +9,7 @@ define(
   function(
     exports
   ) {
+'use strict';
 
 const CUR_VERSION = 1;
 
@@ -18,8 +19,9 @@ const CUR_VERSION = 1;
  * info.  Things that would be annoying for us to have to re-type.
  */
 const TBL_CONFIG = 'config',
-      CONFIG_ROW_ROOT = 'config',
-      CONFIG_ROWPREFIX_ACCOUNT_DEF = 'accountDef:';
+      CONFIG_KEY_ROOT = 'config',
+      // key: accountDef:`AccountId`
+      CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
 
 /**
  * The folder-info table stores meta-data about the known folders for each
@@ -27,7 +29,13 @@ const TBL_CONFIG = 'config',
  *
  * While we may eventually stash info like histograms of messages by date in
  * a folder, for now this is all about serving as a directory service for the
- * header and body blocks.
+ * header and body blocks.  See `ImapFolderStorage` for the details of the
+ * payload.
+ *
+ * All the folder info for each account is stored in a single object since we
+ * keep it all in-memory for now.
+ *
+ * key: `AccountId`
  */
 const TBL_FOLDER_INFO = 'folderInfo';
 
@@ -41,7 +49,7 @@ const TBL_FOLDER_INFO = 'folderInfo';
  * need the bodies clogging up our IO.  Additionally, we expect better
  * compression for bodies if they are stored together.
  *
- * row id: `FolderId`:`BlockId`
+ * key: `FolderId`:`BlockId`
  *
  * Each value is an object dictionary whose keys are either UIDs or a more
  * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
@@ -57,7 +65,7 @@ const TBL_HEADER_BLOCKS = 'headerBlocks';
  * Note that body blocks are not paired with header blocks; their storage is
  * completely separate.
  *
- * row id: `FolderId`:`BlockId`
+ * key: `FolderId`:`BlockId`
  *
  * Each value is an object dictionary whose keys are either UIDs or a more
  * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
@@ -66,6 +74,12 @@ const TBL_HEADER_BLOCKS = 'headerBlocks';
 const TBL_BODY_BLOCKS = 'bodyBlocks';
 
 /**
+ * DB helper methods for Gecko's IndexedDB implementation.  We are assuming
+ * the presence of the Mozilla-specific getAll helper right now.  Since our
+ * app is also dependent on the existence of the TCP API that no one else
+ * supports right now and we are assuming a SQLite-based IndexedDB
+ * implementation, this does not seem too crazy.
+ *
  * == Useful tidbits on our IndexedDB implementation
  *
  * - SQLite page size is 32k
@@ -87,18 +101,81 @@ const TBL_BODY_BLOCKS = 'bodyBlocks';
  *
  */
 function ImapDB() {
-  var openRequest = IndexedDB.open("b2gemail", CUR_VERSION);
+  this._db = null;
+
+  /**
+   * Fatal error handler.  This gets to be the error handler for all unexpected
+   * error cases.
+   */
+  this._fatalError = function(event) {
+    console.error('indexedDB error: ' + event.target.errorCode);
+  };
+
+  var openRequest = IndexedDB.open('b2g-email', CUR_VERSION), self = this;
   openRequest.onsuccess = function(event) {
+    self._db = openRequest.result;
   };
   openRequest.onupgradeneeded = function(event) {
-    var db = dbOpenRequest.result;
+    var db = openRequest.result;
 
+    db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_FOLDER_INFO);
-    db.createObjectStore(TBL_HEADER_CHUNKS);
+    db.createObjectStore(TBL_HEADER_BLOCKS);
     db.createObjectStore(TBL_BODY_BLOCKS);
   };
 }
 ImapDB.prototype = {
+  getConfig: function(configCallback) {
+    var transaction = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
+                                           IDBTransaction.READ_ONLY);
+    var configStore = transaction.objectStore(TBL_CONFIG),
+        folderInfoStore = transaction.objectStore(TBL_FOLDER_INFO);
+
+    // these will fire sequentially
+    var configReq = configStore.getAll(),
+        folderInfoReq = folderInfoStore.getAll();
+
+    configReq.onerror = this._fatalError;
+    // no need to track success, we can read it off folderInfoReq
+    folderInfoReq.onerror = this._fatalError;
+    folderInfoReq.onsuccess = function(event) {
+      var configObj, accounts = [], i, obj;
+      for (i = 0; i < configReq.results.length; i++) {
+        obj = configReq.results[i];
+        if (obj.id === 'config')
+          configObj = obj;
+        else
+          accounts.push({def: obj, folderInfo: null});
+      }
+      for (i = 0; i < folderInfoReq.results.length; i++) {
+        accounts[i].folderInfo = folderInfoReq.results[i];
+      }
+
+      configCallback(configObj, accounts);
+    };
+  },
+
+  saveConfig: function(config) {
+    var req = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE)
+                        .put(config, 'config');
+    req.onerror = this._fatalError;
+  },
+
+  saveAccountDef: function(accountDef) {
+    var req = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE)
+                        .put(accountDef,
+                             CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
+    req.onerror = this._fatalError;
+  },
+
+  loadHeaderBlock: function(folderId, blockId, callback) {
+    var req = this._db.transaction(TBL_HEADER_BLOCKS, IDBTransaction.READ_ONLY)
+                         .get(folderId + ':' + blockId);
+    req.onerror = this._fatalError;
+    req.onsuccess = function() {
+      callback(req.result);
+    };
+  },
 };
 
 }); // end define
