@@ -114,6 +114,17 @@ const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
  * How many messages should we send to the UI in the first go?
  */
 const INITIAL_FILL_SIZE = 12;
+/**
+ * What's the maximum number of messages we should ever handle in a go and
+ * where we should start failing by pretending like we haven't heard of the
+ * excess messages?  This is a question of message time-density and not a
+ * limitation on the number of messages in a folder.
+ *
+ * This could be eliminated by adjusting time ranges when we know the
+ * density is high (from our block indices) or by re-issuing search results
+ * when the server is telling us more than we can handle.
+ */
+const TOO_MANY_MESSAGES = 2000;
 
 /**
  * Folder connections do the actual synchronization logic.  They are associated
@@ -450,8 +461,8 @@ ImapFolderStorage.prototype = {
    * we know about.
    */
   getMessagesInDateRange: function(youngerDate, olderDate, limit,
-                                   includeAccuracy, messageCallback) {
-    var toFill = limit, self = this,
+                                   messageCallback) {
+    var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
 
@@ -474,6 +485,7 @@ ImapFolderStorage.prototype = {
         }
         var headerBlock = self._headerBlocks[headblockInfo.id];
         // - use up as many headers in the block as possible
+        // XXX destructuring
         var [iFirstHeader, header] = self._findFirstObjForDateRange(
                                        headerBlock.headers,
                                        youngerDate, olderDate);
@@ -491,6 +503,7 @@ ImapFolderStorage.prototype = {
             break;
         }
         // (iHeader is pointing at the index of message we don't want)
+        toFill -= iHeader - iFirstHeader;
         messageCallback(headerBlock.headers.slice(iFirstHeader, iHeader),
                         Boolean(toFill));
         // bail if there is nothing left to fill or we ran into an undesirable
@@ -513,25 +526,31 @@ ImapFolderStorage.prototype = {
    * Mark a given time range as synchronized.
    */
   markSyncRange: function(youngerDate, olderDate, modseq, dateMS) {
+    // - Find all overlapping accuracy ranges.
+    // - Split younger overlap if partial
+    // - Split older overlap if partial
   },
 
   /**
    * Add a new message to the database, generating slice notifications.
    */
-  addMessageHeader: function(date, uid, header) {
+  addMessageHeader: function(header) {
   },
 
   /**
    * Update an existing mesage header in the database, generating slice
    * notifications.
    */
-  updateMessageHeader: function(date, uid, header) {
+  updateMessageHeader: function(header) {
+  },
+
+  deleteMessageHeader: function(header) {
   },
 
   /**
    *
    */
-  putMessageBody: function(date, uid, bodyInfo) {
+  putMessageBody: function(header, bodyInfo) {
   },
 };
 

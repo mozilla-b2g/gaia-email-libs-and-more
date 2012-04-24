@@ -4,9 +4,11 @@
 
 define(
   [
+    './imapacct',
     'exports'
   ],
   function(
+    $imapacct,
     exports
   ) {
 

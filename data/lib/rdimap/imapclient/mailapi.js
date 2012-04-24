@@ -11,15 +11,31 @@ define(
     exports
   ) {
 
-function MailFolder() {
+function MailFolder(api, id) {
+  this._api = api;
+  this.id = id;
+
   this.name = null;
   this.path = null;
   this.onchange = null;
   this.onremove = null;
 }
 MailFolder.prototype = {
+  toString: function() {
+    return '[MailFolder: ' + this.path + ']';
+  },
 };
 
+/**
+ * Email overview information for displaying the message in the list as planned
+ * for the current UI.  Things that we don't need (ex: to/cc/bcc) for the list
+ * end up on the body, currently.  They will probably migrate to the header in
+ * the future.
+ *
+ * Events are generated if the metadata of the message changes or if the message
+ * is removed.  The `BridgedViewSlice` instance is how the system keeps track
+ * of what messages are being displayed/still alive to need updates.
+ */
 function MailHeader(slice, id) {
   this._slice = slice;
   this.id = id;
@@ -85,6 +101,10 @@ MailHeader.prototype = {
 /**
  * Lists the attachments in a message as well as providing a way to display the
  * body while (eventually) also accounting for message quoting.
+ *
+ * Mail bodies are immutable and so there are no events on them or lifetime
+ * management to worry about.  However, you should keep the `MailHeader` alive
+ * and worry about its lifetime since the message can get deleted, etc.
  */
 function MailBody(api, id) {
   this._api = api;
@@ -99,6 +119,9 @@ function MailBody(api, id) {
   this.bodyText = null;
 }
 MailBody.prototype = {
+  toString: function() {
+    return '[MailBody: ' + id + ']';
+  },
 };
 
 /**
@@ -111,6 +134,9 @@ function MailAttachment() {
   this.mimetype = null;
 }
 MailAttachment.prototype = {
+  toString: function() {
+    return '[MailAttachment: "' + this.filename + '"]';
+  },
 };
 
 /**
@@ -123,14 +149,18 @@ MailAttachment.prototype = {
 function UndoableOperation() {
 }
 UndoableOperation.prototype = {
+  toString: function() {
+    return '[UndoableOperation]';
+  },
 };
 
 /**
  *
  */
-function BridgedViewSlice(api, ns) {
+function BridgedViewSlice(api, ns, handle) {
   this._api = api;
   this._ns = ns;
+  this._handle = handle;
 
   this.items = [];
 
@@ -142,6 +172,10 @@ function BridgedViewSlice(api, ns) {
   this.onremove = null;
 }
 BridgedViewSlice.prototype = {
+  toString: function() {
+    return '[BridgedViewSlice: ' + handle + ']';
+  },
+
   requestGrowth: function() {
   },
 };
@@ -152,6 +186,9 @@ BridgedViewSlice.prototype = {
 function MailAPI() {
   this._nextHandle = 1;
   this.onstatuschange = null;
+
+  this._slices = {};
+  this._pendingRequests = {};
 }
 MailAPI.prototype = {
   /**
@@ -186,7 +223,9 @@ MailAPI.prototype = {
    */
   viewFolderMessages: function(folder) {
     var handle = this._nextHandle++,
-        viewslice = new BridgedViewSlice(this, 'headers', handle);
+        slice = new BridgedViewSlice(this, 'headers', handle);
+
+    this._slices[handle] = slice;
 
     this._bridgeSend({
       type: 'viewFolderMessages',
@@ -194,7 +233,7 @@ MailAPI.prototype = {
       handle: handle,
     });
 
-    return viewslice;
+    return slice;
   },
 
   /**

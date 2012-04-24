@@ -124,6 +124,7 @@ function ImapDB() {
     db.createObjectStore(TBL_BODY_BLOCKS);
   };
 }
+exports.ImapDB = ImapDB;
 ImapDB.prototype = {
   getConfig: function(configCallback) {
     var transaction = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
@@ -139,7 +140,7 @@ ImapDB.prototype = {
     // no need to track success, we can read it off folderInfoReq
     folderInfoReq.onerror = this._fatalError;
     folderInfoReq.onsuccess = function(event) {
-      var configObj, accounts = [], i, obj;
+      var configObj = null, accounts = [], i, obj;
       for (i = 0; i < configReq.results.length; i++) {
         obj = configReq.results[i];
         if (obj.id === 'config')
