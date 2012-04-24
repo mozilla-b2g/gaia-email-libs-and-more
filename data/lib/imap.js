@@ -403,7 +403,8 @@ ImapConnection.prototype.connect = function(loginCb) {
               }
               box.parent = parent;
             }
-            curChildren[name] = box;
+            if (!curChildren[name])
+              curChildren[name] = box;
           }
         break;
         // QRESYNC (when successful) generates a "VANISHED (EARLIER) uids"
