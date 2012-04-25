@@ -233,7 +233,9 @@ ImapConnection.prototype.connect = function(loginCb) {
           return;
       } else
         return;
-    // -- Fetch (all data received)
+    // -- Fetch w/literal
+    // (More specifically, we were not in a literal, and we got a line that
+    // is a fetch result that starts a literal run.)
     } else if (self._state.curExpected === 0
                && (literalInfo = (strdata = data.toString()).match(reFetch))) {
       self._state.curExpected = parseInt(literalInfo[2], 10);
@@ -248,10 +250,12 @@ ImapConnection.prototype.connect = function(loginCb) {
       curReq._msg = msg;
       curReq._fetcher.emit('message', msg);
       curReq._msgtype = (type.indexOf('HEADER') === 0 ? 'headers' : 'body');
+      // This library buffers headers, so allocate a buffer to hold the literal.
       if (curReq._msgtype === 'headers') {
         self._state.curData = new Buffer(self._state.curExpected);
         curReq.curPos = 0;
       }
+      // (If it's not headers, then it's body, and we generate 'data' events.)
       processData(data.slice(idxCRLF + 2));
       return;
     }

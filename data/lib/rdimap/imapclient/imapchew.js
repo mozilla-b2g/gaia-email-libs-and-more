@@ -53,7 +53,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   //     [{alternative} [{text/plain}] [{text/html}]]
   //   multipart/mixed text w/attachment =>
   //     [{mixed} [{text/plain}] [{application/pdf}]]
-  var attachments = [], bodyPartIds = [];
+  var attachments = [], bodyParts = [];
 
   /**
    * Sizes are the size of the encoded string, not the decoded value.
@@ -80,7 +80,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   }
 
   function chewStruct(branch) {
-    var partInfo = branch[0], bodyPartIds = [], attachments = [], i,
+    var partInfo = branch[0], i,
         filename;
 
     // - Detect named parts; they could be attachments
@@ -116,7 +116,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
       // - content
       case 'text':
         if (partInfo.subtype === 'plain') {
-          bodyPartIds.push(partInfo.partID);
+          bodyParts.push(partInfo);
         }
         // (ignore html)
         break;
@@ -136,7 +136,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
 
   return {
     msg: msg,
-    bodyPartIds: bodyPartIds,
+    bodyParts: bodyParts,
     attachments: attachments,
   };
 };

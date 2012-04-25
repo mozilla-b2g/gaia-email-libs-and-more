@@ -5,10 +5,12 @@
 define(
   [
     './imapchew',
+    'mailparser/mailparser',
     'exports'
   ],
   function(
     $imapchew,
+    $mailparser,
     exports
   ) {
 
@@ -197,11 +199,15 @@ const TOO_MANY_MESSAGES = 2000;
  * object since every fetch is the same.  Note that imap.js always gives us
  * FLAGS and INTERNALDATE so we don't need to ask for that.
  *
- * XXX We might want to consider using ENVELOPE instead; it looks like we might
- * need to enhance imap.js a little (the bodystructure parser can read
- * envelope structures).  We also should do a brief investigatory survey of
- * how error-tolerating the IMAP servers tend to be on weird encoding
- * glitches versus how tolerant we are/can be.
+ * We are intentionally not using ENVELOPE because Thunderbird intentionally
+ * defaults to to not using ENVELOPE.  Per bienvenu in
+ * https://bugzilla.mozilla.org/show_bug.cgi?id=402594#c33 "We stopped using it
+ * by default because servers often had issues with it so it was more trouble
+ * than it was worth."
+ *
+ * Of course, imap.js doesn't really support ENVELOPE outside of bodystructure
+ * right now either, but that's a lesser issue.  We probably don't want to trust
+ * that data, however, if we don't want to trust normal ENVELOPE.
  */
 const INITIAL_FETCH_PARAMS = {
   request: {
@@ -374,10 +380,62 @@ ImapFolderConn.prototype = {
         newChewReps.sort(function(a, b) {
             return b.msg.date - a.msg.date;
           });
-        // issue the bodypart fetches.
-        newChewReps.forEach(function(chewRep) {
 
-          var fetcher = conn.fetch(chewRep.msg.id, opts);
+        // - issue the bodypart fetches.
+        // Use mailparser's body parsing capabilities, albeit not entirely in
+        // the way it was intended to be used since it wants to parse full
+        // messages.
+        var mparser = new $mailparser.MailParser();
+        function setupBodyParser(partDef) {
+          mparser._state = 0x2; // body
+          mparser._remainder = '';
+          mparser._currentNode = null;
+          mparser._createMimeNode(null);
+          // nb: mparser._multipartTree is an empty list (always)
+          mparser._currentNode.meta.contentType =
+            partDef.type + '/' + partDef.subtype;
+          mparser._currentNode.meta.charset =
+            partDef.params && partDef.params.charset;
+          mparser._currentNode.meta.transferEncoding =
+            partDef.ecoding;
+          mparser._currentNode.meta.textFormat =
+            partDef.params && partDef.params.format;
+        }
+        function bodyParseBuffer(buffer) {
+          process.immediate = true;
+          mparser.write(buffer);
+          process.immediate = false;
+        }
+        function finishBodyParsing() {
+          process.immediate = true;
+          mparser._process(true);
+          process.immediate = false;
+          return mparser._currentNode.content;
+        }
+
+        // XXX imap.js is currently not capable of issuing/parsing multiple
+        // literal results from a single fetch result line.  It's not a
+        // fundamentally hard problem, but I'd rather defer messing with its
+        // parse loop (and internal state tracking) until a future time when
+        // I can do some other cleanup at the same time.  (The subsequent
+        // literals are just on their own lines with an initial space and then
+        // the named literal.  Ex: " BODY[1.2] {2463}".)
+        //
+        // So let's issue one fetch per body part and then be happy when we've
+        // got them all.
+        newChewReps.forEach(function(chewRep) {
+          var partsReceived = 0;
+          chewRep.bodyParts.forEach(function(bodyPart) {
+            var fetcher = conn.fetch(chewRep.msg.id, opts);
+            setupBodyParser(bodyPart);
+            fetcher.on('message', function(msg) {
+              setupBodyParser(bodyPart);
+              msg.on('data', bodyParseBuffer);
+              msg.on('end', function() {
+
+              });
+            });
+          });
         });
       });
 
