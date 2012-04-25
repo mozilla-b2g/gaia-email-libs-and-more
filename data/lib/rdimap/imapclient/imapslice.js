@@ -4,11 +4,77 @@
 
 define(
   [
+    './imapchew',
     'exports'
   ],
   function(
+    $imapchew,
     exports
   ) {
+
+/**
+ * Create multiple named callbacks whose results are aggregated and a single
+ * callback invoked once all the callbacks have returned their result.  This
+ * is intended to provide similar benefit to $Q.all in our non-promise world
+ * while also possibly being more useful.
+ *
+ * Example:
+ * @js{
+ *   var callbacks = allbackMaker(['foo', 'bar'], function(aggrData) {
+ *       console.log("Foo's result was", aggrData.foo);
+ *       console.log("Bar's result was", aggrData.bar);
+ *     });
+ *   asyncFooFunc(callbacks.foo);
+ *   asyncBarFunc(callbacks.bar);
+ * }
+ *
+ * Protection against a callback being invoked multiple times is provided as
+ * an anti-foot-shooting measure.  Timeout logic and other protection against
+ * potential memory leaks is not currently provided, but could be.
+ */
+function allbackMaker(names, allDoneCallback) {
+  var aggrData = {}, callbacks = {}, waitingFor = names.concat();
+
+  names.forEach(function(name) {
+    // (build a consistent shape for aggrData regardless of callback ordering)
+    aggrData[name] = undefined;
+    callbacks[name] = function(callbackResult) {
+      var i = waitingFor.indexOf(name);
+      if (i === -1) {
+        console.error("Callback '" + name + "' fired multiple times!");
+        throw new Error("Callback '" + name + "' fired multiple times!");
+      }
+      waitingFor.splice(i, 1);
+      aggrData[name] = callbackResult;
+      if (waitingFor.length === 0)
+        allDoneCallback(aggrData);
+    };
+  });
+
+  return callbacks;
+}
+
+/**
+ * Compact an array in-place with nulls so that the nulls are removed.  This
+ * is done by a scan with an adjustment delta and a final splice to remove
+ * the spares.
+ */
+function compactArray(arr) {
+  // this could also be done with a write pointer.
+  var delta = 0, len = arr.length;
+  for (var i = 0; i < len; i++) {
+    var obj = arr[i];
+    if (obj === null) {
+      delta++;
+      continue;
+    }
+    if (delta)
+      arr[i - delta] = obj;
+  }
+  if (delta)
+    arr.splice(len - delta, delta);
+  return arr;
+}
 
 /**
  * Stitches together multiple IMAP slices to present a unified folder.  This
@@ -127,6 +193,34 @@ const INITIAL_FILL_SIZE = 12;
 const TOO_MANY_MESSAGES = 2000;
 
 /**
+ * Fetch parameters to get the headers / bodystructure; exists to reuse the
+ * object since every fetch is the same.  Note that imap.js always gives us
+ * FLAGS and INTERNALDATE so we don't need to ask for that.
+ *
+ * XXX We might want to consider using ENVELOPE instead; it looks like we might
+ * need to enhance imap.js a little (the bodystructure parser can read
+ * envelope structures).  We also should do a brief investigatory survey of
+ * how error-tolerating the IMAP servers tend to be on weird encoding
+ * glitches versus how tolerant we are/can be.
+ */
+const INITIAL_FETCH_PARAMS = {
+  request: {
+    headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO'],
+    struct: true
+  },
+};
+
+/**
+ * Fetch parameters to just get the flags, which is no parameters because
+ * imap.js always fetches them right now.
+ */
+const FLAG_FETCH_PARAMS = {
+  request: {
+  },
+};
+
+
+/**
  * Folder connections do the actual synchronization logic.  They are associated
  * with one or more `ImapSlice` instances that issue the requests that trigger
  * synchronization.  Storage is handled by `ImapFolderStorage` or
@@ -155,7 +249,8 @@ function ImapFolderConn() {
 }
 ImapFolderConn.prototype = {
   /**
-   * Search with a guaranteed API.
+   * Search with a guaranteed API.  Specifically, we want to automatically
+   * re-establish the connection as required.
    */
   _reliaSearch: function(searchOptions, callback) {
     this._conn.search(searchOptions, function(err, uids) {
@@ -170,19 +265,63 @@ ImapFolderConn.prototype = {
    * messages we already know about that should exist in the search results but
    * do not.  Retrieve information on the messages we don't know anything about
    * and update the metadata on the messages we do know about.
+   *
+   * An alternate way to accomplish the new/modified/deleted detection for a
+   * range might be to do a search over the UID range of new-to-us UIDs and
+   * then perform retrieval on what we get back.  We would do a flag fetch for
+   * all the UIDs we already know about and use that to both get updated
+   * flags and infer deletions from UIDs that don't report back.  Except that
+   * might not work because the standard doesn't seem to say that if we
+   * specify gibberish UIDs that it should keep going for the UIDs that are
+   * not gibberish.  Also, it's not clear what the performance impact of the
+   * additional search constraint might be on server performance.  (Of course,
+   * if the server does not have an index on internaldate, these queries are
+   * going to be very expensive and the UID limitation would probably be a
+   * mercy to the server.)
    */
   syncDateRange: function(youngerDate, olderDate, newToOld, slice) {
-    var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this;
+    var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
+      storage = self._storage;
     if (youngerDate)
       searchOptions.push(['SINCE', youngerDate]);
     if (olderDate)
       searchOptions.push(['BEFORE', olderDate]);
 
-    var fromDb = null;
-    this.reliaSearch(searchOptions, function(uids) {
+    var callbacks = allbackMaker(
+      ['search', 'db'],
+      function syncDateRangeLogic(results) {
+        var serverUIDs = results.search, headers = results.db,
+            knownUIDs = [], uid, numDeleted = 0;
 
+        // -- infer deletion, flag to distinguish known messages
+        // rather than splicing lists and causing shifts, we null out values.
+        for (var iMsg = 0; iMsg < headers.length; iMsg++) {
+          var header = headers[iMsg];
+          var idxUid = serverUIDs.indexOf(header.id);
+          // deleted!
+          if (idxUid === -1) {
+            storage.deleteMessageHeader(header);
+            numDeleted++;
+            headers[iMsg] = null;
+            continue;
+          }
+          // null out the UID so the non-null values in the search are the
+          // new messages to us.
+          serverUIDs[idxUid] = null;
+          // but save the UID so we can do a flag-check.
+          knownUIDs.push(header.id);
+        }
+
+        var newUIDs = compactArray(serverUIDs); // (re-labeling, same array)
+        if (numDeleted)
+          compactArray(headers);
+
+        self._commonSync(newUIDs, knownUIDs, headers);
       });
-    this._storage.getMessagesInDateRange(earlierDate, laterDate, syncer);
+
+    this._reliaSearch(searchOptions, callbacks.search);
+    this._storage.getAllMessagesInDateRange(earlierDate, laterDate,
+                                            callbacks.db);
   },
 
   searchDateRange: function(youngerDate, olderDate, newToOld, searchParams,
@@ -192,6 +331,72 @@ ImapFolderConn.prototype = {
       searchOptions.push(['SINCE', youngerDate]);
     if (olderDate)
       searchOptions.push(['BEFORE', olderDate]);
+  },
+
+  /**
+   * Given a list of new-to-us UIDs and known-to-us UIDs and their corresponding
+   * headers, synchronize the flags for the known UIDs' headers and fetch and
+   * create the header and body objects for the new UIDS.
+   *
+   * First we fetch the headers/bodystructures for the new UIDs all in one go;
+   * all of these headers are going to end up in-memory at the same time, so
+   * batching won't let us reduce the overhead right now.  We process them
+   * to determine the body parts we should fetch as the results come in.  Once
+   * we have them all, we sort them by date, youngest-to-oldest for the third
+   * step and start issuing/pipelining the requests.
+   *
+   * Second, we issue the flag update requests for the known-to-us UIDs.  This
+   * is done second so it can help avoid wasting the latency of the round-trip
+   * that would otherwise result between steps one and three.  (Although we
+   * could also mitigate that by issuing some step three requests even as
+   * the step one requests are coming in; our sorting doesn't have to be
+   * perfect and may already be reasonably well ordered if UIDs correlate
+   * with internal date well.)
+   *
+   * Third, we fetch the body parts in our newest-to-oldest order, adding
+   * finalized headers and bodies as we go.
+   */
+  _commonSync: function(newUIDs, knownUIDs, knownHeaders) {
+    var conn = this._conn;
+    // -- Fetch headers/bodystructures for new UIDs
+    var newChewReps = [];
+    var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
+    newFetcher.on('message', function onNewMessage(msg) {
+        msg.on('end', function onNewMsgEnd() {
+          newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
+        });
+      });
+    newFetcher.on('error', function onNewFetchError(err) {
+        console.warn('New UIDs fetch error, ideally harmless:', err);
+      });
+    newFetcher.on('end', function onNewFetchEnd() {
+        // sort the messages, youngest to oldest (aka numerically descending)
+        newChewReps.sort(function(a, b) {
+            return b.msg.date - a.msg.date;
+          });
+        // issue the bodypart fetches.
+        newChewReps.forEach(function(chewRep) {
+
+          var fetcher = conn.fetch(chewRep.msg.id, opts);
+        });
+      });
+
+    // -- Fetch updated flags for known UIDs
+    var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
+    knownFetcher.on('message', function onKnownMessage(msg) {
+        // (Since we aren't requesting headers, we should be able to get
+        // away without registering this next event handler and just process
+        // msg right now, but let's wait on an optimization pass.)
+        msg.on('end', function onKnownMsgEnd() {
+
+        });
+      });
+    knownFetcher.on('error', function onKnownFetchError(err) {
+
+      });
+    knownFetcher.on('end', function onKnownFetchEnd() {
+      });
+
   },
 };
 
@@ -459,6 +664,18 @@ ImapFolderStorage.prototype = {
   /**
    * Retrieve the (ordered list) of messages covering a given date range that
    * we know about.
+   *
+   * @args[
+   *   @param[youngerDate]
+   *   @param[olderDate]
+   *   @param[limit #:optional]
+   *   @param[messageCallback @func[
+   *     @args[
+   *       @param[headers @listof[HeaderInfo]]
+   *       @param[moreMessagesComing Boolean]]
+   *     ]
+   *   ]
+   * ]
    */
   getMessagesInDateRange: function(youngerDate, olderDate, limit,
                                    messageCallback) {
@@ -472,7 +689,7 @@ ImapFolderStorage.prototype = {
       self._findRangeObjIndexForDate(earlierDate, laterDate);
     if (!headBlockInfo) {
       // no blocks equals no messages.
-      messageCallback(null, false);
+      messageCallback([], false);
       return;
     }
 
@@ -491,7 +708,7 @@ ImapFolderStorage.prototype = {
                                        youngerDate, olderDate);
         // aw man, no usable messages?!
         if (!header) {
-          messageCallback(null, false);
+          messageCallback([], false);
           return;
         }
         // (at least one usable message)
@@ -520,6 +737,29 @@ ImapFolderStorage.prototype = {
     }
 
     fetchMore();
+  },
+
+  /**
+   * Batch/non-streaming version of `getMessagesInDateRange`.
+   *
+   * @args[
+   *   @param[allCallback @func[
+   *     @args[
+   *       @param[headers @listof[HeaderInfo]]
+   *     ]
+   *   ]
+   * ]
+   */
+  getAllMessagesInDateRange: function(youngerDate, olderDate, allCallback) {
+    var allHeaders = null;
+    function someMessages(headers, moreHeadersExpected) {
+      if (allHeaders)
+        allHeaders = allHeaders.concat(headers);
+      else
+        allHeaders = headers;
+      if (!moreHeadersExpected)
+        allCallback(allHeaders);
+    }
   },
 
   /**

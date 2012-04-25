@@ -162,11 +162,11 @@ ImapDB.prototype = {
     req.onerror = this._fatalError;
   },
 
-  saveAccountDef: function(accountDef) {
-    var req = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE)
-                        .put(accountDef,
-                             CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
-    req.onerror = this._fatalError;
+  saveAccountDef: function(accountDef, folderInfo) {
+    var trans = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE);
+    trans.put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
+    trans.put(folderInfo, TBL_FOLDER_INFO);
+    trans.onerror = this._fatalError;
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {

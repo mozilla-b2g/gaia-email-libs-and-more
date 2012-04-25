@@ -41,17 +41,27 @@ MailUniverse.prototype = {
    * This
    */
   tryToCreateAccount: function(connInfo, callback) {
-    var prober = new $imapprobe.ImapProber(connInfo);
+    var prober = new $imapprobe.ImapProber(connInfo), self = this;
     prober.onresult = function(accountGood) {
-
+      var account = null;
+      if (accountGood) {
+        account = self._actuallyCreateAccount(connInfo);
+      }
+      callback(accountGood, account);
     };
   },
 
   _actuallyCreateAccount: function(connInfo) {
     var accountDef = {
       id: $a64.encodeInt(this.config.nextAccountNum++),
+      name: connInfo.username,
       connInfo: connInfo,
     };
+    var folderInfo = {};
+    this._db.saveAccountDef(accountDef, folderInfo);
+
+    var account = new ImapAccount(accountDef, folderInfo);
+    this.accounts.push(account);
   },
 };
 
@@ -63,6 +73,9 @@ MailUniverse.prototype = {
  *
  * @typedef[AccountDef @dict[
  *   @key[id AccountId]
+ *   @key[name String]{
+ *     The display name for the account.
+ *   }
  *   @key[connInfo @dict[
  *     @key[host]
  *     @key[port]
@@ -73,7 +86,7 @@ MailUniverse.prototype = {
  * ]]
  */
 function ImapAccount(accountDef, folderInfos) {
-
+  this.accountDef = accountDef;
 }
 ImapAccount.prototype = {
   type: 'imap',
