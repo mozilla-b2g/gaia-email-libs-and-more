@@ -89,8 +89,19 @@ function UnifyingImapSlice() {
 UnifyingImapSlice.prototype = {
 };
 
+function headerYoungToOldComparator(a, b) {
+  var delta = b.date - a.date;
+  if (delta)
+    return delta;
+  // favor larger UIDs because they are newer-ish.
+  return b.id - a.id;
+}
+
 /**
  * Presents a message-centric view of a slice of time from IMAP search results.
+ * Responsible for tracking the state the UI's view-slice at the other end of
+ * the bridge is aware of.
+ *
  *
  * == Use-case assumptions
  *
@@ -140,11 +151,37 @@ UnifyingImapSlice.prototype = {
  * (Messages appearing, disappearing, having their status change, etc.)
  *
  */
-function ImapSlice(bridgeHandle, folder, folderStorage, dateRange, filters) {
+function ImapSlice(bridgeHandle, folder, folderStorage,
+                   youngest, oldest,
+                   filters) {
+  this.youngest = youngest;
+  this.oldest = oldest;
+
+  this.headers = [];
 }
 ImapSlice.prototype = {
+  noteRanges: function() {
+    // XXX implement and contend with the generals problem.  probably just have
+    // the other side name the values by id rather than offsets.
+  },
+
+  grow: function(dirMagnitude) {
+  },
+
   setStatus: function(status) {
     this.bridgeHandle.sendStatus('status');
+  },
+
+  onHeaderAdded: function(header) {
+    // XXX insertion point logic; deuxdrop must have this
+  },
+
+  onHeaderModified: function(header) {
+    // XXX this can only affect flags, just send the state mutation
+  },
+
+  onHeaderRemoved: function(header) {
+    // XXX find the location, splice it.
   },
 };
 
@@ -232,6 +269,12 @@ const FLAG_FETCH_PARAMS = {
  * synchronization.  Storage is handled by `ImapFolderStorage` or
  * `GmailMessageStorage` instances.
  *
+ * == IMAP Protocol Connection Management
+ *
+ * We request IMAP protocol connections from the account.  There is currently no
+ * way for us to surrender our connection or indicate to the account that we
+ * are capable of surrending the connection.  That might be a good idea, though.
+ *
  * == IDLE
  *
  * We plan to IDLE in folders that we have active slices in.  We are assuming
@@ -245,23 +288,51 @@ const FLAG_FETCH_PARAMS = {
  * we should do a SEARCH for new messages.  It is that search that will update
  * our accuracy information and only that.
  */
-function ImapFolderConn() {
+function ImapFolderConn(account, storage) {
+  this._account = account;
+  this._storage = storage;
+
   this._conn = null;
-
-  this._activeTask = null;
-  this._activeSlice = null;
-
-  this._storage = null;
 }
 ImapFolderConn.prototype = {
   /**
-   * Search with a guaranteed API.  Specifically, we want to automatically
-   * re-establish the connection as required.
+   * Wrap the search command and shirk the errors for now.  I was thinking we
+   * might have this do automatic connection re-establishment, etc., but I think
+   * it makes more sense to have the IMAP protocol connection object do that
+   * under the hood or in participation with the account class via another
+   * interface since it already handles command queueing.
+   *
+   * This also conveniently hides the connection acquisition asynchrony.
    */
   _reliaSearch: function(searchOptions, callback) {
+    // If we don't have a connection, get one, then re-call.
+    if (!this._conn) {
+      var self = this;
+      this._account.__folderDemandsConnection(
+        this._storage.folderId,
+        function(conn) {
+          self._conn = conn;
+          // Now we have a connection, but it's not in the folder.
+          // (If we were doing fancier sync like QRESYNC, we would not enter
+          // in such a blase fashion.)
+          self._conn.openBox(self._storage.folderMeta.path, function(err) {
+              if (err) {
+                console.error('Problem entering folder',
+                              self._storage.folderMeta.path);
+                return;
+              }
+              self._reliaSearch(searchOptions, callback);
+            });
+        });
+      return;
+    }
+
     this._conn.search(searchOptions, function(err, uids) {
         if (err) {
+          console.error('Search error on', searchOptions, 'err:', err);
+          return;
         }
+        callback(uids);
       });
   },
 
@@ -362,8 +433,8 @@ ImapFolderConn.prototype = {
    * Third, we fetch the body parts in our newest-to-oldest order, adding
    * finalized headers and bodies as we go.
    */
-  _commonSync: function(newUIDs, knownUIDs, knownHeaders) {
-    var conn = this._conn;
+  _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
+    var conn = this._conn, storage = this._storage;
     // -- Fetch headers/bodystructures for new UIDs
     var newChewReps = [];
     var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
@@ -373,6 +444,9 @@ ImapFolderConn.prototype = {
         });
       });
     newFetcher.on('error', function onNewFetchError(err) {
+        // XXX the UID might have disappeared already?  we might need to have
+        // our initiating command re-do whatever it's up to.  Alternatively,
+        // we could drop back from a bulk fetch to a one-by-one fetch.
         console.warn('New UIDs fetch error, ideally harmless:', err);
       });
     newFetcher.on('end', function onNewFetchEnd() {
@@ -423,8 +497,8 @@ ImapFolderConn.prototype = {
         //
         // So let's issue one fetch per body part and then be happy when we've
         // got them all.
-        newChewReps.forEach(function(chewRep) {
-          var partsReceived = 0;
+        newChewReps.forEach(function(chewRep, iChewRep) {
+          var partsReceived = [];
           chewRep.bodyParts.forEach(function(bodyPart) {
             var fetcher = conn.fetch(chewRep.msg.id, opts);
             setupBodyParser(bodyPart);
@@ -432,27 +506,60 @@ ImapFolderConn.prototype = {
               setupBodyParser(bodyPart);
               msg.on('data', bodyParseBuffer);
               msg.on('end', function() {
-
+                partsReceived.push(finishBodyParsing());
+                // -- Process
+                if (partsReceived.length === chewRep.bodyParts.length) {
+                  if ($imapchew.chewBodyParts(chewRep, partsReceived)) {
+                    storage.addMessageHeader(chewRep.header);
+                    storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
+                  }
+                }
               });
             });
+
+            // If this is the last chew rep, then use its completion to report
+            // our completion.
+            if (iChewRep === newChewReps.length) {
+              fetcher.on('end', function() {
+                doneCallback();
+              });
+            }
           });
         });
       });
 
     // -- Fetch updated flags for known UIDs
     var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
+    var numFetched = 0;
     knownFetcher.on('message', function onKnownMessage(msg) {
         // (Since we aren't requesting headers, we should be able to get
         // away without registering this next event handler and just process
         // msg right now, but let's wait on an optimization pass.)
         msg.on('end', function onKnownMsgEnd() {
+          var i = numFetched++;
+          // RFC 3501 doesn't seem to require that we get results in the order
+          // we request them, so use indexOf if things don't line up.
+          if (knownHeaders[i].id !== msg.id) {
+            i = knownUIDs.indexOf(msg.id);
+            // If it's telling us about a message we don't know about, run away.
+            if (i === -1) {
+              console.warn("Server fetch reports unexpected message:", msg.id);
+              return;
+            }
+          }
+          var header = knownHeaders[i];
 
+          if (header.flags.toString() !== msg.flags.toString()) {
+            header.flags = msg.flags;
+            storage.updateMessageHeader(header);
+          }
         });
       });
     knownFetcher.on('error', function onKnownFetchError(err) {
-
-      });
-    knownFetcher.on('end', function onKnownFetchEnd() {
+        // XXX the UID might have disappeared already?  we might need to have
+        // our initiating command re-do whatever it's up to.  Alternatively,
+        // we could drop back from a bulk fetch to a one-by-one fetch.
+        console.warn('Known UIDs fetch error, ideally harmless:', err);
       });
 
   },
@@ -472,9 +579,32 @@ ImapFolderConn.prototype = {
  *
  * Blocks are discarded from memory (and written back if mutated) when there are
  * no longer live `ImapSlice` instances that care about the time range and we
- * are experiencing time pressure.
+ * are experiencing memory pressure.  Dirty blocks are periodically written
+ * to storage even if there is no memory pressure at notable application and
+ * synchronization state milestones.  Since the server is the canonical message
+ * store, we are not exceedingly concerned about losing state.
  *
- * Messages are discarded from storage
+ * Messages are discarded from storage when experiencing storage pressure.  We
+ * figure it's better to cache what we have until it's known useless (deleted
+ * messages) or we definitely need the space for something else.
+ *
+ * == Concurrency and I/O
+ *
+ * The logic in this class can operate synchronously as long as the relevant
+ * header/body blocks are in-memory.  For simplicity, we (asynchronously) defer
+ * execution of calls that mutate state while loads are in-progress; callers
+ * will not block.  This simplifies our implementation and thinking about our
+ * implementation without making life for our users much worse.
+ *
+ * Specifically, all UI requests for data will be serviced immediately if the
+ * data is available.  If the data is not available, the wait would have
+ * happened anyways.  Mutations will be enqueued, but are always speculatively
+ * assumed to succeed by the UI anyways so when they are serviced is not
+ * exceedingly important other than a burden on us to surface in the UI that
+ * we still have some state to synchronize to the server so the user does
+ * not power-off their phone quite yet.
+ *
+ * == Types
  *
  * @typedef[AccuracyRangeInfo @dict[
  *   @key[youngest DateMS]
@@ -574,10 +704,13 @@ ImapFolderConn.prototype = {
  *   @value[BodyInfo]
  * ]]
  */
-function ImapFolderStorage(folderId, persistedFolderInfo) {
+function ImapFolderStorage(account, folderId, persistedFolderInfo) {
+  /** Our owning account. */
+  this._account = account;
   this._imapDb = null;
 
   this.folderId = folderId;
+  this.folderMeta = persistedFolderInfo.$meta;
   /**
    * @listof[AccuracyRangeInfo]{
    *   Younged-to-oldest sorted list of accuracy range info structures.
@@ -602,7 +735,28 @@ function ImapFolderStorage(folderId, persistedFolderInfo) {
 
   this._dirtyHeaderBlocks = {};
   this._dirtyBodyBlocks = {};
+
+  /**
+   * @listof[BlockId]
+   */
+  this._pendingLoads = [];
+  /**
+   * @dictof[
+   *   @key[BlockId]
+   *   @key[@listof[@func]]
+   * ]
+   */
+  this._pendingLoadListeners = {};
+
+  /**
+   * @listof[@func[]]{
+   *   A list of fully-bound functions to drain when the last pending load gets
+   *   loaded, at least until a new load goes pending.
+   * }
+   */
+  this._deferredCalls = [];
 }
+exports.ImapFolderStorage = ImapFolderStorage;
 ImapFolderStorage.prototype = {
   /**
    * Find the first object that contains date ranges whose date ranges contains
@@ -671,10 +825,98 @@ ImapFolderStorage.prototype = {
     return [i, null];
   },
 
-  _loadHeaderBlock: function(blockId, callback) {
-    // XXX we will either need to track pending loads or ensure that our
-    // concurrency model forbids the potential for duplicate loads.
-    this._imapDb.loadHeaderBlock(this.folderId, blockId);
+  /**
+   * Find (and possibly update) an existing block info metadata structure or
+   * create a new block info (and block) if required.  While this method is
+   * not specialized to header/body blocks in general, when creating a new
+   * block it does know how to initialize an empty block appropriately.  The
+   * caller is responsible for inserting the item into the block, which may
+   * first require loading the block from disk.
+   *
+   * == Usage patterns
+   *
+   * - In initial-sync cases and scrolling down through the list, we will
+   *   generate messages from a younger-to-older direction.  The insertion point
+   *   will then likely occur after the last block.
+   * - In update-sync cases, we should be primarily dealing with new mail which
+   *   is still retrieved youngest to oldest.  The insertion point will start
+   *   before the first block and then move backwards within that block.
+   * - Update-sync cases may also encounter messages moved into the folder
+   *   from other folders since the last sync.  An archive folder is the
+   *   most likely case for this, and we would expect random additions with a
+   *   high degree of clustering on message date.
+   * - Update-sync cases may experience a lot of apparent message deletion due
+   *   to actual deletion or moves to other folders.  These can shrink blocks
+   *   and we need to consider block merges to avoid pathological behavior.
+   * - Forgetting messages that are no longer being kept alive by sync settings
+   *   or apparent user interest.  There's no benefit to churn for the sake of
+   *   churn, so we can just forget messages in blocks wholesale when we
+   *   experience disk space pressure (from ourselves or elsewhere).  In that
+   *   case we will want to traverse from the oldest messages, dropping them and
+   *   consolidating blocks as we go until we have freed up enough space.
+   *
+   * == General strategy
+   *
+   * - If we fall in an existing block and it won't overflow, use it.
+   * - If we fall in an existing block and it would overflow, split it.
+   * - If we fall outside existing blocks, check older and newer blocks in that
+   *   order for a non-overflow fit.  If we would overflow, pick the existing
+   *   block further from the center to perform a split.
+   * - When splitting, if we are the first or last block, split 2/3 towards the
+   *   center and 1/3 towards the edge.  The idea is that growth is most likely
+   *   to occur near the edges, so concentrate the empty space there without
+   *   leaving the center blocks so overloaded they can't accept random
+   *   additions without further splits.
+   *
+   * == Block I/O
+   *
+   * While we can make decisions about where to insert things, we need to have
+   * blocks in memory in order to perform the actual splits.  The outcome
+   * of splits can't be predicted because the size of things in blocks is
+   * only known when the block is loaded.
+   */
+  _pickInsertionBlockUsingDate: function(type, date, cost) {
+    var blockInfoList = (type === 'header' ? this._headerBlockInfos
+                                           : this._bodyBlockInfos);
+
+    // - find the current containing block / insertion point
+    var infoTuple = this._findRangeObjIndexForDate(blockInfoList, date),
+        iInfo = infoTuple[0], info = infoTuple[1];
+
+    // -
+    if (info) {
+
+    }
+  },
+
+  /**
+   * Request the load of the given block and the invocation of the callback with
+   * the block when the load completes.
+   */
+  _loadBlock: function(type, blockId, callback) {
+    var aggrId = type + blockId;
+    if (this._pendingLoads.indexOf(aggrId) !== -1) {
+      this._pendingLoadListeners[aggrId].push(callback);
+      return;
+    }
+
+    var index = this._pendingLoads.length;
+    this._pendingLoads.push(aggrId);
+    this._pendingLoadListeners[aggrId] = [callback];
+
+    function onLoaded(block) {
+      this._pendingLoads.splice(index, 1);
+      var listeners = this._pendingLoadListeners[aggrId];
+      delete this._pendingLoadListeners[aggrId];
+      for (var i = 0; i < listeners.length; i++) {
+        listeners[i](block);
+      }
+    }
+
+    if (type === 'header')
+      this._imapDb.loadHeaderBlock(this.folderId, blockId, onLoaded);
+    else
+      this._imapDb.loadBodyBlock(this.folderId, blockId, onLoaded);
   },
 
   /**
@@ -744,7 +986,8 @@ ImapFolderStorage.prototype = {
 
     // find the first header block with the data we want
     [iHeadBlockInfo, headBlockInfo] =
-      self._findRangeObjIndexForDate(earlierDate, laterDate);
+      self._findRangeObjIndexForDateRange(this._headerBlockInfos,
+                                          youngerDate, laterDate);
     if (!headBlockInfo) {
       // no blocks equals no messages.
       messageCallback([], false);
@@ -755,15 +998,16 @@ ImapFolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!(headBlockInfo.id in self._headerBlocks)) {
-          self._loadHeaderBlock(headBlockInfo.id, fetchMore);
+          self._loadBlock('header', headBlockInfo.id, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headblockInfo.id];
         // - use up as many headers in the block as possible
-        // XXX destructuring
-        var [iFirstHeader, header] = self._findFirstObjForDateRange(
-                                       headerBlock.headers,
-                                       youngerDate, olderDate);
+        // (previously used destructuring, but we want uglifyjs to work)
+        var headerTuple = self._findFirstObjForDateRange(
+                            headerBlock.headers,
+                            youngerDate, olderDate),
+            iFirstHeader = headerTuple[0], header = headerTuple[1];
         // aw man, no usable messages?!
         if (!header) {
           messageCallback([], false);
@@ -822,6 +1066,9 @@ ImapFolderStorage.prototype = {
 
   /**
    * Mark a given time range as synchronized.
+   *
+   * XXX punting on for now; this will cause synchronization to always occur
+   * prior to attempting to populate the slice.
    */
   markSyncRange: function(youngerDate, olderDate, modseq, dateMS) {
     // - Find all overlapping accuracy ranges.
@@ -833,22 +1080,40 @@ ImapFolderStorage.prototype = {
    * Add a new message to the database, generating slice notifications.
    */
   addMessageHeader: function(header) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.addMessageHeader.bind(this, header));
+      return;
+    }
   },
 
   /**
    * Update an existing mesage header in the database, generating slice
-   * notifications.
+   * notifications and dirtying its containing block to cause eventual database
+   * writeback.
    */
   updateMessageHeader: function(header) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
+      return;
+    }
   },
 
   deleteMessageHeader: function(header) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.deleteMessageHeader.bind(this, header));
+      return;
+    }
   },
 
   /**
    *
    */
-  putMessageBody: function(header, bodyInfo) {
+  addMessageBody: function(header, bodyInfo) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.addMessageBody.bind(this, header,
+                                                        bodyInfo));
+      return;
+    }
   },
 };
 

@@ -162,20 +162,84 @@ ImapDB.prototype = {
     req.onerror = this._fatalError;
   },
 
+  /**
+   * Save the addition of a new account or when changing account settings.  Only
+   * pass `folderInfo` for the new account case; omit it for changing settings
+   * so it doesn't get updated.  For coherency reasons it should only be updated
+   * using saveFolderStates.
+   */
   saveAccountDef: function(accountDef, folderInfo) {
-    var trans = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE);
-    trans.put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
-    trans.put(folderInfo, TBL_FOLDER_INFO);
+    var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
+                                     IDBTransaction.READ_WRITE);
+    trans.objectStore(TBL_CONFIG)
+         .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
+    if (folderInfo) {
+      trans.objectStore(TBL_FOLDER_INFO)
+           .put(folderInfo, accountDef.id);
+    }
     trans.onerror = this._fatalError;
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {
     var req = this._db.transaction(TBL_HEADER_BLOCKS, IDBTransaction.READ_ONLY)
+                         .objectStore(TBL_HEADER_BLOCKS)
                          .get(folderId + ':' + blockId);
     req.onerror = this._fatalError;
     req.onsuccess = function() {
       callback(req.result);
     };
+  },
+
+  loadBodyBlock: function(folderId, blockId, callback) {
+    var req = this._db.transaction(TBL_BODY_BLOCKS, IDBTransaction.READ_ONLY)
+                         .objectStore(TBL_BODY_BLOCKS)
+                         .get(folderId + ':' + blockId);
+    req.onerror = this._fatalError;
+    req.onsuccess = function() {
+      callback(req.result);
+    };
+  },
+
+  /**
+   * Coherently update the state of the folderInfo for an account plus all dirty
+   * blocks at once in a single (IndexedDB and SQLite) commit. If we broke
+   * folderInfo out into separate keys, we could do this on a per-folder basis
+   * instead of per-account.  Revisit if performance data shows stupidity.
+   *
+   * @args[
+   *   @param[accountDef]
+   *   @param[folderInfo]
+   *   @param[perFolderStuff @listof[@dict[
+   *     @key[id FolderId]
+   *     @key[headerBlocks @dictof[@key[BlockId] @value[HeaderBlock]]]
+   *     @key[bodyBlocks @dictof[@key[BlockID] @value[BodyBlock]]]
+   *   ]]]
+   * ]
+   */
+  saveAccountFolderStates: function(accountDef, folderInfo, perFolderStuff,
+                                    callback) {
+    var trans = this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
+                                      TBL_BODY_BLOCKS],
+                                      IDBTransaction.READ_WRITE);
+    trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountDef.id);
+    var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
+        bodyStore = trans.objectStore(TBL_BODY_BLOCKS);
+    for (var i = 0; i < perFolderStuff.length; i++) {
+      var pfs = perFolderStuff[i];
+
+      for (var headerBlockId in pfs.headerBlocks) {
+        headerStore.put(pfs.headersBlocks[headerBlockId],
+                        pfs.id + ':' + headerBlockId);
+      }
+
+      for (var bodyBlockId in pfs.bodyBlocks) {
+        bodyStore.put(pfs.bodyBlocks[bodyBlockId],
+                      pfs.id + ':' + bodyBlockId);
+      }
+    }
+
+    if (callback)
+      trans.onsuccess = callback;
   },
 };
 

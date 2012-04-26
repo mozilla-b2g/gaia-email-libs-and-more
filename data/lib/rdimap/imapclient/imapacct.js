@@ -36,6 +36,7 @@ function MailUniverse() {
     }
   });
 }
+exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
   /**
    * This
@@ -57,7 +58,11 @@ MailUniverse.prototype = {
       name: connInfo.username,
       connInfo: connInfo,
     };
-    var folderInfo = {};
+    var folderInfo = {
+      $meta: {
+        nextFolderNum: 0,
+      },
+    };
     this._db.saveAccountDef(accountDef, folderInfo);
 
     var account = new ImapAccount(accountDef, folderInfo);
@@ -69,7 +74,8 @@ MailUniverse.prototype = {
  * Account object, root of all interaction with servers.
  *
  * Passwords are currently held in cleartext with the rest of the data.  Ideally
- * we would like them to be stored in a more privileged
+ * we would like them to be stored in some type of keyring coupled to the TCP
+ * API in such a way that we never know the API.  Se a vida e.
  *
  * @typedef[AccountDef @dict[
  *   @key[id AccountId]
@@ -87,11 +93,87 @@ MailUniverse.prototype = {
  */
 function ImapAccount(accountDef, folderInfos) {
   this.accountDef = accountDef;
+
+  this._ownedConns = [];
+
+  // Yes, the pluralization is suspect, but unambiguous.
+  var folderStorages = this._folderStorages = {};
+  var folderPubs = this.folders = [];
+
+  /**
+   * The canonical folderInfo object we persist to the database.
+   */
+  this._folderInfos = folderInfos;
+  this._meta = this._folderInfos.$meta;
+  for (var folderId in folderInfos) {
+    var folderInfo = folderInfos[folderId];
+    folderStorages[folderId] =
+      new $imapslice.ImapFolderStorage(folderId, folderInfo);
+    folderPubs.push(folderInfo.$meta);
+  }
+
+  if (!folderStorages.hasOwnProperty("INBOX"))
+    this._learnAboutFolder("INBOX", ["INBOX"], 'inbox');
 }
 ImapAccount.prototype = {
   type: 'imap',
 
-  sliceFolderMessages: function() {
+  /**
+   * Make a given folder known to us, creating state tracking instances, etc.
+   */
+  _learnAboutFolder: function(name, path, type) {
+    var folderId = this.accountDef.id + '-' +
+                     $a64.encodeInt(this._meta.nextFolderNum++);
+    var folderInfo = this._folderInfos[folderId] = {
+      $meta: {
+        id: folderId,
+        name: name,
+        path: path,
+        type: type,
+      },
+    };
+    this._folderStorages[folderId] =
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
+  },
+
+  /**
+   * Create a view slice on the messages in a folder, starting from the most
+   * recent messages and synchronizing further as needed.
+   */
+  sliceFolderMessages: function(slice, folderPub) {
+    var storage = this._folderStorages[folderPub.id];
+    storage.sliceOpenFromNow(slice, 14);
+  },
+
+  /**
+   * Mechanism for an `ImapFolderConn` to request an IMAP protocol connection.
+   * This is to potentially support some type of (bounded) connection pooling
+   * like Thunderbird uses.  The rationale is that many servers cap the number
+   * of connections we are allowed to maintain, plus it's hard to justify
+   * locally tying up those resources.  (Thunderbird has more need of watching
+   * multiple folders than ourselves, bu we may still want to synchronize a
+   * bunch of folders in parallel for latency reasons.)
+   *
+   * The provided connection will *not* be in the requested folder; it's up to
+   * the folder connection to enter the folder.
+   */
+  __folderDemandsConnection: function(folderId, callback) {
+    var conn = new $imap.ImapConnection(this.accountDef.connInfo);
+    this._ownedConns.push({
+        conn: conn,
+        folderId: folderId,
+      });
+    conn.on('close', function() {
+      });
+    conn.on('error', function(err) {
+        // this hears about connection errors too
+        console.warn('Connection error:', err);
+      });
+    conn.connect(function(err) {
+      if (!err) {
+        callback(conn);
+      }
+    });
   },
 };
 

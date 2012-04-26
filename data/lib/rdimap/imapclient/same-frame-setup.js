@@ -9,40 +9,53 @@
 
 define(
   [
-    'event-queue',
-    'q',
-    'imap',
-    'rdplat/gindb',
-    './imapsyncer',
-    './schema',
+    './mailapi',
+    './imapacct',
+    './imapslice',
     'exports'
   ],
   function(
-    $_eventQueue,
-    $Q,
-    $imap,
-    $db,
-    $imapSync,
-    $schema,
+    $mailapi,
+    $imapacct,
+    $imapslice,
     exports
   ) {
 'use strict';
-const when = $Q.when;
 
-exports.goSync = function(accountDef) {
-  var db = $db.makeProductionDBConnection('', null, null, null),
-      conn = new $imap.ImapConnection(accountDef);
+function stringifyHeader(header) {
+}
 
-  var syncer = new $imapSync.ImapFolderSyncer(conn, db);
+function PrintySliceBridge() {
+  this.items = [];
+}
+PrintySliceBridge.prototype = {
+  sendSplice: function(index, howMany, addedItems, requested, moreExpected) {
+    console.log('SPLICE @' + index, howMany, 'deleted');
+    for (var iDel = index; iDel < index + howMany; iDel++) {
+      var deleted = this.items[iDel];
+      console.log('  -', stringifyHeader(deleted));
+    }
+    for (var i = 0; i < addedItems.length; i++) {
+      var added = addedItems[i];
+      console.log('  +', stringifyHeader(added));
+    }
+    this.items.splice.apply(this.items, [index, howMany].concat(items));
+  },
 
-  when(
-    db.defineSchema($schema.dbSchemaDef),
-    function schemaDefined() {
-      console.log("schema defined");
-      conn.connect(function(err) {
-        console.log("synchronizing folder");
-        syncer.syncFolder('INBOX', null);
-      });
+  sendStatus: function(status) {
+    console.log('STATUS', status);
+  },
+};
+
+exports.goSync = function(connInfo, logFunc) {
+  var universe = new $imapacct.MailUniverse();
+  // create the account
+  universe.tryToCreateAccount(connInfo, function(created, account) {
+      var inbox = account.folders[0];
+      // ask for the slice,
+      var slice = new $imapslice.ImapSlice();
+      account.sliceFolderMessages(slice, inbox);
+
     });
 };
 

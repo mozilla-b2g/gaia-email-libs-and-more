@@ -40,6 +40,15 @@ define(
  * The next step in the plan is to get an HTML sanitizer exposed so we can
  *  support text/html.  That will also imply grabbing multipart/related
  *  attachments.
+ *
+ * @typedef[ChewRep @dict[
+ *   @key[msg ImapJsMsg]
+ *   @key[bodyParts @listof[ImapJsPart]]
+ *   @key[attachments @listof[AttachmentInfo]]
+ *   @key[header HeaderInfo]
+ *   @key[bodyInfo BodyInfo]
+ * ]]
+ * @return[ChewRep]
  */
 exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   // imap.js builds a bodystructure tree using lists.  All nodes get wrapped
@@ -138,6 +147,8 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     msg: msg,
     bodyParts: bodyParts,
     attachments: attachments,
+    header: null,
+    bodyInfo: null,
   };
 };
 
@@ -145,8 +156,45 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
  * Call once the body parts requested by `chewHeaderAndBodyStructure` have been
  * fetched in order to finish processing of the message to produce the header
  * and body data-structures for the message.
+ *
+ * @args[
+ *   @param[rep ChewRep]
+ *   @param[bodyPartContents @listof[String]]{
+ *     The fetched body parts matching the list of requested parts in
+ *     `rep.bodyParts`.
+ *   }
+ * ]
+ * @return[success Boolean]{
+ *   True if we were able to process the message and have updated `rep.header`
+ *   and `rep.bodyInfo` with populated objects.
+ * }
  */
-exports.chewBodyParts = function chewBodyParts(msg, bodyMsg, rep) {
+exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
+  // XXX we really want to perform quoting analysis, yadda yadda.
+  var fullBody = bodyPartContents.join('\n'),
+      // Up to 80 characters of snippet, normalizing whitespace.
+      snippet = fullBody.substring(0, 80).replace(/[\r\n\t ]+/g, ' ');
+
+  rep.header = {
+    id: rep.msg.id,
+    author: rep.msg.msg.from,
+    date: rep.msg.date,
+    flags: rep.msg.flags,
+    hasAttachments: rep.attachments.length > 0,
+    subject: rep.msg.msg.subject,
+    snippet: snippet,
+  };
+  rep.bodyInfo = {
+    to: ('to' in rep.msg.msg) ? rep.msg.msg.to : null,
+    cc: ('cc' in rep.msg.msg) ? rep.msg.msg.cc : null,
+    bcc: ('bcc' in rep.msg.msg) ? rep.msg.msg.bcc : null,
+    replyTo: ('reply-to' in rep.msg.parsedHeaders) ?
+               rep.msg.parsedHeaders['reply-to'] : null,
+    attachments: rep.attachments,
+    bodyText: fullBody,
+  };
+
+  return true;
 };
 
 }); // end define

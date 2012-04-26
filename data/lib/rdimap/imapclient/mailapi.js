@@ -11,12 +11,33 @@ define(
     exports
   ) {
 
-function MailFolder(api, id) {
+function MailFolder(api, id, name, path, type) {
   this._api = api;
   this.id = id;
 
-  this.name = null;
-  this.path = null;
+  /**
+   * The human-readable name of the folder.  (As opposed to its path or the
+   * modified utf-7 encoded folder names.)
+   */
+  this.name = name;
+  /**
+   * @listof[String]{
+   *   The hierarchical path of the folder, with each path component as a
+   *   separate string.  All path values are human-readable (as opposed to
+   *   modified modified utf-7 encoded folder names.)
+   * }
+   */
+  this.path = path;
+  /**
+   * @oneof[
+   *   @case['inbox']
+   *   @case['sent']
+   * ]{
+   *   Non-localized string indicating the type of folder this is, primarily
+   *   for styling purposes.
+   * }
+   */
+  this.type = type;
   this.onchange = null;
   this.onremove = null;
 }
