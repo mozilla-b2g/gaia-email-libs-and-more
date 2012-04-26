@@ -23,6 +23,9 @@ define(
 'use strict';
 
 function stringifyHeader(header) {
+  return author.address + ': ' + header.subject + ' @ ' +
+          (new Date(header.date)) + '\n' +
+         '    "' + header.snippet + '"';
 }
 
 function PrintySliceBridge() {
@@ -53,9 +56,8 @@ exports.goSync = function(connInfo, logFunc) {
   universe.tryToCreateAccount(connInfo, function(created, account) {
       var inbox = account.folders[0];
       // ask for the slice,
-      var slice = new $imapslice.ImapSlice();
-      account.sliceFolderMessages(slice, inbox);
-
+      var printyBridge = new PrintySliceBridge(),
+          slice = account.sliceFolderMessages(inbox, printyBridge);
     });
 };
 

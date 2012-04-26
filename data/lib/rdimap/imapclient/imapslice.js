@@ -1,4 +1,54 @@
 /**
+ * Presents a message-centric view of a slice of time from IMAP search results.
+ * Responsible for tracking the state the UI's view-slice at the other end of
+ * the bridge is aware of.
+ *
+ * == Use-case assumptions
+ *
+ * - We are backing a UI showing a list of time-ordered messages.  This can be
+ *   the contents of a folder, on-server search results, or the
+ *   (server-facilitated) list of messages in a conversation.
+ * - We want to fetch more messages as the user scrolls so that the entire
+ *   contents of the folder/search results list are available.
+ * - We want to show the message as soon as possible.  So we can show a message
+ *   in the list before we have its snippet.  However, we do want the
+ *   bodystructure before we show it so we can accurately know if it has
+ *   attachments.
+ * - We want to update the state of the messages in real-time as we hear about
+ *   changes from the server, such as another client starring a message or
+ *   marking the message read.
+ * - We will synchronize some folders with either a time and/or message count
+ *   threshold.
+ * - We want mutations made locally to appear as if they are applied
+ *   immediately, even if we are operating offline.
+ *
+ * == Efficiency desires
+ *
+ * - Avoid redundant network traffic by caching our results using IndexedDB.
+ * - Keep the I/O burden and overhead low from caching/sync.  We know our
+ *   primary IndexedDB implementation is backed by SQLite with full
+ *   transaction commits corresponding to IndexedDB transaction commits.
+ *   We also know that all IndexedDB work gets marshaled to another thread.
+ *   Since the server is the final word in state, except for mutations we
+ *   trigger, we don't need to be aggressive about persisting state.
+ *   Accordingly, let's persist our data in big blocks only on major
+ *   transitions (folder change) or when our memory usage is getting high.
+ *   (If we were using LevelDB, large writes would probably be less
+ *   desirable.)
+ *
+ * == Of slices, folders, and gmail
+ *
+ * It would be silly for a slice that is for browsing the folder unfiltered and
+ * a slice that is a result of a search to act as if they were dealing with
+ * different messages.  Similarly, it would be silly in gmail for us to fetch
+ * a message that we know is the same message across multiple (labels as)
+ * folders.  So we abstract away the storage details to `ImapFolderStorage`.
+ *
+ * == Latency, offline access, and IMAP
+ *
+ * The fundamental trade-off is between delaying showing things in the UI and
+ * showing them and then having a bunch of stuff happen a split-second later.
+ * (Messages appearing, disappearing, having their status change, etc.)
  *
  **/
 
@@ -98,64 +148,13 @@ function headerYoungToOldComparator(a, b) {
 }
 
 /**
- * Presents a message-centric view of a slice of time from IMAP search results.
- * Responsible for tracking the state the UI's view-slice at the other end of
- * the bridge is aware of.
- *
- *
- * == Use-case assumptions
- *
- * - We are backing a UI showing a list of time-ordered messages.  This can be
- *   the contents of a folder, on-server search results, or the
- *   (server-facilitated) list of messages in a conversation.
- * - We want to fetch more messages as the user scrolls so that the entire
- *   contents of the folder/search results list are available.
- * - We want to show the message as soon as possible.  So we can show a message
- *   in the list before we have its snippet.  However, we do want the
- *   bodystructure before we show it so we can accurately know if it has
- *   attachments.
- * - We want to update the state of the messages in real-time as we hear about
- *   changes from the server, such as another client starring a message or
- *   marking the message read.
- * - We will synchronize some folders with either a time and/or message count
- *   threshold.
- * - We want mutations made locally to appear as if they are applied
- *   immediately, even if we are operating offline.
- *
- * == Efficiency desires
- *
- * - Avoid redundant network traffic by caching our results using IndexedDB.
- * - Keep the I/O burden and overhead low from caching/sync.  We know our
- *   primary IndexedDB implementation is backed by SQLite with full
- *   transaction commits corresponding to IndexedDB transaction commits.
- *   We also know that all IndexedDB work gets marshaled to another thread.
- *   Since the server is the final word in state, except for mutations we
- *   trigger, we don't need to be aggressive about persisting state.
- *   Accordingly, let's persist our data in big blocks only on major
- *   transitions (folder change) or when our memory usage is getting high.
- *   (If we were using LevelDB, large writes would probably be less
- *   desirable.)
- *
- * == Of slices, folders, and gmail
- *
- * It would be silly for a slice that is for browsing the folder unfiltered and
- * a slice that is a result of a search to act as if they were dealing with
- * different messages.  Similarly, it would be silly in gmail for us to fetch
- * a message that we know is the same message across multiple (labels as)
- * folders.  So we abstract away the storage details to `ImapFolderStorage`.
- *
- * == Latency, offline access, and IMAP
- *
- * The fundamental trade-off is between delaying showing things in the UI and
- * showing them and then having a bunch of stuff happen a split-second later.
- * (Messages appearing, disappearing, having their status change, etc.)
- *
+ * Book-keeping and agency for the slices.  Agency in the sense that if we sync
+ * the last 2 weeks' time-span but don't get enough messages out of it, this
+ * is the logic that requests the next time window.
  */
-function ImapSlice(bridgeHandle, folder, folderStorage,
-                   youngest, oldest,
-                   filters) {
-  this.youngest = youngest;
-  this.oldest = oldest;
+function ImapSlice(bridgeHandle, startTS, endTS) {
+  this.startTS = startTS;
+  this.endTS = endTS;
 
   this.headers = [];
 }
@@ -191,22 +190,125 @@ const BASELINE_SEARCH_OPTIONS = ['!DRAFT'];
  * What is the maximum number of bytes a block should store before we split
  * it.
  */
-const MAX_BLOCK_SIZE = 96 * 1024,
+const MAX_BLOCK_SIZE = 96 * 1024;
+
+////////////////////////////////////////////////////////////////////////////////
+// Time
+//
+// The stock IMAP SEARCH command's SINCE and BEFORE predicates only operate on
+// whole-dates (and ignore the non-date time parts).  Additionally, SINCE is
+// inclusive and BEFORE is exclusive.
+//
+// We use JS millisecond timestamp values throughout, and it's important to us
+// that our date logic is consistent with IMAP's time logic.  Accordingly,
+// all of our time-interval related logic operates on day granularities.  Our
+// timestamp/date values are always normalized to midnight which happily works
+// out with intuitive range operations.
+//
+// Observe the pretty ASCII art where as you move to the right you are moving
+// forward in time.
+//
+//        ________________________________________
+// BEFORE)| midnight (0 millis) ... 11:59:59:999 |
+//        [SINCE......................................
+//
+// Our date range comparisons (noting that larger timestamps are 'younger') are:
+// SINCE analog:  (testDate >= comparisonDate)
+//   testDate is as-recent-as or more-recent-than the comparisonDate.
+// BEFORE analog: (testDate < comparisonDate)
+//   testDate is less-recent-than the comparisonDate
+//
+// Because "who is the test date and who is the range value under discussion"
+// can be unclear and the numerical direction of time is not always intuitive,
+// I'm introducing simple BEFORE and SINCE helper functions to try and make
+// our comparison logic ridiculously explicit.
+//
+// Our date ranges are defined by 'startTS' and 'endTS'.  Using math syntax,
+// that gets us: [startTS, endTS).  It is always true that:
+// BEFORE(startTS, endTS) and SINCE(endTS, startTS).
+//
+// Word pairs considered: [history, present), [longago, recent),
+// [oldest, youngest), [latest, earliest), [start, end).  I tried
+// oldest/youngest for a while because it seemed conceptually less ambiguous,
+// but the fact that age grows in the opposite direction of time made it worse.
+// And so we're back to start/end because even if you overthink it, causality
+// demands only one logical ordering.
+//
+// The range-check logic for checking if a date-range falls in a range
+// defined by startTS and endTS is then:
+//   (SINCE(testDate, startTS) && BEFORE(testDate, endTS))
+
+
+/**
+ * Read this as "Is `testDate` BEFORE `comparisonDate`"?
+ *
+ * !BEFORE(a, b) === SINCE(a, b)
+ */
+function BEFORE(testDate, comparisonDate) {
+  // testDate is numerically less than comparisonDate, so it is chronologically
+  // before it.
+  return testDate < comparisonDate;
+}
+
+/**
+ * Read this as "Is `testDate` SINCE `comparisonDate`"?
+ *
+ * !SINCE(a, b) === BEFORE(a, b)
+ */
+function SINCE(testDate, comparisonDate) {
+  // testDate is numerically greater-than-or-equal-to comparisonDate, so it
+  // chronologically after/since it.
+  return testDate >= comparisonDate;
+}
+
+function STRICTLY_AFTER(testDate, comparisonDate) {
+  return testDate > comparisonDate;
+}
+
+function IN_BS_DATE_RANGE(testDate, startTS, endTS) {
+  return testDate >= startTS && testDate < endTS;
+}
+
+//function DATE_RANGES_OVERLAP(A_startTS, A_endTS, B_startTS, B_endTS) {
+//}
+
 /**
  * The estimated size of a `HeaderInfo` structure.  We are using a constant
  * since there is not a lot of variability in what we are storing and this
  * is probably good enough.
  */
-      HEADER_EST_SIZE_IN_BYTES = 200;
+const HEADER_EST_SIZE_IN_BYTES = 200;
 
 const DAY_MILLIS = 24 * 60 * 60 * 1000;
+
+
+
+/**
+ * Testing override that when present replaces use of Date.now().
+ */
+var TIME_WARPED_NOW = null;
+/**
+ * Pretend that 'now' is actually a fixed point in time for the benefit of
+ * unit tests using canned message stores.
+ */
+exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
+  TIME_WARPED_NOW = fakeNow;
+};
+
 /**
  * Make a timestamp some number of days in the past.
  */
-function MakeDaysAgo(numDays) {
-  var now = Date.now(),
+function makeDaysAgo(numDays) {
+  var now = TIME_WARPED_NOW || Date.now(),
       past = now - numDays * DAY_MILLIS;
   return past;
+}
+/**
+ * Return the
+ */
+function makeSlightlyYoungerDay(ts) {
+}
+function makeSlightlyOlderDay(ts) {
 }
 
 /**
@@ -214,6 +316,8 @@ function MakeDaysAgo(numDays) {
  * showing results?
  */
 const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
+
+////////////////////////////////////////////////////////////////////////////////
 
 /**
  * How many messages should we send to the UI in the first go?
@@ -356,13 +460,13 @@ ImapFolderConn.prototype = {
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
    */
-  syncDateRange: function(youngerDate, olderDate, newToOld, slice) {
+  syncDateRange: function(endTS, startTS, newToOld, slice) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
-    if (youngerDate)
-      searchOptions.push(['SINCE', youngerDate]);
-    if (olderDate)
-      searchOptions.push(['BEFORE', olderDate]);
+    if (endTS)
+      searchOptions.push(['SINCE', endTS]);
+    if (startTS)
+      searchOptions.push(['BEFORE', startTS]);
 
     var callbacks = allbackMaker(
       ['search', 'db'],
@@ -397,17 +501,17 @@ ImapFolderConn.prototype = {
       });
 
     this._reliaSearch(searchOptions, callbacks.search);
-    this._storage.getAllMessagesInDateRange(earlierDate, laterDate,
+    this._storage.getAllMessagesInDateRange(startTS, endTS,
                                             callbacks.db);
   },
 
-  searchDateRange: function(youngerDate, olderDate, newToOld, searchParams,
+  searchDateRange: function(endTS, startTS, newToOld, searchParams,
                             slice) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(searchParams);
-    if (youngerDate)
-      searchOptions.push(['SINCE', youngerDate]);
-    if (olderDate)
-      searchOptions.push(['BEFORE', olderDate]);
+    if (endTS)
+      searchOptions.push(['SINCE', endTS]);
+    if (startTS)
+      searchOptions.push(['BEFORE', startTS]);
   },
 
   /**
@@ -419,7 +523,7 @@ ImapFolderConn.prototype = {
    * all of these headers are going to end up in-memory at the same time, so
    * batching won't let us reduce the overhead right now.  We process them
    * to determine the body parts we should fetch as the results come in.  Once
-   * we have them all, we sort them by date, youngest-to-oldest for the third
+   * we have them all, we sort them by date, endTS-to-startTS for the third
    * step and start issuing/pipelining the requests.
    *
    * Second, we issue the flag update requests for the known-to-us UIDs.  This
@@ -430,7 +534,7 @@ ImapFolderConn.prototype = {
    * perfect and may already be reasonably well ordered if UIDs correlate
    * with internal date well.)
    *
-   * Third, we fetch the body parts in our newest-to-oldest order, adding
+   * Third, we fetch the body parts in our newest-to-startTS order, adding
    * finalized headers and bodies as we go.
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
@@ -450,7 +554,7 @@ ImapFolderConn.prototype = {
         console.warn('New UIDs fetch error, ideally harmless:', err);
       });
     newFetcher.on('end', function onNewFetchEnd() {
-        // sort the messages, youngest to oldest (aka numerically descending)
+        // sort the messages, endTS to startTS (aka numerically descending)
         newChewReps.sort(function(a, b) {
             return b.msg.date - a.msg.date;
           });
@@ -607,8 +711,8 @@ ImapFolderConn.prototype = {
  * == Types
  *
  * @typedef[AccuracyRangeInfo @dict[
- *   @key[youngest DateMS]
- *   @key[oldest DateMS]
+ *   @key[endTS DateMS]
+ *   @key[startTS DateMS]
  *   @key[fullSync @dict[
  *     @key[highestModseq #:optional String]{
  *       The highest modseq for this range, if we have one.  This would be the
@@ -638,12 +742,12 @@ ImapFolderConn.prototype = {
  *   @key[blockId BlockId]{
  *     The name of the block for storage access.
  *   }
- *   @key[youngest DateMS]{
- *     The timestamp in milliseconds of the youngest message in the block where
+ *   @key[endTS DateMS]{
+ *     The timestamp in milliseconds of the endTS message in the block where
  *     age/the timestamp is determined by the IMAP internaldate.
  *   }
- *   @key[oldest DateMS]{
- *     The timestamp in milliseconds of the oldest message in the block where
+ *   @key[startTS DateMS]{
+ *     The timestamp in milliseconds of the startTS message in the block where
  *     age/the timestamp is determined by the IMAP internaldate.
  *   }
  *   @key[count Number]{
@@ -713,19 +817,19 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
   this.folderMeta = persistedFolderInfo.$meta;
   /**
    * @listof[AccuracyRangeInfo]{
-   *   Younged-to-oldest sorted list of accuracy range info structures.
+   *   Younged-to-startTS sorted list of accuracy range info structures.
    * }
    */
   this._accuracyRanges = persistedFolderInfo.accuracy;
   /**
    * @listof[FolderBlockInfo]{
-   *   Youngest-to-oldest sorted list of header folder block infos.
+   *   EndTS-to-startTS sorted list of header folder block infos.
    * }
    */
   this._headerBlockInfos = persistedFolderInfo.headerBlocks;
   /**
    * @listof[FolderBlockInfo]{
-   *   Youngest-to-oldest sorted list of body folder block infos.
+   *   EndTS-to-startTS sorted list of body folder block infos.
    * }
    */
   this._bodyBlockInfos = persistedFolderInfo.bodyBlocks;
@@ -755,6 +859,8 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
    * }
    */
   this._deferredCalls = [];
+
+  this._slices = [];
 }
 exports.ImapFolderStorage = ImapFolderStorage;
 ImapFolderStorage.prototype = {
@@ -776,13 +882,17 @@ ImapFolderStorage.prototype = {
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
       var info = list[i];
-      // Younger than the youngest?  Stop here.
-      if (date > info.youngest)
+      // - Stop if we will never find a match if we keep going.
+      // If our date is after the end of this range, then it will never fall
+      // inside any subsequent ranges, because they are all chronologically
+      // earlier than this range.
+      if (SINCE(date, info.endTS))
         return [i, null];
-      // Younger/as than the oldest (and older than the youngest)?  Stop here.
-      if (date >= info.oldest)
+      // therefore BEFORE(date, info.endTS)
+
+      if (SINCE(date, info.startTS))
         return [i, info];
-      // (Older than the oldest, keep going.)
+      // (Older than the startTS, keep going.)
     }
 
     return [i, null];
@@ -792,18 +902,28 @@ ImapFolderStorage.prototype = {
    * Find the first object that contains date ranges that overlaps the provided
    * date range.
    */
-  _findFirstObjIndexForDateRange: function(list, youngerDate, olderDate) {
+  _findFirstObjIndexForDateRange: function(list, startTS, endTS) {
     var i;
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
       var info = list[i];
-      // Stop if our range is entirely more recent.
-      if (youngerDate > info.youngest)
+      // - Stop if we will never find a match if we keep going.
+      // If our comparison range starts AT OR AFTER the end of this range, then
+      // it does not overlap this range and will never overlap any subsequent
+      // ranges because they are all chronologically earlier than this range.
+      //
+      // nb: We are saying that there is no overlap if one range starts where
+      // the other one ends.  This is consistent with the inclusive/exclusive
+      // definition of since/before and our ranges.
+      if (SINCE(startTS, info.endTS))
         return [i, null];
-      // (the definition of overlap)
-      if (youngerDate <= info.oldest &&
-          olderDate >= info.youngest)
+      // therefore BEFORE(startTS, info.endTS)
+
+      // nb: SINCE(endTS, info.startTS) is not right here because the equals
+      // case does not result in overlap because endTS is exclusive.
+      if (STRICTLY_AFTER(endTS, info.startTS))
         return [i, info];
+
       // (no overlap yet)
     }
 
@@ -814,12 +934,11 @@ ImapFolderStorage.prototype = {
    * Find the first object in the list whose `date` falls inside the given
    * date range.
    */
-  _findFirstObjForDateRange: function(list, youngerDate, olderDate) {
+  _findFirstObjForDateRange: function(list, startTS, endTS) {
     var i;
     for (i = 0; i < list.length; i++) {
       var date = list[i].date;
-      if (date <= youngerDate &&
-          date >= olderDate)
+      if (IN_BS_DATE_RANGE(date, startTS, endTS))
         return [i, list[i]];
     }
     return [i, null];
@@ -839,7 +958,7 @@ ImapFolderStorage.prototype = {
    *   generate messages from a younger-to-older direction.  The insertion point
    *   will then likely occur after the last block.
    * - In update-sync cases, we should be primarily dealing with new mail which
-   *   is still retrieved youngest to oldest.  The insertion point will start
+   *   is still retrieved endTS to startTS.  The insertion point will start
    *   before the first block and then move backwards within that block.
    * - Update-sync cases may also encounter messages moved into the folder
    *   from other folders since the last sync.  An archive folder is the
@@ -852,7 +971,7 @@ ImapFolderStorage.prototype = {
    *   or apparent user interest.  There's no benefit to churn for the sake of
    *   churn, so we can just forget messages in blocks wholesale when we
    *   experience disk space pressure (from ourselves or elsewhere).  In that
-   *   case we will want to traverse from the oldest messages, dropping them and
+   *   case we will want to traverse from the startTS messages, dropping them and
    *   consolidating blocks as we go until we have freed up enough space.
    *
    * == General strategy
@@ -930,15 +1049,17 @@ ImapFolderStorage.prototype = {
    * be useless.
    */
   sliceOpenFromNow: function(slice, daysDesired) {
+    this._slices.push(slice);
+
     // -- Check if we have sufficiently useful data on hand.
-    var now = Date.now(),
+    var now = TIME_WARPED_NOW || Date.now(),
         pastDate = makeDaysAgo(daysDesired),
         iAcc, iHeadBlock, ainfo,
-        // What is the oldest fullSync data we have for the time range?
+        // What is the startTS fullSync data we have for the time range?
         worstGoodData = null;
     for (iAcc = 0; iAcc < this._accuracyRanges.length; i++) {
       ainfo = this._accuracyRanges[iAcc];
-      if (pastDate < ainfo.youngest)
+      if (pastDate < ainfo.endTS)
         break;
       if (!ainfo.fullSync)
         break;
@@ -966,8 +1087,8 @@ ImapFolderStorage.prototype = {
    * we know about.
    *
    * @args[
-   *   @param[youngerDate]
-   *   @param[olderDate]
+   *   @param[endTS]
+   *   @param[startTS]
    *   @param[limit #:optional]
    *   @param[messageCallback @func[
    *     @args[
@@ -977,7 +1098,7 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getMessagesInDateRange: function(youngerDate, olderDate, limit,
+  getMessagesInDateRange: function(endTS, startTS, limit,
                                    messageCallback) {
     var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
         // header block info iteration
@@ -987,7 +1108,7 @@ ImapFolderStorage.prototype = {
     // find the first header block with the data we want
     [iHeadBlockInfo, headBlockInfo] =
       self._findRangeObjIndexForDateRange(this._headerBlockInfos,
-                                          youngerDate, laterDate);
+                                          startTS, endTS);
     if (!headBlockInfo) {
       // no blocks equals no messages.
       messageCallback([], false);
@@ -1006,7 +1127,7 @@ ImapFolderStorage.prototype = {
         // (previously used destructuring, but we want uglifyjs to work)
         var headerTuple = self._findFirstObjForDateRange(
                             headerBlock.headers,
-                            youngerDate, olderDate),
+                            startTS, endTS),
             iFirstHeader = headerTuple[0], header = headerTuple[1];
         // aw man, no usable messages?!
         if (!header) {
@@ -1018,7 +1139,7 @@ ImapFolderStorage.prototype = {
         var iHeader = iFirstHeader;
         for (; toFill && iHeader < headerBlock.headers.length; iHeader++) {
           header = headerBlock.headers[iHeader];
-          if (header.date < olderDate)
+          if (header.date < startTS)
             break;
         }
         // (iHeader is pointing at the index of message we don't want)
@@ -1032,7 +1153,7 @@ ImapFolderStorage.prototype = {
         if (++iHeadBlockInfo >= self._headerBlockInfos.length)
           return;
         headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
-        if (olderDate > headBlockInfo.youngest)
+        if (startTS > headBlockInfo.endTS)
           return;
         // (there must be some overlap, keep going)
       }
@@ -1052,7 +1173,7 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getAllMessagesInDateRange: function(youngerDate, olderDate, allCallback) {
+  getAllMessagesInDateRange: function(startTS, endTS, allCallback) {
     var allHeaders = null;
     function someMessages(headers, moreHeadersExpected) {
       if (allHeaders)
@@ -1070,7 +1191,7 @@ ImapFolderStorage.prototype = {
    * XXX punting on for now; this will cause synchronization to always occur
    * prior to attempting to populate the slice.
    */
-  markSyncRange: function(youngerDate, olderDate, modseq, dateMS) {
+  markSyncRange: function(startTS, endTS, modseq, dateMS) {
     // - Find all overlapping accuracy ranges.
     // - Split younger overlap if partial
     // - Split older overlap if partial

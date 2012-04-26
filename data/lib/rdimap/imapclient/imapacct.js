@@ -140,8 +140,10 @@ ImapAccount.prototype = {
    * Create a view slice on the messages in a folder, starting from the most
    * recent messages and synchronizing further as needed.
    */
-  sliceFolderMessages: function(slice, folderPub) {
-    var storage = this._folderStorages[folderPub.id];
+  sliceFolderMessages: function(bridgeHandle, folderPub) {
+    var storage = this._folderStorages[folderPub.id],
+        slice = new $imapslice.ImapSlice(bridgeHandle);
+
     storage.sliceOpenFromNow(slice, 14);
   },
 
