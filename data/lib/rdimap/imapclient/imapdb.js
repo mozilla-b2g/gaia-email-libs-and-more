@@ -11,6 +11,21 @@ define(
   ) {
 'use strict';
 
+var IndexedDB;
+if (("IndexedDB" in window) && window.indexedDB) {
+  IndexedDB = window.indexedDB;
+}
+else if (("mozIndexedDB" in window) && window.mozIndexedDB) {
+  IndexedDB = window.mozIndexedDB;
+}
+else if (("webkitIndexedDB" in window) && window.webkitIndexedDB) {
+  IndexedDB = window.webkitIndexedDB;
+}
+else {
+  console.error("No IndexedDB!");
+  throw new Error("I need IndexedDB; load me in a content page universe!");
+}
+
 const CUR_VERSION = 1;
 
 /**
@@ -102,6 +117,7 @@ const TBL_BODY_BLOCKS = 'bodyBlocks';
  */
 function ImapDB() {
   this._db = null;
+  this._onDB = [];
 
   /**
    * Fatal error handler.  This gets to be the error handler for all unexpected
@@ -114,6 +130,10 @@ function ImapDB() {
   var openRequest = IndexedDB.open('b2g-email', CUR_VERSION), self = this;
   openRequest.onsuccess = function(event) {
     self._db = openRequest.result;
+    for (var i = 0; i < self._onDB.length; i++) {
+      self._onDB[i]();
+    }
+    self._onDB = null;
   };
   openRequest.onupgradeneeded = function(event) {
     var db = openRequest.result;
@@ -127,8 +147,13 @@ function ImapDB() {
 exports.ImapDB = ImapDB;
 ImapDB.prototype = {
   getConfig: function(configCallback) {
+    if (!this._db) {
+      this._onDB.push(this.getConfig.bind(this, configCallback));
+      return;
+    }
+
     var transaction = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
-                                           IDBTransaction.READ_ONLY);
+                                           'readonly');
     var configStore = transaction.objectStore(TBL_CONFIG),
         folderInfoStore = transaction.objectStore(TBL_FOLDER_INFO);
 
@@ -141,15 +166,15 @@ ImapDB.prototype = {
     folderInfoReq.onerror = this._fatalError;
     folderInfoReq.onsuccess = function(event) {
       var configObj = null, accounts = [], i, obj;
-      for (i = 0; i < configReq.results.length; i++) {
-        obj = configReq.results[i];
+      for (i = 0; i < configReq.result.length; i++) {
+        obj = configReq.result[i];
         if (obj.id === 'config')
           configObj = obj;
         else
           accounts.push({def: obj, folderInfo: null});
       }
-      for (i = 0; i < folderInfoReq.results.length; i++) {
-        accounts[i].folderInfo = folderInfoReq.results[i];
+      for (i = 0; i < folderInfoReq.result.length; i++) {
+        accounts[i].folderInfo = folderInfoReq.result[i];
       }
 
       configCallback(configObj, accounts);
@@ -157,7 +182,7 @@ ImapDB.prototype = {
   },
 
   saveConfig: function(config) {
-    var req = this._db.transaction(TBL_CONFIG, IDBTransaction.READ_WRITE)
+    var req = this._db.transaction(TBL_CONFIG, 'readwrite')
                         .put(config, 'config');
     req.onerror = this._fatalError;
   },
@@ -170,7 +195,7 @@ ImapDB.prototype = {
    */
   saveAccountDef: function(accountDef, folderInfo) {
     var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
-                                     IDBTransaction.READ_WRITE);
+                                     'readwrite');
     trans.objectStore(TBL_CONFIG)
          .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
     if (folderInfo) {
@@ -181,7 +206,7 @@ ImapDB.prototype = {
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {
-    var req = this._db.transaction(TBL_HEADER_BLOCKS, IDBTransaction.READ_ONLY)
+    var req = this._db.transaction(TBL_HEADER_BLOCKS, 'readonly')
                          .objectStore(TBL_HEADER_BLOCKS)
                          .get(folderId + ':' + blockId);
     req.onerror = this._fatalError;
@@ -191,7 +216,7 @@ ImapDB.prototype = {
   },
 
   loadBodyBlock: function(folderId, blockId, callback) {
-    var req = this._db.transaction(TBL_BODY_BLOCKS, IDBTransaction.READ_ONLY)
+    var req = this._db.transaction(TBL_BODY_BLOCKS, 'readonly')
                          .objectStore(TBL_BODY_BLOCKS)
                          .get(folderId + ':' + blockId);
     req.onerror = this._fatalError;
@@ -220,7 +245,7 @@ ImapDB.prototype = {
                                     callback) {
     var trans = this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
                                       TBL_BODY_BLOCKS],
-                                      IDBTransaction.READ_WRITE);
+                                      'readwrite');
     trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountDef.id);
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
         bodyStore = trans.objectStore(TBL_BODY_BLOCKS);

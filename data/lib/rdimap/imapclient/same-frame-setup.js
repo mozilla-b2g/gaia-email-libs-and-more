@@ -45,20 +45,32 @@ PrintySliceBridge.prototype = {
     this.items.splice.apply(this.items, [index, howMany].concat(items));
   },
 
+  sendUpdate: function() {
+  },
+
   sendStatus: function(status) {
     console.log('STATUS', status);
   },
 };
 
 exports.goSync = function(connInfo, logFunc) {
-  var universe = new $imapacct.MailUniverse();
-  // create the account
-  universe.tryToCreateAccount(connInfo, function(created, account) {
-      var inbox = account.folders[0];
-      // ask for the slice,
-      var printyBridge = new PrintySliceBridge(),
-          slice = account.sliceFolderMessages(inbox, printyBridge);
-    });
+  // Cross-object-wrappers result in DateCloneError even for simple objects.
+  // I guess there could be good security reasons, but it's annoying.
+  connInfo = JSON.parse(JSON.stringify(connInfo));
+  function onUniverse() {
+    // create the account
+    universe.tryToCreateAccount(connInfo, function(created, account) {
+        if (!created) {
+          console.error("Can't do anything; no account created!");
+          return;
+        }
+        var inbox = account.folders[0];
+        // ask for the slice,
+        var printyBridge = new PrintySliceBridge(logFunc),
+            slice = account.sliceFolderMessages(inbox, printyBridge);
+      });
+  }
+  var universe = new $imapacct.MailUniverse(onUniverse);
 };
 
 });

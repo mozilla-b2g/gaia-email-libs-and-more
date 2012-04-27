@@ -16,6 +16,7 @@ define(
   ) {
 
 function ImapProber(connInfo) {
+  console.log("PROBE attempting to connect to", connInfo.host);
   this._conn = new $imap.ImapConnection(connInfo);
   this._conn.connect(this.onConnect.bind(this));
 
@@ -25,11 +26,12 @@ function ImapProber(connInfo) {
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
   onConnect: function(err) {
+    console.log("PROBE connect result:", err);
     if (err)
       this.accountGood = false;
     else
       this.accountGood = true;
-    this._conn.close();
+    this._conn.logout(function() {});
 
     if (this.onresult)
       this.onresult(this.accountGood);

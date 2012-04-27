@@ -148,39 +148,102 @@ function headerYoungToOldComparator(a, b) {
 }
 
 /**
- * Book-keeping and agency for the slices.  Agency in the sense that if we sync
- * the last 2 weeks' time-span but don't get enough messages out of it, this
- * is the logic that requests the next time window.
+ * Perform a binary search on an array to find the correct insertion point
+ *  in the array for an item.  From deuxdrop; tested in
+ *  deuxdrop's `unit-simple-algos.js` test.
+ *
+ * @return[Number]{
+ *   The correct insertion point in the array, thereby falling in the inclusive
+ *   range [0, arr.length].
+ * }
  */
-function ImapSlice(bridgeHandle, startTS, endTS) {
-  this.startTS = startTS;
-  this.endTS = endTS;
+const bsearchForInsert = exports._bsearchForInsert =
+    function bsearchForInsert(list, seekVal, cmpfunc) {
+  if (!list.length)
+    return 0;
+  var low  = 0, high = list.length - 1,
+      mid, cmpval;
+  while (low <= high) {
+    mid = low + Math.floor((high - low) / 2);
+    cmpval = cmpfunc(seekVal, list[mid]);
+    if (cmpval < 0)
+      high = mid - 1;
+    else if (cmpval > 0)
+      low = mid + 1;
+    else
+      break;
+  }
+  if (cmpval < 0)
+    return mid; // insertion is displacing, so use mid outright.
+  else if (cmpval > 0)
+    return mid + 1;
+  else
+    return mid;
+};
+
+
+/**
+ * Book-keeping and limited agency for the slices.
+ *
+ * The way this works is that we get opened and
+ */
+function ImapSlice(bridgeHandle, storage) {
+  this._bridgeHandle = bridgeHandle;
+  this._storage = storage;
+
+  // The time range of the headers we are looking at right now.
+  this.startTS = null;
+  this.startUID = null;
+  this.endTS = null;
+  this.endUID = null;
+
+  /**
+   * Will we ingest new messages we hear about in our 'start' direction?
+   */
+  this.openStart = true;
+  /**
+   * Will we ingest new messages we hear about in our 'end' direction?
+   */
+  this.openEnd = true;
+
+  this.waitingOnData = false;
 
   this.headers = [];
+  this.desiredHeaders = INITIAL_FILL_SIZE;
 }
+exports.ImapSlice = ImapSlice;
 ImapSlice.prototype = {
-  noteRanges: function() {
+  reqNoteRanges: function() {
     // XXX implement and contend with the generals problem.  probably just have
     // the other side name the values by id rather than offsets.
   },
 
-  grow: function(dirMagnitude) {
+  reqGrow: function(dirMagnitude) {
   },
 
   setStatus: function(status) {
-    this.bridgeHandle.sendStatus('status');
+    this._bridgeHandle.sendStatus(status);
   },
 
   onHeaderAdded: function(header) {
-    // XXX insertion point logic; deuxdrop must have this
+    var idx = bsearchForInsert(this.headers, header,
+                               headerYoungToOldComparator);
+    this._bridgeHandle.sendSplice(idx, 0, [header]);
+    this.headers.splice(idx, 0, header);
   },
 
   onHeaderModified: function(header) {
-    // XXX this can only affect flags, just send the state mutation
+    // this can only affect flags which will not affect ordering
+    var idx = bsearchForInsert(this.headers, header,
+                               headerYoungToOldComparator);
+    this._bridgeHandle.sendUpdate([idx, header]);
   },
 
   onHeaderRemoved: function(header) {
-    // XXX find the location, splice it.
+    var idx = bsearchForInsert(this.headers, header,
+                               headerYoungToOldComparator);
+    this._bridgeHandle.sendSplice(idx, 1, null);
+    this.headers.splice(idx, 1);
   },
 };
 
@@ -200,10 +263,10 @@ const MAX_BLOCK_SIZE = 96 * 1024;
 // inclusive and BEFORE is exclusive.
 //
 // We use JS millisecond timestamp values throughout, and it's important to us
-// that our date logic is consistent with IMAP's time logic.  Accordingly,
-// all of our time-interval related logic operates on day granularities.  Our
-// timestamp/date values are always normalized to midnight which happily works
-// out with intuitive range operations.
+// that our date logic is consistent with IMAP's time logic where relevant.
+// All of our IMAP-exposed time-interval related logic operates on day
+// granularities.  Our timestamp/date values are always normalized to midnight
+// which happily works out with intuitive range operations.
 //
 // Observe the pretty ASCII art where as you move to the right you are moving
 // forward in time.
@@ -221,26 +284,26 @@ const MAX_BLOCK_SIZE = 96 * 1024;
 // Because "who is the test date and who is the range value under discussion"
 // can be unclear and the numerical direction of time is not always intuitive,
 // I'm introducing simple BEFORE and SINCE helper functions to try and make
-// our comparison logic ridiculously explicit.
+// the comparison logic ridiculously explicit as well as calling out where we
+// are being consistent with IMAP.
 //
-// Our date ranges are defined by 'startTS' and 'endTS'.  Using math syntax,
-// that gets us: [startTS, endTS).  It is always true that:
-// BEFORE(startTS, endTS) and SINCE(endTS, startTS).
+// Not all of our time logic is consistent with IMAP!  Specifically, use of
+// exclusive time bounds without secondary comparison keys means that ranges
+// defined in this way cannot spread messages with the same timestamp over
+// multiple ranges.  This allows for pathological data structure situations
+// where there's too much data in a data block, etc.
+// Our date ranges are defined by 'startTS' and 'endTS'.  Using math syntax, our
+// IMAP-consistent time ranges end up as: [startTS, endTS).  It is always true
+// that BEFORE(startTS, endTS) and SINCE(endTS, startTS) in these cases.
 //
-// Word pairs considered: [history, present), [longago, recent),
-// [oldest, youngest), [latest, earliest), [start, end).  I tried
-// oldest/youngest for a while because it seemed conceptually less ambiguous,
-// but the fact that age grows in the opposite direction of time made it worse.
-// And so we're back to start/end because even if you overthink it, causality
-// demands only one logical ordering.
-//
-// The range-check logic for checking if a date-range falls in a range
-// defined by startTS and endTS is then:
-//   (SINCE(testDate, startTS) && BEFORE(testDate, endTS))
+// As such, I've also created an ON_OR_BEFORE helper that allows equivalence and
+// STRICTLY_AFTER that does not check equivalence to round out all possibilities
+// while still being rather explicit.
 
 
 /**
- * Read this as "Is `testDate` BEFORE `comparisonDate`"?
+ * IMAP-consistent date comparison; read this as "Is `testDate` BEFORE
+ * `comparisonDate`"?
  *
  * !BEFORE(a, b) === SINCE(a, b)
  */
@@ -250,8 +313,13 @@ function BEFORE(testDate, comparisonDate) {
   return testDate < comparisonDate;
 }
 
+function ON_OR_BEFORE(testDate, comparisonDate) {
+  return testDate <= comparisonDate;
+}
+
 /**
- * Read this as "Is `testDate` SINCE `comparisonDate`"?
+ * IMAP-consistent date comparison; read this as "Is `testDate` SINCE
+ * `comparisonDate`"?
  *
  * !SINCE(a, b) === BEFORE(a, b)
  */
@@ -460,13 +528,13 @@ ImapFolderConn.prototype = {
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
    */
-  syncDateRange: function(endTS, startTS, newToOld, slice) {
+  syncDateRange: function(startTS, endTS, newToOld) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
-    if (endTS)
-      searchOptions.push(['SINCE', endTS]);
     if (startTS)
-      searchOptions.push(['BEFORE', startTS]);
+      searchOptions.push(['SINCE', startTS]);
+    if (endTS)
+      searchOptions.push(['BEFORE', endTS]);
 
     var callbacks = allbackMaker(
       ['search', 'db'],
@@ -508,10 +576,10 @@ ImapFolderConn.prototype = {
   searchDateRange: function(endTS, startTS, newToOld, searchParams,
                             slice) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(searchParams);
-    if (endTS)
-      searchOptions.push(['SINCE', endTS]);
     if (startTS)
-      searchOptions.push(['BEFORE', startTS]);
+      searchOptions.push(['SINCE', startTS]);
+    if (endTS)
+      searchOptions.push(['BEFORE', endTS]);
   },
 
   /**
@@ -537,7 +605,7 @@ ImapFolderConn.prototype = {
    * Third, we fetch the body parts in our newest-to-startTS order, adding
    * finalized headers and bodies as we go.
    */
-  _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
+  _commonSync: function(newUIDs, knownUIDs, knownHeaders) {
     var conn = this._conn, storage = this._storage;
     // -- Fetch headers/bodystructures for new UIDs
     var newChewReps = [];
@@ -657,6 +725,9 @@ ImapFolderConn.prototype = {
             header.flags = msg.flags;
             storage.updateMessageHeader(header);
           }
+          else {
+            storage.unchangedMessageHeader(header);
+          }
         });
       });
     knownFetcher.on('error', function onKnownFetchError(err) {
@@ -742,13 +813,22 @@ ImapFolderConn.prototype = {
  *   @key[blockId BlockId]{
  *     The name of the block for storage access.
  *   }
- *   @key[endTS DateMS]{
- *     The timestamp in milliseconds of the endTS message in the block where
- *     age/the timestamp is determined by the IMAP internaldate.
- *   }
  *   @key[startTS DateMS]{
- *     The timestamp in milliseconds of the startTS message in the block where
- *     age/the timestamp is determined by the IMAP internaldate.
+ *     The timestamp of the last and therefore (possibly equally) oldest message
+ *     in this block.  Forms the first part of a composite key with `startUID`.
+ *   }
+ *   @key[startUID UID]{
+ *     The UID of the last and therefore (possibly equally) oldest message
+ *     in this block.  Forms the second part of a composite key with `startTS`.
+ *   }
+ *   @key[endTS DateMS]{
+ *     The timestamp of the first and therefore (possibly equally) newest
+ *     message in this block.  Forms the first part of a composite key with
+ *     `endUID`.
+ *   }
+ *   @key[endUID UID]{
+ *     The UID of the first and therefore (possibly equally) newest message
+ *     in this block.  Forms the second part of a composite key with `endTS`.
  *   }
  *   @key[count Number]{
  *     The number of messages in this bucket.
@@ -761,6 +841,8 @@ ImapFolderConn.prototype = {
  *   The directory entries for our `HeaderBlock` and `BodyBlock` instances.
  *   Currently, these are always stored in memory since they are small and
  *   there shouldn't be a tremendous number of them.
+ *
+ *   These
  * }
  * @typedef[EmailAddress String]
  * @typedef[NameAddressPair @dict[
@@ -815,29 +897,44 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
 
   this.folderId = folderId;
   this.folderMeta = persistedFolderInfo.$meta;
+  this._folderImpl = persistedFolderInfo.$impl;
   /**
    * @listof[AccuracyRangeInfo]{
-   *   Younged-to-startTS sorted list of accuracy range info structures.
+   *   Newest-to-oldest sorted list of accuracy range info structures that are
+   *   keyed by their IMAP-consistent startTS (inclusive) and endTS (exclusive)
+   *   on a per-day granularity.
    * }
    */
   this._accuracyRanges = persistedFolderInfo.accuracy;
   /**
    * @listof[FolderBlockInfo]{
-   *   EndTS-to-startTS sorted list of header folder block infos.
+   *   Newest-to-oldest (numerically decreasing time and UID) sorted list of
+   *   header folder block infos.  They are keyed by a composite key consisting
+   *   of messages' "date" and "id" fields.
    * }
    */
   this._headerBlockInfos = persistedFolderInfo.headerBlocks;
   /**
    * @listof[FolderBlockInfo]{
-   *   EndTS-to-startTS sorted list of body folder block infos.
+   *   Newest-to-oldest (numerically decreasing time and UID) sorted list of
+   *   body folder block infos.  They are keyed by a composite key consisting
+   *   of messages' "date" and "id" fields.
    * }
    */
   this._bodyBlockInfos = persistedFolderInfo.bodyBlocks;
 
+  /** @dictof[@key[BlockId] @value[HeaderBlock]] */
   this._headerBlocks = {};
+  /** @dictof[@key[BlockId] @value[BodyBlock]] */
   this._bodyBlocks = {};
 
+  /**
+   * Has our internal state altered at all and will need to be persisted?
+   */
+  this._dirty = false;
+  /** @dictof[@key[BlockId] @value[HeaderBlock]] */
   this._dirtyHeaderBlocks = {};
+  /** @dictof[@key[BlockId] @value[BodyBlock]] */
   this._dirtyBodyBlocks = {};
 
   /**
@@ -861,9 +958,63 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
   this._deferredCalls = [];
 
   this._slices = [];
+  /**
+   * The slice that is driving our current synchronization and wants to hear
+   * about all header modifications/notes as they occur.
+   */
+  this._activeSyncSlice = null;
+
+  this.folderConn = new ImapFolderConn(account, this);
 }
 exports.ImapFolderStorage = ImapFolderStorage;
 ImapFolderStorage.prototype = {
+  /**
+   * Create an empty header `FolderBlockInfo` and matching `HeaderBlock`.  The
+   * `HeaderBlock` will be inserted into the block map, but it's up to the
+   * caller to insert the returned `FolderBlockInfo` in the right place.
+   */
+  _makeHeaderBlock: function(startTS, startUID, endTS, endUID) {
+    var blockId = $a64.encodeInt(this._folderImpl.nextHeaderBlock++),
+        blockInfo = {
+          blockId: blockId,
+          startTS: startTS,
+          startUID: startUID,
+          endTS: endTS,
+          endUID: endUID,
+          count: 0,
+          estSize: 0,
+        },
+        block = {
+          uids: null,
+          headers: null
+        };
+    this._dirty = true;
+    this._headerBlocks[blockId] = block;
+    this._dirtyHeaderBlocks[blockId] = block;
+    return blockInfo;
+  },
+
+  /**
+   * Create an empty header `FolderBlockInfo` and matching `BodyBlock`.  The
+   * `BodyBlock` will be inserted into the block map, but it's up to the
+   * caller to insert the returned `FolderBlockInfo` in the right place.
+   */
+  _makeBodyBlock: function(startTS, endTS) {
+    var blockId = $a64.encodeInt(this._folderImpl.nextBodyBlock++),
+        blockInfo = {
+          blockId: blockId,
+          startTS: startTS,
+          endTS: endTS,
+          count: 0,
+          estSize: 0,
+        },
+        block = {};
+    this._dirty = true;
+    this._bodyBlocks[blockId] = block;
+    this._dirtyBodyBlocks[blockId] = block;
+    return blockInfo;
+  },
+
   /**
    * Find the first object that contains date ranges whose date ranges contains
    * the provided date.  For use to find the right index in `_accuracyRanges`,
@@ -899,6 +1050,46 @@ ImapFolderStorage.prototype = {
   },
 
   /**
+   * Find the first object that contains date ranges whose date ranges contains
+   * the provided composite date/UID.  For use to find the right index in
+   * `_headerBlockInfos`, and `_bodyBlockInfos`, all of which are pre-sorted.
+   *
+   * @return[@list[
+   *   @param[index Number]{
+   *     The index of the Object that contains the date, or if there is no such
+   *     structure, the index that it should be inserted at.
+   *   }
+   *   @param[inside Object]
+   * ]]
+   */
+  _findRangeObjIndexForDateAndUID: function(list, date, uid) {
+    var i;
+    // linear scan for now; binary search later
+    for (i = 0; i < list.length; i++) {
+      var info = list[i];
+      // - Stop if we will never find a match if we keep going.
+      // If our date is after the end of this range, then it will never fall
+      // inside any subsequent ranges, because they are all chronologically
+      // earlier than this range.
+      // If our date is the same and our UID is higher, then likewise we
+      // shouldn't go further because UIDs decrease too.
+      if (STRICTLY_AFTER(date, info.endTS) ||
+          (date === info.endTS && uid > info.endUID))
+        return [i, null];
+      // therefore BEFORE(date, info.endTS) ||
+      //           (date === info.endTS && uid <= info.endUID)
+
+      if (STRICTLY_AFTER(date, info.startTS) ||
+          (date === info.startTS && uid >= info.startUID))
+        return [i, info];
+      // (Older than the startTS, keep going.)
+    }
+
+    return [i, null];
+  },
+
+
+  /**
    * Find the first object that contains date ranges that overlaps the provided
    * date range.
    */
@@ -932,7 +1123,7 @@ ImapFolderStorage.prototype = {
 
   /**
    * Find the first object in the list whose `date` falls inside the given
-   * date range.
+   * IMAP style date range.
    */
   _findFirstObjForDateRange: function(list, startTS, endTS) {
     var i;
@@ -981,11 +1172,13 @@ ImapFolderStorage.prototype = {
    * - If we fall outside existing blocks, check older and newer blocks in that
    *   order for a non-overflow fit.  If we would overflow, pick the existing
    *   block further from the center to perform a split.
+   * - If there are no existing blocks at all, create a new one.
    * - When splitting, if we are the first or last block, split 2/3 towards the
    *   center and 1/3 towards the edge.  The idea is that growth is most likely
    *   to occur near the edges, so concentrate the empty space there without
    *   leaving the center blocks so overloaded they can't accept random
    *   additions without further splits.
+   * - When splitting, otherwise, split equally-ish.
    *
    * == Block I/O
    *
@@ -993,18 +1186,76 @@ ImapFolderStorage.prototype = {
    * blocks in memory in order to perform the actual splits.  The outcome
    * of splits can't be predicted because the size of things in blocks is
    * only known when the block is loaded.
+   *
+   * @args[
+   *   @param[type @oneof['header' 'body']]
+   *   @param[date DateMS]
+   *   @param[estSizeCost Number]{
+   *     The rough byte cost of whatever we want to stick in a block.
+   *   }
+   *   @param[blockPickedCallback @func[
+   *     @args[
+   *       @param[blockInfo FolderBlockInfo]
+   *       @param[block @oneof[HeaderBlock BodyBlock]]
+   *     ]
+   *   ]]{
+   *     Callback function to invoke once we have found/created/made-room-for
+   *     the thing in the block.  This needs to be a callback because if we need
+   *     to perform any splits, we require that the block be loaded into memory
+   *     first.
+   *   }
+   * ]
    */
-  _pickInsertionBlockUsingDate: function(type, date, cost) {
-    var blockInfoList = (type === 'header' ? this._headerBlockInfos
-                                           : this._bodyBlockInfos);
+  _pickInsertionBlockUsingDate: function(type, date, uid, estSizeCost,
+                                         blockPickedCallback) {
+    var blockInfoList, makeBlock;
+    if (type === 'header') {
+      blockInfoList = this._headerBlockInfos;
+      makeBlock = this._makeHeaderBlock.bind(this);
+    }
+    else {
+      blockInfoList = this._bodyBlockInfos;
+      makeBlock = this._makeBodyBlock.bind(this);
+    }
 
-    // - find the current containing block / insertion point
-    var infoTuple = this._findRangeObjIndexForDate(blockInfoList, date),
+    // -- find the current containing block / insertion point
+    var infoTuple = this._findRangeObjIndexForDateAndUID(blockInfoList, date),
         iInfo = infoTuple[0], info = infoTuple[1];
 
-    // -
-    if (info) {
+    // -- not in a block, find or create one
+    if (!info) {
+      // - Create a block if no blocks exist at all.
+      if (blockInfoList.length === 0) {
+        info = makeBlock(date, date);
+        blockInfoList.splice(iInfo, 0, info);
+      }
+      // - Is there a trailing dude and we fit?
+      else if (iInfo < blockInfoList.length &&
+               blockInfoList[iInfo].estSize + estSizeCost < MAX_BLOCK_SIZE) {
+        info = blockInfoList[iInfo];
+      }
+      // - Is there a preceding dude and we fit? (well, must be preceding)
+      else if (iInfo > 0 &&
+               blockInfoList[iInfo - 1].estSize + estSizeCost < MAX_BLOCK_SIZE){
+        info = blockInfoList[--iInfo];
+      }
+      // Any adjacent blocks at this point are overflowing, so it's now a
+      // question of who to split.  We pick the one further from the center that
+      // exists.
+      // - Preceding (if possible and) suitable OR the only choice
+      else if ((iInfo > 0 && iInfo < blockInfoList.length / 2) ||
+               (iInfo === blockInfoList.length)) {
+        info = blockInfoList[--iInfo];
+      }
+      // - It must be the trailing dude
+      else {
+        info = blockInfoList[iInfo];
+      }
+    }
+    // (info now definitely exists and is definitely in blockInfoList)
 
+    // -- split if necessary
+    if (info.estSize + estSizeCost >= MAX_BLOCK_SIZE) {
     }
   },
 
@@ -1050,13 +1301,20 @@ ImapFolderStorage.prototype = {
    */
   sliceOpenFromNow: function(slice, daysDesired) {
     this._slices.push(slice);
+    if (this._activeSlice) {
+      console.error("Trying to open a slice and initiate a sync when there",
+                    "is already an active sync slice!");
+    }
 
     // -- Check if we have sufficiently useful data on hand.
+
     var now = TIME_WARPED_NOW || Date.now(),
+        futureNow = TIME_WARPED_NOW || null,
         pastDate = makeDaysAgo(daysDesired),
         iAcc, iHeadBlock, ainfo,
         // What is the startTS fullSync data we have for the time range?
         worstGoodData = null;
+/*
     for (iAcc = 0; iAcc < this._accuracyRanges.length; i++) {
       ainfo = this._accuracyRanges[iAcc];
       if (pastDate < ainfo.endTS)
@@ -1072,24 +1330,31 @@ ImapFolderStorage.prototype = {
 
     // -- Good existing data, fill the slice from the DB
     if (existingDataGood) {
-      this.getMessagesInDateRange(now, pastDate, INITIAL_FILL_SIZE, false);
+      this.getMessagesInDateRange(pastDate, now, INITIAL_FILL_SIZE, false);
       return;
     }
+*/
     // -- Bad existing data, issue a sync and have the slice
     slice.setStatus('synchronizing');
+    slice.waitingOnData = 'sync';
+    this._activeSyncSlice = slice;
+    this.folderConn.syncDateRange(pastDate, futureNow, true, slice);
+  },
+
+  onSyncCompleted: function() {
   },
 
   sliceQuicksearch: function(slice, searchParams) {
   },
 
   /**
-   * Retrieve the (ordered list) of messages covering a given date range that
-   * we know about.
+   * Retrieve the (ordered list) of messages covering a given IMAP-style date
+   * range that we know about.  Messages are returned from newest to oldest.
    *
    * @args[
-   *   @param[endTS]
-   *   @param[startTS]
-   *   @param[limit #:optional]
+   *   @param[startTS DateMS]
+   *   @param[endTS DateMS]
+   *   @param[limit #:optional Number]
    *   @param[messageCallback @func[
    *     @args[
    *       @param[headers @listof[HeaderInfo]]
@@ -1098,7 +1363,7 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getMessagesInDateRange: function(endTS, startTS, limit,
+  getMessagesInDateRange: function(startTS, endTS, limit,
                                    messageCallback) {
     var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
         // header block info iteration
@@ -1107,7 +1372,7 @@ ImapFolderStorage.prototype = {
 
     // find the first header block with the data we want
     [iHeadBlockInfo, headBlockInfo] =
-      self._findRangeObjIndexForDateRange(this._headerBlockInfos,
+      this._findRangeObjIndexForDateRange(this._headerBlockInfos,
                                           startTS, endTS);
     if (!headBlockInfo) {
       // no blocks equals no messages.
@@ -1183,6 +1448,7 @@ ImapFolderStorage.prototype = {
       if (!moreHeadersExpected)
         allCallback(allHeaders);
     }
+    this.getMessagesInDateRange(startTS, endTS, null, someMessages);
   },
 
   /**
@@ -1201,22 +1467,68 @@ ImapFolderStorage.prototype = {
    * Add a new message to the database, generating slice notifications.
    */
   addMessageHeader: function(header) {
+    var self = this;
+
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.addMessageHeader.bind(this, header));
       return;
     }
+
+    this._pickInsertionBlockUsingDateAndUID(
+      'type', header.date, header.id, HEADER_EST_SIZE_IN_BYTES,
+      function blockPicked(blockInfo, headerBlock) {
+        // - update the block
+        var insertIdx = bsearchForInsert(
+          headerBlock.headers, header, headerYoungToOldComparator);
+        // (if the list is empty, both conditionals can be true)
+        if (insertIdx === 0) {
+          blockInfo.endTS = header.date;
+          blockInfo.endUID = header.id;
+        }
+        if (insertIdx === headerBlock.headers.length) {
+          blockInfo.startTS = header.date;
+          blockInfo.startUID = header.id;
+        }
+
+        self._dirty = true;
+        self._dirtyHeaderBlocks[blockInfo.blockId] = headerBlock;
+        headerBlock.uids.splice(insertIdx, 0, header.id);
+        headerBlock.headers.splice(insertIdx, 0, header);
+
+        // - generate notifications
+        if (this._activeSyncSlice)
+          this._activeSyncSlice.onHeaderAdded(header);
+      });
   },
 
   /**
    * Update an existing mesage header in the database, generating slice
    * notifications and dirtying its containing block to cause eventual database
    * writeback.
+   *
+   * A message header gets updated ONLY because of a change in its flags.  We
+   * don't consider this change large enough to cause us to need to split a
+   * block.
    */
   updateMessageHeader: function(header) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
       return;
     }
+    if (this._activeSyncSlice)
+      this._activeSyncSlice.onHeaderAdded(header);
+  },
+
+  /**
+   * A notification that an existing header is still up-to-date.
+   */
+  unchangedMessageHeader: function(header) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
+      return;
+    }
+    if (this._activeSyncSlice)
+      this._activeSyncSlice.onHeaderAdded(header);
   },
 
   deleteMessageHeader: function(header) {

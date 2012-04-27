@@ -152,6 +152,16 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   };
 };
 
+// What do we think the post-snappy compression overhead of the structured clone
+// persistence rep will be for various things?  These are total guesses right
+// now.  Keep in mind we do want the pre-compression size of the data in all
+// cases and we just hope it will compress a bit.  For the attributes we are
+// including the attribute name as well as any fixed-overhead for its payload,
+// especially numbers which may or may not be zig-zag encoded/etc.
+const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
+      NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
+      NULL_ATTR_OVERHEAD_EST = 2;
+
 /**
  * Call once the body parts requested by `chewHeaderAndBodyStructure` have been
  * fetched in order to finish processing of the message to produce the header
@@ -184,14 +194,43 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
     subject: rep.msg.msg.subject,
     snippet: snippet,
   };
+
+  // crappy size estimates where we assume the world is ASCII and so a UTF-8
+  // encoding will take exactly 1 byte per character.
+  var sizeEst = OBJ_OVERHEAD_EST + NUM_ATTR_OVERHEAD_EST +
+                  4 * MAYBE_NULL_OVERHEAD_EST;
+  function sizifyAddrs(addrs) {
+    sizeEst += LIST_ATTR_OVERHEAD_EST;
+    for (var i = 0; i < addrs.length; i++) {
+      var addrPair = addrs[i];
+      sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                   addrPair.name.length + addrPair.address.length;
+    }
+    return addrs;
+  }
+  function sizifyAttachments(atts) {
+    sizeEst += LIST_ATTR_OVERHEAD_EST;
+    for (var i = 0; i < atts.length; i++) {
+      var att = atts[i];
+      sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                   att.filename.length + att.mimetype.length +
+                   NUM_ATTR_OVERHEAD_EST;
+    }
+    return atts;
+  }
+  function sizifyStr(str) {
+    sizeEst += STR_ATTR_OVERHEAD_EST + str.length;
+    return str;
+  }
   rep.bodyInfo = {
-    to: ('to' in rep.msg.msg) ? rep.msg.msg.to : null,
-    cc: ('cc' in rep.msg.msg) ? rep.msg.msg.cc : null,
-    bcc: ('bcc' in rep.msg.msg) ? rep.msg.msg.bcc : null,
+    size: sizeEst,
+    to: ('to' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.to) : null,
+    cc: ('cc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.cc) : null,
+    bcc: ('bcc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.bcc) : null,
     replyTo: ('reply-to' in rep.msg.parsedHeaders) ?
-               rep.msg.parsedHeaders['reply-to'] : null,
-    attachments: rep.attachments,
-    bodyText: fullBody,
+               sizifyStr(rep.msg.parsedHeaders['reply-to']) : null,
+    attachments: sizifyAttachments(rep.attachments),
+    bodyText: sizifyStr(fullBody),
   };
 
   return true;

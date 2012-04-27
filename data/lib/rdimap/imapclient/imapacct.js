@@ -4,6 +4,7 @@
 
 define(
   [
+    'imap',
     './a64',
     './imapdb',
     './imapslice',
@@ -11,6 +12,7 @@ define(
     'exports'
   ],
   function(
+    $imap,
     $a64,
     $imapdb,
     $imapslice,
@@ -18,7 +20,7 @@ define(
     exports
   ) {
 
-function MailUniverse() {
+function MailUniverse(callAfterBigBang) {
   this.accounts = [];
 
   this.config = null;
@@ -34,13 +36,11 @@ function MailUniverse() {
         nextAccountNum: 0,
       };
     }
+    callAfterBigBang();
   });
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
-  /**
-   * This
-   */
   tryToCreateAccount: function(connInfo, callback) {
     var prober = new $imapprobe.ImapProber(connInfo), self = this;
     prober.onresult = function(accountGood) {
@@ -67,6 +67,7 @@ MailUniverse.prototype = {
 
     var account = new ImapAccount(accountDef, folderInfo);
     this.accounts.push(account);
+    return account;
   },
 };
 
@@ -106,14 +107,17 @@ function ImapAccount(accountDef, folderInfos) {
   this._folderInfos = folderInfos;
   this._meta = this._folderInfos.$meta;
   for (var folderId in folderInfos) {
+    if (folderId === "$meta")
+      continue;
     var folderInfo = folderInfos[folderId];
+    console.log("DEPERSIST folder", folderId, folderInfo);
     folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(folderId, folderInfo);
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
     folderPubs.push(folderInfo.$meta);
   }
 
   if (!folderStorages.hasOwnProperty("INBOX"))
-    this._learnAboutFolder("INBOX", ["INBOX"], 'inbox');
+    this._learnAboutFolder("INBOX", "INBOX", 'inbox');
 }
 ImapAccount.prototype = {
   type: 'imap',
@@ -122,6 +126,7 @@ ImapAccount.prototype = {
    * Make a given folder known to us, creating state tracking instances, etc.
    */
   _learnAboutFolder: function(name, path, type) {
+    console.log("LEARN about folder", name, path, type);
     var folderId = this.accountDef.id + '-' +
                      $a64.encodeInt(this._meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
@@ -131,18 +136,26 @@ ImapAccount.prototype = {
         path: path,
         type: type,
       },
+      $impl: {
+        nextHeaderBlock: 0,
+        nextBodyBlock: 0,
+      },
+      accuracy: [],
+      headerBlocks: [],
+      bodyBlocks: [],
     };
     this._folderStorages[folderId] =
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
+    this.folders.push(folderInfo.$meta);
   },
 
   /**
    * Create a view slice on the messages in a folder, starting from the most
    * recent messages and synchronizing further as needed.
    */
-  sliceFolderMessages: function(bridgeHandle, folderPub) {
+  sliceFolderMessages: function(folderPub, bridgeHandle) {
     var storage = this._folderStorages[folderPub.id],
-        slice = new $imapslice.ImapSlice(bridgeHandle);
+        slice = new $imapslice.ImapSlice(bridgeHandle, storage);
 
     storage.sliceOpenFromNow(slice, 14);
   },
@@ -160,7 +173,13 @@ ImapAccount.prototype = {
    * the folder connection to enter the folder.
    */
   __folderDemandsConnection: function(folderId, callback) {
-    var conn = new $imap.ImapConnection(this.accountDef.connInfo);
+    var opts = {};
+    for (var key in this.accountDef.connInfo) {
+      opts[key] = this.accountDef.connInfo[key];
+    }
+    opts.debug = console.debug.bind(console);
+
+    var conn = new $imap.ImapConnection(opts);
     this._ownedConns.push({
         conn: conn,
         folderId: folderId,
