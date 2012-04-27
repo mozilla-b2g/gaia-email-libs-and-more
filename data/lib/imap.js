@@ -293,7 +293,7 @@ ImapConnection.prototype.connect = function(loginCb) {
           if (self._state.numCapRecvs === 0)
             self._state.numCapRecvs = 1;
         } else if (data[1] === 'NO' || data[1] === 'BAD' || data[1] === 'BYE') {
-          self._state.conn.end();
+          self._state.conn.close();
           return;
         }
         if (!self._state.isReady)
@@ -493,6 +493,15 @@ ImapConnection.prototype.connect = function(loginCb) {
         }
       }
 
+      // XXX there is an edge case here where we LOGOUT and the server sends
+      // "* BYE" "AXX LOGOUT OK" and the close event gets processed (probably
+      // because of the BYE and the fact that we don't nextTick a lot for the
+      // moz logic) and _reset() nukes the requests before we see the LOGOUT,
+      // which we do end up seeing.  So just bail in that case.
+      if (self._state.requests.length === 0) {
+        return;
+      }
+
       if (self._state.requests[0].command.indexOf('RENAME') > -1) {
         self._state.box.name = self._state.box._newName;
         delete self._state.box._newName;
@@ -581,10 +590,12 @@ ImapConnection.prototype.connect = function(loginCb) {
       self.debug('status', 'Error occurred: ' + err);
   };
 
-  this._state.conn.open(this._options.host, this._options.port,
-                        this._options.crypto, sslOptions);
+  // XXX temporary reordering because of current unfortunate sequenecing of
+  // events with MozTCPSocket in the jetpack shim version.
   this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
                                    this._options.connTimeout, loginCb);
+  this._state.conn.open(this._options.host, this._options.port,
+                        this._options.crypto, sslOptions);
 };
 
 ImapConnection.prototype.isAuthenticated = function() {
