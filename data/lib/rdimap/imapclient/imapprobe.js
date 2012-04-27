@@ -16,8 +16,14 @@ define(
   ) {
 
 function ImapProber(connInfo) {
+  var opts = {};
+  for (var key in connInfo) {
+    opts[key] = connInfo[key];
+  }
+  //opts.debug = console.debug.bind(console);
+
   console.log("PROBE attempting to connect to", connInfo.host);
-  this._conn = new $imap.ImapConnection(connInfo);
+  this._conn = new $imap.ImapConnection(opts);
   this._conn.connect(this.onConnect.bind(this));
 
   this.onresult = null;

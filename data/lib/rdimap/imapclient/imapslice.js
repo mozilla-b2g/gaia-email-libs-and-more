@@ -54,13 +54,15 @@
 
 define(
   [
-    './imapchew',
     'mailparser/mailparser',
+    './a64',
+    './imapchew',
     'exports'
   ],
   function(
-    $imapchew,
     $mailparser,
+    $a64,
+    $imapchew,
     exports
   ) {
 
@@ -91,6 +93,7 @@ function allbackMaker(names, allDoneCallback) {
     // (build a consistent shape for aggrData regardless of callback ordering)
     aggrData[name] = undefined;
     callbacks[name] = function(callbackResult) {
+console.log("ALLBACKed", name);
       var i = waitingFor.indexOf(name);
       if (i === -1) {
         console.error("Callback '" + name + "' fired multiple times!");
@@ -226,6 +229,25 @@ ImapSlice.prototype = {
   },
 
   onHeaderAdded: function(header) {
+    if (this.startTS === null ||
+        BEFORE(header.date, this.startTS)) {
+      this.startTS = header.date;
+      this.startUID = header.id;
+    }
+    else if (header.date === this.startTS &&
+             header.id < this.startUID) {
+      this.startUID = header.id;
+    }
+    if (this.endTS === null ||
+        STRICTLY_AFTER(header.date, this.endTS)) {
+      this.endTS = header.date;
+      this.endUID = header.id;
+    }
+    else if (header.date === this.endTS &&
+             header.id > this.endUID) {
+      this.endUID = header.id;
+    }
+
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
     this._bridgeHandle.sendSplice(idx, 0, [header]);
@@ -245,6 +267,7 @@ ImapSlice.prototype = {
     this._bridgeHandle.sendSplice(idx, 1, null);
     this.headers.splice(idx, 1);
   },
+
 };
 
 const BASELINE_SEARCH_OPTIONS = ['!DRAFT'];
@@ -257,6 +280,19 @@ const MAX_BLOCK_SIZE = 96 * 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Time
+//
+// == JS Dates
+//
+// We primarily deal in UTC timestamps.  When we need to talk dates with IMAP
+// (see next section), we need these timestamps to line up with midnight for
+// a given day.  We do not need to line up with weeks, months, or years,
+// saving us a lot of complexity.
+//
+// Day algebra is straightforward because JS Date objects have no concept of
+// leap seconds.  We don't need to worry that a leap second will cause adding
+// a day to be less than or more than a day.  Hooray!
+//
+// == IMAP and Time
 //
 // The stock IMAP SEARCH command's SINCE and BEFORE predicates only operate on
 // whole-dates (and ignore the non-date time parts).  Additionally, SINCE is
@@ -349,8 +385,6 @@ const HEADER_EST_SIZE_IN_BYTES = 200;
 
 const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
-
-
 /**
  * Testing override that when present replaces use of Date.now().
  */
@@ -364,19 +398,24 @@ exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
 };
 
 /**
- * Make a timestamp some number of days in the past.
+ * Make a timestamp some number of days in the past, quantized to midnight of
+ * that day.  To avoid
  */
 function makeDaysAgo(numDays) {
-  var now = TIME_WARPED_NOW || Date.now(),
+  var now = quantizeDate(TIME_WARPED_NOW || Date.now()),
       past = now - numDays * DAY_MILLIS;
   return past;
 }
-/**
- * Return the
- */
-function makeSlightlyYoungerDay(ts) {
+function makeDaysBefore(date, numDaysBefore) {
+  return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 }
-function makeSlightlyOlderDay(ts) {
+/**
+ * Quantize a date to midnight on that day.
+ */
+function quantizeDate(date) {
+  if (typeof(date) === 'number')
+    date = new Date(date);
+  return date.setHours(0, 0, 0, 0).valueOf();
 }
 
 /**
@@ -391,6 +430,17 @@ const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
  * How many messages should we send to the UI in the first go?
  */
 const INITIAL_FILL_SIZE = 12;
+
+/**
+ * How many days in the past should we first look for messages.
+ */
+const INITIAL_SYNC_DAYS = 14;
+/**
+ * When looking further into the past, how big a bite of the past should we
+ * take?
+ */
+const INCREMENTAL_SYNC_DAYS = 14;
+
 /**
  * What's the maximum number of messages we should ever handle in a go and
  * where we should start failing by pretending like we haven't heard of the
@@ -465,6 +515,7 @@ function ImapFolderConn(account, storage) {
   this._storage = storage;
 
   this._conn = null;
+  this.box = null;
 }
 ImapFolderConn.prototype = {
   /**
@@ -487,12 +538,13 @@ ImapFolderConn.prototype = {
           // Now we have a connection, but it's not in the folder.
           // (If we were doing fancier sync like QRESYNC, we would not enter
           // in such a blase fashion.)
-          self._conn.openBox(self._storage.folderMeta.path, function(err) {
+          self._conn.openBox(self._storage.folderMeta.path, function(err, box) {
               if (err) {
                 console.error('Problem entering folder',
                               self._storage.folderMeta.path);
                 return;
               }
+              self.box = box;
               self._reliaSearch(searchOptions, callback);
             });
         });
@@ -528,7 +580,7 @@ ImapFolderConn.prototype = {
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
    */
-  syncDateRange: function(startTS, endTS, newToOld) {
+  syncDateRange: function(startTS, endTS, newToOld, doneCallback) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
     if (startTS)
@@ -565,7 +617,7 @@ ImapFolderConn.prototype = {
         if (numDeleted)
           compactArray(headers);
 
-        self._commonSync(newUIDs, knownUIDs, headers);
+        self._commonSync(newUIDs, knownUIDs, headers, doneCallback);
       });
 
     this._reliaSearch(searchOptions, callbacks.search);
@@ -605,138 +657,148 @@ ImapFolderConn.prototype = {
    * Third, we fetch the body parts in our newest-to-startTS order, adding
    * finalized headers and bodies as we go.
    */
-  _commonSync: function(newUIDs, knownUIDs, knownHeaders) {
+  _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
     var conn = this._conn, storage = this._storage;
     // -- Fetch headers/bodystructures for new UIDs
     var newChewReps = [];
-    var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
-    newFetcher.on('message', function onNewMessage(msg) {
-        msg.on('end', function onNewMsgEnd() {
-          newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
-        });
-      });
-    newFetcher.on('error', function onNewFetchError(err) {
-        // XXX the UID might have disappeared already?  we might need to have
-        // our initiating command re-do whatever it's up to.  Alternatively,
-        // we could drop back from a bulk fetch to a one-by-one fetch.
-        console.warn('New UIDs fetch error, ideally harmless:', err);
-      });
-    newFetcher.on('end', function onNewFetchEnd() {
-        // sort the messages, endTS to startTS (aka numerically descending)
-        newChewReps.sort(function(a, b) {
-            return b.msg.date - a.msg.date;
+    if (newUIDs.length) {
+      var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
+      newFetcher.on('message', function onNewMessage(msg) {
+          msg.on('end', function onNewMsgEnd() {
+            newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
           });
-
-        // - issue the bodypart fetches.
-        // Use mailparser's body parsing capabilities, albeit not entirely in
-        // the way it was intended to be used since it wants to parse full
-        // messages.
-        var mparser = new $mailparser.MailParser();
-        function setupBodyParser(partDef) {
-          mparser._state = 0x2; // body
-          mparser._remainder = '';
-          mparser._currentNode = null;
-          mparser._createMimeNode(null);
-          // nb: mparser._multipartTree is an empty list (always)
-          mparser._currentNode.meta.contentType =
-            partDef.type + '/' + partDef.subtype;
-          mparser._currentNode.meta.charset =
-            partDef.params && partDef.params.charset;
-          mparser._currentNode.meta.transferEncoding =
-            partDef.ecoding;
-          mparser._currentNode.meta.textFormat =
-            partDef.params && partDef.params.format;
-        }
-        function bodyParseBuffer(buffer) {
-          process.immediate = true;
-          mparser.write(buffer);
-          process.immediate = false;
-        }
-        function finishBodyParsing() {
-          process.immediate = true;
-          mparser._process(true);
-          process.immediate = false;
-          return mparser._currentNode.content;
-        }
-
-        // XXX imap.js is currently not capable of issuing/parsing multiple
-        // literal results from a single fetch result line.  It's not a
-        // fundamentally hard problem, but I'd rather defer messing with its
-        // parse loop (and internal state tracking) until a future time when
-        // I can do some other cleanup at the same time.  (The subsequent
-        // literals are just on their own lines with an initial space and then
-        // the named literal.  Ex: " BODY[1.2] {2463}".)
-        //
-        // So let's issue one fetch per body part and then be happy when we've
-        // got them all.
-        newChewReps.forEach(function(chewRep, iChewRep) {
-          var partsReceived = [];
-          chewRep.bodyParts.forEach(function(bodyPart) {
-            var fetcher = conn.fetch(chewRep.msg.id, opts);
-            setupBodyParser(bodyPart);
-            fetcher.on('message', function(msg) {
-              setupBodyParser(bodyPart);
-              msg.on('data', bodyParseBuffer);
-              msg.on('end', function() {
-                partsReceived.push(finishBodyParsing());
-                // -- Process
-                if (partsReceived.length === chewRep.bodyParts.length) {
-                  if ($imapchew.chewBodyParts(chewRep, partsReceived)) {
-                    storage.addMessageHeader(chewRep.header);
-                    storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
-                  }
-                }
-              });
+        });
+      newFetcher.on('error', function onNewFetchError(err) {
+          // XXX the UID might have disappeared already?  we might need to have
+          // our initiating command re-do whatever it's up to.  Alternatively,
+          // we could drop back from a bulk fetch to a one-by-one fetch.
+          console.warn('New UIDs fetch error, ideally harmless:', err);
+        });
+      newFetcher.on('end', function onNewFetchEnd() {
+          // sort the messages, endTS to startTS (aka numerically descending)
+          newChewReps.sort(function(a, b) {
+              return b.msg.date - a.msg.date;
             });
 
-            // If this is the last chew rep, then use its completion to report
-            // our completion.
-            if (iChewRep === newChewReps.length) {
-              fetcher.on('end', function() {
-                doneCallback();
+          // - issue the bodypart fetches.
+          // Use mailparser's body parsing capabilities, albeit not entirely in
+          // the way it was intended to be used since it wants to parse full
+          // messages.
+          var mparser = new $mailparser.MailParser();
+          function setupBodyParser(partDef) {
+            mparser._state = 0x2; // body
+            mparser._remainder = '';
+            mparser._currentNode = null;
+            mparser._currentNode = mparser._createMimeNode(null);
+            // nb: mparser._multipartTree is an empty list (always)
+            mparser._currentNode.meta.contentType =
+              partDef.type + '/' + partDef.subtype;
+            mparser._currentNode.meta.charset =
+              partDef.params && partDef.params.charset;
+            mparser._currentNode.meta.transferEncoding =
+              partDef.ecoding;
+            mparser._currentNode.meta.textFormat =
+              partDef.params && partDef.params.format;
+          }
+          function bodyParseBuffer(buffer) {
+            process.immediate = true;
+            mparser.write(buffer);
+            process.immediate = false;
+          }
+          function finishBodyParsing() {
+            process.immediate = true;
+            mparser._process(true);
+            process.immediate = false;
+            return mparser._currentNode.content;
+          }
+
+          // XXX imap.js is currently not capable of issuing/parsing multiple
+          // literal results from a single fetch result line.  It's not a
+          // fundamentally hard problem, but I'd rather defer messing with its
+          // parse loop (and internal state tracking) until a future time when
+          // I can do some other cleanup at the same time.  (The subsequent
+          // literals are just on their own lines with an initial space and then
+          // the named literal.  Ex: " BODY[1.2] {2463}".)
+          //
+          // So let's issue one fetch per body part and then be happy when we've
+          // got them all.
+          newChewReps.forEach(function(chewRep, iChewRep) {
+            var partsReceived = [];
+            chewRep.bodyParts.forEach(function(bodyPart) {
+              var opts = { request: { body: bodyPart.partID } };
+              var fetcher = conn.fetch(chewRep.msg.id, opts);
+              setupBodyParser(bodyPart);
+              fetcher.on('message', function(msg) {
+                setupBodyParser(bodyPart);
+                msg.on('data', bodyParseBuffer);
+                msg.on('end', function() {
+                  partsReceived.push(finishBodyParsing());
+                  // -- Process
+                  if (partsReceived.length === chewRep.bodyParts.length) {
+                    if ($imapchew.chewBodyParts(chewRep, partsReceived)) {
+                      storage.addMessageHeader(chewRep.header);
+                      storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
+                    }
+
+                   // If this is the last chew rep, then use its completion
+                   // to report our completion.
+                    if (iChewRep === newChewReps.length - 1)
+                      doneCallback();
+                  }
+                });
               });
+            });
+          });
+        });
+    }
+
+    // -- Fetch updated flags for known UIDs
+    if (knownUIDs.length) {
+      var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
+      var numFetched = 0;
+      knownFetcher.on('message', function onKnownMessage(msg) {
+          // (Since we aren't requesting headers, we should be able to get
+          // away without registering this next event handler and just process
+          // msg right now, but let's wait on an optimization pass.)
+          msg.on('end', function onKnownMsgEnd() {
+            var i = numFetched++;
+            // RFC 3501 doesn't seem to require that we get results in the order
+            // we request them, so use indexOf if things don't line up.
+            if (knownHeaders[i].id !== msg.id) {
+              i = knownUIDs.indexOf(msg.id);
+              // If it's telling us about a message we don't know about, run away.
+              if (i === -1) {
+                console.warn("Server fetch reports unexpected message:", msg.id);
+                return;
+              }
+            }
+            var header = knownHeaders[i];
+
+            if (header.flags.toString() !== msg.flags.toString()) {
+              header.flags = msg.flags;
+              storage.updateMessageHeader(header);
+            }
+            else {
+              storage.unchangedMessageHeader(header);
             }
           });
         });
-      });
-
-    // -- Fetch updated flags for known UIDs
-    var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
-    var numFetched = 0;
-    knownFetcher.on('message', function onKnownMessage(msg) {
-        // (Since we aren't requesting headers, we should be able to get
-        // away without registering this next event handler and just process
-        // msg right now, but let's wait on an optimization pass.)
-        msg.on('end', function onKnownMsgEnd() {
-          var i = numFetched++;
-          // RFC 3501 doesn't seem to require that we get results in the order
-          // we request them, so use indexOf if things don't line up.
-          if (knownHeaders[i].id !== msg.id) {
-            i = knownUIDs.indexOf(msg.id);
-            // If it's telling us about a message we don't know about, run away.
-            if (i === -1) {
-              console.warn("Server fetch reports unexpected message:", msg.id);
-              return;
-            }
-          }
-          var header = knownHeaders[i];
-
-          if (header.flags.toString() !== msg.flags.toString()) {
-            header.flags = msg.flags;
-            storage.updateMessageHeader(header);
-          }
-          else {
-            storage.unchangedMessageHeader(header);
-          }
+      knownFetcher.on('error', function onKnownFetchError(err) {
+          // XXX the UID might have disappeared already?  we might need to have
+          // our initiating command re-do whatever it's up to.  Alternatively,
+          // we could drop back from a bulk fetch to a one-by-one fetch.
+          console.warn('Known UIDs fetch error, ideally harmless:', err);
         });
-      });
-    knownFetcher.on('error', function onKnownFetchError(err) {
-        // XXX the UID might have disappeared already?  we might need to have
-        // our initiating command re-do whatever it's up to.  Alternatively,
-        // we could drop back from a bulk fetch to a one-by-one fetch.
-        console.warn('Known UIDs fetch error, ideally harmless:', err);
-      });
+      if (!newUIDs.length) {
+        knownFetcher.on('end', function() {
+            doneCallback();
+          });
+      }
+    }
 
+    if (!knownUIDs.length && !newUIDs.length) {
+      doneCallback();
+    }
   },
 };
 
@@ -962,7 +1024,11 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
    * The slice that is driving our current synchronization and wants to hear
    * about all header modifications/notes as they occur.
    */
-  this._activeSyncSlice = null;
+  this._curSyncSlice = null;
+  /**
+   * The start range of the (backward-moving) sync time range.
+   */
+  this._curSyncStartTS = null;
 
   this.folderConn = new ImapFolderConn(account, this);
 }
@@ -1206,8 +1272,8 @@ ImapFolderStorage.prototype = {
    *   }
    * ]
    */
-  _pickInsertionBlockUsingDate: function(type, date, uid, estSizeCost,
-                                         blockPickedCallback) {
+  _pickInsertionBlockUsingDateAndUID: function(type, date, uid, estSizeCost,
+                                               blockPickedCallback) {
     var blockInfoList, makeBlock;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
@@ -1300,6 +1366,7 @@ ImapFolderStorage.prototype = {
    * be useless.
    */
   sliceOpenFromNow: function(slice, daysDesired) {
+    daysDesired = daysDesired || INITIAL_SYNC_DAYS;
     this._slices.push(slice);
     if (this._activeSlice) {
       console.error("Trying to open a slice and initiate a sync when there",
@@ -1337,11 +1404,42 @@ ImapFolderStorage.prototype = {
     // -- Bad existing data, issue a sync and have the slice
     slice.setStatus('synchronizing');
     slice.waitingOnData = 'sync';
-    this._activeSyncSlice = slice;
-    this.folderConn.syncDateRange(pastDate, futureNow, true, slice);
+    this._curSyncSlice = slice;
+    this.folderConn.syncDateRange(pastDate, futureNow, true,
+                                  this.onSyncCompleted.bind(this));
   },
 
+  /**
+   * Whatever synchronization we last triggered has now completed; we should
+   * either trigger another sync if we still want more data, or close out the
+   * current sync.
+   */
   onSyncCompleted: function() {
+    console.log("Sync Completed!");
+    // If the slice already knows about all the messages in the folder, make
+    // sure it doesn't want additional messages that don't exist.
+    if (this.folderConn && this.folderConn.box &&
+        (this._curSyncSlice.desiredHeaders >
+         this.folderConn.box.messages.total))
+      this._curSyncSlice.desiredHeaders = this.folderConn.box.messages.total;
+
+    // - Done if we don't want any more headers.
+    // XXX prefetch may need a different success heuristic
+    if ((this._curSyncSlice.headers.length >=
+         this._curSyncSlice.desiredHeaders)) {
+      console.log("SYNCDONE Enough headers retrieved.");
+      this._curSyncSlice.waitingOnData = false;
+      this._curSyncSlice.setStatus('synced');
+      this._curSyncSlice = null;
+      return;
+    }
+
+    // - Move the time range back in time more.
+    var startTS = makeDaysBefore(this._curSyncStartTS, INCREMENTAL_SYNC_DAYS),
+        endTS = this._curSyncStartTS;
+    this._curSyncStartTS = startTS;
+    this.folderConn.syncDateRange(startTS, endTS, true,
+                                  this.onSyncCompleted.bind(this));
   },
 
   sliceQuicksearch: function(slice, searchParams) {
@@ -1370,10 +1468,12 @@ ImapFolderStorage.prototype = {
         iHeadBlockInfo = null, headBlockInfo;
 
 
-    // find the first header block with the data we want
-    [iHeadBlockInfo, headBlockInfo] =
-      this._findRangeObjIndexForDateRange(this._headerBlockInfos,
-                                          startTS, endTS);
+    // find the first header block with the data we want (was destructuring)
+    var headerPair = this._findFirstObjIndexForDateRange(this._headerBlockInfos,
+                                                         startTS, endTS);
+    iHeadBlockInfo = headerPair[0];
+    headBlockInfo = headerPair[1];
+
     if (!headBlockInfo) {
       // no blocks equals no messages.
       messageCallback([], false);
@@ -1496,8 +1596,8 @@ ImapFolderStorage.prototype = {
         headerBlock.headers.splice(insertIdx, 0, header);
 
         // - generate notifications
-        if (this._activeSyncSlice)
-          this._activeSyncSlice.onHeaderAdded(header);
+        if (this._curSyncSlice)
+          this._curSyncSlice.onHeaderAdded(header);
       });
   },
 
@@ -1515,8 +1615,8 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
       return;
     }
-    if (this._activeSyncSlice)
-      this._activeSyncSlice.onHeaderAdded(header);
+    if (this._curSyncSlice)
+      this._curSyncSlice.onHeaderAdded(header);
   },
 
   /**
@@ -1527,8 +1627,8 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
       return;
     }
-    if (this._activeSyncSlice)
-      this._activeSyncSlice.onHeaderAdded(header);
+    if (this._curSyncSlice)
+      this._curSyncSlice.onHeaderAdded(header);
   },
 
   deleteMessageHeader: function(header) {

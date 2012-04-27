@@ -62,7 +62,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   //     [{alternative} [{text/plain}] [{text/html}]]
   //   multipart/mixed text w/attachment =>
   //     [{mixed} [{text/plain}] [{application/pdf}]]
-  var attachments = [], bodyParts = [];
+  var attachments = [], bodyParts = [], unnamedPartCounter = 0;
 
   /**
    * Sizes are the size of the encoded string, not the decoded value.
@@ -90,27 +90,50 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
 
   function chewStruct(branch) {
     var partInfo = branch[0], i,
-        filename;
+        filename, disposition;
 
     // - Detect named parts; they could be attachments
     if (partInfo.params && partInfo.params.name)
       filename = partInfo.params.name;
-    else if (partInfo.disposition && partInfo.disposition.filename)
-      filename = partInfo.disposition.filename;
+    else if (partInfo.disposition && partInfo.disposition.params &&
+             partInfo.disposition.params.filename)
+      filename = partInfo.disposition.params.filename;
     else
       filename = null;
 
-    // XXX check explicit content-disposition which is dependent on an
-    //  imap.js fix; we want to do inline display of inline things
-    //  that we actually can display/want to display.
+    // - Start from explicit disposition, make attachment if non-displayable
+    if (partInfo.disposition)
+      disposition = partInfo.disposition.type;
+    // UNTUNED-HEURISTIC (need test cases)
+    // Parts with content ID's explicitly want to be referenced by the message
+    // and so are inline.  (Although we might do well to check if they actually
+    // are referenced.  This heuristic could be very wrong.)
+    else if (partInfo.id)
+      disposition = 'inline';
+    else if (filename || partInfo.type !== 'text')
+      disposition = 'attachment';
+    else
+      disposition = 'inline';
+
+    // Some clients want us to display things inline that we simply can't
+    // display (historically and currently, PDF) or that our usage profile
+    // does not want to automatically download (in the future, PDF, because
+    // they can get big.)
+    if (partInfo.type !== 'text' &&
+        partInfo.type !== 'image')
+      disposition = 'attachment';
 
     // - But we don't care if they are signatures...
-    if ((type === 'application') &&
-        (subtype === 'pgp-signature' || subtype === 'pkcs7-signature'))
+    if ((partInfo.type === 'application') &&
+        (partInfo.subtype === 'pgp-signature' ||
+         partInfo.subtype === 'pkcs7-signature'))
       return;
 
     // - Attachments have names and don't have id's for multipart/related
-    if (filename && !partInfo.id) {
+    if (disposition === 'attachment') {
+      // We probably want to do a MIME mapping here for the extension?
+      if (!filename)
+        filename = 'unnamed-' + (++unnamedPartCounter);
       attachments.push({
         name: filename,
         part: partInfo.partID,
@@ -198,7 +221,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
   // crappy size estimates where we assume the world is ASCII and so a UTF-8
   // encoding will take exactly 1 byte per character.
   var sizeEst = OBJ_OVERHEAD_EST + NUM_ATTR_OVERHEAD_EST +
-                  4 * MAYBE_NULL_OVERHEAD_EST;
+                  4 * NULL_ATTR_OVERHEAD_EST;
   function sizifyAddrs(addrs) {
     sizeEst += LIST_ATTR_OVERHEAD_EST;
     for (var i = 0; i < addrs.length; i++) {
@@ -227,8 +250,8 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
     to: ('to' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.to) : null,
     cc: ('cc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.cc) : null,
     bcc: ('bcc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.bcc) : null,
-    replyTo: ('reply-to' in rep.msg.parsedHeaders) ?
-               sizifyStr(rep.msg.parsedHeaders['reply-to']) : null,
+    replyTo: ('reply-to' in rep.msg.msg.parsedHeaders) ?
+               sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
     attachments: sizifyAttachments(rep.attachments),
     bodyText: sizifyStr(fullBody),
   };

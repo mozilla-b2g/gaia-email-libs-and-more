@@ -157,7 +157,7 @@ ImapAccount.prototype = {
     var storage = this._folderStorages[folderPub.id],
         slice = new $imapslice.ImapSlice(bridgeHandle, storage);
 
-    storage.sliceOpenFromNow(slice, 14);
+    storage.sliceOpenFromNow(slice);
   },
 
   /**
