@@ -13,7 +13,54 @@ var emptyFn = function() {}, CRLF = '\r\n',
     }, BOX_ATTRIBS = ['NOINFERIORS', 'NOSELECT', 'MARKED', 'UNMARKED'],
     MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
               'Oct', 'Nov', 'Dec'],
-    reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}\r\n/;
+    reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}\r\n/,
+    reDate = /^(\d{2})-(.{3})-(\d{4})$/,
+    reDateTime = /^(\d{2})-(.{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-]\d{4})$/,
+    HOUR_MILLIS = 60 * 60 * 1000, MINUTE_MILLIS = 60 * 1000;
+
+
+/**
+ * Parses (UTC) IMAP dates into UTC timestamps. IMAP dates are DD-Mon-YYYY.
+ */
+function parseImapDate(dstr) {
+  var match = reDate.exec(dstr);
+  if (!match)
+    throw new Error("Not a good IMAP date: " + dstr);
+  var day = parseInt(match[1], 10),
+      zeroMonth = MONTHS.indexOf(match[2]),
+      year = parseInt(match[3], 10);
+  return Date.UTC(year, zeroMonth, day);
+}
+
+/**
+ * Parses IMAP date-times into UTC timestamps.  IMAP date-times are
+ * "DD-Mon-YYYY HH:MM:SS +ZZZZ"
+ */
+function parseImapDateTime(dstr) {
+  var match = reDateTime.exec(dstr);
+  if (!match)
+    throw new Error("Not a good IMAP date-time: " + dstr);
+  var day = parseInt(match[1], 10),
+      zeroMonth = MONTHS.indexOf(match[2]),
+      year = parseInt(match[3], 10),
+      hours = parseInt(match[4], 10),
+      minutes = parseInt(match[5], 10),
+      seconds = parseInt(match[6], 10),
+      // figure the timestamp before the zone stuff.  We don't
+      timestamp = Date.UTC(year, zeroMonth, day, hours, minutes, seconds),
+      // to reduce string garbage creation, we use one string. (we have to
+      // play math games no matter what, anyways.)
+      zoneDelta = parseInt(match[7], 10),
+      zoneHourDelta = Math.floor(zoneDelta / 100),
+      // (the negative sign sticks around through the mod operation)
+      zoneMinuteDelta = zoneDelta % 100;
+
+  // ex: GMT-0700 means 7 hours behind, so we need to add 7 hours, aka
+  // subtract negative 7 hours.
+  timestamp -= zoneHourDelta * HOUR_MILLIS + zoneMinuteDelta * MINUTE_MILLIS;
+
+  return timestamp;
+}
 
 var IDLE_NONE = 1,
     IDLE_WAIT = 2,
@@ -1418,7 +1465,7 @@ function parseFetch(str, literalData, fetchData) {
     if (result[i] === 'UID')
       fetchData.id = parseInt(result[i+1], 10);
     else if (result[i] === 'INTERNALDATE')
-      fetchData.date = result[i+1];
+      fetchData.date = parseImapDateTime(result[i+1]);
     else if (result[i] === 'FLAGS')
       fetchData.flags = result[i+1].filter(isNotEmpty);
     // MODSEQ (####)
