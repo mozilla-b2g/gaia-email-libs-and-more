@@ -56,7 +56,7 @@ PrintySliceBridge.prototype = {
   },
 };
 
-exports.goSync = function(connInfo, logFunc) {
+exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
   // Cross-object-wrappers result in DateCloneError even for simple objects.
   // I guess there could be good security reasons, but it's annoying.
   connInfo = JSON.parse(JSON.stringify(connInfo));
@@ -73,7 +73,7 @@ exports.goSync = function(connInfo, logFunc) {
             slice = account.sliceFolderMessages(inbox, printyBridge);
       });
   }
-  var universe = new $imapacct.MailUniverse(onUniverse);
+  var universe = new $imapacct.MailUniverse(testingModeLogTestData, onUniverse);
   LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
   return LOG_BACKLOG;
 };

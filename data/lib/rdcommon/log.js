@@ -757,19 +757,29 @@ exports.TestActorProtoBase = TestActorProtoBase;
  *  efficient fast-path where we detect that we don't need to clone-and-modify,
  *  we currently always just clone-and-modify.
  */
-function simplifyInsaneObjects(obj, curDepth) {
+function simplifyInsaneObjects(obj, dtype, curDepth) {
   if (obj == null || typeof(obj) !== "object")
     return obj;
   if (!curDepth)
     curDepth = 0;
   const nextDepth = curDepth + 1;
+  var limitStrings = 64;
+
+  if (dtype) {
+    if (dtype === 'tostring') {
+      if (Array.isArray(obj))
+        return obj.join('');
+      else if (typeof(obj) !== 'string')
+        return obj.toString();
+    }
+  }
 
   var oot = {};
   for (var key in obj) {
     var val = obj[key];
     switch (typeof(val)) {
       case "string":
-        if (val.length > 64) {
+        if (limitStrings && val.length > limitStrings) {
           oot[key] = "OMITTED STRING, originally " + val.length +
                        " bytes long";
         }
@@ -785,7 +795,7 @@ function simplifyInsaneObjects(obj, curDepth) {
           oot[key] = val;
         }
         else {
-          oot[key] = simplifyInsaneObjects(val, nextDepth);
+          oot[key] = simplifyInsaneObjects(val, null, nextDepth);
         }
         break;
       default:
@@ -1011,9 +1021,10 @@ LoggestClassMaker.prototype = {
       this._wrapLogProtoForTest(name);
     }
     else {
-      var numTestOnlyArgs = 0;
+      var numTestOnlyArgs = 0, useTestArgs = [];
       for (key in testOnlyLogArgs) {
         numTestOnlyArgs++;
+        useTestArgs.push(testOnlyLogArgs[key]);
       }
       this.testLogProto[name] = function() {
         this._eventMap[name] = (this._eventMap[name] || 0) + 1;
@@ -1030,9 +1041,8 @@ LoggestClassMaker.prototype = {
         entry.push($microtime.now());
         entry.push(gSeq++);
         // ++ new bit
-        var toEat = numTestOnlyArgs;
-        for (; toEat; toEat--, iArg++) {
-          entry.push(simplifyInsaneObjects(arguments[iArg]));
+        for (var iEat=0; iEat < numTestOnlyArgs; iEat++, iArg++) {
+          entry.push(simplifyInsaneObjects(arguments[iArg], useTestArgs[iEat]));
         }
         // -- end new bit
         this._entries.push(entry);
@@ -1074,7 +1084,7 @@ LoggestClassMaker.prototype = {
     this.dummyProto[name_begin] = NOP;
     this.dummyProto[name_end] = NOP;
 
-    var numArgs = 0, numTestOnlyArgs = 0, useArgs = [];
+    var numArgs = 0, numTestOnlyArgs = 0, useArgs = [], useTestArgs = [];
     for (var key in args) {
       numArgs++;
       useArgs.push(args[key]);
@@ -1120,6 +1130,7 @@ LoggestClassMaker.prototype = {
     else {
       for (key in testOnlyLogArgs) {
         numTestOnlyArgs++;
+        useTestArgs.push(testOnlyLogArgs[key]);
       }
       // cut-paste-modify of the above...
       this.testLogProto[name_begin] = function() {
@@ -1137,9 +1148,8 @@ LoggestClassMaker.prototype = {
         entry.push($microtime.now());
         entry.push(gSeq++);
         // ++ new bit
-        var toEat = numTestOnlyArgs;
-        for (; toEat; toEat--, iArg++) {
-          entry.push(simplifyInsaneObjects(arguments[iArg]));
+        for (var iEat=0; iEat < numTestOnlyArgs; iEat++, iArg++) {
+          entry.push(simplifyInsaneObjects(arguments[iArg], useTestArgs[iEat]));
         }
         // -- end new bit
         this._entries.push(entry);
@@ -1159,9 +1169,8 @@ LoggestClassMaker.prototype = {
         entry.push($microtime.now());
         entry.push(gSeq++);
         // ++ new bit
-        var toEat = numTestOnlyArgs;
-        for (; toEat; toEat--, iArg++) {
-          entry.push(simplifyInsaneObjects(arguments[iArg]));
+        for (var iEat=0; iEat < numTestOnlyArgs; iEat++, iArg++) {
+          entry.push(simplifyInsaneObjects(arguments[iArg], useTestArgs[iEat]));
         }
         // -- end new bit
         this._entries.push(entry);
@@ -1213,7 +1222,7 @@ LoggestClassMaker.prototype = {
   addCall: function(name, logArgs, testOnlyLogArgs) {
     this._define(name, 'call');
 
-    var numLogArgs = 0, numTestOnlyArgs = 0, useArgs = [];
+    var numLogArgs = 0, numTestOnlyArgs = 0, useArgs = [], useTestArgs = [];
     for (var key in logArgs) {
       numLogArgs++;
       useArgs.push(logArgs[key]);
@@ -1275,6 +1284,7 @@ LoggestClassMaker.prototype = {
     else {
       for (key in testOnlyLogArgs) {
         numTestOnlyArgs++;
+        useTestArgs.push(testOnlyLogArgs[key]);
       }
       // cut-paste-modify of the above...
       this.testLogProto[name] = function() {
@@ -1295,9 +1305,9 @@ LoggestClassMaker.prototype = {
           entry.push(gSeq++);
           entry.push(null);
           // ++ new bit
-          var toEat = numTestOnlyArgs;
-          for (iArg += 2; toEat; toEat--, iArg++) {
-            entry.push(simplifyInsaneObjects(arguments[iArg]));
+          iArg += 2;
+          for (var iEat=0; iEat < numTestOnlyArgs; iEat++, iArg++) {
+            entry.push(simplifyInsaneObjects(arguments[iArg], useTestArgs[iEat]));
           }
           // -- end new bit
         }
@@ -1312,9 +1322,9 @@ LoggestClassMaker.prototype = {
           //  style transformations.
           entry.push($extransform.transformException(ex));
           // ++ new bit
-          var toEat = numTestOnlyArgs;
-          for (iArg += 2; toEat; toEat--, iArg++) {
-            entry.push(simplifyInsaneObjects(arguments[iArg]));
+          iArg += 2;
+          for (var iEat=0; iEat < numTestOnlyArgs; iEat++, iArg++) {
+            entry.push(simplifyInsaneObjects(arguments[iArg], useTestArgs[iEat]));
           }
           // -- end new bit
           // (call errors are events)
@@ -1690,6 +1700,7 @@ var EXCEPTION = exports.EXCEPTION = 'exception';
  *  for this to not turn out confusing.
  */
 var JSONABLE = exports.JSONABLE = 'jsonable';
+var TOSTRING = exports.TOSTRING = 'tostring';
 /**
  * XXX speculative, we currently are just using JSON.stringify and putting
  *  toJSON methods on complex objects that there is no benefit from recursively

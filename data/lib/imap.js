@@ -183,6 +183,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         }
 
         if (chunk && chunk.length) {
+          if (self._LOG) self._LOG.data(chunk.length, chunk);
           if (curReq._msgtype === 'headers') {
             chunk.copy(self._state.curData, curReq.curPos, 0);
             curReq.curPos += chunk.length;
@@ -234,9 +235,10 @@ ImapConnection.prototype.connect = function(loginCb) {
     } else if (self._state.curExpected === 0
                && (literalInfo = (strdata = data.toString()).match(reFetch))) {
       self._state.curExpected = parseInt(literalInfo[2], 10);
-      var idxCRLF = bufferIndexOf(data, CRLF),
+      var idxCRLF = strdata.indexOf(CRLF),
           curReq = self._state.requests[0],
-          type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(strdata.substring(0, idxCRLF)),
+          usedata = strdata.substring(0, idxCRLF),
+          type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(usedata),
           msg = new ImapMessage(),
           desc = strdata.substring(bufferIndexOf(data, '(')+1, idxCRLF).trim();
       msg.seqno = parseInt(literalInfo[1], 10);
@@ -250,6 +252,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         self._state.curData = new Buffer(self._state.curExpected);
         curReq.curPos = 0;
       }
+      if (self._LOG) self._LOG.data(usedata.length, usedata);
       // (If it's not headers, then it's body, and we generate 'data' events.)
       processData(data.slice(idxCRLF + 2));
       return;
@@ -278,6 +281,7 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
     }
 
+    if (self._LOG) self._LOG.data(data[0].length, data[0]);
     data = stringExplode(data[0].toString(), ' ', 3);
 
     // -- Untagged server responses
@@ -536,8 +540,7 @@ ImapConnection.prototype.connect = function(loginCb) {
 
       var recentReq = self._state.requests.shift(),
           recentCmd = recentReq.command;
-      if (self._LOG) self._LOG.cmd_end(recentReq.prefix, recentCmd,
-                                       recentReq.cmddata);
+      if (self._LOG) self._LOG.cmd_end(recentReq.prefix, recentCmd, /^LOGIN$/.test(recentCmd) ? '***BLEEPING OUT LOGON***' : recentReq.cmddata);
       if (self._state.requests.length === 0
           && recentCmd !== 'LOGOUT') {
         if (self._state.status === STATES.BOXSELECTED &&
@@ -1157,7 +1160,7 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
     if (data)
       this._state.conn.send(data);
     this._state.conn.send(CRLF);
-    if (this._LOG) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data);
+    if (this._LOG) { if (!bypass) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data); else this._LOG.bypassCmd(prefix, cmd);}
   }
 };
 
@@ -1875,9 +1878,13 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
       connected: {},
       closed: {},
       sendData: { length: false },
+      bypassCmd: { prefix: false, cmd: false },
+      data: { length: false },
     },
     TEST_ONLY_events: {
       sendData: { data: false },
+      // This may be a Buffer and therefore need to be coerced
+      data: { data: $log.TOSTRING },
     },
     errors: {
       connError: { err: $log.EXCEPTION },
@@ -1886,7 +1893,7 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
       cmd: { prefix: false, cmd: false },
     },
     TEST_ONLY_asyncJobs: {
-      cmd: { fullCmd: false },
+      cmd: { data: false },
     },
   },
 }); // end LOGFAB

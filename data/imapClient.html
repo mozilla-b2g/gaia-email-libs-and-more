@@ -100,7 +100,7 @@ require(
 function(setup, $log) {
   console.log("exposing API");
   window.goSync = function(accountDef) {
-    var logBacklog = setup.goSync(accountDef);
+    var logBacklog = setup.goSync(true, accountDef);
 
     var URL = "http://localhost/live/arbpl/client/index-post-devmode.html",
         ORIGIN = "http://localhost";
@@ -111,7 +111,8 @@ function(setup, $log) {
     document.getElementById("showlog").addEventListener("click", function() {
       // not security, just naming.
       channelId = 'arbpl' + Math.floor(Math.random() * 1000000) + Date.now();
-      openedWin = window.open(URL + '#' + channelId, "_blank");
+      // name the window so we can reuse it
+      openedWin = window.open(URL + '#' + channelId, "ArbPL");
       spamIntervalId = setInterval(spammer, 100);
     });
     // Keep pinging the window until it tells us it has fully loaded.

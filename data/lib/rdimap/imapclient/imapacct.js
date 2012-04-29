@@ -24,10 +24,19 @@ define(
     exports
   ) {
 
-function MailUniverse(callAfterBigBang) {
+function MailUniverse(testingModeLogData, callAfterBigBang) {
   this.accounts = [];
 
   this.config = null;
+
+  if (testingModeLogData) {
+    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    console.log("! DEVELOPMENT MODE ACTIVE!                !");
+    console.log("! LOGGING SUBSYSTEM ENTRAINING USER DATA! !");
+    console.log("! (the data does not leave the browser.)  !");
+    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    $log.DEBUG_markAllFabsUnderTest();
+  }
 
   this._LOG = LOGFAB.MailUniverse(this, null, null);
   this._db = new $imapdb.ImapDB();
