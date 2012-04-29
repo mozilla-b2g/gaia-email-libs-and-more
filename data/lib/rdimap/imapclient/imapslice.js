@@ -711,7 +711,7 @@ ImapFolderConn.prototype = {
             mparser._currentNode.meta.charset =
               partDef.params && partDef.params.charset;
             mparser._currentNode.meta.transferEncoding =
-              partDef.ecoding;
+              partDef.encoding;
             mparser._currentNode.meta.textFormat =
               partDef.params && partDef.params.format;
           }
@@ -1598,6 +1598,10 @@ ImapFolderStorage.prototype = {
       return;
     }
 
+        // - generate notifications
+        if (self._curSyncSlice)
+          self._curSyncSlice.onHeaderAdded(header);
+    /*
     this._pickInsertionBlockUsingDateAndUID(
       'type', header.date, header.id, HEADER_EST_SIZE_IN_BYTES,
       function blockPicked(blockInfo, headerBlock) {
@@ -1619,10 +1623,8 @@ ImapFolderStorage.prototype = {
         headerBlock.uids.splice(insertIdx, 0, header.id);
         headerBlock.headers.splice(insertIdx, 0, header);
 
-        // - generate notifications
-        if (self._curSyncSlice)
-          self._curSyncSlice.onHeaderAdded(header);
       });
+    */
   },
 
   /**

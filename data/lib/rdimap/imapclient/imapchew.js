@@ -240,7 +240,8 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
 
   rep.header = {
     id: rep.msg.id,
-    author: rep.msg.msg.from,
+    // mailparser models from as an array; we do not.
+    author: rep.msg.msg.from[0] || null,
     date: rep.msg.date,
     flags: rep.msg.flags,
     hasAttachments: rep.attachments.length > 0,

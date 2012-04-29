@@ -25,7 +25,7 @@ define(
 'use strict';
 
 function stringifyHeader(header) {
-  return author.address + ': ' + header.subject + ' @ ' +
+  return header.author.address + ': ' + header.subject + ' @ ' +
           (new Date(header.date)) + '\n' +
          '    "' + header.snippet + '"';
 }
@@ -45,7 +45,7 @@ PrintySliceBridge.prototype = {
       var added = addedItems[i];
       console.log('  +', stringifyHeader(added));
     }
-    this.items.splice.apply(this.items, [index, howMany].concat(items));
+    this.items.splice.apply(this.items, [index, howMany].concat(addedItems));
   },
 
   sendUpdate: function() {
