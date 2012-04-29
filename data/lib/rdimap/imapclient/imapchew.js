@@ -88,7 +88,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     return partInfo.size;
   }
 
-  function chewStruct(branch) {
+  function chewLeaf(branch) {
     var partInfo = branch[0], i,
         filename, disposition;
 
@@ -136,6 +136,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         filename = 'unnamed-' + (++unnamedPartCounter);
       attachments.push({
         name: filename,
+        type: partInfo.type + '/' + partInfo.subtype,
         part: partInfo.partID,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
       });
@@ -162,9 +163,38 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         }
         break;
     }
-    // - ignored
   }
-  chewStruct(msg.structure);
+
+  function chewMultipart(branch) {
+    var partInfo = branch[0];
+
+    // - We must be an inline part or structure
+    switch (partInfo.type) {
+      // - multipart that we should recurse into
+      case 'alternative':
+      case 'mixed':
+      case 'signed':
+        for (var i = 1; i < branch.length; i++) {
+          if (branch[i].length > 1)
+            chewMultipart(branch[i]);
+          else
+            chewLeaf(branch[i]);
+        }
+        break;
+
+      default:
+        console.warn('Ignoring multipart type:', partInfo.type);
+        break;
+    }
+  }
+
+  if (msg.structure.length > 1)
+    chewMultipart(msg.structure);
+  else
+    chewLeaf(msg.structure);
+
+  if (!bodyParts.length)
+    console.log("no body parts?", msg.structure);
 
   return {
     msg: msg,
@@ -236,7 +266,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
     for (var i = 0; i < atts.length; i++) {
       var att = atts[i];
       sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
-                   att.filename.length + att.mimetype.length +
+                   att.name.length +  att.type.length +
                    NUM_ATTR_OVERHEAD_EST;
     }
     return atts;

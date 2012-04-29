@@ -737,10 +737,12 @@ ImapFolderConn.prototype = {
           //
           // So let's issue one fetch per body part and then be happy when we've
           // got them all.
+          var pendingFetches = 0;
           newChewReps.forEach(function(chewRep, iChewRep) {
             var partsReceived = [];
             chewRep.bodyParts.forEach(function(bodyPart) {
               var opts = { request: { body: bodyPart.partID } };
+              pendingFetches++;
               var fetcher = conn.fetch(chewRep.msg.id, opts);
               setupBodyParser(bodyPart);
               fetcher.on('message', function(msg) {
@@ -748,16 +750,16 @@ ImapFolderConn.prototype = {
                 msg.on('data', bodyParseBuffer);
                 msg.on('end', function() {
                   partsReceived.push(finishBodyParsing());
+
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
                     if ($imapchew.chewBodyParts(chewRep, partsReceived)) {
                       storage.addMessageHeader(chewRep.header);
                       storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                     }
-
                    // If this is the last chew rep, then use its completion
                    // to report our completion.
-                    if (iChewRep === newChewReps.length - 1)
+                    if (--pendingFetches === 0)
                       doneCallback(newUIDs.length, knownUIDs.length);
                   }
                 });
@@ -1426,6 +1428,7 @@ ImapFolderStorage.prototype = {
     slice.setStatus('synchronizing');
     slice.waitingOnData = 'sync';
     this._curSyncSlice = slice;
+    this._curSyncStartTS = pastDate;
     this.folderConn.syncDateRange(pastDate, futureNow, true,
                                   this.onSyncCompleted.bind(this));
   },
