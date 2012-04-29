@@ -92,20 +92,54 @@
       }
     },
 
-    ["deps/encoding.js", "buffer"],
-function(ignored, $buffer) {
+    ["deps/encoding.js", "buffer", "event-queue"],
+function(ignored, $buffer, $eq) {
 window.Buffer = $buffer.Buffer;
 require(
-["rdimap/imapclient/same-frame-setup", /*"rdimap/devui/app"*/],
-function(setup) {
+["rdimap/imapclient/same-frame-setup", "rdcommon/log"],
+function(setup, $log) {
   console.log("exposing API");
   window.goSync = function(accountDef) {
-    setup.goSync(accountDef);
+    var logBacklog = setup.goSync(accountDef);
+
+    var URL = "http://localhost/live/arbpl/client/index-post-devmode.html",
+        ORIGIN = "http://localhost";
+
+    var openedWin = null,
+        channelId = null,
+        spamIntervalId = null;
+    document.getElementById("showlog").addEventListener("click", function() {
+      // not security, just naming.
+      channelId = 'arbpl' + Math.floor(Math.random() * 1000000) + Date.now();
+      openedWin = window.open(URL + '#' + channelId, "_blank");
+      spamIntervalId = setInterval(spammer, 100);
+    });
+    // Keep pinging the window until it tells us it has fully loaded.
+    function spammer() {
+      openedWin.postMessage({ type: 'hello', id: channelId }, ORIGIN);
+    }
+    window.addEventListener("message", function(event) {
+      if (event.origin !== ORIGIN)
+        return;
+      if (event.data.id !== channelId)
+        return;
+      clearInterval(spamIntervalId);
+
+      event.source.postMessage(
+        { 
+          type: "backlog",
+          id: channelId,
+          schema: $log.provideSchemaForAllKnownFabs(),
+          backlog: logBacklog,
+        },
+        event.origin);
+    }, false);
   };
 });
 });
 //]]></script>
 </head>
 <body id="body">
+  <button id="showlog" type="button" value="showlog">Show log in ArbPL</button>
 </body>
 </html>

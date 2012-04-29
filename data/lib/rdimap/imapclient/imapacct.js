@@ -5,18 +5,22 @@
 define(
   [
     'imap',
+    'rdcommon/log',
     './a64',
     './imapdb',
     './imapslice',
     './imapprobe',
+    'module',
     'exports'
   ],
   function(
     $imap,
+    $log,
     $a64,
     $imapdb,
     $imapslice,
     $imapprobe,
+    $module,
     exports
   ) {
 
@@ -25,9 +29,11 @@ function MailUniverse(callAfterBigBang) {
 
   this.config = null;
 
+  this._LOG = LOGFAB.MailUniverse(this, null, null);
   this._db = new $imapdb.ImapDB();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos) {
+    self._LOG.configLoaded(configObj);
     if (configObj) {
       self.config = configObj;
     }
@@ -65,7 +71,8 @@ MailUniverse.prototype = {
     };
     this._db.saveAccountDef(accountDef, folderInfo);
 
-    var account = new ImapAccount(accountDef, folderInfo);
+    this._LOG.createAccount(accountDef.id, accountDef.name);
+    var account = new ImapAccount(accountDef, folderInfo, this._LOG);
     this.accounts.push(account);
     return account;
   },
@@ -92,10 +99,11 @@ MailUniverse.prototype = {
  *   ]]
  * ]]
  */
-function ImapAccount(accountDef, folderInfos) {
+function ImapAccount(accountDef, folderInfos, _parentLog) {
   this.accountDef = accountDef;
 
   this._ownedConns = [];
+  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.accountDef.id);
 
   // Yes, the pluralization is suspect, but unambiguous.
   var folderStorages = this._folderStorages = {};
@@ -110,7 +118,8 @@ function ImapAccount(accountDef, folderInfos) {
     if (folderId === "$meta")
       continue;
     var folderInfo = folderInfos[folderId];
-    console.log("DEPERSIST folder", folderId, folderInfo);
+
+    this._LOG.persistedFolder(folderId, folderInfo);
     folderStorages[folderId] =
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
     folderPubs.push(folderInfo.$meta);
@@ -126,9 +135,9 @@ ImapAccount.prototype = {
    * Make a given folder known to us, creating state tracking instances, etc.
    */
   _learnAboutFolder: function(name, path, type) {
-    console.log("LEARN about folder", name, path, type);
     var folderId = this.accountDef.id + '-' +
                      $a64.encodeInt(this._meta.nextFolderNum++);
+    this._LOG.learnAboutFolder(folderId, name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
@@ -145,7 +154,7 @@ ImapAccount.prototype = {
       bodyBlocks: [],
     };
     this._folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
     this.folders.push(folderInfo.$meta);
   },
 
@@ -155,7 +164,7 @@ ImapAccount.prototype = {
    */
   sliceFolderMessages: function(folderPub, bridgeHandle) {
     var storage = this._folderStorages[folderPub.id],
-        slice = new $imapslice.ImapSlice(bridgeHandle, storage);
+        slice = new $imapslice.ImapSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
   },
@@ -177,7 +186,7 @@ ImapAccount.prototype = {
     for (var key in this.accountDef.connInfo) {
       opts[key] = this.accountDef.connInfo[key];
     }
-    opts.debug = console.debug.bind(console);
+    if (this._LOG) opts._logParent = this._LOG;
 
     var conn = new $imap.ImapConnection(opts);
     this._ownedConns.push({
@@ -213,5 +222,31 @@ const ACCOUNT_TYPE_TO_CLASS = {
   'imap': ImapAccount,
   //'gmail-imap': GmailAccount,
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  MailUniverse: {
+    type: $log.ACCOUNT,
+    events: {
+      configLoaded: {},
+      createAccount: { id: false },
+    },
+    TEST_ONLY_events: {
+      configLoaded: { config: false },
+      createAccount: { name: false },
+    },
+  },
+
+  ImapAccount: {
+    type: $log.ACCOUNT,
+    events: {
+      persistedFolder: { folderId: false },
+      learnAboutFolder: { folderId: false },
+    },
+    TEST_ONLY_events: {
+      persistedFolder: { folderInfo: false },
+      learnAboutFolder: { name: false, path: false, type: false },
+    },
+  },
+});
 
 }); // end define

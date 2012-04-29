@@ -1,5 +1,5 @@
 define(function(require, exports, module) {
-var util = require('util'),
+var util = require('util'), $log = require('rdcommon/log'),
     EventEmitter = require('events').EventEmitter,
     mailparser = require('mailparser/mailparser');
 
@@ -31,7 +31,7 @@ function ImapConnection (options) {
     port: 143,
     secure: false,
     connTimeout: 10000, // connection timeout in msecs
-    debug: false
+    _logParent: null
   };
   this._state = {
     status: STATES.NOCONNECT,
@@ -71,10 +71,7 @@ function ImapConnection (options) {
   };
   this._options = extend(true, this._options, options);
 
-  if (typeof this._options.debug === 'function')
-    this.debug = this._options.debug;
-  else
-    this.debug = null;
+  this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, null) : null);
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
@@ -93,7 +90,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         }
         // First get pre-auth capabilities, including server-supported auth
         // mechanisms
-        self._send('CAPABILITY', function() {
+        self._send('CAPABILITY', null, function() {
           // Next, attempt to login
           self._login(function(err, reentry) {
             if (err) {
@@ -105,14 +102,15 @@ ImapConnection.prototype.connect = function(loginCb) {
               var fnMe = arguments.callee;
               // Re-enter this function after we've obtained the available
               // namespaces
-              self._send('NAMESPACE', function(e) { fnMe.call(this, e, true); });
+              self._send('NAMESPACE', null,
+                         function(e) { fnMe.call(this, e, true); });
               return;
             }
             // Lastly, get the top-level mailbox hierarchy delimiter used by the
             // server
             self._send(
-              ((self.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST') +
-                ' "" ""',
+              (self.capabilities.indexOf('XLIST') === -1 ? 'LIST' : 'XLIST'),
+              ' "" ""',
               loginCb);
           });
         });
@@ -127,16 +125,13 @@ ImapConnection.prototype.connect = function(loginCb) {
     sslOptions = { allowOverride: true };
 
   this._state.conn.onopen = function(evt) {
-    if (self.debug)
-      self.debug('status', 'Connected to host.');
+    if (this._LOG) this._LOG.connected();
     clearTimeout(self._state.tmrConn);
     self._state.status = STATES.NOAUTH;
     fnInit();
   };
   this._state.conn.ondata = function(evt) {
     var buffer = Buffer(evt.data);
-    if (self.debug)
-      self.debug('data', buffer.toString());
     processData(buffer);
   };
   /**
@@ -539,22 +534,24 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
 
 
-      var recentCmd = self._state.requests[0].command;
-      self._state.requests.shift();
+      var recentReq = self._state.requests.shift(),
+          recentCmd = recentReq.command;
+      if (self._LOG) self._LOG.cmd_end(recentReq.prefix, recentCmd,
+                                       recentReq.cmddata);
       if (self._state.requests.length === 0
           && recentCmd !== 'LOGOUT') {
         if (self._state.status === STATES.BOXSELECTED &&
             self.capabilities.indexOf('IDLE') > -1) {
           // According to RFC 2177, we should re-IDLE at least every 29
           // minutes to avoid disconnection by the server
-          self._send('IDLE', undefined, true);
+          self._send('IDLE', null, undefined, true);
         }
         self._state.tmrKeepalive = setTimeout(function() {
           if (self._state.isIdle) {
             if (self._state.ext.idle.state === IDLE_READY) {
               self._state.ext.idle.timeWaited += self._state.tmoKeepalive;
               if (self._state.ext.idle.timeWaited >= self._state.ext.idle.MAX_WAIT)
-                self._send('IDLE', undefined, true); // restart IDLE
+                self._send('IDLE', null, undefined, true); // restart IDLE
             } else if (self.capabilities.indexOf('IDLE') === -1)
               self._noop();
           }
@@ -576,8 +573,7 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   this._state.conn.onclose = function onClose() {
     self._reset();
-    if (self.debug)
-      self.debug('status', 'FIN packet received. Disconnecting...');
+    if (this._LOG) this._LOG.closed();
     self.emit('close');
   };
   this._state.conn.onerror = function(evt) {
@@ -586,8 +582,7 @@ ImapConnection.prototype.connect = function(loginCb) {
     if (self._state.status === STATES.NOCONNECT)
       loginCb(new Error('Unable to connect. Reason: ' + err));
     self.emit('error', err);
-    if (self.debug)
-      self.debug('status', 'Error occurred: ' + err);
+    if (this._LOG) this._LOG.connError(err);
   };
 
   // XXX temporary reordering because of current unfortunate sequenecing of
@@ -604,7 +599,7 @@ ImapConnection.prototype.isAuthenticated = function() {
 
 ImapConnection.prototype.logout = function(cb) {
   if (this._state.status >= STATES.NOAUTH)
-    this._send('LOGOUT', cb);
+    this._send('LOGOUT', null, cb);
   else
     throw new Error('Not connected');
 };
@@ -637,7 +632,7 @@ ImapConnection.prototype.openBox = function(name, readOnly, cb) {
   this._state.status = STATES.BOXSELECTING;
   this._state.box.name = name;
 
-  this._send((readOnly ? 'EXAMINE' : 'SELECT') + ' "' + escape(name) + '"', cb);
+  this._send((readOnly ? 'EXAMINE' : 'SELECT'), ' "' + escape(name) + '"', cb);
 };
 
 /**
@@ -677,7 +672,7 @@ ImapConnection.prototype.closeBox = function(cb) {
   var self = this;
   if (this._state.status !== STATES.BOXSELECTED)
     throw new Error('No mailbox is currently selected');
-  this._send('CLOSE', function(err) {
+  this._send('CLOSE', null, function(err) {
     if (!err) {
       self._state.status = STATES.AUTH;
       self._resetBox();
@@ -691,7 +686,7 @@ ImapConnection.prototype.removeDeleted = function(cb) {
     throw new Error('No mailbox is currently selected');
   cb = arguments[arguments.length-1];
 
-  this._send('EXPUNGE', cb);
+  this._send('EXPUNGE', null, cb);
 };
 
 ImapConnection.prototype.getBoxes = function(namespace, cb) {
@@ -699,8 +694,8 @@ ImapConnection.prototype.getBoxes = function(namespace, cb) {
   if (arguments.length !== 2)
     namespace = '';
   this._send(
-    ((this.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST') + ' "' +
-      escape(namespace) + '" "*"',
+    ((this.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST'),
+      ' "' + escape(namespace) + '" "*"',
     cb);
 };
 
@@ -709,7 +704,7 @@ ImapConnection.prototype.addBox = function(name, cb) {
   if (typeof name !== 'string' || name.length === 0)
     throw new Error('Mailbox name must be a string describing the full path'
                     + ' of a new mailbox to be created');
-  this._send('CREATE "' + escape(name) + '"', cb);
+  this._send('CREATE', ' "' + escape(name) + '"', cb);
 };
 
 ImapConnection.prototype.delBox = function(name, cb) {
@@ -717,7 +712,7 @@ ImapConnection.prototype.delBox = function(name, cb) {
   if (typeof name !== 'string' || name.length === 0)
     throw new Error('Mailbox name must be a string describing the full path'
                     + ' of an existing mailbox to be deleted');
-  this._send('DELETE "' + escape(name) + '"', cb);
+  this._send('DELETE', ' "' + escape(name) + '"', cb);
 };
 
 ImapConnection.prototype.renameBox = function(oldname, newname, cb) {
@@ -732,7 +727,7 @@ ImapConnection.prototype.renameBox = function(oldname, newname, cb) {
       && oldname === this._state.box.name && oldname !== 'INBOX')
     this._state.box._newName = oldname;
 
-  this._send('RENAME "' + escape(oldname) + '" "' + escape(newname) + '"', cb);
+  this._send('RENAME', ' "' + escape(oldname) + '" "' + escape(newname) + '"', cb);
 };
 
 ImapConnection.prototype.search = function(options, cb) {
@@ -743,8 +738,8 @@ ImapConnection.prototype._search = function(which, options, cb) {
     throw new Error('No mailbox is currently selected');
   if (!Array.isArray(options))
     throw new Error('Expected array for search options');
-  this._send(which + 'SEARCH'
-             + buildSearchQuery(options, this.capabilities), cb);
+  this._send(which + 'SEARCH',
+             buildSearchQuery(options, this.capabilities), cb);
 };
 
 ImapConnection.prototype.append = function(data, options, cb) {
@@ -757,9 +752,9 @@ ImapConnection.prototype.append = function(data, options, cb) {
     if (this._state.status !== STATES.BOXSELECTED)
       throw new Error('No mailbox specified or currently selected');
     else
-      options.mailbox = this._state.box.name
+      options.mailbox = this._state.box.name;
   }
-  cmd = 'APPEND "'+escape(options.mailbox)+'"';
+  var cmd = ' "'+escape(options.mailbox)+'"';
   if ('flags' in options) {
     if (!Array.isArray(options.flags))
       options.flags = Array(options.flags);
@@ -779,13 +774,12 @@ ImapConnection.prototype.append = function(data, options, cb) {
   cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
   cmd += '}';
   var self = this, step = 1;
-  this._send(cmd, function(err) {
+  this._send('APPEND', cmd, function(err) {
     if (err || step++ === 2)
       return cb(err);
     self._state.conn.send(data);
     self._state.conn.send(CRLF);
-    if (self.debug)
-      self.debug('sent', data.toString());
+    if (this._LOG) this._LOG.sendData(data.length, data);
   });
 }
 
@@ -862,7 +856,7 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
   else if (this.enabledCapabilities.indexOf('QRESYNC') > -1)
     extensions = 'MODSEQ ';
 
-  this._send(which + 'FETCH ' + uids.join(',') + ' (' + extensions
+  this._send(which + 'FETCH', ' ' + uids.join(',') + ' (' + extensions
              + 'UID FLAGS INTERNALDATE'
              + (opts.request.struct ? ' BODYSTRUCTURE' : '')
              + (typeof toFetch === 'string' ? ' BODY'
@@ -915,7 +909,8 @@ ImapConnection.prototype._copy = function(which, uids, boxTo, cb) {
 
   validateUIDList(uids);
 
-  this._send(which + 'COPY ' + uids.join(',') + ' "' + escape(boxTo) + '"', cb);
+  this._send(which + 'COPY',
+             ' ' + uids.join(',') + ' "' + escape(boxTo) + '"', cb);
 };
 
 ImapConnection.prototype.move = function(uids, boxTo, cb) {
@@ -1052,7 +1047,8 @@ ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
   flags = flags.join(' ');
   cb = arguments[arguments.length-1];
 
-  this._send(which + 'STORE ' + uids.join(',') + ' ' + (isAdding ? '+' : '-')
+  this._send(which + 'STORE',
+             ' ' + uids.join(',') + ' ' + (isAdding ? '+' : '-')
              + 'FLAGS.SILENT (' + flags + ')', cb);
 };
 
@@ -1064,7 +1060,7 @@ ImapConnection.prototype._login = function(cb) {
           if (self._state.numCapRecvs !== 2) {
             // fetch post-auth server capabilities if they were not
             // automatically provided after login
-            self._send('CAPABILITY', cb);
+            self._send('CAPABILITY', null, cb);
             return;
           }
         }
@@ -1078,9 +1074,10 @@ ImapConnection.prototype._login = function(cb) {
 
     if (this.capabilities.indexOf('AUTH=XOAUTH') !== -1 &&
         'xoauth' in this._options)
-      this._send('AUTHENTICATE XOAUTH ' + escape(this._options.xoauth), fnReturn);
+      this._send('AUTHENTICATE XOAUTH',
+                 ' ' + escape(this._options.xoauth), fnReturn);
     else if (this.capabilities.indexOf('AUTH=PLAIN') !== -1) {
-      this._send('LOGIN "' + escape(this._options.username) + '" "'
+      this._send('LOGIN', ' "' + escape(this._options.username) + '" "'
                  + escape(this._options.password) + '"', fnReturn);
     } else {
       return cb(new Error('Unsupported authentication mechanism(s) detected. '
@@ -1118,36 +1115,49 @@ ImapConnection.prototype._resetBox = function() {
 };
 ImapConnection.prototype._noop = function() {
   if (this._state.status >= STATES.AUTH)
-    this._send('NOOP');
+    this._send('NOOP', null);
 };
-ImapConnection.prototype._send = function(cmdstr, cb, bypass) {
+// bypass=true means to not push a command.  This is used exclusively for the
+// auto-idle functionality.  IDLE happens automatically when nothing else is
+// going on an automatically refreshes every 29 minutes.
+ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
   if (cmdstr !== undefined && !bypass)
-    this._state.requests.push({ command: cmdstr, callback: cb, args: [] });
+    this._state.requests.push(
+      {
+        prefix: null,
+        command: cmdstr,
+        cmddata: cmddata,
+        callback: cb,
+        args: []
+      });
   if (this._state.ext.idle.state === IDLE_WAIT)
     return;
+  // only do something if this was 1) an attempt to kick us to run the next
+  // command, 2) the first/only command (none are pending), or 3) a bypass.
   if ((cmdstr === undefined && this._state.requests.length) ||
       this._state.requests.length === 1 || bypass) {
-    var prefix = '', cmd = (bypass ? cmdstr : this._state.requests[0].command);
+    var prefix = '', cmd = (bypass ? cmdstr : this._state.requests[0].command),
+        data = (bypass ? null : this._state.requests[0].cmddata);
     clearTimeout(this._state.tmrKeepalive);
     if (this._state.ext.idle.state === IDLE_READY && cmd !== 'DONE')
-      return this._send('DONE', undefined, true);
+      return this._send('DONE', null, undefined, true);
     else if (cmd === 'IDLE') {
        // we use a different prefix to differentiate and disregard the tagged
        // response the server will send us when we issue DONE
       prefix = 'IDLE ';
       this._state.ext.idle.state = IDLE_WAIT;
     }
-    if (cmd !== 'IDLE' && cmd !== 'DONE')
+    if (cmd !== 'IDLE' && cmd !== 'DONE') {
       prefix = 'A' + ++this._state.curId + ' ';
+      if (!bypass)
+        this._state.requests[0].prefix = prefix;
+    }
     this._state.conn.send(prefix);
     this._state.conn.send(cmd);
+    if (data)
+      this._state.conn.send(data);
     this._state.conn.send(CRLF);
-    if (this.debug) {
-      if (/^LOGIN /.test(cmd))
-        this.debug('sent', '***BLEEPING OUT LOGON***');
-      else
-        this.debug('sent', prefix + cmd);
-    }
+    if (this._LOG) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data);
   }
 };
 
@@ -1856,4 +1866,29 @@ function bufferIndexOf(buf, str, start) {
   }
   return ret;
 };
+
+var LOGFAB = exports.LOGFAB = $log.register(module, {
+  ImapProtoConn: {
+    type: $log.CONNECTION,
+    subtype: $log.CLIENNT,
+    events: {
+      connected: {},
+      closed: {},
+      sendData: { length: false },
+    },
+    TEST_ONLY_events: {
+      sendData: { data: false },
+    },
+    errors: {
+      connError: { err: $log.EXCEPTION },
+    },
+    asyncJobs: {
+      cmd: { prefix: false, cmd: false },
+    },
+    TEST_ONLY_asyncJobs: {
+      cmd: { fullCmd: false },
+    },
+  },
+}); // end LOGFAB
+
 });

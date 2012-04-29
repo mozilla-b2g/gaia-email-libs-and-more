@@ -54,15 +54,19 @@
 
 define(
   [
+    'rdcommon/log',
     'mailparser/mailparser',
     './a64',
     './imapchew',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $mailparser,
     $a64,
     $imapchew,
+    $module,
     exports
   ) {
 
@@ -190,9 +194,10 @@ const bsearchForInsert = exports._bsearchForInsert =
  *
  * The way this works is that we get opened and
  */
-function ImapSlice(bridgeHandle, storage) {
+function ImapSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;
   this._storage = storage;
+  this._LOG = LOGFAB.ImapSlice(this, _parentLog, bridgeHandle.id);
 
   // The time range of the headers we are looking at right now.
   this.startTS = null;
@@ -250,6 +255,7 @@ ImapSlice.prototype = {
 
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
+    this._LOG.headerAdded(idx, header);
     this._bridgeHandle.sendSplice(idx, 0, [header]);
     this.headers.splice(idx, 0, header);
   },
@@ -258,12 +264,14 @@ ImapSlice.prototype = {
     // this can only affect flags which will not affect ordering
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
+    this._LOG.headerModified(idx, header);
     this._bridgeHandle.sendUpdate([idx, header]);
   },
 
   onHeaderRemoved: function(header) {
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
+    this._LOG.headerRemoved(idx, header);
     this._bridgeHandle.sendSplice(idx, 1, null);
     this.headers.splice(idx, 1);
   },
@@ -510,9 +518,10 @@ const FLAG_FETCH_PARAMS = {
  * we should do a SEARCH for new messages.  It is that search that will update
  * our accuracy information and only that.
  */
-function ImapFolderConn(account, storage) {
+function ImapFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
+  this._LOG = LOGFAB.ImapFolderConn(this, _parentLog, [storage.folderId, storage.folderMeta.path]);
 
   this._conn = null;
   this.box = null;
@@ -617,9 +626,15 @@ ImapFolderConn.prototype = {
         if (numDeleted)
           compactArray(headers);
 
-        self._commonSync(newUIDs, knownUIDs, headers, doneCallback);
+        self._commonSync(
+          newUIDs, knownUIDs, headers,
+          function(newCount, knownCount) {
+            self._LOG.syncDateRange_end(startTS, endTS, newCount, knownCount);
+            doneCallback();
+          });
       });
 
+    this._LOG.syncDateRange_begin(startTS, endTS, null, null);
     this._reliaSearch(searchOptions, callbacks.search);
     this._storage.getAllMessagesInDateRange(startTS, endTS,
                                             callbacks.db);
@@ -743,7 +758,7 @@ ImapFolderConn.prototype = {
                    // If this is the last chew rep, then use its completion
                    // to report our completion.
                     if (iChewRep === newChewReps.length - 1)
-                      doneCallback();
+                      doneCallback(newUIDs.length, knownUIDs.length);
                   }
                 });
               });
@@ -791,13 +806,13 @@ ImapFolderConn.prototype = {
         });
       if (!newUIDs.length) {
         knownFetcher.on('end', function() {
-            doneCallback();
+            doneCallback(newUIDs.length, knownUIDs.length);
           });
       }
     }
 
     if (!knownUIDs.length && !newUIDs.length) {
-      doneCallback();
+      doneCallback(newUIDs.length, knownUIDs.length);
     }
   },
 };
@@ -952,7 +967,7 @@ ImapFolderConn.prototype = {
  *   @value[BodyInfo]
  * ]]
  */
-function ImapFolderStorage(account, folderId, persistedFolderInfo) {
+function ImapFolderStorage(account, folderId, persistedFolderInfo, _parentLog) {
   /** Our owning account. */
   this._account = account;
   this._imapDb = null;
@@ -960,6 +975,9 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
   this.folderId = folderId;
   this.folderMeta = persistedFolderInfo.$meta;
   this._folderImpl = persistedFolderInfo.$impl;
+
+  this._LOG = LOGFAB.ImapFolderStorage(this, _parentLog, [folderId, this.folderMeta.path]);
+
   /**
    * @listof[AccuracyRangeInfo]{
    *   Newest-to-oldest sorted list of accuracy range info structures that are
@@ -1030,7 +1048,7 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo) {
    */
   this._curSyncStartTS = null;
 
-  this.folderConn = new ImapFolderConn(account, this);
+  this.folderConn = new ImapFolderConn(account, this, this._LOG);
 }
 exports.ImapFolderStorage = ImapFolderStorage;
 ImapFolderStorage.prototype = {
@@ -1340,15 +1358,18 @@ ImapFolderStorage.prototype = {
     this._pendingLoads.push(aggrId);
     this._pendingLoadListeners[aggrId] = [callback];
 
+    var self = this;
     function onLoaded(block) {
-      this._pendingLoads.splice(index, 1);
-      var listeners = this._pendingLoadListeners[aggrId];
-      delete this._pendingLoadListeners[aggrId];
+      self._LOG.loadBlock_end(type, blockId);
+      self._pendingLoads.splice(index, 1);
+      var listeners = self._pendingLoadListeners[aggrId];
+      delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
         listeners[i](block);
       }
     }
 
+    this._LOG.loadBlock_begin(type, blockId);
     if (type === 'header')
       this._imapDb.loadHeaderBlock(this.folderId, blockId, onLoaded);
     else
@@ -1368,7 +1389,7 @@ ImapFolderStorage.prototype = {
   sliceOpenFromNow: function(slice, daysDesired) {
     daysDesired = daysDesired || INITIAL_SYNC_DAYS;
     this._slices.push(slice);
-    if (this._activeSlice) {
+    if (this._curSyncSlice) {
       console.error("Trying to open a slice and initiate a sync when there",
                     "is already an active sync slice!");
     }
@@ -1596,8 +1617,8 @@ ImapFolderStorage.prototype = {
         headerBlock.headers.splice(insertIdx, 0, header);
 
         // - generate notifications
-        if (this._curSyncSlice)
-          this._curSyncSlice.onHeaderAdded(header);
+        if (self._curSyncSlice)
+          self._curSyncSlice.onHeaderAdded(header);
       });
   },
 
@@ -1615,6 +1636,7 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
       return;
     }
+    // XXX update block
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderAdded(header);
   },
@@ -1627,6 +1649,7 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
       return;
     }
+    // (no block update required)
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderAdded(header);
   },
@@ -1636,6 +1659,9 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.deleteMessageHeader.bind(this, header));
       return;
     }
+    // XXX update block by removal
+    if (this._curSyncSlice)
+      this._curSyncSlice.onHeaderRemoved(header);
   },
 
   /**
@@ -1665,5 +1691,46 @@ function GmailMessageStorage() {
 }
 GmailMessageStorage.prototype = {
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ImapSlice: {
+    type: $log.QUERY,
+    events: {
+      headerAdded: { index: false },
+      headerModified: { index: false },
+      headerRemoved: { index: false },
+    },
+    TEST_ONLY_events: {
+      headerAdded: { header: false },
+      headerModified: { header: false },
+      headerRemoved: { header: false },
+    },
+  },
+
+  ImapFolderConn: {
+    type: $log.CONNECTION,
+    subtype: $log.CLIENT,
+    events: {
+    },
+    TEST_ONLY_events: {
+    },
+    asyncJobs: {
+      syncDateRange: {
+        start: false, end: false, newMessages: false, existingMessages: false,
+      },
+    },
+  },
+
+  ImapFolderStorage: {
+    type: $log.DATABASE,
+    events: {
+    },
+    TEST_ONLY_events: {
+    },
+    asyncJobs: {
+      loadBlock: { type: false, blockId: false },
+    },
+  },
+}); // end LOGFAB
 
 }); // end define

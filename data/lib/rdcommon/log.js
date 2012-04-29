@@ -1069,12 +1069,12 @@ LoggestClassMaker.prototype = {
       return true;
     };
   },
-  addAsyncJob: function(name, args) {
+  addAsyncJob: function(name, args, testOnlyLogArgs) {
     var name_begin = name + '_begin', name_end = name + '_end';
     this.dummyProto[name_begin] = NOP;
     this.dummyProto[name_end] = NOP;
 
-    var numArgs = 0, useArgs = [];
+    var numArgs = 0, numTestOnlyArgs = 0, useArgs = [];
     for (var key in args) {
       numArgs++;
       useArgs.push(args[key]);
@@ -1113,8 +1113,60 @@ LoggestClassMaker.prototype = {
       this._entries.push(entry);
     };
 
-    this._wrapLogProtoForTest(name_begin);
-    this._wrapLogProtoForTest(name_end);
+    if (!testOnlyLogArgs) {
+      this._wrapLogProtoForTest(name_begin);
+      this._wrapLogProtoForTest(name_end);
+    }
+    else {
+      for (key in testOnlyLogArgs) {
+        numTestOnlyArgs++;
+      }
+      // cut-paste-modify of the above...
+      this.testLogProto[name_begin] = function() {
+        this._eventMap[name_begin] = (this._eventMap[name_begin] || 0) + 1;
+        var entry = [name_begin];
+        for (var iArg = 0; iArg < numArgs; iArg++) {
+          if (useArgs[iArg] === EXCEPTION) {
+            var arg = arguments[iArg];
+            entry.push($extransform.transformException(arg));
+          }
+          else {
+            entry.push(arguments[iArg]);
+          }
+        }
+        entry.push($microtime.now());
+        entry.push(gSeq++);
+        // ++ new bit
+        var toEat = numTestOnlyArgs;
+        for (; toEat; toEat--, iArg++) {
+          entry.push(simplifyInsaneObjects(arguments[iArg]));
+        }
+        // -- end new bit
+        this._entries.push(entry);
+      };
+      this.testLogProto[name_end] = function() {
+        this._eventMap[name_end] = (this._eventMap[name_end] || 0) + 1;
+        var entry = [name_end];
+        for (var iArg = 0; iArg < numArgs; iArg++) {
+          if (useArgs[iArg] === EXCEPTION) {
+            var arg = arguments[iArg];
+            entry.push($extransform.transformException(arg));
+          }
+          else {
+            entry.push(arguments[iArg]);
+          }
+        }
+        entry.push($microtime.now());
+        entry.push(gSeq++);
+        // ++ new bit
+        var toEat = numTestOnlyArgs;
+        for (; toEat; toEat--, iArg++) {
+          entry.push(simplifyInsaneObjects(arguments[iArg]));
+        }
+        // -- end new bit
+        this._entries.push(entry);
+      };
+    }
 
     this.testActorProto['expect_' + name_begin] = function() {
       if (!this._activeForTestStep)
@@ -1470,7 +1522,8 @@ LoggestClassMaker.prototype = {
 var LEGAL_FABDEF_KEYS = [
   'implClass', 'type', 'subtype', 'topBilling', 'semanticIdent', 'dicing',
   'stateVars', 'latchState', 'events', 'asyncJobs', 'calls', 'errors',
-  'TEST_ONLY_calls', 'TEST_ONLY_events', 'LAYER_MAPPING',
+  'TEST_ONLY_calls', 'TEST_ONLY_events', 'TEST_ONLY_asyncJobs',
+  'LAYER_MAPPING',
 ];
 
 function augmentFab(mod, fab, defs) {
@@ -1513,8 +1566,14 @@ function augmentFab(mod, fab, defs) {
       }
     }
     if ("asyncJobs" in loggerDef) {
+      var testOnlyAsyncJobsDef = null;
+      if ("TEST_ONLY_asyncJobs" in loggerDef)
+        testOnlyAsyncJobsDef = loggerDef.TEST_ONLY_asyncJobs;
       for (key in loggerDef.asyncJobs) {
-        maker.addAsyncJob(key, loggerDef.asyncJobs[key]);
+        testOnlyMeta = null;
+        if (testOnlyAsyncJobsDef && testOnlyAsyncJobsDef.hasOwnProperty(key))
+          testOnlyMeta = testOnlyAsyncJobsDef[key];
+        maker.addAsyncJob(key, loggerDef.asyncJobs[key], testOnlyMeta);
       }
     }
     if ("calls" in loggerDef) {
@@ -1610,6 +1669,8 @@ exports.TASK = 'task';
 exports.DAEMON = 'daemon';
 exports.DATABASE = 'database';
 exports.CRYPTO = 'crypto';
+exports.QUERY = 'query';
+exports.ACCOUNT = 'account';
 
 exports.TEST_DRIVER = 'testdriver';
 exports.TEST_GROUP = 'testgroup';

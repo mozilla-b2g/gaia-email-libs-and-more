@@ -9,12 +9,14 @@
 
 define(
   [
+    'rdcommon/logreaper',
     './mailapi',
     './imapacct',
     './imapslice',
     'exports'
   ],
   function(
+    $logreaper,
     $mailapi,
     $imapacct,
     $imapslice,
@@ -29,6 +31,7 @@ function stringifyHeader(header) {
 }
 
 function PrintySliceBridge() {
+  this.id = 'printy';
   this.items = [];
 }
 PrintySliceBridge.prototype = {
@@ -71,6 +74,32 @@ exports.goSync = function(connInfo, logFunc) {
       });
   }
   var universe = new $imapacct.MailUniverse(onUniverse);
+  LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
+  return LOG_BACKLOG;
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Logging
+
+var LOG_REAPER, LOG_BACKLOG = [], MAX_LOG_BACKLOG = 60;
+
+// once a second, potentially generate a log
+setInterval(function() {
+  if (!LOG_REAPER)
+    return;
+  var logTimeSlice = LOG_REAPER.reapHierLogTimeSlice();
+  // if nothing interesting happened, this could be empty, yos.
+  if (logTimeSlice.logFrag) {
+    LOG_BACKLOG.push(logTimeSlice);
+    // throw something away if we've got too much stuff already
+    if (LOG_BACKLOG.length > MAX_LOG_BACKLOG)
+      LOG_BACKLOG.shift();
+
+    // In deuxdrop, this is where we would also update our subscribers.  We
+    // may also want to do that here.
+  }
+}, 1000);
+
+////////////////////////////////////////////////////////////////////////////////
 
 });
