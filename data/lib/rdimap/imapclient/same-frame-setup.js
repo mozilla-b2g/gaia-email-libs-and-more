@@ -9,6 +9,7 @@
 
 define(
   [
+    './shim-sham',
     'rdcommon/logreaper',
     './mailapi',
     './imapacct',
@@ -16,6 +17,7 @@ define(
     'exports'
   ],
   function(
+    $shim_setup,
     $logreaper,
     $mailapi,
     $imapacct,
@@ -77,6 +79,8 @@ exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
   LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
   return LOG_BACKLOG;
 };
+
+window.goSyncRaw = exports.goSync;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Logging

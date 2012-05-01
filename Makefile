@@ -41,6 +41,9 @@ run: xpi
 runtest: JSONARG='--static-args={"synctest": true}'
 runtest: run
 
+gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS)
+	node scripts/r.js -o scripts/gaia-email-opt.build.js
+
 clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
