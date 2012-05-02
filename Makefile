@@ -19,8 +19,10 @@ $(TRANS_NODE_PKGS): node-transformed-deps
 	$(RSYNC) node-deps/$(notdir $@) node-transformed-deps
 	$(VOLO) npmrel $@
 
+# the cp is for main shims created by volo
 $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 	mkdir -p $@
+	-cp node-transformed-deps/$(notdir $@).js data/deps/
 	$(RSYNC_JS) node-transformed-deps/$(notdir $@)/ $@/
 
 
@@ -41,7 +43,9 @@ run: xpi
 runtest: JSONARG='--static-args={"synctest": true}'
 runtest: run
 
-gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS)
+OUR_JS_DEPS := $(wildcard data/lib/rdimap/imapclient/*.js) $(wildcard data/deps/rdcommon/*.js)
+
+gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/r.js -o scripts/gaia-email-opt.build.js
 
 clean:

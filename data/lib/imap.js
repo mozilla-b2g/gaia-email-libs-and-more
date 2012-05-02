@@ -4,6 +4,7 @@ var util = require('util'), $log = require('rdcommon/log'),
     mailparser = require('mailparser/mailparser');
 
 var emptyFn = function() {}, CRLF = '\r\n',
+    CRLF_BUFFER = Buffer(CRLF),
     STATES = {
       NOCONNECT: 0,
       NOAUTH: 1,
@@ -165,11 +166,20 @@ ImapConnection.prototype.connect = function(loginCb) {
   loginCb = loginCb || emptyFn;
   this._reset();
 
-  this._state.conn = TCPSocket();
 
-  var sslOptions = undefined;
-  if (this._options.crypto)
-    sslOptions = { allowOverride: true };
+  var socketOptions = {
+    binaryType: 'arraybuffer',
+    useSSL: true,
+  };
+  if (this._options.crypto === 'starttls')
+    socketOptions.useSSL = 'starttls';
+
+  this._state.conn = MozTCPSocket.open(
+    this._options.host, this._options.port, socketOptions);
+
+  // XXX rely on MozTCPSocket for this?
+  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
+                                   this._options.connTimeout, loginCb);
 
   this._state.conn.onopen = function(evt) {
     if (this._LOG) this._LOG.connected();
@@ -178,8 +188,14 @@ ImapConnection.prototype.connect = function(loginCb) {
     fnInit();
   };
   this._state.conn.ondata = function(evt) {
-    var buffer = Buffer(evt.data);
-    processData(buffer);
+    try {
+      var buffer = Buffer(evt.data);
+      processData(buffer);
+    }
+    catch (ex) {
+      console.error('Explosion while processing data', ex);
+      throw ex;
+    }
   };
   /**
    * Process up to one thing.  Generally:
@@ -627,20 +643,19 @@ ImapConnection.prototype.connect = function(loginCb) {
     self.emit('close');
   };
   this._state.conn.onerror = function(evt) {
-    var err = evt.data;
-    clearTimeout(self._state.tmrConn);
-    if (self._state.status === STATES.NOCONNECT)
-      loginCb(new Error('Unable to connect. Reason: ' + err));
-    self.emit('error', err);
-    if (this._LOG) this._LOG.connError(err);
+    try {
+      var err = evt.data;
+      clearTimeout(self._state.tmrConn);
+      if (self._state.status === STATES.NOCONNECT)
+        loginCb(new Error('Unable to connect. Reason: ' + err));
+      self.emit('error', err);
+      if (this._LOG) this._LOG.connError(err);
+    }
+    catch(ex) {
+      console.error("Error in imap onerror:", ex);
+      throw ex;
+    }
   };
-
-  // XXX temporary reordering because of current unfortunate sequenecing of
-  // events with MozTCPSocket in the jetpack shim version.
-  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
-                                   this._options.connTimeout, loginCb);
-  this._state.conn.open(this._options.host, this._options.port,
-                        this._options.crypto, sslOptions);
 };
 
 ImapConnection.prototype.isAuthenticated = function() {
@@ -1202,11 +1217,11 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
       if (!bypass)
         this._state.requests[0].prefix = prefix;
     }
-    this._state.conn.send(prefix);
-    this._state.conn.send(cmd);
+    this._state.conn.send(Buffer(prefix));
+    this._state.conn.send(Buffer(cmd));
     if (data)
-      this._state.conn.send(data);
-    this._state.conn.send(CRLF);
+      this._state.conn.send(typeof(data) === 'string' ? Buffer(data) : data);
+    this._state.conn.send(CRLF_BUFFER);
     if (this._LOG) { if (!bypass) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data); else this._LOG.bypassCmd(prefix, cmd);}
   }
 };

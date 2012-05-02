@@ -4,29 +4,152 @@
 
 define(
   [
+    'rdcommon/log',
     './imapacct',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $imapacct,
+    $module,
     exports
   ) {
 
-function MailBridge() {
+function toBridgeWireOn(x) {
+  return x.toBridgeWire();
 }
-MailBridge.prototype = {
-  _cmd_viewFolderMessages: function(msg) {
 
+/**
+ * There is exactly one `MailBridge` instance for each `MailAPI` instance.
+ * `same-frame-setup.js` is the only place that hooks them up together right
+ * now.
+ */
+function MailBridge(universe) {
+  this.universe = universe;
+
+  this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
+  this._slices = {};
+}
+exports.MailBridge = MailBridge;
+MailBridge.prototype = {
+  __sendMessage: function(msg) {
+    throw new Error('This is supposed to get hidden by an instance var.');
   },
 
+  __receiveMessage: function(msg) {
+    var implCmdName = '_cmd_' + msg.type;
+    if (!(implCmdName in this)) {
+      console.warn('Bad message type:', msg.type);
+      return;
+    }
+    this._LOG.cmd(msg.type, this, this[implCmdName], msg);
+  },
 
+  _cmd_tryToCreateAccount: function(msg) {
+    var self = this;
+    this.universe.tryToCreateAccount(msg.details, function(good, account) {
+        self.__sendMessage({
+            type: 'tryToCreateAccountResults',
+            handle: msg.handle,
+            error: good ? null : 'generic-badness',
+          });
+      });
+  },
+
+  _cmd_viewAccounts: function(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, msg.handle);
+    var wireReps = this.universe.accounts.map(toBridgeWireOn);
+    // send all the accounts in one go.
+    proxy.sendSplice(0, 0, wireReps, true, false);
+  },
+
+  _cmd_viewFolders: function(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, msg.handle),
+        accounts = this.universe.accounts;
+    var wireReps = [];
+    // Tell the other side about all the accounts/folders all at once.  There
+    // is no benefit to only telling it about a subset.  However, we may derive
+    // a benefit from knowing the approximate visual range in terms of asking
+    // folders about their unread counts.
+    for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
+      var acct = accounts[i];
+      wireReps.push(acct.toBridgeWire());
+      for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
+        var folder = acct.folders[iFolder];
+        wireReps.push(folder);
+      }
+    }
+    proxy.sendSplice(0, 0, wireReps, true, false);
+  },
+
+  _cmd_viewFolderMessages: function(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, msg.handle);
+
+    var account = this.universe.getAccountForFolderId(msg.folderId);
+    account.sliceFolderMessages(msg.folderId);
+  },
+
+  _cmd_killSlice: function(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+
+    delete this._slices[msg.handle];
+    proxy.die();
+  },
 };
 
-function SliceBridgeHandle() {
+function SliceBridgeProxy(bridge, handle) {
+  this._bridge = bridge;
+  this._handle = handle;
+  this.__listener = null;
 }
-SliceBridgeHandle.prototype = {
+SliceBridgeProxy.prototype = {
+  sendSplice: function(index, howMany, addItems, requested, moreExpected) {
+    this._bridge.__sendMessage({
+      type: 'sliceSplice',
+      index: index,
+      howMany: howMany,
+      addItems: addItems,
+      requested: requested,
+      moreExpected: moreExpected,
+    });
+  },
+
+  sendUpdate: function() {
+  },
+
   sendStatus: function() {
   },
+
+  die: function() {
+    if (this.__listener)
+      this.__listener.die();
+  },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  MailBridge: {
+    type: $log.DAEMON,
+    events: {
+    },
+    TEST_ONLY_events: {
+    },
+    errors: {
+      badSliceHandle: { handle: true },
+    },
+    calls: {
+      cmd: {command: true},
+    },
+    TEST_ONLY_calls: {
+    },
+  },
+});
 
 }); // end define

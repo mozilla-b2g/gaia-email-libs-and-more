@@ -196,6 +196,7 @@ const bsearchForInsert = exports._bsearchForInsert =
  */
 function ImapSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;
+  bridgeHandle.__listener = this;
   this._storage = storage;
   this._LOG = LOGFAB.ImapSlice(this, _parentLog, bridgeHandle.id);
 
@@ -230,10 +231,16 @@ ImapSlice.prototype = {
   },
 
   setStatus: function(status) {
+    if (!this._bridgeHandle)
+      return;
+
     this._bridgeHandle.sendStatus(status);
   },
 
   onHeaderAdded: function(header) {
+    if (!this._bridgeHandle)
+      return;
+
     if (this.startTS === null ||
         BEFORE(header.date, this.startTS)) {
       this.startTS = header.date;
@@ -261,6 +268,9 @@ ImapSlice.prototype = {
   },
 
   onHeaderModified: function(header) {
+    if (!this._bridgeHandle)
+      return;
+
     // this can only affect flags which will not affect ordering
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
@@ -269,6 +279,9 @@ ImapSlice.prototype = {
   },
 
   onHeaderRemoved: function(header) {
+    if (!this._bridgeHandle)
+      return;
+
     var idx = bsearchForInsert(this.headers, header,
                                headerYoungToOldComparator);
     this._LOG.headerRemoved(idx, header);
@@ -276,6 +289,11 @@ ImapSlice.prototype = {
     this.headers.splice(idx, 1);
   },
 
+  die: function() {
+    this._bridgeHandle = null;
+    this._storage.dyingSlice(this);
+    this._LOG.__die();
+  },
 };
 
 const BASELINE_SEARCH_OPTIONS = ['!DRAFT'];
@@ -1431,6 +1449,12 @@ ImapFolderStorage.prototype = {
     this._curSyncStartTS = pastDate;
     this.folderConn.syncDateRange(pastDate, futureNow, true,
                                   this.onSyncCompleted.bind(this));
+  },
+
+  dyingSlice: function(slice) {
+    var idx = this._slices.indexOf(slice);
+    this._slices.splice(idx, 1);
+    // XXX clean up/release the folder connection as appropriate
   },
 
   /**

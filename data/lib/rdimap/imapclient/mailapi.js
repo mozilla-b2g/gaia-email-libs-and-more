@@ -11,15 +11,45 @@ define(
     exports
   ) {
 
-function MailFolder(api, id, name, path, type) {
+function MailAccount(api, wireRep) {
   this._api = api;
-  this.id = id;
+  this.id = wireRep.id;
+  this.type = wireRep.type;
+  this.name = wireRep.name;
+
+  this.host = wireRep.host;
+  this.port = wireRep.port;
+  this.username = wireRep.username;
+  this.crypto = wireRep.crypto;
+
+  // build a place for the DOM element and arbitrary data into our shape
+  this.element = null;
+  this.data = null;
+}
+MailAccount.prototype = {
+  toString: function() {
+    return '[MailAccount: ' + this.type + ' ' + this.id + ']';
+  },
+
+  modifyAccount: function() {
+    throw new Error("NOT YET IMPLEMENTED");
+  },
+};
+
+function MailFolder(api, wireRep) {
+  // Accounts have a somewhat different wireRep serialization, but we can best
+  // tell by the id's; a folder's id is derived from the account with a dash
+  // separating.
+  var isAccount = wireRep.id.indexOf('-') !== -1;
+
+  this._api = api;
+  this.id = wireRep.id;
 
   /**
    * The human-readable name of the folder.  (As opposed to its path or the
    * modified utf-7 encoded folder names.)
    */
-  this.name = name;
+  this.name = wireRep.name;
   /**
    * @listof[String]{
    *   The hierarchical path of the folder, with each path component as a
@@ -27,9 +57,12 @@ function MailFolder(api, id, name, path, type) {
    *   modified modified utf-7 encoded folder names.)
    * }
    */
-  this.path = path;
+  this.path = wireRep.path;
   /**
    * @oneof[
+   *   @case['account']{
+   *     It's not really a folder at all, just an account serving as hierarchy.
+   *   }
    *   @case['inbox']
    *   @case['sent']
    * ]{
@@ -37,15 +70,34 @@ function MailFolder(api, id, name, path, type) {
    *   for styling purposes.
    * }
    */
-  this.type = type;
+  this.type = isAccount ? 'account' : wireRep.type;
+
+  this.selectable = !isAccount;
+
   this.onchange = null;
   this.onremove = null;
+
+  // build a place for the DOM element and arbitrary data into our shape
+  this.element = null;
+  this.data = null;
 }
 MailFolder.prototype = {
   toString: function() {
     return '[MailFolder: ' + this.path + ']';
   },
 };
+
+function filterOutBuiltinFlags(flags) {
+  // so, we could mutate in-place if we were sure the wire rep actually came
+  // over the wire.  Right now there is de facto rep sharing, so let's not
+  // mutate and screw ourselves over.
+  var outFlags = [];
+  for (var i = flags.length - 1; i >= 0; i--) {
+    if (flags[i][0] !== '\\')
+      outFlags.push(flags[i]);
+  }
+  return outFlags;
+}
 
 /**
  * Email overview information for displaying the message in the list as planned
@@ -57,24 +109,28 @@ MailFolder.prototype = {
  * is removed.  The `BridgedViewSlice` instance is how the system keeps track
  * of what messages are being displayed/still alive to need updates.
  */
-function MailHeader(slice, id) {
+function MailHeader(slice, id, wireRep) {
   this._slice = slice;
   this.id = id;
 
   this.author = null;
 
-  this.date = null;
-  this.isRead = null;
-  this.isStarred = null;
-  this.isRepliedTo = null;
-  this.tags = null;
-  this.hasAttachments = null;
+  this.date = new Date(wireRep.date);
+  this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
+  this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
+  this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
+  this.tags = filterOutBuiltinFlags(wireRep.flags);
+  this.hasAttachments = wireRep.hasAttachments;
 
-  this.subject = null;
-  this.snippet = null;
+  this.subject = wireRep.subject;
+  this.snippet = wireRep.snippet;
 
   this.onchange = null;
   this.onremove = null;
+
+  // build a place for the DOM element and arbitrary data into our shape
+  this.element = null;
+  this.data = null;
 }
 MailHeader.prototype = {
   toString: function() {
@@ -153,6 +209,10 @@ MailBody.prototype = {
 function MailAttachment() {
   this.filename = null;
   this.mimetype = null;
+
+  // build a place for the DOM element and arbitrary data into our shape
+  this.element = null;
+  this.data = null;
 }
 MailAttachment.prototype = {
   toString: function() {
@@ -199,7 +259,35 @@ BridgedViewSlice.prototype = {
 
   requestGrowth: function() {
   },
+
+  die: function() {
+    this._api.__bridgeSend({
+        type: 'killSlice',
+        handle: this._handle
+      });
+  },
 };
+
+/**
+ * Error reporting helper; we will probably eventually want different behaviours
+ * under development, under unit test, when in use by QA, advanced users, and
+ * normal users, respectively.  By funneling all errors through one spot, we
+ * help reduce inadvertent breakage later on.
+ */
+function reportError() {
+  console.error.apply(console, arguments);
+  var msg = null;
+  for (var i = 0; i < arguments.length; i++) {
+    if (msg)
+      msg += " " + arguments[i];
+    else
+      msg = "" + arguments[i];
+  }
+  throw new Error(msg);
+}
+var unexpectedBridgeDataError = reportError,
+    internalError = reportError,
+    reportClientCodeError = reportError;
 
 /**
  *
@@ -211,31 +299,163 @@ function MailAPI() {
   this._slices = {};
   this._pendingRequests = {};
 }
+exports.MailAPI = MailAPI;
 MailAPI.prototype = {
   /**
    * Send a message over/to the bridge.  The idea is that we (can) communicate
    * with the backend using only a postMessage-style JSON channel.
    */
-  _bridgeSend: function(msg) {
+  __bridgeSend: function(msg) {
+    // actually, this method gets clobbered.
   },
 
   /**
    * Process a message received from the bridge.
    */
-  _bridgeReceive: function(msg) {
+  __bridgeReceive: function(msg) {
+    var methodName = '_recv_' + msg.type;
+    if (!(methodName in this)) {
+      unexpectedBridgeDataError('Unsupported message type:', msg.type);
+      return;
+    }
+    try {
+      this[methodName](msg);
+    }
+    catch (ex) {
+      internalError('Problem handling message type:', msg.type, ex);
+      return;
+    }
   },
 
+  _recv_slice: function(msg) {
+    var slice = this._slices[msg.handle];
+    if (!slice) {
+      unexpectedBridgeDataError('Received message about a nonexistent slice:',
+                                msg.handle);
+      return;
+    }
 
-  createAccount: function(details) {
-  },
-
-  viewAccounts: function() {
+    if (slice.onsplice) {
+      try {
+        slice.onsplice(msg.index, msg.howMany, msg.addItems,
+                       msg.requested, msg.moreExpected);
+      }
+      catch (ex) {
+        reportClientCodeError('onsplice notification error', ex);
+      }
+    }
+    slice.items.splice.apply(slice.items,
+                             [msg.index, msg.howMany].concat(msg.addedItems));
   },
 
   /**
+   * Try to create an account.  There is currently no way to abort the process
+   * of creating an account.
    *
+   * @typedef[AccountCreationError @oneof[
+   *   @case['offline']{
+   *     We are offline and have no network access to try and create the
+   *     account.
+   *   }
+   *   @case['no-dns-entry']{
+   *     We couldn't find the domain name in question, full stop.
+   *   }
+   *   @case['unresponsive-server']{
+   *     Requests to the server timed out.  AKA we sent packets into a black
+   *     hole.
+   *   }
+   *   @case['port-not-listening']{
+   *     Attempts to connect to the given port on the server failed.  We got
+   *     packets back rejecting our connection.
+   *   }
+   *   @case['bad-security']{
+   *     We were able to connect to the port and initiate TLS, but we didn't
+   *     like what we found.  This could be a mismatch on the server domain,
+   *     a self-signed or otherwise invalid certificate, insufficient crypto,
+   *     or a vulnerable server implementation.
+   *   }
+   *   @case['not-an-imap-server']{
+   *     Whatever is there isn't actually an IMAP server.
+   *   }
+   *   @case['sucky-imap-server']{
+   *     The IMAP server is too bad for us to use.
+   *   }
+   *   @case['bad-user-or-pass']{
+   *     The username and password didn't check out.  We don't know which one
+   *     is wrong, just that one of them is wrong.
+   *   }
+   *   @case[null]{
+   *     No error, the account was created and everything is terrific.
+   *   }
+   * ]]
+   *
+   * @args[
+   *   @param[details]
+   *   @param[callback @func[
+   *     @args[
+   *       @param[err AccountCreationError]
+   *     ]
+   *   ]
+   * ]
    */
-  viewFolders: function() {
+  tryToCreateAccount: function(details, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'tryToCreateAccount',
+      details: details,
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'tryToCreateAccount',
+      handle: handle,
+      details: details
+    });
+  },
+
+  _recv_tryToCreateAccountResults: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for create account:', msg.handle);
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    req.callback(msg.error);
+  },
+
+  /**
+   * Get the list of accounts.  This is intended to be used only for the list
+   * of accounts in a settings UI.
+   */
+  viewAccounts: function() {
+    var handle = this._nextHandle++,
+        slice = new BridgedViewSlice(this, 'folders', handle);
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'viewAccounts',
+      handle: handle,
+    });
+  },
+
+  /**
+   * Retrieve the entire folder hierarchy for either 'navigation' (pick what
+   * folder to show the contents of, including unified folders) or 'selection'
+   * (pick target folder for moves, does not include unified folders.)  In both
+   * cases, there will exist non-selectable folders such as the account roots or
+   * IMAP folders that cannot contain messages.
+   */
+  viewFolders: function(mode) {
+    var handle = this._nextHandle++,
+        slice = new BridgedViewSlice(this, 'folders', handle);
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'viewFolders',
+      handle: handle,
+    });
+
+    return slice;
   },
 
   /**
@@ -245,10 +465,9 @@ MailAPI.prototype = {
   viewFolderMessages: function(folder) {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'headers', handle);
-
     this._slices[handle] = slice;
 
-    this._bridgeSend({
+    this.__bridgeSend({
       type: 'viewFolderMessages',
       folderId: folder.id,
       handle: handle,
@@ -266,6 +485,7 @@ MailAPI.prototype = {
    * the body search too if the first match doesn't meet their expectations.
    */
   quicksearchFolderMessages: function(folder, text, searchBodyToo) {
+    throw new Error("NOT YET IMPLEMENTED");
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -274,7 +494,7 @@ MailAPI.prototype = {
   // If you want to modify a single message, you can use the methods on it
   // directly.
   //
-  // All actions are undoable and return an `UndoOperation`.
+  // All actions are undoable and return an `UndoableOperation`.
 
   deleteMessages: function(messages) {
   },

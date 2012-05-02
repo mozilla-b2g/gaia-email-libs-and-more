@@ -35,6 +35,8 @@ function encode(string, encoding) {
     case 'utf8':
       encoding = 'utf-8';
     default:
+      if (!encoding)
+        encoding = 'utf-8';
       return TextEncoder(encoding).encode(string);
   }
 }
@@ -72,6 +74,8 @@ function decode(view, encoding) {
     case 'utf8':
       encoding = 'utf-8';
     default:
+      if (!encoding)
+        encoding = 'utf-8';
       return TextDecoder(encoding).decode(view);
   }
 }
@@ -97,7 +101,7 @@ function Buffer(subject, encoding, offset) {
         break;
 
       case 'string':
-        buf = encode(subject);
+        buf = encode(subject, encoding);
         break;
 
       case 'object': // Assume object is an array

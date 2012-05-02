@@ -26,6 +26,7 @@ define(
 
 function MailUniverse(testingModeLogData, callAfterBigBang) {
   this.accounts = [];
+  this._accountsById = {};
 
   this.config = null;
 
@@ -83,6 +84,16 @@ MailUniverse.prototype = {
     this._LOG.createAccount(accountDef.id, accountDef.name);
     var account = new ImapAccount(accountDef, folderInfo, this._LOG);
     this.accounts.push(account);
+    this._accountsById[account.id] = account;
+    return account;
+  },
+
+  /**
+   * Given a folder-id, get the owning account.
+   */
+  getAccountForFolderId: function(folderId) {
+    var accountId = folderId.substring(0, folderId.indexOf('-')),
+        account = this._accountsById[accountId];
     return account;
   },
 };
@@ -109,19 +120,39 @@ MailUniverse.prototype = {
  * ]]
  */
 function ImapAccount(accountDef, folderInfos, _parentLog) {
+  this.id = accountDef.id;
   this.accountDef = accountDef;
 
   this._ownedConns = [];
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.accountDef.id);
 
   // Yes, the pluralization is suspect, but unambiguous.
+  /** @dictof[@key[FolderId] @value[ImapFolderStorage] */
   var folderStorages = this._folderStorages = {};
+  /** @dictof[@key[FolderId] @value[ImapFolderMeta] */
   var folderPubs = this.folders = [];
 
   /**
    * The canonical folderInfo object we persist to the database.
    */
   this._folderInfos = folderInfos;
+  /**
+   * @dict[
+   *   @param[nextFolderNum Number]{
+   *     The next numeric folder number to be allocated.
+   *   }
+   *   @param[lastFullFolderProbeAt DateMS]{
+   *     When was the last time we went through our list of folders and got the
+   *     unread count in each folder.
+   *   }
+   *   @param[capability String]{
+   *     The post-login capability string from the server.
+   *   }
+   * ]{
+   *   Meta-information about the account derived from probing the account.
+   *   This information gets flushed on database upgrades.
+   * }
+   */
   this._meta = this._folderInfos.$meta;
   for (var folderId in folderInfos) {
     if (folderId === "$meta")
@@ -139,6 +170,20 @@ function ImapAccount(accountDef, folderInfos, _parentLog) {
 }
 ImapAccount.prototype = {
   type: 'imap',
+  toString: function() {
+    return '[ImapAccount: ' + this.accountDef.id + ']';
+  },
+  toBridgeWire: function() {
+    return {
+      id: this.accountDef.id,
+      name: this.accountDef.name,
+      type: this.type,
+      host: this.accountDef.connInfo.host,
+      port: this.accountDef.connInfo.port,
+      crypto: this.accountDef.connInfo.crypto,
+      username: this.accountDef.connInfo.username,
+    };
+  },
 
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
@@ -171,8 +216,8 @@ ImapAccount.prototype = {
    * Create a view slice on the messages in a folder, starting from the most
    * recent messages and synchronizing further as needed.
    */
-  sliceFolderMessages: function(folderPub, bridgeHandle) {
-    var storage = this._folderStorages[folderPub.id],
+  sliceFolderMessages: function(folderId, bridgeHandle) {
+    var storage = this._folderStorages[folderId],
         slice = new $imapslice.ImapSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);

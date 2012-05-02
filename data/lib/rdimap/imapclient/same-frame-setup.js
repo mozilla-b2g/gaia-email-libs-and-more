@@ -12,6 +12,7 @@ define(
     './shim-sham',
     'rdcommon/logreaper',
     './mailapi',
+    './mailbridge',
     './imapacct',
     './imapslice',
     'exports'
@@ -20,6 +21,7 @@ define(
     $shim_setup,
     $logreaper,
     $mailapi,
+    $mailbridge,
     $imapacct,
     $imapslice,
     exports
@@ -58,11 +60,50 @@ PrintySliceBridge.prototype = {
   },
 };
 
+function createBridgePair(universe) {
+  var TMB = new $mailbridge.MailBridge(universe);
+  var TMA = new $mailapi.MailAPI();
+  TMA.__bridgeSend = function(msg) {
+    TMB.__receiveMessage(msg);
+  };
+  TMB.__sendMessage = function(msg) {
+    TMA.__bridgeReceive(msg);
+  };
+  return {
+    api: TMA,
+    bridge: TMB
+  };
+}
+
+var _universeCallbacks = [];
+function onUniverse() {
+  console.log("Mail universe created, notifying.");
+  for (var i = 0; i < _universeCallbacks.length; i++) {
+    _universeCallbacks[i](universe);
+  }
+  _universeCallbacks = null;
+}
+var universe = new $imapacct.MailUniverse(false, onUniverse);
+
+function runOnUniverse(callback) {
+  if (_universeCallbacks !== null) {
+    _universeCallbacks.push(callback);
+    return;
+  }
+  callback(universe);
+}
+console.log("Assigning mail API helper!");
+window.gimmeMailAPI = function(callback) {
+  runOnUniverse(function() {
+    callback(createBridgePair(universe).api);
+  });
+};
+
 exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
   // Cross-object-wrappers result in DateCloneError even for simple objects.
   // I guess there could be good security reasons, but it's annoying.
   connInfo = JSON.parse(JSON.stringify(connInfo));
-  function onUniverse() {
+  runOnUniverse(function() {
     // create the account
     universe.tryToCreateAccount(connInfo, function(created, account) {
         if (!created) {
@@ -74,13 +115,10 @@ exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
         var printyBridge = new PrintySliceBridge(logFunc),
             slice = account.sliceFolderMessages(inbox, printyBridge);
       });
-  }
-  var universe = new $imapacct.MailUniverse(testingModeLogTestData, onUniverse);
+  });
   LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
   return LOG_BACKLOG;
 };
-
-window.goSyncRaw = exports.goSync;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Logging

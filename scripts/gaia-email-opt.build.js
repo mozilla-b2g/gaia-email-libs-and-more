@@ -24,12 +24,14 @@
     "events": "data/deps/browserify-builtins/events",
     "stream": "data/deps/browserify-builtins/stream",
     "util": "data/deps/browserify-builtins/util",
+
+    // These used to be packages but we have AMD shims for their mains where
+    // appropriate, so we can just use paths.
+    "mimelib": "data/deps/mimelib",
+    "iconv": "data/deps/iconv-lite",
+    "iconv-lite": "data/deps/iconv-lite",
+    "mailparser": "data/deps/mailparser/lib",
   },
-  packages: [
-    { name: "mimelib", location: "data/deps/mimelib", main: "index" },
-    { name: "iconv", location: "data/deps/iconv-lite", main: "index" },
-    { name: "mailparser", location: "data/deps/mailparser/lib" },
-  ],
   include: ["event-queue", "deps/stringencoding/encoding.js", "rdimap/imapclient/same-frame-setup"],
   name: "almond",
   out: "../gaia-email-opt.js",
