@@ -232,14 +232,19 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  *   and `rep.bodyInfo` with populated objects.
  * }
  */
-exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents) {
+exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
+                                               folderId) {
   // XXX we really want to perform quoting analysis, yadda yadda.
   var fullBody = bodyPartContents.join('\n'),
       // Up to 80 characters of snippet, normalizing whitespace.
       snippet = fullBody.substring(0, 80).replace(/[\r\n\t ]+/g, ' ');
 
   rep.header = {
+    // the UID
     id: rep.msg.id,
+    // The sufficiently unique id is a concatenation of the UID onto the
+    // folder id.
+    suid: folderId + '-' + rep.msg.id,
     // mailparser models from as an array; we do not.
     author: rep.msg.msg.from[0] || null,
     date: rep.msg.date,

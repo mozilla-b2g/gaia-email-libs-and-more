@@ -74,9 +74,12 @@ if (false) {
   }
 }
 else {
+  // XXX ALMOND hack; don't even try and find node path where there is none
+  /*
   require(['path'], function($path) {
     baseUrl = $path.resolve('../..');
   });
+  */
 }
 
 
@@ -96,7 +99,7 @@ function simplifyFilename(filename) {
       return filename.substring(lastSlash+1);
   }
   // can we reduce it?
-  if (filename.substring(0, baseUrl.length) === baseUrl) {
+  if (baseUrl && filename.substring(0, baseUrl.length) === baseUrl) {
     // we could take this a step further and do path analysis.
     return filename.substring(baseUrl.length);
   }
@@ -140,6 +143,7 @@ var SM_STACK_FORMAT = /^(.*)@(.+):(\d+)$/;
  *
  */
 exports.transformException = function transformException(e) {
+console.warn("extransform:", e, "\n", e.stack);
   // it's conceivable someone
   if (!(e instanceof Error) &&
       // under jetpack, we are losing hard, probably because of the sandbox
@@ -178,7 +182,6 @@ exports.transformException = function transformException(e) {
       });
     }
   }
-
   return o;
 };
 

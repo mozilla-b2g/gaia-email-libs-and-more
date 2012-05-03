@@ -771,7 +771,8 @@ ImapFolderConn.prototype = {
 
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
-                    if ($imapchew.chewBodyParts(chewRep, partsReceived)) {
+                    if ($imapchew.chewBodyParts(chewRep, partsReceived,
+                                                storage.folderId)) {
                       storage.addMessageHeader(chewRep.header);
                       storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                     }

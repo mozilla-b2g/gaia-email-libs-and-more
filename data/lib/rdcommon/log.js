@@ -1671,6 +1671,13 @@ exports.DEBUG_dumpEntriesOnDeath = function(logfab) {
   };
 };
 
+exports.DEBUG_dumpAllFabEntriesOnDeath = function() {
+  for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
+    var logfab = ALL_KNOWN_FABS[i];
+    exports.DEBUG_dumpEntriesOnDeath(logfab);
+  }
+};
+
 // role information
 exports.CONNECTION = 'connection';
 exports.SERVER = 'server';

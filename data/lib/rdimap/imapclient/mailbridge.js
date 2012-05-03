@@ -37,7 +37,7 @@ MailBridge.prototype = {
     throw new Error('This is supposed to get hidden by an instance var.');
   },
 
-  __receiveMessage: function(msg) {
+  __receiveMessage: function mb___receiveMessage(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
       console.warn('Bad message type:', msg.type);
@@ -46,7 +46,7 @@ MailBridge.prototype = {
     this._LOG.cmd(msg.type, this, this[implCmdName], msg);
   },
 
-  _cmd_tryToCreateAccount: function(msg) {
+  _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
     this.universe.tryToCreateAccount(msg.details, function(good, account) {
         self.__sendMessage({
@@ -57,7 +57,7 @@ MailBridge.prototype = {
       });
   },
 
-  _cmd_viewAccounts: function(msg) {
+  _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, msg.handle);
     var wireReps = this.universe.accounts.map(toBridgeWireOn);
@@ -65,7 +65,7 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
-  _cmd_viewFolders: function(msg) {
+  _cmd_viewFolders: function mb__cmd_viewFolders(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, msg.handle),
         accounts = this.universe.accounts;
@@ -75,7 +75,7 @@ MailBridge.prototype = {
     // a benefit from knowing the approximate visual range in terms of asking
     // folders about their unread counts.
     for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
-      var acct = accounts[i];
+      var acct = accounts[iAcct];
       wireReps.push(acct.toBridgeWire());
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
@@ -85,15 +85,15 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
-  _cmd_viewFolderMessages: function(msg) {
+  _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, msg.handle);
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
-    account.sliceFolderMessages(msg.folderId);
+    account.sliceFolderMessages(msg.folderId, proxy);
   },
 
-  _cmd_killSlice: function(msg) {
+  _cmd_killSlice: function mb__cmd_killSlice(msg) {
     var proxy = this._slices[msg.handle];
     if (!proxy) {
       this._LOG.badSliceHandle(msg.handle);
@@ -111,9 +111,11 @@ function SliceBridgeProxy(bridge, handle) {
   this.__listener = null;
 }
 SliceBridgeProxy.prototype = {
-  sendSplice: function(index, howMany, addItems, requested, moreExpected) {
+  sendSplice: function sbp_sendSplice(index, howMany, addItems, requested,
+                                      moreExpected) {
     this._bridge.__sendMessage({
       type: 'sliceSplice',
+      handle: this._handle,
       index: index,
       howMany: howMany,
       addItems: addItems,
@@ -122,13 +124,13 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendUpdate: function() {
+  sendUpdate: function sbp_sendUpdate() {
   },
 
-  sendStatus: function() {
+  sendStatus: function sbp_sendStatus() {
   },
 
-  die: function() {
+  die: function sbp_die() {
     if (this.__listener)
       this.__listener.die();
   },

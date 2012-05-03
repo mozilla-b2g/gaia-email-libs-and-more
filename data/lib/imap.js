@@ -169,7 +169,7 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   var socketOptions = {
     binaryType: 'arraybuffer',
-    useSSL: true,
+    useSSL: Boolean(this._options.crypto),
   };
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';

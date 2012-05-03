@@ -40,7 +40,7 @@ function MailFolder(api, wireRep) {
   // Accounts have a somewhat different wireRep serialization, but we can best
   // tell by the id's; a folder's id is derived from the account with a dash
   // separating.
-  var isAccount = wireRep.id.indexOf('-') !== -1;
+  var isAccount = wireRep.id.indexOf('-') === -1;
 
   this._api = api;
   this.id = wireRep.id;
@@ -109,11 +109,11 @@ function filterOutBuiltinFlags(flags) {
  * is removed.  The `BridgedViewSlice` instance is how the system keeps track
  * of what messages are being displayed/still alive to need updates.
  */
-function MailHeader(slice, id, wireRep) {
+function MailHeader(slice, wireRep) {
   this._slice = slice;
-  this.id = id;
+  this.id = wireRep.suid;
 
-  this.author = null;
+  this.author = wireRep.author;
 
   this.date = new Date(wireRep.date);
   this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
@@ -312,7 +312,7 @@ MailAPI.prototype = {
   /**
    * Process a message received from the bridge.
    */
-  __bridgeReceive: function(msg) {
+  __bridgeReceive: function ma___bridgeReceive(msg) {
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
       unexpectedBridgeDataError('Unsupported message type:', msg.type);
@@ -322,30 +322,51 @@ MailAPI.prototype = {
       this[methodName](msg);
     }
     catch (ex) {
-      internalError('Problem handling message type:', msg.type, ex);
+      internalError('Problem handling message type:', msg.type, ex,
+                    '\n', ex.stack);
       return;
     }
   },
 
-  _recv_slice: function(msg) {
+  _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
     var slice = this._slices[msg.handle];
+    console.log('slice splice for handle', msg.handle, 'w/ns:', slice._ns,
+                'deleted', msg.howMany, 'added', msg.addItems.length);
     if (!slice) {
       unexpectedBridgeDataError('Received message about a nonexistent slice:',
                                 msg.handle);
       return;
     }
 
+    var addItems = msg.addItems, transformedItems = [], i;
+    switch (slice._ns) {
+      case 'folders':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailFolder(this, addItems[i]));
+        }
+        break;
+
+      case 'headers':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailHeader(slice, addItems[i]));
+        }
+        break;
+    }
+
     if (slice.onsplice) {
+      console.log('  onsplice exists!');
       try {
-        slice.onsplice(msg.index, msg.howMany, msg.addItems,
+        slice.onsplice(msg.index, msg.howMany, transformedItems,
                        msg.requested, msg.moreExpected);
       }
       catch (ex) {
-        reportClientCodeError('onsplice notification error', ex);
+        reportClientCodeError('onsplice notification error', ex,
+                              '\n', ex.stack);
       }
+      console.log('  onsplice call completed!');
     }
     slice.items.splice.apply(slice.items,
-                             [msg.index, msg.howMany].concat(msg.addedItems));
+                             [msg.index, msg.howMany].concat(transformedItems));
   },
 
   /**
@@ -398,7 +419,7 @@ MailAPI.prototype = {
    *   ]
    * ]
    */
-  tryToCreateAccount: function(details, callback) {
+  tryToCreateAccount: function ma_tryToCreateAccount(details, callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'tryToCreateAccount',
@@ -412,7 +433,8 @@ MailAPI.prototype = {
     });
   },
 
-  _recv_tryToCreateAccountResults: function(msg) {
+  _recv_tryToCreateAccountResults:
+      function ma__recv_tryToCreateAccountResults(msg) {
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for create account:', msg.handle);
@@ -427,7 +449,7 @@ MailAPI.prototype = {
    * Get the list of accounts.  This is intended to be used only for the list
    * of accounts in a settings UI.
    */
-  viewAccounts: function() {
+  viewAccounts: function ma_viewAccounts() {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'folders', handle);
     this._slices[handle] = slice;
@@ -445,7 +467,7 @@ MailAPI.prototype = {
    * cases, there will exist non-selectable folders such as the account roots or
    * IMAP folders that cannot contain messages.
    */
-  viewFolders: function(mode) {
+  viewFolders: function ma_viewFolders(mode) {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'folders', handle);
     this._slices[handle] = slice;
@@ -462,7 +484,7 @@ MailAPI.prototype = {
    * Retrieve a slice of the contents of a folder, starting from the most recent
    * messages.
    */
-  viewFolderMessages: function(folder) {
+  viewFolderMessages: function ma_viewFolderMessages(folder) {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'headers', handle);
     this._slices[handle] = slice;
@@ -484,7 +506,8 @@ MailAPI.prototype = {
    * Expected UX: run the search once without body, then the user can ask for
    * the body search too if the first match doesn't meet their expectations.
    */
-  quicksearchFolderMessages: function(folder, text, searchBodyToo) {
+  quicksearchFolderMessages:
+      function ma_quicksearchFolderMessages(folder, text, searchBodyToo) {
     throw new Error("NOT YET IMPLEMENTED");
   },
 
@@ -496,22 +519,23 @@ MailAPI.prototype = {
   //
   // All actions are undoable and return an `UndoableOperation`.
 
-  deleteMessages: function(messages) {
+  deleteMessages: function ma_deleteMessages(messages) {
   },
 
-  copyMessages: function(messages, targetFolder) {
+  copyMessages: function ma_copyMessages(messages, targetFolder) {
   },
 
-  moveMessages: function(messages, targetFolder) {
+  moveMessages: function ma_moveMessages(messages, targetFolder) {
   },
 
-  markMessagesRead: function(messages, beRead) {
+  markMessagesRead: function ma_markMessagesRead(messages, beRead) {
   },
 
-  markMessagesStarred: function(messages, beStarred) {
+  markMessagesStarred: function ma_markMessagesStarred(messages, beStarred) {
   },
 
-  modifyMessagesTags: function(messages, addTags, removeTags) {
+  modifyMessagesTags: function ma_modifyMessageTags(messages, addTags,
+                                                    removeTags) {
   },
 
 

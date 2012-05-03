@@ -63,11 +63,16 @@ PrintySliceBridge.prototype = {
 function createBridgePair(universe) {
   var TMB = new $mailbridge.MailBridge(universe);
   var TMA = new $mailapi.MailAPI();
+  // shim-sham provide window.setZeroTimeout
   TMA.__bridgeSend = function(msg) {
-    TMB.__receiveMessage(msg);
+    window.setZeroTimeout(function() {
+      TMB.__receiveMessage(msg);
+    });
   };
   TMB.__sendMessage = function(msg) {
-    TMA.__bridgeReceive(msg);
+    window.setZeroTimeout(function() {
+      TMA.__bridgeReceive(msg);
+    });
   };
   return {
     api: TMA,
@@ -83,7 +88,10 @@ function onUniverse() {
   }
   _universeCallbacks = null;
 }
-var universe = new $imapacct.MailUniverse(false, onUniverse);
+// XXX XXX XXX XXX XXX
+// XXX Super-duper-debug mode should not be on outside of super-initial testing
+// that's the boolean true here...
+var universe = new $imapacct.MailUniverse(true, onUniverse);
 
 function runOnUniverse(callback) {
   if (_universeCallbacks !== null) {
