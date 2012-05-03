@@ -15,6 +15,13 @@ define(
     exports
   ) {
 
+/**
+ * Right now our tests consist of:
+ * - logging in to test the credentials
+ *
+ * If we succeed at that, we hand off the established connection to our caller
+ * so they can reuse it.
+ */
 function ImapProber(connInfo) {
   var opts = {};
   for (var key in connInfo) {
@@ -33,14 +40,19 @@ exports.ImapProber = ImapProber;
 ImapProber.prototype = {
   onConnect: function(err) {
     console.log("PROBE connect result:", err);
-    if (err)
+    if (err) {
       this.accountGood = false;
-    else
+      this._conn = null;
+    }
+    else {
       this.accountGood = true;
-    this._conn.logout(function() {});
+    }
+
+    var conn = this._conn;
+    this._conn = null;
 
     if (this.onresult)
-      this.onresult(this.accountGood);
+      this.onresult(this.accountGood, conn);
   },
 };
 

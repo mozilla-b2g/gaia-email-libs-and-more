@@ -59,16 +59,27 @@ exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
   tryToCreateAccount: function(connInfo, callback) {
     var prober = new $imapprobe.ImapProber(connInfo), self = this;
-    prober.onresult = function(accountGood) {
-      var account = null;
-      if (accountGood) {
-        account = self._actuallyCreateAccount(connInfo);
+    prober.onresult = function(accountGood, imapProtoConn) {
+      if (!accountGood) {
+        callback(accountGood, null);
+        return;
       }
-      callback(accountGood, account);
+
+      // The account is good, but it'll be boring without a list of folders.
+      var account = self._actuallyCreateAccount(connInfo, imapProtoConn);
+      account.syncFolderList(function() {
+        callback(accountGood, account);
+      });
     };
   },
 
-  _actuallyCreateAccount: function(connInfo) {
+  /**
+   * Create an account now that we have verified the credentials are good and
+   * the server meets our minimal functionality standards.  We are also
+   * provided with the protocol connection that was used to perform the check
+   * so we can immediately put it to work.
+   */
+  _actuallyCreateAccount: function(connInfo, imapProtoConn) {
     var accountDef = {
       id: $a64.encodeInt(this.config.nextAccountNum++),
       name: connInfo.username,
@@ -82,7 +93,8 @@ MailUniverse.prototype = {
     this._db.saveAccountDef(accountDef, folderInfo);
 
     this._LOG.createAccount(accountDef.id, accountDef.name);
-    var account = new ImapAccount(accountDef, folderInfo, this._LOG);
+    var account = new ImapAccount(accountDef, folderInfo, this._LOG,
+                                  imapProtoConn);
     this.accounts.push(account);
     this._accountsById[account.id] = account;
     return account;
@@ -119,11 +131,18 @@ MailUniverse.prototype = {
  *   ]]
  * ]]
  */
-function ImapAccount(accountDef, folderInfos, _parentLog) {
+function ImapAccount(accountDef, folderInfos, _parentLog, existingProtoConn) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
   this._ownedConns = [];
+  if (existingProtoConn)
+    this._ownedConns.push({
+        conn: existingProtoConn,
+        inUse: false,
+        folderId: null,
+      });
+
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.accountDef.id);
 
   // Yes, the pluralization is suspect, but unambiguous.
@@ -131,6 +150,12 @@ function ImapAccount(accountDef, folderInfos, _parentLog) {
   var folderStorages = this._folderStorages = {};
   /** @dictof[@key[FolderId] @value[ImapFolderMeta] */
   var folderPubs = this.folders = [];
+
+  /**
+   * The list of dead folder id's that we need to nuke the storage for when
+   * we next save our account status to the database.
+   */
+  this._deadFolderIds = null;
 
   /**
    * The canonical folderInfo object we persist to the database.
@@ -236,15 +261,37 @@ ImapAccount.prototype = {
    * the folder connection to enter the folder.
    */
   __folderDemandsConnection: function(folderId, callback) {
+    var reusableConnInfo = null;
+    for (var i = 0; i < this._ownedConns.length; i++) {
+      var connInfo = this._ownedConns[i];
+      if (!connInfo.inUse)
+        reusableConnInfo = connInfo;
+      // It's concerning if the folder already has a connection...
+      if (folderId && connInfo.folderId === folderId) {
+        this._LOG.folderAlreadyHasConn(folderId);
+      }
+    }
+
+    if (reusableConnInfo) {
+      reusableConnInfo.inUse = true;
+      reusableConnInfo.folderId = folderId;
+      callback(reusableConnInfo.conn);
+      return;
+    }
+
+    this._makeConnection(folderId, callback);
+  },
+
+  _makeConnection: function(folderId, callback) {
     var opts = {};
     for (var key in this.accountDef.connInfo) {
       opts[key] = this.accountDef.connInfo[key];
     }
     if (this._LOG) opts._logParent = this._LOG;
-
     var conn = new $imap.ImapConnection(opts);
     this._ownedConns.push({
         conn: conn,
+        inUse: true,
         folderId: folderId,
       });
     conn.on('close', function() {
@@ -258,6 +305,111 @@ ImapAccount.prototype = {
         callback(conn);
       }
     });
+  },
+
+  __folderDoneWithConnection: function(folderId, conn) {
+    for (var i = 0; i < this._ownedConns.length; i++) {
+      var connInfo = this._ownedConns[i];
+      if (connInfo.conn === conn) {
+        connInfo.inUse = false;
+        connInfo.folderId = null;
+        // XXX this will trigger an expunge if not read-only...
+        if (folderId)
+          conn.closeBox(function() {});
+        return;
+      }
+    }
+  },
+
+  syncFolderList: function(callback) {
+    var self = this;
+    this.__folderDemandsConnection(null, function(conn) {
+      conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
+    });
+  },
+  _syncFolderComputeDeltas: function(conn, callback, err, boxesRoot) {
+    var self = this;
+    if (err) {
+      // XXX need to deal with transient failure states
+      callback();
+      return;
+    }
+
+    // - build a map of known existing folders
+    var folderPubsByPath = {}, folderPub;
+    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
+      folderPub = this.folders[iFolder];
+      folderPubsByPath[folderPub.path] = folderPub;
+    }
+
+    // - walk the boxes
+    function walkBoxes(boxLevel, pathSoFar) {
+      for (var boxName in boxLevel) {
+        var box = boxLevel[boxName],
+            path = pathSoFar ? (pathSoFar + boxName) : boxName;
+
+
+        // - already known folder
+        if (folderPubsByPath.hasOwnProperty(path)) {
+          // mark it with true to show that we've seen it.
+          folderPubsByPath = true;
+        }
+        // - new to us!
+        else {
+          var type = 'normal';
+          if (box.attribs.indexOf('NOSELECT') !== -1) {
+            type = 'nomail';
+          }
+          else {
+            // heuristic based type assignment based on the name
+            switch (path) {
+              case 'Drafts':
+                type = 'drafts';
+                break;
+              case 'INBOX':
+                type = 'inbox';
+                break;
+              case 'Junk':
+              case 'Spam':
+                type = 'junk';
+                break;
+              case 'Sent':
+                type = 'sent';
+                break;
+              case 'Trash':
+                type = 'trash';
+                break;
+            }
+          }
+
+          self._learnAboutFolder(boxName, path, type);
+        }
+
+        if (box.children)
+          walkBoxes(box.children, pathSoFar + box.delim);
+      }
+    }
+    walkBoxes(boxesRoot, '');
+
+    // - detect deleted folders
+    // track dead folder id's so we can issue a
+    var deadFolderIds = [];
+    for (var folderPath in folderPubsByPath) {
+      folderPub = folderPubsByPath[folderPath];
+      // (skip those we found above)
+      if (folderPub === true)
+        continue;
+      // It must have gotten deleted!
+      delete this._folderInfos[folderPub.id];
+      var folderStorage = this._folderStorages[folderPub.id];
+      delete this._folderStorages[folderPub.id];
+      if (this._deadFolderIds === null)
+        this._deadFolderIds = [];
+      this._deadFolderIds.push(folderPub.id);
+      folderStorage.youAreDeadCleanupAfterYourself();
+    }
+
+    callback();
   },
 };
 
@@ -299,6 +451,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     TEST_ONLY_events: {
       persistedFolder: { folderInfo: false },
       learnAboutFolder: { name: false, path: false, type: false },
+    },
+    errors: {
+      folderAlreadyHasConn: { folderId: false },
     },
   },
 });

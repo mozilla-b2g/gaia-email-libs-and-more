@@ -545,6 +545,15 @@ function ImapFolderConn(account, storage, _parentLog) {
   this.box = null;
 }
 ImapFolderConn.prototype = {
+  relinquishConn: function() {
+    if (!this._conn)
+      return;
+
+    this._account.__folderDoneWithConnection(this._storage.folderId,
+                                             this._conn);
+    this._conn = null;
+  },
+
   /**
    * Wrap the search command and shirk the errors for now.  I was thinking we
    * might have this do automatic connection re-establishment, etc., but I think
@@ -1455,7 +1464,9 @@ ImapFolderStorage.prototype = {
   dyingSlice: function(slice) {
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
-    // XXX clean up/release the folder connection as appropriate
+
+    if (this._slices.length === 0)
+      this.folderConn.relinquishConn();
   },
 
   /**
@@ -1703,6 +1714,16 @@ ImapFolderStorage.prototype = {
                                                         bodyInfo));
       return;
     }
+  },
+
+  /**
+   * The folder is no longer known on the server or we are just deleting the
+   * account; close out any live connections or processing.  Database cleanup
+   * will be handled at the account level so it can go in a transaction with
+   * all the other related changes.
+   */
+  youAreDeadCleanupAfterYourself: function() {
+    // XXX close connections, etc.
   },
 };
 

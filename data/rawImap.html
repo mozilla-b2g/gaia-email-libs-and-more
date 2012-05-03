@@ -206,14 +206,14 @@ function($imap) {
       function() {
         conn.getBoxes(nextCommand);
       },
-      function() {
+      function(boxes) {
+        dumpObj(boxes);
         if (enableQResync)
           conn.enable(["QRESYNC"], nextCommand);
         else
           nextCommand();
       },
-      function(boxes) {
-        dumpObj(boxes);
+      function() {
         conn.openBox("INBOX", false, nextCommand);
       },
       // - get the flagged messages

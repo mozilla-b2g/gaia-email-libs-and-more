@@ -63,8 +63,20 @@ function MailFolder(api, wireRep) {
    *   @case['account']{
    *     It's not really a folder at all, just an account serving as hierarchy.
    *   }
+   *   @case['nomail']{
+   *     A folder that exists only to provide hierarchy but which can't
+   *     contain messages.  An artifact of various mail backends that are
+   *     reflected in IMAP as NOSELECT.
+   *   }
    *   @case['inbox']
+   *   @case['drafts']
    *   @case['sent']
+   *   @case['trash']
+   *   @case['archive']
+   *   @case['junk']
+   *   @case['normal']{
+   *     A traditional mail folder with nothing special about it.
+   *   }
    * ]{
    *   Non-localized string indicating the type of folder this is, primarily
    *   for styling purposes.
@@ -72,7 +84,7 @@ function MailFolder(api, wireRep) {
    */
   this.type = isAccount ? 'account' : wireRep.type;
 
-  this.selectable = !isAccount;
+  this.selectable = !isAccount && wireRep.type !== 'nomail';
 
   this.onchange = null;
   this.onremove = null;
