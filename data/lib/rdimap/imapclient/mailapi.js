@@ -74,6 +74,7 @@ function MailFolder(api, wireRep) {
    *   @case['trash']
    *   @case['archive']
    *   @case['junk']
+   *   @case['starred']
    *   @case['normal']{
    *     A traditional mail folder with nothing special about it.
    *   }
@@ -131,6 +132,8 @@ function MailHeader(slice, wireRep) {
   this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
   this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
   this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
+  this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
+  this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
   this.tags = filterOutBuiltinFlags(wireRep.flags);
   this.hasAttachments = wireRep.hasAttachments;
 

@@ -758,10 +758,20 @@ ImapConnection.prototype.getBoxes = function(namespace, cb) {
   cb = arguments[arguments.length-1];
   if (arguments.length !== 2)
     namespace = '';
-  this._send(
-    ((this.capabilities.indexOf('XLIST') == -1) ? 'LIST' : 'XLIST'),
-      ' "' + escape(namespace) + '" "*"',
-    cb);
+
+  var cmd, cmddata = ' "' + escape(namespace) + '" "*"';
+  // Favor special-use over XLIST
+  if (this.capabilities.indexOf('SPECIAL-USE') !== -1) {
+    cmd = 'LIST';
+    cmddata += ' RETURN (SPECIAL-USE)';
+  }
+  else if (this.capabilities.indexOf('XLIST') !== -1) {
+    cmd = 'XLIST';
+  }
+  else {
+    cmd = 'LIST';
+  }
+  this._send(cmd, cmddata, cb);
 };
 
 ImapConnection.prototype.addBox = function(name, cb) {

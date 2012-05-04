@@ -356,30 +356,92 @@ ImapAccount.prototype = {
         }
         // - new to us!
         else {
-          var type = 'normal';
+          var type = null;
+          // NoSelect trumps everything.
           if (box.attribs.indexOf('NOSELECT') !== -1) {
             type = 'nomail';
           }
           else {
-            // heuristic based type assignment based on the name
-            switch (path) {
-              case 'Drafts':
-                type = 'drafts';
-                break;
-              case 'INBOX':
-                type = 'inbox';
-                break;
-              case 'Junk':
-              case 'Spam':
-                type = 'junk';
-                break;
-              case 'Sent':
-                type = 'sent';
-                break;
-              case 'Trash':
-                type = 'trash';
-                break;
+            // Standards-ish:
+            // - special-use: http://tools.ietf.org/html/rfc6154
+            //   IANA registrations:
+            //   http://www.iana.org/assignments/imap4-list-extended
+            // - xlist:
+            //   https://developers.google.com/google-apps/gmail/imap_extensions
+
+            // Process the attribs for goodness.
+            for (var i = 0; i < box.attribs.length; i++) {
+              switch (box.attribs[i]) {
+                case 'ALL': // special-use
+                case 'ALLMAIL': // xlist
+                case 'ARCHIVE': // special-use
+                  type = 'archive';
+                  break;
+                case 'DRAFTS': // special-use xlist
+                  type = 'drafts';
+                  break;
+                case 'FLAGGED': // special-use
+                  type = 'starred';
+                  break;
+                case 'INBOX': // xlist
+                  type = 'inbox';
+                  break;
+                case 'JUNK': // special-use
+                  type = 'junk';
+                  break;
+                case 'SENT': // special-use xlist
+                  type = 'sent';
+                  break;
+                case 'SPAM': // xlist
+                  type = 'junk';
+                  break;
+                case 'STARRED': // xlist
+                  type = 'starred';
+                  break;
+
+                case 'TRASH': // special-use xlist
+                  type = 'trash';
+                  break;
+
+                case 'HASCHILDREN': // 3348
+                case 'HASNOCHILDREN': // 3348
+
+                // - standard bits we don't care about
+                case 'MARKED': // 3501
+                case 'UNMARKED': // 3501
+                case 'NOINFERIORS': // 3501
+                  // XXX use noinferiors to prohibit folder creation under it.
+                // NOSELECT
+
+                default:
+              }
             }
+
+            // heuristic based type assignment based on the name
+            if (!type) {
+              switch (path.toUpperCase()) {
+                case 'DRAFT':
+                case 'DRAFTS':
+                  type = 'drafts';
+                  break;
+                case 'INBOX':
+                  type = 'inbox';
+                  break;
+                case 'JUNK':
+                case 'SPAM':
+                  type = 'junk';
+                  break;
+                case 'SENT':
+                  type = 'sent';
+                  break;
+                case 'TRASH':
+                  type = 'trash';
+                  break;
+              }
+            }
+
+            if (!type)
+              type = 'normal';
           }
 
           self._learnAboutFolder(boxName, path, type);

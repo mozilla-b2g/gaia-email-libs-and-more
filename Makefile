@@ -48,6 +48,14 @@ OUR_JS_DEPS := $(wildcard data/lib/rdimap/imapclient/*.js) $(wildcard data/deps/
 gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/r.js -o scripts/gaia-email-opt.build.js
 
+
+PYTHON=python
+B2GSD=b2g-srcdir-symlink
+B2GBD=b2g-builddir-symlink
+xpcshell-tests:
+	$(PYTHON) $(B2GSD)/config/pythonpath.py -I$(B2GSD)/build $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json $(B2GBD)/dist/bin/xpcshell test/unit
+
+
 clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
