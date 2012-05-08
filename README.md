@@ -66,8 +66,9 @@ code from the following projects or converted projects:
 - util, Stream shims from https://github.com/substack/node-browserify
    which is frequently modified node.js source code.
 - MIME parsing/rfc822 logic from: https://github.com/andris9/mailparser
+- MIME composition from: https://github.com/andris9/mailcomposer
 - MIME types, helper functions from: https://github.com/andris9/mimelib
-- Charset conversion from https://github.com/ashtuchkin/iconv-lite
+- String encoding/character set conversion from http://code.google.com/p/stringencoding/
 
 We shim the following ourselves to the minimum required:
 - node's Buffer implementation

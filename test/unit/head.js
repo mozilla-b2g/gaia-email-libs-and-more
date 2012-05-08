@@ -40,6 +40,8 @@ require({
 
     "buffer": "data/lib/node-buffer",
     "crypto": "data/lib/node-crypto",
+    "iconv": "data/lib/js-shims/faux-iconv",
+    "iconv-lite": "data/libs/js-shims/faux-iconx",
 
     "assert": "data/deps/browserify-builtins/assert",
     "events": "data/deps/browserify-builtins/events",
@@ -49,8 +51,6 @@ require({
     // These used to be packages but we have AMD shims for their mains where
     // appropriate, so we can just use paths.
     "mimelib": "data/deps/mimelib",
-    "iconv": "data/deps/iconv-lite",
-    "iconv-lite": "data/deps/iconv-lite",
     "mailparser": "data/deps/mailparser/lib",
   },
 });

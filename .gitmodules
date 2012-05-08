@@ -4,9 +4,6 @@
 [submodule "deps/wmsy"]
 	path = deps/wmsy
 	url = git://github.com/asutherland/wmsy.git
-[submodule "node-deps/iconv-lite"]
-	path = node-deps/iconv-lite
-	url = git://github.com/asutherland/iconv-lite.git
 [submodule "node-deps/mailparser"]
 	path = node-deps/mailparser
 	url = git://github.com/andris9/mailparser.git
