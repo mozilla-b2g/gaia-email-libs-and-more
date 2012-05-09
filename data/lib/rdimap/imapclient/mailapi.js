@@ -283,6 +283,50 @@ BridgedViewSlice.prototype = {
   },
 };
 
+
+/**
+ * Handle for a current/ongoing message composition process that can ideally
+ * be used by the for its state at all times.  The goal is that the UI stores
+ * state in this object and we, not the UI layer, can determine when a
+ * sufficient number of state changes (or elapsed time) have occurred to merit
+ * sending additional state over the wire to the back-end to be persisted to
+ * disk and/or the server.
+ *
+ * If the user wants to resume composition of a draft message, they get this
+ * representation again.
+ *
+ * For the benefit of the caller, all synchronization is at least deferred to
+ * the next turn of the event loop.
+ */
+function MessageComposition() {
+}
+MessageComposition.prototype = {
+  /**
+   * Finalize and send the message in its current state.
+   */
+  finishComposeSendMessage: function() {
+  },
+
+  /**
+   * The user is done writing the message for now; save it to the drafts folder
+   * and close out this handle.
+   */
+  saveDraftEndComposition: function() {
+  },
+
+  /**
+   * The user has indicated they neither want to send nor save the draft.  We
+   * want to delete the message so it is gone from everywhere.
+   *
+   * In the future, we might support some type of very limited undo
+   * functionality, possibly on the UI side of the house.  This is not a secure
+   * delete.
+   */
+  abortCompositionDeleteDraft: function() {
+  },
+};
+
+
 /**
  * Error reporting helper; we will probably eventually want different behaviours
  * under development, under unit test, when in use by QA, advanced users, and
@@ -461,10 +505,19 @@ MailAPI.prototype = {
   },
 
   /**
-   * Get the list of accounts.  This is intended to be used only for the list
-   * of accounts in a settings UI.
+   * Get the list of accounts.  This can be used for the list of accounts in
+   * setttings or for a folder tree where only one account's folders are visible
+   * at a time.
+   *
+   * @args[
+   *   @param[realAccountsOnly Boolean]{
+   *     Should we only list real accounts (aka not unified accounts)?  This is
+   *     meaningful for the settings UI and for the move-to-folder UI where
+   *     selecting a unified account's folders is useless.
+   *   }
+   * ]
    */
-  viewAccounts: function ma_viewAccounts() {
+  viewAccounts: function ma_viewAccounts(realAccountsOnly) {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'folders', handle);
     this._slices[handle] = slice;
@@ -477,10 +530,22 @@ MailAPI.prototype = {
 
   /**
    * Retrieve the entire folder hierarchy for either 'navigation' (pick what
-   * folder to show the contents of, including unified folders) or 'selection'
-   * (pick target folder for moves, does not include unified folders.)  In both
-   * cases, there will exist non-selectable folders such as the account roots or
-   * IMAP folders that cannot contain messages.
+   * folder to show the contents of, including unified folders), 'selection'
+   * (pick target folder for moves, does not include unified folders), or
+   * 'account' (only show the folders belonging to a given account, implies
+   * selection).  In all cases, there may exist non-selectable folders such as
+   * the account roots or IMAP folders that cannot contain messages.
+   *
+   * When accounts are presented as folders via this UI, they do not expose any
+   * of their `MailAccount` semantics.
+   *
+   * @args[
+   *   @param[mode @oneof['navigation' 'selection' 'account']
+   *   @param[argument #:optional]{
+   *     Arguent appropriate to the mode; currently will only be a `MailAccount`
+   *     instance.
+   *   }
+   * ]
    */
   viewFolders: function ma_viewFolders(mode) {
     var handle = this._nextHandle++,
@@ -489,6 +554,7 @@ MailAPI.prototype = {
 
     this.__bridgeSend({
       type: 'viewFolders',
+      mode: mode,
       handle: handle,
     });
 
@@ -553,6 +619,22 @@ MailAPI.prototype = {
                                                     removeTags) {
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // Message Composition
+
+  /**
+   * Begin the message composition process, creating a DraftMessage that stores
+   * the current message state and periodically persists its state to the
+   * backend so that the message is potentially available to other clients and
+   * recoverable in the event of a local crash.
+   *
+   * Composition is triggered in the context of a given folder so that the
+   * correct (seder) identity for composition can be inferred.  In the future
+   * this might also accept a message in the case of mailing list subscription
+   * metadata, the existing identity used in a conversation, etc.
+   */
+  beginMessageComposition: function(folder) {
+  },
 
   //////////////////////////////////////////////////////////////////////////////
 };

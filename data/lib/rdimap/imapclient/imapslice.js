@@ -1,7 +1,5 @@
 /**
  * Presents a message-centric view of a slice of time from IMAP search results.
- * Responsible for tracking the state the UI's view-slice at the other end of
- * the bridge is aware of.
  *
  * == Use-case assumptions
  *
