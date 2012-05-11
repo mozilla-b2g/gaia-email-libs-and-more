@@ -103,6 +103,20 @@ MailBridge.prototype = {
     delete this._slices[msg.handle];
     proxy.die();
   },
+
+  _cmd_getBody: function mb__cmd_getBody(msg) {
+    var self = this;
+    // map the message id to the folder storage
+    var folderId = msg.suid.substring(0, msg.suid.lastIndexOf('-'));
+    var folderStorage = this.universe.getFolderStorageForFolderId(folderId);
+    folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
+      self.__sendMessage({
+        type: 'gotBody',
+        handle: msg.handle,
+        bodyInfo: bodyInfo,
+      });
+    });
+  },
 };
 
 function SliceBridgeProxy(bridge, handle) {

@@ -25,7 +25,8 @@ function setTimeout(func, delay) {
   };
 }
 function clearTimeout(handle) {
-  handle();
+  if (handle)
+    handle();
 }
 
 

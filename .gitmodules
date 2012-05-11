@@ -13,3 +13,6 @@
 [submodule "deps/stringencoding"]
 	path = deps/stringencoding
 	url = https://code.google.com/p/stringencoding/
+[submodule "node-deps/simplesmtp"]
+	path = node-deps/simplesmtp
+	url = git://github.com/andris9/simplesmtp.git

@@ -240,7 +240,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
       snippet = fullBody.substring(0, 80).replace(/[\r\n\t ]+/g, ' ');
 
   rep.header = {
-    // the UID
+    // the UID (as an integer)
     id: rep.msg.id,
     // The sufficiently unique id is a concatenation of the UID onto the
     // folder id.

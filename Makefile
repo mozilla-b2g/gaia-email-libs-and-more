@@ -7,7 +7,7 @@ VOLO=./scripts/volo
 
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.
-NODE_PKGS := mailparser mailcomposer mimelib browserify-builtins
+NODE_PKGS := mailparser mailcomposer mimelib simplesmtp browserify-builtins
 
 TRANS_NODE_PKGS := $(addprefix node-transformed-deps/,$(NODE_PKGS))
 DEP_NODE_PKGS := $(addprefix data/deps/,$(NODE_PKGS))
@@ -55,6 +55,11 @@ B2GBD=b2g-builddir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 xpcshell-tests:
 	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json $(B2GBD)/dist/bin/xpcshell test/unit
+
+SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
+
+check-one:
+	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
 
 
 clean:

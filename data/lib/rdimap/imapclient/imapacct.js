@@ -7,9 +7,11 @@ define(
     'imap',
     'rdcommon/log',
     './a64',
+    './allback',
     './imapdb',
     './imapslice',
     './imapprobe',
+    './smtpprobe',
     'module',
     'exports'
   ],
@@ -17,12 +19,38 @@ define(
     $imap,
     $log,
     $a64,
+    $allback,
     $imapdb,
     $imapslice,
     $imapprobe,
+    $smtpprobe,
     $module,
     exports
   ) {
+const allbackMaker = $allback.allbackMaker;
+
+// Simple hard-coded autoconfiguration by domain...
+var autoconfigByDomain = {
+  'yahoo.com': {
+    imapHost: 'imap.mail.yahoo.com',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'smtp.mail.yahoo.com',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: true,
+  },
+  'localhost': {
+    imapHost: 'localhost',
+    imapPort: 143,
+    imapCrypto: false,
+    smtpHost: 'localhost',
+    smtpPort: 25,
+    smtpCrypto: false,
+    usernameIsFullEmail: false,
+  },
+};
+
 
 function MailUniverse(testingModeLogData, callAfterBigBang) {
   this.accounts = [];
@@ -57,20 +85,62 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
-  tryToCreateAccount: function(connInfo, callback) {
-    var prober = new $imapprobe.ImapProber(connInfo), self = this;
-    prober.onresult = function(accountGood, imapProtoConn) {
-      if (!accountGood) {
-        callback(accountGood, null);
-        return;
-      }
+  tryToCreateAccount: function(userAndPass, callback) {
+    var domain = userAndPass.username.substring(
+                   userAndPass.username.indexOf('@') + 1),
+        domainInfo = null, imapConnInfo, smtpConnInfo;
+    if (autoconfigByDomain.hasOwnProperty(domain))
+      domainInfo = autoconfigByDomain[domain];
+    if (domainInfo) {
+      var username = domainInfo.usernameIsFullEmail ? userAndPass.username
+        : userAndPass.username.substring(0, userAndPass.username.indexOf('@'));
+      imapConnInfo = {
+        username: username,
+        password: userAndPass.password,
+        hostname: domainInfo.imapHost,
+        port: domainInfo.imapPort,
+        crypto: domainInfo.imapCrypto,
+      };
+      smtpConnInfo = {
+        username: username,
+        password: userAndPass.password,
+        hostname: domainInfo.smtpHost,
+        port: domainInfo.smtpPort,
+        crypto: domainInfo.smtpCrypto,
+      };
+    }
+    else {
+      throw new Error("Don't know how to configure domain: " + domain);
+    }
 
-      // The account is good, but it'll be boring without a list of folders.
-      var account = self._actuallyCreateAccount(connInfo, imapProtoConn);
-      account.syncFolderList(function() {
-        callback(accountGood, account);
+    var callbacks = allbackMaker(
+      ['imap', 'smtp'],
+      function probesDone(results) {
+        // -- both good?
+        if (results.imap[0] && results.smtp) {
+          // The account is good, but it'll be boring without a list of folders.
+          var account = self._actuallyCreateAccount(imapConnInfo, smtpConnInfo,
+                                                    imapProtoConn);
+          account.syncFolderList(function() {
+            callback(accountGood, account);
+          });
+
+        }
+        // -- either/both bad
+        else {
+          // clean up the imap connection if it was okay but smtp failed
+          if (results.imap[0])
+            results.imap[1].close();
+          callback(false, null);
+          return;
+        }
       });
-    };
+
+    var imapProber = new $imapprobe.ImapProber(imapConnInfo), self = this;
+    imapProber.onresult = callbacks.imap;
+
+    var smtpProber = new $smtpprobe.SmtpProber(smtpConnInfo);
+    smtpProber.onresult = callback.smtp;
   },
 
   /**
@@ -107,6 +177,11 @@ MailUniverse.prototype = {
     var accountId = folderId.substring(0, folderId.indexOf('-')),
         account = this._accountsById[accountId];
     return account;
+  },
+
+  getFolderStorageForFolderId: function(folderId) {
+    var account = this.getAccountForFolderId(folderId);
+    return account.getFolderStorageForId(folderId);
   },
 };
 
@@ -235,6 +310,12 @@ ImapAccount.prototype = {
     this._folderStorages[folderId] =
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
     this.folders.push(folderInfo.$meta);
+  },
+
+  getFolderStorageForId: function(folderId) {
+    if (this._folderStorages.hasOwnProperty(folderId))
+      return this._folderStorages[folderId];
+    throw new Error('No folder with id: ' + folderId);
   },
 
   /**

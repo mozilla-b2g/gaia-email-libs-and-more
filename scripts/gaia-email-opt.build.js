@@ -19,6 +19,10 @@
 
     "buffer": "data/lib/node-buffer",
     "crypto": "data/lib/node-crypto",
+    "net": "data/lib/node-net",
+    "tls": "data/lib/node-tls",
+    "os": "data/lib/node-os",
+
     "iconv": "data/lib/js-shims/faux-iconv",
     "iconv-lite": "data/libs/js-shims/faux-iconx",
 

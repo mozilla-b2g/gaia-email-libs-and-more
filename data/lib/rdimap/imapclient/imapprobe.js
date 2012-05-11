@@ -29,7 +29,7 @@ function ImapProber(connInfo) {
   }
   //opts.debug = console.debug.bind(console);
 
-  console.log("PROBE attempting to connect to", connInfo.host);
+  console.log("PROBE:IMAP attempting to connect to", connInfo.hostname);
   this._conn = new $imap.ImapConnection(opts);
   this._conn.connect(this.onConnect.bind(this));
 
@@ -39,12 +39,13 @@ function ImapProber(connInfo) {
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
   onConnect: function(err) {
-    console.log("PROBE connect result:", err);
     if (err) {
+      console.warn("PROBE:IMAP sad");
       this.accountGood = false;
       this._conn = null;
     }
     else {
+      console.log("PROBE:IMAP happy");
       this.accountGood = true;
     }
 

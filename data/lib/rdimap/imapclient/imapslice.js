@@ -55,6 +55,7 @@ define(
     'rdcommon/log',
     'mailparser/mailparser',
     './a64',
+    './allback',
     './imapchew',
     'module',
     'exports'
@@ -63,53 +64,12 @@ define(
     $log,
     $mailparser,
     $a64,
+    $allback,
     $imapchew,
     $module,
     exports
   ) {
-
-/**
- * Create multiple named callbacks whose results are aggregated and a single
- * callback invoked once all the callbacks have returned their result.  This
- * is intended to provide similar benefit to $Q.all in our non-promise world
- * while also possibly being more useful.
- *
- * Example:
- * @js{
- *   var callbacks = allbackMaker(['foo', 'bar'], function(aggrData) {
- *       console.log("Foo's result was", aggrData.foo);
- *       console.log("Bar's result was", aggrData.bar);
- *     });
- *   asyncFooFunc(callbacks.foo);
- *   asyncBarFunc(callbacks.bar);
- * }
- *
- * Protection against a callback being invoked multiple times is provided as
- * an anti-foot-shooting measure.  Timeout logic and other protection against
- * potential memory leaks is not currently provided, but could be.
- */
-function allbackMaker(names, allDoneCallback) {
-  var aggrData = {}, callbacks = {}, waitingFor = names.concat();
-
-  names.forEach(function(name) {
-    // (build a consistent shape for aggrData regardless of callback ordering)
-    aggrData[name] = undefined;
-    callbacks[name] = function(callbackResult) {
-console.log("ALLBACKed", name);
-      var i = waitingFor.indexOf(name);
-      if (i === -1) {
-        console.error("Callback '" + name + "' fired multiple times!");
-        throw new Error("Callback '" + name + "' fired multiple times!");
-      }
-      waitingFor.splice(i, 1);
-      aggrData[name] = callbackResult;
-      if (waitingFor.length === 0)
-        allDoneCallback(aggrData);
-    };
-  });
-
-  return callbacks;
-}
+const allbackMaker = $allback.allbacMaker;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -453,12 +413,12 @@ const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
 /**
  * How many messages should we send to the UI in the first go?
  */
-const INITIAL_FILL_SIZE = 12;
+const INITIAL_FILL_SIZE = 15;
 
 /**
  * How many days in the past should we first look for messages.
  */
-const INITIAL_SYNC_DAYS = 14;
+const INITIAL_SYNC_DAYS = 7;
 /**
  * When looking further into the past, how big a bite of the past should we
  * take?
@@ -1712,6 +1672,30 @@ ImapFolderStorage.prototype = {
                                                         bodyInfo));
       return;
     }
+
+    this._pickInsertionBlockUsingDateAndUID(
+      'body', header.date, header.id, bodyInfo.size,
+      function(blockInfo, block) {
+        block[header.id] = bodyInfo;
+      });
+  },
+
+
+
+  getMessageBody: function(suid, date, callback) {
+    var uid = suid.substring(suid.lastIndexOf('-') + 1),
+        posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
+                                                       date, uid);
+    if (posInfo[1] === null)
+      throw new Error('Unable to locate owning block for id/date: ' + id + ', ' + date);
+    var bodyBlockInfo = posInfo[1];
+    if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.id))) {
+      this._loadBlock('body', bodyBlockInfo.id, function(bodyBlock) {
+          callback(bodyBlock[uid]);
+        });
+      return;
+    }
+    callback(this._bodyBlocks[bodyBlockInfo.id][uid]);
   },
 
   /**

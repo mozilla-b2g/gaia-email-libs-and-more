@@ -187,6 +187,7 @@ MailHeader.prototype = {
    * provided callback function once retrieved.
    */
   getBody: function(callback) {
+    this._slice._api._getBodyForMessage(this, callback);
   },
 };
 
@@ -426,6 +427,32 @@ MailAPI.prototype = {
     }
     slice.items.splice.apply(slice.items,
                              [msg.index, msg.howMany].concat(transformedItems));
+  },
+
+  _getBodyForMessage: function(header, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'getBody',
+      suid: header.id,
+      date: header.date,
+      callback: callback,
+    };
+    this.__bridgeSend({
+      type: 'getBody',
+      handle: handle,
+      suid: header.id,
+    });
+  },
+
+  _recv_gotBody: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    req.callback(msg.bodyInfo);
   },
 
   /**
