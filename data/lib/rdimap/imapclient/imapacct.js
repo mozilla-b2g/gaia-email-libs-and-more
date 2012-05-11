@@ -277,6 +277,7 @@ ImapAccount.prototype = {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
+      path: this.accountDef.name,
       type: this.type,
       host: this.accountDef.connInfo.host,
       port: this.accountDef.connInfo.port,
@@ -291,6 +292,7 @@ ImapAccount.prototype = {
   _learnAboutFolder: function(name, path, type) {
     var folderId = this.accountDef.id + '-' +
                      $a64.encodeInt(this._meta.nextFolderNum++);
+    console.log('FOLDER', name, path, type);
     this._LOG.learnAboutFolder(folderId, name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -529,7 +531,7 @@ ImapAccount.prototype = {
         }
 
         if (box.children)
-          walkBoxes(box.children, pathSoFar + box.delim);
+          walkBoxes(box.children, pathSoFar + boxName + box.delim);
       }
     }
     walkBoxes(boxesRoot, '');
