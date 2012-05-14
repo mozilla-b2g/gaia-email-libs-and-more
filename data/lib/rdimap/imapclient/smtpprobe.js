@@ -34,6 +34,7 @@ SmtpProber.prototype = {
    * onIdle happens after successful login, and so is what our probing uses.
    */
   onIdle: function() {
+    console.log('onIdle!');
     if (this.callback) {
       console.log("PROBE:SMTP happy");
       this.callback(true);

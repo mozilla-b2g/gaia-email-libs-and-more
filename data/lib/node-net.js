@@ -47,7 +47,6 @@ NetSocket.prototype.end = function() {
 };
 
 NetSocket.prototype._onconnect = function(event) {
-  console.log('socket: connect', this._host, this._port);
   this.emit('connect', event.data);
 };
 NetSocket.prototype._onerror = function(event) {
@@ -55,7 +54,6 @@ NetSocket.prototype._onerror = function(event) {
 };
 NetSocket.prototype._ondata = function(event) {
   var buffer = Buffer(event.data);
-  console.log('socket: data', buffer.toString());
   this.emit('data', buffer);
 };
 NetSocket.prototype._onclose = function(event) {

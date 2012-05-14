@@ -26,5 +26,5 @@ function run_test() {
         do_throw(ex);
       }
     });
-  do_timeout(4 * 1000, function() { do_throw('Too slow!'); });
+  do_timeout(2 * 1000, function() { do_throw('Too slow!'); });
 }
