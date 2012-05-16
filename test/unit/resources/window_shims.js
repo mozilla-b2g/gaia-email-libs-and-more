@@ -29,8 +29,12 @@ function clearTimeout(handle) {
     handle();
 }
 
+var moduleGlobalsHack = {};
+Components.utils.import("resource://test/resources/globalshack.jsm",
+                        moduleGlobalsHack);
 
 var window = {
+  // - indexed db
   mozIndexedDB: mozIndexedDB,
   DOMException: DOMException,
   IDBCursor: IDBCursor,
@@ -43,7 +47,11 @@ var window = {
   IDBObjectStore: IDBObjectStore,
   IDBRequest: IDBRequest,
 
+  // - general stuff
   setTimeout: setTimeout,
   clearTimeout: clearTimeout,
+
+  btoa: moduleGlobalsHack.btoa,
+  atob: moduleGlobalsHack.atob
 };
 var navigator = undefined, document = undefined;

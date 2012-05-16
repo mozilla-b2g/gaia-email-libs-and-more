@@ -1,19 +1,19 @@
-var $imapacct = require('rdimap/imapclient/imapacct');
+var $mailuniverse = require('rdimap/imapclient/mailuniverse');
 
 /**
  * Verify a probe of testy/testy works for both IMAP and SMTP.
  */
 function run_test() {
   do_test_pending();
-  var universe = new $imapacct.MailUniverse(
+  var universe = new $mailuniverse.MailUniverse(
     true,
     function bigBanged() {
       console.log('Mail Universe created');
       try {
         universe.tryToCreateAccount(
           {
-            username: 'testy@localhost',
-            password: 'testy'
+            username: TEST_PARAMS.account,
+            password: TEST_PARAMS.password,
           },
           function accountCreationResult(accountGood) {
             console.log('Account creation result is in:', accountGood);

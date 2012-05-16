@@ -13,7 +13,7 @@ define(
     'rdcommon/logreaper',
     './mailapi',
     './mailbridge',
-    './imapacct',
+    './mailuniverse',
     './imapslice',
     'exports'
   ],
@@ -22,7 +22,7 @@ define(
     $logreaper,
     $mailapi,
     $mailbridge,
-    $imapacct,
+    $mailuniverse,
     $imapslice,
     exports
   ) {
@@ -91,7 +91,7 @@ function onUniverse() {
 // XXX XXX XXX XXX XXX
 // XXX Super-duper-debug mode should not be on outside of super-initial testing
 // that's the boolean true here...
-var universe = new $imapacct.MailUniverse(true, onUniverse);
+var universe = new $mailuniverse.MailUniverse(true, onUniverse);
 
 function runOnUniverse(callback) {
   if (_universeCallbacks !== null) {

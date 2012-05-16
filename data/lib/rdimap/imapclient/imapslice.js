@@ -93,17 +93,6 @@ function compactArray(arr) {
   return arr;
 }
 
-/**
- * Stitches together multiple IMAP slices to present a unified folder.  This
- * is fairly straightforward; when growing in either direction, we first make
- * sure all the underlying slices have the minimum coverage we need, and then
- * we interleave them.
- */
-function UnifyingImapSlice() {
-}
-UnifyingImapSlice.prototype = {
-};
-
 function headerYoungToOldComparator(a, b) {
   var delta = b.date - a.date;
   if (delta)

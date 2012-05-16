@@ -2,6 +2,12 @@
  * Look like node's Buffer implementation as far as our current callers require
  * using typed arrays.  Derived from the node.js implementation as copied out of
  * the node-browserify project.
+ *
+ * Be careful about assuming the meaning of encoders and decoders here; we are
+ * using the nomenclature of the StringEncoding spec.  So:
+ *
+ * - encode: JS String --> ArrayBufferView
+ * - decode: ArrayBufferView ---> JS String
  **/
 define(function(require, exports, module) {
 
@@ -14,8 +20,9 @@ function coerce(length) {
 }
 
 /**
- * Wrap TextEncoder to provide hex and base64 encoding (which it does not
- * provide).
+ * Encode a unicode string into a (Uint8Array) byte array with the given
+ * encoding. Wraps TextEncoder to provide hex and base64 encoding (which it does
+ * not provide).
  */
 function encode(string, encoding) {
   switch (encoding) {
@@ -30,7 +37,11 @@ function encode(string, encoding) {
       }
       return buf;
     case 'base64':
-      return TextEncoder('ascii').encode(window.btoa(string));
+      // (atob is base64 ASCII string -> binary JS string)
+      // we use the textencoder to go from the binary JS string to the array
+      // view. (which is a buffer for our purposes because of our prototype
+      // clobbering.)
+      return TextEncoder('binary').encode(window.atob(string));
     // need to normalize the name (for now at least)
     case 'utf8':
       encoding = 'utf-8';
@@ -42,8 +53,9 @@ function encode(string, encoding) {
 }
 
 /**
- * Wrap TextDecoder to provide hex and base64 decoding (which it does not
- * provide).
+ * Decode a Uint8Array/DataView into a unicode string given the encoding of the
+ * byte stream.  Wrap TextDecoder to provide hex and base64 decoding (which it
+ * does not provide).
  */
 function decode(view, encoding) {
   switch (encoding) {
@@ -68,8 +80,10 @@ function decode(view, encoding) {
       }
       return sbits.join("");
     case 'base64':
-      return window.atob(TextDecoder('ascii').decode(view));
-      break;
+      // (btoa is binary JS string -> base64 ASCII string)
+      // we need to use the textdecoder to get from the binary array to the
+      // binary string; we use 'binary' to avoid truncation/loss.
+      return window.btoa(TextDecoder('binary').decode(view));
     // need to normalize the name (for now at least)
     case 'utf8':
       encoding = 'utf-8';
@@ -134,6 +148,11 @@ Buffer.isBuffer = function Buffer_isBuffer(obj) {
           obj.copy === BufferPrototype.copy);
 };
 
+// POSSIBLY SUBTLE AND DANGEROUS THING: We are actually clobbering stuff onto
+// the Uint8Array prototype.  We do this because we're not allowed to mix our
+// contributions onto the instance types, leaving us only able to mess with
+// the prototype.  This obviously may affect other consumers of Uint8Array
+// operating in the same global-space.
 var BufferPrototype = Uint8Array.prototype;
 
 BufferPrototype.copy = function(target, target_start, start, end) {
@@ -186,6 +205,11 @@ BufferPrototype.slice = function(start, end) {
   return Buffer(this, end - start, +start);
 };
 
+/**
+ * Your buffer has some binary data in it; create a string from that data using
+ * the specified encoding.  For example, toString("base64") will hex-encode
+ * the contents of the buffer.
+ */
 BufferPrototype.toString = function(encoding, start, end) {
   encoding = String(encoding || 'utf-8').toLowerCase();
   start = +start || 0;

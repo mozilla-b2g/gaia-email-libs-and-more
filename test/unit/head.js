@@ -17,6 +17,15 @@ var console = {
   error: consoleHelper.bind(null, '\x1b[31mERR'),
   info:  consoleHelper.bind(null, '\x1b[36mINF'),
   warn:  consoleHelper.bind(null, '\x1b[33mWAR'),
+  trace: function() {
+    console.error.apply(null, arguments);
+    try {
+      throw new Error('getting stack...');
+    }
+    catch (ex) {
+      console.warn('STACK!\n' + ex.stack);
+    }
+  },
 };
 
 
@@ -88,3 +97,32 @@ var process = window.process = {
       do_execute_soon(cb);
   },
 };
+
+
+// -- Pull relevant test environment variables out of the environment.
+// The goal is to allow our unit tests to be run against varying server
+// configurations, etc.
+const ENVIRON_MAPPINGS = [
+  {
+    name: 'account',
+    envVar: 'GELAM_TEST_ACCOUNT',
+  },
+  {
+    name: 'password',
+    envVar: 'GELAM_TEST_PASSWORD',
+  }
+];
+var TEST_PARAMS = {
+  account: 'testy@localhost',
+  password: 'testy',
+};
+
+function populateTestParams() {
+  let environ = Cc["@mozilla.org/process/environment;1"]
+                  .getService(Ci.nsIEnvironment);
+  for each (let [, {name, envVar}] in Iterator(ENVIRON_MAPPINGS)) {
+    if (environ.exists(envVar)) {
+      TEST_PARAMS[name] = environ.get(envVar);
+    }
+  }
+}

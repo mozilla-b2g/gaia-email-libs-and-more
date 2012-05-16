@@ -22,11 +22,15 @@ define(
  * If we succeed at that, we hand off the established connection to our caller
  * so they can reuse it.
  */
-function ImapProber(connInfo) {
-  var opts = {};
-  for (var key in connInfo) {
-    opts[key] = connInfo[key];
-  }
+function ImapProber(credentials, connInfo) {
+  var opts = {
+    hostname: connInfo.hostname,
+    port: connInfo.port,
+    crypto: connInfo.crypto,
+
+    username: credentials.username,
+    password: credentials.password,
+  };
   //opts.debug = console.debug.bind(console);
 
   console.log("PROBE:IMAP attempting to connect to", connInfo.hostname);

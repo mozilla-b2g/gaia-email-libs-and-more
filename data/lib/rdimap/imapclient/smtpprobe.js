@@ -12,21 +12,22 @@ define(
     exports
   ) {
 
-function SmtpProber(connInfo, callback) {
+function SmtpProber(credentials, connInfo) {
   console.log("PROBE:SMTP attempting to connect to", connInfo.hostname);
   this._conn = $simplesmtp(
     connInfo.port, connInfo.hostname,
     {
-      secureConnection: connInfo.crypto === 'ssl',
+      secureConnection: connInfo.crypto === true,
       ignoreTLS: connInfo.crypto === false,
-      auth: { user: connInfo.username, pass: connInfo.password },
+      auth: { user: credentials.username, pass: credentials.password },
+      // XXX debug is on
       debug: true,
     });
   this._conn.on('idle', this.onIdle.bind(this));
   this._conn.on('error', this.onBadness.bind(this));
   this._conn.on('end', this.onBadness.bind(this));
 
-  this.callback = callback;
+  this.onresult = null;
 }
 exports.SmtpProber = SmtpProber;
 SmtpProber.prototype = {
@@ -35,19 +36,19 @@ SmtpProber.prototype = {
    */
   onIdle: function() {
     console.log('onIdle!');
-    if (this.callback) {
+    if (this.onresult) {
       console.log("PROBE:SMTP happy");
-      this.callback(true);
-      this.callback = null;
+      this.onresult(true);
+      this.onresult = null;
     }
-    this.close();
+    this._conn.close();
   },
 
   onBadness: function() {
-    if (this.callbac) {
+    if (this.onresult) {
       console.warn("PROBE:SMTP sad");
-      this.callback(false);
-      this.callback = null;
+      this.onresult(false);
+      this.onresult = null;
     }
   },
 };

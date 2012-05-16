@@ -18,4 +18,4 @@
 	url = git://github.com/andris9/mailcomposer.git
 [submodule "node-deps/simplesmtp"]
 	path = node-deps/simplesmtp
-	url = git://github.com/andris9/simplesmtp.git
+	url = git://github.com/asutherland/simplesmtp.git

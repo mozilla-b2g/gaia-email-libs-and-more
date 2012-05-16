@@ -5,13 +5,11 @@
 define(
   [
     'rdcommon/log',
-    './imapacct',
     'module',
     'exports'
   ],
   function(
     $log,
-    $imapacct,
     $module,
     exports
   ) {

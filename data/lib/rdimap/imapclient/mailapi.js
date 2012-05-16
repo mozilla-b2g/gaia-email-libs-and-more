@@ -11,6 +11,9 @@ define(
     exports
   ) {
 
+/**
+ *
+ */
 function MailAccount(api, wireRep) {
   this._api = api;
   this.id = wireRep.id;
@@ -33,6 +36,26 @@ MailAccount.prototype = {
 
   modifyAccount: function() {
     throw new Error("NOT YET IMPLEMENTED");
+  },
+};
+
+/**
+ * Sender identities define one of many possible sets of sender info and are
+ * associated with a single `MailAccount`.
+ *
+ * Things that can vary:
+ * - user's display name
+ * - e-mail address,
+ * - reply-to address
+ * - signature
+ */
+function MailSenderIdentity(account, wireRep) {
+  this._ccount = account;
+  this.id = wireRep.id;
+}
+MailSenderIdentity.prototype = {
+  toString: function() {
+    return '[MailSenderIdentity: ' + this.type + ' ' + this.id + ']';
   },
 };
 
@@ -156,30 +179,42 @@ MailHeader.prototype = {
    * Delete this message
    */
   deleteMessage: function() {
-  },
-
-  /**
-   * Move this message to another folder.
-   */
-  moveMessage: function(targetFolder) {
+    return this._slice._api.deleteMessages([this]);
   },
 
   /**
    * Copy this message to another folder.
    */
   copyMessage: function(targetFolder) {
+    return this._slice._api.copyMessages([this], targetFolder);
   },
 
+  /**
+   * Move this message to another folder.
+   */
+  moveMessage: function(targetFolder) {
+    return this._slice._api.moveMessages([this], targetFolder);
+  },
+
+  /**
+   * Set or clear the read status of this message.
+   */
   setRead: function(beRead) {
+    return this._slice._api.markMessagesRead([this], beRead);
   },
 
+  /**
+   * Set or clear the starred/flagged status of this message.
+   */
   setStarred: function(beStarred) {
+    return this._slice._api.markMessagesStarred([this], beStarred);
   },
 
-  setRepliedTo: function(beRepliedTo) {
-  },
-
+  /**
+   * Add and/or remove tags/flags from this messages.
+   */
   modifyTags: function(addTags, removeTags) {
+    return this._slice._api.modifyMessageTags([this], addTags, removeTags);
   },
 
   /**
@@ -188,6 +223,63 @@ MailHeader.prototype = {
    */
   getBody: function(callback) {
     this._slice._api._getBodyForMessage(this, callback);
+  },
+
+  /**
+   * Assume this is a draft message and return a MessageComposition object
+   * that will be asynchronously populated.  The provided callback will be
+   * notified once all composition state has been loaded.
+   *
+   * The underlying message will be replaced by other messages as the draft
+   * is updated and effectively deleted once the draft is completed.  (A
+   * move may be performed instead.)
+   */
+  editAsDraft: function(callback) {
+    return this._slice._api.resumeMessageComposition(this, callback);
+  },
+
+  /**
+   * Start composing a reply to this message.
+   *
+   * @args[
+   *   @param[replyMode @oneof[
+   *     @default[null]{
+   *       Just reply to the sender.
+   *     }
+   *     @case['list']{
+   *       Reply to the mailing list the message was received from.  If there
+   *       were other mailing lists copied on the message, they will not
+   *       be included.
+   *     }
+   *     @case['all']{
+   *       Reply to the sender and all listed recipients of the message.
+   *     }
+   *   ]]{
+   *     The not currently used reply-mode.
+   *   }
+   * ]
+   * @return[MessageComposition]
+   */
+  replyToMessage: function(replyMode, callback) {
+    return this._slice._api.beginMessageComposition(
+      this, null, { replyTo: this, replyMode: replyMode }, callback);
+  },
+
+  /**
+   * Start composing a forward of this message.
+   *
+   * @args[
+   *   @param[forwardMode @oneof[
+   *     @case['inline']{
+   *       Forward the message inline.
+   *     }
+   *   ]]
+   * ]
+   * @return[MessageComposition]
+   */
+  forwardMessage: function(forwardMode, callback) {
+    return this._slice._api.beginMessageComposition(
+      this, null, { forwardOf: this, forwardMode: forwardMode }, callback);
   },
 };
 
@@ -284,10 +376,26 @@ BridgedViewSlice.prototype = {
   },
 };
 
+function FoldersViewSlice(api, handle) {
+  BridgedViewSlice.call(this, api, 'folders', handle);
+}
+FoldersViewSlice.prototype = {
+  __proto__: BridgedViewSlice.prototype,
+
+  getFirstFolderWithType: function(type) {
+    for (var i = 0; i < this.items.length; i++) {
+      var folder = this.items[i];
+      if (folder.type === type)
+        return folder;
+    }
+    return null;
+  },
+};
+
 
 /**
  * Handle for a current/ongoing message composition process that can ideally
- * be used by the for its state at all times.  The goal is that the UI stores
+ * be used by the UI for its state at all times.  The goal is that the UI stores
  * state in this object and we, not the UI layer, can determine when a
  * sufficient number of state changes (or elapsed time) have occurred to merit
  * sending additional state over the wire to the back-end to be persisted to
@@ -297,15 +405,28 @@ BridgedViewSlice.prototype = {
  * representation again.
  *
  * For the benefit of the caller, all synchronization is at least deferred to
- * the next turn of the event loop.
+ * the next turn of the event loop in case multiple manipulations happen in
+ * sequence.
+ *
+ * == Other clients and drafts:
+ *
+ * If another client deletes our draft out from under us, we currently won't
+ * notice.
  */
-function MessageComposition() {
+function MessageComposition(api, handle) {
+  this._api = api;
+  this._handle = handle;
+
+  this.senderIdentity = null;
 }
 MessageComposition.prototype = {
+  addHeader: function(key, value) {
+  },
+
   /**
    * Finalize and send the message in its current state.
    */
-  finishComposeSendMessage: function() {
+  finishCompositionSendMessage: function() {
   },
 
   /**
@@ -576,7 +697,7 @@ MailAPI.prototype = {
    */
   viewFolders: function ma_viewFolders(mode) {
     var handle = this._nextHandle++,
-        slice = new BridgedViewSlice(this, 'folders', handle);
+        slice = new FoldersViewSlice(this, handle);
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -655,14 +776,48 @@ MailAPI.prototype = {
    * backend so that the message is potentially available to other clients and
    * recoverable in the event of a local crash.
    *
-   * Composition is triggered in the context of a given folder so that the
-   * correct (seder) identity for composition can be inferred.  In the future
-   * this might also accept a message in the case of mailing list subscription
-   * metadata, the existing identity used in a conversation, etc.
+   * Composition is triggered in the context of a given message and folder so
+   * that the correct account and sender identity for composition can be
+   * inferred.  Message may be null if there are no messages in the folder.
+   * Folder is not required if a message is provided.
+   *
+   * @args[
+   *   @param[message #:optional MailHeader]
+   *   @param[folder #:optional MailFolder]
+   *   @param[options #:optional @dict[
+   *     @key[replyTo #:optional MailHeader]
+   *     @key[replyMode #:optional @oneof[null 'list' 'all']]
+   *     @key[forwardOf #:optional MailHeader]
+   *     @key[forwardMode #:optional @oneof['inline']]
+   *   ]]
+   * ]
    */
-  beginMessageComposition: function(folder) {
+  beginMessageComposition: function(message, folder, options, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'compose',
+      callback: callback,
+    };
+    var msg = {
+      type: 'beginCompose',
+      handle: handle,
+    };
+    this.__bridgeSend(msg);
+    return new MessageComposition(this, handle);
   },
 
+  /**
+   * Open a message as if it were a draft message (hopefully it is), returning
+   * a MessageComposition object that will be asynchronously populated.  The
+   * provided callback will be notified once all composition state has been
+   * loaded.
+   *
+   * The underlying message will be replaced by other messages as the draft
+   * is updated and effectively deleted once the draft is completed.  (A
+   * move may be performed instead.)
+   */
+  resumeMessageComposition: function(message, callback) {
+  },
   //////////////////////////////////////////////////////////////////////////////
 };
 

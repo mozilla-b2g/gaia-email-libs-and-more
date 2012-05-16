@@ -7,11 +7,8 @@ define(
     'imap',
     'rdcommon/log',
     './a64',
-    './allback',
     './imapdb',
     './imapslice',
-    './imapprobe',
-    './smtpprobe',
     'module',
     'exports'
   ],
@@ -19,171 +16,11 @@ define(
     $imap,
     $log,
     $a64,
-    $allback,
     $imapdb,
     $imapslice,
-    $imapprobe,
-    $smtpprobe,
     $module,
     exports
   ) {
-const allbackMaker = $allback.allbackMaker;
-
-// Simple hard-coded autoconfiguration by domain...
-var autoconfigByDomain = {
-  'yahoo.com': {
-    imapHost: 'imap.mail.yahoo.com',
-    imapPort: 993,
-    imapCrypto: true,
-    smtpHost: 'smtp.mail.yahoo.com',
-    smtpPort: 465,
-    smtpCrypto: true,
-    usernameIsFullEmail: true,
-  },
-  'localhost': {
-    imapHost: 'localhost',
-    imapPort: 143,
-    imapCrypto: false,
-    smtpHost: 'localhost',
-    smtpPort: 25,
-    smtpCrypto: false,
-    usernameIsFullEmail: false,
-  },
-};
-
-
-function MailUniverse(testingModeLogData, callAfterBigBang) {
-  this.accounts = [];
-  this._accountsById = {};
-
-  this.config = null;
-
-  if (testingModeLogData) {
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    console.log("! DEVELOPMENT MODE ACTIVE!                !");
-    console.log("! LOGGING SUBSYSTEM ENTRAINING USER DATA! !");
-    console.log("! (the data does not leave the browser.)  !");
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    $log.DEBUG_markAllFabsUnderTest();
-  }
-
-  this._LOG = LOGFAB.MailUniverse(this, null, null);
-  this._db = new $imapdb.ImapDB();
-  var self = this;
-  this._db.getConfig(function(configObj, accountInfos) {
-    self._LOG.configLoaded(configObj);
-    if (configObj) {
-      self.config = configObj;
-    }
-    else {
-      self.config = {
-        nextAccountNum: 0,
-      };
-    }
-    callAfterBigBang();
-  });
-}
-exports.MailUniverse = MailUniverse;
-MailUniverse.prototype = {
-  tryToCreateAccount: function(userAndPass, callback) {
-    var domain = userAndPass.username.substring(
-                   userAndPass.username.indexOf('@') + 1),
-        domainInfo = null, imapConnInfo, smtpConnInfo;
-    if (autoconfigByDomain.hasOwnProperty(domain))
-      domainInfo = autoconfigByDomain[domain];
-    if (domainInfo) {
-      var username = domainInfo.usernameIsFullEmail ? userAndPass.username
-        : userAndPass.username.substring(0, userAndPass.username.indexOf('@'));
-      imapConnInfo = {
-        username: username,
-        password: userAndPass.password,
-        hostname: domainInfo.imapHost,
-        port: domainInfo.imapPort,
-        crypto: domainInfo.imapCrypto,
-      };
-      smtpConnInfo = {
-        username: username,
-        password: userAndPass.password,
-        hostname: domainInfo.smtpHost,
-        port: domainInfo.smtpPort,
-        crypto: domainInfo.smtpCrypto,
-      };
-    }
-    else {
-      throw new Error("Don't know how to configure domain: " + domain);
-    }
-
-    var callbacks = allbackMaker(
-      ['imap', 'smtp'],
-      function probesDone(results) {
-        // -- both good?
-        if (results.imap[0] && results.smtp) {
-          // The account is good, but it'll be boring without a list of folders.
-          var account = self._actuallyCreateAccount(imapConnInfo, smtpConnInfo,
-                                                    imapProtoConn);
-          account.syncFolderList(function() {
-            callback(accountGood, account);
-          });
-
-        }
-        // -- either/both bad
-        else {
-          // clean up the imap connection if it was okay but smtp failed
-          if (results.imap[0])
-            results.imap[1].close();
-          callback(false, null);
-          return;
-        }
-      });
-
-    var imapProber = new $imapprobe.ImapProber(imapConnInfo), self = this;
-    imapProber.onresult = callbacks.imap;
-
-    var smtpProber = new $smtpprobe.SmtpProber(smtpConnInfo);
-    smtpProber.onresult = callback.smtp;
-  },
-
-  /**
-   * Create an account now that we have verified the credentials are good and
-   * the server meets our minimal functionality standards.  We are also
-   * provided with the protocol connection that was used to perform the check
-   * so we can immediately put it to work.
-   */
-  _actuallyCreateAccount: function(connInfo, imapProtoConn) {
-    var accountDef = {
-      id: $a64.encodeInt(this.config.nextAccountNum++),
-      name: connInfo.username,
-      connInfo: connInfo,
-    };
-    var folderInfo = {
-      $meta: {
-        nextFolderNum: 0,
-      },
-    };
-    this._db.saveAccountDef(accountDef, folderInfo);
-
-    this._LOG.createAccount(accountDef.id, accountDef.name);
-    var account = new ImapAccount(accountDef, folderInfo, this._LOG,
-                                  imapProtoConn);
-    this.accounts.push(account);
-    this._accountsById[account.id] = account;
-    return account;
-  },
-
-  /**
-   * Given a folder-id, get the owning account.
-   */
-  getAccountForFolderId: function(folderId) {
-    var accountId = folderId.substring(0, folderId.indexOf('-')),
-        account = this._accountsById[accountId];
-    return account;
-  },
-
-  getFolderStorageForFolderId: function(folderId) {
-    var account = this.getAccountForFolderId(folderId);
-    return account.getFolderStorageForId(folderId);
-  },
-};
 
 /**
  * Account object, root of all interaction with servers.
@@ -192,21 +29,9 @@ MailUniverse.prototype = {
  * we would like them to be stored in some type of keyring coupled to the TCP
  * API in such a way that we never know the API.  Se a vida e.
  *
- * @typedef[AccountDef @dict[
- *   @key[id AccountId]
- *   @key[name String]{
- *     The display name for the account.
- *   }
- *   @key[connInfo @dict[
- *     @key[host]
- *     @key[port]
- *     @key[crypto]
- *     @key[username]
- *     @key[password]
- *   ]]
- * ]]
  */
-function ImapAccount(accountDef, folderInfos, _parentLog, existingProtoConn) {
+function ImapAccount(accountId, credentials, connInfo, folderInfos,
+                     _parentLog, existingProtoConn) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
@@ -218,7 +43,7 @@ function ImapAccount(accountDef, folderInfos, _parentLog, existingProtoConn) {
         folderId: null,
       });
 
-  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.accountDef.id);
+  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
 
   // Yes, the pluralization is suspect, but unambiguous.
   /** @dictof[@key[FolderId] @value[ImapFolderStorage] */
@@ -271,7 +96,7 @@ function ImapAccount(accountDef, folderInfos, _parentLog, existingProtoConn) {
 ImapAccount.prototype = {
   type: 'imap',
   toString: function() {
-    return '[ImapAccount: ' + this.accountDef.id + ']';
+    return '[ImapAccount: ' + this.id + ']';
   },
   toBridgeWire: function() {
     return {
@@ -560,7 +385,7 @@ ImapAccount.prototype = {
 
 /**
  * While gmail deserves major props for providing any IMAP interface, everyone
- * is much better off if we treat it specially.
+ * is much better off if we treat it specially.  EVENTUALLY.
  */
 function GmailAccount() {
 }
@@ -569,24 +394,7 @@ GmailAccount.prototype = {
 
 };
 
-const ACCOUNT_TYPE_TO_CLASS = {
-  'imap': ImapAccount,
-  //'gmail-imap': GmailAccount,
-};
-
 var LOGFAB = exports.LOGFAB = $log.register($module, {
-  MailUniverse: {
-    type: $log.ACCOUNT,
-    events: {
-      configLoaded: {},
-      createAccount: { id: false },
-    },
-    TEST_ONLY_events: {
-      configLoaded: { config: false },
-      createAccount: { name: false },
-    },
-  },
-
   ImapAccount: {
     type: $log.ACCOUNT,
     events: {
