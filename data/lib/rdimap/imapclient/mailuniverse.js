@@ -35,6 +35,13 @@ const PIECE_ACCOUNT_TYPE_TO_CLASS = {
   //'gmail-imap': GmailAccount,
 };
 
+// So, I want to poke fun at the iPhone signature, although we know there is
+// also the flip side of explaining brevity, rampant typos, limited attention
+// due to driving/flying a plane/other-dangerous-thing while using it.
+const DEFAULT_SIGNATURE = [
+  "Sent from my B2G phone.  That's right.  I've got one.",
+].join("\n");
+
 /**
  * Composite account type to expose account piece types with individual
  * implementations (ex: imap, smtp) together as a single account.  This is
@@ -45,6 +52,8 @@ function CompositeAccount(accountDef, receivePiece, sendPiece) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
+  this.identities = accountDef.identities;
+
   this._receivePiece = receivePiece;
   this._sendPiece = sendPiece;
 
@@ -52,12 +61,45 @@ function CompositeAccount(accountDef, receivePiece, sendPiece) {
   this.folders = this._receivePiece.folders;
 }
 CompositeAccount.prototype = {
+  toString: function() {
+    return '[CompositeAccount: ' + this.id + ']';
+  },
+  toBridgeWire: function() {
+    return {
+      id: this.accountDef.id,
+      name: this.accountDef.name,
+      path: this.accountDef.name, // allows it to masquerade as a folder
+      type: this.accountDef.type,
+
+      identities: this.identities,
+
+      credentials: {
+        username: this.accountDef.credentials.username,
+        // no need to send the password to the UI.
+      },
+
+      servers: [
+        {
+          type: this.accountDef.receiveType,
+          connInfo: this.accountDef.receiveConnInfo,
+        },
+        {
+          type: this.accountDef.sendType,
+          connInfo: this.accountDef.sendConnInfo,
+        }
+      ],
+    };
+  },
+
   sliceFolderMessages: function(folderId, bridgeProxy) {
     return this._receivePiece.sliceFolderMessages(folderId, bridgeProxy);
   },
 
   syncFolderList: function(callback) {
     return this._receivePiece.syncFolderList(callback);
+  },
+
+  sendMessage: function() {
   },
 };
 
@@ -193,6 +235,7 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
     else {
       self.config = {
         nextAccountNum: 0,
+        nextIdentityNum: 0,
       };
     }
     callAfterBigBang();
@@ -200,18 +243,19 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
-  tryToCreateAccount: function(userAndPass, callback) {
-    var domain = userAndPass.username.substring(
-                   userAndPass.username.indexOf('@') + 1),
+  tryToCreateAccount: function(userDetails, callback) {
+    var domain = userDetails.emailAddress.substring(
+                   userDetails.emailAddress.indexOf('@') + 1),
         domainInfo = null, credentials, imapConnInfo, smtpConnInfo;
     if (autoconfigByDomain.hasOwnProperty(domain))
       domainInfo = autoconfigByDomain[domain];
     if (domainInfo) {
-      var username = domainInfo.usernameIsFullEmail ? userAndPass.username
-        : userAndPass.username.substring(0, userAndPass.username.indexOf('@'));
+      var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
+        : userDetails.emailAddress.substring(0,
+                                             userDetails.username.indexOf('@'));
       credentials = {
         username: username,
-        password: userAndPass.password,
+        password: userDetails.password,
       };
       imapConnInfo = {
         hostname: domainInfo.imapHost,
@@ -233,6 +277,9 @@ MailUniverse.prototype = {
       function probesDone(results) {
         // -- both good?
         if (results.imap[0] && results.smtp) {
+          self._defineImapAccount(
+            userDetails, credentials,
+            imapConnInfo, smtpConnInfo, results.imap[1]);
           // The account is good, but it'll be boring without a list of folders.
           var imapAccount = self._createImapAccount(imapConnInfo,
                                                     results.imap[1]),
@@ -266,12 +313,12 @@ MailUniverse.prototype = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _defineImapAccount: function(accountName, credentials,
+  _defineImapAccount: function(userDetails, credentials,
                                imapConnInfo, smtpConnInfo,
                                imapProtoConn) {
     var accountDef = {
       id: $a64.encodeInt(this.config.nextAccountNum++),
-      name: accountName,
+      name: userDetails.emailAddress,
 
       type: 'imap+smtp',
       receiveType: 'imap',
@@ -280,6 +327,16 @@ MailUniverse.prototype = {
       credentials: credentials,
       receiveConnInfo: imapConnInfo,
       sendConnInfo: smtpConnInfo,
+
+      identities: [
+        {
+          id: $a64.encodeInt(this.config.nextIdentityNum++),
+          name: userDetails.displayName,
+          address: userDetails.emailAddress,
+          replyTo: null,
+          signature: DEFAULT_SIGNATURE
+        },
+      ]
     };
     var folderInfo = {
       $meta: {
@@ -314,8 +371,8 @@ MailUniverse.prototype = {
       new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
         accountDef.id, accountDef.credentials,
         accountDef.sendConnInfo, this._LOG);
-    var compositeAccount = new CompositeAccount(accountDef, receivePiece,
-                                                sendPiece);
+    var compositeAccount = new CompositeAccount(
+      accountDef, receivePiece, sendPiece);
 
     var account = new $imapacct.ImapAccount(accountDef, folderInfo, this._LOG,
                                             imapProtoConn);
@@ -328,6 +385,12 @@ MailUniverse.prototype = {
    * Given a folder-id, get the owning account.
    */
   getAccountForFolderId: function(folderId) {
+    var accountId = folderId.substring(0, folderId.indexOf('-')),
+        account = this._accountsById[accountId];
+    return account;
+  },
+
+  getAccountForMessageSuid: function(messageSuid) {
     var accountId = folderId.substring(0, folderId.indexOf('-')),
         account = this._accountsById[accountId];
     return account;

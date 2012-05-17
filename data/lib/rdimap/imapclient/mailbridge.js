@@ -5,11 +5,13 @@
 define(
   [
     'rdcommon/log',
+    'mailcomposer',
     'module',
     'exports'
   ],
   function(
     $log,
+    $mailcomposer,
     $module,
     exports
   ) {
@@ -27,7 +29,10 @@ function MailBridge(universe) {
   this.universe = universe;
 
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
+  // live slices
   this._slices = {};
+  // outstanding persistent objects that aren't slices. covers: composition
+  this._pendingRequests = {};
 }
 exports.MailBridge = MailBridge;
 MailBridge.prototype = {
@@ -114,6 +119,104 @@ MailBridge.prototype = {
         bodyInfo: bodyInfo,
       });
     });
+  },
+
+  _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
+    var req = this._pendingRequests[msg.handle] = {
+      type: 'compose',
+      // XXX draft persistence/saving to-do/etc.
+      persistedFolder: null,
+      persistedUID: null,
+    };
+
+    // - figure out the identity to use
+    var account, identity;
+    if (msg.mode === 'new' && msg.submode === 'folder')
+      account = this.universe.getAccountForFolderId(msg.reference);
+    else
+      account = this.universe.getAccountForMessageSuid(msg.reference);
+
+    identity = account.identities[0];
+
+    // XXXYYY serialize the identity, possibly with a strong account reference;
+    // we need to be able to map the identity back to the account too.
+    this.__sendMessage({
+      type: 'composeBegun',
+
+    });
+  },
+
+  /**
+   * mailcomposer wants from/to/cc/bcc delivered basically like it will show
+   * up in the e-mail, except it is fine with unicode.  So we convert our
+   * (possibly) structured representation into a flattened representation.
+   *
+   * (mailcomposer will handle punycode and mime-word encoding as needed.)
+   */
+  _formatAddresses: function(nameAddrPairs) {
+    var addrstrings = [];
+    for (var i = 0; i < nameAddrPairs.length; i++) {
+      var pair = nameAddrPairs[i];
+      // support lazy people providing only an e-mail... or very careful
+      // people who are sure they formatted things correctly.
+      if (typeof(pair) === 'string') {
+        addrstrings.push(pair);
+      }
+      else {
+        addrstrings.push(
+          '"' + pair.name.replace(/["']/g, '') + '" <' +
+            pair.address + '>');
+      }
+    }
+
+    return addrstrings.join(', ');
+  },
+
+  _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
+    if (msg.command === 'delete') {
+      // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
+      // message and try and execute it.
+      return;
+    }
+
+    var composer = new $mailcomposer.MailComposer(),
+        wireRep = msg.state;
+    var identity = XXX; // map identity
+
+    var body = wireRep.body;
+    if (identity.signature) {
+      if (body[body.length - 1] !== '\n')
+        body += '\n';
+      body += '-- \n' + identity.signature;
+    }
+
+    var messageOpts = {
+      from: this._formatAddresses([identity]),
+      subject: wireRep.subject,
+      body: body
+    };
+    if (identity.replyTo)
+      messageOpts.replyTo = identity.replyTo;
+    if (wireRep.to && wireRep.to.length)
+      messageOpts.to = this._formatAddresses(wireRep.to);
+    if (wireRep.cc && wireRep.cc.length)
+      messageOpts.cc = this._formatAddresses(wireRep.cc);
+    if (wireRep.bcc && wireRep.bcc.length)
+      messageOpts.bcc = this._formatAddresses(wireRep.bcc);
+    composer.setMessageOption(messageOpts);
+    if (wireRep.customHeaders) {
+      for (var iHead = 0; iHead < wireRep.customHeaders.length; iHead += 2){
+        composer.addHeader(wireRep.customHeaders[iHead],
+                           wireRep.customHeaders[iHead+1]);
+      }
+    }
+
+    if (msg.command === 'send') {
+
+    }
+    else { // (msg.command === draft)
+      // XXX save drafts!
+    }
   },
 };
 

@@ -89,9 +89,6 @@ function ImapAccount(accountId, credentials, connInfo, folderInfos,
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
     folderPubs.push(folderInfo.$meta);
   }
-
-  if (!folderStorages.hasOwnProperty("INBOX"))
-    this._learnAboutFolder("INBOX", "INBOX", 'inbox');
 }
 ImapAccount.prototype = {
   type: 'imap',

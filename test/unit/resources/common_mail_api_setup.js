@@ -6,7 +6,8 @@
 
 var $mailuniverse = require('rdimap/imapclient/mailuniverse'),
     $mailbridge = require('rdimap/imapclient/mailbridge'),
-    $mailapi = require('rdimap/imapclient/mailapi');
+    $mailapi = require('rdimap/imapclient/mailapi'),
+    $allback = require('rdimap/imapclient/allback');
 
 var MailAPI = null, MailBridge = null, MailUniverse = null;
 
@@ -45,5 +46,25 @@ var gAllAccountsSlice = null, gAllFoldersSlice = null;
  * Use add_test() to add this function near the top of your test.
  */
 function setup_test_account() {
+  MailAPI.tryToCreateAccount(
+    {
+      emailAddress: TEST_PARAMS.account,
+      password: TEST_PARAMS.password,
+    },
+    function accountMaybeCreated(error) {
+      if (error)
+        do_throw('Failed to create account: ' + TEST_PARAMS.account);
 
+      var callbacks = $allback.allbackMaker(
+        ['accounts', 'folders'],
+        function gotSlices() {
+          run_next_test();
+        });
+
+      gAllAccountsSlice = MailAPI.viewAccounts(false);
+      gAllAccountsSlice.oncomplete = callbacks.accounts;
+
+      gAllFoldersSlice = MailAPI.viewFolders('navigation');
+      gAllFoldersSlice.oncomplete = callbacks.folders;
+    });
 }

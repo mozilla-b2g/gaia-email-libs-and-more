@@ -50,8 +50,13 @@ MailAccount.prototype = {
  * - signature
  */
 function MailSenderIdentity(account, wireRep) {
-  this._ccount = account;
+  this._account = account;
   this.id = wireRep.id;
+
+  this.name = wireRep.displayName;
+  this.address = wireRep.address;
+  this.replyTo = wireRep.replyTo;
+  this.signature = wireRep.signature;
 }
 MailSenderIdentity.prototype = {
   toString: function() {
@@ -359,6 +364,7 @@ function BridgedViewSlice(api, ns, handle) {
   this.onadd = null;
   this.onsplice = null;
   this.onremove = null;
+  this.oncomplete = null;
 }
 BridgedViewSlice.prototype = {
   toString: function() {
@@ -394,19 +400,9 @@ FoldersViewSlice.prototype = {
 
 
 /**
- * Handle for a current/ongoing message composition process that can ideally
- * be used by the UI for its state at all times.  The goal is that the UI stores
- * state in this object and we, not the UI layer, can determine when a
- * sufficient number of state changes (or elapsed time) have occurred to merit
- * sending additional state over the wire to the back-end to be persisted to
- * disk and/or the server.
- *
- * If the user wants to resume composition of a draft message, they get this
- * representation again.
- *
- * For the benefit of the caller, all synchronization is at least deferred to
- * the next turn of the event loop in case multiple manipulations happen in
- * sequence.
+ * Handle for a current/ongoing message composition process.  The UI reads state
+ * out of the object when it resumes editing a draft, otherwise this can just be
+ * treated as write-only.
  *
  * == Other clients and drafts:
  *
@@ -418,15 +414,81 @@ function MessageComposition(api, handle) {
   this._handle = handle;
 
   this.senderIdentity = null;
+
+  this.to = [];
+  this.cc = [];
+  this.bcc = [];
+
+  this.subject = '';
+
+  this.body = '';
+
+  this._customHeaders = null;
+  // XXX attachments aren't implemented yet, of course.  They will be added
+  // via helper method.
+  this._attachments = null;
 }
 MessageComposition.prototype = {
+  /**
+   * Add custom headers; don't use this for built-in headers.
+   */
   addHeader: function(key, value) {
+    if (!this._customHeaders)
+      this._customHeaders = [];
+    this._customHeaders.push(key);
+    this._customHeaders.push(value);
+  },
+
+  /**
+   * Populate our state to send over the wire to the back-end.
+   */
+  _buildWireRep: function() {
+    return {
+      senderId: this.senderIdentity.id,
+      to: this.to,
+      cc: this.cc,
+      bcc: this.bcc,
+      subject: this.subject,
+      body: this.body,
+      customHeaders: this._customHeaders,
+      attachments: this._attachments,
+    };
   },
 
   /**
    * Finalize and send the message in its current state.
+   *
+   * @args[
+   *   @param[callback @func[
+   *     @args[
+   *       @param[state @oneof[
+   *         @case['sent']{
+   *           The message made it to the SMTP server and we believe it was sent
+   *           successfully.
+   *         }
+   *         @case['offline']{
+   *           We are known to be offline and so we can't send it right now.
+   *           We will attempt to send when we next get good network.
+   *         }
+   *         @case['will-retry']{
+   *           Something didn't work, but we will automatically retry again
+   *           at some point in the future.
+   *         }
+   *         @case['fatal']{
+   *           Something really bad happened, probably a bug in the program.
+   *           The error will be reported using console.error or internal
+   *           logging or something.
+   *         }
+   *       ]]
+   *       }
+   *     ]
+   *   ]]{
+   *     The callback to invoke on success/failure/deferral to later.
+   *   }
+   * ]
    */
-  finishCompositionSendMessage: function() {
+  finishCompositionSendMessage: function(callback) {
+    this._api._composeDone(this._handle, 'send', this._buildWireRep());
   },
 
   /**
@@ -434,6 +496,7 @@ MessageComposition.prototype = {
    * and close out this handle.
    */
   saveDraftEndComposition: function() {
+    this._api._composeDone(this._handle, 'save', this._buildWireRep());
   },
 
   /**
@@ -445,7 +508,9 @@ MessageComposition.prototype = {
    * delete.
    */
   abortCompositionDeleteDraft: function() {
+    this._api._composeDone(this._handle, 'delete', null);
   },
+
 };
 
 
@@ -548,6 +613,11 @@ MailAPI.prototype = {
     }
     slice.items.splice.apply(slice.items,
                              [msg.index, msg.howMany].concat(transformedItems));
+
+    if (slice.oncomplete && !msg.moreExpected) {
+      slice.oncomplete();
+      slice.oncomplete = null;
+    }
   },
 
   _getBodyForMessage: function(header, callback) {
@@ -618,7 +688,14 @@ MailAPI.prototype = {
    * ]]
    *
    * @args[
-   *   @param[details]
+   *   @param[details @dict[
+   *     @key[displayName String]{
+   *       The name the (human, per EULA) user wants to be known to the world
+   *       as.
+   *     }
+   *     @key[emailAddress String]
+   *     @key[password String]
+   *   ]]
    *   @param[callback @func[
    *     @args[
    *       @param[err AccountCreationError]
@@ -678,7 +755,7 @@ MailAPI.prototype = {
 
   /**
    * Retrieve the entire folder hierarchy for either 'navigation' (pick what
-   * folder to show the contents of, including unified folders), 'selection'
+   * folder to show the contents of, including unified folders), 'movetarget'
    * (pick target folder for moves, does not include unified folders), or
    * 'account' (only show the folders belonging to a given account, implies
    * selection).  In all cases, there may exist non-selectable folders such as
@@ -688,7 +765,7 @@ MailAPI.prototype = {
    * of their `MailAccount` semantics.
    *
    * @args[
-   *   @param[mode @oneof['navigation' 'selection' 'account']
+   *   @param[mode @oneof['navigation' 'movetarget' 'account']
    *   @param[argument #:optional]{
    *     Arguent appropriate to the mode; currently will only be a `MailAccount`
    *     instance.
@@ -771,8 +848,8 @@ MailAPI.prototype = {
   // Message Composition
 
   /**
-   * Begin the message composition process, creating a DraftMessage that stores
-   * the current message state and periodically persists its state to the
+   * Begin the message composition process, creating a MessageComposition that
+   * stores the current message state and periodically persists its state to the
    * backend so that the message is potentially available to other clients and
    * recoverable in the event of a local crash.
    *
@@ -782,28 +859,71 @@ MailAPI.prototype = {
    * Folder is not required if a message is provided.
    *
    * @args[
-   *   @param[message #:optional MailHeader]
-   *   @param[folder #:optional MailFolder]
+   *   @param[message #:optional MailHeader]{
+   *     Some message to use as context when not issuing a reply/forward.
+   *   }
+   *   @param[folder #:optional MailFolder]{
+   *     The folder to use as context if no `message` is provided and not
+   *     issuing a reply/forward.
+   *   }
    *   @param[options #:optional @dict[
    *     @key[replyTo #:optional MailHeader]
    *     @key[replyMode #:optional @oneof[null 'list' 'all']]
    *     @key[forwardOf #:optional MailHeader]
    *     @key[forwardMode #:optional @oneof['inline']]
    *   ]]
+   *   @param[callback #:optional Function]{
+   *     The callback to invoke once the composition handle is fully populated.
+   *     This is necessary because the back-end decides what identity is
+   *     appropriate, handles "re:" prefixing, quoting messages, etc.
+   *   }
    * ]
    */
   beginMessageComposition: function(message, folder, options, callback) {
-    var handle = this._nextHandle++;
+    if (!callback)
+      throw new Error('A callback must be provided; you are using the API ' +
+                      'wrong if you do not.');
+
+    var handle = this._nextHandle++,
+        composer = new MessageComposition(this, handle);
+
     this._pendingRequests[handle] = {
       type: 'compose',
+      composer: composer,
       callback: callback,
     };
     var msg = {
       type: 'beginCompose',
       handle: handle,
+      mode: null,
+      submode: null,
+      reference: null,
     };
+    if (options.hasOwnProperty('replyTo') && options.replyTo) {
+      msg.mode = 'reply';
+      msg.submode = options.replyMode;
+      msg.reference = options.replyTo.id;
+      throw new Error('XXX replying not implemented');
+    }
+    else if (options.hasOwnProperty('forwardOf') && options.forwardOf) {
+      msg.mode = 'forward';
+      msg.submode = options.forwardMode;
+      msg.reference = options.forwardOf.id;
+      throw new Error('XXX forwarding not implemented');
+    }
+    else {
+      msg.mode = 'new';
+      if (message) {
+        msg.submode = 'message';
+        msg.reference = message.id;
+      }
+      else if (folder) {
+        msg.submode = 'folder';
+        msg.reference = folder.id;
+      }
+    }
     this.__bridgeSend(msg);
-    return new MessageComposition(this, handle);
+    return composer;
   },
 
   /**
@@ -817,7 +937,44 @@ MailAPI.prototype = {
    * move may be performed instead.)
    */
   resumeMessageComposition: function(message, callback) {
+    throw new Error('XXX No resuming composition right now.  Sorry!');
   },
+
+  _recv_composeBegun: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for compose begun:', msg.handle);
+      return;
+    }
+
+    req.composer.
+
+    if (req.callback)
+      req.callback();
+  },
+
+  _composeDone: function(handle, command, state) {
+    switch (command) {
+      case 'send':
+      case 'save':
+      case 'delete':
+        break;
+      default:
+        throw new Error('Illegal composeDone command: ' + command);
+    }
+    var req = this._pendingRequests[handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for compose done:', handle);
+      return;
+    }
+    delete this._pendingRequests[handle];
+    this.__bridgeSend({
+      type: 'doneCompose',
+      command: command,
+      state: state,
+    });
+  },
+
   //////////////////////////////////////////////////////////////////////////////
 };
 

@@ -69,7 +69,7 @@ define(
     $module,
     exports
   ) {
-const allbackMaker = $allback.allbacMaker;
+const allbackMaker = $allback.allbackMaker;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This

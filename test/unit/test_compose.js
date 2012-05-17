@@ -7,12 +7,18 @@ add_test(setup_mail_api);
 add_test(setup_test_account);
 
 /**
- * Compose a new message in one turn of the event loop.
+ * Compose a new message from scratch without saving it to drafts, etc.
  */
 add_test(function test_compose_api_one_shot() {
   var composer = MailAPI.beginMessageComposition(
-                   null, gAllFoldersSlice.getFirstFolderWithType('inbox'));
+    null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
+    function composerInitialized() {
+      composer.to.push({ name: 'Myself', address: TEST_PARAMS.account });
+      composer.subject = 'Dance dance dance!';
+      composer.body = 'Antelope banana credenza.\n\nDialog excitement!';
 
+      composer.finishCompositionSendMessage();
+    });
 });
 
 /**
@@ -20,5 +26,5 @@ add_test(function test_compose_api_one_shot() {
  * resulting draft looks like what we expect, resume composition of the
  * draft.
  */
-add_test(function test_compose_and_resume() {
-});
+//add_test(function test_compose_and_resume() {
+//});
