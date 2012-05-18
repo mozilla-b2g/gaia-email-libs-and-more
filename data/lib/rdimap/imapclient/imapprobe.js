@@ -42,7 +42,7 @@ function ImapProber(credentials, connInfo) {
 }
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
-  onConnect: function(err) {
+  onConnect: function ImapProber_onConnect(err) {
     if (err) {
       console.warn("PROBE:IMAP sad");
       this.accountGood = false;

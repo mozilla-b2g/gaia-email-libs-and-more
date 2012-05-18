@@ -20,10 +20,14 @@ function MailAccount(api, wireRep) {
   this.type = wireRep.type;
   this.name = wireRep.name;
 
-  this.host = wireRep.host;
-  this.port = wireRep.port;
-  this.username = wireRep.username;
-  this.crypto = wireRep.crypto;
+  this.identities = [];
+  for (var iIdent = 0; iIdent < wireRep.identities.length; iIdent++) {
+    this.identities.push(new MailSenderIdentity(this._api,
+                                                wireRep.identities[iIdent]));
+  }
+
+  this.username = wireRep.credentials.username;
+  this.servers = wireRep.servers;
 
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
@@ -49,8 +53,10 @@ MailAccount.prototype = {
  * - reply-to address
  * - signature
  */
-function MailSenderIdentity(account, wireRep) {
-  this._account = account;
+function MailSenderIdentity(api, wireRep) {
+  // We store the API so that we can create identities for the composer without
+  // needing to create an account too.
+  this._api = api;
   this.id = wireRep.id;
 
   this.name = wireRep.displayName;
@@ -415,13 +421,13 @@ function MessageComposition(api, handle) {
 
   this.senderIdentity = null;
 
-  this.to = [];
-  this.cc = [];
-  this.bcc = [];
+  this.to = null;
+  this.cc = null;
+  this.bcc = null;
 
-  this.subject = '';
+  this.subject = null;
 
-  this.body = '';
+  this.body = null;
 
   this._customHeaders = null;
   // XXX attachments aren't implemented yet, of course.  They will be added
@@ -488,7 +494,8 @@ MessageComposition.prototype = {
    * ]
    */
   finishCompositionSendMessage: function(callback) {
-    this._api._composeDone(this._handle, 'send', this._buildWireRep());
+    this._api._composeDone(this._handle, 'send', this._buildWireRep(),
+                           callback);
   },
 
   /**
@@ -643,7 +650,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    req.callback(msg.bodyInfo);
+    req.callback.call(null, msg.bodyInfo);
   },
 
   /**
@@ -726,7 +733,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    req.callback(msg.error);
+    req.callback.call(null, msg.error);
   },
 
   /**
@@ -751,6 +758,23 @@ MailAPI.prototype = {
       type: 'viewAccounts',
       handle: handle,
     });
+    return slice;
+  },
+
+  /**
+   * Get the list of sender identities.  The identities can also be found on
+   * their owning accounts via `viewAccounts`.
+   */
+  viewSenderIdentities: function ma_viewSenderIdentities() {
+    var handle = this._nextHandle++,
+        slice = new BridgedViewSlice(this, 'identities', handle);
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'viewSenderIdentities',
+      handle: handle,
+    });
+    return slice;
   },
 
   /**
@@ -883,6 +907,8 @@ MailAPI.prototype = {
     if (!callback)
       throw new Error('A callback must be provided; you are using the API ' +
                       'wrong if you do not.');
+    if (!options)
+      options = {};
 
     var handle = this._nextHandle++,
         composer = new MessageComposition(this, handle);
@@ -947,32 +973,58 @@ MailAPI.prototype = {
       return;
     }
 
-    req.composer.
+    req.composer.senderIdentity = new MailSenderIdentity(this, msg.identity);
+    req.composer.subject = msg.subject;
+    req.composer.body = msg.body;
+    req.composer.to = msg.to;
+    req.composer.cc = msg.cc;
+    req.composer.bcc = msg.bcc;
 
-    if (req.callback)
-      req.callback();
+    if (req.callback) {
+      var callback = req.callback;
+      req.callback = null;
+      callback.call(null, req.composer);
+    }
   },
 
-  _composeDone: function(handle, command, state) {
-    switch (command) {
-      case 'send':
-      case 'save':
-      case 'delete':
-        break;
-      default:
-        throw new Error('Illegal composeDone command: ' + command);
-    }
+  _composeDone: function(handle, command, state, callback) {
     var req = this._pendingRequests[handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for compose done:', handle);
       return;
     }
-    delete this._pendingRequests[handle];
+    switch (command) {
+      case 'send':
+        req.type = 'send';
+        req.callback = callback;
+        break;
+      case 'save':
+      case 'delete':
+        delete this._pendingRequests[handle];
+        break;
+      default:
+        throw new Error('Illegal composeDone command: ' + command);
+    }
     this.__bridgeSend({
       type: 'doneCompose',
+      handle: handle,
       command: command,
       state: state,
     });
+  },
+
+  _recv_sent: function(msg) {
+    console.log("processing sent", msg.handle);
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for sent:', msg.handle);
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+    if (req.callback) {
+      req.callback.call(null, msg.err, msg.badAddresses);
+      req.callback = null;
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////

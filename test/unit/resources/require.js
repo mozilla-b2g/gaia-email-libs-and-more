@@ -430,6 +430,7 @@ var requirejs, require, define;
             if (cb && isFunction(cb)) {
                 if (config.catchError.define) {
                     try {
+print('EXEC', fullName); // XXX ACSMOD
                         ret = execCb(fullName, manager.callback, args, defined[fullName]);
                     } catch (e) {
                         err = e;
@@ -639,6 +640,7 @@ var requirejs, require, define;
                 waiting[manager.id] = manager;
                 waitAry.push(manager);
                 context.waitCount += 1;
+print('WAIT', manager.id); // XXX ACSMOD debugging
             }
         }
 

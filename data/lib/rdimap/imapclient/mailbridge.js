@@ -68,6 +68,14 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
+  _cmd_viewSenderIdentities: function mb__cmd_viewSenderIdentities(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, msg.handle);
+    var wireReps = this.universe.identities;
+    // send all the identities in one go.
+    proxy.sendSplice(0, 0, wireReps, true, false);
+  },
+
   _cmd_viewFolders: function mb__cmd_viewFolders(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, msg.handle),
@@ -138,11 +146,15 @@ MailBridge.prototype = {
 
     identity = account.identities[0];
 
-    // XXXYYY serialize the identity, possibly with a strong account reference;
-    // we need to be able to map the identity back to the account too.
     this.__sendMessage({
       type: 'composeBegun',
-
+      handle: msg.handle,
+      identity: identity,
+      subject: '',
+      body: '',
+      to: [],
+      cc: [],
+      bcc: [],
     });
   },
 
@@ -181,7 +193,10 @@ MailBridge.prototype = {
 
     var composer = new $mailcomposer.MailComposer(),
         wireRep = msg.state;
-    var identity = XXX; // map identity
+    var identity = this.universe.getIdentityForSenderIdentityId(
+                     wireRep.senderId),
+        account = this.universe.getAccountForSenderIdentityId(
+                    wireRep.senderId);
 
     var body = wireRep.body;
     if (identity.signature) {
@@ -204,15 +219,32 @@ MailBridge.prototype = {
     if (wireRep.bcc && wireRep.bcc.length)
       messageOpts.bcc = this._formatAddresses(wireRep.bcc);
     composer.setMessageOption(messageOpts);
+
     if (wireRep.customHeaders) {
       for (var iHead = 0; iHead < wireRep.customHeaders.length; iHead += 2){
         composer.addHeader(wireRep.customHeaders[iHead],
                            wireRep.customHeaders[iHead+1]);
       }
     }
+    composer.addHeader('User-Agent', 'Mozilla Gaia Email Client 0.1alpha');
+    composer.addHeader('Date', new Date().toUTCString());
+    // we're copying nodemailer here; we might want to include some more...
+    var messageId =
+      '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
+
+    composer.addHeader('Message-Id', messageId);
 
     if (msg.command === 'send') {
-
+      var self = this;
+      account.sendMessage(composer, function(err, badAddresses) {
+        self.__sendMessage({
+          type: 'sent',
+          handle: msg.handle,
+          err: err,
+          badAddresses: badAddresses,
+          messageId: messageId,
+        });
+      });
     }
     else { // (msg.command === draft)
       // XXX save drafts!

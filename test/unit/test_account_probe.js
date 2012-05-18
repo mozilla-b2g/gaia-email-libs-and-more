@@ -12,7 +12,7 @@ function run_test() {
       try {
         universe.tryToCreateAccount(
           {
-            username: TEST_PARAMS.account,
+            emailAddress: TEST_PARAMS.emailAddress,
             password: TEST_PARAMS.password,
           },
           function accountCreationResult(accountGood) {

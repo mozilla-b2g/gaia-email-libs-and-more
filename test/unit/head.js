@@ -48,8 +48,17 @@ load('resources/requirejs_shim.js');
 
 // Configure RequireJS for our super-cool mapping of super-cool-ness.
 require({
+  catchError: {
+    define: true,
+  },
   baseUrl: '../..',
   paths: {
+    // NOP's
+    "http": "data/lib/nop",
+    "https": "data/lib/nop2",
+    "url": "data/lib/nop3",
+    "fs": "data/lib/nop4",
+
     "q": "data/lib/q",
     "text": "data/lib/text",
     // silly shim
@@ -70,7 +79,6 @@ require({
     "os": "data/lib/node-os",
 
     "iconv": "data/lib/js-shims/faux-iconv",
-    "iconv-lite": "data/libs/js-shims/faux-iconx",
 
     "assert": "data/deps/browserify-builtins/assert",
     "events": "data/deps/browserify-builtins/events",
@@ -80,8 +88,10 @@ require({
     // These used to be packages but we have AMD shims for their mains where
     // appropriate, so we can just use paths.
     "mimelib": "data/deps/mimelib",
+    "mimelib-noiconv": "data/deps/mimelib",
     "mailparser": "data/deps/mailparser/lib",
     "simplesmtp": "data/deps/simplesmtp",
+    "mailcomposer": "data/deps/mailcomposer",
   },
 });
 
@@ -104,7 +114,7 @@ var process = window.process = {
 // configurations, etc.
 const ENVIRON_MAPPINGS = [
   {
-    name: 'account',
+    name: 'emailAddress',
     envVar: 'GELAM_TEST_ACCOUNT',
   },
   {
@@ -113,7 +123,7 @@ const ENVIRON_MAPPINGS = [
   }
 ];
 var TEST_PARAMS = {
-  account: 'testy@localhost',
+  emailAddress: 'testy@localhost',
   password: 'testy',
 };
 
@@ -126,3 +136,4 @@ function populateTestParams() {
     }
   }
 }
+populateTestParams();

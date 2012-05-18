@@ -37,7 +37,7 @@ exports.allbackMaker = function allbackMaker(names, allDoneCallback) {
   names.forEach(function(name) {
     // (build a consistent shape for aggrData regardless of callback ordering)
     aggrData[name] = undefined;
-    callbacks[name] = function(callbackResult) {
+    callbacks[name] = function anAllback(callbackResult) {
       var i = waitingFor.indexOf(name);
       if (i === -1) {
         console.error("Callback '" + name + "' fired multiple times!");

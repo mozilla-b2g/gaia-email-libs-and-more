@@ -3,10 +3,12 @@
  * extensible, and we can follow the lead of the r.js node adapter.
  */
 
+var _LOAD_SPACES = '                                                         ';
 require.load = function(context, moduleName, url) {
   context.scriptCount += 1;
 
-  print('Loading', url);
+  print('LOAD', moduleName,
+        _LOAD_SPACES.substring(0, 40 - moduleName.length), 'from', url); // extra spaces
   load(url);
 
   context.completeLoad(moduleName);
@@ -38,4 +40,9 @@ require.get = function(context, moduleName, relModuleMap) {
   }
 
   return ret;
+};
+
+require.onError = function(err) {
+  console.error('RequireJS Error in', err.moduleName, '\n', err, '\n',
+                err.stack);
 };

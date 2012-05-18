@@ -99,7 +99,8 @@ CompositeAccount.prototype = {
     return this._receivePiece.syncFolderList(callback);
   },
 
-  sendMessage: function() {
+  sendMessage: function(composedMessage, callback) {
+    return this._sendPiece.sendMessage(composedMessage, callback);
   },
 };
 
@@ -173,6 +174,10 @@ var autoconfigByDomain = {
  *   }
  * ]]
  * @typedef[IdentityDef @dict[
+ *   @key[id String]{
+ *     Unique identifier resembling folder id's;
+ *     "{account id}-{unique value for this account}" is what it looks like.
+ *   }
  *   @key[name String]{
  *     Display name, ex: "Joe User".
  *   }
@@ -206,8 +211,13 @@ var autoconfigByDomain = {
  * ]]
  */
 function MailUniverse(testingModeLogData, callAfterBigBang) {
+  /** @listof[CompositeAccount] */
   this.accounts = [];
   this._accountsById = {};
+
+  /** @listof[IdentityDef] */
+  this.identities = [];
+  this._identitiesById = {};
 
   this.config = null;
 
@@ -243,7 +253,7 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
-  tryToCreateAccount: function(userDetails, callback) {
+  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
     var domain = userDetails.emailAddress.substring(
                    userDetails.emailAddress.indexOf('@') + 1),
         domainInfo = null, credentials, imapConnInfo, smtpConnInfo;
@@ -251,8 +261,8 @@ MailUniverse.prototype = {
       domainInfo = autoconfigByDomain[domain];
     if (domainInfo) {
       var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
-        : userDetails.emailAddress.substring(0,
-                                             userDetails.username.indexOf('@'));
+        : userDetails.emailAddress.substring(
+            0, userDetails.emailAddress.indexOf('@'));
       credentials = {
         username: username,
         password: userDetails.password,
@@ -277,15 +287,11 @@ MailUniverse.prototype = {
       function probesDone(results) {
         // -- both good?
         if (results.imap[0] && results.smtp) {
-          self._defineImapAccount(
+          var account = self._defineImapAccount(
             userDetails, credentials,
             imapConnInfo, smtpConnInfo, results.imap[1]);
-          // The account is good, but it'll be boring without a list of folders.
-          var imapAccount = self._createImapAccount(imapConnInfo,
-                                                    results.imap[1]),
-              smtpAccount = self._createSmtpAccount(smtpConnInfo);
-          imapAccount.syncFolderList(function() {
-            callback(accountGood, account);
+          account.syncFolderList(function() {
+            callback(true, account);
           });
 
         }
@@ -313,11 +319,12 @@ MailUniverse.prototype = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _defineImapAccount: function(userDetails, credentials,
-                               imapConnInfo, smtpConnInfo,
-                               imapProtoConn) {
+  _defineImapAccount: function mu__defineImapAccount(
+                        userDetails, credentials, imapConnInfo, smtpConnInfo,
+                        imapProtoConn) {
+    var accountId = $a64.encodeInt(this.config.nextAccountNum++);
     var accountDef = {
-      id: $a64.encodeInt(this.config.nextAccountNum++),
+      id: accountId,
       name: userDetails.emailAddress,
 
       type: 'imap+smtp',
@@ -330,7 +337,7 @@ MailUniverse.prototype = {
 
       identities: [
         {
-          id: $a64.encodeInt(this.config.nextIdentityNum++),
+          id: accountId + '-' + $a64.encodeInt(this.config.nextIdentityNum++),
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
@@ -344,13 +351,14 @@ MailUniverse.prototype = {
       },
     };
     this._db.saveAccountDef(accountDef, folderInfo);
-    this._loadAccount(accountDef, folderInfo, imapProtoConn);
+    return this._loadAccount(accountDef, folderInfo, imapProtoConn);
   },
 
   /**
    * Instantiate an account from the persisted representation.
    */
-  _loadAccount: function(accountDef, folderInfo, receiveProtoConn) {
+  _loadAccount: function mu__loadAccount(accountDef, folderInfo,
+                                         receiveProtoConn) {
     if (!COMPOSITE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.type)) {
       this._LOG.badAccountType(accountDef.type);
       return null;
@@ -371,34 +379,54 @@ MailUniverse.prototype = {
       new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
         accountDef.id, accountDef.credentials,
         accountDef.sendConnInfo, this._LOG);
-    var compositeAccount = new CompositeAccount(
-      accountDef, receivePiece, sendPiece);
+    var account = new CompositeAccount(accountDef, receivePiece, sendPiece);
 
-    var account = new $imapacct.ImapAccount(accountDef, folderInfo, this._LOG,
-                                            imapProtoConn);
     this.accounts.push(account);
     this._accountsById[account.id] = account;
+
+    for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
+      var identity = accountDef.identities[iIdent];
+      this.identities.push(identity);
+      this._identitiesById[identity.id] = identity;
+    }
+
     return account;
   },
 
   /**
    * Given a folder-id, get the owning account.
    */
-  getAccountForFolderId: function(folderId) {
+  getAccountForFolderId: function mu_getAccountForFolderId(folderId) {
     var accountId = folderId.substring(0, folderId.indexOf('-')),
         account = this._accountsById[accountId];
     return account;
   },
 
-  getAccountForMessageSuid: function(messageSuid) {
+  /**
+   * Given a message's sufficiently unique identifier, get the owning account.
+   */
+  getAccountForMessageSuid: function mu_getAccountForMessageSuid(messageSuid) {
     var accountId = folderId.substring(0, folderId.indexOf('-')),
         account = this._accountsById[accountId];
     return account;
   },
 
-  getFolderStorageForFolderId: function(folderId) {
+  getFolderStorageForFolderId: function mu_getFolderStorageForFolderId(
+                                 folderId) {
     var account = this.getAccountForFolderId(folderId);
     return account.getFolderStorageForId(folderId);
+  },
+
+  getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(
+                                   identityId) {
+    var accountId = identityId.substring(0, identityId.indexOf('-')),
+        account = this._accountsById[accountId];
+    return account;
+  },
+
+  getIdentityForSenderIdentityId: function mu_getIdentityForSenderIdentityId(
+                                    identityId) {
+    return this._identitiesById[identityId];
   },
 };
 

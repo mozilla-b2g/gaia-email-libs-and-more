@@ -32,8 +32,10 @@ define(
  */
 function ImapAccount(accountId, credentials, connInfo, folderInfos,
                      _parentLog, existingProtoConn) {
-  this.id = accountDef.id;
-  this.accountDef = accountDef;
+  this.id = accountId;
+
+  this._credentials = credentials;
+  this._connInfo = connInfo;
 
   this._ownedConns = [];
   if (existingProtoConn)
@@ -86,34 +88,22 @@ function ImapAccount(accountId, credentials, connInfo, folderInfos,
 
     this._LOG.persistedFolder(folderId, folderInfo);
     folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo);
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
     folderPubs.push(folderInfo.$meta);
   }
 }
+exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
   type: 'imap',
   toString: function() {
     return '[ImapAccount: ' + this.id + ']';
-  },
-  toBridgeWire: function() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      path: this.accountDef.name,
-      type: this.type,
-      host: this.accountDef.connInfo.host,
-      port: this.accountDef.connInfo.port,
-      crypto: this.accountDef.connInfo.crypto,
-      username: this.accountDef.connInfo.username,
-    };
   },
 
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
    */
   _learnAboutFolder: function(name, path, type) {
-    var folderId = this.accountDef.id + '-' +
-                     $a64.encodeInt(this._meta.nextFolderNum++);
+    var folderId = this.id + '-' + $a64.encodeInt(this._meta.nextFolderNum++);
     console.log('FOLDER', name, path, type);
     this._LOG.learnAboutFolder(folderId, name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
@@ -188,10 +178,14 @@ ImapAccount.prototype = {
   },
 
   _makeConnection: function(folderId, callback) {
-    var opts = {};
-    for (var key in this.accountDef.connInfo) {
-      opts[key] = this.accountDef.connInfo[key];
-    }
+    var opts = {
+      hostname: this._connInfo.hostname,
+      port: this._connInfo.port,
+      crypto: this._connInfo.crypto,
+
+      username: this._credentials.username,
+      password: this._credentials.password,
+    };
     if (this._LOG) opts._logParent = this._LOG;
     var conn = new $imap.ImapConnection(opts);
     this._ownedConns.push({

@@ -177,7 +177,12 @@ ImapDB.prototype = {
         accounts[i].folderInfo = folderInfoReq.result[i];
       }
 
-      configCallback(configObj, accounts);
+      try {
+        configCallback(configObj, accounts);
+      }
+      catch(ex) {
+        console.error('Problem in configCallback', ex, '\n', ex.stack);
+      }
     };
   },
 

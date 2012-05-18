@@ -5,11 +5,13 @@
 define(
   [
     'rdcommon/log',
+    'simplesmtp/lib/client',
     'module',
     'exports'
   ],
   function(
     $log,
+    $simplesmtp,
     $module,
     exports
   ) {
@@ -21,13 +23,21 @@ function SmtpAccount(accountId, credentials, connInfo, _parentLog) {
 }
 exports.SmtpAccount = SmtpAccount;
 SmtpAccount.prototype = {
+  type: 'smtp',
+  toString: function() {
+    return '[SmtpAccount: ' + this.id + ']';
+  },
+
   _makeConnection: function() {
     var conn = $simplesmtp(
-      connInfo.port, connInfo.hostname,
+      this.connInfo.port, this.connInfo.hostname,
       {
-        secureConnection: connInfo.crypto === true,
-        ignoreTLS: connInfo.crypto === false,
-        auth: { user: credentials.username, pass: credentials.password },
+        secureConnection: this.connInfo.crypto === true,
+        ignoreTLS: this.connInfo.crypto === false,
+        auth: {
+          user: this.credentials.username,
+          pass: this.credentials.password
+        },
         // XXX debug is on
         debug: true,
       });
@@ -96,8 +106,8 @@ SmtpAccount.prototype = {
       });
     // And close the connection and be done once it has been sent
     conn.on('ready', function() {
-        conn.close();
         bailed = true;
+        conn.close();
         callback(null);
       });
 
@@ -109,10 +119,13 @@ SmtpAccount.prototype = {
     //
     // We upgrade this to a full failure to send
     conn.on('rcptFailed', function(addresses) {
-        bailed = true;
-        // simplesmtp does't view this as fatal, so we have to close it ourself
-        conn.close();
-        callback('bad-recipient', addresses);
+        // nb: this gets called all the time, even without any failures
+        if (addresses.length) {
+          bailed = true;
+          // simplesmtp does't view this as fatal, so we have to close it ourself
+          conn.close();
+          callback('bad-recipient', addresses);
+        }
       });
     conn.on('error', function(err) {
         if (bailed) // (paranoia, this shouldn't happen.)

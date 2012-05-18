@@ -50,6 +50,7 @@ var window = {
   // - general stuff
   setTimeout: setTimeout,
   clearTimeout: clearTimeout,
+  setZeroTimeout: do_execute_soon,
 
   btoa: moduleGlobalsHack.btoa,
   atob: moduleGlobalsHack.atob
