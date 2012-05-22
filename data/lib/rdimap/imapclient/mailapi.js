@@ -796,7 +796,7 @@ MailAPI.prototype = {
    *   }
    * ]
    */
-  viewFolders: function ma_viewFolders(mode) {
+  viewFolders: function ma_viewFolders(mode, argument) {
     var handle = this._nextHandle++,
         slice = new FoldersViewSlice(this, handle);
     this._slices[handle] = slice;
@@ -805,6 +805,7 @@ MailAPI.prototype = {
       type: 'viewFolders',
       mode: mode,
       handle: handle,
+      argument: arugment ? argument.id : null,
     });
 
     return slice;

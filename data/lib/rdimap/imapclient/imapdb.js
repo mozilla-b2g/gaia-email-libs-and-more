@@ -143,6 +143,7 @@ function ImapDB() {
     db.createObjectStore(TBL_HEADER_BLOCKS);
     db.createObjectStore(TBL_BODY_BLOCKS);
   };
+  openRequest.onerror = this._fatalError;
 }
 exports.ImapDB = ImapDB;
 ImapDB.prototype = {

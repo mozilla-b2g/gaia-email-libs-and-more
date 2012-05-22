@@ -12,6 +12,7 @@ define(
     './imapacct',
     './smtpprobe',
     './smtpacct',
+    './fakeacct',
     'module',
     'exports'
   ],
@@ -24,6 +25,7 @@ define(
     $imapacct,
     $smtpprobe,
     $smtpacct,
+    $fakeacct,
     $module,
     exports
   ) {
@@ -48,14 +50,29 @@ const DEFAULT_SIGNATURE = [
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(accountDef, receivePiece, sendPiece) {
+function CompositeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
+  // XXX for now we are stealing the universe's logger
+  this._LOG = _LOG;
 
   this.identities = accountDef.identities;
 
-  this._receivePiece = receivePiece;
-  this._sendPiece = sendPiece;
+  if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.receiveType)) {
+    this._LOG.badAccountType(accountDef.receiveType);
+  }
+  if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.sendType)) {
+    this._LOG.badAccountType(accountDef.sendType);
+  }
+
+  this._receivePiece =
+    new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
+      accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
+      folderInfo, this._LOG, receiveProtoConn);
+  this._sendPiece =
+    new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
+      accountDef.id, accountDef.credentials,
+      accountDef.sendConnInfo, this._LOG);
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
@@ -102,10 +119,15 @@ CompositeAccount.prototype = {
   sendMessage: function(composedMessage, callback) {
     return this._sendPiece.sendMessage(composedMessage, callback);
   },
+
+  getFolderStorageForFolderId: function(folderId) {
+    return this._receivePiece.getFolderStorageForFolderId(folderId);
+  },
 };
 
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
   'imap+smtp': CompositeAccount,
+  'fake': $fakeacct.FakeAccount,
 };
 
 
@@ -131,9 +153,116 @@ var autoconfigByDomain = {
     smtpCrypto: false,
     usernameIsFullEmail: false,
   },
+  'example.com': {
+    type: 'fake',
+  },
 };
 
+var Configurators = {};
+Configurators['imap+smtp'] = {
+  tryToCreateAccount: function(universe, userDetails, domainInfo, callback) {
+    var credentials, imapConnInfo, smtpConnInfo;
+    if (autoconfigByDomain.hasOwnProperty(domain))
+      domainInfo = autoconfigByDomain[domain];
+    if (domainInfo) {
+      var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
+        : userDetails.emailAddress.substring(
+            0, userDetails.emailAddress.indexOf('@'));
+      credentials = {
+        username: username,
+        password: userDetails.password,
+      };
+      imapConnInfo = {
+        hostname: domainInfo.imapHost,
+        port: domainInfo.imapPort,
+        crypto: domainInfo.imapCrypto,
+      };
+      smtpConnInfo = {
+        hostname: domainInfo.smtpHost,
+        port: domainInfo.smtpPort,
+        crypto: domainInfo.smtpCrypto,
+      };
+    }
 
+    var self = this;
+    var callbacks = allbackMaker(
+      ['imap', 'smtp'],
+      function probesDone(results) {
+        // -- both good?
+        if (results.imap[0] && results.smtp) {
+          var account = self._defineImapAccount(
+            universe,
+            userDetails, credentials,
+            imapConnInfo, smtpConnInfo, results.imap[1]);
+          account.syncFolderList(function() {
+            callback(true, account);
+          });
+
+        }
+        // -- either/both bad
+        else {
+          // clean up the imap connection if it was okay but smtp failed
+          if (results.imap[0])
+            results.imap[1].close();
+          callback(false, null);
+          return;
+        }
+      });
+
+    var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo);
+    imapProber.onresult = callbacks.imap;
+
+    var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo);
+    smtpProber.onresult = callbacks.smtp;
+  },
+
+  /**
+   * Define an account now that we have verified the credentials are good and
+   * the server meets our minimal functionality standards.  We are also
+   * provided with the protocol connection that was used to perform the check
+   * so we can immediately put it to work.
+   */
+  _defineImapAccount: function mu__defineImapAccount(
+                        universe,
+                        userDetails, credentials, imapConnInfo, smtpConnInfo,
+                        imapProtoConn) {
+    var accountId = $a64.encodeInt(this.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: userDetails.emailAddress,
+
+      type: 'imap+smtp',
+      receiveType: 'imap',
+      sendType: 'smtp',
+
+      credentials: credentials,
+      receiveConnInfo: imapConnInfo,
+      sendConnInfo: smtpConnInfo,
+
+      identities: [
+        {
+          id: accountId + '-' + $a64.encodeInt(this.config.nextIdentityNum++),
+          name: userDetails.displayName,
+          address: userDetails.emailAddress,
+          replyTo: null,
+          signature: DEFAULT_SIGNATURE
+        },
+      ]
+    };
+    var folderInfo = {
+      $meta: {
+        nextFolderNum: 0,
+      },
+    };
+    universe._db.saveAccountDef(accountDef, folderInfo);
+    return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
+  },
+};
+Configurators['fake'] = {
+  tryToCreateAccount: function(universe, userDetails, domainInfo, callback) {
+
+  },
+};
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,
@@ -256,102 +385,13 @@ MailUniverse.prototype = {
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
     var domain = userDetails.emailAddress.substring(
                    userDetails.emailAddress.indexOf('@') + 1),
-        domainInfo = null, credentials, imapConnInfo, smtpConnInfo;
-    if (autoconfigByDomain.hasOwnProperty(domain))
-      domainInfo = autoconfigByDomain[domain];
-    if (domainInfo) {
-      var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
-        : userDetails.emailAddress.substring(
-            0, userDetails.emailAddress.indexOf('@'));
-      credentials = {
-        username: username,
-        password: userDetails.password,
-      };
-      imapConnInfo = {
-        hostname: domainInfo.imapHost,
-        port: domainInfo.imapPort,
-        crypto: domainInfo.imapCrypto,
-      };
-      smtpConnInfo = {
-        hostname: domainInfo.smtpHost,
-        port: domainInfo.smtpPort,
-        crypto: domainInfo.smtpCrypto,
-      };
-    }
-    else {
+        domainInfo = null;
+    if (!domainInfo) {
       throw new Error("Don't know how to configure domain: " + domain);
     }
 
-    var callbacks = allbackMaker(
-      ['imap', 'smtp'],
-      function probesDone(results) {
-        // -- both good?
-        if (results.imap[0] && results.smtp) {
-          var account = self._defineImapAccount(
-            userDetails, credentials,
-            imapConnInfo, smtpConnInfo, results.imap[1]);
-          account.syncFolderList(function() {
-            callback(true, account);
-          });
-
-        }
-        // -- either/both bad
-        else {
-          // clean up the imap connection if it was okay but smtp failed
-          if (results.imap[0])
-            results.imap[1].close();
-          callback(false, null);
-          return;
-        }
-      });
-
-    var self = this;
-    var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo);
-    imapProber.onresult = callbacks.imap;
-
-    var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo);
-    smtpProber.onresult = callbacks.smtp;
-  },
-
-  /**
-   * Define an account now that we have verified the credentials are good and
-   * the server meets our minimal functionality standards.  We are also
-   * provided with the protocol connection that was used to perform the check
-   * so we can immediately put it to work.
-   */
-  _defineImapAccount: function mu__defineImapAccount(
-                        userDetails, credentials, imapConnInfo, smtpConnInfo,
-                        imapProtoConn) {
-    var accountId = $a64.encodeInt(this.config.nextAccountNum++);
-    var accountDef = {
-      id: accountId,
-      name: userDetails.emailAddress,
-
-      type: 'imap+smtp',
-      receiveType: 'imap',
-      sendType: 'smtp',
-
-      credentials: credentials,
-      receiveConnInfo: imapConnInfo,
-      sendConnInfo: smtpConnInfo,
-
-      identities: [
-        {
-          id: accountId + '-' + $a64.encodeInt(this.config.nextIdentityNum++),
-          name: userDetails.displayName,
-          address: userDetails.emailAddress,
-          replyTo: null,
-          signature: DEFAULT_SIGNATURE
-        },
-      ]
-    };
-    var folderInfo = {
-      $meta: {
-        nextFolderNum: 0,
-      },
-    };
-    this._db.saveAccountDef(accountDef, folderInfo);
-    return this._loadAccount(accountDef, folderInfo, imapProtoConn);
+    var configurator = Configurators[domainInfo.type];
+    configurator.tryToCreateAccount(this, userDetails, domainInfo, callback);
   },
 
   /**
@@ -363,23 +403,9 @@ MailUniverse.prototype = {
       this._LOG.badAccountType(accountDef.type);
       return null;
     }
-    // right now, we only have composite types, so everything below assumes it
-    if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.receiveType)) {
-      this._LOG.badAccountType(accountDef.receiveType);
-    }
-    if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.sendType)) {
-      this._LOG.badAccountType(accountDef.sendType);
-    }
 
-    var receivePiece =
-      new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
-        accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-        folderInfo, this._LOG, receiveProtoConn);
-    var sendPiece =
-      new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
-        accountDef.id, accountDef.credentials,
-        accountDef.sendConnInfo, this._LOG);
-    var account = new CompositeAccount(accountDef, receivePiece, sendPiece);
+    var account = new CompositeAccount(accountDef, folderInfo, receiveProtoConn,
+                                       this._LOG);
 
     this.accounts.push(account);
     this._accountsById[account.id] = account;

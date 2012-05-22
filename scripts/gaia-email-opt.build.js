@@ -4,6 +4,12 @@
   paths: {
     "almond": "deps/almond",
 
+    // NOP's
+    "http": "data/lib/nop",
+    "https": "data/lib/nop2",
+    "url": "data/lib/nop3",
+    "fs": "data/lib/nop4",
+
     "q": "data/lib/q",
     "text": "data/lib/text",
     // silly shim
@@ -35,6 +41,8 @@
     // appropriate, so we can just use paths.
     "mimelib": "data/deps/mimelib",
     "mailparser": "data/deps/mailparser/lib",
+    "simplesmtp": "data/deps/simplesmtp",
+    "mailcomposer": "data/deps/mailcomposer",
   },
   include: ["event-queue", "deps/stringencoding/encoding.js", "rdimap/imapclient/same-frame-setup"],
   name: "almond",

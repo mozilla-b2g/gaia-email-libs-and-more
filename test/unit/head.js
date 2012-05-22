@@ -88,7 +88,6 @@ require({
     // These used to be packages but we have AMD shims for their mains where
     // appropriate, so we can just use paths.
     "mimelib": "data/deps/mimelib",
-    "mimelib-noiconv": "data/deps/mimelib",
     "mailparser": "data/deps/mailparser/lib",
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",

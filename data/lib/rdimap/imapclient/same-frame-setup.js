@@ -80,13 +80,18 @@ function createBridgePair(universe) {
   };
 }
 
-var _universeCallbacks = [];
+var _universeCallbacks = [], localMailAPI = null;
 function onUniverse() {
-  console.log("Mail universe created, notifying.");
+  localMailAPI = createBridgePair(universe).api;
+  console.log("Mail universe/bridge created, notifying.");
   for (var i = 0; i < _universeCallbacks.length; i++) {
     _universeCallbacks[i](universe);
   }
   _universeCallbacks = null;
+  var evtObject = document.createEvent('Event');
+  evtObject.initEvent('mailapi', false, false);
+  evtObject.mailAPI = localMailAPI;
+  window.dispatchEvent(evtObject);
 }
 // XXX XXX XXX XXX XXX
 // XXX Super-duper-debug mode should not be on outside of super-initial testing
@@ -103,7 +108,7 @@ function runOnUniverse(callback) {
 console.log("Assigning mail API helper!");
 window.gimmeMailAPI = function(callback) {
   runOnUniverse(function() {
-    callback(createBridgePair(universe).api);
+    callback(localMailAPI);
   });
 };
 

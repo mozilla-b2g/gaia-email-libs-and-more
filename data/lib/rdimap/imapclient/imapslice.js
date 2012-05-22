@@ -907,6 +907,9 @@ ImapFolderConn.prototype = {
  *   @key[id]{
  *     Either the UID or a more globally unique identifier (Gmail).
  *   }
+ *   @key[suid]{
+ *     The id prefixed with the folder id and a dash.
+ *   }
  *   @key[author NameAddressPair]
  *   @key[date DateMS]
  *   @key[flags @listof[String]]
