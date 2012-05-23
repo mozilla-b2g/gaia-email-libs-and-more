@@ -160,10 +160,9 @@ var autoconfigByDomain = {
 
 var Configurators = {};
 Configurators['imap+smtp'] = {
-  tryToCreateAccount: function(universe, userDetails, domainInfo, callback) {
+  tryToCreateAccount: function cfg_is_ttca(universe, userDetails, domainInfo,
+                                           callback) {
     var credentials, imapConnInfo, smtpConnInfo;
-    if (autoconfigByDomain.hasOwnProperty(domain))
-      domainInfo = autoconfigByDomain[domain];
     if (domainInfo) {
       var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
         : userDetails.emailAddress.substring(
@@ -222,11 +221,11 @@ Configurators['imap+smtp'] = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _defineImapAccount: function mu__defineImapAccount(
+  _defineImapAccount: function cfg_is__defineImapAccount(
                         universe,
                         userDetails, credentials, imapConnInfo, smtpConnInfo,
                         imapProtoConn) {
-    var accountId = $a64.encodeInt(this.config.nextAccountNum++);
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
       name: userDetails.emailAddress,
@@ -241,7 +240,8 @@ Configurators['imap+smtp'] = {
 
       identities: [
         {
-          id: accountId + '-' + $a64.encodeInt(this.config.nextIdentityNum++),
+          id: accountId + '-' +
+                $a64.encodeInt(universe.config.nextIdentityNum++),
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
@@ -259,8 +259,42 @@ Configurators['imap+smtp'] = {
   },
 };
 Configurators['fake'] = {
-  tryToCreateAccount: function(universe, userDetails, domainInfo, callback) {
+  tryToCreateAccount: function cfg_fake(universe, userDetails, domainInfo,
+                                        callback) {
+    var credentials = {
+      username: userDetails.username,
+      password: userDetails.password,
+    };
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: userDetails.emailAddress,
 
+      type: 'fake',
+
+      credentials: credentials,
+      connInfo: {
+        hostname: 'magic.example.com',
+        port: 1337,
+        crypto: true,
+      },
+
+      identities: [
+        {
+          id: accountId + '-' +
+                $a64.encodeInt(universe.config.nextIdentityNum++),
+          name: userDetails.displayName,
+          address: userDetails.emailAddress,
+          replyTo: null,
+          signature: DEFAULT_SIGNATURE
+        },
+      ]
+    };
+
+    var folderInfo = {};
+    universe._db.saveAccountDef(accountDef, folderInfo);
+    var account = universe._loadAccount(accountDef, folderInfo, null);
+    callback(true, account);
   },
 };
 
@@ -386,12 +420,17 @@ MailUniverse.prototype = {
     var domain = userDetails.emailAddress.substring(
                    userDetails.emailAddress.indexOf('@') + 1),
         domainInfo = null;
+
+    if (autoconfigByDomain.hasOwnProperty(domain))
+      domainInfo = autoconfigByDomain[domain];
+
     if (!domainInfo) {
       throw new Error("Don't know how to configure domain: " + domain);
     }
 
     var configurator = Configurators[domainInfo.type];
-    configurator.tryToCreateAccount(this, userDetails, domainInfo, callback);
+    return configurator.tryToCreateAccount(this, userDetails, domainInfo,
+                                           callback);
   },
 
   /**
@@ -403,9 +442,9 @@ MailUniverse.prototype = {
       this._LOG.badAccountType(accountDef.type);
       return null;
     }
-
-    var account = new CompositeAccount(accountDef, folderInfo, receiveProtoConn,
-                                       this._LOG);
+    var constructor = COMPOSITE_ACCOUNT_TYPE_TO_CLASS[accountDef.type];
+    var account = new constructor(accountDef, folderInfo, receiveProtoConn,
+                                  this._LOG);
 
     this.accounts.push(account);
     this._accountsById[account.id] = account;

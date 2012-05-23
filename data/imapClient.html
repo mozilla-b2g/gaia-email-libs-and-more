@@ -61,41 +61,16 @@ require(
 function(setup, $log) {
   console.log("exposing API");
   window.goSync = function(accountDef) {
-    var logBacklog = setup.goSync(true, accountDef);
-
-    var URL = "http://localhost/live/arbpl/client/index-post-devmode.html",
-        ORIGIN = "http://localhost";
-
-    var openedWin = null,
-        channelId = null,
-        spamIntervalId = null;
+    setup.goSync(true, accountDef);
+    var logHookupDone = false;
     document.getElementById("showlog").addEventListener("click", function() {
-      // not security, just naming.
-      channelId = 'arbpl' + Math.floor(Math.random() * 1000000) + Date.now();
-      // name the window so we can reuse it
-      openedWin = window.open(URL + '#' + channelId, "ArbPL");
-      spamIntervalId = setInterval(spammer, 100);
-    });
-    // Keep pinging the window until it tells us it has fully loaded.
-    function spammer() {
-      openedWin.postMessage({ type: 'hello', id: channelId }, ORIGIN);
-    }
-    window.addEventListener("message", function(event) {
-      if (event.origin !== ORIGIN)
-        return;
-      if (event.data.id !== channelId)
-        return;
-      clearInterval(spamIntervalId);
-
-      event.source.postMessage(
-        { 
-          type: "backlog",
-          id: channelId,
-          schema: $log.provideSchemaForAllKnownFabs(),
-          backlog: logBacklog,
-        },
-        event.origin);
+      if (!logHookupDone) {
+        document.enableLogSpawner();
+        logHookupDone = true;
+      }
+      document.spawnLogWindow();
     }, false);
+    
   };
 });
 });

@@ -10,6 +10,7 @@
 define(
   [
     './shim-sham',
+    'rdcommon/log',
     'rdcommon/logreaper',
     './mailapi',
     './mailbridge',
@@ -19,6 +20,7 @@ define(
   ],
   function(
     $shim_setup,
+    $log,
     $logreaper,
     $mailapi,
     $mailbridge,
@@ -97,6 +99,8 @@ function onUniverse() {
 // XXX Super-duper-debug mode should not be on outside of super-initial testing
 // that's the boolean true here...
 var universe = new $mailuniverse.MailUniverse(true, onUniverse);
+var LOG_REAPER, LOG_BACKLOG = [], MAX_LOG_BACKLOG = 60;
+LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
 
 function runOnUniverse(callback) {
   if (_universeCallbacks !== null) {
@@ -129,14 +133,55 @@ exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
             slice = account.sliceFolderMessages(inbox, printyBridge);
       });
   });
-  LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
   return LOG_BACKLOG;
+};
+
+
+/**
+ * Debugging: enable spawning a loggest log browser using our log contents;
+ * call document.spawnLogWindow() to do so.
+ */
+document.enableLogSpawner = function enableLogSpawner(spawnNow) {
+  var URL = "http://localhost/live/arbpl/client/index-post-devmode.html",
+      ORIGIN = "http://localhost";
+
+  var openedWin = null,
+      channelId = null,
+      spamIntervalId = null;
+  document.spawnLogWindow = function() {
+    // not security, just naming.
+    channelId = 'arbpl' + Math.floor(Math.random() * 1000000) + Date.now();
+    // name the window so we can reuse it
+    openedWin = window.open(URL + '#' + channelId, "ArbPL");
+    spamIntervalId = setInterval(spammer, 100);
+  };
+  // Keep pinging the window until it tells us it has fully loaded.
+  function spammer() {
+    openedWin.postMessage({ type: 'hello', id: channelId }, ORIGIN);
+  }
+  window.addEventListener("message", function(event) {
+    if (event.origin !== ORIGIN)
+      return;
+    if (event.data.id !== channelId)
+      return;
+    clearInterval(spamIntervalId);
+
+    event.source.postMessage(
+      {
+        type: "backlog",
+        id: channelId,
+        schema: $log.provideSchemaForAllKnownFabs(),
+        backlog: LOG_BACKLOG,
+      },
+      event.origin);
+  }, false);
+
+  if (spawnNow)
+    document.spawnLogWindow();
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 // Logging
-
-var LOG_REAPER, LOG_BACKLOG = [], MAX_LOG_BACKLOG = 60;
 
 // once a second, potentially generate a log
 setInterval(function() {

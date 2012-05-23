@@ -46,7 +46,7 @@ MailBridge.prototype = {
       console.warn('Bad message type:', msg.type);
       return;
     }
-    this._LOG.cmd(msg.type, this, this[implCmdName], msg);
+    var rval = this._LOG.cmd(msg.type, this, this[implCmdName], msg);
   },
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {

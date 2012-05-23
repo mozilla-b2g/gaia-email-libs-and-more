@@ -593,6 +593,18 @@ MailAPI.prototype = {
 
     var addItems = msg.addItems, transformedItems = [], i;
     switch (slice._ns) {
+      case 'accounts':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailAccount(this, addItems[i]));
+        }
+        break;
+
+      case 'identities':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailSenderIdentity(this, addItems[i]));
+        }
+        break;
+
       case 'folders':
         for (i = 0; i < addItems.length; i++) {
           transformedItems.push(new MailFolder(this, addItems[i]));
@@ -603,6 +615,10 @@ MailAPI.prototype = {
         for (i = 0; i < addItems.length; i++) {
           transformedItems.push(new MailHeader(slice, addItems[i]));
         }
+        break;
+
+      default:
+        console.error('Slice notification for unknown type:', slice._ns);
         break;
     }
 
@@ -622,7 +638,13 @@ MailAPI.prototype = {
                              [msg.index, msg.howMany].concat(transformedItems));
 
     if (slice.oncomplete && !msg.moreExpected) {
-      slice.oncomplete();
+      try {
+        slice.oncomplete();
+      }
+      catch (ex) {
+        reportClientCodeError('oncomplete notification error', ex,
+                              '\n', ex.stack);
+      }
       slice.oncomplete = null;
     }
   },
@@ -751,7 +773,7 @@ MailAPI.prototype = {
    */
   viewAccounts: function ma_viewAccounts(realAccountsOnly) {
     var handle = this._nextHandle++,
-        slice = new BridgedViewSlice(this, 'folders', handle);
+        slice = new BridgedViewSlice(this, 'accounts', handle);
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -805,7 +827,7 @@ MailAPI.prototype = {
       type: 'viewFolders',
       mode: mode,
       handle: handle,
-      argument: arugment ? argument.id : null,
+      argument: argument ? argument.id : null,
     });
 
     return slice;
@@ -980,6 +1002,7 @@ MailAPI.prototype = {
     req.composer.to = msg.to;
     req.composer.cc = msg.cc;
     req.composer.bcc = msg.bcc;
+    // XXX attachments
 
     if (req.callback) {
       var callback = req.callback;

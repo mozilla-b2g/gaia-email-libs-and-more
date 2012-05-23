@@ -114,8 +114,8 @@ MessageGenerator.prototype = {
    * @returns The unique name corresponding to the name number.
    */
   makeName: function(aNameNumber) {
-    let iFirst = aNameNumber % FIRST_NAMES.length;
-    let iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
+    var iFirst = aNameNumber % FIRST_NAMES.length;
+    var iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
                 LAST_NAMES.length;
 
     return FIRST_NAMES[iFirst] + " " + LAST_NAMES[iLast];
@@ -132,8 +132,8 @@ MessageGenerator.prototype = {
    * @returns The unique name corresponding to the name mail address.
    */
   makeMailAddress: function(aNameNumber) {
-    let iFirst = aNameNumber % FIRST_NAMES.length;
-    let iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
+    var iFirst = aNameNumber % FIRST_NAMES.length;
+    var iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
                 LAST_NAMES.length;
 
     return FIRST_NAMES[iFirst].toLowerCase() + "@" +
@@ -174,8 +174,8 @@ MessageGenerator.prototype = {
    * @returns a list of aCount name-and-address tuples.
    */
   makeNamesAndAddresses: function(aCount) {
-    let namesAndAddresses = [];
-    for (let i=0; i < aCount; i++)
+    var namesAndAddresses = [];
+    for (var i=0; i < aCount; i++)
       namesAndAddresses.push(this.makeNameAndAddress());
     return namesAndAddresses;
   },
@@ -191,11 +191,11 @@ MessageGenerator.prototype = {
   makeSubject: function(aSubjectNumber) {
     if (aSubjectNumber === undefined)
       aSubjectNumber = this._nextSubjectNumber++;
-    let iAdjective = aSubjectNumber % SUBJECT_ADJECTIVES.length;
-    let iNoun = (iAdjective + Math.floor(aSubjectNumber /
+    var iAdjective = aSubjectNumber % SUBJECT_ADJECTIVES.length;
+    var iNoun = (iAdjective + Math.floor(aSubjectNumber /
                                          SUBJECT_ADJECTIVES.length)) %
                 SUBJECT_NOUNS.length;
-    let iSuffix = (iNoun + Math.floor(aSubjectNumber /
+    var iSuffix = (iNoun + Math.floor(aSubjectNumber /
                    (SUBJECT_ADJECTIVES.length * SUBJECT_NOUNS.length))) %
                   SUBJECT_SUFFIXES.length;
     return SUBJECT_ADJECTIVES[iAdjective] + " " +
@@ -205,7 +205,7 @@ MessageGenerator.prototype = {
 
   /**
    * Fabricate a message-id suitable for the given synthetic message.  Although
-   *  we don't use the message yet, in theory it would let us tailor the
+   *  we don't use the message yet, in theory it would var us tailor the
    *  message id to the server that theoretically might be sending it.  Or some
    *  such.
    *
@@ -214,7 +214,7 @@ MessageGenerator.prototype = {
    * @returns a Message-id suitable for the given message.
    */
   makeMessageId: function(aSynthMessage) {
-    let msgId = this._nextMessageIdNum + "@made.up";
+    var msgId = this._nextMessageIdNum + "@made.up";
     this._nextMessageIdNum++;
     return msgId;
   },
@@ -229,7 +229,7 @@ MessageGenerator.prototype = {
    * @returns A made-up time in JavaScript Date object form.
    */
   makeDate: function() {
-    let date = this._clock;
+    var date = this._clock;
     // advance time by an hour
     this._clock = new Date(date.valueOf() + 60 * 60 * 1000);
     return date;
@@ -287,7 +287,7 @@ MessageGenerator.prototype = {
    * @param [aArgs.read] Should this message be marked as already read?
    * @returns a SyntheticMessage fashioned just to your liking.
    */
-  makeMessage: function(aArgs) {
+  makeMessage: function makeMessage(aArgs) {
     aArgs = aArgs || {};
 
     var headerInfo = {
@@ -310,7 +310,7 @@ MessageGenerator.prototype = {
     };
 
     if (aArgs.inReplyTo) {
-      let srcMsg = aArgs.inReplyTo;
+      var srcMsg = aArgs.inReplyTo;
 
       headerInfo.subject =
         (srcMsg.headerInfo.subject.substring(0, 4) == "Re: ") ?
@@ -331,9 +331,9 @@ MessageGenerator.prototype = {
     }
 
     if (aArgs.age) {
-      let age = aArgs.age;
+      var age = aArgs.age;
       // start from 'now'
-      let ts = new Date().valueOf();
+      var ts = new Date().valueOf();
       if (age.minutes)
         ts -= age.minutes * 60 * 1000;
       if (age.hours)
@@ -357,8 +357,8 @@ MessageGenerator.prototype = {
       'They definitely do not know latin, which is why no lorax gypsum.';
 
     return {
-      headerInfo: header,
-      bodyInfo: body,
+      headerInfo: headerInfo,
+      bodyInfo: bodyInfo,
     };
   },
 
@@ -388,31 +388,38 @@ MessageGenerator.prototype = {
    * - count: 10
    */
   makeMessages: function MessageGenerator_makeMessages(aSetDef) {
-    let messages = [];
+    var messages = [];
 
-    let args = {};
+    var args = {}, unit, delta;
     // zero out all the age_incr fields in age (if present)
     if (aSetDef.age_incr) {
       args.age = {};
-      for (let [unit, delta] in Iterator(aSetDef.age_incr))
+      for (unit in aSetDef.age_incr) {
+        delta = aSetDef.age_incr[unit];
         args.age[unit] = 0;
+      }
     }
     // copy over the initial values from age (if present)
     if (aSetDef.age) {
       args.age = args.age || {};
-      for (let [unit, value] in Iterator(aSetDef.age))
+      for (unit in aSetDef.age) {
+        var value = aSetDef.age[unit];
         args.age[unit] = value;
+      }
     }
     // just copy over any attributes found from MAKE_MESSAGES_PROPAGATE
-    for each (let [, propAttrName] in Iterator(this.MAKE_MESSAGES_PROPAGATE)) {
+    for (var iPropName = 0;
+         iPropName < this.MAKE_MESSAGES_PROPAGATE.length;
+         iPropName++) {
+      var propAttrName = this.MAKE_MESSAGES_PROPAGATE[iPropName];
       if (aSetDef[propAttrName])
         args[propAttrName] = aSetDef[propAttrName];
     }
 
-    let count = aSetDef.count || this.MAKE_MESSAGES_DEFAULTS.count;
-    let messagsPerThread = aSetDef.msgsPerThread || 1;
-    let lastMessage = null;
-    for (let iMsg = 0; iMsg < count; iMsg++) {
+    var count = aSetDef.count || this.MAKE_MESSAGES_DEFAULTS.count;
+    var messagsPerThread = aSetDef.msgsPerThread || 1;
+    var lastMessage = null;
+    for (var iMsg = 0; iMsg < count; iMsg++) {
       // primitive threading support...
       if (lastMessage && (iMsg % messagsPerThread != 0))
         args.inReplyTo = lastMessage;
@@ -424,8 +431,10 @@ MessageGenerator.prototype = {
       messages.push(lastMessage);
 
       if (aSetDef.age_incr) {
-        for (let [unit, delta] in Iterator(aSetDef.age_incr))
+        for (unit in aSetDef.age_incr) {
+          delta = aSetDef.age_incr[unit];
           args.age[unit] += delta;
+        }
       }
     }
 
@@ -449,6 +458,8 @@ function FakeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
   this.accountDef = accountDef;
 
   var generator = new MessageGenerator();
+
+  this.identities = accountDef.identities;
 
   var ourIdentity = accountDef.identities[0];
   var ourNameAndAddress = {
@@ -492,10 +503,10 @@ function FakeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
 }
 exports.FakeAccount = FakeAccount;
 FakeAccount.prototype = {
-  toString: function() {
+  toString: function fa_toString() {
     return '[FakeAccount: ' + this.id + ']';
   },
-  toBridgeWire: function() {
+  toBridgeWire: function fa_toBridgeWire() {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
@@ -517,14 +528,19 @@ FakeAccount.prototype = {
     };
   },
 
-  sliceFolderMessages: function(folderId, bridgeHandle) {
+  sliceFolderMessages: function fa_sliceFolderMessages(folderId, bridgeHandle) {
+    return this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
   },
-  syncFolderList: function(callback) {
+  syncFolderList: function fa_syncFolderList(callback) {
+    // NOP; our list of folders is eternal (for now)
+    callback();
   },
-  sendMessage: function(composedMessage, callback) {
+  sendMessage: function fa_sendMessage(composedMessage, callback) {
+    // XXX put a copy of the message in the sent folder
+    callback(null);
   },
 
-  getFolderStorageForId: function(folderId) {
+  getFolderStorageForId: function fa_getFolderStorageForId(folderId) {
     return this._folderStorages[folderId];
   },
 };
@@ -540,7 +556,11 @@ function FakeFolderStorage(folderMeta, headersAndBodies) {
   }
 }
 FakeFolderStorage.prototype = {
-  getMessageBody: function(suid, date, callback) {
+  _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
+    bridgeHandle.sendSplice(0, 0, this._headers, true, false);
+  },
+
+  getMessageBody: function ffs_getMessageBody(suid, date, callback) {
     callback(this._bodiesBySuid[suid]);
   },
 };

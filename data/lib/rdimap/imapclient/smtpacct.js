@@ -49,6 +49,9 @@ SmtpAccount.prototype = {
    *   @param[callback @func[
    *     @args[
    *       @param[error @oneof[
+   *         @case[null]{
+   *           No error, message sent successfully.
+   *         }
    *         @case['auth']{
    *           Authentication problem.  This should probably be escalated to
    *           the user so they can fix their password.
