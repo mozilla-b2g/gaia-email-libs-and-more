@@ -458,6 +458,10 @@ MailUniverse.prototype = {
     return account;
   },
 
+  getAccountForAccountId: function mu_getAccountForAccountId(accountId) {
+    return this._accountsById[accountId];
+  },
+
   /**
    * Given a folder-id, get the owning account.
    */
@@ -479,7 +483,7 @@ MailUniverse.prototype = {
   getFolderStorageForFolderId: function mu_getFolderStorageForFolderId(
                                  folderId) {
     var account = this.getAccountForFolderId(folderId);
-    return account.getFolderStorageForId(folderId);
+    return account.getFolderStorageForFolderId(folderId);
   },
 
   getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(

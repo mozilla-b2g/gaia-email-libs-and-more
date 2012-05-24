@@ -1037,7 +1037,8 @@ ImapFolderStorage.prototype = {
    * `HeaderBlock` will be inserted into the block map, but it's up to the
    * caller to insert the returned `FolderBlockInfo` in the right place.
    */
-  _makeHeaderBlock: function(startTS, startUID, endTS, endUID) {
+  _makeHeaderBlock: function ifs__makeHeaderBlock(
+      startTS, startUID, endTS, endUID) {
     var blockId = $a64.encodeInt(this._folderImpl.nextHeaderBlock++),
         blockInfo = {
           blockId: blockId,
@@ -1063,7 +1064,8 @@ ImapFolderStorage.prototype = {
    * `BodyBlock` will be inserted into the block map, but it's up to the
    * caller to insert the returned `FolderBlockInfo` in the right place.
    */
-  _makeBodyBlock: function(startTS, endTS) {
+  _makeBodyBlock: function ifs__makeBodyBlock(
+      startTS, endTS) {
     var blockId = $a64.encodeInt(this._folderImpl.nextBodyBlock++),
         blockInfo = {
           blockId: blockId,
@@ -1092,7 +1094,8 @@ ImapFolderStorage.prototype = {
    *   @param[inside Object]
    * ]]
    */
-  _findRangeObjIndexForDate: function(list, date) {
+  _findRangeObjIndexForDate: function ifs__findRangeObjIndexForDate(
+      list, date) {
     var i;
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
@@ -1126,7 +1129,8 @@ ImapFolderStorage.prototype = {
    *   @param[inside Object]
    * ]]
    */
-  _findRangeObjIndexForDateAndUID: function(list, date, uid) {
+  _findRangeObjIndexForDateAndUID: function ifs__findRangeObjIndexForDateAndUID(
+      list, date, uid) {
     var i;
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
@@ -1157,7 +1161,8 @@ ImapFolderStorage.prototype = {
    * Find the first object that contains date ranges that overlaps the provided
    * date range.
    */
-  _findFirstObjIndexForDateRange: function(list, startTS, endTS) {
+  _findFirstObjIndexForDateRange: function ifs__findFirstObjIndexForDateRange(
+      list, startTS, endTS) {
     var i;
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
@@ -1189,7 +1194,8 @@ ImapFolderStorage.prototype = {
    * Find the first object in the list whose `date` falls inside the given
    * IMAP style date range.
    */
-  _findFirstObjForDateRange: function(list, startTS, endTS) {
+  _findFirstObjForDateRange: function ifs__findFirstObjForDateRange(
+      list, startTS, endTS) {
     var i;
     for (i = 0; i < list.length; i++) {
       var date = list[i].date;
@@ -1270,8 +1276,8 @@ ImapFolderStorage.prototype = {
    *   }
    * ]
    */
-  _pickInsertionBlockUsingDateAndUID: function(type, date, uid, estSizeCost,
-                                               blockPickedCallback) {
+  _pickInsertionBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
+      type, date, uid, estSizeCost, blockPickedCallback) {
     var blockInfoList, makeBlock;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
@@ -1366,7 +1372,7 @@ ImapFolderStorage.prototype = {
    * network and are sufficiently out-of-date that what we show the user would
    * be useless.
    */
-  sliceOpenFromNow: function(slice, daysDesired) {
+  sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired) {
     daysDesired = daysDesired || INITIAL_SYNC_DAYS;
     this._slices.push(slice);
     if (this._curSyncSlice) {
@@ -1411,7 +1417,7 @@ ImapFolderStorage.prototype = {
                                   this.onSyncCompleted.bind(this));
   },
 
-  dyingSlice: function(slice) {
+  dyingSlice: function ifs_dyingSlice(slice) {
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
 
@@ -1424,7 +1430,7 @@ ImapFolderStorage.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function() {
+  onSyncCompleted: function ifs_onSyncCompleted() {
     console.log("Sync Completed!");
     // If the slice already knows about all the messages in the folder, make
     // sure it doesn't want additional messages that don't exist.
@@ -1452,7 +1458,7 @@ ImapFolderStorage.prototype = {
                                   this.onSyncCompleted.bind(this));
   },
 
-  sliceQuicksearch: function(slice, searchParams) {
+  sliceQuicksearch: function ifs_sliceQuicksearch(slice, searchParams) {
   },
 
   /**
@@ -1471,8 +1477,8 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getMessagesInDateRange: function(startTS, endTS, limit,
-                                   messageCallback) {
+  getMessagesInDateRange: function ifs_getMessagesInDateRange(
+      startTS, endTS, limit, messageCallback) {
     var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
@@ -1548,7 +1554,8 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getAllMessagesInDateRange: function(startTS, endTS, allCallback) {
+  getAllMessagesInDateRange: function ifs_getAllMessagesInDateRange(
+      startTS, endTS, allCallback) {
     var allHeaders = null;
     function someMessages(headers, moreHeadersExpected) {
       if (allHeaders)
@@ -1576,7 +1583,7 @@ ImapFolderStorage.prototype = {
   /**
    * Add a new message to the database, generating slice notifications.
    */
-  addMessageHeader: function(header) {
+  addMessageHeader: function ifs_addMessageHeader(header) {
     var self = this;
 
     if (this._pendingLoads.length) {
@@ -1622,7 +1629,7 @@ ImapFolderStorage.prototype = {
    * don't consider this change large enough to cause us to need to split a
    * block.
    */
-  updateMessageHeader: function(header) {
+  updateMessageHeader: function ifs_updateMessageHeader(header) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
       return;
@@ -1635,7 +1642,7 @@ ImapFolderStorage.prototype = {
   /**
    * A notification that an existing header is still up-to-date.
    */
-  unchangedMessageHeader: function(header) {
+  unchangedMessageHeader: function ifs_unchangedMessageHeader(header) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
       return;
@@ -1658,7 +1665,7 @@ ImapFolderStorage.prototype = {
   /**
    *
    */
-  addMessageBody: function(header, bodyInfo) {
+  addMessageBody: function ifs_addMessageBody(header, bodyInfo) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.addMessageBody.bind(this, header,
                                                         bodyInfo));
@@ -1672,14 +1679,13 @@ ImapFolderStorage.prototype = {
       });
   },
 
-
-
-  getMessageBody: function(suid, date, callback) {
+  getMessageBody: function ifs_getMessageBody(suid, date, callback) {
     var uid = suid.substring(suid.lastIndexOf('-') + 1),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
                                                        date, uid);
     if (posInfo[1] === null)
-      throw new Error('Unable to locate owning block for id/date: ' + id + ', ' + date);
+      throw new Error('Unable to locate owning block for id/date: ' + suid +
+                      ', ' + date);
     var bodyBlockInfo = posInfo[1];
     if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.id))) {
       this._loadBlock('body', bodyBlockInfo.id, function(bodyBlock) {

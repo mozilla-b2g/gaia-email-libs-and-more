@@ -540,7 +540,7 @@ FakeAccount.prototype = {
     callback(null);
   },
 
-  getFolderStorageForId: function fa_getFolderStorageForId(folderId) {
+  getFolderStorageForFolderId: function fa_getFolderStorageForFolderId(folderId){
     return this._folderStorages[folderId];
   },
 };

@@ -78,19 +78,28 @@ MailBridge.prototype = {
 
   _cmd_viewFolders: function mb__cmd_viewFolders(msg) {
     var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, msg.handle),
-        accounts = this.universe.accounts;
+          new SliceBridgeProxy(this, msg.handle);
+
     var wireReps = [];
-    // Tell the other side about all the accounts/folders all at once.  There
-    // is no benefit to only telling it about a subset.  However, we may derive
-    // a benefit from knowing the approximate visual range in terms of asking
-    // folders about their unread counts.
-    for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
-      var acct = accounts[iAcct];
-      wireReps.push(acct.toBridgeWire());
+
+    function pushAccountFolders(acct) {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
         wireReps.push(folder);
+      }
+    }
+
+    if (msg.mode === 'account') {
+      pushAccountFolders(
+        this.universe.getAccountForAccountId(msg.argument));
+    }
+    else {
+      var accounts = this.universe.accounts;
+
+      for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
+        var acct = accounts[iAcct];
+        wireReps.push(acct.toBridgeWire());
+        pushAccountFolders(acct);
       }
     }
     proxy.sendSplice(0, 0, wireReps, true, false);

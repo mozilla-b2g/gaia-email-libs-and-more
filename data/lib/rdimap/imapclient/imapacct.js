@@ -126,7 +126,7 @@ ImapAccount.prototype = {
     this.folders.push(folderInfo.$meta);
   },
 
-  getFolderStorageForId: function(folderId) {
+  getFolderStorageForFolderId: function(folderId) {
     if (this._folderStorages.hasOwnProperty(folderId))
       return this._folderStorages[folderId];
     throw new Error('No folder with id: ' + folderId);
