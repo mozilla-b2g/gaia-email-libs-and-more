@@ -1172,8 +1172,6 @@ ImapFolderStorage.prototype = {
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
       var info = list[i];
-console.error("fcheck", i, startTS, info.endTS, startTS >= info.endTS,
-              "|", endTS, info.startTS, endTS > info.startTS);
       // - Stop if we will never find a match if we keep going.
       // If our comparison range starts AT OR AFTER the end of this range, then
       // it does not overlap this range and will never overlap any subsequent
@@ -1207,8 +1205,6 @@ console.error("fcheck", i, startTS, info.endTS, startTS >= info.endTS,
     // linear scan for now; binary search later
     for (i = list.length - 1; i >= 0; i--) {
       var info = list[i];
-console.warn("lcheck", i, endTS, info.startTS, endTS <= info.startTS,
-             "|", startTS, info.endTS, startTS < info.endTS);
       // - Stop if we will never find a match if we keep going.
       // If our comparison range ends ON OR BEFORE the end of this range, then
       // it does not overlap this range and will never overlap any subsequent
@@ -1644,9 +1640,6 @@ console.warn("lcheck", i, endTS, info.startTS, endTS <= info.startTS,
     // is not 'outside' the range.
     oldSplits = oldInfo[1] && BEFORE(oldInfo[1].startTS, startTS);
 
-    console.log("MSR:", startTS, endTS, "newInfo", newInfo[0], newSplits ? 'SPLITs' : 'NOsplit',
-                "| oldInfo", oldInfo[0], oldSplits ? 'SPLITs' : 'NOsplit');
-
     var insertions = [],
         delCount = oldInfo[0] - newInfo[0];
     if (oldInfo[1])
@@ -1696,9 +1689,6 @@ console.warn("lcheck", i, endTS, info.startTS, endTS <= info.startTS,
       insertions[insertions.length-1].startTS = oldNeighbor.startTS;
       delCount++;
     }
-
-    console.log("splicing out", delCount, "@", newInfo[0]);
-    console.log("  in", JSON.stringify(insertions));
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
   },
