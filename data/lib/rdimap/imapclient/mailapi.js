@@ -394,9 +394,13 @@ function FoldersViewSlice(api, handle) {
 FoldersViewSlice.prototype = {
   __proto__: BridgedViewSlice.prototype,
 
-  getFirstFolderWithType: function(type) {
-    for (var i = 0; i < this.items.length; i++) {
-      var folder = this.items[i];
+  getFirstFolderWithType: function(type, items) {
+    // allow an explicit list of items to be provided, specifically for use in
+    // onsplice handlers where the items have not yet been spliced in.
+    if (!items)
+      items = this.items;
+    for (var i = 0; i < items.length; i++) {
+      var folder = items[i];
       if (folder.type === type)
         return folder;
     }

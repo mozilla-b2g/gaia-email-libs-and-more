@@ -50,7 +50,8 @@ const DEFAULT_SIGNATURE = [
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
+function CompositeAccount(accountDef, folderInfo, dbConn, receiveProtoConn,
+                          _LOG) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
   // XXX for now we are stealing the universe's logger
@@ -68,11 +69,11 @@ function CompositeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
   this._receivePiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderInfo, this._LOG, receiveProtoConn);
+      folderInfo, dbConn, this._LOG, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
       accountDef.id, accountDef.credentials,
-      accountDef.sendConnInfo, this._LOG);
+      accountDef.sendConnInfo, dbConn, this._LOG);
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
@@ -443,8 +444,8 @@ MailUniverse.prototype = {
       return null;
     }
     var constructor = COMPOSITE_ACCOUNT_TYPE_TO_CLASS[accountDef.type];
-    var account = new constructor(accountDef, folderInfo, receiveProtoConn,
-                                  this._LOG);
+    var account = new constructor(accountDef, folderInfo, this._db,
+                                  receiveProtoConn, this._LOG);
 
     this.accounts.push(account);
     this._accountsById[account.id] = account;

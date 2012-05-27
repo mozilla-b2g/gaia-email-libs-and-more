@@ -862,6 +862,10 @@ ImapFolderConn.prototype = {
  *   Tracked independently of the block data because there doesn't really seem
  *   to be an upside to coupling them.  The date ranges are inclusive; other
  *   blocks should differ by at least 1 millisecond.
+ *
+ *   This lets us know when we have sufficiently valid data to display messages
+ *   without needing to talk to the server, allows us to size checks for
+ *   new messages in time ranges, and should be a useful debugging aid.
  * }
  * @typedef[FolderBlockInfo @dict[
  *   @key[blockId BlockId]{
@@ -947,10 +951,11 @@ ImapFolderConn.prototype = {
  *   @value[BodyInfo]
  * ]]
  */
-function ImapFolderStorage(account, folderId, persistedFolderInfo, _parentLog) {
+function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
+                           _parentLog) {
   /** Our owning account. */
   this._account = account;
-  this._imapDb = null;
+  this._imapDb = dbConn;
 
   this.folderId = folderId;
   this.folderMeta = persistedFolderInfo.$meta;
@@ -1159,7 +1164,7 @@ ImapFolderStorage.prototype = {
 
   /**
    * Find the first object that contains date ranges that overlaps the provided
-   * date range.
+   * date range.  Scans from the present into the past.
    */
   _findFirstObjIndexForDateRange: function ifs__findFirstObjIndexForDateRange(
       list, startTS, endTS) {
@@ -1167,6 +1172,8 @@ ImapFolderStorage.prototype = {
     // linear scan for now; binary search later
     for (i = 0; i < list.length; i++) {
       var info = list[i];
+console.error("fcheck", i, startTS, info.endTS, startTS >= info.endTS,
+              "|", endTS, info.startTS, endTS > info.startTS);
       // - Stop if we will never find a match if we keep going.
       // If our comparison range starts AT OR AFTER the end of this range, then
       // it does not overlap this range and will never overlap any subsequent
@@ -1189,6 +1196,41 @@ ImapFolderStorage.prototype = {
 
     return [i, null];
   },
+
+  /**
+   * Find the last object that contains date ranges that overlaps the provided
+   * date range.  Scans from the past into the present.
+   */
+  _findLastObjIndexForDateRange: function ifs__findLastObjIndexForDateRange(
+      list, startTS, endTS) {
+    var i;
+    // linear scan for now; binary search later
+    for (i = list.length - 1; i >= 0; i--) {
+      var info = list[i];
+console.warn("lcheck", i, endTS, info.startTS, endTS <= info.startTS,
+             "|", startTS, info.endTS, startTS < info.endTS);
+      // - Stop if we will never find a match if we keep going.
+      // If our comparison range ends ON OR BEFORE the end of this range, then
+      // it does not overlap this range and will never overlap any subsequent
+      // ranges because they are all chronologically later than this range.
+      //
+      // nb: We are saying that there is no overlap if one range starts where
+      // the other one ends.  This is consistent with the inclusive/exclusive
+      // definition of since/before and our ranges.
+      if (ON_OR_BEFORE(endTS, info.startTS))
+        return [i + 1, null];
+      // therefore STRICTLY_AFTER(endTS, info.startTS)
+
+      // we match in this entry if the start stamp is before the range's end
+      if (BEFORE(startTS, info.endTS))
+        return [i, info];
+
+      // (no overlap yet)
+    }
+
+    return [0, null];
+  },
+
 
   /**
    * Find the first object in the list whose `date` falls inside the given
@@ -1571,13 +1613,94 @@ ImapFolderStorage.prototype = {
   /**
    * Mark a given time range as synchronized.
    *
-   * XXX punting on for now; this will cause synchronization to always occur
-   * prior to attempting to populate the slice.
+   * @args[
+   *   @param[startTS DateMS]
+   *   @param[endTS DateMS]
+   *   @param[modseq]
+   *   @parma[updated DateMS]
+   * ]
    */
-  markSyncRange: function(startTS, endTS, modseq, dateMS) {
-    // - Find all overlapping accuracy ranges.
-    // - Split younger overlap if partial
-    // - Split older overlap if partial
+  markSyncRange: function(startTS, endTS, modseq, updated) {
+    var aranges = this._accuracyRanges;
+    function makeRange(start, end, modseq, updated) {
+      return {
+        startTS: start, endTS: end,
+        // let an existing fullSync be passed in instead...
+        fullSync: (typeof(modseq) === 'string') ?
+          { highestModseq: modseq, updated: updated } :
+          { highestModseq: modseq.fullSync.highestModseq,
+            updated: modseq.fullSync.updated },
+      };
+    }
+
+
+    var newInfo = this._findFirstObjIndexForDateRange(aranges, startTS, endTS),
+        oldInfo = this._findLastObjIndexForDateRange(aranges, startTS, endTS),
+        newSplits, oldSplits;
+    // We need to split the new block if we overlap a block and our end range
+    // is not 'outside' the range.
+    newSplits = newInfo[1] && STRICTLY_AFTER(newInfo[1].endTS, endTS);
+    // We need to split the old block if we overlap a block and our start range
+    // is not 'outside' the range.
+    oldSplits = oldInfo[1] && BEFORE(oldInfo[1].startTS, startTS);
+
+    console.log("MSR:", startTS, endTS, "newInfo", newInfo[0], newSplits ? 'SPLITs' : 'NOsplit',
+                "| oldInfo", oldInfo[0], oldSplits ? 'SPLITs' : 'NOsplit');
+
+    var insertions = [],
+        delCount = oldInfo[0] - newInfo[0];
+    if (oldInfo[1])
+      delCount++;
+
+    if (newSplits) {
+      // should this just be an effective merge with our insertion?
+      if (newInfo[1].fullSync &&
+          newInfo[1].fullSync.highestModseq === modseq &&
+          newInfo[1].fullSync.updated === updated)
+        endTS = newInfo[1].endTS;
+      else
+        insertions.push(makeRange(endTS, newInfo[1].endTS, newInfo[1]));
+    }
+    insertions.push(makeRange(startTS, endTS, modseq, updated));
+    if (oldSplits) {
+      // should this just be an effective merge with what we just inserted?
+      if (oldInfo[1].fullSync &&
+          oldInfo[1].fullSync.highestModseq === modseq &&
+          oldInfo[1].fullSync.updated === updated)
+        insertions[insertions.length-1].startTS = oldInfo[1].startTS;
+      else
+        insertions.push(makeRange(oldInfo[1].startTS, startTS, oldInfo[1]));
+    }
+
+    // - merges
+    // Consider a merge if there is an adjacent accuracy range in the given dir.
+    var newNeighbor = newInfo[0] > 0 ? aranges[newInfo[0] - 1] : null,
+        oldAdjust = oldInfo[1] ? 1 : 0,
+        oldNeighbor = oldInfo[0] < (aranges.length - oldAdjust) ?
+                        aranges[oldInfo[0] + oldAdjust] : null;
+    // We merge if our starts and ends line up...
+    if (newNeighbor &&
+       insertions[0].endTS === newNeighbor.startTS &&
+        newNeighbor.fullSync &&
+        newNeighbor.fullSync.highestModseq === modseq &&
+        newNeighbor.fullSync.updated === updated) {
+      insertions[0].endTS = newNeighbor.endTS;
+      newInfo[0]--;
+      delCount++;
+    }
+    if (oldNeighbor &&
+        insertions[insertions.length-1].startTS === oldNeighbor.endTS &&
+        oldNeighbor.fullSync &&
+        oldNeighbor.fullSync.highestModseq === modseq &&
+        oldNeighbor.fullSync.updated === updated) {
+      insertions[insertions.length-1].startTS = oldNeighbor.startTS;
+      delCount++;
+    }
+
+    console.log("splicing out", delCount, "@", newInfo[0]);
+    console.log("  in", JSON.stringify(insertions));
+
+    aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
   },
 
   /**

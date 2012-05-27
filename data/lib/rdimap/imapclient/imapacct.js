@@ -30,12 +30,13 @@ define(
  * API in such a way that we never know the API.  Se a vida e.
  *
  */
-function ImapAccount(accountId, credentials, connInfo, folderInfos,
+function ImapAccount(accountId, credentials, connInfo, folderInfos, dbConn,
                      _parentLog, existingProtoConn) {
   this.id = accountId;
 
   this._credentials = credentials;
   this._connInfo = connInfo;
+  this._db = dbConn;
 
   this._ownedConns = [];
   if (existingProtoConn)
@@ -88,7 +89,8 @@ function ImapAccount(accountId, credentials, connInfo, folderInfos,
 
     this._LOG.persistedFolder(folderId, folderInfo);
     folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
+                                       this._LOG);
     folderPubs.push(folderInfo.$meta);
   }
 }
