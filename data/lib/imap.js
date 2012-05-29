@@ -988,63 +988,6 @@ ImapConnection.prototype._copy = function(which, uids, boxTo, cb) {
              ' ' + uids.join(',') + ' "' + escape(boxTo) + '"', cb);
 };
 
-ImapConnection.prototype.move = function(uids, boxTo, cb) {
-  return this._move('UID ', uids, boxTo, cb);
-};
-ImapConnection.prototype._move = function(which, uids, boxTo, cb) {
-  var self = this;
-  if (this._state.status !== STATES.BOXSELECTED)
-    throw new Error('No mailbox is currently selected');
-  if (self._state.box.permFlags.indexOf('Deleted') === -1) {
-    throw new Error('Cannot move message: '
-                    + 'server does not allow deletion of messages');
-  } else {
-    self._copy(which, uids, boxTo, function(err, reentryCount, deletedUIDs,
-                                             counter) {
-      if (err) {
-        cb(err);
-        return;
-      }
-
-      var fnMe = arguments.callee;
-      counter = counter || 0;
-      // Make sure we don't expunge any messages marked as Deleted except the
-      // one we are moving
-      if (reentryCount === undefined) {
-        self.search(['DELETED'], function(e, result) {
-          fnMe.call(this, e, 1, result);
-        });
-      } else if (reentryCount === 1) {
-        if (counter < deletedUIDs.length) {
-          self.delFlags(deletedUIDs[counter], 'DELETED', function(e) {
-            process.nextTick(function() {
-              fnMe.call(this, e, reentryCount, deletedUIDs, counter+1);
-            });
-          });
-        } else
-          fnMe.call(this, err, reentryCount+1, deletedUIDs);
-      } else if (reentryCount === 2) {
-        self.addFlags(uids, 'Deleted', function(e) {
-          fnMe.call(this, e, reentryCount+1, deletedUIDs);
-        });
-      } else if (reentryCount === 3) {
-        self.removeDeleted(function(e) {
-          fnMe.call(this, e, reentryCount+1, deletedUIDs);
-        });
-      } else if (reentryCount === 4) {
-        if (counter < deletedUIDs.length) {
-          self.addFlags(deletedUIDs[counter], 'DELETED', function(e) {
-            process.nextTick(function() {
-              fnMe.call(this, e, reentryCount, deletedUIDs, counter+1);
-            });
-          });
-        } else
-          cb();
-      }
-    });
-  }
-};
-
 /* Namespace for seqno-based commands */
 ImapConnection.prototype.__defineGetter__('seq', function() {
   var self = this;
