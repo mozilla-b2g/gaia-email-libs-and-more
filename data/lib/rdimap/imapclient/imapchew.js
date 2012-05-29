@@ -282,6 +282,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     return str;
   }
   rep.bodyInfo = {
+    date: rep.msg.date,
     size: sizeEst,
     to: ('to' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.to) : null,
     cc: ('cc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.cc) : null,

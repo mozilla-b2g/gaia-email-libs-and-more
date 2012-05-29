@@ -23,11 +23,12 @@ function makeTestContext() {
   var db = new MockDB(),
       account = new MockAccount();
 
+  var folderId = 'A-1';
   var storage = new $imapslice.ImapFolderStorage(
-    account, 'A-1',
+    account, folderId,
     {
       $meta: {
-        id: 'A-1',
+        id: folderId,
         name: 'Inbox',
         path: 'Inbox',
         type: 'inbox'
@@ -45,8 +46,75 @@ function makeTestContext() {
   return {
     account: account,
     db: db,
-    storage: storage
+    storage: storage,
+    insertBody: function(date, uid, size, expectedBlockIndex) {
+      var blockInfo = null;
+      var bodyInfo = {
+        date: date, size: size,
+        to: null, cc: null, bcc: null, replyTo: null,
+        attachments: null, bodyText: null
+      };
+      storage._insertIntoBlockUsingDateAndUID(
+        'body', date, uid, size, bodyInfo, function blockPicked(info, block) {
+          // Make sure the insertion happens in the block location we were
+          // expecting.
+          do_check_eq(storage._bodyBlockInfos.indexOf(info),
+                      expectedBlockIndex);
+          blockInfo = info;
+        });
+      return blockInfo;
+    },
+    deleteBody: function(date, uid) {
+      storage._deleteFromBlock('body', date, uid, function blockDeleted() {
+      });
+    },
+    /**
+     * Clear the list of dirty blocks.
+     */
+    resetDirtyBlocks: function() {
+      storage._dirtyBodyBlocks = {};
+    },
+    /**
+     * Assert that all of the given body blocks are marked dirty.
+     */
+    checkDirtyBodyBlocks: function(bodyIndices, nukedInfos) {
+      var i, blockInfo;
+      if (bodyIndices == null)
+        bodyIndices = [];
+      for (i = 0; i < bodyIndices.length; i++) {
+        blockInfo = storage._bodyBlockInfos[i];
+        do_check_true(
+          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
+        do_check_true(
+          storage._dirtyBodyBlocks[blockInfo.blockId] ===
+            storage._bodyBlocks[blockInfo.blockId]);
+      }
+      if (nukedInfos == null)
+        nukedInfos = [];
+      for (i = 0; i < nukedInfos.length; i++) {
+        blockInfo = nukedInfos[blockInfo];
+        do_check_true(
+          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
+        do_check_true(
+          storage._dirtyBodyBlocks[blockInfo.blockId] === null);
+      }
+    },
   };
+}
+
+function makeDummyHeaders(count) {
+  var headers = [], uid = 100, date = DateUTC(2010, 0, 1);
+  while (count--) {
+    headers.push({
+      id: uid,
+      suid: 'H-1-' + uid++,
+      author: null,
+      date: date++,
+      flags: null, hasAttachments: null, subject: null, snippet: null,
+    });
+  }
+  headers.reverse();
+  return headers;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -308,53 +376,382 @@ add_test(function test_accuracy_merge() {
 });
 
 ////////////////////////////////////////////////////////////////////////////////
-// _pickInsertionBlockUsingDateAndUID
+// Header/body insertion/deletion into/out of blocks.
 //
-// Tests the core routine that picks the block to put headers/bodies into, and
-// appropriately split them.
+// UIDs are in the 100's to make equivalence failure types more obvious.
+
+/**
+ * Byte size so that 2 fit in a block, but 3 will not.
+ */
+const BIG2 = 36 * 1024;
+/**
+ * Byte size so that 3 fit in a block, but 4 will not.
+ */
+const BIG3 = 28 * 1024;
+
+function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
+  do_check_eq(blockInfo.count, count);
+  do_check_eq(blockInfo.estSize, size);
+  do_check_eq(blockInfo.startTS, startTS);
+  do_check_eq(blockInfo.startUID, startUID);
+  do_check_eq(blockInfo.endTS, endTS);
+  do_check_eq(blockInfo.endUID, endUID);
+}
 
 /**
  * Base case: there are no blocks yet!
  */
 add_test(function test_insertion_no_existing_blocks() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      uid1 = 101,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
 
+  do_check_eq(bodyBlocks.length, 0);
+
+  ctx.insertBody(d5, uid1, BS, 0);
+
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 1, BS, d5, uid1, d5, uid1);
+
+  ctx.checkDirtyBodyBlocks([0]);
   run_next_test();
 });
+
 /**
- *
+ * Insertion point is adjacent to an existing block and will not overflow it;
+ * use the block, checking directional preferences.  The directional preferences
+ * test requires us to artificially inject an additional block since we aren't
+ * triggering deletion for these tests.
  */
-add_test(function test_insertion_() {
+add_test(function test_insertion_adjacent_simple() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      d9 = DateUTC(2010, 0, 9),
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      uid4 = 104,
+      uid5 = 105,
+      uid6 = 106,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  // base case
+  ctx.insertBody(d5, uid2, BS, 0);
+
+  // - uid growth cases
+  // numerically greater UID
+  ctx.insertBody(d5, uid3, BS, 0);
+
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 2, 2 * BS, d5, uid2, d5, uid3);
+
+  // numerically lesser UID
+  ctx.insertBody(d5, uid1, BS, 0);
+
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 3, 3 * BS, d5, uid1, d5, uid3);
+
+  ctx.checkDirtyBodyBlocks([0]);
+
+  // - directional preferences (after injecting more recent block)
+  // inject the block that shouldn't be there...
+  var synInfo = ctx.storage._makeBodyBlock(d8, uid4, d9, uid5);
+  synInfo.count = 2;
+  synInfo.estSize = 2 * BS;
+  bodyBlocks.splice(0, 0, synInfo);
+
+  // inject one in between, it should favor the older block
+  ctx.insertBody(d7, uid6, BS, 1);
+  check_block(bodyBlocks[0], 2, 2 * BS, d8, uid4, d9, uid5);
+  check_block(bodyBlocks[1], 4, 4 * BS, d5, uid1, d7, uid6);
 
   run_next_test();
 });
+
 /**
  * Insertion point is in an existing block and will not overflow, use it.
  */
 add_test(function test_insertion_in_block_use() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  ctx.insertBody(d5, uid1, BS, 0);
+  ctx.insertBody(d7, uid2, BS, 0);
+  check_block(bodyBlocks[0], 2, 2 * BS, d5, uid1, d7, uid2);
+
+  ctx.insertBody(d6, uid3, BS, 0);
+
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 3, 3 * BS, d5, uid1, d7, uid2);
 
   run_next_test();
 });
+
 /**
  * Insertion point is in an existing block and will overflow, split it.
  */
 add_test(function test_insertion_in_block_overflow_split() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      uid4 = 104,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  ctx.insertBody(d5, uid1, BIG2, 0);
+  ctx.insertBody(d8, uid2, BIG2, 0);
+  check_block(bodyBlocks[0], 2, 2 * BIG2, d5, uid1, d8, uid2);
+
+  // - Split prefers the older block
+  ctx.insertBody(d7, uid3, BIG2, 1);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+
+  // - Split prefers the newer block
+  ctx.insertBody(d6, uid4, BIG2, 1);
+
+  do_check_eq(bodyBlocks.length, 3);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid3);
+  check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
 
   run_next_test();
 });
+
 /**
- * Insertion point is outside existing blocks, pick non-overflowing older block
- * which will then become "full", and cause us to fall back to the newer block
- * for the next insertion.
+ * Test the header block splitting logic on its own.
  */
-add_test(function test_insertion_outside_use_nonoverflow() {
+add_test(function test_header_block_splitting() {
+  var ctx = makeTestContext(),
+      expectedHeadersPerBlock = 246, // Math.ceil(48 * 1024 / 200)
+      numHeaders = 492,
+      // returned header list has numerically decreasing time/uid
+      bigHeaders = makeDummyHeaders(numHeaders),
+      bigUids = bigHeaders.map(function (x) { return x.id; }),
+      bigInfo = ctx.storage._makeHeaderBlock(
+        bigHeaders[numHeaders-1].date, bigHeaders[numHeaders-1].id,
+        bigHeaders[0].date, bigHeaders[0].id,
+        numHeaders * 200, bigUids.concat(), bigHeaders.concat()),
+      bigBlock = ctx.storage._headerBlocks[bigInfo.blockId];
+
+  var olderInfo = ctx.storage._splitHeaderBlock(bigInfo, bigBlock, 48 * 1024),
+      olderBlock = ctx.storage._headerBlocks[olderInfo.blockId],
+      newerInfo = bigInfo, newerBlock = bigBlock;
+
+  do_check_eq(newerInfo.count, expectedHeadersPerBlock);
+  do_check_eq(olderInfo.count, numHeaders - expectedHeadersPerBlock);
+
+  do_check_eq(newerInfo.estSize, newerInfo.count * 200);
+  do_check_eq(olderInfo.estSize, olderInfo.count * 200);
+
+
+  do_check_eq(newerInfo.startTS,
+              bigHeaders[expectedHeadersPerBlock-1].date);
+  do_check_eq(newerInfo.startUID,
+              bigHeaders[expectedHeadersPerBlock-1].id);
+  do_check_eq(newerInfo.endTS, bigHeaders[0].date);
+  do_check_eq(newerInfo.endUID, bigHeaders[0].id);
+  do_check_true(newerBlock.headers[0] === bigHeaders[0]);
+  do_check_eq(newerBlock.headers.length, newerInfo.count);
+  do_check_eq(newerBlock.headers[0].id, newerBlock.uids[0]);
+  do_check_eq(newerBlock.uids.length, newerInfo.count);
+  do_check_true(newerBlock.headers[expectedHeadersPerBlock-1] ===
+                bigHeaders[expectedHeadersPerBlock-1]);
+
+  do_check_eq(olderInfo.startTS, bigHeaders[numHeaders-1].date);
+  do_check_eq(olderInfo.startUID, bigHeaders[numHeaders-1].id);
+  do_check_eq(olderInfo.endTS, bigHeaders[expectedHeadersPerBlock].date);
+  do_check_eq(olderInfo.endUID, bigHeaders[expectedHeadersPerBlock].id);
+  do_check_true(olderBlock.headers[0] === bigHeaders[expectedHeadersPerBlock]);
+  do_check_eq(olderBlock.headers.length, olderInfo.count);
+  do_check_eq(olderBlock.headers[0].id, olderBlock.uids[0]);
+  do_check_eq(olderBlock.uids.length, olderInfo.count);
+  do_check_true(olderBlock.headers[numHeaders - expectedHeadersPerBlock - 1] ===
+                bigHeaders[numHeaders - 1]);
 
   run_next_test();
 });
+
+
 /**
- * Insertion point is outside existing blocks, adjacent blocks are overflowing;
- * pick the right block to split (based on position).
+ * Test that deleting a header out of a block that does not empty the block
+ * updates the values appropriately, then empty it and see it go away.
  */
-add_test(function test_insertion_outside_split_overflow() {
+add_test(function test_deletion() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      uid4 = 104,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  // - Setup: [1, 2]
+  ctx.insertBody(d5, uid1, BIG2, 0);
+  ctx.insertBody(d8, uid2, BIG2, 0);
+  ctx.insertBody(d7, uid3, BIG2, 1);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+
+  // - Delete to [1, 1], end-side
+  ctx.deleteBody(d7, uid3);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 1, 1 * BIG2, d5, uid1, d5, uid1);
+
+  // - Put it back in!
+  ctx.insertBody(d7, uid3, BIG2, 1);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+
+  // - Delete to [1, 1], start-side
+  ctx.deleteBody(d5, uid1);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 1, 1 * BIG2, d7, uid3, d7, uid3);
+
+  // - Delete the d8 block entirely
+  ctx.deleteBody(d8, uid2);
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d7, uid3, d7, uid3);
+
+  // - Delete the d7 block entirely
+  ctx.deleteBody(d7, uid3);
+  do_check_eq(bodyBlocks.length, 0);
+
+  run_next_test();
+});
+
+/**
+ * Insertion point is outside existing blocks.  Check that we split, and where
+ * there are multiple choices, that we pick according to our heuristic.
+ */
+add_test(function test_insertion_outside_use_nonoverflow_to_overflow() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      uid0 = 100,
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      uid4 = 104,
+      BS = 512,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  // - Setup: two blocks, each with one BIG2 inside them.
+  // note: different sequence from prior tests; this tests the outside case,
+  // but without the decision between two blocks.
+  ctx.insertBody(d5, uid1, BIG2, 0);
+  ctx.insertBody(d7, uid3, BIG2, 0);
+  ctx.insertBody(d8, uid2, BIG2, 0);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+
+  ctx.deleteBody(d7, uid3);
+
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 1, 1 * BIG2, d5, uid1, d5, uid1);
+
+  // - Insert d6, it picks the older one because it's not overflowing
+  ctx.insertBody(d6, uid4, BIG2, 1);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d6, uid4);
+
+  // - Insert d7, it picks the newer one because the older one is overflowing
+  ctx.insertBody(d7, uid3, BIG2, 0);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 2, 2 * BIG2, d7, uid3, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d6, uid4);
+
+  // - Insert another d7 with lower UID so it is 'outside', picks older
+  ctx.insertBody(d7, uid0, BIG2, 1);
+  do_check_eq(bodyBlocks.length, 3);
+  check_block(bodyBlocks[0], 2, 2 * BIG2, d7, uid3, d8, uid2);
+  check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid0);
+  check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
+
+  run_next_test();
+});
+
+/**
+ * Test that our range-logic does not break when faced with messages all from
+ * the same timestamp and only differing in their UIDs.
+ */
+add_test(function test_insertion_differing_only_by_uids() {
+  var ctx = makeTestContext(),
+      d5 = DateUTC(2010, 0, 5),
+      uid1 = 101,
+      uid2 = 102,
+      uid3 = 103,
+      uid4 = 104,
+      uid5 = 105,
+      uid6 = 106,
+      bodyBlocks = ctx.storage._bodyBlockInfos;
+
+  ctx.insertBody(d5, uid2, BIG3, 0);
+  ctx.insertBody(d5, uid5, BIG3, 0);
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid2, d5, uid5);
+
+  ctx.insertBody(d5, uid4, BIG3, 0);
+  do_check_eq(bodyBlocks.length, 1);
+  check_block(bodyBlocks[0], 3, 3 * BIG3, d5, uid2, d5, uid5);
+
+  ctx.insertBody(d5, uid3, BIG3, 1);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid4, d5, uid5);
+  check_block(bodyBlocks[1], 2, 2 * BIG3, d5, uid2, d5, uid3);
+
+  ctx.insertBody(d5, uid1, BIG3, 1);
+  ctx.insertBody(d5, uid6, BIG3, 0);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 3, 3 * BIG3, d5, uid4, d5, uid6);
+  check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
+
+  ctx.deleteBody(d5, uid4);
+  ctx.deleteBody(d5, uid3);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
+  check_block(bodyBlocks[1], 2, 2 * BIG3, d5, uid1, d5, uid2);
+
+  ctx.insertBody(d5, uid3, BIG3, 1);
+  do_check_eq(bodyBlocks.length, 2);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
+  check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
 
   run_next_test();
 });

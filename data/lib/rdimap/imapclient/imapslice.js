@@ -135,6 +135,20 @@ const bsearchForInsert = exports._bsearchForInsert =
     return mid;
 };
 
+/**
+ * Header info comparator that orders messages in order of numerically
+ * decreasing date and UIDs.  So new messages come before old messages,
+ * and messages with higher UIDs (newer-ish) before those with lower UIDs
+ * (when the date is the same.)
+ */
+function cmpHeadInfoYoungToOld(a, b) {
+  var d = b.date - a.date;
+  if (d)
+    return d;
+  d = b.id - a.id;
+  return d;
+}
+
 
 /**
  * Book-keeping and limited agency for the slices.
@@ -247,9 +261,21 @@ const BASELINE_SEARCH_OPTIONS = ['!DRAFT'];
 
 /**
  * What is the maximum number of bytes a block should store before we split
- * it.
+ * it?
  */
-const MAX_BLOCK_SIZE = 96 * 1024;
+const MAX_BLOCK_SIZE = 96 * 1024,
+/**
+ * How many bytes should we target for the small part when splitting 1:2?
+ */
+      BLOCK_SPLIT_SMALL_PART = 32 * 1024,
+/**
+ * How many bytes should we target for equal parts when splitting 1:1?
+ */
+      BLOCK_SPLIT_EQUAL_PART = 48 * 1024,
+/**
+ * How many bytes should we target for the large part when splitting 1:2?
+ */
+      BLOCK_SPLIT_LARGE_PART = 64 * 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Time
@@ -922,8 +948,16 @@ ImapFolderConn.prototype = {
  *   @key[snippet String]
  * ]]
  * @typedef[HeaderBlock @dict[
- *   @key[uids @listof[UID]]
- *   @key[headers @listof[HeaderInfo]]
+ *   @key[uids @listof[UID]]{
+ *     The UIDs of the headers in the same order.  This is intended as a fast
+ *     parallel search mechanism.  It can be discarded if it doesn't prove
+ *     useful.
+ *   }
+ *   @key[headers @listof[HeaderInfo]]{
+ *     Headers in numerically decreasing time and UID order.  The header at
+ *     index 0 should correspond to the 'end' characteristics of the blockInfo
+ *     and the header at n-1 should correspond to the start characteristics.
+ *   }
  * ]]
  * @typedef[AttachmentInfo @dict[
  *   @key[filename String]
@@ -933,6 +967,13 @@ ImapFolderConn.prototype = {
  *   }
  * ]]
  * @typedef[BodyInfo @dict[
+ *   @key[date DateMS]{
+ *     Redundantly stored date info for block splitting purposes.  We pretty
+ *     much need this no matter what because our ordering is on the tuples of
+ *     dates and UIDs, so we could have trouble efficiently locating our header
+ *     from the body without this.
+ *   }
+ *   @key[size Number]
  *   @key[to @listof[NameAddressPair]]
  *   @key[cc @listof[NameAddressPair]]
  *   @key[bcc @listof[NameAddressPair]]
@@ -946,9 +987,12 @@ ImapFolderConn.prototype = {
  *   The to/cc/bcc information may get moved up to the header in the future,
  *   but our driving UI doesn't need it right now.
  * }
- * @typedef[BodyBlock @dictof[
- *   @key["unique identifier" UID]
- *   @value[BodyInfo]
+ * @typedef[BodyBlock @dict[
+ *   @key[uids @listof[UID]]
+ *   @key[bodies @dictof[
+ *     @key["unique identifier" UID]
+ *     @value[BodyInfo]
+ *   ]]
  * ]]
  */
 function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
@@ -993,6 +1037,16 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
   /** @dictof[@key[BlockId] @value[BodyBlock]] */
   this._bodyBlocks = {};
 
+  this._bound_makeHeaderBlock = this._makeHeaderBlock.bind(this);
+  this._bound_insertHeaderInBlock = this._insertHeaderInBlock.bind(this);
+  this._bound_splitHeaderBlock = this._splitHeaderBlock.bind(this);
+  this._bound_deleteHeaderFromBlock = this._deleteHeaderFromBlock.bind(this);
+
+  this._bound_makeBodyBlock = this._makeBodyBlock.bind(this);
+  this._bound_insertBodyInBlock = this._insertBodyInBlock.bind(this);
+  this._bound_splitBodyBlock = this._splitBodyBlock.bind(this);
+  this._bound_deleteBodyFromBlock = this._deleteBodyFromBlock.bind(this);
+
   /**
    * Has our internal state altered at all and will need to be persisted?
    */
@@ -1003,12 +1057,12 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._dirtyBodyBlocks = {};
 
   /**
-   * @listof[BlockId]
+   * @listof[AggrBlockId]
    */
   this._pendingLoads = [];
   /**
    * @dictof[
-   *   @key[BlockId]
+   *   @key[AggrBlockId]
    *   @key[@listof[@func]]
    * ]
    */
@@ -1043,7 +1097,7 @@ ImapFolderStorage.prototype = {
    * caller to insert the returned `FolderBlockInfo` in the right place.
    */
   _makeHeaderBlock: function ifs__makeHeaderBlock(
-      startTS, startUID, endTS, endUID) {
+      startTS, startUID, endTS, endUID, estSize, uids, headers) {
     var blockId = $a64.encodeInt(this._folderImpl.nextHeaderBlock++),
         blockInfo = {
           blockId: blockId,
@@ -1051,17 +1105,83 @@ ImapFolderStorage.prototype = {
           startUID: startUID,
           endTS: endTS,
           endUID: endUID,
-          count: 0,
-          estSize: 0,
+          count: uids ? uids.length : 0,
+          estSize: estSize || 0,
         },
         block = {
-          uids: null,
-          headers: null
+          uids: uids || [],
+          headers: headers || [],
         };
     this._dirty = true;
     this._headerBlocks[blockId] = block;
     this._dirtyHeaderBlocks[blockId] = block;
     return blockInfo;
+  },
+
+  _insertHeaderInBlock: function ifs__insertHeaderInBlock(header, uid, info,
+                                                          block) {
+    var idx = bsearchForInsert(block.headers, header, cmpHeadInfoYoungToOld);
+    block.uids.splice(idx, 0, header.id);
+    block.headers.splice(idx, 0, header);
+    this._dirtyHeaderBlocks[info.blockId] = block;
+    // Insertion does not need to update start/end TS/UID because the calling
+    // logic is able to handle it.
+  },
+
+  _deleteHeaderFromBlock: function ifs__deleteHeaderFromBlock(uid, info, block) {
+    var idx = block.uids.indexOf(uid), header;
+    // - remove, update counts
+    block.uids.splice(idx, 1);
+    block.headers.splice(idx, 1);
+    info.estSize -= HEADER_EST_SIZE_IN_BYTES;
+    info.count--;
+    // - update endTS/endUID if necessary
+    if (idx === 0 && info.count) {
+      header = block.headers[0];
+      info.endTS = header.date;
+      info.endUID = header.id;
+    }
+    // - update startTS/startUID if necessary
+    if (idx === info.count && idx > 0) {
+      header = block.headers[idx - 1];
+      info.startTS = header.date;
+      info.startUID = header.id;
+    }
+  },
+
+  /**
+   * Split the contents of the given header block into a newer and older block.
+   * The newer info block will be mutated in place; the older block info will
+   * be created and returned.  The newer block is filled with data until it
+   * first overflows newerTargetBytes.  This method is responsible for updating
+   * the actual containing blocks as well.
+   */
+  _splitHeaderBlock: function ifs__splitHeaderBlock(splinfo, splock,
+                                                    newerTargetBytes) {
+    // We currently assume a fixed size, so this is easy.
+    var numHeaders = Math.ceil(newerTargetBytes / HEADER_EST_SIZE_IN_BYTES);
+    if (numHeaders > splock.headers.length)
+      throw new Error("No need to split!");
+
+    var olderNumHeaders = splock.headers.length - numHeaders,
+        olderEndHeader = splock.headers[numHeaders],
+        olderInfo = this._makeHeaderBlock(
+                      // Take the start info from the block, because it may have
+                      // been extended beyond the header (for an insertion if
+                      // we change back to inserting after splitting.)
+                      splinfo.startTS, splinfo.startUID,
+                      olderEndHeader.date, olderEndHeader.id,
+                      olderNumHeaders * HEADER_EST_SIZE_IN_BYTES,
+                      splock.uids.splice(numHeaders, olderNumHeaders),
+                      splock.headers.splice(numHeaders, olderNumHeaders));
+
+    var newerStartHeader = splock.headers[numHeaders - 1];
+    splinfo.count = numHeaders;
+    splinfo.estSize = numHeaders * HEADER_EST_SIZE_IN_BYTES;
+    splinfo.startTS = newerStartHeader.date;
+    splinfo.startUID = newerStartHeader.id;
+
+    return olderInfo;
   },
 
   /**
@@ -1070,20 +1190,105 @@ ImapFolderStorage.prototype = {
    * caller to insert the returned `FolderBlockInfo` in the right place.
    */
   _makeBodyBlock: function ifs__makeBodyBlock(
-      startTS, endTS) {
+      startTS, startUID, endTS, endUID, size, uids, bodies) {
     var blockId = $a64.encodeInt(this._folderImpl.nextBodyBlock++),
         blockInfo = {
           blockId: blockId,
           startTS: startTS,
+          startUID: startUID,
           endTS: endTS,
-          count: 0,
-          estSize: 0,
+          endUID: endUID,
+          count: uids ? uids.length : 0,
+          estSize: size || 0,
         },
-        block = {};
+        block = {
+          uids: uids || [],
+          bodies: bodies || {},
+        };
     this._dirty = true;
     this._bodyBlocks[blockId] = block;
     this._dirtyBodyBlocks[blockId] = block;
     return blockInfo;
+  },
+
+  _insertBodyInBlock: function ifs__insertBodyInBlock(body, uid, info, block) {
+    function cmpBodyByUID(aUID, bUID) {
+      var aDate = (aUID === uid) ? body.date : block.bodies[aUID].date,
+          bDate = (bUID === uid) ? body.date : block.bodies[bUID].date,
+          d = bDate - aDate;
+      if (d)
+        return d;
+      d = bUID - aUID;
+      return d;
+    }
+
+    var idx = bsearchForInsert(block.uids, uid, cmpBodyByUID);
+    block.uids.splice(idx, 0, uid);
+    block.bodies[uid] = body;
+    this._dirtyBodyBlocks[info.blockId] = block;
+    // Insertion does not need to update start/end TS/UID because the calling
+    // logic is able to handle it.
+  },
+
+  _deleteBodyFromBlock: function ifs__deleteBodyFromBlock(uid, info, block) {
+    // - delete
+    var idx = block.uids.indexOf(uid);
+    block.uids.splice(idx, 1);
+    var body = block.bodies[uid];
+    delete block.bodies[uid];
+    info.estSize -= body.size;
+    info.count--;
+
+    // - update endTS/endUID if necessary
+    if (idx === 0 && info.count) {
+      info.endUID = uid = block.uids[0];
+      info.endTS = block.bodies[uid].date;
+    }
+    // - update startTS/startUID if necessary
+    if (idx === info.count && idx > 0) {
+      info.startUID = uid = block.uids[idx - 1];
+      info.startTS = block.bodies[uid].date;
+    }
+  },
+
+  _splitBodyBlock: function ifs__splitBodyBlock(splinfo, splock,
+                                                newerTargetBytes) {
+    // Save off the start timestamp/uid; these may have been extended beyond the
+    // delimiting bodies because of the insertion triggering the split.  (At
+    // least if we start inserting after splitting again in the future.)
+    var savedStartTS = splinfo.startTS, savedStartUID = splinfo.startUID;
+
+    var newerBytes = 0, uids = splock.uids, newDict = {}, oldDict = {},
+        inNew = true, numHeaders = null;
+    for (var i = 0; i < uids.length; i++) {
+      var uid = uids[i],
+          body = splock.bodies[uid];
+      if (inNew) {
+        newerBytes += body.size;
+        newDict[uid] = body;
+        if (newerBytes >= newerTargetBytes) {
+          inNew = false;
+          splinfo.count = numHeaders = i + 1;
+          splinfo.startTS = body.date;
+          splinfo.startUID = uid;
+        }
+      }
+      else {
+        oldDict[uid] = body;
+      }
+    }
+
+    var oldEndUID = uids[numHeaders];
+    var olderInfo = this._makeBodyBlock(
+      savedStartTS, savedStartUID,
+      oldDict[oldEndUID].date, oldEndUID,
+      splinfo.estSize - newerBytes,
+      uids.splice(numHeaders, uids.length - numHeaders),
+      oldDict);
+    splinfo.estSize = newerBytes;
+    splock.bodies = newDict;
+
+    return olderInfo;
   },
 
   /**
@@ -1157,7 +1362,6 @@ ImapFolderStorage.prototype = {
         return [i, info];
       // (Older than the startTS, keep going.)
     }
-
     return [i, null];
   },
 
@@ -1244,12 +1448,9 @@ ImapFolderStorage.prototype = {
   },
 
   /**
-   * Find (and possibly update) an existing block info metadata structure or
-   * create a new block info (and block) if required.  While this method is
-   * not specialized to header/body blocks in general, when creating a new
-   * block it does know how to initialize an empty block appropriately.  The
-   * caller is responsible for inserting the item into the block, which may
-   * first require loading the block from disk.
+   * Find the right block to insert a header/body into using its date and UID.
+   * This is an asynchronous operation because we potentially need to load
+   * blocks from disk.
    *
    * == Usage patterns
    *
@@ -1301,6 +1502,7 @@ ImapFolderStorage.prototype = {
    *   @param[estSizeCost Number]{
    *     The rough byte cost of whatever we want to stick in a block.
    *   }
+   *   @param[thing Object]
    *   @param[blockPickedCallback @func[
    *     @args[
    *       @param[blockInfo FolderBlockInfo]
@@ -1310,42 +1512,72 @@ ImapFolderStorage.prototype = {
    *     Callback function to invoke once we have found/created/made-room-for
    *     the thing in the block.  This needs to be a callback because if we need
    *     to perform any splits, we require that the block be loaded into memory
-   *     first.
+   *     first.  (For consistency and simplicity, we then made us always return
+   *     the block.)
    *   }
    * ]
    */
-  _pickInsertionBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
-      type, date, uid, estSizeCost, blockPickedCallback) {
-    var blockInfoList, makeBlock;
+  _insertIntoBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
+      type, date, uid, estSizeCost, thing, blockPickedCallback) {
+    var blockInfoList, blockMap, makeBlock, insertInBlock, splitBlock;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
-      makeBlock = this._makeHeaderBlock.bind(this);
+      blockMap = this._headerBlocks;
+      makeBlock = this._bound_makeHeaderBlock;
+      insertInBlock = this._bound_insertHeaderInBlock;
+      splitBlock = this._bound_splitHeaderBlock;
     }
     else {
       blockInfoList = this._bodyBlockInfos;
-      makeBlock = this._makeBodyBlock.bind(this);
+      blockMap = this._bodyBlocks;
+      makeBlock = this._bound_makeBodyBlock;
+      insertInBlock = this._bound_insertBodyInBlock;
+      splitBlock = this._bound_splitBodyBlock;
     }
 
     // -- find the current containing block / insertion point
-    var infoTuple = this._findRangeObjIndexForDateAndUID(blockInfoList, date),
+    var infoTuple = this._findRangeObjIndexForDateAndUID(blockInfoList,
+                                                         date, uid),
         iInfo = infoTuple[0], info = infoTuple[1];
 
     // -- not in a block, find or create one
     if (!info) {
       // - Create a block if no blocks exist at all.
       if (blockInfoList.length === 0) {
-        info = makeBlock(date, date);
+        info = makeBlock(date, uid, date, uid);
         blockInfoList.splice(iInfo, 0, info);
       }
-      // - Is there a trailing dude and we fit?
+      // - Is there a trailing/older dude and we fit?
       else if (iInfo < blockInfoList.length &&
                blockInfoList[iInfo].estSize + estSizeCost < MAX_BLOCK_SIZE) {
         info = blockInfoList[iInfo];
+
+        // We are chronologically/UID-ically more recent, so check the end range
+        // for expansion needs.
+        if (STRICTLY_AFTER(date, info.endTS)) {
+          info.endTS = date;
+          info.endUID = uid;
+        }
+        else if (date === info.endTS &&
+                 uid > info.endUID) {
+          info.endUID = uid;
+        }
       }
-      // - Is there a preceding dude and we fit? (well, must be preceding)
+      // - Is there a preceding/younger dude and we fit?
       else if (iInfo > 0 &&
                blockInfoList[iInfo - 1].estSize + estSizeCost < MAX_BLOCK_SIZE){
         info = blockInfoList[--iInfo];
+
+        // We are chronologically less recent, so check the start range for
+        // expansion needs.
+        if (BEFORE(date, info.startTS)) {
+          info.startTS = date;
+          info.startUID = uid;
+        }
+        else if (date === info.startTS &&
+                 uid < info.startUID) {
+          info.startUID = uid;
+        }
       }
       // Any adjacent blocks at this point are overflowing, so it's now a
       // question of who to split.  We pick the one further from the center that
@@ -1354,17 +1586,79 @@ ImapFolderStorage.prototype = {
       else if ((iInfo > 0 && iInfo < blockInfoList.length / 2) ||
                (iInfo === blockInfoList.length)) {
         info = blockInfoList[--iInfo];
+        // We are chronologically less recent, so check the start range for
+        // expansion needs.
+        if (BEFORE(date, info.startTS)) {
+          info.startTS = date;
+          info.startUID = uid;
+        }
+        else if (date === info.startTS &&
+                 uid < info.startUID) {
+          info.startUID = uid;
+        }
       }
       // - It must be the trailing dude
       else {
         info = blockInfoList[iInfo];
+        // We are chronologically/UID-ically more recent, so check the end range
+        // for expansion needs.
+        if (STRICTLY_AFTER(date, info.endTS)) {
+          info.endTS = date;
+          info.endUID = uid;
+        }
+        else if (date === info.endTS &&
+                 uid > info.endUID) {
+          info.endUID = uid;
+        }
       }
     }
     // (info now definitely exists and is definitely in blockInfoList)
 
-    // -- split if necessary
-    if (info.estSize + estSizeCost >= MAX_BLOCK_SIZE) {
+    function processBlock(block) { // 'this' gets explicitly bound
+      // -- perform the insertion
+      // We could do this after the split, but this makes things simpler if
+      // we want to factor in the newly inserted thing's size in the
+      // distribution of bytes.
+      info.estSize += estSizeCost;
+      info.count++;
+      insertInBlock(thing, uid, info, block);
+
+      // -- split if necessary
+      if (info.estSize >= MAX_BLOCK_SIZE) {
+        // - figure the desired resulting sizes
+        var firstBlockTarget;
+        // big part to the center at the edges (favoring front edge)
+        if (iInfo === 0)
+          firstBlockTarget = BLOCK_SPLIT_SMALL_PART;
+        else if (iInfo === blockInfoList.length - 1)
+          firstBlockTarget = BLOCK_SPLIT_LARGE_PART;
+        // otherwise equal split
+        else
+          firstBlockTarget = BLOCK_SPLIT_EQUAL_PART;
+
+
+        // - split
+        var olderInfo;
+        olderInfo = splitBlock(info, block, firstBlockTarget);
+        blockInfoList.splice(iInfo + 1, 0, olderInfo);
+
+        // - figure which of the blocks our insertion went in
+        if (BEFORE(date, olderInfo.endTS) ||
+            ((date === olderInfo.endTS) && (uid <= olderInfo.endUID))) {
+          iInfo++;
+          info = olderInfo;
+          block = blockMap[info.blockId];
+        }
+      }
+      // otherwise, no split necessary, just use it
+
+      blockPickedCallback(info, block);
     }
+
+    if (blockMap.hasOwnProperty(info.blockId))
+      processBlock.call(this, blockMap[info.blockId]);
+    else
+      this._loadBlock(type, info.blockId, processBlock.bind(this));
   },
 
   /**
@@ -1398,6 +1692,53 @@ ImapFolderStorage.prototype = {
       this._imapDb.loadHeaderBlock(this.folderId, blockId, onLoaded);
     else
       this._imapDb.loadBodyBlock(this.folderId, blockId, onLoaded);
+  },
+
+  _deleteFromBlock: function(type, date, uid, callback) {
+    var blockInfoList, blockMap, deleteFromBlock;
+    if (type === 'header') {
+      blockInfoList = this._headerBlockInfos;
+      blockMap = this._headerBlocks;
+      deleteFromBlock = this._bound_deleteHeaderFromBlock;
+    }
+    else {
+      blockInfoList = this._bodyBlockInfos;
+      blockMap = this._bodyBlocks;
+      deleteFromBlock = this._bound_deleteBodyFromBlock;
+    }
+
+    var infoTuple = this._findRangeObjIndexForDateAndUID(blockInfoList,
+                                                         date, uid),
+        iInfo = infoTuple[0], info = infoTuple[1];
+    // If someone is asking for us to delete something, there should definitely
+    // be a block that includes it!
+    if (!info) {
+      console.warn('Unable to find block that owns:', type, date, uid);
+      return;
+    }
+
+    function processBlock(block) {
+      // The delete function is in charge of updating the start/end TS/UID info
+      // because it knows about the internal block structure to do so.
+      deleteFromBlock(uid, info, block);
+
+      // - Nuke the block if it's empty
+      if (info.count === 0) {
+        blockInfoList.splice(iInfo, 1);
+        delete blockMap[info.blockId];
+
+        if (type === 'header')
+          this._dirtyHeaderBlocks[info.blockId] = null;
+        else
+          this._dirtyBodyBlocks[info.blockId] = null;
+      }
+
+      callback();
+    }
+    if (blockMap.hasOwnProperty(info.blockId))
+      processBlock.call(this, blockMap[info.blockId]);
+    else
+      this._loadBlock(type, info.blockId, processBlock.bind(this));
   },
 
   /**
