@@ -23,7 +23,7 @@ function makeTestContext() {
   var db = new MockDB(),
       account = new MockAccount();
 
-  var folderId = 'A-1';
+  var folderId = 'A/1';
   var storage = new $imapslice.ImapFolderStorage(
     account, folderId,
     {
@@ -107,7 +107,7 @@ function makeDummyHeaders(count) {
   while (count--) {
     headers.push({
       id: uid,
-      suid: 'H-1-' + uid++,
+      suid: 'H/1/' + uid++,
       author: null,
       date: date++,
       flags: null, hasAttachments: null, subject: null, snippet: null,

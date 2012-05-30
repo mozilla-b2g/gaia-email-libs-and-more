@@ -6,11 +6,10 @@
 
 // prefixing everything since we are running in the global scope and I don't
 // want the modules to accidentally see these because of a lack of shadowing.
-console.log('requiring mailbridge...');
-
 var $_mailuniverse = require('rdimap/imapclient/mailuniverse'),
     $_mailbridge = require('rdimap/imapclient/mailbridge'),
     $_mailapi = require('rdimap/imapclient/mailapi'),
+    $_fakeacct = require('rdimap/imapclient/fakeacct'),
     $_allback = require('rdimap/imapclient/allback'),
     $_log = require('rdcommon/log'),
     $_logreaper = require('rdcommon/logreaper'),
@@ -99,4 +98,19 @@ function setup_test_account() {
       gAllFoldersSlice = MailAPI.viewFolders('navigation');
       gAllFoldersSlice.oncomplete = callbacks.folders;
     });
+}
+
+/**
+ * Define a test that wants one or more IMAP folders of its own.  At the start
+ * of the test we then create the given folders and fill them with messages
+ * as requested by the folder definitions by using APPEND.
+ *
+ * Once that's all done we invoke the test function which is responsible for
+ * calling xpcshell's run_next_test() once it is finished.
+ */
+function add_imap_folder_test(folderDefs, testFunc) {
+  var generator = new $_fakeacct.MessageGenerator();
+
+  for (var iDef = 0; iDef < folderDefs.length; iDef++) {
+  }
 }

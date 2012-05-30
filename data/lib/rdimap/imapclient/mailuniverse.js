@@ -241,7 +241,7 @@ Configurators['imap+smtp'] = {
 
       identities: [
         {
-          id: accountId + '-' +
+          id: accountId + '/' +
                 $a64.encodeInt(universe.config.nextIdentityNum++),
           name: userDetails.displayName,
           address: userDetails.emailAddress,
@@ -254,6 +254,7 @@ Configurators['imap+smtp'] = {
       $meta: {
         nextFolderNum: 0,
       },
+      $mutations: [],
     };
     universe._db.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
@@ -282,7 +283,7 @@ Configurators['fake'] = {
 
       identities: [
         {
-          id: accountId + '-' +
+          id: accountId + '/' +
                 $a64.encodeInt(universe.config.nextIdentityNum++),
           name: userDetails.displayName,
           address: userDetails.emailAddress,
@@ -292,7 +293,9 @@ Configurators['fake'] = {
       ]
     };
 
-    var folderInfo = {};
+    var folderInfo = {
+      $mutations: [],
+    };
     universe._db.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
     callback(true, account);
@@ -373,6 +376,35 @@ Configurators['fake'] = {
  *   @key[receiveConnInfo ConnInfo]
  *   @key[sendConnInfo ConnInfo]
  * ]]
+ * @typedef[SerializedMutation @dict[
+ *   @key[id]{
+ *     Unique-ish identifier for the mutation.  Just needs to be unique enough
+ *     to not refer to any pending or still undoable-operation.
+ *   }
+ *   @key[friendlyOp String]{
+ *     The user friendly opcode where flag manipulations like starring have
+ *     their own opcode.
+ *   }
+ *   @key[realOp @oneof[
+ *     @case['modtags']{
+ *       Modify tags by adding and/or removing them.
+ *     }
+ *     @case['delete']{
+ *     }
+ *     @case['move']{
+ *       Move message(s) within the same account.
+ *     }
+ *     @case['copy']{
+ *       Copy message(s) within the same account.
+ *     }
+ *   ]]{
+ *     The implementation opcode used to determine what functions to call.
+ *   }
+ *   @key[messages @listof[SUID]]
+ *   @key[targetFolder #:optional FolderId]{
+ *     If this is a move/copy, the target folder
+ *   }
+ * ]]
  */
 function MailUniverse(testingModeLogData, callAfterBigBang) {
   /** @listof[CompositeAccount] */
@@ -382,6 +414,16 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
   /** @listof[IdentityDef] */
   this.identities = [];
   this._identitiesById = {};
+
+  /**
+   * @dictof[
+   *   @key[AccountId]
+   *   @value[@listof[SerializedMutation]]
+   * ]{
+   *   The list of mutations for the account that still have yet to complete.
+   * }
+   */
+  this._pendingMutationsByAcct = {};
 
   this.config = null;
 
@@ -459,6 +501,9 @@ MailUniverse.prototype = {
     return account;
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // Lookups: Account, Folder, Identity
+
   getAccountForAccountId: function mu_getAccountForAccountId(accountId) {
     return this._accountsById[accountId];
   },
@@ -467,7 +512,7 @@ MailUniverse.prototype = {
    * Given a folder-id, get the owning account.
    */
   getAccountForFolderId: function mu_getAccountForFolderId(folderId) {
-    var accountId = folderId.substring(0, folderId.indexOf('-')),
+    var accountId = folderId.substring(0, folderId.indexOf('/')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -476,7 +521,7 @@ MailUniverse.prototype = {
    * Given a message's sufficiently unique identifier, get the owning account.
    */
   getAccountForMessageSuid: function mu_getAccountForMessageSuid(messageSuid) {
-    var accountId = folderId.substring(0, folderId.indexOf('-')),
+    var accountId = messageSuid.substring(0, messageSuid.indexOf('/')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -489,7 +534,7 @@ MailUniverse.prototype = {
 
   getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(
                                    identityId) {
-    var accountId = identityId.substring(0, identityId.indexOf('-')),
+    var accountId = identityId.substring(0, identityId.indexOf('/')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -498,6 +543,43 @@ MailUniverse.prototype = {
                                     identityId) {
     return this._identitiesById[identityId];
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Message Mutation and Undoing
+
+  _partitionMessagesByAccount: function(messageSuids, targetAccountId) {
+    var results = [], acctToMsgs = {};
+
+    for (var i = 0; i < messageSuids.length; i++) {
+      var messageSuid = messageSuids[0],
+          accountId = messageSuid.substring(0, messageSuid.indexOf('/'));
+      if (!acctToMsgs.hasOwnProperty(accountId)) {
+        var messages = [messageSuid];
+        results.push({
+          account: this._accountsById[accountId],
+          messages: messages,
+          crossAccount: (targetAccountId && targetAccountId !== accountId),
+        });
+        acctToMsgs[accountId] = messages;
+      }
+      else {
+        acctToMsgs[accountId].push(messageSuid);
+      }
+    }
+
+    return results;
+  },
+
+  modifyMessageTags: function(messageSuids, addTags, removeTags) {
+  },
+
+  moveMessages: function(messageSuids, targetFolderId) {
+  },
+
+  undoMutation: function(mutationId) {
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

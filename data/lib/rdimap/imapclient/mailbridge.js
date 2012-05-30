@@ -33,6 +33,8 @@ function MailBridge(universe) {
   this._slices = {};
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
+  //
+  this._lastUndoableOpPair = null;
 }
 exports.MailBridge = MailBridge;
 MailBridge.prototype = {
@@ -127,7 +129,7 @@ MailBridge.prototype = {
   _cmd_getBody: function mb__cmd_getBody(msg) {
     var self = this;
     // map the message id to the folder storage
-    var folderId = msg.suid.substring(0, msg.suid.lastIndexOf('-'));
+    var folderId = msg.suid.substring(0, msg.suid.lastIndexOf('/'));
     var folderStorage = this.universe.getFolderStorageForFolderId(folderId);
     folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
       self.__sendMessage({
@@ -137,6 +139,24 @@ MailBridge.prototype = {
       });
     });
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Message Mutation
+  //
+  // All mutations are told to the universe which breaks the modifications up on
+  // a per-account basis.
+
+  _cmd_modifyMessageTags: function mb__cmd_modifyMessageTags(msg) {
+    // XXXYYY
+
+    // - The mutations are written to the database for persistence (in case
+    //   we fail to make the change in a timely fashion) and so that we can
+    //   know enough to reverse the operation.
+    // - Speculative changes are made to the headers in the database locally.
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Composition
 
   _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
     var req = this._pendingRequests[msg.handle] = {
@@ -259,6 +279,8 @@ MailBridge.prototype = {
       // XXX save drafts!
     }
   },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 function SliceBridgeProxy(bridge, handle) {

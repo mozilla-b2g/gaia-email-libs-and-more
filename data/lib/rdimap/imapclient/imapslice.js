@@ -469,7 +469,7 @@ const TOO_MANY_MESSAGES = 2000;
  */
 const INITIAL_FETCH_PARAMS = {
   request: {
-    headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO'],
+    headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO', 'MESSAGE-ID'],
     struct: true
   },
 };
@@ -2134,7 +2134,7 @@ ImapFolderStorage.prototype = {
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
-    var uid = suid.substring(suid.lastIndexOf('-') + 1),
+    var uid = suid.substring(suid.lastIndexOf('/') + 1),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
                                                        date, uid);
     if (posInfo[1] === null)

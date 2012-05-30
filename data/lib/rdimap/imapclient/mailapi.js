@@ -74,7 +74,7 @@ function MailFolder(api, wireRep) {
   // Accounts have a somewhat different wireRep serialization, but we can best
   // tell by the id's; a folder's id is derived from the account with a dash
   // separating.
-  var isAccount = wireRep.id.indexOf('-') === -1;
+  var isAccount = wireRep.id.indexOf('/') === -1;
 
   this._api = api;
   this.id = wireRep.id;
@@ -346,7 +346,54 @@ MailAttachment.prototype = {
  * get a list of recently performed actions, the goal is to make it feasible
  * in the future.
  */
-function UndoableOperation() {
+function UndoableOperation(operation, affectedCount, _tempHandle, _longtermId) {
+  /**
+   * @oneof[
+   *   @case['read']{
+   *     Marked message(s) as read.
+   *   }
+   *   @case['unread']{
+   *     Marked message(s) as unread.
+   *   }
+   *   @case['star']{
+   *     Starred message(s).
+   *   }
+   *   @case['unstar']{
+   *     Unstarred message(s).
+   *   }
+   *   @case['addtag']{
+   *     Added tag(s).
+   *   }
+   *   @case['removetag']{
+   *     Removed tag(s).
+   *   }
+   *   @case['move']{
+   *     Moved message(s).
+   *   }
+   *   @case['copy']{
+   *     Copied message(s).
+   *   }
+   *   @case['delete']{
+   *     Deleted message(s) by moving to trash folder.
+   *   }
+   * ]
+   */
+  this.operation = operation;
+  /**
+   * The number of messages affected by this operation.
+   */
+  this.affectedCount = affectedCount;
+
+  /**
+   * The temporary handle we use to refer to the operation immediately after
+   * issuing it until we hear back from the mail bridge about its more permanent
+   * _longtermId.
+   */
+  this._tempHandle = _tempHandle;
+  /**
+   * The name that this mutation is know to the back-end as.
+   */
+  this._longtermId = null;
 }
 UndoableOperation.prototype = {
   toString: function() {
@@ -886,13 +933,57 @@ MailAPI.prototype = {
   },
 
   markMessagesRead: function ma_markMessagesRead(messages, beRead) {
+    this.modifyMessageTags(messages,
+                           beRead ? ['\\Seen'] : null,
+                           beRead ? null : ['\\Seen'],
+                           beRead ? 'read' : 'unread');
   },
 
   markMessagesStarred: function ma_markMessagesStarred(messages, beStarred) {
+    this.modifyMessageTags(messages,
+                           beStarred ? ['\\Flagged'] : null,
+                           beStarred ? null : ['\\Flagged'],
+                           beStarred ? 'star' : 'unstar');
   },
 
   modifyMessagesTags: function ma_modifyMessageTags(messages, addTags,
-                                                    removeTags) {
+                                                    removeTags, _opcode) {
+    // We allocate a handle that provides a temporary name for our undoable
+    // operation until we hear back from the other side about it.
+    var handle = this._nextHandle++;
+
+    if (!_opcode) {
+      if (addTags && addTags.length)
+        _opcode = 'addtag';
+      else if (removeTags && removeTags.length)
+        _opcode = 'removetag';
+    }
+    var undoableOp = new UndoableOperation(_opcode, messages.length),
+        msgSuids = messages.map(function(x) { return x.id; });
+
+    this._pendingRequests[handle] = {
+      type: 'mutation',
+      undoableOp: undoableOp
+    };
+    this.__bridgeSend({
+      type: 'modifyMessageTags',
+      opcode: _opcode,
+      addTags: addTags,
+      removeTags: removeTags,
+      messages: msgSuids,
+    });
+
+    return undoableOp;
+  },
+
+  _recv_mutationConfirmed: function() {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for mutation:', msg.handle);
+      return;
+    }
+
+
   },
 
   //////////////////////////////////////////////////////////////////////////////

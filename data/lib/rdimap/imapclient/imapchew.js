@@ -244,7 +244,10 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     id: rep.msg.id,
     // The sufficiently unique id is a concatenation of the UID onto the
     // folder id.
-    suid: folderId + '-' + rep.msg.id,
+    suid: folderId + '/' + rep.msg.id,
+    // The message-id header value; as GUID as get for now; on gmail we can
+    // use their unique value, or if we could convince dovecot to tell us, etc.
+    guid: rep.msg.msg.parsedHeaders['message-id'],
     // mailparser models from as an array; we do not.
     author: rep.msg.msg.from[0] || null,
     date: rep.msg.date,

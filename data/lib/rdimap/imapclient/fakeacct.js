@@ -81,13 +81,13 @@ const SUBJECT_SUFFIXES = [
  * Provides mechanisms for creating vaguely interesting, but at least valid,
  *  SyntheticMessage instances.
  */
-function MessageGenerator() {
-  this._clock = new Date(2012, 5, 14);
+function MessageGenerator(startDate) {
+  this._clock = startDate || new Date(2012, 5, 14);
   this._nextNameNumber = 0;
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
 }
-
+exports.MessageGenerator = MessageGenerator;
 MessageGenerator.prototype = {
   /**
    * The maximum number of unique names makeName can produce.
@@ -427,7 +427,7 @@ MessageGenerator.prototype = {
         args.inReplyTo = null;
       lastMessage = this.makeMessage(args);
       lastMessage.headerInfo.id = '' + iMsg;
-      lastMessage.headerInfo.suid = aSetDef.folderId + '-' + iMsg;
+      lastMessage.headerInfo.suid = aSetDef.folderId + '/' + iMsg;
       messages.push(lastMessage);
 
       if (aSetDef.age_incr) {

@@ -83,7 +83,7 @@ function ImapAccount(accountId, credentials, connInfo, folderInfos, dbConn,
    */
   this._meta = this._folderInfos.$meta;
   for (var folderId in folderInfos) {
-    if (folderId === "$meta")
+    if (folderId[0] === '$')
       continue;
     var folderInfo = folderInfos[folderId];
 
@@ -105,7 +105,7 @@ ImapAccount.prototype = {
    * Make a given folder known to us, creating state tracking instances, etc.
    */
   _learnAboutFolder: function(name, path, type) {
-    var folderId = this.id + '-' + $a64.encodeInt(this._meta.nextFolderNum++);
+    var folderId = this.id + '/' + $a64.encodeInt(this._meta.nextFolderNum++);
     console.log('FOLDER', name, path, type);
     this._LOG.learnAboutFolder(folderId, name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
