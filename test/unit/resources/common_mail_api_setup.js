@@ -105,12 +105,74 @@ function setup_test_account() {
  * of the test we then create the given folders and fill them with messages
  * as requested by the folder definitions by using APPEND.
  *
+ * Because xpcshell has limited cleanup capabilities (synchronous functions
+ * only) and we don't actually want concurrent tests anyways, what we do is
+ * consistently name the folders by using the test function's name and
+ * concatenating the number of the folder to that name.  If said folder
+ * already exists when we are setting up the test, we nuke it.
+ *
+ * In order to try and keep setup overhead out of our timings, we break the
+ * setup out into its own test step.
+ *
  * Once that's all done we invoke the test function which is responsible for
  * calling xpcshell's run_next_test() once it is finished.
  */
 function add_imap_folder_test(folderDefs, testFunc) {
-  var generator = new $_fakeacct.MessageGenerator();
+  // Always set the date to today at noon...
+  var useDate = new Date();
+  useDate.setHours(12, 0, 0, 0);
+  var generator = new $_fakeacct.MessageGenerator(useDate, 'body'),
+      folderPaths = [], storages = [], corpuses = [],
+      rawAccount = MailUniverse.accounts[0],
+      iDef = 0;
 
-  for (var iDef = 0; iDef < folderDefs.length; iDef++) {
+  function processNextFolder() {
+    if (iDef >= folderDefs.length) {
+      run_next_test();
+      return;
+    }
+    var folderName = 'ut_' + testFunc.name + '_' + iDef;
+
+    var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
+    if (existingFolder) {
+      rawAccount.deleteFolder(existingFolder.id);
+      gAllFoldersSlice.onsplice = function(index, howMany, added,
+                                           requested, expected) {
+        if (howMany !== 1) {
+          console.error('Expected 1 folder to be removed but', howMany,
+                        'removed?');
+          do_throw('Folder deletion failed');
+        }
+        gAllFoldersSlice.onsplice = null;
+        // just call ourselves again; existingFolder should be null now.
+        processNextFolder();
+      };
+    }
+
+    // the folder does not currently exist; create the folder!
+    rawAccount.createFolder(null, folderName, false,
+      function createdFolder(err, folderMeta) {
+      if (err) {
+        console.error('Problem creating folder', folderName);
+        do_throw('Could not create folder');
+      }
+      folderPaths.push(folderName);
+      var storage = account.getFolderStorageForFolderId(folderMeta.id);
+      storages.push(storage);
+
+      var folderDef = folderDefs[iDef++];
+      var messageBodies = generator.makeMessages(folderDef);
+      for (var i = 0; i < messageBodies.length; i++) {
+        MailUniverse.appendMessage(folderDef.id, messageBodies[i]);
+      }
+      MailUniverse.waitForAccountOps(account, processNextFolder);
+    });
   }
+
+add_test(function setup_imap_using_test() {
+  processNextFolder();
+});
+// By using bind, we maintain the function's name while also being able to
+// provide it with arguments.
+add_test(testFunc.bind(folderPaths, storages, corpuses));
 }

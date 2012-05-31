@@ -754,12 +754,15 @@ ImapConnection.prototype.removeDeleted = function(cb) {
   this._send('EXPUNGE', null, cb);
 };
 
-ImapConnection.prototype.getBoxes = function(namespace, cb) {
+ImapConnection.prototype.getBoxes = function(namespace, searchSpec, cb) {
   cb = arguments[arguments.length-1];
-  if (arguments.length !== 2)
+  if (arguments.length < 2)
     namespace = '';
+  if (arguments.length < 3)
+    searchSpec = '*';
 
-  var cmd, cmddata = ' "' + escape(namespace) + '" "*"';
+  var cmd, cmddata = ' "' + escape(namespace) + '" "' +
+                       escape(searchSpec) + '"';
   // Favor special-use over XLIST
   if (this.capabilities.indexOf('SPECIAL-USE') !== -1) {
     cmd = 'LIST';

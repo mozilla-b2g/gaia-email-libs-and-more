@@ -9,6 +9,7 @@ define(
     './a64',
     './imapdb',
     './imapslice',
+    './util',
     'module',
     'exports'
   ],
@@ -18,9 +19,15 @@ define(
     $a64,
     $imapdb,
     $imapslice,
+    $imaputil,
     $module,
     exports
   ) {
+const bsearchForInsert = $imaputil.bsearchForInsert;
+
+function cmpFolderPubPath(a, b) {
+  return a.path.localeCompare(b.path);
+}
 
 /**
  * Account object, root of all interaction with servers.
@@ -30,8 +37,10 @@ define(
  * API in such a way that we never know the API.  Se a vida e.
  *
  */
-function ImapAccount(accountId, credentials, connInfo, folderInfos, dbConn,
+function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
+                     dbConn,
                      _parentLog, existingProtoConn) {
+  this.universe = universe;
   this.id = accountId;
 
   this._credentials = credentials;
@@ -76,6 +85,11 @@ function ImapAccount(accountId, credentials, connInfo, folderInfos, dbConn,
    *   @param[capability String]{
    *     The post-login capability string from the server.
    *   }
+   *   @param[rootDelim String]{
+   *     The root hierarchy delimiter.  It is possible for servers to not
+   *     support hierarchies, but we just declare that those servers are not
+   *     acceptable for use.
+   *   }
    * ]{
    *   Meta-information about the account derived from probing the account.
    *   This information gets flushed on database upgrades.
@@ -104,7 +118,7 @@ ImapAccount.prototype = {
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
    */
-  _learnAboutFolder: function(name, path, type) {
+  _learnAboutFolder: function(name, path, type, delim) {
     var folderId = this.id + '/' + $a64.encodeInt(this._meta.nextFolderNum++);
     console.log('FOLDER', name, path, type);
     this._LOG.learnAboutFolder(folderId, name, path, type);
@@ -114,6 +128,7 @@ ImapAccount.prototype = {
         name: name,
         path: path,
         type: type,
+        delim: delim,
       },
       $impl: {
         nextHeaderBlock: 0,
@@ -125,7 +140,185 @@ ImapAccount.prototype = {
     };
     this._folderStorages[folderId] =
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
-    this.folders.push(folderInfo.$meta);
+
+    var folderMeta = folderInfo.$meta;
+    var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);
+    this.folders.splice(idx, 0, folderMeta);
+
+    this.universe.__notifyAddedFolder(this.id, folderMeta);
+    return folderMeta;
+  },
+
+  _forgetFolder: function(folderId) {
+    var folderInfo = this._folderInfos[folderId],
+        folderMeta = folderInfo.$meta;
+    delete this._folderInfos[folderId];
+    var folderStorage = this._folderStorages[folderId];
+    delete this._folderStorages[folderId];
+    if (this._deadFolderIds === null)
+      this._deadFolderIds = [];
+    this._deadFolderIds.push(folderId);
+    folderStorage.youAreDeadCleanupAfterYourself();
+
+    this.universe.__notifyRemovedFolder(this.id, folderMeta);
+  },
+
+  /**
+   * Create a folder that is the child/descendant of the given parent folder.
+   * If no parent folder id is provided, we attempt to create a root folder.
+   *
+   * @args[
+   *   @param[parentFolderId String]
+   *   @param[folderName]
+   *   @param[containOnlyOtherFolders Boolean]{
+   *     Should this folder only contain other folders (and no messages)?
+   *     On some servers/backends, mail-bearing folders may not be able to
+   *     create sub-folders, in which case one would have to pass this.
+   *   }
+   *   @param[callback @func[
+   *     @args[
+   *       @param[error @oneof[
+   *         @case[null]{
+   *           No error, the folder got created and everything is awesome.
+   *         }
+   *         @case['offline']{
+   *           We are offline and can't create the folder.
+   *         }
+   *         @case['already-exists']{
+   *           The folder appears to already exist.
+   *         }
+   *         @case['unknown']{
+   *           It didn't work and we don't have a better reason.
+   *         }
+   *       ]]
+   *       @param[folderMeta ImapFolderMeta]{
+   *         The meta-information for the folder.
+   *       }
+   *     ]
+   *   ]]{
+   *   }
+   * ]
+   */
+  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
+                         callback) {
+    var path, delim;
+    if (parentFolderId) {
+      if (!this._folderInfos.hasOwnProperty(parentFolderId))
+        throw new Error("No such folder: " + parentFolderId);
+      var parentFolder = this._folderInfos[parentFolderId];
+      delim = parentFolder.path;
+      path = parentFolder.path + delim;
+    }
+    else {
+      path = '';
+      delim = this._meta.rootDelim;
+    }
+    if (typeof(folderName) === 'string')
+      path += folderName;
+    else
+      path += folderName.join(delim);
+    if (nonLeaf)
+      path += delim;
+
+    if (!this.universe.online) {
+      callback('offline');
+      return;
+    }
+
+    var rawConn = null, folderConn = null, self = this;
+    function gotConn(ourFolderConn) {
+      // create the box
+      folderConn = ourFolderConn;
+      rawConn = folderConn._conn;
+      rawConn.addBox(path, addBoxCallback);
+    }
+    function addBoxCallback(err) {
+      if (err) {
+        console.error('Error creating box:', err);
+        // XXX implement the already-exists check...
+        done('unknown');
+        return;
+      }
+      // Do a list on the folder so that we get the right attributes and any
+      // magical case normalization performed by the server gets observed by
+      // us.
+      rawConn.getBoxes('', path, gotBoxes);
+    }
+    function gotBoxes(err, boxesRoot) {
+      if (err) {
+        console.error('Error looking up box:', err);
+        done('unknown');
+        return;
+      }
+      // We need to re-derive the path
+      var folderMeta = null;
+      function walkBoxes(boxLevel, pathSoFar) {
+        for (var boxName in boxLevel) {
+          var box = boxLevel[boxName],
+              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName,
+              type = self._determineFolderType(box);
+          folderMeta = self._learnAboutFolder(boxName, boxPath, type,
+                                              box.delim);
+        }
+      }
+      walkBoxes(boxesRoot, '');
+      if (folderMeta)
+        done(null, folderMeta);
+      else
+        done('unknown');
+    }
+    function done(errString, folderMeta) {
+      if (folderConn) {
+        self.__folderDoneWithConnection(null, folderConn);
+        folderConn = null;
+      }
+      if (callback)
+        callback(errString, folderMeta);
+    }
+    this.__folderDemandsConnection(':createFolder', gotConn);
+  },
+
+  /**
+   * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
+   * does not desire this, but the unit tests do.
+   *
+   * Callback is like the createFolder one, why not.
+   */
+  deleteFolder: function(folderId, callback) {
+    if (!this._folderInfos.hasOwnProperty(folderId))
+      throw new Error("No such folder: " + folderId);
+
+    if (!this.universe.online) {
+      callback('offline');
+      return;
+    }
+
+    var folderMeta = this._folderInfos[folderId].$meta;
+
+    var rawConn = null, folderConn = null, self = this;
+    function gotConn(ourFolderConn) {
+      folderConn = ourFolderConn;
+      rawConn = folderConn._conn;
+      rawConn.delBox(folderMeta.path, deletionCallback);
+    }
+    function deletionCallback(err) {
+      if (err)
+        done('unknown');
+      else
+        done(null);
+    }
+    function done(errString) {
+      if (folderConn) {
+        self.__folderDoneWithConnection(null, folderConn);
+        folderConn = null;
+      }
+      if (!errString) {
+        self._forgetFolder(folderId);
+      }
+      if (callback)
+        callback(errString, folderMeta);
+    }
+    this.__folderDemandsConnection(':deleteFolder', gotConn);
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -156,6 +349,19 @@ ImapAccount.prototype = {
    *
    * The provided connection will *not* be in the requested folder; it's up to
    * the folder connection to enter the folder.
+   *
+   * @args[
+   *   @param[folderId #:optional FolderId]{
+   *     The folder id of the folder that will be using the connection.  If
+   *     it's not a folder but some task, then pass a string prefixed with
+   *     a colon and a human readable string to explain the task.
+   *   }
+   *   @param[callback]{
+   *     The callback to invoke once the connection has been established.  If
+   *     there is a connection present in the reuse pool, this may be invoked
+   *     immediately.
+   *   }
+   * ]
    */
   __folderDemandsConnection: function(folderId, callback) {
     var reusableConnInfo = null;
@@ -209,6 +415,8 @@ ImapAccount.prototype = {
   },
 
   __folderDoneWithConnection: function(folderId, conn) {
+    // XXX detect if the connection is actually dead and in that case don't
+    // reinsert it.
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       if (connInfo.conn === conn) {
@@ -227,6 +435,96 @@ ImapAccount.prototype = {
     this.__folderDemandsConnection(null, function(conn) {
       conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
     });
+  },
+  _determineFolderType: function(box) {
+    var type = null;
+    // NoSelect trumps everything.
+    if (box.attribs.indexOf('NOSELECT') !== -1) {
+      type = 'nomail';
+    }
+    else {
+      // Standards-ish:
+      // - special-use: http://tools.ietf.org/html/rfc6154
+      //   IANA registrations:
+      //   http://www.iana.org/assignments/imap4-list-extended
+      // - xlist:
+      //   https://developers.google.com/google-apps/gmail/imap_extensions
+
+      // Process the attribs for goodness.
+      for (var i = 0; i < box.attribs.length; i++) {
+        switch (box.attribs[i]) {
+          case 'ALL': // special-use
+          case 'ALLMAIL': // xlist
+          case 'ARCHIVE': // special-use
+            type = 'archive';
+            break;
+          case 'DRAFTS': // special-use xlist
+            type = 'drafts';
+            break;
+          case 'FLAGGED': // special-use
+            type = 'starred';
+            break;
+          case 'INBOX': // xlist
+            type = 'inbox';
+            break;
+          case 'JUNK': // special-use
+            type = 'junk';
+            break;
+          case 'SENT': // special-use xlist
+            type = 'sent';
+            break;
+          case 'SPAM': // xlist
+            type = 'junk';
+            break;
+          case 'STARRED': // xlist
+            type = 'starred';
+            break;
+
+          case 'TRASH': // special-use xlist
+            type = 'trash';
+            break;
+
+          case 'HASCHILDREN': // 3348
+          case 'HASNOCHILDREN': // 3348
+
+          // - standard bits we don't care about
+          case 'MARKED': // 3501
+          case 'UNMARKED': // 3501
+          case 'NOINFERIORS': // 3501
+            // XXX use noinferiors to prohibit folder creation under it.
+          // NOSELECT
+
+          default:
+        }
+      }
+
+      // heuristic based type assignment based on the name
+      if (!type) {
+        switch (path.toUpperCase()) {
+          case 'DRAFT':
+          case 'DRAFTS':
+            type = 'drafts';
+            break;
+          case 'INBOX':
+            type = 'inbox';
+            break;
+          case 'JUNK':
+          case 'SPAM':
+            type = 'junk';
+            break;
+          case 'SENT':
+            type = 'sent';
+            break;
+          case 'TRASH':
+            type = 'trash';
+            break;
+        }
+      }
+
+      if (!type)
+        type = 'normal';
+    }
+    return type;
   },
   _syncFolderComputeDeltas: function(conn, callback, err, boxesRoot) {
     var self = this;
@@ -249,7 +547,6 @@ ImapAccount.prototype = {
         var box = boxLevel[boxName],
             path = pathSoFar ? (pathSoFar + boxName) : boxName;
 
-
         // - already known folder
         if (folderPubsByPath.hasOwnProperty(path)) {
           // mark it with true to show that we've seen it.
@@ -257,95 +554,8 @@ ImapAccount.prototype = {
         }
         // - new to us!
         else {
-          var type = null;
-          // NoSelect trumps everything.
-          if (box.attribs.indexOf('NOSELECT') !== -1) {
-            type = 'nomail';
-          }
-          else {
-            // Standards-ish:
-            // - special-use: http://tools.ietf.org/html/rfc6154
-            //   IANA registrations:
-            //   http://www.iana.org/assignments/imap4-list-extended
-            // - xlist:
-            //   https://developers.google.com/google-apps/gmail/imap_extensions
-
-            // Process the attribs for goodness.
-            for (var i = 0; i < box.attribs.length; i++) {
-              switch (box.attribs[i]) {
-                case 'ALL': // special-use
-                case 'ALLMAIL': // xlist
-                case 'ARCHIVE': // special-use
-                  type = 'archive';
-                  break;
-                case 'DRAFTS': // special-use xlist
-                  type = 'drafts';
-                  break;
-                case 'FLAGGED': // special-use
-                  type = 'starred';
-                  break;
-                case 'INBOX': // xlist
-                  type = 'inbox';
-                  break;
-                case 'JUNK': // special-use
-                  type = 'junk';
-                  break;
-                case 'SENT': // special-use xlist
-                  type = 'sent';
-                  break;
-                case 'SPAM': // xlist
-                  type = 'junk';
-                  break;
-                case 'STARRED': // xlist
-                  type = 'starred';
-                  break;
-
-                case 'TRASH': // special-use xlist
-                  type = 'trash';
-                  break;
-
-                case 'HASCHILDREN': // 3348
-                case 'HASNOCHILDREN': // 3348
-
-                // - standard bits we don't care about
-                case 'MARKED': // 3501
-                case 'UNMARKED': // 3501
-                case 'NOINFERIORS': // 3501
-                  // XXX use noinferiors to prohibit folder creation under it.
-                // NOSELECT
-
-                default:
-              }
-            }
-
-            // heuristic based type assignment based on the name
-            if (!type) {
-              switch (path.toUpperCase()) {
-                case 'DRAFT':
-                case 'DRAFTS':
-                  type = 'drafts';
-                  break;
-                case 'INBOX':
-                  type = 'inbox';
-                  break;
-                case 'JUNK':
-                case 'SPAM':
-                  type = 'junk';
-                  break;
-                case 'SENT':
-                  type = 'sent';
-                  break;
-                case 'TRASH':
-                  type = 'trash';
-                  break;
-              }
-            }
-
-            if (!type)
-              type = 'normal';
-          }
-
-          self._learnAboutFolder(boxName, path, type);
+          var type = self._determineFolderType(box);
+          self._learnAboutFolder(boxName, path, type, box.delim);
         }
 
         if (box.children)
@@ -363,16 +573,56 @@ ImapAccount.prototype = {
       if (folderPub === true)
         continue;
       // It must have gotten deleted!
-      delete this._folderInfos[folderPub.id];
-      var folderStorage = this._folderStorages[folderPub.id];
-      delete this._folderStorages[folderPub.id];
-      if (this._deadFolderIds === null)
-        this._deadFolderIds = [];
-      this._deadFolderIds.push(folderPub.id);
-      folderStorage.youAreDeadCleanupAfterYourself();
+      this._forgetFolder(folderPub.id);
     }
 
     callback();
+  },
+
+  runOp: function(op, callback) {
+    var methodName = '_do_' + op.type;
+    if (!(methodName in this))
+      throw new Error("Unsupported op: '" + op.type + "'");
+    this[methodName](op, callback);
+  },
+
+  _do_append: function(op, callback) {
+    var folderConn, rawConn, self = this,
+        folderMeta = this._folderInfos[op.folderId].$meta;
+    function gotConn(myFolderConn) {
+      folderConn = myFolderConn;
+      rawConn = folderConn._conn;
+
+      rawConn.openBox(folderMeta.path, openedBox);
+    }
+    function openedBox(err, box) {
+      if (err) {
+        console.error('failure opening box to append message');
+        done('unknown');
+        return;
+      }
+      rawConn.append(
+        op.messageText,
+        { date: op.date, flags: op.flags },
+        appended);
+    }
+    function appended(err) {
+      if (err) {
+        console.error('failure appending message', err);
+        done('unknown');
+        return;
+      }
+      done(null);
+    }
+    function done(errString) {
+      if (folderConn) {
+        self.__folderDoneWithConnection(op.folderId, folderConn);
+        folderConn = null;
+      }
+      callback(errString);
+    }
+
+    this.__folderDemandsConnection(op.folderId, gotConn);
   },
 };
 

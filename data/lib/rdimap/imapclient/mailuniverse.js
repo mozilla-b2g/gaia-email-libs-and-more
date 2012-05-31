@@ -50,8 +50,10 @@ const DEFAULT_SIGNATURE = [
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(accountDef, folderInfo, dbConn, receiveProtoConn,
+function CompositeAccount(universe, accountDef, folderInfo, dbConn,
+                          receiveProtoConn,
                           _LOG) {
+  this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
   // XXX for now we are stealing the universe's logger
@@ -68,10 +70,12 @@ function CompositeAccount(accountDef, folderInfo, dbConn, receiveProtoConn,
 
   this._receivePiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
+      universe,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
       folderInfo, dbConn, this._LOG, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
+      universe,
       accountDef.id, accountDef.credentials,
       accountDef.sendConnInfo, dbConn, this._LOG);
 
@@ -109,6 +113,16 @@ CompositeAccount.prototype = {
     };
   },
 
+  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
+                         callback) {
+    return this._receivePiece.createFolder(
+      parentFolderId, folderName, containOnlyOtherFolders, callback);
+  },
+
+  deleteFolder: function(folderId, callback) {
+    return this._receivePiece.deleteFolder(folderId, callback);
+  },
+
   sliceFolderMessages: function(folderId, bridgeProxy) {
     return this._receivePiece.sliceFolderMessages(folderId, bridgeProxy);
   },
@@ -123,6 +137,10 @@ CompositeAccount.prototype = {
 
   getFolderStorageForFolderId: function(folderId) {
     return this._receivePiece.getFolderStorageForFolderId(folderId);
+  },
+
+  runOp: function(op, callback) {
+    return this._receivePiece.runOp(op, callback);
   },
 };
 
@@ -415,6 +433,18 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
   this.identities = [];
   this._identitiesById = {};
 
+  this._opsByAccount = {};
+  this._opCompletionListenersByAccount = {};
+
+  this._bridges = [];
+
+  // hookup network status indication
+  var connection = window.navigator.connection ||
+                     window.navigator.mozConnection ||
+                     window.navigator.webkitConnection;
+  this._onConnectionChange();
+  connection.addEventListener('change', this._onConnectionChange.bind(this));
+
   /**
    * @dictof[
    *   @key[AccountId]
@@ -459,6 +489,31 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
+  _onConnectionChange: function() {
+    var connection = window.navigator.connection ||
+                       window.navigator.mozConnection ||
+                       window.navigator.webkitConnection;
+    /**
+     * Are we online?  AKA do we have actual internet network connectivity.
+     * This should ideally be false behind a captive portal.
+     */
+    this.online = connection.bandwidth > 0;
+    /**
+     * Do we want to minimize network usage?  Right now, this is the same as
+     * metered, but it's conceivable we might also want to set this if the
+     * battery is low, we want to avoid stealing network/cpu from other
+     * apps, etc.
+     */
+    this.minimizeNetworkUsage = connection.metered;
+    /**
+     * Is there a marginal cost to network usage?  This is intended to be used
+     * for UI (decision) purposes where we may want to prompt before doing
+     * things when bandwidth is metered, but not when the user is on comparably
+     * infinite wi-fi.
+     */
+    this.networkCostsMoney = connection.metered;
+  },
+
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
     var domain = userDetails.emailAddress.substring(
                    userDetails.emailAddress.indexOf('@') + 1),
@@ -491,6 +546,8 @@ MailUniverse.prototype = {
 
     this.accounts.push(account);
     this._accountsById[account.id] = account;
+    this._opsByAccount[account.id] = [];
+    this._opCompletionListenersByAccount[account.id] = null;
 
     for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
       var identity = accountDef.identities[iIdent];
@@ -499,6 +556,20 @@ MailUniverse.prototype = {
     }
 
     return account;
+  },
+
+  __notifyAddedFolder: function(accountId, folderMeta) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyFolderAdded(accountId, folderMeta);
+    }
+  },
+
+  __notifyRemovedFolder: function(accountId, folderMeta) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyFolderRemoved(accountId, folderMeta);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -570,6 +641,25 @@ MailUniverse.prototype = {
     return results;
   },
 
+  _opCompleted: function(account, op, err) {
+    // shift the running op off.
+    queue.shift();
+  },
+
+  _queueAccountOp: function(account, op) {
+    var queue = this._opsByAccount[account.id];
+    queue.push(op);
+    if (queue.length === 1)
+      account.runOp(op, this._opCompleted.bind(this, account, op));
+  },
+
+  waitForAccountOps: function(account, callback) {
+    if (this._opsByAccount[account.id].length === 0)
+      callback();
+    else
+      this._opCompletionListenersByAccount[account.id] = callback;
+  },
+
   modifyMessageTags: function(messageSuids, addTags, removeTags) {
   },
 
@@ -577,6 +667,19 @@ MailUniverse.prototype = {
   },
 
   undoMutation: function(mutationId) {
+  },
+
+  appendMessage: function(folderId, date, flags, messageText) {
+    var account = this.getAccountForFolderId(folderId);
+    this._queueAccountOp(
+      account,
+      {
+        type: 'append',
+        folderId: folderId,
+        date: date,
+        flags: flags,
+        messageText: messageText,
+      });
   },
 
   //////////////////////////////////////////////////////////////////////////////

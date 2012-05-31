@@ -453,6 +453,17 @@ FoldersViewSlice.prototype = {
     }
     return null;
   },
+
+  getFirstFolderWithName: function(name, items) {
+    if (!items)
+      items = this.items;
+    for (var i = 0; i < items.length; i++) {
+      var folder = items[i];
+      if (folder.name === name)
+        return folder;
+    }
+    return null;
+  },
 };
 
 

@@ -16,7 +16,8 @@ define(
     exports
   ) {
 
-function SmtpAccount(accountId, credentials, connInfo, _parentLog) {
+function SmtpAccount(universe, accountId, credentials, connInfo, _parentLog) {
+  this.universe = universe;
   this.accountId = accountId;
   this.credentials = credentials;
   this.connInfo = connInfo;

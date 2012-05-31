@@ -69,7 +69,8 @@ define(
     $module,
     exports
   ) {
-const allbackMaker = $allback.allbackMaker;
+const allbackMaker = $allback.allbackMaker,
+      bsearchForInsert = $imaputil.bsearchForInsert;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -93,60 +94,18 @@ function compactArray(arr) {
   return arr;
 }
 
-function headerYoungToOldComparator(a, b) {
-  var delta = b.date - a.date;
-  if (delta)
-    return delta;
-  // favor larger UIDs because they are newer-ish.
-  return b.id - a.id;
-}
-
-/**
- * Perform a binary search on an array to find the correct insertion point
- *  in the array for an item.  From deuxdrop; tested in
- *  deuxdrop's `unit-simple-algos.js` test.
- *
- * @return[Number]{
- *   The correct insertion point in the array, thereby falling in the inclusive
- *   range [0, arr.length].
- * }
- */
-const bsearchForInsert = exports._bsearchForInsert =
-    function bsearchForInsert(list, seekVal, cmpfunc) {
-  if (!list.length)
-    return 0;
-  var low  = 0, high = list.length - 1,
-      mid, cmpval;
-  while (low <= high) {
-    mid = low + Math.floor((high - low) / 2);
-    cmpval = cmpfunc(seekVal, list[mid]);
-    if (cmpval < 0)
-      high = mid - 1;
-    else if (cmpval > 0)
-      low = mid + 1;
-    else
-      break;
-  }
-  if (cmpval < 0)
-    return mid; // insertion is displacing, so use mid outright.
-  else if (cmpval > 0)
-    return mid + 1;
-  else
-    return mid;
-};
-
 /**
  * Header info comparator that orders messages in order of numerically
  * decreasing date and UIDs.  So new messages come before old messages,
  * and messages with higher UIDs (newer-ish) before those with lower UIDs
  * (when the date is the same.)
  */
-function cmpHeadInfoYoungToOld(a, b) {
-  var d = b.date - a.date;
-  if (d)
-    return d;
-  d = b.id - a.id;
-  return d;
+function cmpHeaderYoungToOld(a, b) {
+  var delta = b.date - a.date;
+  if (delta)
+    return delta;
+  // favor larger UIDs because they are newer-ish.
+  return b.id - a.id;
 }
 
 
@@ -222,7 +181,7 @@ ImapSlice.prototype = {
     }
 
     var idx = bsearchForInsert(this.headers, header,
-                               headerYoungToOldComparator);
+                               cmpHeaderYoungToOld);
     this._LOG.headerAdded(idx, header);
     this._bridgeHandle.sendSplice(idx, 0, [header]);
     this.headers.splice(idx, 0, header);
@@ -234,7 +193,7 @@ ImapSlice.prototype = {
 
     // this can only affect flags which will not affect ordering
     var idx = bsearchForInsert(this.headers, header,
-                               headerYoungToOldComparator);
+                               cmpHeaderYoungToOld);
     this._LOG.headerModified(idx, header);
     this._bridgeHandle.sendUpdate([idx, header]);
   },
@@ -244,7 +203,7 @@ ImapSlice.prototype = {
       return;
 
     var idx = bsearchForInsert(this.headers, header,
-                               headerYoungToOldComparator);
+                               cmpHeaderYoungToOld);
     this._LOG.headerRemoved(idx, header);
     this._bridgeHandle.sendSplice(idx, 1, null);
     this.headers.splice(idx, 1);
@@ -1120,7 +1079,7 @@ ImapFolderStorage.prototype = {
 
   _insertHeaderInBlock: function ifs__insertHeaderInBlock(header, uid, info,
                                                           block) {
-    var idx = bsearchForInsert(block.headers, header, cmpHeadInfoYoungToOld);
+    var idx = bsearchForInsert(block.headers, header, cmpHeaderYoungToOld);
     block.uids.splice(idx, 0, header.id);
     block.headers.splice(idx, 0, header);
     this._dirtyHeaderBlocks[info.blockId] = block;
@@ -2054,7 +2013,7 @@ ImapFolderStorage.prototype = {
       function blockPicked(blockInfo, headerBlock) {
         // - update the block
         var insertIdx = bsearchForInsert(
-          headerBlock.headers, header, headerYoungToOldComparator);
+          headerBlock.headers, header, cmpHeaderYoungToOld);
         // (if the list is empty, both conditionals can be true)
         if (insertIdx === 0) {
           blockInfo.endTS = header.date;

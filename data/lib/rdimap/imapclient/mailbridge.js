@@ -6,18 +6,28 @@ define(
   [
     'rdcommon/log',
     'mailcomposer',
+    './util',
     'module',
     'exports'
   ],
   function(
     $log,
     $mailcomposer,
+    $imaputil,
     $module,
     exports
   ) {
+const bsearchForInsert = $imaputil.bsearchForInsert;
 
 function toBridgeWireOn(x) {
   return x.toBridgeWire();
+}
+
+function cmpFolderMarkers(a, b) {
+  var d = a[0].localeCompare(b[0]);
+  if (d)
+    return d;
+  return a[1].localeCompare(b[1]);
 }
 
 /**
@@ -29,8 +39,10 @@ function MailBridge(universe) {
   this.universe = universe;
 
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
-  // live slices
+  /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
+  /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
+  this._slicesByType = {};
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
   //
@@ -64,7 +76,8 @@ MailBridge.prototype = {
 
   _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
     var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, msg.handle);
+          new SliceBridgeProxy(this, 'accounts', msg.handle);
+    this._slicesByType['accounts'].push(proxy);
     var wireReps = this.universe.accounts.map(toBridgeWireOn);
     // send all the accounts in one go.
     proxy.sendSplice(0, 0, wireReps, true, false);
@@ -72,15 +85,47 @@ MailBridge.prototype = {
 
   _cmd_viewSenderIdentities: function mb__cmd_viewSenderIdentities(msg) {
     var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, msg.handle);
+          new SliceBridgeProxy(this, identities, msg.handle);
+    this._slicesByType['identities'].push(proxy);
     var wireReps = this.universe.identities;
     // send all the identities in one go.
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
+  notifyFolderAdded: function(accountId, folderMeta) {
+    var newMarker = [accountId, folderMeta.path];
+
+    var slices = this._slicesByType['folders'];
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+      var idx = bsearchForInsert(proxy.markers, newMarker, cmpFolderMarkers);
+      proxy.sendSplice(idx, 0, [folderMeta], false, false);
+      proxy.markers.splice(idx, 0, newMarker);
+    }
+  },
+
+  notifyFolderRemoved: function(accountId, folderMeta) {
+    var marker = [accountId, folderMeta.path];
+
+    var slices = this._slicesByType['folders'];
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+
+      var idx = bsearchMaybeExists(proxy.markers, marker, cmpFolderMarkers);
+      if (idx === null)
+        continue;
+      proxy.sendSplice(idx, 1, null, false, false);
+      proxy.markers.splice(idx, 1);
+    }
+  },
+
   _cmd_viewFolders: function mb__cmd_viewFolders(msg) {
     var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, msg.handle);
+          new SliceBridgeProxy(this, 'folders', msg.handle);
+    this._slicesByType['folders'].push(proxy);
+    proxy.mode = msg.mode;
+    proxy.argument = msg.argument;
+    var markers = proxy.markers = [];
 
     var wireReps = [];
 
@@ -88,6 +133,7 @@ MailBridge.prototype = {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
         wireReps.push(folder);
+        markers.push([acct.id, folder.path]);
       }
     }
 
@@ -101,6 +147,7 @@ MailBridge.prototype = {
       for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
         var acct = accounts[iAcct];
         wireReps.push(acct.toBridgeWire());
+        markers.push([acct.id, '']);
         pushAccountFolders(acct);
       }
     }
@@ -109,7 +156,8 @@ MailBridge.prototype = {
 
   _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {
     var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, msg.handle);
+          new SliceBridgeProxy(this, 'headers', msg.handle);
+    this._slicesByType['headers'].push(proxy);
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
     account.sliceFolderMessages(msg.folderId, proxy);
@@ -123,6 +171,9 @@ MailBridge.prototype = {
     }
 
     delete this._slices[msg.handle];
+    var proxies = this._slicesByType[proxy._ns],
+        idx = proxies.indexOf(proxy);
+    proxies.splice(idx, 1);
     proxy.die();
   },
 
@@ -283,8 +334,9 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
 };
 
-function SliceBridgeProxy(bridge, handle) {
+function SliceBridgeProxy(bridge, ns, handle) {
   this._bridge = bridge;
+  this._ns = ns;
   this._handle = handle;
   this.__listener = null;
 }

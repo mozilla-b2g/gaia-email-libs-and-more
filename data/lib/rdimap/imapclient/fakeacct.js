@@ -4,9 +4,11 @@
 
 define(
   [
+    'mailcomposer',
     'exports'
   ],
   function(
+    $mailcomposer,
     exports
   ) {
 
@@ -81,11 +83,13 @@ const SUBJECT_SUFFIXES = [
  * Provides mechanisms for creating vaguely interesting, but at least valid,
  *  SyntheticMessage instances.
  */
-function MessageGenerator(startDate) {
+function MessageGenerator(startDate, mode) {
   this._clock = startDate || new Date(2012, 5, 14);
   this._nextNameNumber = 0;
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
+
+  this._mode = mode || 'info';
 }
 exports.MessageGenerator = MessageGenerator;
 MessageGenerator.prototype = {
@@ -236,6 +240,35 @@ MessageGenerator.prototype = {
   },
 
   /**
+   * HACK: copied from our mailbridge implementation.
+   *
+   * mailcomposer wants from/to/cc/bcc delivered basically like it will show
+   * up in the e-mail, except it is fine with unicode.  So we convert our
+   * (possibly) structured representation into a flattened representation.
+   *
+   * (mailcomposer will handle punycode and mime-word encoding as needed.)
+   */
+  _formatAddresses: function(nameAddrPairs) {
+    var addrstrings = [];
+    for (var i = 0; i < nameAddrPairs.length; i++) {
+      var pair = nameAddrPairs[i];
+      // support lazy people providing only an e-mail... or very careful
+      // people who are sure they formatted things correctly.
+      if (typeof(pair) === 'string') {
+        addrstrings.push(pair);
+      }
+      else {
+        addrstrings.push(
+          '"' + pair.name.replace(/["']/g, '') + '" <' +
+            pair.address + '>');
+      }
+    }
+
+    return addrstrings.join(', ');
+  },
+
+
+  /**
    * Create a SyntheticMessage.  All arguments are optional, but allow
    *  additional control.  With no arguments specified, a new name/address will
    *  be generated that has not been used before, and sent to a new name/address
@@ -293,6 +326,8 @@ MessageGenerator.prototype = {
     var headerInfo = {
       id: null,
       suid: null,
+      guid: '<' + Date.now() + Math.random().toString(16).substr(1) +
+              '@mozgaia>',
       author: null,
       date: null,
       flags: [],
@@ -333,7 +368,7 @@ MessageGenerator.prototype = {
     if (aArgs.age) {
       var age = aArgs.age;
       // start from 'now'
-      var ts = new Date().valueOf();
+      var ts = this._clock || Date.now();
       if (age.minutes)
         ts -= age.minutes * 60 * 1000;
       if (age.hours)
@@ -356,10 +391,36 @@ MessageGenerator.prototype = {
       '\nThe robots may or may not be friendly.\n' +
       'They definitely do not know latin, which is why no lorax gypsum.';
 
-    return {
-      headerInfo: headerInfo,
-      bodyInfo: bodyInfo,
-    };
+    if (this._mode === 'info') {
+      return {
+        headerInfo: headerInfo,
+        bodyInfo: bodyInfo,
+      };
+    }
+    else { // 'rfc822'
+      var composer = new $mailcomposer.MailComposer();
+      var messageOpts = {
+        from: this._formatAddresses(headerInfo.author),
+        subject: headerInfo.subject,
+        body: bodyInfo.bodyText,
+        to: this._formatAddresses(bodyInfo.to),
+      };
+      if (bodyInfo.cc)
+        messageOpts.cc = this._formatAddresses(bodyInfo.cc);
+      composer.setMessageOptions(messageOpts);
+      composer.addHeader('Date', new Date(headerInfo.date));
+      composer.addHeader('Message-Id', headerInfo.guid);
+
+      // have it internally accumulate the data rather than using the stream
+      // mechanism.
+      composer._cacheOutput = true;
+      var data = null;
+      composer._processBufferedOutput = function() {
+        data = this._outputBuffer;
+      };
+      composer._composeMessage();
+      return data;
+    }
   },
 
   MAKE_MESSAGES_DEFAULTS: {
@@ -453,7 +514,8 @@ MessageGenerator.prototype = {
  * Fake accounts always regenerate from scratch when instantiated; there is
  * no disk persistence.
  */
-function FakeAccount(accountDef, folderInfo, receiveProtoConn, _LOG) {
+function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
+  this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
@@ -526,6 +588,14 @@ FakeAccount.prototype = {
         },
       ]
     };
+  },
+
+  createFolder: function() {
+    throw new Error('XXX not implemented');
+  },
+
+  deleteFolder: function() {
+    throw new Error('XXX not implemented');
   },
 
   sliceFolderMessages: function fa_sliceFolderMessages(folderId, bridgeHandle) {
