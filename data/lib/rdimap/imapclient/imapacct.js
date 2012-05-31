@@ -256,7 +256,7 @@ ImapAccount.prototype = {
         for (var boxName in boxLevel) {
           var box = boxLevel[boxName],
               boxPath = pathSoFar ? (pathSoFar + boxName) : boxName,
-              type = self._determineFolderType(box);
+              type = self._determineFolderType(box, boxPath);
           folderMeta = self._learnAboutFolder(boxName, boxPath, type,
                                               box.delim);
         }
@@ -272,6 +272,8 @@ ImapAccount.prototype = {
         self.__folderDoneWithConnection(null, folderConn);
         folderConn = null;
       }
+      if (!errString)
+        self._LOG.createFolder(path);
       if (callback)
         callback(errString, folderMeta);
     }
@@ -313,6 +315,7 @@ ImapAccount.prototype = {
         folderConn = null;
       }
       if (!errString) {
+        self._LOG.deleteFolder(folderMeta.path);
         self._forgetFolder(folderId);
       }
       if (callback)
@@ -436,7 +439,7 @@ ImapAccount.prototype = {
       conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
     });
   },
-  _determineFolderType: function(box) {
+  _determineFolderType: function(box, path) {
     var type = null;
     // NoSelect trumps everything.
     if (box.attribs.indexOf('NOSELECT') !== -1) {
@@ -554,7 +557,7 @@ ImapAccount.prototype = {
         }
         // - new to us!
         else {
-          var type = self._determineFolderType(box);
+          var type = self._determineFolderType(box, path);
           self._learnAboutFolder(boxName, path, type, box.delim);
         }
 
@@ -642,10 +645,14 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     type: $log.ACCOUNT,
     events: {
       persistedFolder: { folderId: false },
+      createFolder: {},
+      deleteFolder: {},
       learnAboutFolder: { folderId: false },
     },
     TEST_ONLY_events: {
       persistedFolder: { folderInfo: false },
+      createFolder: { path: false },
+      deleteFolder: { path: false },
       learnAboutFolder: { name: false, path: false, type: false },
     },
     errors: {

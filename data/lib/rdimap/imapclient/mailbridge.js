@@ -42,7 +42,12 @@ function MailBridge(universe) {
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
   /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
-  this._slicesByType = {};
+  this._slicesByType = {
+    accounts: [],
+    identities: [],
+    folders: [],
+    headers: [],
+  };
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
   //

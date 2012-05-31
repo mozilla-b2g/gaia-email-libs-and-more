@@ -11,94 +11,14 @@ var $_mailuniverse = require('rdimap/imapclient/mailuniverse'),
     $_mailapi = require('rdimap/imapclient/mailapi'),
     $_fakeacct = require('rdimap/imapclient/fakeacct'),
     $_allback = require('rdimap/imapclient/allback'),
-    $_log = require('rdcommon/log'),
-    $_logreaper = require('rdcommon/logreaper'),
-    $_Q = require('q');
-
-// If we are using Q with debugging support, use it.
-// (That's what's checked in right now...)
-if ($_Q.loggingEnableFriendly) {
-  $_Q.loggingEnableFriendly({
-    unhandledRejections: true,
-    exceptions: true,
-  });
-}
+    $_Q = require('q'),
+    $tc = require('rdcommon/testcontext'),
+    $_testdriver = require('rdcommon/testdriver'),
+    $th_imap = require('rdimap/imapclient/testhelper');
 
 var MailAPI = null, MailBridge = null, MailUniverse = null;
 
-/**
- * Creates the mail universe, and a bridge, and MailAPI.
- *
- * Use add_test() to add this function near the top of your test.
- */
-function setup_mail_api() {
-  MailUniverse = new $_mailuniverse.MailUniverse(
-    true,
-    function onUniverse() {
-      var TMB = MailBridge = new $_mailbridge.MailBridge(MailUniverse);
-      var TMA = MailAPI = new $_mailapi.MailAPI();
-      TMA.__bridgeSend = function(msg) {
-        console.log('API sending:', JSON.stringify(msg));
-        window.setZeroTimeout(function() {
-                                TMB.__receiveMessage(msg);
-                              });
-      };
-      TMB.__sendMessage = function(msg) {
-        console.log('Bridge sending:', JSON.stringify(msg));
-        window.setZeroTimeout(function() {
-                                TMA.__bridgeReceive(msg);
-                              });
-      };
-      run_next_test();
-    });
-
-  var LogReaper = new $_logreaper.LogReaper(MailUniverse._LOG);
-  do_register_cleanup(function() {
-      var dumpObj = {
-        schema: $_log.provideSchemaForAllKnownFabs(),
-        backlog: [
-          LogReaper.reapHierLogTimeSlice(),
-        ],
-      };
-      print('##### LOGGEST-TEST-RUN-BEGIN #####\n' +
-            JSON.stringify(dumpObj) + '\n' +
-            '##### LOGGEST-TEST-RUN-END #####\n');
-    });
-}
-
 var gAllAccountsSlice = null, gAllFoldersSlice = null;
-
-/**
- * Create a test account as defined by TEST_PARAMS and query for the list of
- * all accounts and folders, advancing to the next test when both slices are
- * populated.
- *
- * Use add_test() to add this function near the top of your test.
- */
-function setup_test_account() {
-  MailAPI.tryToCreateAccount(
-    {
-      displayName: 'Baron von Testendude',
-      emailAddress: TEST_PARAMS.emailAddress,
-      password: TEST_PARAMS.password,
-    },
-    function accountMaybeCreated(error) {
-      if (error)
-        do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress);
-
-      var callbacks = $_allback.allbackMaker(
-        ['accounts', 'folders'],
-        function gotSlices() {
-          run_next_test();
-        });
-
-      gAllAccountsSlice = MailAPI.viewAccounts(false);
-      gAllAccountsSlice.oncomplete = callbacks.accounts;
-
-      gAllFoldersSlice = MailAPI.viewFolders('navigation');
-      gAllFoldersSlice.oncomplete = callbacks.folders;
-    });
-}
 
 /**
  * Define a test that wants one or more IMAP folders of its own.  At the start
@@ -121,9 +41,9 @@ function add_imap_folder_test(folderDefs, testFunc) {
   // Always set the date to today at noon...
   var useDate = new Date();
   useDate.setHours(12, 0, 0, 0);
-  var generator = new $_fakeacct.MessageGenerator(useDate, 'body'),
+  var generator = null,
       folderPaths = [], storages = [], corpuses = [],
-      rawAccount = MailUniverse.accounts[0],
+      rawAccount = null,
       iDef = 0;
 
   function processNextFolder() {
@@ -170,9 +90,47 @@ function add_imap_folder_test(folderDefs, testFunc) {
   }
 
 add_test(function setup_imap_using_test() {
+  generator = new $_fakeacct.MessageGenerator(useDate, 'body');
+  rawAccount = MailUniverse.accounts[0];
   processNextFolder();
 });
 // By using bind, we maintain the function's name while also being able to
 // provide it with arguments.
 add_test(testFunc.bind(folderPaths, storages, corpuses));
+}
+
+var gDumpedLogs = false, gRunner;
+function dumpLogs() {
+  if (!gDumpedLogs) {
+    gRunner.dumpLogResultsToConsole(print);
+    gDumpedLogs = true;
+  }
+}
+function runMyTests(maxRunInSecs) {
+  // This should now be handled by ErrorTrapper generating an exit event.
+  //do_register_cleanup(dumpLogs);
+  do_test_pending();
+  setTimeout(function() {
+    dumpLogs();
+    do_throw('timeout!');
+  }, maxRunInSecs * 1000);
+  var options = {
+    testMode: 'test',
+    defaultStepDuration: 1 * 1000,
+    maxTestDurationMS: 10 * 1000,
+    maxTotalDurationMS: 20 * 1000,
+    exposeToTest: {},
+  };
+  gRunner = new $_testdriver.TestDefinerRunner(
+    TD, true, options);
+  $_Q.when(gRunner.runAll(ErrorTrapper),
+           function success() {
+             dumpLogs();
+             do_check_true(true);
+             do_test_finished();
+           },
+           function failure() {
+             do_throw('A test failed!');
+             do_test_finished();
+           });
 }

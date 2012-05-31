@@ -131,7 +131,16 @@ if (!Error.captureStackTrace) {
       throw new Error();
     }
     catch(ex) {
-      who.stack = ex.stack;
+      var sframes = ex.stack.split("\n"), frames = who.stack = [], match;
+      for (var i = 0; i < sframes.length; i++) {
+        if ((match = SM_STACK_FORMAT.exec(sframes[i]))) {
+          frames.push({
+                        filename: simplifyFilename(match[2]),
+                        lineNo: match[3],
+                        funcName: match[1],
+                      });
+        }
+      }
     }
   };
 }

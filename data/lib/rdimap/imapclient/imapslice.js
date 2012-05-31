@@ -56,6 +56,7 @@ define(
     'mailparser/mailparser',
     './a64',
     './allback',
+    './util',
     './imapchew',
     'module',
     'exports'
@@ -65,6 +66,7 @@ define(
     $mailparser,
     $a64,
     $allback,
+    $imaputil,
     $imapchew,
     $module,
     exports

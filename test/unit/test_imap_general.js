@@ -70,4 +70,5 @@ add_imap_folder_test(
 
 function run_test() {
   run_next_test();
+  do_timeout(5 * 1000, function() { do_throw('Too slow!'); });
 }

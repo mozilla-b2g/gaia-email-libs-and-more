@@ -47,10 +47,33 @@ var window = {
   IDBObjectStore: IDBObjectStore,
   IDBRequest: IDBRequest,
 
+  navigator: {
+    // - connection status
+    connection: {
+      bandwidth: 1000,
+      metered: false,
+      addEventListener: function(eventName, listener) {
+      },
+    },
+  },
+
   // - general stuff
   setTimeout: setTimeout,
   clearTimeout: clearTimeout,
-  setZeroTimeout: do_execute_soon,
+  setZeroTimeout: function(callback) {
+    var tm = Components.classes["@mozilla.org/thread-manager;1"]
+                       .getService(Components.interfaces.nsIThreadManager);
+
+    tm.mainThread.dispatch({
+      run: function() {
+        try {
+          callback();
+        } catch (e) {
+          ErrorTrapper.fire('uncaughtException', e);
+        }
+      }
+    }, Components.interfaces.nsIThread.DISPATCH_NORMAL);
+  },
 
   btoa: moduleGlobalsHack.btoa,
   atob: moduleGlobalsHack.atob

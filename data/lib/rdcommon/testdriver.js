@@ -198,6 +198,7 @@ function TestDefinerRunner(testDefiner, superDebug, exposeToTestOptions) {
   //  then let's remember that.
   this._fancyQ = 'loggingEnableFriendly' in $Q;
 }
+exports.TestDefinerRunner = TestDefinerRunner;
 TestDefinerRunner.prototype = {
   toString: function() {
     return '[TestDefinerRunner]';

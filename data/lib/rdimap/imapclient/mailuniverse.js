@@ -180,7 +180,7 @@ var autoconfigByDomain = {
 var Configurators = {};
 Configurators['imap+smtp'] = {
   tryToCreateAccount: function cfg_is_ttca(universe, userDetails, domainInfo,
-                                           callback) {
+                                           callback, _LOG) {
     var credentials, imapConnInfo, smtpConnInfo;
     if (domainInfo) {
       var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
@@ -227,10 +227,12 @@ Configurators['imap+smtp'] = {
         }
       });
 
-    var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo);
+    var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo,
+                                               _LOG);
     imapProber.onresult = callbacks.imap;
 
-    var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo);
+    var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo,
+                                               _LOG);
     smtpProber.onresult = callbacks.smtp;
   },
 
@@ -280,7 +282,7 @@ Configurators['imap+smtp'] = {
 };
 Configurators['fake'] = {
   tryToCreateAccount: function cfg_fake(universe, userDetails, domainInfo,
-                                        callback) {
+                                        callback, _LOG) {
     var credentials = {
       username: userDetails.username,
       password: userDetails.password,
@@ -528,7 +530,7 @@ MailUniverse.prototype = {
 
     var configurator = Configurators[domainInfo.type];
     return configurator.tryToCreateAccount(this, userDetails, domainInfo,
-                                           callback);
+                                           callback, this._LOG);
   },
 
   /**
@@ -541,7 +543,7 @@ MailUniverse.prototype = {
       return null;
     }
     var constructor = COMPOSITE_ACCOUNT_TYPE_TO_CLASS[accountDef.type];
-    var account = new constructor(accountDef, folderInfo, this._db,
+    var account = new constructor(this, accountDef, folderInfo, this._db,
                                   receiveProtoConn, this._LOG);
 
     this.accounts.push(account);

@@ -38,6 +38,71 @@ var dirSvc = Cc["@mozilla.org/file/directory_service;1"]
                .getService(Ci.nsIProperties);
 var file = dirSvc.get("ProfD", Ci.nsIFile);
 
+
+var ErrorTrapper = {
+  _trappedErrors: null,
+  _handlerCallback: null,
+  /**
+   * Express interest in errors.
+   */
+  trapErrors: function() {
+    this._trappedErrors = [];
+  },
+  callbackOnError: function(handler) {
+    this._handlerCallback = handler;
+    this._trappedErrors = [];
+  },
+  yoAnError: function(err, moduleName) {
+    if (this._trappedErrors == null || SUPER_DEBUG) {
+      console.error("==== REQUIREJS ERR ====", moduleName);
+      console.error(err.message);
+      console.error(err.stack);
+      if (DEATH_PRONE) {
+        console.error("PERFORMING PROCESS EXIT");
+        process.exit(1);
+      }
+    }
+    if (this._handlerCallback)
+      this._handlerCallback(err, moduleName);
+    else if (this._trappedErrors)
+      this._trappedErrors.push(err);
+  },
+  gobbleAndStopTrappingErrors: function() {
+    this._handlerCallback = null;
+    var errs = this._trappedErrors;
+    this._trappedErrors = null;
+    return errs;
+  },
+
+  _listenerMap: {
+    exit: null,
+    uncaughtException: null,
+  },
+  on: function(name, listener) {
+    this._listenerMap[name] = listener;
+  },
+  once: function(name, listener) {
+    this._listenerMap[name] = function(data) {
+      listener(data);
+      ErrorTrapper.removeListener(name);
+    };
+  },
+  removeListener: function(name) {
+    this._listenerMap[name] = null;
+  },
+  reliableOutput: print,
+
+  fire: function(name, data) {
+    if (!this._listenerMap[name])
+      return;
+    console.log('firing', name, data);
+    this._listenerMap[name](data);
+  },
+};
+do_register_cleanup(function() {
+  ErrorTrapper.fire('exit', null);
+});
+
 // Look enough like a window for all of our tests (IndexedDB, empty navigator/document)
 load('resources/window_shims.js');
 // Expose B2G magic window globals that we want/care about.
@@ -58,6 +123,7 @@ require({
     "https": "data/lib/nop2",
     "url": "data/lib/nop3",
     "fs": "data/lib/nop4",
+    "child_process": "data/lib/nop5",
 
     "q": "data/lib/q",
     "text": "data/lib/text",
@@ -77,6 +143,7 @@ require({
     "net": "data/lib/node-net",
     "tls": "data/lib/node-tls",
     "os": "data/lib/node-os",
+    "timers": "data/lib/node-timers",
 
     "iconv": "data/lib/js-shims/faux-iconv",
 

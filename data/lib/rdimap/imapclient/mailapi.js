@@ -37,6 +37,13 @@ MailAccount.prototype = {
   toString: function() {
     return '[MailAccount: ' + this.type + ' ' + this.id + ']';
   },
+  toJSON: function() {
+    return {
+      type: 'MailAccount',
+      accountType: this.type,
+      id: this.id,
+    };
+  },
 
   modifyAccount: function() {
     throw new Error("NOT YET IMPLEMENTED");
@@ -67,6 +74,9 @@ function MailSenderIdentity(api, wireRep) {
 MailSenderIdentity.prototype = {
   toString: function() {
     return '[MailSenderIdentity: ' + this.type + ' ' + this.id + ']';
+  },
+  toJSON: function() {
+    return { type: 'MailSenderIdentity' };
   },
 };
 
@@ -132,6 +142,12 @@ MailFolder.prototype = {
   toString: function() {
     return '[MailFolder: ' + this.path + ']';
   },
+  toJSON: function() {
+    return {
+      type: 'MailFolder',
+      path: this.path
+    };
+  },
 };
 
 function filterOutBuiltinFlags(flags) {
@@ -184,6 +200,12 @@ function MailHeader(slice, wireRep) {
 MailHeader.prototype = {
   toString: function() {
     return '[MailHeader: ' + this.id + ']';
+  },
+  toJSON: function() {
+    return {
+      type: 'MailHeader',
+      id: this.id
+    };
   },
 
   /**
@@ -318,6 +340,12 @@ MailBody.prototype = {
   toString: function() {
     return '[MailBody: ' + id + ']';
   },
+  toJSON: function() {
+    return {
+      type: 'MailBody',
+      id: this.id
+    };
+  },
 };
 
 /**
@@ -336,6 +364,12 @@ function MailAttachment() {
 MailAttachment.prototype = {
   toString: function() {
     return '[MailAttachment: "' + this.filename + '"]';
+  },
+  toJSON: function() {
+    return {
+      type: 'MailAttachment',
+      filename: this.filename
+    };
   },
 };
 
@@ -399,6 +433,13 @@ UndoableOperation.prototype = {
   toString: function() {
     return '[UndoableOperation]';
   },
+  toJSON: function() {
+    return {
+      type: 'UndoableOperation',
+      handle: this._tempHandle,
+      id: this._longtermId,
+    };
+  },
 };
 
 /**
@@ -421,7 +462,14 @@ function BridgedViewSlice(api, ns, handle) {
 }
 BridgedViewSlice.prototype = {
   toString: function() {
-    return '[BridgedViewSlice: ' + handle + ']';
+    return '[BridgedViewSlice: ' + this._ns + ' ' + this._handle + ']';
+  },
+  toJSON: function() {
+    return {
+      type: 'BridgedViewSlice',
+      namespace: this._ns,
+      handle: this._handle
+    };
   },
 
   requestGrowth: function() {
@@ -497,6 +545,16 @@ function MessageComposition(api, handle) {
   this._attachments = null;
 }
 MessageComposition.prototype = {
+  toString: function() {
+    return '[MessageComposition: ' + this._handle + ']';
+  },
+  toJSON: function() {
+    return {
+      type: 'MessageComposition',
+      handle: this._handle
+    };
+  },
+
   /**
    * Add custom headers; don't use this for built-in headers.
    */
@@ -616,6 +674,13 @@ function MailAPI() {
 }
 exports.MailAPI = MailAPI;
 MailAPI.prototype = {
+  toString: function() {
+    return '[MailAPI]';
+  },
+  toJSON: function() {
+    return { type: 'MailAPI' };
+  },
+
   /**
    * Send a message over/to the bridge.  The idea is that we (can) communicate
    * with the backend using only a postMessage-style JSON channel.
