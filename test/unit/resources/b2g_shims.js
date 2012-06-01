@@ -1,3 +1,3 @@
-const nsITCPSocket = CC("@mozilla.org/tcp-socket;1",
-                     "nsITCPSocket"),
-      MozTCPSocket = new nsITCPSocket();
+const nsIDOMTCPSocket = CC("@mozilla.org/tcp-socket;1",
+                     "nsIDOMTCPSocket"),
+      MozTCPSocket = new nsIDOMTCPSocket();
