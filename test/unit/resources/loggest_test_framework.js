@@ -9,7 +9,6 @@
 var $_mailuniverse = require('rdimap/imapclient/mailuniverse'),
     $_mailbridge = require('rdimap/imapclient/mailbridge'),
     $_mailapi = require('rdimap/imapclient/mailapi'),
-    $_fakeacct = require('rdimap/imapclient/fakeacct'),
     $_allback = require('rdimap/imapclient/allback'),
     $_Q = require('q'),
     $tc = require('rdcommon/testcontext'),
@@ -53,45 +52,9 @@ function add_imap_folder_test(folderDefs, testFunc) {
     }
     var folderName = 'ut_' + testFunc.name + '_' + iDef;
 
-    var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
-    if (existingFolder) {
-      rawAccount.deleteFolder(existingFolder.id);
-      gAllFoldersSlice.onsplice = function(index, howMany, added,
-                                           requested, expected) {
-        if (howMany !== 1) {
-          console.error('Expected 1 folder to be removed but', howMany,
-                        'removed?');
-          do_throw('Folder deletion failed');
-        }
-        gAllFoldersSlice.onsplice = null;
-        // just call ourselves again; existingFolder should be null now.
-        processNextFolder();
-      };
-    }
-
-    // the folder does not currently exist; create the folder!
-    rawAccount.createFolder(null, folderName, false,
-      function createdFolder(err, folderMeta) {
-      if (err) {
-        console.error('Problem creating folder', folderName);
-        do_throw('Could not create folder');
-      }
-      folderPaths.push(folderName);
-      var storage = account.getFolderStorageForFolderId(folderMeta.id);
-      storages.push(storage);
-
-      var folderDef = folderDefs[iDef++];
-      var messageBodies = generator.makeMessages(folderDef);
-      for (var i = 0; i < messageBodies.length; i++) {
-        MailUniverse.appendMessage(folderDef.id, messageBodies[i]);
-      }
-      MailUniverse.waitForAccountOps(account, processNextFolder);
-    });
   }
 
 add_test(function setup_imap_using_test() {
-  generator = new $_fakeacct.MessageGenerator(useDate, 'body');
-  rawAccount = MailUniverse.accounts[0];
   processNextFolder();
 });
 // By using bind, we maintain the function's name while also being able to

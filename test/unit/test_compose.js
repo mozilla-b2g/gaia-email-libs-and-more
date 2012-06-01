@@ -2,7 +2,7 @@
  * Test the composition process.
  **/
 
-load('resources/common_mail_api_setup.js');
+load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);

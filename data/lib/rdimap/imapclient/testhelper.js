@@ -4,6 +4,7 @@ var $log = require('rdcommon/log'),
     $mailuniverse = require('rdimap/imapclient/mailuniverse'),
     $mailbridge = require('rdimap/imapclient/mailbridge'),
     $imapacct = require('rdimap/imapclient/imapacct'),
+    $fakeacct = require('rdimap/imapclient/fakeacct'),
     $imapslice = require('rdimap/imapclient/imapslice'),
     $imapjs = require('imap');
 
@@ -12,6 +13,8 @@ var gAccountCreated = false;
 
 var TestImapAccountMixins = {
   __constructor: function(self, opts) {
+    self._eTestAccount = self.T.actor('ImapAccount', self.__name, null, self);
+
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
      */
@@ -54,6 +57,7 @@ var TestImapAccountMixins = {
     self.T.convenienceSetup(self, 'creates test account', function() {
       if (gAccountCreated)
         return;
+      self.RT.reportActiveActorThisStep(self._eTestAccount);
       self.expect_accountCreated();
 
       MailAPI.tryToCreateAccount(
@@ -81,6 +85,69 @@ var TestImapAccountMixins = {
         });
     });
   },
+
+  createTestFolder: function(folderName, messageSetDef) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.id = null;
+    testFolder.mailFolder = null;
+    this.T.convenienceSetup('delete test folder if it exists', function() {
+      var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
+      if (!existingFolder)
+        return;
+      self.RT.reportActiveActorThisStep(self._eTestAccount);
+      self.RT.reportActiveActorThisStep(self);
+      self._eTestAccount.expect_deleteFolder();
+      self.expect_deletionNotified();
+
+      MailUniverse.accounts[0].deleteFolder(existingFolder.id);
+      gAllFoldersSlice.onsplice = function(index, howMany, added,
+                                           requested, expected) {
+        if (howMany !== 1) {
+          console.error('Expected 1 folder to be removed but', howMany,
+                        'removed?');
+          do_throw('Folder deletion failed');
+        }
+        gAllFoldersSlice.onsplice = null;
+        self._logger.deletionNotified();
+      };
+    });
+
+    this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
+      self.RT.reportActiveActorThisStep(self);
+      self._eTestAccount.expect_createFolder();
+      self.expect_creationNotified();
+
+      MailUniverse.accounts[0].createFolder(null, folderName, false,
+        function createdFolder(err, folderMeta) {
+        if (err) {
+          self._logger.folderCreationError(err);
+          return;
+        }
+        self._logger.creationNotified();
+        testFolder.id = folderMeta.id;
+      });
+
+    });
+
+    if (messageSetDef.hasOwnProperty('count') &&
+        messageSetDef.count === 0)
+      return testFolder;
+
+    this.T.convenienceSetup(this, 'populate test folder', testFolder,function(){
+      var generator = new $fakeacct.MessageGenerator(useDate, 'body');
+      self.expect_appendNotified();
+      var messageBodies = generator.makeMessages(messageSetDef);
+      for (var i = 0; i < messageBodies.length; i++) {
+        MailUniverse.appendMessage(testFolder.id, messageBodies[i]);
+      }
+      MailUniverse.waitForAccountOps(account, function() {
+        self._logger.appendNotified();
+      });
+    });
+
+    return testFolder;
+  },
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
@@ -92,8 +159,14 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       createUniverse: {},
       accountCreated: {},
+
+      deletionNotified: {},
+      creationNotified: {},
+
+      appendNotified: {},
     },
     errors: {
+      folderCreationError: { err: false },
     },
   },
 });

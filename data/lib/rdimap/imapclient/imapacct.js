@@ -48,14 +48,16 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
   this._db = dbConn;
 
   this._ownedConns = [];
-  if (existingProtoConn)
+  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+
+  if (existingProtoConn) {
+    this._LOG.reuseConnection();
     this._ownedConns.push({
         conn: existingProtoConn,
         inUse: false,
         folderId: null,
       });
-
-  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+  }
 
   // Yes, the pluralization is suspect, but unambiguous.
   /** @dictof[@key[FolderId] @value[ImapFolderStorage] */
@@ -101,7 +103,6 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
       continue;
     var folderInfo = folderInfos[folderId];
 
-    this._LOG.persistedFolder(folderId, folderInfo);
     folderStorages[folderId] =
       new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
                                        this._LOG);
@@ -121,7 +122,6 @@ ImapAccount.prototype = {
   _learnAboutFolder: function(name, path, type, delim) {
     var folderId = this.id + '/' + $a64.encodeInt(this._meta.nextFolderNum++);
     console.log('FOLDER', name, path, type);
-    this._LOG.learnAboutFolder(folderId, name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
@@ -217,7 +217,7 @@ ImapAccount.prototype = {
       path += folderName;
     else
       path += folderName.join(delim);
-    if (nonLeaf)
+    if (containOnlyOtherFolders)
       path += delim;
 
     if (!this.universe.online) {
@@ -225,11 +225,10 @@ ImapAccount.prototype = {
       return;
     }
 
-    var rawConn = null, folderConn = null, self = this;
-    function gotConn(ourFolderConn) {
+    var rawConn = null, self = this;
+    function gotConn(conn) {
       // create the box
-      folderConn = ourFolderConn;
-      rawConn = folderConn._conn;
+      rawConn = conn;
       rawConn.addBox(path, addBoxCallback);
     }
     function addBoxCallback(err) {
@@ -268,9 +267,9 @@ ImapAccount.prototype = {
         done('unknown');
     }
     function done(errString, folderMeta) {
-      if (folderConn) {
-        self.__folderDoneWithConnection(null, folderConn);
-        folderConn = null;
+      if (rawConn) {
+        self.__folderDoneWithConnection(null, rawConn);
+        rawConn = null;
       }
       if (!errString)
         self._LOG.createFolder(path);
@@ -297,10 +296,9 @@ ImapAccount.prototype = {
 
     var folderMeta = this._folderInfos[folderId].$meta;
 
-    var rawConn = null, folderConn = null, self = this;
-    function gotConn(ourFolderConn) {
-      folderConn = ourFolderConn;
-      rawConn = folderConn._conn;
+    var rawConn = null, self = this;
+    function gotConn(conn) {
+      rawConn = conn;
       rawConn.delBox(folderMeta.path, deletionCallback);
     }
     function deletionCallback(err) {
@@ -310,9 +308,9 @@ ImapAccount.prototype = {
         done(null);
     }
     function done(errString) {
-      if (folderConn) {
-        self.__folderDoneWithConnection(null, folderConn);
-        folderConn = null;
+      if (rawConn) {
+        self.__folderDoneWithConnection(null, rawConn);
+        rawConn = null;
       }
       if (!errString) {
         self._LOG.deleteFolder(folderMeta.path);
@@ -389,6 +387,7 @@ ImapAccount.prototype = {
   },
 
   _makeConnection: function(folderId, callback) {
+    this._LOG.createConnection(folderId);
     var opts = {
       hostname: this._connInfo.hostname,
       port: this._connInfo.port,
@@ -533,6 +532,7 @@ ImapAccount.prototype = {
     var self = this;
     if (err) {
       // XXX need to deal with transient failure states
+      this.__folderDoneWithConnection(null, conn);
       callback();
       return;
     }
@@ -579,6 +579,7 @@ ImapAccount.prototype = {
       this._forgetFolder(folderPub.id);
     }
 
+    this.__folderDoneWithConnection(null, conn);
     callback();
   },
 
@@ -644,16 +645,18 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapAccount: {
     type: $log.ACCOUNT,
     events: {
-      persistedFolder: { folderId: false },
       createFolder: {},
       deleteFolder: {},
-      learnAboutFolder: { folderId: false },
+
+      createConnection: {},
+      reuseConnection: {},
     },
     TEST_ONLY_events: {
-      persistedFolder: { folderInfo: false },
       createFolder: { path: false },
       deleteFolder: { path: false },
-      learnAboutFolder: { name: false, path: false, type: false },
+
+      createConnection: { folderId: false },
+      reuseConnection: {},
     },
     errors: {
       folderAlreadyHasConn: { folderId: false },
