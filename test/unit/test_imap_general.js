@@ -66,7 +66,7 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial fetch spans multiple time ranges');
       // will fetch: 3, 7, 7, 7 = 24
   var msearchFolder = testAccount.createTestFolder(
-    'test_saturated_sync',
+    'test_multiple_ranges',
     { count: 30, age: { days: 0 }, age_incr: { days: 2 } });
   T.action('sync folder', function() {
   });
@@ -75,5 +75,5 @@ TD.commonCase('folder sync', function(T) {
 });
 
 function run_test() {
-  runMyTests(5);
+  runMyTests(30); // we do a lot of appending...
 }

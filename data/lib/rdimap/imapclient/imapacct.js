@@ -591,12 +591,11 @@ ImapAccount.prototype = {
   },
 
   _do_append: function(op, callback) {
-    var folderConn, rawConn, self = this,
-        folderMeta = this._folderInfos[op.folderId].$meta;
-    function gotConn(myFolderConn) {
-      folderConn = myFolderConn;
-      rawConn = folderConn._conn;
-
+    var rawConn, self = this,
+        folderMeta = this._folderInfos[op.folderId].$meta,
+        iNextMessage = 0;
+    function gotConn(conn) {
+      rawConn = conn;
       rawConn.openBox(folderMeta.path, openedBox);
     }
     function openedBox(err, box) {
@@ -605,9 +604,13 @@ ImapAccount.prototype = {
         done('unknown');
         return;
       }
+      append();
+    }
+    function append() {
+      var message = op.messages[iNextMessage++];
       rawConn.append(
-        op.messageText,
-        { date: op.date, flags: op.flags },
+        message.messageText,
+        message, // (it will ignore messageText)
         appended);
     }
     function appended(err) {
@@ -616,12 +619,15 @@ ImapAccount.prototype = {
         done('unknown');
         return;
       }
-      done(null);
+      if (iNextMessage < op.messages.length)
+        append();
+      else
+        done(null);
     }
     function done(errString) {
-      if (folderConn) {
-        self.__folderDoneWithConnection(op.folderId, folderConn);
-        folderConn = null;
+      if (rawConn) {
+        self.__folderDoneWithConnection(op.folderId, rawConn);
+        rawConn = null;
       }
       callback(errString);
     }

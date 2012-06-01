@@ -654,8 +654,18 @@ MailUniverse.prototype = {
   },
 
   _opCompleted: function(account, op, err) {
+    var queue = this._opsByAccount[account.id];
     // shift the running op off.
     queue.shift();
+
+    if (queue.length) {
+      op = queue[0];
+      account.runOp(op, this._opCompleted.bind(this, account, op));
+    }
+    else if (this._opCompletionListenersByAccount[account.id]) {
+      this._opCompletionListenersByAccount[account.id](account);
+      this._opCompletionListenersByAccount[account.id] = null;
+    }
   },
 
   _queueAccountOp: function(account, op) {
@@ -681,16 +691,14 @@ MailUniverse.prototype = {
   undoMutation: function(mutationId) {
   },
 
-  appendMessage: function(folderId, date, flags, messageText) {
+  appendMessages: function(folderId, messages) {
     var account = this.getAccountForFolderId(folderId);
     this._queueAccountOp(
       account,
       {
         type: 'append',
         folderId: folderId,
-        date: date,
-        flags: flags,
-        messageText: messageText,
+        messages: messages,
       });
   },
 

@@ -17,7 +17,8 @@ define(
     $module,
     exports
   ) {
-const bsearchForInsert = $imaputil.bsearchForInsert;
+const bsearchForInsert = $imaputil.bsearchForInsert,
+      bsearchMaybeExists = $imaputil.bsearchMaybeExists;
 
 function toBridgeWireOn(x) {
   return x.toBridgeWire();
@@ -119,7 +120,7 @@ MailBridge.prototype = {
       var idx = bsearchMaybeExists(proxy.markers, marker, cmpFolderMarkers);
       if (idx === null)
         continue;
-      proxy.sendSplice(idx, 1, null, false, false);
+      proxy.sendSplice(idx, 1, [], false, false);
       proxy.markers.splice(idx, 1);
     }
   },

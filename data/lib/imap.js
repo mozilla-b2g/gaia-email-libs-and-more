@@ -855,8 +855,8 @@ ImapConnection.prototype.append = function(data, options, cb) {
   this._send('APPEND', cmd, function(err) {
     if (err || step++ === 2)
       return cb(err);
-    self._state.conn.send(data);
-    self._state.conn.send(CRLF);
+    self._state.conn.send(typeof(data) === 'string' ? Buffer(data) : data);
+    self._state.conn.send(CRLF_BUFFER);
     if (this._LOG) this._LOG.sendData(data.length, data);
   });
 }

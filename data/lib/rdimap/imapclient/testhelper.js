@@ -147,13 +147,11 @@ var TestImapAccountMixins = {
       var generator = new $fakeacct.MessageGenerator(useDate, 'body');
       self.expect_appendNotified();
       var messageBodies = generator.makeMessages(messageSetDef);
-      for (var i = 0; i < messageBodies.length; i++) {
-        MailUniverse.appendMessage(testFolder.id, messageBodies[i]);
-      }
-      MailUniverse.waitForAccountOps(account, function() {
+      MailUniverse.appendMessages(testFolder.id, messageBodies);
+      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
         self._logger.appendNotified();
       });
-    });
+    }).timeoutMS = 400 * messageSetDef.count; // appending can take a bit.
 
     return testFolder;
   },

@@ -207,7 +207,7 @@ ImapSlice.prototype = {
     var idx = bsearchForInsert(this.headers, header,
                                cmpHeaderYoungToOld);
     this._LOG.headerRemoved(idx, header);
-    this._bridgeHandle.sendSplice(idx, 1, null);
+    this._bridgeHandle.sendSplice(idx, 1, []);
     this.headers.splice(idx, 1);
   },
 

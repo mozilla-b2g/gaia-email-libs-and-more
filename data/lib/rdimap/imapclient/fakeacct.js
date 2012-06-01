@@ -400,14 +400,15 @@ MessageGenerator.prototype = {
     else { // 'rfc822'
       var composer = new $mailcomposer.MailComposer();
       var messageOpts = {
-        from: this._formatAddresses(headerInfo.author),
+        from: this._formatAddresses([headerInfo.author]),
         subject: headerInfo.subject,
         body: bodyInfo.bodyText,
         to: this._formatAddresses(bodyInfo.to),
       };
       if (bodyInfo.cc)
         messageOpts.cc = this._formatAddresses(bodyInfo.cc);
-      composer.setMessageOptions(messageOpts);
+
+      composer.setMessageOption(messageOpts);
       composer.addHeader('Date', new Date(headerInfo.date));
       composer.addHeader('Message-Id', headerInfo.guid);
 
@@ -415,11 +416,16 @@ MessageGenerator.prototype = {
       // mechanism.
       composer._cacheOutput = true;
       var data = null;
+      process.immediate = true;
       composer._processBufferedOutput = function() {
         data = this._outputBuffer;
       };
       composer._composeMessage();
-      return data;
+      process.immediate = false;
+      return {
+        date: new Date(headerInfo.date),
+        messageText: data
+      };
     }
   },
 
@@ -487,8 +493,10 @@ MessageGenerator.prototype = {
       else if (!("inReplyTo" in aSetDef))
         args.inReplyTo = null;
       lastMessage = this.makeMessage(args);
-      lastMessage.headerInfo.id = '' + iMsg;
-      lastMessage.headerInfo.suid = aSetDef.folderId + '/' + iMsg;
+      if (this._mode === 'info') {
+        lastMessage.headerInfo.id = '' + iMsg;
+        lastMessage.headerInfo.suid = aSetDef.folderId + '/' + iMsg;
+      }
       messages.push(lastMessage);
 
       if (aSetDef.age_incr) {
