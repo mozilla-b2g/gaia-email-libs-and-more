@@ -516,6 +516,16 @@ MailUniverse.prototype = {
     this.networkCostsMoney = connection.metered;
   },
 
+  registerBridge: function(mailBridge) {
+    this._bridges.push(mailBridge);
+  },
+
+  unregisterBridge: function(mailBridge) {
+    var idx = this._bridges.indexOf(mailBridge);
+    if (idx !== -1)
+      this._bridges.splice(idx, 1);
+  },
+
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
     var domain = userDetails.emailAddress.substring(
                    userDetails.emailAddress.indexOf('@') + 1),

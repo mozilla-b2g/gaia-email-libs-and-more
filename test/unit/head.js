@@ -38,7 +38,7 @@ var dirSvc = Cc["@mozilla.org/file/directory_service;1"]
                .getService(Ci.nsIProperties);
 var file = dirSvc.get("ProfD", Ci.nsIFile);
 
-
+const nsIScriptError = Ci.nsIScriptError;
 var ErrorTrapper = {
   _trappedErrors: null,
   _handlerCallback: null,
@@ -98,10 +98,66 @@ var ErrorTrapper = {
     console.log('firing', name, data);
     this._listenerMap[name](data);
   },
+
+  observe: function (aMessage, aTopic, aData) {
+    if (aTopic == "profile-after-change")
+      return;
+    else if (aTopic == "quit-application") {
+      this.unhookConsoleService();
+      return;
+    }
+
+    try {
+      if (aMessage instanceof nsIScriptError) {
+        // The CSS Parser just makes my life sad.
+        if (aMessage.category == "CSS Parser")
+          return;
+
+        if (aMessage.flags & nsIScriptError.warningFlag)
+          return;
+        if (aMessage.flags & nsIScriptError.strictFlag)
+          return;
+
+        this.fire('uncaughtException',
+                  {
+                    name: 'ConsoleError',
+                    message: aMessage.errorMessage + ' [' + aMessage.category +
+                      ']',
+                    stack: [
+                      {
+                        filename: aMessage.sourceName,
+                        lineNo: aMessage.lineNumber,
+                        funcName: '',
+                      }
+                    ]
+                  });
+      }
+    } catch (ex) {
+      print("SELF-SPLOSION: " + ex + "\n");
+    }
+  },
+
+  hookConsoleService: function() {
+    this.consoleService = Cc["@mozilla.org/consoleservice;1"]
+                            .getService(Ci.nsIConsoleService);
+    this.consoleService.registerListener(this);
+
+    // we need to unregister our listener at shutdown if we don't want explosions
+    this.observerService = Cc["@mozilla.org/observer-service;1"]
+                             .getService(Ci.nsIObserverService);
+    this.observerService.addObserver(this, "quit-application", false);
+  },
+  unhookConsoleService: function () {
+    this.consoleService.unregisterListener(this);
+    this.observerService.removeObserver(this, "quit-application");
+    this.consoleService = null;
+    this.observerService = null;
+  },
 };
 do_register_cleanup(function() {
   ErrorTrapper.fire('exit', null);
 });
+ErrorTrapper.hookConsoleService();
 
 // Look enough like a window for all of our tests (IndexedDB, empty navigator/document)
 load('resources/window_shims.js');
@@ -170,7 +226,7 @@ var process = window.process = {
     if (this.immediate)
       cb();
     else
-      do_execute_soon(cb);
+      window.setZeroTimeout(cb);
   },
 };
 

@@ -14,12 +14,14 @@ var gAccountCreated = false;
 var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self._eTestAccount = self.T.actor('ImapAccount', self.__name, null, self);
+    self._bridgeLog = null;
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
      */
     self.T.convenienceSetup(self, 'initializes', function() {
       self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+      self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
 
       if (MailUniverse)
         return;
@@ -35,18 +37,19 @@ var TestImapAccountMixins = {
           var TMB = MailBridge = new $_mailbridge.MailBridge(MailUniverse);
           var TMA = MailAPI = new $_mailapi.MailAPI();
           TMA.__bridgeSend = function(msg) {
-            console.log('API sending:', JSON.stringify(msg));
+            self._bridgeLog.apiSend(msg.type, msg);
             window.setZeroTimeout(function() {
                                     TMB.__receiveMessage(msg);
                                   });
           };
           TMB.__sendMessage = function(msg) {
-            console.log('Bridge sending:', JSON.stringify(msg));
+            self._bridgeLog.bridgeSend(msg.type, msg);
             window.setZeroTimeout(function() {
                                     TMA.__bridgeReceive(msg);
                                   });
           };
           self._logger.createUniverse();
+          MailUniverse.registerBridge(TMB);
         });
     });
     /**
@@ -86,9 +89,15 @@ var TestImapAccountMixins = {
     });
   },
 
+  /**
+   * Create a folder and populate it with a set of messages.
+   */
   createTestFolder: function(folderName, messageSetDef) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderName);
+        testFolder = this.T.thing('testFolder', folderName),
+        useDate = new Date();
+    useDate.setHours(12, 0, 0, 0);
+
     testFolder.id = null;
     testFolder.mailFolder = null;
     this.T.convenienceSetup('delete test folder if it exists', function() {
@@ -100,7 +109,6 @@ var TestImapAccountMixins = {
       self._eTestAccount.expect_deleteFolder();
       self.expect_deletionNotified();
 
-      MailUniverse.accounts[0].deleteFolder(existingFolder.id);
       gAllFoldersSlice.onsplice = function(index, howMany, added,
                                            requested, expected) {
         if (howMany !== 1) {
@@ -111,6 +119,7 @@ var TestImapAccountMixins = {
         gAllFoldersSlice.onsplice = null;
         self._logger.deletionNotified();
       };
+      MailUniverse.accounts[0].deleteFolder(existingFolder.id);
     });
 
     this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
@@ -151,6 +160,14 @@ var TestImapAccountMixins = {
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
+  bridgeSnoop: {
+    type: $log.CLIENT,
+    subtype: $log.CLIENT,
+    events: {
+      apiSend: { type: false, msg: false },
+      bridgeSend: { type: false, msg: false },
+    },
+  },
   testImapAccount: {
     type: $log.TEST_SYNTHETIC_ACTOR,
     subtype: $log.CLIENT,
