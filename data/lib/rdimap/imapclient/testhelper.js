@@ -100,6 +100,7 @@ var TestImapAccountMixins = {
 
     testFolder.id = null;
     testFolder.mailFolder = null;
+    testFolder.messages = null;
     this.T.convenienceSetup('delete test folder if it exists', function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
@@ -107,17 +108,12 @@ var TestImapAccountMixins = {
       self.RT.reportActiveActorThisStep(self._eTestAccount);
       self.RT.reportActiveActorThisStep(self);
       self._eTestAccount.expect_deleteFolder();
-      self.expect_deletionNotified();
+      self.expect_deletionNotified(1);
 
       gAllFoldersSlice.onsplice = function(index, howMany, added,
                                            requested, expected) {
-        if (howMany !== 1) {
-          console.error('Expected 1 folder to be removed but', howMany,
-                        'removed?');
-          do_throw('Folder deletion failed');
-        }
         gAllFoldersSlice.onsplice = null;
-        self._logger.deletionNotified();
+        self._logger.deletionNotified(howMany);
       };
       MailUniverse.accounts[0].deleteFolder(existingFolder.id);
     });
@@ -125,18 +121,22 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
       self.RT.reportActiveActorThisStep(self);
       self._eTestAccount.expect_createFolder();
-      self.expect_creationNotified();
+      self.expect_creationNotified(1);
 
+      gAllFoldersSlice.onsplice = function(index, howMany, added,
+                                           requested, expected) {
+        gAllFoldersSlice.onsplice = null;
+        self._logger.creationNotified(added.length);
+        testFolder.mailFolder = added[0];
+      };
       MailUniverse.accounts[0].createFolder(null, folderName, false,
         function createdFolder(err, folderMeta) {
         if (err) {
           self._logger.folderCreationError(err);
           return;
         }
-        self._logger.creationNotified();
         testFolder.id = folderMeta.id;
       });
-
     });
 
     if (messageSetDef.hasOwnProperty('count') &&
@@ -146,7 +146,8 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(this, 'populate test folder', testFolder,function(){
       var generator = new $fakeacct.MessageGenerator(useDate, 'body');
       self.expect_appendNotified();
-      var messageBodies = generator.makeMessages(messageSetDef);
+      var messageBodies = testFolder.messages =
+        generator.makeMessages(messageSetDef);
       MailUniverse.appendMessages(testFolder.id, messageBodies);
       MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
         self._logger.appendNotified();
@@ -154,6 +155,18 @@ var TestImapAccountMixins = {
     }).timeoutMS = 400 * messageSetDef.count; // appending can take a bit.
 
     return testFolder;
+  },
+
+  /**
+   * Start/stop pretending to be offline.  In this case, pretending means that
+   * we claim we are offline but do not tear down our IMAP connections.
+   */
+  do_pretendToBeOffline: function(beOffline) {
+    this.T.convenienceSetup(
+      beOffline ? 'pretend to be offline' : 'stop pretending to be offline',
+      function() {
+        MailUniverse.offline = beOffline;
+      });
   },
 };
 
@@ -175,8 +188,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createUniverse: {},
       accountCreated: {},
 
-      deletionNotified: {},
-      creationNotified: {},
+      deletionNotified: { count: true },
+      creationNotified: { count: true },
 
       appendNotified: {},
     },

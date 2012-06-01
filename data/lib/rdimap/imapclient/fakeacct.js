@@ -424,6 +424,8 @@ MessageGenerator.prototype = {
       process.immediate = false;
       return {
         date: new Date(headerInfo.date),
+        headerInfo: headerInfo,
+        bodyInfo: bodyInfo,
         messageText: data
       };
     }

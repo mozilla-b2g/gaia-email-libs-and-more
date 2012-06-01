@@ -480,7 +480,17 @@ TestDefiner.prototype = {
 
   _newSimpleCase: function(kind, desc, testFunc) {
     var testCase = new TestCase(this, kind, desc, function(T) {
-      T.action(desc, testFunc);
+      if (testFunc.length === 0) {
+        T.action(desc, testFunc);
+      }
+      else {
+        // XXX create a comparator helper and pass it in so we can have things
+        // roughly equivalent to do_check_eq or what fancy comparator libs
+        // provide.  Ideally reuse chai or something.
+        T.action(desc, function() {
+          testFunc();
+        });
+      }
     });
     this.__testCases.push(testCase);
   },

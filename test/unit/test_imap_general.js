@@ -24,7 +24,8 @@ const INITIAL_SYNC_DAYS = 7,
 
 TD.commonCase('folder sync', function(T) {
   T.group('setup');
-  var testAccount = T.actor('testImapAccount', 'A');
+  var testAccount = T.actor('testImapAccount', 'A'),
+      eSync = T.lazyLogger('sync');
 
   /**
    * Try and synchronize an empty folder.  Verify that our slice completes with
@@ -33,8 +34,26 @@ TD.commonCase('folder sync', function(T) {
   T.group('sync empty folder');
   var emptyFolder = testAccount.createTestFolder(
     'test_empty_sync', { count: 0 });
-  T.action('sync folder', function() {
+  T.action(eSync, 'sync folder', function() {
+    eSync.expect_namedValue('syncCount', 0);
+
+    var slice = MailAPI.viewFolderMessages(emptyFolder.mailFolder);
+    slice.oncomplete = function() {
+      eSync.namedValue('syncCount', slice.items.length);
+      slice.die();
+    };
   });
+  testAccount.do_pretendToBeOffline(true);
+  T.check(eSync, 'check persisted data', function() {
+    eSync.expect_namedValue('syncCount', 0);
+
+    var slice = MailAPI.viewFolderMessages(emptyFolder.mailFolder);
+    slice.oncomplete = function() {
+      eSync.namedValue('syncCount', slice.items.length);
+      slice.die();
+    };
+  });
+  testAccount.do_pretendToBeOffline(false);
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
@@ -44,7 +63,20 @@ TD.commonCase('folder sync', function(T) {
   var fullSyncFolder = testAccount.createTestFolder(
     'test_initial_full_sync',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  T.action('sync folder', function() {
+  T.action(eSync, 'sync folder', function() {
+    eSync.expect_namedValue('syncCount', 4);
+    eSync.expect_namedValue('first subject',
+                            testFolder.messages[0].headerInfo.subject);
+    eSync.expect_namedValue('last subject',
+                            testFolder.messages[3].headerInfo.subject);
+
+    var slice = MailAPI.viewFolderMessages(fullSync.mailFolder);
+    slice.oncomplete = function() {
+      eSync.namedValue('syncCount', slice.items.length);
+      eSync.namedValue('first subject', slice.items[0].subject);
+      eSync.namedValue('last subject', slice.items[3].subject);
+      slice.die();
+    };
   });
 
   /**

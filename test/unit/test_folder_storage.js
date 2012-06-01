@@ -4,6 +4,11 @@
  * needed.
  **/
 
+load('resources/loggest_test_framework.js');
+
+var TD = $tc.defineTestsFor(
+  { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
+
 var $imapslice = require('rdimap/imapclient/imapslice');
 
 function MockDB() {
@@ -140,7 +145,7 @@ function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
 /**
  * No existing accuracy ranges, create a new one.
  */
-add_test(function test_accuracy_base_case() {
+TD.commonSimple('accuracy base case', function test_accuracy_base_case() {
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -157,7 +162,8 @@ add_test(function test_accuracy_base_case() {
 /**
  * Accuracy range does not overlap existing ranges.
  */
-add_test(function test_accuracy_nonoverlap() {
+TD.commonSimple('accuracy non-overlapping',
+                function test_accuracy_nonoverlap() {
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -200,7 +206,7 @@ add_test(function test_accuracy_nonoverlap() {
  * Accuracy range completely contains one or more existing ranges with no
  * partial overlap.
  */
-add_test(function test_accuracy_contains() {
+TD.commonSimple('accuracy contains', function test_accuracy_contains() {
   var ctx = makeTestContext(),
       d2 = DateUTC(2010, 0, 2),
       d3 = DateUTC(2010, 0, 3),
@@ -269,7 +275,7 @@ add_test(function test_accuracy_contains() {
  * Accuracy range has partial overlap: younger, older, inside, younger+older,
  * younger+older+contained.
  */
-add_test(function test_accuracy_overlap() {
+TD.commonSimple('accuracy overlapping', function test_accuracy_overlap() {
   var ctx = makeTestContext(),
       d2 = DateUTC(2010, 0, 2),
       d3 = DateUTC(2010, 0, 3),
@@ -328,7 +334,7 @@ add_test(function test_accuracy_overlap() {
 /**
  * Accuracy range merges when using the same modseq/update values.
  */
-add_test(function test_accuracy_merge() {
+TD.commonSimple('accuracy merge', function test_accuracy_merge() {
   var ctx = makeTestContext(),
       d4 = DateUTC(2010, 0, 4),
       d5 = DateUTC(2010, 0, 5),
@@ -401,7 +407,8 @@ function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
 /**
  * Base case: there are no blocks yet!
  */
-add_test(function test_insertion_no_existing_blocks() {
+TD.commonSimple('insertion: no existing blocks',
+                function test_insertion_no_existing_blocks() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       uid1 = 101,
@@ -425,7 +432,8 @@ add_test(function test_insertion_no_existing_blocks() {
  * test requires us to artificially inject an additional block since we aren't
  * triggering deletion for these tests.
  */
-add_test(function test_insertion_adjacent_simple() {
+TD.commonSimple('insertion: adjacent simple',
+                function test_insertion_adjacent_simple() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -477,7 +485,8 @@ add_test(function test_insertion_adjacent_simple() {
 /**
  * Insertion point is in an existing block and will not overflow, use it.
  */
-add_test(function test_insertion_in_block_use() {
+TD.commonSimple('insertion in existing block',
+                function test_insertion_in_block_use() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -503,7 +512,8 @@ add_test(function test_insertion_in_block_use() {
 /**
  * Insertion point is in an existing block and will overflow, split it.
  */
-add_test(function test_insertion_in_block_overflow_split() {
+TD.commonSimple('insertion in block that will overflow',
+                function test_insertion_in_block_overflow_split() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -541,7 +551,8 @@ add_test(function test_insertion_in_block_overflow_split() {
 /**
  * Test the header block splitting logic on its own.
  */
-add_test(function test_header_block_splitting() {
+TD.commonSimple('header block splitting',
+                function test_header_block_splitting() {
   var ctx = makeTestContext(),
       expectedHeadersPerBlock = 246, // Math.ceil(48 * 1024 / 200)
       numHeaders = 492,
@@ -597,7 +608,7 @@ add_test(function test_header_block_splitting() {
  * Test that deleting a header out of a block that does not empty the block
  * updates the values appropriately, then empty it and see it go away.
  */
-add_test(function test_deletion() {
+TD.commonSimple('deletion', function test_deletion() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d7 = DateUTC(2010, 0, 7),
@@ -655,7 +666,8 @@ add_test(function test_deletion() {
  * Insertion point is outside existing blocks.  Check that we split, and where
  * there are multiple choices, that we pick according to our heuristic.
  */
-add_test(function test_insertion_outside_use_nonoverflow_to_overflow() {
+TD.commonSimple('insertion outside existing blocks',
+                function test_insertion_outside_use_nonoverflow_to_overflow() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -711,7 +723,8 @@ add_test(function test_insertion_outside_use_nonoverflow_to_overflow() {
  * Test that our range-logic does not break when faced with messages all from
  * the same timestamp and only differing in their UIDs.
  */
-add_test(function test_insertion_differing_only_by_uids() {
+TD.commonSimple('insertion differing only by UIDs',
+                function test_insertion_differing_only_by_uids() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       uid1 = 101,
@@ -759,6 +772,5 @@ add_test(function test_insertion_differing_only_by_uids() {
 ////////////////////////////////////////////////////////////////////////////////
 
 function run_test() {
-  run_next_test();
-  do_timeout(3 * 1000, function() { do_throw('Too slow!'); });
+  runMyTests(3);
 }
