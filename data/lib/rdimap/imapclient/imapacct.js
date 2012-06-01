@@ -604,7 +604,14 @@ ImapAccount.prototype = {
         done('unknown');
         return;
       }
-      append();
+      if (rawConn.hasCapability('MULTIAPPEND'))
+        multiappend();
+      else
+        append();
+    }
+    function multiappend() {
+      iNextMessage = op.messages.length;
+      rawConn.multiappend(op.messages, appended);
     }
     function append() {
       var message = op.messages[iNextMessage++];

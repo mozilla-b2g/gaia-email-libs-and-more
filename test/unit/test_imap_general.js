@@ -75,5 +75,5 @@ TD.commonCase('folder sync', function(T) {
 });
 
 function run_test() {
-  runMyTests(30); // we do a lot of appending...
+  runMyTests(20); // we do a lot of appending...
 }

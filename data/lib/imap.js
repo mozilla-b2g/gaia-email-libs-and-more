@@ -128,6 +128,10 @@ function ImapConnection (options) {
 util.inherits(ImapConnection, EventEmitter);
 exports.ImapConnection = ImapConnection;
 
+ImapConnection.prototype.hasCapability = function(name) {
+  return this.capabilities.indexOf(name) !== -1;
+};
+
 ImapConnection.prototype.connect = function(loginCb) {
   var self = this,
       fnInit = function() {
@@ -860,6 +864,61 @@ ImapConnection.prototype.append = function(data, options, cb) {
     if (this._LOG) this._LOG.sendData(data.length, data);
   });
 }
+
+ImapConnection.prototype.multiappend = function(messages, cb) {
+  if (this._state.status !== STATES.BOXSELECTED)
+    throw new Error('No mailbox specified or currently selected');
+  var cmd = ' "'+escape(this._state.box.name)+'"';
+
+  function buildAppendClause(options) {
+    if ('flags' in options) {
+      if (!Array.isArray(options.flags))
+        options.flags = Array(options.flags);
+      cmd += " (\\"+options.flags.join(' \\')+")";
+    }
+    if ('date' in options) {
+      if (!(options.date instanceof Date))
+        throw new Error('Expected null or Date object for date');
+      cmd += ' "'+options.date.getDate()+'-'+MONTHS[options.date.getMonth()]+'-'+options.date.getFullYear();
+      cmd += ' '+('0'+options.date.getHours()).slice(-2)+':'+('0'+options.date.getMinutes()).slice(-2)+':'+('0'+options.date.getSeconds()).slice(-2);
+      cmd += ((options.date.getTimezoneOffset() > 0) ? ' -' : ' +' );
+      cmd += ('0'+(-options.date.getTimezoneOffset() / 60)).slice(-2);
+      cmd += ('0'+(-options.date.getTimezoneOffset() % 60)).slice(-2);
+      cmd += '"';
+    }
+    cmd += ' {';
+    cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
+    cmd += '}';
+  }
+
+  var self = this, iNextMessage = 1, done = false,
+      message = messages[0], data = message.messageText;
+  buildAppendClause(message);
+  this._send('APPEND', cmd, function(err) {
+    if (err || done)
+      return cb(err, iNextMessage - 1);
+
+    self._state.conn.send(typeof(data) === 'string' ? Buffer(data) : data);
+    // The message literal itself should end with a newline.  We don't want to
+    // send an extra one because then that terminates the command.
+    if (self._LOG) self._LOG.sendData(data.length, data);
+
+    if (iNextMessage < messages.length) {
+      cmd = '';
+      message = messages[iNextMessage++];
+      data = message.messageText;
+      buildAppendClause(message);
+      self._state.conn.send(Buffer(cmd));
+      self._state.conn.send(CRLF_BUFFER);
+    }
+    else {
+      // This terminates the command.
+      self._state.conn.send(CRLF_BUFFER);
+      done = true;
+    }
+  });
+}
+
 
 ImapConnection.prototype.fetch = function(uids, options) {
   return this._fetch('UID ', uids, options);
