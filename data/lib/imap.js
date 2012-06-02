@@ -65,7 +65,8 @@ function parseImapDateTime(dstr) {
 
 var IDLE_NONE = 1,
     IDLE_WAIT = 2,
-    IDLE_READY = 3;
+    IDLE_READY = 3,
+    DONE_WAIT = 4;
 
 function ImapConnection (options) {
   if (!(this instanceof ImapConnection))
@@ -359,6 +360,8 @@ ImapConnection.prototype.connect = function(loginCb) {
           if (self._state.numCapRecvs === 0)
             self._state.numCapRecvs = 1;
         } else if (data[1] === 'NO' || data[1] === 'BAD' || data[1] === 'BYE') {
+          if (self._LOG && data[1] === 'BAD')
+            self._LOG.bad(data[2]);
           self._state.conn.close();
           return;
         }
@@ -637,6 +640,8 @@ ImapConnection.prototype.connect = function(loginCb) {
       self._state.ext.idle.state = IDLE_NONE;
       self._state.ext.idle.timeWaited = 0;
     } else {
+      if (self._LOG)
+        self._LOG.unknownResponse(data[0], data[1], data[2]);
       // unknown response
     }
   };
@@ -1199,8 +1204,9 @@ ImapConnection.prototype._noop = function() {
 };
 // bypass=true means to not push a command.  This is used exclusively for the
 // auto-idle functionality.  IDLE happens automatically when nothing else is
-// going on an automatically refreshes every 29 minutes.
+// going on and automatically refreshes every 29 minutes.
 ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
+console.warn('SEND', cmdstr, bypass, cmddata);
   if (cmdstr !== undefined && !bypass)
     this._state.requests.push(
       {
@@ -1210,7 +1216,10 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
         callback: cb,
         args: []
       });
-  if (this._state.ext.idle.state === IDLE_WAIT)
+  // If we are currently transitioning to/from idle, then wait around for the
+  // server's response before doing anything more.
+  if (this._state.ext.idle.state === IDLE_WAIT ||
+      this._state.ext.idle.state === DONE_WAIT)
     return;
   // only do something if this was 1) an attempt to kick us to run the next
   // command, 2) the first/only command (none are pending), or 3) a bypass.
@@ -1219,6 +1228,9 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
     var prefix = '', cmd = (bypass ? cmdstr : this._state.requests[0].command),
         data = (bypass ? null : this._state.requests[0].cmddata);
     clearTimeout(this._state.tmrKeepalive);
+    // If we are currently in IDLE, we need to exit it before we send the
+    // actual command.  We mark it as a bypass so it does't mess with the
+    // list of requests.
     if (this._state.ext.idle.state === IDLE_READY && cmd !== 'DONE')
       return this._send('DONE', null, undefined, true);
     else if (cmd === 'IDLE') {
@@ -1226,6 +1238,9 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
        // response the server will send us when we issue DONE
       prefix = 'IDLE ';
       this._state.ext.idle.state = IDLE_WAIT;
+    }
+    else if (cmd === 'DONE') {
+      this._state.ext.idle.state = DONE_WAIT;
     }
     if (cmd !== 'IDLE' && cmd !== 'DONE') {
       prefix = 'A' + ++this._state.curId + ' ';
@@ -1965,6 +1980,8 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
     },
     errors: {
       connError: { err: $log.EXCEPTION },
+      bad: { msg: false },
+      unknownResponse: { d0: false, d1: false, d2: false },
     },
     asyncJobs: {
       cmd: { prefix: false, cmd: false },
