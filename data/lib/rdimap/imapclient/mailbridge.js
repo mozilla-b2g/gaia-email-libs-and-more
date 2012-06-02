@@ -363,7 +363,10 @@ SliceBridgeProxy.prototype = {
   sendUpdate: function sbp_sendUpdate() {
   },
 
-  sendStatus: function sbp_sendStatus() {
+  sendStatus: function sbp_sendStatus(status, flushSplice) {
+    if (flushSplice) {
+      this.sendSplice(0, 0, [], true, false);
+    }
   },
 
   die: function sbp_die() {

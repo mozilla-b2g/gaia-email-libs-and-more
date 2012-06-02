@@ -156,7 +156,14 @@ ImapSlice.prototype = {
     if (!this._bridgeHandle)
       return;
 
-    this._bridgeHandle.sendStatus(status);
+    this._bridgeHandle.sendStatus(status, status === 'synced');
+  },
+
+  batchAppendHeaders: function(headers, moreComing) {
+    this._LOG.headersAppended(headers);
+    this._bridgeHandle.sendSplice(this.headers.length, 0, headers,
+                                  true, moreComing);
+    this.headers = this.headers.concat(headers);
   },
 
   onHeaderAdded: function(header) {
@@ -185,7 +192,8 @@ ImapSlice.prototype = {
     var idx = bsearchForInsert(this.headers, header,
                                cmpHeaderYoungToOld);
     this._LOG.headerAdded(idx, header);
-    this._bridgeHandle.sendSplice(idx, 0, [header]);
+    this._bridgeHandle.sendSplice(idx, 0, [header],
+                                  this.waitingOnData, this.waitingOnData);
     this.headers.splice(idx, 0, header);
   },
 
@@ -207,7 +215,8 @@ ImapSlice.prototype = {
     var idx = bsearchForInsert(this.headers, header,
                                cmpHeaderYoungToOld);
     this._LOG.headerRemoved(idx, header);
-    this._bridgeHandle.sendSplice(idx, 1, []);
+    this._bridgeHandle.sendSplice(idx, 1, [],
+                                  this.waitingOnData, this.waitingOnData);
     this.headers.splice(idx, 1);
   },
 
@@ -1613,7 +1622,8 @@ ImapFolderStorage.prototype = {
       }
       // otherwise, no split necessary, just use it
 
-      blockPickedCallback(info, block);
+      if (blockPickedCallback)
+        blockPickedCallback(info, block);
     }
 
     if (blockMap.hasOwnProperty(info.blockId))
@@ -1626,7 +1636,9 @@ ImapFolderStorage.prototype = {
    * Request the load of the given block and the invocation of the callback with
    * the block when the load completes.
    */
-  _loadBlock: function(type, blockId, callback) {
+  _loadBlock: function ifs__loadBlock(type, blockId, callback) {
+    if (blockId == null)
+      throw new Error('Bad block id!');
     var aggrId = type + blockId;
     if (this._pendingLoads.indexOf(aggrId) !== -1) {
       this._pendingLoadListeners[aggrId].push(callback);
@@ -1655,7 +1667,7 @@ ImapFolderStorage.prototype = {
       this._imapDb.loadBodyBlock(this.folderId, blockId, onLoaded);
   },
 
-  _deleteFromBlock: function(type, date, uid, callback) {
+  _deleteFromBlock: function ifs__deleteFromBlock(type, date, uid, callback) {
     var blockInfoList, blockMap, deleteFromBlock;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
@@ -1694,7 +1706,8 @@ ImapFolderStorage.prototype = {
           this._dirtyBodyBlocks[info.blockId] = null;
       }
 
-      callback();
+      if (callback)
+        callback();
     }
     if (blockMap.hasOwnProperty(info.blockId))
       processBlock.call(this, blockMap[info.blockId]);
@@ -1727,11 +1740,11 @@ ImapFolderStorage.prototype = {
         pastDate = makeDaysAgo(daysDesired),
         iAcc, iHeadBlock, ainfo,
         // What is the startTS fullSync data we have for the time range?
-        worstGoodData = null;
-/*
+        worstGoodData = 0;
+
     for (iAcc = 0; iAcc < this._accuracyRanges.length; i++) {
       ainfo = this._accuracyRanges[iAcc];
-      if (pastDate < ainfo.endTS)
+      if (BEFORE(pastDate, ainfo.endTS))
         break;
       if (!ainfo.fullSync)
         break;
@@ -1740,14 +1753,22 @@ ImapFolderStorage.prototype = {
       else
         worstGoodData = ainfo.fullSync.updated;
     }
-    var existingDataGood = (worstGoodData + RECENT_ENOUGH_TIME_THRESH > now);
+    var existingDataGood;
+    if (!this._account.universe.online)
+      existingDataGood = true;
+    else
+      existingDataGood = (worstGoodData + RECENT_ENOUGH_TIME_THRESH > now);
 
     // -- Good existing data, fill the slice from the DB
     if (existingDataGood) {
-      this.getMessagesInDateRange(pastDate, now, INITIAL_FILL_SIZE, false);
+      // We can adjust our start time to the dawn of time since we have a
+      // limit in effect.
+      slice.waitingOnData = 'db';
+      this.getMessagesInDateRange(0, now, INITIAL_FILL_SIZE,
+                                  this.onFetchDBHeaders.bind(this, slice));
       return;
     }
-*/
+
     // -- Bad existing data, issue a sync and have the slice
     slice.setStatus('synchronizing');
     slice.waitingOnData = 'sync';
@@ -1798,6 +1819,19 @@ ImapFolderStorage.prototype = {
                                   this.onSyncCompleted.bind(this));
   },
 
+  /**
+   * Receive messages directly from the database.
+   */
+  onFetchDBHeaders: function(slice, headers, moreMessagesComing) {
+    if (headers.length)
+      slice.batchAppendHeaders(headers, moreMessagesComing);
+    else if (!moreMessagesComing)
+      slice.setStatus('synced');
+
+    if (!moreMessagesComing)
+      slice.waitingOnData = false;
+  },
+
   sliceQuicksearch: function ifs_sliceQuicksearch(slice, searchParams) {
   },
 
@@ -1839,11 +1873,11 @@ ImapFolderStorage.prototype = {
     function fetchMore() {
       while (true) {
         // - load the header block if required
-        if (!(headBlockInfo.id in self._headerBlocks)) {
-          self._loadBlock('header', headBlockInfo.id, fetchMore);
+        if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
+          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
           return;
         }
-        var headerBlock = self._headerBlocks[headblockInfo.id];
+        var headerBlock = self._headerBlocks[headBlockInfo.blockId];
         // - use up as many headers in the block as possible
         // (previously used destructuring, but we want uglifyjs to work)
         var headerTuple = self._findFirstObjForDateRange(
@@ -1858,23 +1892,35 @@ ImapFolderStorage.prototype = {
         // (at least one usable message)
 
         var iHeader = iFirstHeader;
-        for (; toFill && iHeader < headerBlock.headers.length; iHeader++) {
+        for (; iHeader < headerBlock.headers.length; iHeader++) {
           header = headerBlock.headers[iHeader];
-          if (header.date < startTS)
+          if (BEFORE(header.date, startTS))
             break;
         }
         // (iHeader is pointing at the index of message we don't want)
-        toFill -= iHeader - iFirstHeader;
+        // There is no further processing to do if we bailed early.
+        if (iHeader < headerBlock.headers.length)
+          toFill = 0;
+        else
+          toFill -= iHeader - iFirstHeader;
+
+        if (!toFill) {
+        }
+        // - There may be viable messages in the next block, check.
+        else if (++iHeadBlockInfo >= self._headerBlockInfos.length) {
+          // Nope, there are no more messages, nothing left to do.
+          toFill = 0;
+        }
+        else {
+          headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
+          // We may not want to go back any farther
+          if (AFTER(startTS, headBlockInfo.endTS))
+            toFill = 0;
+        }
+        // generate the notifications fo what we did create
         messageCallback(headerBlock.headers.slice(iFirstHeader, iHeader),
                         Boolean(toFill));
-        // bail if there is nothing left to fill or we ran into an undesirable
-        if (toFill || iHeader < headerBlock.headers.length)
-          return;
-        // - There may be viable messages in the next block, check.
-        if (++iHeadBlockInfo >= self._headerBlockInfos.length)
-          return;
-        headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
-        if (startTS > headBlockInfo.endTS)
+        if (!toFill)
           return;
         // (there must be some overlap, keep going)
       }
@@ -2006,33 +2052,12 @@ ImapFolderStorage.prototype = {
       return;
     }
 
-        // - generate notifications
-        if (self._curSyncSlice)
-          self._curSyncSlice.onHeaderAdded(header);
-    /*
-    this._pickInsertionBlockUsingDateAndUID(
-      'type', header.date, header.id, HEADER_EST_SIZE_IN_BYTES,
-      function blockPicked(blockInfo, headerBlock) {
-        // - update the block
-        var insertIdx = bsearchForInsert(
-          headerBlock.headers, header, cmpHeaderYoungToOld);
-        // (if the list is empty, both conditionals can be true)
-        if (insertIdx === 0) {
-          blockInfo.endTS = header.date;
-          blockInfo.endUID = header.id;
-        }
-        if (insertIdx === headerBlock.headers.length) {
-          blockInfo.startTS = header.date;
-          blockInfo.startUID = header.id;
-        }
+    if (self._curSyncSlice)
+      self._curSyncSlice.onHeaderAdded(header);
 
-        self._dirty = true;
-        self._dirtyHeaderBlocks[blockInfo.blockId] = headerBlock;
-        headerBlock.uids.splice(insertIdx, 0, header.id);
-        headerBlock.headers.splice(insertIdx, 0, header);
-
-      });
-    */
+    this._insertIntoBlockUsingDateAndUID(
+      'header', header.date, header.id, HEADER_EST_SIZE_IN_BYTES,
+      header, null);
   },
 
   /**
@@ -2049,9 +2074,25 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
       return;
     }
-    // XXX update block
+
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderAdded(header);
+
+    // NB: This is potentially overkill since we probably will try and avoid
+    // evicting header blocks while the headers are in use, but let's wait
+    // before we go declaring/assuming that invariant.
+    var infoTuple = this._findRangeObjIndexForDateAndUID(this._headerBlockInfos,
+                                                         date, uid),
+        iInfo = infoTuple[0], info = infoTuple[1], self = this;
+    function doUpdateHeader(block) {
+      var idx = block.uids.indexOf(header.id);
+      block.headers[idx] = header;
+      self._dirtyHeaderBlocks = block;
+    }
+    if (!this._headerBlocks.hasOwnProperty(info.blockId))
+      this._loadBlock('header', info.blockId, doUpdateHeader);
+    else
+      doUpdateHeader(this._headerBlocks[info.blockId]);
   },
 
   /**
@@ -2072,9 +2113,11 @@ ImapFolderStorage.prototype = {
       this._deferredCalls.push(this.deleteMessageHeader.bind(this, header));
       return;
     }
-    // XXX update block by removal
+
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderRemoved(header);
+
+    this._deleteFromBlock('header', header.date, header.id, null);
   },
 
   /**
@@ -2087,11 +2130,8 @@ ImapFolderStorage.prototype = {
       return;
     }
 
-    this._pickInsertionBlockUsingDateAndUID(
-      'body', header.date, header.id, bodyInfo.size,
-      function(blockInfo, block) {
-        block[header.id] = bodyInfo;
-      });
+    this._insertIntoBlockUsingDateAndUID(
+      'body', header.date, header.id, bodyInfo.size, bodyInfo, null);
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
@@ -2102,13 +2142,13 @@ ImapFolderStorage.prototype = {
       throw new Error('Unable to locate owning block for id/date: ' + suid +
                       ', ' + date);
     var bodyBlockInfo = posInfo[1];
-    if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.id))) {
-      this._loadBlock('body', bodyBlockInfo.id, function(bodyBlock) {
+    if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.blockId))) {
+      this._loadBlock('body', bodyBlockInfo.blockId, function(bodyBlock) {
           callback(bodyBlock[uid]);
         });
       return;
     }
-    callback(this._bodyBlocks[bodyBlockInfo.id][uid]);
+    callback(this._bodyBlocks[bodyBlockInfo.blockId][uid]);
   },
 
   /**
@@ -2142,11 +2182,13 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapSlice: {
     type: $log.QUERY,
     events: {
+      headersAppended: {},
       headerAdded: { index: false },
       headerModified: { index: false },
       headerRemoved: { index: false },
     },
     TEST_ONLY_events: {
+      headersAppended: { headers: false },
       headerAdded: { header: false },
       headerModified: { header: false },
       headerRemoved: { header: false },

@@ -139,7 +139,8 @@ ImapAccount.prototype = {
       bodyBlocks: [],
     };
     this._folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._LOG);
+      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
+                                       this._LOG);
 
     var folderMeta = folderInfo.$meta;
     var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);

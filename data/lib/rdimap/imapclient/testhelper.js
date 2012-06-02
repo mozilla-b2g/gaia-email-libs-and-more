@@ -165,7 +165,7 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(
       beOffline ? 'pretend to be offline' : 'stop pretending to be offline',
       function() {
-        MailUniverse.offline = beOffline;
+        MailUniverse.online = !beOffline;
       });
   },
 };

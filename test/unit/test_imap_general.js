@@ -34,7 +34,7 @@ TD.commonCase('folder sync', function(T) {
   T.group('sync empty folder');
   var emptyFolder = testAccount.createTestFolder(
     'test_empty_sync', { count: 0 });
-  T.action(eSync, 'sync folder', function() {
+  function checkEmptyFolder() {
     eSync.expect_namedValue('syncCount', 0);
 
     var slice = MailAPI.viewFolderMessages(emptyFolder.mailFolder);
@@ -42,17 +42,10 @@ TD.commonCase('folder sync', function(T) {
       eSync.namedValue('syncCount', slice.items.length);
       slice.die();
     };
-  });
+  }
+  T.action(eSync, 'sync folder', checkEmptyFolder);
   testAccount.do_pretendToBeOffline(true);
-  T.check(eSync, 'check persisted data', function() {
-    eSync.expect_namedValue('syncCount', 0);
-
-    var slice = MailAPI.viewFolderMessages(emptyFolder.mailFolder);
-    slice.oncomplete = function() {
-      eSync.namedValue('syncCount', slice.items.length);
-      slice.die();
-    };
-  });
+  T.check(eSync, 'check persisted data', checkEmptyFolder);
   testAccount.do_pretendToBeOffline(false);
 
   /**
@@ -63,21 +56,25 @@ TD.commonCase('folder sync', function(T) {
   var fullSyncFolder = testAccount.createTestFolder(
     'test_initial_full_sync',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  T.action(eSync, 'sync folder', function() {
+  function checkFullSyncFolder() {
     eSync.expect_namedValue('syncCount', 4);
     eSync.expect_namedValue('first subject',
-                            testFolder.messages[0].headerInfo.subject);
+                            fullSyncFolder.messages[0].headerInfo.subject);
     eSync.expect_namedValue('last subject',
-                            testFolder.messages[3].headerInfo.subject);
+                            fullSyncFolder.messages[3].headerInfo.subject);
 
-    var slice = MailAPI.viewFolderMessages(fullSync.mailFolder);
+    var slice = MailAPI.viewFolderMessages(fullSyncFolder.mailFolder);
     slice.oncomplete = function() {
       eSync.namedValue('syncCount', slice.items.length);
       eSync.namedValue('first subject', slice.items[0].subject);
       eSync.namedValue('last subject', slice.items[3].subject);
       slice.die();
     };
-  });
+  }
+  T.action(eSync, 'sync folder', checkFullSyncFolder);
+  testAccount.do_pretendToBeOffline(true);
+  T.check(eSync, 'check persisted data', checkFullSyncFolder);
+  testAccount.do_pretendToBeOffline(false);
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
