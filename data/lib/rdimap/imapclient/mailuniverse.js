@@ -630,11 +630,17 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Message Mutation and Undoing
 
+  /**
+   * Partitions messages by account.  Accounts may want to partition things
+   * further, such as by folder, but we leave that up to them since not all
+   * may require it.  (Ex: activesync and gmail may be able to do things
+   * that way.)
+   */
   _partitionMessagesByAccount: function(messageSuids, targetAccountId) {
     var results = [], acctToMsgs = {};
 
     for (var i = 0; i < messageSuids.length; i++) {
-      var messageSuid = messageSuids[0],
+      var messageSuid = messageSuids[i],
           accountId = messageSuid.substring(0, messageSuid.indexOf('/'));
       if (!acctToMsgs.hasOwnProperty(accountId)) {
         var messages = [messageSuid];
@@ -682,7 +688,19 @@ MailUniverse.prototype = {
       this._opCompletionListenersByAccount[account.id] = callback;
   },
 
-  modifyMessageTags: function(messageSuids, addTags, removeTags) {
+  modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
+    var self = this;
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      self._queueAccountOp(
+        x.account,
+        {
+          type: 'modtags',
+          humanOp: humanOp,
+          messages: messageSuids,
+          addTags: addTags,
+          removeTags: removeTags,
+        });
+    });
   },
 
   moveMessages: function(messageSuids, targetFolderId) {

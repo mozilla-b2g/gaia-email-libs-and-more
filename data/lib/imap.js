@@ -1112,8 +1112,6 @@ ImapConnection.prototype._fnTmrConn = function(loginCb) {
 }
 
 ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
-  var isKeywords = (arguments.callee.caller === this.addKeywords
-                    || arguments.callee.caller === this.delKeywords);
   if (this._state.status !== STATES.BOXSELECTED)
     throw new Error('No mailbox is currently selected');
   if (uids === undefined)
@@ -1129,6 +1127,11 @@ ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
                     + ' argument must be a string or a non-empty Array');
   if (!Array.isArray(flags))
     flags = [flags];
+  // Disabling the guard logic right now because it's not needed and we're
+  // removing the distinction between keywords and flags.  However, it does
+  // seem like a good idea for the protocol layer to check this, so not just
+  // actually deleting it right now.
+  /*
   for (var i=0; i<flags.length; i++) {
     if (!isKeywords) {
       if (this._state.box.permFlags.indexOf(flags[i]) === -1
@@ -1144,8 +1147,7 @@ ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
       }
     }
   }
-  if (!isKeywords)
-    flags = flags.map(function(flag) {return '\\' + flag;})
+  */
   flags = flags.join(' ');
   cb = arguments[arguments.length-1];
 

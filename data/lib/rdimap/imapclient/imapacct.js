@@ -642,6 +642,63 @@ ImapAccount.prototype = {
 
     this.__folderDemandsConnection(op.folderId, gotConn);
   },
+
+  _do_modtags: function(op, callback) {
+    var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
+    var rawConn, self = this,
+        folderMeta = null, messages = null,
+        iNextPartition = 0, modsToGo = 0;
+
+    function gotConn(conn) {
+      rawConn = conn;
+      openNextFolder();
+      rawConn.openBox(folderMeta.path, openedBox);
+    }
+    function openNextFolder() {
+      if (iNextPartition >= partitions.length) {
+        done(null);
+        return;
+      }
+
+      var partition = partitions[iNextPartition++];
+      folderMeta = self._folderInfos[partition.folderId].$meta;
+      messages = partition.messages;
+      rawConn.openBox(folderMeta.path, openedBox);
+    }
+    function openedBox(err, box) {
+      if (err) {
+        console.error('failure opening box to modify tags');
+        done('unknown');
+        return;
+      }
+      if (op.addTags) {
+        modsToGo++;
+        rawConn.addFlags(messages, op.addTags, tagsModded);
+      }
+      if (op.removeTags) {
+        modsToGo++;
+        rawConn.removeFlags(messages, op.removeTags, tagsModded);
+      }
+    }
+    function tagsModded(err) {
+      if (err) {
+        console.error('failure modifying tags', err);
+        done('unknown');
+        return;
+      }
+      if (--modsToGo === 0)
+        openNextFolder();
+    }
+    function done(errString) {
+      if (rawConn) {
+        self.__folderDoneWithConnection(folderMeta.id, rawConn);
+        rawConn = null;
+      }
+      callback(errString);
+    }
+
+    this.__folderDemandsConnection(':modtags', gotConn);
+  },
 };
 
 /**

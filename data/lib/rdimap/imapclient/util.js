@@ -62,5 +62,29 @@ var bsearchMaybeExists = exports.bsearchMaybeExists =
   return null;
 };
 
+exports.partitionMessagesByFolderId =
+    function partitionMessagesByFolderId(messageSuids, onlyKeepMsgId) {
+  var results = [], foldersToMsgs = {};
+  for (var i = 0; i < messageSuids.length; i++) {
+    var messageSuid = messageSuids[i],
+        idxLastSlash = messageSuid.lastIndexOf('/'),
+        folderId = messageSuid.substring(0, idxLastSlash),
+        useId = onlyKeepMsgId ? messageSuid.substring(idxLastSlash+1)
+                              : messageSuid;
+
+    if (!foldersToMsgs.hasOwnProperty(folderId)) {
+      var messages = [useId];
+      results.push({
+        folderId: folderId,
+        messages: messages,
+      });
+      foldersToMsgs[folderId] = messages;
+    }
+    else {
+      foldersToMsgs[folderId].push(useId);
+    }
+  }
+  return results;
+};
 
 }); // end define

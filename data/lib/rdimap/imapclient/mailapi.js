@@ -459,6 +459,7 @@ function BridgedViewSlice(api, ns, handle) {
   this.onsplice = null;
   this.onremove = null;
   this.oncomplete = null;
+  this.ondead = null;
 }
 BridgedViewSlice.prototype = {
   toString: function() {
@@ -776,6 +777,13 @@ MailAPI.prototype = {
     }
   },
 
+  _recv_sliceDead: function(msg) {
+    var slice = this._slices[msg.handle];
+    delete this._slices[msg.handle];
+    if (slice.ondead)
+      slice.ondead(slice);
+  },
+
   _getBodyForMessage: function(header, callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
@@ -1000,6 +1008,11 @@ MailAPI.prototype = {
   // All actions are undoable and return an `UndoableOperation`.
 
   deleteMessages: function ma_deleteMessages(messages) {
+    // XXX for now, just pose this as a flag change rather than any moving
+    // to trash semantics.  We just want to be able to make our sync logic
+    // perceive a deletion.  Obviously, DO NOT HOOK THIS UP TO THE UI YET.
+    this.modifyMessageTags(messages,
+                           ['\\Deleted'], null, 'delete');
   },
 
   copyMessages: function ma_copyMessages(messages, targetFolder) {
@@ -1221,6 +1234,33 @@ MailAPI.prototype = {
       req.callback = null;
     }
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Diagnostics / Test Hacks
+
+  /**
+   * Send a 'ping' to the bridge which will send a 'pong' back, notifying the
+   * provided callback.  This is intended to be hack to provide a way to ensure
+   * that some function only runs after all of the notifications have been
+   * received and processed by the back-end.
+   */
+  ping: function(callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'ping',
+      callback: callback,
+    };
+    this.__bridgeSend({
+      type: 'ping',
+      handle: handle,
+    });
+  },
+
+  _recv_pong: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    delete this._pendingRequests[msg.handle];
+    req.callback();
+  }
 
   //////////////////////////////////////////////////////////////////////////////
 };

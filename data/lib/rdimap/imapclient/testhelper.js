@@ -93,10 +93,11 @@ var TestImapAccountMixins = {
   /**
    * Create a folder and populate it with a set of messages.
    */
-  createTestFolder: function(folderName, messageSetDef) {
+  do_createTestFolder: function(folderName, messageSetDef) {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName),
         useDate = new Date();
+    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     useDate.setHours(12, 0, 0, 0);
 
     testFolder.id = null;
@@ -121,6 +122,7 @@ var TestImapAccountMixins = {
 
     this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
       self.RT.reportActiveActorThisStep(self);
+      self.RT.reportActiveActorThisStep(testFolder.connActor);
       self._eTestAccount.expect_createFolder();
       self.expect_creationNotified(1);
 
@@ -159,6 +161,53 @@ var TestImapAccountMixins = {
   },
 
   /**
+   * Add messages to an existing
+   */
+  do_addMessagesToFolder: function(testFolder, messageSetDef) {
+  },
+
+
+  /**
+   * Provide a context in which to manipulate the contents of a folder by
+   * getting a view of the messages in the folder, calling a user function
+   * to trigger manipulations, then waiting for the mutation queue to get
+   * drained.
+   */
+  do_manipulateFolder: function(testFolder, manipFunc) {
+    var self = this;
+    this.T.action(this, 'manipulates folder', testFolder, function() {
+      self.expect_manipulationNotified();
+      // XXX we want to put the system in a mode where the manipulations are
+      // not played locally.
+      var slice = MailAPI.viewFolderMessages(testFolder.mailFolder);
+      slice.oncomplete = function() {
+        manipFunc(slice);
+        slice.die();
+      };
+      // Only wait on the operations completing after we are sure the bridge
+      // has heard about them.
+      Mail.ping(function() {
+        MailUniverse.waitForAccountOpts(MailUniverse.accounts[0], function() {
+          self._logger.manipulationNotified();
+        });
+      });
+    });
+  },
+
+  do_manipulateFolderView: function(viewThing, manipFunc) {
+    var self = this;
+    this.T.action(this, 'manipulates folder view', viewThing, function() {
+      self.expect_manipulationNotified();
+      manipFunc(viewThing.slice);
+      MailAPI.ping(function() {
+        MailUniverse.waitForAccountOpts(MailUniverse.accounts[0], function() {
+          self._logger.manipulationNotified();
+        });
+      });
+    });
+  },
+
+  /**
    * Start/stop pretending to be offline.  In this case, pretending means that
    * we claim we are offline but do not tear down our IMAP connections.
    */
@@ -168,6 +217,66 @@ var TestImapAccountMixins = {
       function() {
         MailUniverse.online = !beOffline;
       });
+  },
+
+  /**
+   * Perform a one-shot viewing of the contents of the folder to see that we
+   * get back the right thing.  Use do_openFolderView if you want to open it
+   * and keep it open and detect changes, etc.
+   */
+  do_viewFolder: function(desc, testFolder, expectedValues, _saveToThing) {
+    var self = this;
+    this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
+                  function() {
+      self.expect_messagesReported(expectedValues.count);
+      if (MailUniverse.online) {
+        testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+        testFolder.connActor.expect_syncDateRange_end(
+          expectedValues.full, expectedValues.flags, expectedValues.deleted);
+      }
+      if (expectedValues.count) {
+        self.expect_messageSubject(
+          0, testFolder.messages[0].headerInfo.subject);
+        self.expect_messageSubject(
+          expectedValues.count - 1,
+          testFolder.messages[expectedValues.count - 1].headerInfo.subject);
+      }
+
+      var slice = MailAPI.viewFolderMessages(testFolder.mailFolder);
+      slice.oncomplete = function() {
+        self._logger.messagesReported(slice.items.length);
+        if (expectedValues.count) {
+          self._logger.messageSubject(0, slice.items[0].subject);
+          self._logger.messageSubject(
+            expectedValues.count - 1,
+            slice.items[expectedValues.count - 1].subject);
+        }
+        if (_saveToThing)
+          _saveToThing.slice = slice;
+        else
+          slice.die();
+      };
+    });
+  },
+
+  do_openFolderView: function(viewName, testFolder, expectedValues) {
+    var viewThing = this.T.thing('folderView', viewName);
+    viewThing.slice = null;
+    this.do_viewFolder('opens', testFolder, expectedValues, viewThing);
+  },
+
+  do_refreshFolderView: function(viewThing, expectedValues, checkHelper) {
+  },
+
+  do_closeFolderView: function(viewThing) {
+    var self = this;
+    this.T.action(this, 'close', viewThing, function() {
+      self.expect_sliceDied(viewThing.slice.handle);
+      viewThing.slice.ondead = function() {
+        self._logger.sliceDied(viewThing.slice.handle);
+      };
+      viewThing.slice.die();
+    });
   },
 };
 
@@ -191,8 +300,13 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       deletionNotified: { count: true },
       creationNotified: { count: true },
+      sliceDied: { handle: true },
 
       appendNotified: {},
+      manipulationNotified: {},
+
+      messagesReported: { count: true },
+      messageSubject: { index: true, subject: true },
     },
     errors: {
       folderCreationError: { err: false },

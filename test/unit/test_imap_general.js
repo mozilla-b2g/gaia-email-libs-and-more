@@ -5,10 +5,16 @@
  * a while to run and/or might upset the IMAP servers are handled in
  * `test_imap_excessive.js`.
  *
- * Our tests:
- * - Verify that live synchronization provides the expected results where
- *   the messages come direct from the connection as they are added.
- * -
+ * Our tests verify that:
+ * - Live synchronization provides the expected results where the messages come
+ *   direct from the connection as they are added.
+ * - Listing the messages in an already synchronized folder when offline
+ *   properly retrieves the messages.
+ * - Resynchronizing an already-synchronized unchanged folder only issues
+ *   the time-range search and flag fetches and returns the same set of
+ *   messages.
+ * - Resynchronizing an already-synchronized folder detects new messages,
+ *   deleted messages, and flag changes.
  **/
 
 load('resources/loggest_test_framework.js');
@@ -36,109 +42,106 @@ TD.commonCase('folder sync', function(T) {
    * minimal legwork.
    */
   T.group('sync empty folder');
-  var emptyFolder = testAccount.createTestFolder(
+  var emptyFolder = testAccount.do_createTestFolder(
     'test_empty_sync', { count: 0 });
-  function checkEmptyFolder() {
-    eSync.expect_namedValue('syncCount', 0);
-
-    var slice = MailAPI.viewFolderMessages(emptyFolder.mailFolder);
-    slice.oncomplete = function() {
-      eSync.namedValue('syncCount', slice.items.length);
-      slice.die();
-    };
-  }
-  T.action(eSync, 'sync folder', checkEmptyFolder);
+  testAccount.do_viewFolder('syncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(true);
-  T.check(eSync, 'check persisted data', checkEmptyFolder);
+  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 });
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
    * the messages in the folder.
    */
   T.group('initial interval is full sync');
-  var fullSyncFolder = testAccount.createTestFolder(
+  var fullSyncFolder = testAccount.do_createTestFolder(
     'test_initial_full_sync',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  function checkFullSyncFolder() {
-    eSync.expect_namedValue('syncCount', 4);
-    eSync.expect_namedValue('first subject',
-                            fullSyncFolder.messages[0].headerInfo.subject);
-    eSync.expect_namedValue('last subject',
-                            fullSyncFolder.messages[3].headerInfo.subject);
-
-    var slice = MailAPI.viewFolderMessages(fullSyncFolder.mailFolder);
-    slice.oncomplete = function() {
-      eSync.namedValue('syncCount', slice.items.length);
-      eSync.namedValue('first subject', slice.items[0].subject);
-      eSync.namedValue('last subject', slice.items[3].subject);
-      slice.die();
-    };
-  }
-  T.action(eSync, 'sync folder', checkFullSyncFolder);
+  testAccount.do_viewFolder('syncs', fullSyncFolder,
+                            { count: 4, full: 4, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(true);
-  T.check(eSync, 'check persisted data', checkFullSyncFolder);
+  testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
+                            { count: 4, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', fullSyncFolder,
+                            { count: 4, full: 0, flags: 4, deleted: 0 });
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
    * messages than we want and there are even more messages beyond.
    */
   T.group('saturated initial interval');
-  var saturatedFolder = testAccount.createTestFolder(
+  var saturatedFolder = testAccount.do_createTestFolder(
     'test_saturated_sync',
     { count: 21, age: { days: 0 }, age_incr: { hours: 9 } });
-  function checkSaturatedSyncFolder() {
-    // This should provide 20 messages in our 7.5 day range.
-    const Nexp = 20;
-    eSync.expect_namedValue('syncCount', Nexp);
-    eSync.expect_namedValue('first subject',
-                            saturatedFolder.messages[0].headerInfo.subject);
-    eSync.expect_namedValue('last subject',
-                            saturatedFolder.messages[Nexp-1].headerInfo.subject);
-
-    var slice = MailAPI.viewFolderMessages(saturatedFolder.mailFolder);
-    slice.oncomplete = function() {
-      eSync.namedValue('syncCount', slice.items.length);
-      eSync.namedValue('first subject', slice.items[0].subject);
-      eSync.namedValue('last subject', slice.items[Nexp-1].subject);
-      slice.die();
-    };
-  }
-  T.action(eSync, 'sync folder', checkSaturatedSyncFolder);
+  // This should provide 20 messages in our 7.5 day range.
+  testAccount.do_viewFolder('syncs', saturatedFolder,
+                            { count: 20, full: 20, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(true);
-  T.check(eSync, 'check persisted data', checkSaturatedSyncFolder);
+  testAccount.do_viewFolder('checks persisted data of', saturatedFolder,
+                            { count: 20, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', saturatedFolder,
+                            { count: 20, full: 0, flags: 20, deleted: 0 });
 
   /**
    * Perform a folder sync where we need to search multiple time ranges in order
    * to gain a sufficient number of messages.
    */
   T.group('initial fetch spans multiple time ranges');
-  var msearchFolder = testAccount.createTestFolder(
+  var msearchFolder = testAccount.do_createTestFolder(
     'test_multiple_ranges',
-    { count: 19, age: { days: 0 }, age_incr: { days: 2 } });
-  function checkMsearchSyncFolder() {
-    // will fetch: 4, 7, 7 = 18
-    const Nexp = 18;
-    eSync.expect_namedValue('syncCount', Nexp);
-    eSync.expect_namedValue('first subject',
-                            msearchFolder.messages[0].headerInfo.subject);
-    eSync.expect_namedValue('last subject',
-                            msearchFolder.messages[Nexp-1].headerInfo.subject);
-
-    var slice = MailAPI.viewFolderMessages(msearchFolder.mailFolder);
-    slice.oncomplete = function() {
-      eSync.namedValue('syncCount', slice.items.length);
-      eSync.namedValue('first subject', slice.items[0].subject);
-      eSync.namedValue('last subject', slice.items[Nexp-1].subject);
-      slice.die();
-    };
-  }
-  T.action(eSync, 'sync folder', checkMsearchSyncFolder);
+    { count: 19, age: { days: 0, hours: 1 }, age_incr: { days: 2 } });
+  // will fetch: 4, 7, 7 = 18
+  testAccount.do_viewFolder('syncs', msearchFolder,
+                            { count: 19, full: 19, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(true);
-  T.check(eSync, 'check persisted data', checkMsearchSyncFolder);
+  testAccount.do_viewFolder('checks persisted data of', msearchFolder,
+                            { count: 19, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', msearchFolder,
+                            { count: 19, full: 0, flags: 19, deleted: 0 });
+
+  /**
+   * Use our mutation mechanism with speculative application disabled in order
+   * to cause some apparent flag changes and deletions to occur.
+   */
+  T.group('sync detects additions/modifications/deletions');
+  // delete 2 from the first interval (of 4), 1 from the second (of 7)
+  testAccount.do_manipulateFolder(msearchFolder, function(slice) {
+    slice.items[1].deleteMessage();
+    MailAPI.deleteMessages([slice.items[2], slice.items[5]]);
+    slice.items[3].setRead(true);
+    slice.items[4].setStarred(true);
+  });
+  // add messages so our fetches become: 6, 9 = 17
+  testAccount.do_addMessagesToFolder(
+    msearchFolder,
+    { count: 7, age: { days: 0 }, age_incr: { days: 2 } });
+  var msearchView = testAccount.do_openFolderView(
+    'msearch', msearchFolder,
+    { count: 17, full: 7, flags: 10, deleted: 3 });
+
+  /**
+   * Perform some manipulations with the view still open, then trigger a refresh
+   * and make sure the view updates correctly.
+   */
+  T.group('sync refresh detections mutations and updates in-place');
+  testAccount.do_manipulateFolderView(
+    msearchView,
+    function(slice) {
+    });
+  testAccount.do_refreshFolderView(
+    msearchView,
+    { count: 17, full: 0, flags: 17, deleted: 0 },
+    function(slice) {
+
+    });
+  testAccount.do_closeFolderView(msearchView);
 
   T.group('cleanup');
 });

@@ -227,7 +227,7 @@ ImapSlice.prototype = {
   },
 };
 
-const BASELINE_SEARCH_OPTIONS = ['!DRAFT'];
+const BASELINE_SEARCH_OPTIONS = ['!DRAFT', '!DELETED'];
 
 /**
  * What is the maximum number of bytes a block should store before we split
@@ -600,12 +600,13 @@ ImapFolderConn.prototype = {
         self._commonSync(
           newUIDs, knownUIDs, headers,
           function(newCount, knownCount) {
-            self._LOG.syncDateRange_end(startTS, endTS, newCount, knownCount);
+            self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
+                                        startTS, endTS);
             doneCallback();
           });
       });
 
-    this._LOG.syncDateRange_begin(startTS, endTS, null, null);
+    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._reliaSearch(searchOptions, callbacks.search);
     this._storage.getAllMessagesInDateRange(startTS, endTS,
                                             callbacks.db);
@@ -1757,8 +1758,9 @@ ImapFolderStorage.prototype = {
     var existingDataGood;
     if (!this._account.universe.online)
       existingDataGood = true;
-    else
-      existingDataGood = (worstGoodData + RECENT_ENOUGH_TIME_THRESH > now);
+    else // TODO: consider just filling from the db if recent enough
+      //existingDataGood = (worstGoodData + RECENT_ENOUGH_TIME_THRESH > now);
+      existingDataGood = false;
 
     // -- Good existing data, fill the slice from the DB
     if (existingDataGood) {
@@ -1857,7 +1859,8 @@ ImapFolderStorage.prototype = {
     var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
-
+    if (endTS == null)
+      endTS = TIME_WARPED_NOW || Date.now(); // or just use a huge number?
 
     // find the first header block with the data we want (was destructuring)
     var headerPair = this._findFirstObjIndexForDateRange(this._headerBlockInfos,
@@ -2205,7 +2208,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       syncDateRange: {
-        start: false, end: false, newMessages: false, existingMessages: false,
+        newMessages: true, existingMessages: true, deletedMessages: true,
+        start: false, end: false,
       },
     },
   },

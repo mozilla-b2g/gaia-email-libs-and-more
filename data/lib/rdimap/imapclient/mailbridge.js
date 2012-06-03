@@ -181,6 +181,11 @@ MailBridge.prototype = {
         idx = proxies.indexOf(proxy);
     proxies.splice(idx, 1);
     proxy.die();
+
+    this.__sendMessage({
+      type: 'sliceDead',
+      handle: msg.handle,
+    });
   },
 
   _cmd_getBody: function mb__cmd_getBody(msg) {
@@ -210,6 +215,9 @@ MailBridge.prototype = {
     //   we fail to make the change in a timely fashion) and so that we can
     //   know enough to reverse the operation.
     // - Speculative changes are made to the headers in the database locally.
+
+    this.universe.modifyMessageTags(
+      msg.opcode, msg.messages, msg.addTags, msg.removeTags);
   },
 
   //////////////////////////////////////////////////////////////////////////////
