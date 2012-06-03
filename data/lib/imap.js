@@ -877,8 +877,13 @@ ImapConnection.prototype.append = function(data, options, cb) {
   this._send('APPEND', cmd, function(err) {
     if (err || step++ === 2)
       return cb(err);
-    self._state.conn.send(typeof(data) === 'string' ? Buffer(data) : data);
-    self._state.conn.send(CRLF_BUFFER);
+    if (typeof(data) === 'string') {
+      self._state.conn.send(Buffer(data + CRLF));
+    }
+    else {
+      self._state.conn.send(data);
+      self._state.conn.send(CRLF_BUFFER);
+    }
     if (this._LOG) this._LOG.sendData(data.length, data);
   });
 }
@@ -926,8 +931,7 @@ ImapConnection.prototype.multiappend = function(messages, cb) {
       message = messages[iNextMessage++];
       data = message.messageText;
       buildAppendClause(message);
-      self._state.conn.send(Buffer(cmd));
-      self._state.conn.send(CRLF_BUFFER);
+      self._state.conn.send(Buffer(cmd + CRLF));
     }
     else {
       // This terminates the command.
