@@ -94,17 +94,23 @@ TD.commonCase('folder sync', function(T) {
    */
   T.group('initial fetch spans multiple time ranges');
   var msearchFolder = testAccount.do_createTestFolder(
-    'test_multiple_ranges',
+    'test_multiple_ranges', // (insert one more than we want to find)
     { count: 19, age: { days: 0, hours: 1 }, age_incr: { days: 2 } });
   // will fetch: 4, 7, 7 = 18
   testAccount.do_viewFolder('syncs', msearchFolder,
-                            { count: 19, full: 19, flags: 0, deleted: 0 });
+                            [{ count: 4, full: 4, flags: 0, deleted: 0 },
+                             { count: 7, full: 7, flags: 0, deleted: 0 },
+                             { count: 7, full: 7, flags: 0, deleted: 0 }]);
   testAccount.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', msearchFolder,
-                            { count: 19, full: 0, flags: 0, deleted: 0 });
+                            // Distinct date ranges are not required since we
+                            // are offline...
+                            { count: 18, full: 0, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', msearchFolder,
-                            { count: 19, full: 0, flags: 19, deleted: 0 });
+                            [{ count: 4, full: 0, flags: 4, deleted: 0 },
+                             { count: 7, full: 0, flags: 7, deleted: 0 },
+                             { count: 7, full: 0, flags: 7, deleted: 0 }]);
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -117,30 +123,54 @@ TD.commonCase('folder sync', function(T) {
     MailAPI.deleteMessages([slice.items[2], slice.items[5]]);
     slice.items[3].setRead(true);
     slice.items[4].setStarred(true);
+
+    // update our test's idea of what messages exist where.
+    msearchFolder.messages.splice(5, 1);
+    msearchFolder.messages.splice(2, 1);
+    msearchFolder.messages.splice(1, 1);
   });
-  // add messages so our fetches become: 6, 9 = 17
+  // add messages (4, 3) so our fetches become: 6, 12 = 18
   testAccount.do_addMessagesToFolder(
     msearchFolder,
-    { count: 7, age: { days: 0 }, age_incr: { days: 2 } });
+    { count: 10, age: { days: 0 }, age_incr: { days: 2 } });
+  // - open view, checking refresh, and _leave it open_ for the next group
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
-    { count: 17, full: 7, flags: 10, deleted: 3 });
+    [{ count: 6, full: 4, flags: 2, deleted: 2 },
+     { count: 12, full: 6, flags: 6, deleted: 1 }]);
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
    * and make sure the view updates correctly.
    */
   T.group('sync refresh detections mutations and updates in-place');
+  var expectedRefreshChanges = {
+    changes: [],
+    deletions: [],
+  };
   testAccount.do_manipulateFolderView(
     msearchView,
     function(slice) {
+      expectedRefreshChanges.deletions.push(slice.items[8]);
+      slice.items[8].deleteMessage();
+      expectedRefreshChanges.deletions.push(slice.items[0]);
+      slice.items[0].deleteMessage();
+
+      expectedRefreshChanges.changes.push([slice.items[12], 'isRead', true]);
+      slice.items[12].setRead(true);
+
+      expectedRefreshChanges.changes.push([slice.items[13], 'isStarred', true]);
+      slice.items[13].setStarred(true);
+
+      msearchFolder.messages.splice(8, 1);
+      msearchFolder.messages.splice(0, 1);
     });
   testAccount.do_refreshFolderView(
     msearchView,
-    { count: 17, full: 0, flags: 17, deleted: 0 },
-    function(slice) {
-
-    });
+    // Our expectations happen in a single go here because the refresh covers
+    // the entire date range in question.
+    { count: 16, full: 0, flags: 16, deleted: 2 },
+    expectedRefreshChanges);
   testAccount.do_closeFolderView(msearchView);
 
   T.group('cleanup');

@@ -380,6 +380,7 @@ ImapAccount.prototype = {
     if (reusableConnInfo) {
       reusableConnInfo.inUse = true;
       reusableConnInfo.folderId = folderId;
+      this._LOG.reuseConnection(folderId);
       callback(reusableConnInfo.conn);
       return;
     }
@@ -425,12 +426,14 @@ ImapAccount.prototype = {
       if (connInfo.conn === conn) {
         connInfo.inUse = false;
         connInfo.folderId = null;
+        this._LOG.releaseConnection(folderId);
         // XXX this will trigger an expunge if not read-only...
         if (folderId)
           conn.closeBox(function() {});
         return;
       }
     }
+    this._LOG.connectionMismatch(folderId);
   },
 
   syncFolderList: function(callback) {
@@ -585,12 +588,51 @@ ImapAccount.prototype = {
   },
 
   runOp: function(op, callback) {
-    var methodName = '_do_' + op.type;
+    var methodName = '_do_' + op.type, self = this;
     if (!(methodName in this))
       throw new Error("Unsupported op: '" + op.type + "'");
-    this[methodName](op, callback);
+    this._LOG.runOp_begin(op.type);
+    this[methodName](op, function() {
+      self._LOG.runOp_end(op.type);
+      callback.apply(null, arguments);
+    });
   },
 
+  /**
+   * Request access to an IMAP folder to perform a mutation on it.  This
+   * compels the ImapFolderConn in question to acquire an IMAP connection
+   * if it does not already have one.  It will also XXX EVENTUALLY provide
+   * mututal exclusion guarantees that there are no other active requests
+   * in the folder.
+   *
+   * The callback will be invoked with the folder and raw connections once
+   * they are available.  The raw connection will be actively in the folder.
+   *
+   * This will ideally be migrated to whatever mechanism we end up using for
+   * mailjobs.
+   */
+  _accessFolderForMutation: function(folderId, callback) {
+    var storage = this._folderStorages[folderId];
+    // XXX have folder storage be in charge of this / don't violate privacy
+    storage._pendingMutationCount++;
+    if (!storage.folderConn._conn) {
+      storage.folderConn.acquireConn(callback);
+    }
+    else {
+      callback(storage.folderConn);
+    }
+  },
+
+  _doneMutatingFolder: function(folderId, folderConn) {
+    var storage = this._folderStorages[folderId];
+    // XXX have folder storage be in charge of this / don't violate privacy
+    storage._pendingMutationCount--;
+    if (!storage._slices.length && !storage._pendingMutationCount)
+      storage.folderConn.relinquishConn();
+  },
+
+  // NB: this is not final mutation logic; it needs to be more friendly to
+  // ImapFolderConn's.  See _do_modtags which is being cleaned up...
   _do_append: function(op, callback) {
     var rawConn, self = this,
         folderMeta = this._folderInfos[op.folderId].$meta,
@@ -645,15 +687,10 @@ ImapAccount.prototype = {
 
   _do_modtags: function(op, callback) {
     var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
-    var rawConn, self = this,
-        folderMeta = null, messages = null,
+    var folderConn, self = this,
+        folderId = null, messages = null,
         iNextPartition = 0, modsToGo = 0;
 
-    function gotConn(conn) {
-      rawConn = conn;
-      openNextFolder();
-      rawConn.openBox(folderMeta.path, openedBox);
-    }
     function openNextFolder() {
       if (iNextPartition >= partitions.length) {
         done(null);
@@ -661,23 +698,25 @@ ImapAccount.prototype = {
       }
 
       var partition = partitions[iNextPartition++];
-      folderMeta = self._folderInfos[partition.folderId].$meta;
       messages = partition.messages;
-      rawConn.openBox(folderMeta.path, openedBox);
-    }
-    function openedBox(err, box) {
-      if (err) {
-        console.error('failure opening box to modify tags');
-        done('unknown');
-        return;
+      if (partition.folderId !== folderId) {
+        if (folderConn) {
+          self._doneMutatingFolder(folderId, folderConn);
+          folderConn = null;
+        }
+        folderId = partition.folderId;
+        self._accessFolderForMutation(folderId, gotFolderConn);
       }
+    }
+    function gotFolderConn(_folderConn) {
+      folderConn = _folderConn;
       if (op.addTags) {
         modsToGo++;
-        rawConn.addFlags(messages, op.addTags, tagsModded);
+        folderConn._conn.addFlags(messages, op.addTags, tagsModded);
       }
       if (op.removeTags) {
         modsToGo++;
-        rawConn.removeFlags(messages, op.removeTags, tagsModded);
+        folderConn._conn.removeFlags(messages, op.removeTags, tagsModded);
       }
     }
     function tagsModded(err) {
@@ -690,14 +729,13 @@ ImapAccount.prototype = {
         openNextFolder();
     }
     function done(errString) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(folderMeta.id, rawConn);
-        rawConn = null;
+      if (folderConn) {
+        self._doneMutatingFolder(folderId, folderConn);
+        folderConn = null;
       }
       callback(errString);
     }
-
-    this.__folderDemandsConnection(':modtags', gotConn);
+    openNextFolder();
   },
 };
 
@@ -721,16 +759,21 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       createConnection: {},
       reuseConnection: {},
+      releaseConnection: {},
     },
     TEST_ONLY_events: {
       createFolder: { path: false },
       deleteFolder: { path: false },
 
       createConnection: { folderId: false },
-      reuseConnection: {},
+      reuseConnection: { folderId: false },
+      releaseConnection: { folderId: false },
     },
     errors: {
       folderAlreadyHasConn: { folderId: false },
+    },
+    asyncJobs: {
+      runOp: { type: false },
     },
   },
 });

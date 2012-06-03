@@ -179,12 +179,7 @@ function MailHeader(slice, wireRep) {
   this.author = wireRep.author;
 
   this.date = new Date(wireRep.date);
-  this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
-  this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
-  this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
-  this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
-  this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
-  this.tags = filterOutBuiltinFlags(wireRep.flags);
+  this.__update(wireRep);
   this.hasAttachments = wireRep.hasAttachments;
 
   this.subject = wireRep.subject;
@@ -206,6 +201,15 @@ MailHeader.prototype = {
       type: 'MailHeader',
       id: this.id
     };
+  },
+
+  __update: function(wireRep) {
+    this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
+    this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
+    this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
+    this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
+    this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
+    this.tags = filterOutBuiltinFlags(wireRep.flags);
   },
 
   /**
@@ -456,6 +460,7 @@ function BridgedViewSlice(api, ns, handle) {
   this.atBottom = false;
 
   this.onadd = null;
+  this.onchange = null;
   this.onsplice = null;
   this.onremove = null;
   this.oncomplete = null;
@@ -512,6 +517,25 @@ FoldersViewSlice.prototype = {
         return folder;
     }
     return null;
+  },
+};
+
+function HeadersViewSlice(api, handle) {
+  BridgedViewSlice.call(this, api, 'headers', handle);
+}
+HeadersViewSlice.prototype = {
+  __proto__: BridgedViewSlice.prototype,
+
+  /**
+   * Request a re-sync of the time interval covering the effective/visible time
+   * range.  If the most recently displayed message is the most recent message
+   * known to us, then the date range will cover through "now".
+   */
+  refresh: function() {
+    this._api.__bridgeSend({
+        type: 'refreshHeaders',
+        handle: this._handle,
+      });
   },
 };
 
@@ -711,15 +735,13 @@ MailAPI.prototype = {
 
   _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
     var slice = this._slices[msg.handle];
-    console.log('slice splice for handle', msg.handle, 'w/ns:', slice._ns,
-                'deleted', msg.howMany, 'added', msg.addItems.length);
     if (!slice) {
       unexpectedBridgeDataError('Received message about a nonexistent slice:',
                                 msg.handle);
       return;
     }
 
-    var addItems = msg.addItems, transformedItems = [], i;
+    var addItems = msg.addItems, transformedItems = [], i, stopIndex;
     switch (slice._ns) {
       case 'accounts':
         for (i = 0; i < addItems.length; i++) {
@@ -750,6 +772,7 @@ MailAPI.prototype = {
         break;
     }
 
+    // - generate slice 'onsplice' notification
     if (slice.onsplice) {
       console.log('  onsplice exists!');
       try {
@@ -762,9 +785,41 @@ MailAPI.prototype = {
       }
       console.log('  onsplice call completed!');
     }
+    // - generate item 'onremove' notifications
+    if (msg.howMany) {
+      try {
+        stopIndex = msg.index + msg.howMany;
+        for (i = msg.index; i < stopIndex; i++) {
+          var item = slice.items[i];
+          if (slice.onremove)
+            slice.onremove(item, i);
+          if (item.onremove)
+            item.onremove(item, i);
+        }
+      }
+      catch (ex) {
+        reportClientCodeError('onremove notification error', ex,
+                              '\n', ex.stack);
+      }
+    }
+    // - perform actual splice
     slice.items.splice.apply(slice.items,
                              [msg.index, msg.howMany].concat(transformedItems));
+    // - generate item 'onadd' notifications
+    if (slice.onadd) {
+      try {
+        stopIndex = msg.index + transformedItems.length;
+        for (i = msg.index; i < stopIndex; i++) {
+          slice.onadd(slice.items[i], i);
+        }
+      }
+      catch (ex) {
+        reportClientCodeError('onadd notification error', ex,
+                              '\n', ex.stack);
+      }
+    }
 
+    // - generate 'oncomplete' notification
     if (slice.oncomplete && !msg.moreExpected) {
       try {
         slice.oncomplete();
@@ -774,6 +829,32 @@ MailAPI.prototype = {
                               '\n', ex.stack);
       }
       slice.oncomplete = null;
+    }
+  },
+
+  _recv_sliceUpdate: function ma__recv_sliceUpdate(msg) {
+    var slice = this._slices[msg.handle];
+    if (!slice) {
+      unexpectedBridgeDataError('Received message about a nonexistent slice:',
+                                msg.handle);
+      return;
+    }
+
+    var updates = msg.updates;
+    try {
+      for (var i = 0; i < updates.length; i += 2) {
+        var idx = updates[i], wireRep = updates[i + 1],
+            itemObj = slice.items[idx];
+        itemObj.__update(wireRep);
+        if (slice.onchange)
+          slice.onchange(itemObj, idx);
+        if (itemObj.onchange)
+          itemObj.onchange(itemObj, idx);
+      }
+    }
+    catch (ex) {
+      reportClientCodeError('onchange notification error', ex,
+                            '\n', ex.stack);
     }
   },
 
@@ -974,7 +1055,7 @@ MailAPI.prototype = {
    */
   viewFolderMessages: function ma_viewFolderMessages(folder) {
     var handle = this._nextHandle++,
-        slice = new BridgedViewSlice(this, 'headers', handle);
+        slice = new HeadersViewSlice(this, handle);
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -1035,8 +1116,8 @@ MailAPI.prototype = {
                            beStarred ? 'star' : 'unstar');
   },
 
-  modifyMessagesTags: function ma_modifyMessageTags(messages, addTags,
-                                                    removeTags, _opcode) {
+  modifyMessageTags: function ma_modifyMessageTags(messages, addTags,
+                                                   removeTags, _opcode) {
     // We allocate a handle that provides a temporary name for our undoable
     // operation until we hear back from the other side about it.
     var handle = this._nextHandle++;

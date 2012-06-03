@@ -6,6 +6,7 @@ var $log = require('rdcommon/log'),
     $imapacct = require('rdimap/imapclient/imapacct'),
     $fakeacct = require('rdimap/imapclient/fakeacct'),
     $imapslice = require('rdimap/imapclient/imapslice'),
+    $imaputil = require('rdimap/imapclient/util'),
     $imapjs = require('imap');
 
 
@@ -15,6 +16,12 @@ var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self._eTestAccount = self.T.actor('ImapAccount', self.__name, null, self);
     self._bridgeLog = null;
+
+    // Pick a 'now' for the purposes of our testing that does not change
+    // throughout the test.  We really don't want to break because midnight
+    // happened during the test run.
+    self._useDate = new Date();
+    self._useDate.setHours(12, 0, 0, 0);
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
@@ -95,10 +102,8 @@ var TestImapAccountMixins = {
    */
   do_createTestFolder: function(folderName, messageSetDef) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderName),
-        useDate = new Date();
+        testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    useDate.setHours(12, 0, 0, 0);
 
     testFolder.id = null;
     testFolder.mailFolder = null;
@@ -109,6 +114,8 @@ var TestImapAccountMixins = {
         return;
       self.RT.reportActiveActorThisStep(self._eTestAccount);
       self.RT.reportActiveActorThisStep(self);
+      self._eTestAccount.expect_reuseConnection();
+      self._eTestAccount.expect_releaseConnection();
       self._eTestAccount.expect_deleteFolder();
       self.expect_deletionNotified(1);
 
@@ -123,6 +130,8 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
+      self._eTestAccount.expect_reuseConnection();
+      self._eTestAccount.expect_releaseConnection();
       self._eTestAccount.expect_createFolder();
       self.expect_creationNotified(1);
 
@@ -146,24 +155,49 @@ var TestImapAccountMixins = {
         messageSetDef.count === 0)
       return testFolder;
 
-    this.T.convenienceSetup(this, 'populate test folder', testFolder,function(){
-      var generator = new $fakeacct.MessageGenerator(useDate, 'body');
+    this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
+                                     messageSetDef);
+
+    return testFolder;
+  },
+
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
+    var self = this;
+    this.T.convenienceSetup(this, desc, testFolder,function(){
+      var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
       self.expect_appendNotified();
-      var messageBodies = testFolder.messages =
-        generator.makeMessages(messageSetDef);
+      var messageBodies = generator.makeMessages(messageSetDef);
+      // no messages in there yet, just use the list as-is
+      if (!testFolder.messages) {
+        testFolder.messages = messageBodies;
+      }
+      // messages already in there, need to insert them appropriately
+      else {
+        for (var i = 0; i < messageBodies.length; i++) {
+          var idx = $imaputil.bsearchForInsert(
+            testFolder.messages, messageBodies[i],
+            function (a, b) {
+              // we only compare based on date because we require distinct dates
+              // for this ordering, but we could track insertion sequence
+              // which would correlate with UID and then be viable...
+              return b.date - a.date;
+            });
+          testFolder.messages.splice(idx, 0, messageBodies[i]);
+        }
+      }
       MailUniverse.appendMessages(testFolder.id, messageBodies);
       MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
         self._logger.appendNotified();
       });
     }).timeoutMS = 400 * messageSetDef.count; // appending can take a bit.
-
-    return testFolder;
   },
 
   /**
-   * Add messages to an existing
+   * Add messages to an existing test folder.
    */
   do_addMessagesToFolder: function(testFolder, messageSetDef) {
+    this._do_addMessagesToTestFolder(testFolder, 'add messages to',
+                                     messageSetDef);
   },
 
 
@@ -183,14 +217,14 @@ var TestImapAccountMixins = {
       slice.oncomplete = function() {
         manipFunc(slice);
         slice.die();
-      };
-      // Only wait on the operations completing after we are sure the bridge
-      // has heard about them.
-      Mail.ping(function() {
-        MailUniverse.waitForAccountOpts(MailUniverse.accounts[0], function() {
-          self._logger.manipulationNotified();
+        // Only wait on the operations completing after we are sure the bridge
+        // has heard about them.
+        MailAPI.ping(function() {
+          MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+            self._logger.manipulationNotified();
+          });
         });
-      });
+      };
     });
   },
 
@@ -200,7 +234,7 @@ var TestImapAccountMixins = {
       self.expect_manipulationNotified();
       manipFunc(viewThing.slice);
       MailAPI.ping(function() {
-        MailUniverse.waitForAccountOpts(MailUniverse.accounts[0], function() {
+        MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
           self._logger.manipulationNotified();
         });
       });
@@ -219,6 +253,25 @@ var TestImapAccountMixins = {
       });
   },
 
+  _expect_dateSyncs: function(testFolder, expectedValues) {
+    this.RT.reportActiveActorThisStep(testFolder.connActor);
+    if (!Array.isArray(expectedValues))
+      expectedValues = [expectedValues];
+
+    var totalMessageCount = 0;
+    for (var i = 0; i < expectedValues.length; i++) {
+      var einfo = expectedValues[i];
+      totalMessageCount += einfo.count;
+      if (MailUniverse.online) {
+        testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+        testFolder.connActor.expect_syncDateRange_end(
+          einfo.full, einfo.flags, einfo.deleted);
+      }
+    }
+
+    return totalMessageCount;
+  },
+
   /**
    * Perform a one-shot viewing of the contents of the folder to see that we
    * get back the right thing.  Use do_openFolderView if you want to open it
@@ -228,44 +281,88 @@ var TestImapAccountMixins = {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
-      self.expect_messagesReported(expectedValues.count);
-      if (MailUniverse.online) {
-        testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-        testFolder.connActor.expect_syncDateRange_end(
-          expectedValues.full, expectedValues.flags, expectedValues.deleted);
-      }
-      if (expectedValues.count) {
+      // generate expectations for each date sync range
+      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
+      // Generate overall count expectation and first and last message
+      // expectations by subject.
+      self.expect_messagesReported(totalExpected);
+      if (totalExpected) {
         self.expect_messageSubject(
           0, testFolder.messages[0].headerInfo.subject);
         self.expect_messageSubject(
-          expectedValues.count - 1,
-          testFolder.messages[expectedValues.count - 1].headerInfo.subject);
+          totalExpected - 1,
+          testFolder.messages[totalExpected - 1].headerInfo.subject);
       }
 
       var slice = MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
-        if (expectedValues.count) {
+        if (totalExpected) {
           self._logger.messageSubject(0, slice.items[0].subject);
           self._logger.messageSubject(
-            expectedValues.count - 1,
-            slice.items[expectedValues.count - 1].subject);
+            totalExpected - 1, slice.items[totalExpected - 1].subject);
         }
-        if (_saveToThing)
+        if (_saveToThing) {
           _saveToThing.slice = slice;
-        else
+        }
+        else {
           slice.die();
+        }
       };
     });
   },
 
   do_openFolderView: function(viewName, testFolder, expectedValues) {
     var viewThing = this.T.thing('folderView', viewName);
+    viewThing.testFolder = testFolder;
     viewThing.slice = null;
     this.do_viewFolder('opens', testFolder, expectedValues, viewThing);
+    return viewThing;
   },
 
-  do_refreshFolderView: function(viewThing, expectedValues, checkHelper) {
+  _expect_headerChanges: function(expected, changeMap) {
+    var i, deletionRep = {}, changeRep = {};
+    for (i = 0; i < expected.deletions.length; i++) {
+      deletionRep[expected.deletions[i].subject] = true;
+    }
+    for (i = 0; i < expected.changes.length; i++) {
+      // We're not actually logging what attributes changed here; we verify
+      // correctness with an assertion check that logs an error on mis-match.
+      changeRep[expected.changes[i][0].subject] = true;
+      changeMap[expected.changes[i][0].subject] =
+        { field: expected.changes[i][1], value: expected.changes[i][2] };
+    }
+    this.expect_changesReported(changeRep, deletionRep);
+  },
+
+  do_refreshFolderView: function(viewThing, expectedValues, checkExpected) {
+    var self = this;
+    this.T.action(this, 'refreshes', viewThing, function() {
+      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
+                                                 expectedValues);
+      self.expect_messagesReported(totalExpected);
+      var changeMap = {};
+      self._expect_headerChanges(checkExpected, changeMap);
+
+      var changeRep = {}, deletionRep = {};
+      viewThing.slice.onchange = function(item) {
+        changeRep[item.subject] = true;
+        var changeEntry = changeMap[item.subject];
+        if (item[changeEntry.field] !== changeEntry.value)
+          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
+      };
+      viewThing.slice.onremove = function(item) {
+        deletionRep[item.subject] = true;
+      };
+      viewThing.slice.oncomplete = function refreshCompleted() {
+        self._logger.messagesReported(viewThing.slice.items.length);
+        self._logger.changesReported(changeRep, deletionRep);
+
+        viewThing.slice.onchange = null;
+        viewThing.slice.onremove = null;
+      };
+      viewThing.slice.refresh();
+    });
   },
 
   do_closeFolderView: function(viewThing) {
@@ -307,9 +404,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
+
+      changesReported: { changes: true, deletions: true },
     },
     errors: {
       folderCreationError: { err: false },
+      changeMismatch: { field: false, expectedValue: false },
     },
   },
 });

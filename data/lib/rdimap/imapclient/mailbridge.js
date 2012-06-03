@@ -63,10 +63,17 @@ MailBridge.prototype = {
   __receiveMessage: function mb___receiveMessage(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
-      console.warn('Bad message type:', msg.type);
+      this._LOG.badMessageType(msg.type);
       return;
     }
     var rval = this._LOG.cmd(msg.type, this, this[implCmdName], msg);
+  },
+
+  _cmd_ping: function mb__cmd_ping(msg) {
+    this.__sendMessage({
+      type: 'pong',
+      handle: msg.handle,
+    });
   },
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
@@ -167,6 +174,15 @@ MailBridge.prototype = {
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
     account.sliceFolderMessages(msg.folderId, proxy);
+  },
+
+  _cmd_refreshHeaders: function mb__cmd_refreshHeaders(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+    proxy.__listener.refresh();
   },
 
   _cmd_killSlice: function mb__cmd_killSlice(msg) {
@@ -368,7 +384,12 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendUpdate: function sbp_sendUpdate() {
+  sendUpdate: function sbp_sendUpdate(indexUpdatesRun) {
+    this._bridge.__sendMessage({
+      type: 'sliceUpdate',
+      handle: this._handle,
+      updates: indexUpdatesRun,
+    });
   },
 
   sendStatus: function sbp_sendStatus(status, flushSplice) {
@@ -391,6 +412,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     TEST_ONLY_events: {
     },
     errors: {
+      badMessageType: { type: true },
       badSliceHandle: { handle: true },
     },
     calls: {

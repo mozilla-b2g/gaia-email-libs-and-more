@@ -30,6 +30,10 @@ const CHARCODE_RBRACE = ('}').charCodeAt(0),
  */
 var gSendBuf = new Uint8Array(2000);
 
+function singleArgParseInt(x) {
+  return parseInt(x, 10);
+}
+
 /**
  * Parses (UTC) IMAP dates into UTC timestamps. IMAP dates are DD-Mon-YYYY.
  */
@@ -448,9 +452,9 @@ ImapConnection.prototype.connect = function(loginCb) {
           parseNamespaces(data[2], self.namespaces);
         break;
         case 'SEARCH':
-          self._state.requests[0].args.push(data[2] === undefined
-                                            || data[2].length === 0
-                                            ? [] : data[2].split(' '));
+          self._state.requests[0].args.push(
+            (data[2] === undefined || data[2].length === 0)
+              ? [] : data[2].split(' ').map(singleArgParseInt));
         break;
         case 'LIST':
         case 'XLIST':
@@ -564,7 +568,6 @@ ImapConnection.prototype.connect = function(loginCb) {
 
       var sendBox = false;
       clearTimeout(self._state.tmrKeepalive);
-
       if (self._state.status === STATES.BOXSELECTING) {
         if (data[1] === 'OK') {
           sendBox = true;
@@ -630,14 +633,15 @@ ImapConnection.prototype.connect = function(loginCb) {
             self.capabilities.indexOf('IDLE') > -1) {
           // According to RFC 2177, we should re-IDLE at least every 29
           // minutes to avoid disconnection by the server
-          self._send('IDLE', null, undefined, true);
+          self._send('IDLE', null, undefined, undefined, true);
         }
         self._state.tmrKeepalive = setTimeout(function() {
           if (self._state.isIdle) {
             if (self._state.ext.idle.state === IDLE_READY) {
               self._state.ext.idle.timeWaited += self._state.tmoKeepalive;
               if (self._state.ext.idle.timeWaited >= self._state.ext.idle.MAX_WAIT)
-                self._send('IDLE', null, undefined, true); // restart IDLE
+                // restart IDLE
+                self._send('IDLE', null, undefined, undefined, true);
             } else if (self.capabilities.indexOf('IDLE') === -1)
               self._noop();
           }
@@ -716,10 +720,14 @@ ImapConnection.prototype.openBox = function(name, readOnly, cb) {
       cb = readOnly;
     readOnly = false;
   }
-  this._state.status = STATES.BOXSELECTING;
-  this._state.box.name = name;
+  var self = this;
+  function dispatchFunc() {
+    self._state.status = STATES.BOXSELECTING;
+    self._state.box.name = name;
+  }
 
-  this._send((readOnly ? 'EXAMINE' : 'SELECT'), ' "' + escape(name) + '"', cb);
+  this._send((readOnly ? 'EXAMINE' : 'SELECT'), ' "' + escape(name) + '"', cb,
+             dispatchFunc);
 };
 
 /**
@@ -744,12 +752,15 @@ ImapConnection.prototype.qresyncBox = function(name, readOnly,
       cb = readOnly;
     readOnly = false;
   }
-  this._state.status = STATES.BOXSELECTING;
-  this._state.box.name = name;
+  var self = this;
+  function dispatchFunc() {
+    self._state.status = STATES.BOXSELECTING;
+    self._state.box.name = name;
+  }
 
   this._send((readOnly ? 'EXAMINE' : 'SELECT') + ' "' + escape(name) + '"' +
              ' (QRESYNC (' + uidValidity + ' ' + modSeq +
-             (knownUids ? (' ' + knownUids) : '') + '))', cb);
+             (knownUids ? (' ' + knownUids) : '') + '))', cb, dispatchFunc);
 };
 
 
@@ -1224,7 +1235,12 @@ ImapConnection.prototype._noop = function() {
 // bypass=true means to not push a command.  This is used exclusively for the
 // auto-idle functionality.  IDLE happens automatically when nothing else is
 // going on and automatically refreshes every 29 minutes.
-ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
+//
+// dispatchFunc is a function to invoke when the command is actually dispatched;
+// there was at least a potential state maintenance inconsistency with opening
+// folders prior to this.
+ImapConnection.prototype._send = function(cmdstr, cmddata, cb, dispatchFunc,
+                                          bypass) {
   if (cmdstr !== undefined && !bypass)
     this._state.requests.push(
       {
@@ -1232,6 +1248,7 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
         command: cmdstr,
         cmddata: cmddata,
         callback: cb,
+        dispatch: dispatchFunc,
         args: []
       });
   // If we are currently transitioning to/from idle, then wait around for the
@@ -1244,13 +1261,14 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
   if ((cmdstr === undefined && this._state.requests.length) ||
       this._state.requests.length === 1 || bypass) {
     var prefix = '', cmd = (bypass ? cmdstr : this._state.requests[0].command),
-        data = (bypass ? null : this._state.requests[0].cmddata);
+        data = (bypass ? null : this._state.requests[0].cmddata),
+        dispatch = (bypass ? null : this._state.requests[0].dispatch);
     clearTimeout(this._state.tmrKeepalive);
     // If we are currently in IDLE, we need to exit it before we send the
     // actual command.  We mark it as a bypass so it does't mess with the
     // list of requests.
     if (this._state.ext.idle.state === IDLE_READY && cmd !== 'DONE')
-      return this._send('DONE', null, undefined, true);
+      return this._send('DONE', null, undefined, undefined, true);
     else if (cmd === 'IDLE') {
        // we use a different prefix to differentiate and disregard the tagged
        // response the server will send us when we issue DONE
@@ -1265,6 +1283,9 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
       if (!bypass)
         this._state.requests[0].prefix = prefix;
     }
+
+    if (dispatch)
+      dispatch();
 
     // We want our send to happen in a single packet; nagle is disabled by
     // default and at least on desktop-class machines, we are sending out one
@@ -1308,6 +1329,7 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
     }
 
     if (this._LOG) { if (!bypass) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data); else this._LOG.bypassCmd(prefix, cmd);}
+
   }
 };
 

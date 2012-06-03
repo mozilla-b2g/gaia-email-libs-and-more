@@ -72,7 +72,8 @@ define(
     exports
   ) {
 const allbackMaker = $allback.allbackMaker,
-      bsearchForInsert = $imaputil.bsearchForInsert;
+      bsearchForInsert = $imaputil.bsearchForInsert,
+      bsearchMaybeExists = $imaputil.bsearchMaybeExists;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -144,6 +145,13 @@ function ImapSlice(bridgeHandle, storage, _parentLog) {
 }
 exports.ImapSlice = ImapSlice;
 ImapSlice.prototype = {
+  /**
+   * Force an update of our current date range.
+   */
+  refresh: function() {
+    this._storage.refreshSlice(this);
+  },
+
   reqNoteRanges: function() {
     // XXX implement and contend with the generals problem.  probably just have
     // the other side name the values by id rather than offsets.
@@ -166,6 +174,12 @@ ImapSlice.prototype = {
     this.headers = this.headers.concat(headers);
   },
 
+  /**
+   * Tell the slice about a header it should be interested in.  This should
+   * be unconditionally called by a sync populating this slice, or conditionally
+   * called when the header is in the time-range of interest and a refresh,
+   * cron-triggered sync, or IDLE/push tells us to do so.
+   */
   onHeaderAdded: function(header) {
     if (!this._bridgeHandle)
       return;
@@ -197,27 +211,61 @@ ImapSlice.prototype = {
     this.headers.splice(idx, 0, header);
   },
 
+  /**
+   * Tells the slice that a header it should know about has changed.  (If
+   * this is a search, it's okay for it not to know...)
+   */
   onHeaderModified: function(header) {
     if (!this._bridgeHandle)
       return;
 
     // this can only affect flags which will not affect ordering
-    var idx = bsearchForInsert(this.headers, header,
-                               cmpHeaderYoungToOld);
-    this._LOG.headerModified(idx, header);
-    this._bridgeHandle.sendUpdate([idx, header]);
+    var idx = bsearchMaybeExists(this.headers, header,
+                                 cmpHeaderYoungToOld);
+    if (idx !== null) {
+      this._LOG.headerModified(idx, header);
+      this._bridgeHandle.sendUpdate([idx, header]);
+    }
   },
 
+  /**
+   * Tells the slice that a header it should know about has been removed.
+   */
   onHeaderRemoved: function(header) {
     if (!this._bridgeHandle)
       return;
 
-    var idx = bsearchForInsert(this.headers, header,
-                               cmpHeaderYoungToOld);
-    this._LOG.headerRemoved(idx, header);
-    this._bridgeHandle.sendSplice(idx, 1, [],
-                                  this.waitingOnData, this.waitingOnData);
-    this.headers.splice(idx, 1);
+    var idx = bsearchMaybeExists(this.headers, header,
+                                 cmpHeaderYoungToOld);
+    if (idx !== null) {
+      this._LOG.headerRemoved(idx, header);
+      this._bridgeHandle.sendSplice(idx, 1, [],
+                                    this.waitingOnData, this.waitingOnData);
+      this.headers.splice(idx, 1);
+
+      // update time-ranges if required...
+      if (header.date === this.endTS && header.id === this.endUID) {
+        if (!this.headers.length) {
+          this.endTS = null;
+          this.endUID = null;
+        }
+        else {
+          this.endTS = this.headers[0].date;
+          this.endUID = this.headers[0].id;
+        }
+      }
+      if (header.date === this.startTS && header.id === this.startUID) {
+        if (!this.headers.length) {
+          this.startTS = null;
+          this.startUID = null;
+        }
+        else {
+          var lastHeader = this.headers[this.headers.length - 1];
+          this.startTS = lastHeader.date;
+          this.startUID = lastHeader.id;
+        }
+      }
+    }
   },
 
   die: function() {
@@ -467,6 +515,10 @@ const FLAG_FETCH_PARAMS = {
  * way for us to surrender our connection or indicate to the account that we
  * are capable of surrending the connection.  That might be a good idea, though.
  *
+ * All accesses to a folder's connection should be done through an
+ * `ImapFolderConn`, even if the actual mutation logic is being driven by code
+ * living in the account.
+ *
  * == IDLE
  *
  * We plan to IDLE in folders that we have active slices in.  We are assuming
@@ -489,6 +541,37 @@ function ImapFolderConn(account, storage, _parentLog) {
   this.box = null;
 }
 ImapFolderConn.prototype = {
+  /**
+   * Acquire a connection and invoke the callback once we have it and we have
+   * entered the folder.
+   *
+   * XXX This is inherently dangerous in the face of concurrent attempts to
+   * call this method or check whether it has completed.  We need to move to
+   * our queue of operations on the folder, or ensure that a higher level layer
+   * is enforcing this.  To be done with proper mutation logic impl.
+   */
+  acquireConn: function(callback) {
+    var self = this;
+    this._account.__folderDemandsConnection(
+      this._storage.folderId,
+      function(conn) {
+        self._conn = conn;
+        // Now we have a connection, but it's not in the folder.
+        // (If we were doing fancier sync like QRESYNC, we would not enter
+        // in such a blase fashion.)
+        self._conn.openBox(self._storage.folderMeta.path,
+                           function openedBox(err, box) {
+            if (err) {
+              console.error('Problem entering folder',
+                            self._storage.folderMeta.path);
+              return;
+            }
+            self.box = box;
+            callback(self);
+          });
+      });
+  },
+
   relinquishConn: function() {
     if (!this._conn)
       return;
@@ -510,24 +593,7 @@ ImapFolderConn.prototype = {
   _reliaSearch: function(searchOptions, callback) {
     // If we don't have a connection, get one, then re-call.
     if (!this._conn) {
-      var self = this;
-      this._account.__folderDemandsConnection(
-        this._storage.folderId,
-        function(conn) {
-          self._conn = conn;
-          // Now we have a connection, but it's not in the folder.
-          // (If we were doing fancier sync like QRESYNC, we would not enter
-          // in such a blase fashion.)
-          self._conn.openBox(self._storage.folderMeta.path, function(err, box) {
-              if (err) {
-                console.error('Problem entering folder',
-                              self._storage.folderMeta.path);
-                return;
-              }
-              self.box = box;
-              self._reliaSearch(searchOptions, callback);
-            });
-        });
+      this.acquireConn(this._reliaSearch.bind(this, searchOptions, callback));
       return;
     }
 
@@ -1048,6 +1114,18 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._deferredCalls = [];
 
+  /**
+   * The number of pending mutation requests on the folder; currently because
+   * of how mutation operations are scheduled, this will either be 0 or 1.
+   * This will probably still remain true in the future, but we will adopt a
+   * connection reclaimation strategy so we don't keep jumping into and out of
+   * the same folder.
+   */
+  this._pendingMutationCount = 0;
+
+  /**
+   * Active view slices on this folder.
+   */
   this._slices = [];
   /**
    * The slice that is driving our current synchronization and wants to hear
@@ -1781,11 +1859,29 @@ ImapFolderStorage.prototype = {
                                   this.onSyncCompleted.bind(this));
   },
 
+  refreshSlice: function ifs_refreshSlice(slice) {
+    var startTS = slice.startTS, endTS = slice.endTS;
+    // If the endTS lines up with the most recent know message for the folder,
+    // then adjust the timestamp to line up with 'now' so that new messages
+    // show up too.
+    if (this._headerBlockInfos.length &&
+        endTS === this._headerBlockInfos[0].endTS &&
+        slice.endUID === this._headerBlockInfos[0].endUID) {
+      endTS = TIME_WARPED_NOW || Date.now();
+    }
+    // XXX use mutex scheduling to avoid this possibly happening...
+    if (this._curSyncSlice)
+      throw new Error("Can't refresh a slice when there is an existing sync");
+    this.folderConn.syncDateRange(startTS, endTS, true, function() {
+      slice.setStatus('synced');
+    });
+  },
+
   dyingSlice: function ifs_dyingSlice(slice) {
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
 
-    if (this._slices.length === 0)
+    if (this._slices.length === 0 && this._pendingMutationCount === 0)
       this.folderConn.relinquishConn();
   },
 
@@ -2081,12 +2177,28 @@ ImapFolderStorage.prototype = {
 
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderAdded(header);
+    if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
+      for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
+        var slice = this._slices[iSlice];
+        if (slice === this._curSyncSlice)
+          continue;
+        if (BEFORE(header.date, slice.startTS) ||
+            STRICTLY_AFTER(header.date, slice.endTS))
+          continue;
+        if ((header.date === slice.startTS &&
+             header.id < slice.startUID) ||
+            (header.date === slice.endTS &&
+             header.id > slice.endUID))
+          continue;
+        slice.onHeaderModified(header);
+      }
+    }
 
     // NB: This is potentially overkill since we probably will try and avoid
     // evicting header blocks while the headers are in use, but let's wait
     // before we go declaring/assuming that invariant.
-    var infoTuple = this._findRangeObjIndexForDateAndUID(this._headerBlockInfos,
-                                                         date, uid),
+    var infoTuple = this._findRangeObjIndexForDateAndUID(
+                      this._headerBlockInfos, header.date, header.id),
         iInfo = infoTuple[0], info = infoTuple[1], self = this;
     function doUpdateHeader(block) {
       var idx = block.uids.indexOf(header.id);
@@ -2120,6 +2232,22 @@ ImapFolderStorage.prototype = {
 
     if (this._curSyncSlice)
       this._curSyncSlice.onHeaderRemoved(header);
+    if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
+      for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
+        var slice = this._slices[iSlice];
+        if (slice === this._curSyncSlice)
+          continue;
+        if (BEFORE(header.date, slice.startTS) ||
+            STRICTLY_AFTER(header.date, slice.endTS))
+          continue;
+        if ((header.date === slice.startTS &&
+             header.id < slice.startUID) ||
+            (header.date === slice.endTS &&
+             header.id > slice.endUID))
+          continue;
+        slice.onHeaderRemoved(header);
+      }
+    }
 
     this._deleteFromBlock('header', header.date, header.id, null);
   },
