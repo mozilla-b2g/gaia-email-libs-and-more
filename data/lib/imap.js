@@ -14,11 +14,14 @@ var emptyFn = function() {}, CRLF = '\r\n',
     }, BOX_ATTRIBS = ['NOINFERIORS', 'NOSELECT', 'MARKED', 'UNMARKED'],
     MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
               'Oct', 'Nov', 'Dec'],
-    reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}\r\n/,
+    reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}$/,
     reDate = /^(\d{2})-(.{3})-(\d{4})$/,
     reDateTime = /^(\d{2})-(.{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-]\d{4})$/,
     HOUR_MILLIS = 60 * 60 * 1000, MINUTE_MILLIS = 60 * 1000;
 
+const CHARCODE_RBRACE = ('}').charCodeAt(0),
+      CHARCODE_ASTERISK = ('*').charCodeAt(0),
+      CHARCODE_RPAREN = (')').charCodeAt(0);
 
 /**
  * Parses (UTC) IMAP dates into UTC timestamps. IMAP dates are DD-Mon-YYYY.
@@ -213,16 +216,20 @@ ImapConnection.prototype.connect = function(loginCb) {
    */
   function processData(data) {
     if (data.length === 0) return;
-    var trailingCRLF = false, literalInfo;
+    var idxCRLF = null, literalInfo;
 
+    // - Accumulate data until newlines when not in a literal
     if (self._state.curExpected === 0) {
-      if (bufferIndexOf(data, CRLF) === -1) {
+      // no newline, append and bail
+      if ((idxCRLF = bufferIndexOfCRLF(data, 0)) === -1) {
         if (self._state.curData)
           self._state.curData = bufferAppend(self._state.curData, data);
         else
           self._state.curData = data;
         return;
       }
+      // yes newline, use the buffered up data and new data
+      // (note: data may now contain more than one line's worth of data!)
       if (self._state.curData && self._state.curData.length) {
         data = bufferAppend(self._state.curData, data);
         self._state.curData = null;
@@ -231,10 +238,8 @@ ImapConnection.prototype.connect = function(loginCb) {
 
     // -- Literal
     // Don't mess with incoming data if it's part of a literal
-    var strdata;
     if (self._state.curExpected > 0) {
       var curReq = self._state.requests[0];
-
       if (!curReq._done) {
         var chunk = data;
         self._state.curXferred += data.length;
@@ -260,11 +265,12 @@ ImapConnection.prototype.connect = function(loginCb) {
             curReq._msg.emit('data', chunk);
         }
       }
+
       if (curReq._done) {
         var restDesc;
         if (curReq._done === 1) {
           if (curReq._msgtype === 'headers')
-            curReq._headers = self._state.curData.toString();
+            curReq._headers = self._state.curData.toString('ascii');
           self._state.curData = null;
           curReq._done = true;
         }
@@ -274,83 +280,83 @@ ImapConnection.prototype.connect = function(loginCb) {
         else
           self._state.curData = data;
 
-        if ((restDesc = self._state.curData.toString().match(/^(.*?)\)\r\n/))) {
-          if (restDesc[1]) {
-            restDesc[1] = restDesc[1].trim();
-            if (restDesc[1].length)
-              restDesc[1] = ' ' + restDesc[1];
-          } else
-            restDesc[1] = '';
-          parseFetch(curReq._desc + restDesc[1], curReq._headers, curReq._msg);
-          data = self._state.curData.slice(bufferIndexOf(self._state.curData, CRLF)
-                                           + 2);
+        idxCRLF = bufferIndexOfCRLF(self._state.curData);
+        if (idxCRLF && self._state.curData[idxCRLF - 1] === CHARCODE_RPAREN) {
+          if (idxCRLF > 1) {
+            // eat up to, but not including, the right paren
+            restDesc = self._state.curData.toString('ascii', 0, idxCRLF - 1)
+                         .trim();
+            if (restDesc.length)
+              curReq._desc += ' ' + restDesc;
+          }
+          parseFetch(curReq._desc, curReq._headers, curReq._msg);
+          data = self._state.curData.slice(idxCRLF + 2);
           curReq._done = false;
           self._state.curXferred = 0;
           self._state.curExpected = 0;
           self._state.curData = null;
           curReq._msg.emit('end');
-          if (data.length && data[0] === 42/* '*' */) {
+          // XXX we could just change the next else to not be an else, and then
+          // this conditional is not required and we can just fall out.  (The
+          // expected check === 0 may need to be reinstated, however.)
+          if (data.length && data[0] === CHARCODE_ASTERISK) {
             processData(data);
             return;
           }
-        } else
+        } else // ??? no right-paren, keep accumulating data? this seems wrong.
           return;
-      } else
+      } else // not done, keep accumulating data
         return;
+    }
     // -- Fetch w/literal
-    // (More specifically, we were not in a literal, and we got a line that
-    // is a fetch result that starts a literal run.)
-    } else if (self._state.curExpected === 0
-               && (literalInfo = (strdata = data.toString()).match(reFetch))) {
-      self._state.curExpected = parseInt(literalInfo[2], 10);
-      var idxCRLF = strdata.indexOf(CRLF),
-          curReq = self._state.requests[0],
-          usedata = strdata.substring(0, idxCRLF),
-          type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(usedata),
-          msg = new ImapMessage(),
-          desc = strdata.substring(bufferIndexOf(data, '(')+1, idxCRLF).trim();
-      msg.seqno = parseInt(literalInfo[1], 10);
-      type = type[1];
-      curReq._desc = desc;
-      curReq._msg = msg;
-      curReq._fetcher.emit('message', msg);
-      curReq._msgtype = (type.indexOf('HEADER') === 0 ? 'headers' : 'body');
-      // This library buffers headers, so allocate a buffer to hold the literal.
-      if (curReq._msgtype === 'headers') {
-        self._state.curData = new Buffer(self._state.curExpected);
-        curReq.curPos = 0;
+    // (More specifically, we were not in a literal, let's see if this line is
+    // a fetch result line that starts a literal.  We want to minimize
+    // conversion to a string, as there used to be a naive conversion here that
+    // chewed up a lot of processor by converting all of data rather than
+    // just the current line.)
+    else if (data[0] === CHARCODE_ASTERISK) {
+      var strdata;
+      idxCRLF = bufferIndexOfCRLF(data, 0);
+      if (data[idxCRLF - 1] === CHARCODE_RBRACE &&
+          (literalInfo =
+             (strdata = data.toString('ascii', 0, idxCRLF)).match(reFetch))) {
+        self._state.curExpected = parseInt(literalInfo[2], 10);
+
+        var curReq = self._state.requests[0],
+            type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(strdata),
+            msg = new ImapMessage(),
+            desc = strdata.substring(strdata.indexOf('(')+1).trim();
+        msg.seqno = parseInt(literalInfo[1], 10);
+        type = type[1];
+        curReq._desc = desc;
+        curReq._msg = msg;
+
+        curReq._fetcher.emit('message', msg);
+
+        curReq._msgtype = (type.indexOf('HEADER') === 0 ? 'headers' : 'body');
+        // This library buffers headers, so allocate a buffer to hold the literal.
+        if (curReq._msgtype === 'headers') {
+          self._state.curData = new Buffer(self._state.curExpected);
+          curReq.curPos = 0;
+        }
+        if (self._LOG) self._LOG.data(strdata.length, strdata);
+        // (If it's not headers, then it's body, and we generate 'data' events.)
+        processData(data.slice(idxCRLF + 2));
+        return;
       }
-      if (self._LOG) self._LOG.data(usedata.length, usedata);
-      // (If it's not headers, then it's body, and we generate 'data' events.)
-      processData(data.slice(idxCRLF + 2));
-      return;
     }
 
     if (data.length === 0)
       return;
-    var endsInCRLF = (data[data.length-2] === 13 && data[data.length-1] === 10);
-    data = bufferSplit(data, CRLF);
-
+    data = customBufferSplitCRLF(data);
     // Defer any extra server responses found in the incoming data
-    if (data.length > 1) {
-      for (var i=1,len=data.length; i<len; ++i) {
-        (function(line, isLast) {
-          process.nextTick(function() {
-            var needsCRLF = !isLast || (isLast && endsInCRLF),
-                b = new Buffer(needsCRLF ? line.length + 2 : line.length);
-            line.copy(b, 0, 0);
-            if (needsCRLF) {
-              b[b.length-2] = 13;
-              b[b.length-1] = 10;
-            }
-            processData(b);
-          });
-        })(data[i], i === len-1);
-      }
+    for (var i=1,len=data.length; i<len; ++i) {
+      process.nextTick(processData.bind(null, data[i]));
     }
 
-    if (self._LOG) self._LOG.data(data[0].length, data[0]);
-    data = stringExplode(data[0].toString(), ' ', 3);
+    data = data[0].toString('ascii');
+    if (self._LOG) self._LOG.data(data.length, data);
+    data = stringExplode(data, ' ', 3);
 
     // -- Untagged server responses
     if (data[0] === '*') {
@@ -1206,7 +1212,6 @@ ImapConnection.prototype._noop = function() {
 // auto-idle functionality.  IDLE happens automatically when nothing else is
 // going on and automatically refreshes every 29 minutes.
 ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
-console.warn('SEND', cmdstr, bypass, cmddata);
   if (cmdstr !== undefined && !bypass)
     this._state.requests.push(
       {
@@ -1912,55 +1917,51 @@ function bufferAppend(buf1, buf2) {
   return newBuf;
 };
 
-function bufferSplit(buf, str) {
-  if ((typeof str !== 'string' && !Array.isArray(str))
-      || str.length === 0 || str.length > buf.length)
-    return [buf];
-  var search = !Array.isArray(str)
-                ? str.split('').map(function(el) { return el.charCodeAt(0); })
-                : str,
-      searchLen = search.length,
-      ret = [], pos, start = 0;
-
-  while ((pos = bufferIndexOf(buf, search, start)) > -1) {
-    ret.push(buf.slice(start, pos));
-    start = pos + searchLen;
-  }
-  if (!ret.length)
-    ret = [buf];
-  else if (start < buf.length)
-    ret.push(buf.slice(start));
-
-  return ret;
-};
-
-function bufferIndexOf(buf, str, start) {
-  if (str.length > buf.length)
-    return -1;
-  var search = !Array.isArray(str)
-                ? str.split('').map(function(el) { return el.charCodeAt(0); })
-                : str,
-      searchLen = search.length,
-      ret = -1, i, j, len;
-  for (i=start||0,len=buf.length; i<len; ++i) {
-    if (buf[i] == search[0] && (len-i) >= searchLen) {
-      if (searchLen > 1) {
-        for (j=1; j<searchLen; ++j) {
-          if (buf[i+j] != search[j])
-            break;
-          else if (j == searchLen-1) {
-            ret = i;
-            break;
-          }
-        }
-      } else
-        ret = i;
-      if (ret > -1)
-        break;
+/**
+ * Split the contents of a buffer on CRLF pairs, retaining the CRLF's on all but
+ * the first line. In other words, ret[1] through ret[ret.length-1] will have
+ * CRLF's.  The last entry may or may not have a CRLF.  The last entry will have
+ * a non-zero length.
+ *
+ * This logic is very specialized to its one caller...
+ */
+function customBufferSplitCRLF(buf) {
+  var ret = [];
+  var effLen = buf.length - 1, start = 0;
+  for (var i = 0; i < effLen;) {
+    if (buf[i] === 13 && buf[i + 1] === 10) {
+      // do include the CRLF in the entry if this is not the first one.
+      if (ret.length) {
+        i += 2;
+        ret.push(buf.slice(start, i));
+      }
+      else {
+        ret.push(buf.slice(start, i));
+        i += 2;
+      }
+      start = i;
+    }
+    else {
+      i++;
     }
   }
+  if (!ret.length)
+    ret.push(buf);
+  else if (start < buf.length)
+    ret.push(buf.slice(start, buf.length));
   return ret;
-};
+}
+
+function bufferIndexOfCRLF(buf, start) {
+  // It's a 2 character sequence, pointless to check the last character,
+  // especially since it would introduce additional boundary checks.
+  var effLen = buf.length - 1;
+  for (var i = start || 0; i < effLen; i++) {
+    if (buf[i] === 13 && buf[i + 1] === 10)
+      return i;
+  }
+  return -1;
+}
 
 var LOGFAB = exports.LOGFAB = $log.register(module, {
   ImapProtoConn: {

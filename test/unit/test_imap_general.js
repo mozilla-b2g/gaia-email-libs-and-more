@@ -85,8 +85,25 @@ TD.commonCase('folder sync', function(T) {
   var saturatedFolder = testAccount.createTestFolder(
     'test_saturated_sync',
     { count: 24, age: { days: 0 }, age_incr: { hours: 9 } });
-  T.action('sync folder', function() {
-  });
+  function checkSaturatedSyncFolder() {
+    eSync.expect_namedValue('syncCount', 17);
+    eSync.expect_namedValue('first subject',
+                            saturatedFolder.messages[0].headerInfo.subject);
+    eSync.expect_namedValue('last subject',
+                            saturatedFolder.messages[16].headerInfo.subject);
+
+    var slice = MailAPI.viewFolderMessages(saturatedFolder.mailFolder);
+    slice.oncomplete = function() {
+      eSync.namedValue('syncCount', slice.items.length);
+      eSync.namedValue('first subject', slice.items[0].subject);
+      eSync.namedValue('last subject', slice.items[16].subject);
+      slice.die();
+    };
+  }
+  T.action(eSync, 'sync folder', checkSaturatedSyncFolder);
+  testAccount.do_pretendToBeOffline(true);
+  T.check(eSync, 'check persisted data', checkSaturatedSyncFolder);
+  testAccount.do_pretendToBeOffline(false);
 
   /**
    * Perform a folder sync where we need to search multiple time ranges in order

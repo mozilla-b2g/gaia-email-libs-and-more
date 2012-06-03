@@ -71,7 +71,8 @@ var TestImapAccountMixins = {
         },
         function accountMaybeCreated(error) {
           if (error)
-            do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress);
+            do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
+                     ': ' + error);
 
           var callbacks = $_allback.allbackMaker(
             ['accounts', 'folders'],

@@ -219,10 +219,22 @@ BufferPrototype.toString = function(encoding, start, end) {
   if (+end == start) {
     return '';
   }
-
   if (start === 0 && end === this.length)
     return decode(this, encoding);
-  return decode(new Uint8Array(this.buffer, start, end - start), encoding);
+  else
+    return decode(this.subarray(start, end), encoding);
+  // In case things get slow again, comment the above block and uncomment:
+/*
+var rval, before = Date.now();
+  if (start === 0 && end === this.length)
+    rval = decode(this, encoding);
+  else
+    rval = decode(this.subarray(start, end), encoding);
+  var delta = Date.now() - before;
+  if (delta > 2)
+    console.error('SLOWDECODE', delta, end - start, encoding);
+  return rval;
+*/
 };
 
 BufferPrototype.write  = function(string, offset, length, encoding) {
