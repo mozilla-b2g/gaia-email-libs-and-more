@@ -368,7 +368,8 @@ exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
 
 /**
  * Make a timestamp some number of days in the past, quantized to midnight of
- * that day.  To avoid
+ * that day.  This results in rounding up; if it's noon right now and you
+ * ask for 2 days ago, you really get 2.5 days worth of time.
  */
 function makeDaysAgo(numDays) {
   var now = quantizeDate(TIME_WARPED_NOW || Date.now()),

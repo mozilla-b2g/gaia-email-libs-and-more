@@ -16,7 +16,11 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
 
-// This does not need to match up with the constant our app actually uses.
+// This needs to match up with what the app is currently using right now, but we
+// should probably just clobber the internal constant via a debugging hook if
+// we change it.
+//
+// This really means 7.5 days
 const INITIAL_SYNC_DAYS = 7,
       // This is the number of messages after which the sync logic will
       // declare victory and stop filling.
@@ -81,22 +85,23 @@ TD.commonCase('folder sync', function(T) {
    * messages than we want and there are even more messages beyond.
    */
   T.group('saturated initial interval');
-      // This should provide 17 messages in our 7 day range.
   var saturatedFolder = testAccount.createTestFolder(
     'test_saturated_sync',
-    { count: 24, age: { days: 0 }, age_incr: { hours: 9 } });
+    { count: 21, age: { days: 0 }, age_incr: { hours: 9 } });
   function checkSaturatedSyncFolder() {
-    eSync.expect_namedValue('syncCount', 17);
+    // This should provide 20 messages in our 7.5 day range.
+    const Nexp = 20;
+    eSync.expect_namedValue('syncCount', Nexp);
     eSync.expect_namedValue('first subject',
                             saturatedFolder.messages[0].headerInfo.subject);
     eSync.expect_namedValue('last subject',
-                            saturatedFolder.messages[16].headerInfo.subject);
+                            saturatedFolder.messages[Nexp-1].headerInfo.subject);
 
     var slice = MailAPI.viewFolderMessages(saturatedFolder.mailFolder);
     slice.oncomplete = function() {
       eSync.namedValue('syncCount', slice.items.length);
       eSync.namedValue('first subject', slice.items[0].subject);
-      eSync.namedValue('last subject', slice.items[16].subject);
+      eSync.namedValue('last subject', slice.items[Nexp-1].subject);
       slice.die();
     };
   }
@@ -110,12 +115,30 @@ TD.commonCase('folder sync', function(T) {
    * to gain a sufficient number of messages.
    */
   T.group('initial fetch spans multiple time ranges');
-      // will fetch: 3, 7, 7, 7 = 24
   var msearchFolder = testAccount.createTestFolder(
     'test_multiple_ranges',
-    { count: 30, age: { days: 0 }, age_incr: { days: 2 } });
-  T.action('sync folder', function() {
-  });
+    { count: 19, age: { days: 0 }, age_incr: { days: 2 } });
+  function checkMsearchSyncFolder() {
+    // will fetch: 4, 7, 7 = 18
+    const Nexp = 18;
+    eSync.expect_namedValue('syncCount', Nexp);
+    eSync.expect_namedValue('first subject',
+                            msearchFolder.messages[0].headerInfo.subject);
+    eSync.expect_namedValue('last subject',
+                            msearchFolder.messages[Nexp-1].headerInfo.subject);
+
+    var slice = MailAPI.viewFolderMessages(msearchFolder.mailFolder);
+    slice.oncomplete = function() {
+      eSync.namedValue('syncCount', slice.items.length);
+      eSync.namedValue('first subject', slice.items[0].subject);
+      eSync.namedValue('last subject', slice.items[Nexp-1].subject);
+      slice.die();
+    };
+  }
+  T.action(eSync, 'sync folder', checkMsearchSyncFolder);
+  testAccount.do_pretendToBeOffline(true);
+  T.check(eSync, 'check persisted data', checkMsearchSyncFolder);
+  testAccount.do_pretendToBeOffline(false);
 
   T.group('cleanup');
 });
