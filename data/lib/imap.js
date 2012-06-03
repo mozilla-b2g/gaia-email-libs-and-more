@@ -24,6 +24,13 @@ const CHARCODE_RBRACE = ('}').charCodeAt(0),
       CHARCODE_RPAREN = (')').charCodeAt(0);
 
 /**
+ * A buffer for us to assemble buffers so the back-end doesn't fragment them.
+ * This is safe for MozTCPSocket's buffer usage because the buffer is always
+ * consumed synchronously.  This is not necessarily safe under other semantics.
+ */
+var gSendBuf = new Uint8Array(2000);
+
+/**
  * Parses (UTC) IMAP dates into UTC timestamps. IMAP dates are DD-Mon-YYYY.
  */
 function parseImapDate(dstr) {
@@ -1252,11 +1259,48 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, bypass) {
       if (!bypass)
         this._state.requests[0].prefix = prefix;
     }
-    this._state.conn.send(Buffer(prefix));
-    this._state.conn.send(Buffer(cmd));
-    if (data)
-      this._state.conn.send(typeof(data) === 'string' ? Buffer(data) : data);
-    this._state.conn.send(CRLF_BUFFER);
+
+    // We want our send to happen in a single packet; nagle is disabled by
+    // default and at least on desktop-class machines, we are sending out one
+    // packet per send call.
+    var iWrite = 0, iSrc;
+    for (iSrc = 0; iSrc < prefix.length; iSrc++) {
+      gSendBuf[iWrite++] = prefix.charCodeAt(iSrc);
+    }
+    for (iSrc = 0; iSrc < cmd.length; iSrc++) {
+      gSendBuf[iWrite++] = cmd.charCodeAt(iSrc);
+    }
+    if (data) {
+      // fits in buffer
+      if (data.length < gSendBuf.length - 2) {
+        if (typeof(data) === 'string') {
+          for (iSrc = 0; iSrc < data.length; iSrc++) {
+            gSendBuf[iWrite++] = data.charCodeAt(iSrc);
+          }
+        }
+        else {
+          gSendBuf.set(data, iWrite);
+          iWrite += data.length;
+        }
+      }
+      // does not fit in buffer, just do separate writes...
+      else {
+        this._state.conn.send(gSendBuf.subarray(0, iWrite));
+        if (typeof(data) === 'string')
+          this._state.conn.send(Buffer(data));
+        else
+          this._state.conn.send(data);
+        this._state.conn.send(CRLF_BUFFER);
+        // set to zero to tell ourselves we don't need to send...
+        iWrite = 0;
+      }
+    }
+    if (iWrite) {
+      gSendBuf[iWrite++] = 13;
+      gSendBuf[iWrite++] = 10;
+      this._state.conn.send(gSendBuf.subarray(0, iWrite));
+    }
+
     if (this._LOG) { if (!bypass) this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data); else this._LOG.bypassCmd(prefix, cmd);}
   }
 };
