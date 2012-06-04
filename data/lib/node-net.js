@@ -24,7 +24,7 @@ define(function(require, exports, module) {
 var util = require('util'),
     EventEmitter = require('events').EventEmitter;
 
-function NetSocket(host, port, crypto) {
+function NetSocket(port, host, crypto) {
   this._host = host;
   this._port = port;
   this._actualSock = MozTCPSocket.open(
@@ -64,7 +64,7 @@ NetSocket.prototype._onclose = function(event) {
 
 
 exports.connect = function(port, host) {
-  return new NetSocket(host, port, false);
+  return new NetSocket(port, host, false);
 };
 
 }); // end define

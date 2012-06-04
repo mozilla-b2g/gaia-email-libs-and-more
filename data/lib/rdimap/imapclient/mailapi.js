@@ -774,7 +774,6 @@ MailAPI.prototype = {
 
     // - generate slice 'onsplice' notification
     if (slice.onsplice) {
-      console.log('  onsplice exists!');
       try {
         slice.onsplice(msg.index, msg.howMany, transformedItems,
                        msg.requested, msg.moreExpected);
@@ -783,7 +782,6 @@ MailAPI.prototype = {
         reportClientCodeError('onsplice notification error', ex,
                               '\n', ex.stack);
       }
-      console.log('  onsplice call completed!');
     }
     // - generate item 'onremove' notifications
     if (msg.howMany) {
@@ -870,13 +868,13 @@ MailAPI.prototype = {
     this._pendingRequests[handle] = {
       type: 'getBody',
       suid: header.id,
-      date: header.date,
       callback: callback,
     };
     this.__bridgeSend({
       type: 'getBody',
       handle: handle,
       suid: header.id,
+      date: header.date.valueOf(),
     });
   },
 

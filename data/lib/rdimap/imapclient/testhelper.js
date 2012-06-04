@@ -94,7 +94,7 @@ var TestImapAccountMixins = {
           gAllFoldersSlice = MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
         });
-    });
+    }).timeoutMS = 5000; // there can be slow startups...
   },
 
   /**
@@ -104,6 +104,7 @@ var TestImapAccountMixins = {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
+    testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
 
     testFolder.id = null;
     testFolder.mailFolder = null;
@@ -130,6 +131,7 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
+      self.RT.reportActiveActorThisStep(testFolder.storageActor);
       self._eTestAccount.expect_reuseConnection();
       self._eTestAccount.expect_releaseConnection();
       self._eTestAccount.expect_createFolder();

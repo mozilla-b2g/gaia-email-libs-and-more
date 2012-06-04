@@ -24,7 +24,7 @@ define(
  */
 function ImapProber(credentials, connInfo, _LOG) {
   var opts = {
-    hostname: connInfo.hostname,
+    host: connInfo.hostname,
     port: connInfo.port,
     crypto: connInfo.crypto,
 
@@ -37,6 +37,9 @@ function ImapProber(credentials, connInfo, _LOG) {
   console.log("PROBE:IMAP attempting to connect to", connInfo.hostname);
   this._conn = new $imap.ImapConnection(opts);
   this._conn.connect(this.onConnect.bind(this));
+  // The login callback will get the error, but EventEmitter will freak out if
+  // we don't register a handler for the error, so just do that.
+  this._conn.on('error', function() {});
 
   this.onresult = null;
   this.accountGood = null;

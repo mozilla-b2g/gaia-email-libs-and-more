@@ -647,7 +647,7 @@ ImapFolderConn.prototype = {
           var idxUid = serverUIDs.indexOf(header.id);
           // deleted!
           if (idxUid === -1) {
-            storage.deleteMessageHeader(header);
+            storage.deleteMessageHeaderAndBody(header);
             numDeleted++;
             headers[iMsg] = null;
             continue;
@@ -1043,7 +1043,8 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this.folderMeta = persistedFolderInfo.$meta;
   this._folderImpl = persistedFolderInfo.$impl;
 
-  this._LOG = LOGFAB.ImapFolderStorage(this, _parentLog, [folderId, this.folderMeta.path]);
+  this._LOG = LOGFAB.ImapFolderStorage(
+    this, _parentLog, [folderId, this.folderMeta.path]);
 
   /**
    * @listof[AccuracyRangeInfo]{
@@ -2229,7 +2230,7 @@ ImapFolderStorage.prototype = {
       this._curSyncSlice.onHeaderAdded(header);
   },
 
-  deleteMessageHeader: function(header) {
+  deleteMessageHeaderAndBody: function(header) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.deleteMessageHeader.bind(this, header));
       return;
@@ -2255,6 +2256,7 @@ ImapFolderStorage.prototype = {
     }
 
     this._deleteFromBlock('header', header.date, header.id, null);
+    this._deleteFromBlock('body', header.date, header.id, null);
   },
 
   /**
@@ -2275,17 +2277,26 @@ ImapFolderStorage.prototype = {
     var uid = suid.substring(suid.lastIndexOf('/') + 1),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
                                                        date, uid);
-    if (posInfo[1] === null)
-      throw new Error('Unable to locate owning block for id/date: ' + suid +
-                      ', ' + date);
-    var bodyBlockInfo = posInfo[1];
+    if (posInfo[1] === null) {
+      this._LOG.bodyNotFound();
+      callback(null);
+      return;
+    }
+    var bodyBlockInfo = posInfo[1], self = this;
     if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.blockId))) {
       this._loadBlock('body', bodyBlockInfo.blockId, function(bodyBlock) {
-          callback(bodyBlock[uid]);
+          var bodyInfo = bodyBlock.bodies[uid] || null;
+          if (!bodyInfo)
+            self._LOG.bodyNotFound();
+          callback(bodyInfo);
         });
       return;
     }
-    callback(this._bodyBlocks[bodyBlockInfo.blockId][uid]);
+    var block = this._bodyBlocks[bodyBlockInfo.blockId],
+        bodyInfo = block.bodies[uid] || null;
+    if (!bodyInfo)
+      this._LOG.bodyNotFound();
+    callback(bodyInfo);
   },
 
   /**
@@ -2350,12 +2361,18 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapFolderStorage: {
     type: $log.DATABASE,
     events: {
+      // This was an error but the test results viewer UI is not quite smart
+      // enough to understand the difference between expected errors and
+      // unexpected errors, so this is getting downgraded for now.
+      bodyNotFound: {},
     },
     TEST_ONLY_events: {
     },
     asyncJobs: {
       loadBlock: { type: false, blockId: false },
     },
+    errors: {
+    }
   },
 }); // end LOGFAB
 

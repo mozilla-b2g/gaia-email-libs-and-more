@@ -36,7 +36,7 @@ TD.commonCase('compose message in one shot', function(T) {
       else
         eLazy.event('sent');
     });
-  });
+  }).timeoutMS = 5000;
 });
 
 /**
@@ -48,5 +48,5 @@ TD.commonCase('compose message in one shot', function(T) {
 //});
 
 function run_test() {
-  runMyTests(3);
+  runMyTests(6);
 }

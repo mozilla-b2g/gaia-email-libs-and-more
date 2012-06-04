@@ -171,9 +171,43 @@ TD.commonCase('folder sync', function(T) {
     // the entire date range in question.
     { count: 16, full: 0, flags: 16, deleted: 2 },
     expectedRefreshChanges);
-  testAccount.do_closeFolderView(msearchView);
+
+  T.group('get the message body for an existing message');
+  T.action(eSync, 'request message body from', msearchView, function() {
+    // Pick an index that's not the first one of anything...
+    var index = 5,
+        synMessage = msearchView.testFolder.messages[index];
+    eSync.expect_namedValue(
+      'bodyInfo',
+      {
+        to: synMessage.bodyInfo.to,
+        bodyText: synMessage.bodyInfo.bodyText,
+      });
+
+    var header = msearchView.slice.items[index];
+    header.getBody(function(bodyInfo) {
+      eSync.namedValue(
+        'bodyInfo',
+        bodyInfo && {
+          to: bodyInfo.to,
+          bodyText: bodyInfo.bodyText,
+        });
+    });
+  });
+
+  T.group('fail to get the message body for a deleted message');
+  T.action(eSync, 'request deleted message body from', msearchView,
+           msearchFolder.storageActor, function() {
+    eSync.expect_namedValue('bodyInfo', null);
+    msearchFolder.storageActor.expect_bodyNotFound();
+    var deletedHeader = expectedRefreshChanges.deletions[0];
+    deletedHeader.getBody(function(bodyInfo) {
+      eSync.namedValue('bodyInfo', bodyInfo);
+    });
+  });
 
   T.group('cleanup');
+  testAccount.do_closeFolderView(msearchView);
 });
 
 function run_test() {

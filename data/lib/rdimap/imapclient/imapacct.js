@@ -391,7 +391,7 @@ ImapAccount.prototype = {
   _makeConnection: function(folderId, callback) {
     this._LOG.createConnection(folderId);
     var opts = {
-      hostname: this._connInfo.hostname,
+      host: this._connInfo.hostname,
       port: this._connInfo.port,
       crypto: this._connInfo.crypto,
 

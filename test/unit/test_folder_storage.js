@@ -66,6 +66,12 @@ function makeTestContext() {
           do_check_eq(storage._bodyBlockInfos.indexOf(info),
                       expectedBlockIndex);
           blockInfo = info;
+
+          // Make sure the insertion took.
+          if (block.uids.indexOf(uid) === -1)
+            do_throw('UID was not inserted!');
+          if (!block.bodies.hasOwnProperty(uid))
+            do_throw('body was not inserted!');
         });
       return blockInfo;
     },

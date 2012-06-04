@@ -328,6 +328,7 @@ MailBridge.prototype = {
       messageOpts.cc = this._formatAddresses(wireRep.cc);
     if (wireRep.bcc && wireRep.bcc.length)
       messageOpts.bcc = this._formatAddresses(wireRep.bcc);
+console.log("OPTS:", JSON.stringify(messageOpts));
     composer.setMessageOption(messageOpts);
 
     if (wireRep.customHeaders) {

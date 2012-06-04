@@ -426,7 +426,9 @@ MessageGenerator.prototype = {
         date: new Date(headerInfo.date),
         headerInfo: headerInfo,
         bodyInfo: bodyInfo,
-        messageText: data
+        // XXX mailcomposer is tacking newlines onto the end of the message that
+        // we don't want.  Ideally we want to fix mailcomposer...
+        messageText: data.trimRight()
       };
     }
   },

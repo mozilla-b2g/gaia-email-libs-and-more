@@ -172,6 +172,16 @@ var autoconfigByDomain = {
     smtpCrypto: false,
     usernameIsFullEmail: false,
   },
+  'slocalhost': {
+    type: 'imap+smtp',
+    imapHost: 'localhost',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'localhost',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: false,
+  },
   'example.com': {
     type: 'fake',
   },
