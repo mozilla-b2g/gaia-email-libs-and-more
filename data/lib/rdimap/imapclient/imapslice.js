@@ -1862,12 +1862,17 @@ ImapFolderStorage.prototype = {
   refreshSlice: function ifs_refreshSlice(slice) {
     var startTS = slice.startTS, endTS = slice.endTS;
     // If the endTS lines up with the most recent know message for the folder,
-    // then adjust the timestamp to line up with 'now' so that new messages
-    // show up too.
+    // then remove the timestamp constraint so it goes all the way to now.
     if (this._headerBlockInfos.length &&
         endTS === this._headerBlockInfos[0].endTS &&
         slice.endUID === this._headerBlockInfos[0].endUID) {
-      endTS = TIME_WARPED_NOW || Date.now();
+      endTS = TIME_WARPED_NOW || null;
+    }
+    else {
+      // We want the range to include the day; since it's an exclusive range
+      // quantized to midnight, we need to adjust forward a day and then
+      // quantize.
+      endTS = quantizeDate(endTS - DAY_MILLIS);
     }
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)

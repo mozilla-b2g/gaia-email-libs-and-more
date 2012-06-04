@@ -820,7 +820,7 @@ MailAPI.prototype = {
     }
 
     // - generate 'oncomplete' notification
-    if (slice.oncomplete && !msg.moreExpected) {
+    if (slice.oncomplete && msg.requested && !msg.moreExpected) {
       try {
         slice.oncomplete();
       }
