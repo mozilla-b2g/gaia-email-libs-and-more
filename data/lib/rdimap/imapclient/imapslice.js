@@ -405,13 +405,18 @@ const DAY_MILLIS = 24 * 60 * 60 * 1000;
 /**
  * Testing override that when present replaces use of Date.now().
  */
-var TIME_WARPED_NOW = null;
+var TIME_WARPED_NOW = null, FUTURE_TIME_WARPED_NOW = null;
 /**
  * Pretend that 'now' is actually a fixed point in time for the benefit of
  * unit tests using canned message stores.
  */
 exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
+  if (typeof(fakeNow) !== 'number')
+    fakeNow = fakeNow.valueOf();
   TIME_WARPED_NOW = fakeNow;
+  // because of exclusive time comparison ops , we actually want to use the first
+  // day after the TIME_WARPED_NOW...
+  FUTURE_TIME_WARPED_NOW = quantizeDate(fakeNow + DAY_MILLIS);
 };
 
 /**
@@ -420,8 +425,9 @@ exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
  * ask for 2 days ago, you really get 2.5 days worth of time.
  */
 function makeDaysAgo(numDays) {
-  var now = quantizeDate(TIME_WARPED_NOW || Date.now()),
-      past = now - numDays * DAY_MILLIS;
+  var //now = quantizeDate(TIME_WARPED_NOW || Date.now()),
+      //past = now - numDays * DAY_MILLIS;
+      past = FUTURE_TIME_WARPED_NOW - (numDays + 1) * DAY_MILLIS;
   return past;
 }
 function makeDaysBefore(date, numDaysBefore) {
@@ -1817,7 +1823,7 @@ ImapFolderStorage.prototype = {
     // -- Check if we have sufficiently useful data on hand.
 
     var now = TIME_WARPED_NOW || Date.now(),
-        futureNow = TIME_WARPED_NOW || null,
+        futureNow = FUTURE_TIME_WARPED_NOW || null,
         pastDate = makeDaysAgo(daysDesired),
         iAcc, iHeadBlock, ainfo,
         // What is the startTS fullSync data we have for the time range?
@@ -1846,7 +1852,7 @@ ImapFolderStorage.prototype = {
       // We can adjust our start time to the dawn of time since we have a
       // limit in effect.
       slice.waitingOnData = 'db';
-      this.getMessagesInDateRange(0, now, INITIAL_FILL_SIZE,
+      this.getMessagesInDateRange(0, futureNow, INITIAL_FILL_SIZE,
                                   this.onFetchDBHeaders.bind(this, slice));
       return;
     }
@@ -1867,7 +1873,7 @@ ImapFolderStorage.prototype = {
     if (this._headerBlockInfos.length &&
         endTS === this._headerBlockInfos[0].endTS &&
         slice.endUID === this._headerBlockInfos[0].endUID) {
-      endTS = TIME_WARPED_NOW || null;
+      endTS = FUTURE_TIME_WARPED_NOW || null;
     }
     else {
       // We want the range to include the day; since it's an exclusive range

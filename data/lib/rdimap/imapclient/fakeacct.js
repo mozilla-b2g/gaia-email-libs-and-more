@@ -466,7 +466,6 @@ MessageGenerator.prototype = {
     if (aSetDef.age_incr) {
       args.age = {};
       for (unit in aSetDef.age_incr) {
-        delta = aSetDef.age_incr[unit];
         args.age[unit] = 0;
       }
     }

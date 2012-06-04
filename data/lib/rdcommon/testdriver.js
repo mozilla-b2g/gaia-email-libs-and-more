@@ -457,7 +457,10 @@ TestDefinerRunner.prototype = {
     }
   },
 
-  runAll: function(errorTrapper) {
+  runAll: function(errorTrapper, overrideStepDuration) {
+    if (overrideStepDuration)
+      DEFAULT_STEP_TIMEOUT_MS = overrideStepDuration;
+
 //console.error(" runAll()");
     var deferred = $Q.defer("TestDefinerRunner.runAll"),
         iTestCase = 0, definer = this._testDefiner,

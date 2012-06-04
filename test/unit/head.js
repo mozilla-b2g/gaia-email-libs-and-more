@@ -248,6 +248,7 @@ var TEST_PARAMS = {
   emailAddress: 'testy@localhost',
   password: 'testy',
 };
+var TEST_PARAMS_ARE_DEFAULTS = true;
 
 function populateTestParams() {
   let environ = Cc["@mozilla.org/process/environment;1"]
@@ -255,6 +256,7 @@ function populateTestParams() {
   for each (let [, {name, envVar}] in Iterator(ENVIRON_MAPPINGS)) {
     if (environ.exists(envVar)) {
       TEST_PARAMS[name] = environ.get(envVar);
+      TEST_PARAMS_ARE_DEFAULTS = false;
     }
   }
 }

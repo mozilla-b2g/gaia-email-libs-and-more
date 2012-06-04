@@ -20,8 +20,12 @@ var TestImapAccountMixins = {
     // Pick a 'now' for the purposes of our testing that does not change
     // throughout the test.  We really don't want to break because midnight
     // happened during the test run.
-    self._useDate = new Date();
+    // Of course, we don't want to future-date things and have servers be
+    // mad at us either, so let's have yesterday be our current time.  We use
+    // our time-warp functionality on the server to make this okay.
+    self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
     self._useDate.setHours(12, 0, 0, 0);
+    $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
@@ -109,6 +113,7 @@ var TestImapAccountMixins = {
     testFolder.id = null;
     testFolder.mailFolder = null;
     testFolder.messages = null;
+    testFolder._approxMessageCount = messageSetDef.count;
     this.T.convenienceSetup('delete test folder if it exists', function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
@@ -191,7 +196,7 @@ var TestImapAccountMixins = {
       MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
         self._logger.appendNotified();
       });
-    }).timeoutMS = 400 * messageSetDef.count; // appending can take a bit.
+    }).timeoutMS = 1000 + 600 * messageSetDef.count; // appending can take a bit.
   },
 
   /**
@@ -311,7 +316,7 @@ var TestImapAccountMixins = {
           slice.die();
         }
       };
-    });
+    }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
   },
 
   do_openFolderView: function(viewName, testFolder, expectedValues) {

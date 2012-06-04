@@ -36,14 +36,14 @@ function runMyTests(maxRunInSecs) {
   }, maxRunInSecs * 1000);
   var options = {
     testMode: 'test',
-    defaultStepDuration: 1 * 1000,
+    defaultStepDuration: (TEST_PARAMS_ARE_DEFAULTS ? 1 : 3) * 1000,
     maxTestDurationMS: 10 * 1000,
     maxTotalDurationMS: 20 * 1000,
     exposeToTest: {},
   };
   gRunner = new $_testdriver.TestDefinerRunner(
     TD, true, options);
-  $_Q.when(gRunner.runAll(ErrorTrapper),
+  $_Q.when(gRunner.runAll(ErrorTrapper, options.defaultStepDuration),
            function success() {
              dumpLogs();
              do_check_true(true);

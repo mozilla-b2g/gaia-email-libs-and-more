@@ -77,8 +77,9 @@ TD.commonCase('folder sync', function(T) {
   T.group('saturated initial interval');
   var saturatedFolder = testAccount.do_createTestFolder(
     'test_saturated_sync',
-    { count: 21, age: { days: 0 }, age_incr: { hours: 9 } });
-  // This should provide 20 messages in our 7.5 day range.
+    { count: 21, age: { days: 0 }, age_incr: { hours: 9.1 } });
+  // This should provide 20 messages in our 7.5 day range.  (9 hours makes it
+  // line up perfectly so we actually get 21, which is not what we want.)
   testAccount.do_viewFolder('syncs', saturatedFolder,
                             { count: 20, full: 20, flags: 0, deleted: 0 });
   testAccount.do_pretendToBeOffline(true);
