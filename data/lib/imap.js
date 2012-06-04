@@ -942,11 +942,14 @@ ImapConnection.prototype.multiappend = function(messages, cb) {
       message = messages[iNextMessage++];
       data = message.messageText;
       buildAppendClause(message);
-      self._state.conn.send(Buffer(cmd + CRLF));
+      cmd += CRLF;
+      self._state.conn.send(Buffer(cmd));
+      if (self._LOG) self._LOG.sendData(cmd.length, cmd);
     }
     else {
       // This terminates the command.
       self._state.conn.send(CRLF_BUFFER);
+      if (self._LOG) self._LOG.sendData(2, CRLF);
       done = true;
     }
   });
