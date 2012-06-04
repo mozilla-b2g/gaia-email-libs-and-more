@@ -454,7 +454,7 @@ ImapConnection.prototype.connect = function(loginCb) {
         case 'SEARCH':
           self._state.requests[0].args.push(
             (data[2] === undefined || data[2].length === 0)
-              ? [] : data[2].split(' ').map(singleArgParseInt));
+              ? [] : data[2].trim().split(' ').map(singleArgParseInt));
         break;
         case 'LIST':
         case 'XLIST':
