@@ -77,6 +77,20 @@ function parseImapDateTime(dstr) {
   return timestamp;
 }
 
+function formatImapDateTime(date) {
+  var s;
+  s = date.getDate() + '-' +
+       MONTHS[date.getMonth()] + '-' +
+       date.getFullYear() + ' ' +
+       ('0'+date.getHours()).slice(-2) + ':' +
+       ('0'+date.getMinutes()).slice(-2) + ':' +
+       ('0'+date.getSeconds()).slice(-2) +
+       ((date.getTimezoneOffset() > 0) ? ' -' : ' +' ) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) / 60)).slice(-2) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) % 60)).slice(-2);
+  return s;
+}
+
 var IDLE_NONE = 1,
     IDLE_WAIT = 2,
     IDLE_READY = 3,
@@ -874,12 +888,7 @@ ImapConnection.prototype.append = function(data, options, cb) {
   if ('date' in options) {
     if (!(options.date instanceof Date))
       throw new Error('Expected null or Date object for date');
-    cmd += ' "'+options.date.getDate()+'-'+MONTHS[options.date.getMonth()]+'-'+options.date.getFullYear();
-    cmd += ' '+('0'+options.date.getHours()).slice(-2)+':'+('0'+options.date.getMinutes()).slice(-2)+':'+('0'+options.date.getSeconds()).slice(-2);
-    cmd += ((options.date.getTimezoneOffset() > 0) ? ' -' : ' +' );
-    cmd += ('0'+(-options.date.getTimezoneOffset() / 60)).slice(-2);
-    cmd += ('0'+(-options.date.getTimezoneOffset() % 60)).slice(-2);
-    cmd += '"';
+    cmd += ' "' + formatImapDateTime(options.date) + '"';
   }
   cmd += ' {';
   cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
@@ -913,12 +922,7 @@ ImapConnection.prototype.multiappend = function(messages, cb) {
     if ('date' in options) {
       if (!(options.date instanceof Date))
         throw new Error('Expected null or Date object for date');
-      cmd += ' "'+options.date.getDate()+'-'+MONTHS[options.date.getMonth()]+'-'+options.date.getFullYear();
-      cmd += ' '+('0'+options.date.getHours()).slice(-2)+':'+('0'+options.date.getMinutes()).slice(-2)+':'+('0'+options.date.getSeconds()).slice(-2);
-      cmd += ((options.date.getTimezoneOffset() > 0) ? ' -' : ' +' );
-      cmd += ('0'+(-options.date.getTimezoneOffset() / 60)).slice(-2);
-      cmd += ('0'+(-options.date.getTimezoneOffset() % 60)).slice(-2);
-      cmd += '"';
+      cmd += ' "' + formatImapDateTime(options.date) + '"';
     }
     cmd += ' {';
     cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
