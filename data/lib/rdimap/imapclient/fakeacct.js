@@ -509,7 +509,6 @@ MessageGenerator.prototype = {
         }
       }
     }
-
     return messages;
   },
 };
@@ -541,19 +540,19 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
   };
 
   var inboxFolder = {
-    id: this.id + '-0',
+    id: this.id + '/0',
     name: 'Inbox',
     path: 'Inbox',
     type: 'inbox',
   };
   var draftsFolder = {
-    id: this.id + '-1',
+    id: this.id + '/1',
     name: 'Drafts',
     path: 'Drafts',
     type: 'drafts',
   };
   var sentFolder = {
-    id: this.id + '-2',
+    id: this.id + '/2',
     name: 'Sent',
     path: 'Sent',
     type: 'sent',
