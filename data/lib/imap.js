@@ -79,7 +79,7 @@ function parseImapDateTime(dstr) {
 
 function formatImapDateTime(date) {
   var s;
-  s = date.getDate() + '-' +
+  s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + '-' +
        MONTHS[date.getMonth()] + '-' +
        date.getFullYear() + ' ' +
        ('0'+date.getHours()).slice(-2) + ':' +
