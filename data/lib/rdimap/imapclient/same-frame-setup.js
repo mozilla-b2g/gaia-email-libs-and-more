@@ -30,38 +30,6 @@ define(
   ) {
 'use strict';
 
-function stringifyHeader(header) {
-  return header.author.address + ': ' + header.subject + ' @ ' +
-          (new Date(header.date)) + '\n' +
-         '    "' + header.snippet + '"';
-}
-
-function PrintySliceBridge() {
-  this.id = 'printy';
-  this.items = [];
-}
-PrintySliceBridge.prototype = {
-  sendSplice: function(index, howMany, addedItems, requested, moreExpected) {
-    console.log('SPLICE @' + index, howMany, 'deleted');
-    for (var iDel = index; iDel < index + howMany; iDel++) {
-      var deleted = this.items[iDel];
-      console.log('  -', stringifyHeader(deleted));
-    }
-    for (var i = 0; i < addedItems.length; i++) {
-      var added = addedItems[i];
-      console.log('  +', stringifyHeader(added));
-    }
-    this.items.splice.apply(this.items, [index, howMany].concat(addedItems));
-  },
-
-  sendUpdate: function() {
-  },
-
-  sendStatus: function(status) {
-    console.log('STATUS', status);
-  },
-};
-
 function createBridgePair(universe) {
   var TMB = new $mailbridge.MailBridge(universe);
   var TMA = new $mailapi.MailAPI();
@@ -95,10 +63,22 @@ function onUniverse() {
   evtObject.mailAPI = localMailAPI;
   window.dispatchEvent(evtObject);
 }
-// XXX XXX XXX XXX XXX
-// XXX Super-duper-debug mode should not be on outside of super-initial testing
-// that's the boolean true here...
-var universe = new $mailuniverse.MailUniverse(true, onUniverse);
+/**
+ * Should the logging subsystem run at unit-test levels of detail (which means
+ * capturing potential user data like the contents of e-mails)?  The answer
+ * is NEVER BY DEFAULT and ALMOST NEVER THE REST OF THE TIME.
+ *
+ * The only time we would want to turn this on is when detailed debugging is
+ * required, we have data censoring in place for all super-sensitive data like
+ * credentials (we have it for IMAP, but not SMTP, although it's not logging
+ * right now), there is express user consent, and we have made a reasonable
+ * level of effort to create automated tooling that can extract answers from
+ * the logs in an oracular fashion so that the user doesn't need to provide
+ * us with the logs, but can instead have our analysis code derive answers.
+ */
+const DANGEROUS_LOG_EVERYTHING = false;
+var universe = new $mailuniverse.MailUniverse(DANGEROUS_LOG_EVERYTHING,
+                                              onUniverse);
 var LOG_REAPER, LOG_BACKLOG = [], MAX_LOG_BACKLOG = 60;
 LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
 
@@ -109,33 +89,11 @@ function runOnUniverse(callback) {
   }
   callback(universe);
 }
-console.log("Assigning mail API helper!");
 window.gimmeMailAPI = function(callback) {
   runOnUniverse(function() {
     callback(localMailAPI);
   });
 };
-
-exports.goSync = function(testingModeLogTestData, connInfo, logFunc) {
-  // Cross-object-wrappers result in DateCloneError even for simple objects.
-  // I guess there could be good security reasons, but it's annoying.
-  connInfo = JSON.parse(JSON.stringify(connInfo));
-  runOnUniverse(function() {
-    // create the account
-    universe.tryToCreateAccount(connInfo, function(created, account) {
-        if (!created) {
-          console.error("Can't do anything; no account created!");
-          return;
-        }
-        var inbox = account.folders[0];
-        // ask for the slice,
-        var printyBridge = new PrintySliceBridge(logFunc),
-            slice = account.sliceFolderMessages(inbox, printyBridge);
-      });
-  });
-  return LOG_BACKLOG;
-};
-
 
 /**
  * Debugging: enable spawning a loggest log browser using our log contents;
