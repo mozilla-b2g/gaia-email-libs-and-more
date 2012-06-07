@@ -37,9 +37,11 @@
 
 define(
   [
+    './util',
     'exports'
   ],
   function(
+    $imaputil,
     exports
   ) {
 
@@ -67,13 +69,99 @@ const CHECKED_MOOT = 4;
  */
 const UNCHECKED_BAILED = 5;
 
-function MailJobDriver() {
+function ImapJobDriver(account) {
+  this.account = account;
 }
-MailJobDriver.prototype = {
+exports.ImapJobDriver = ImapJobDriver;
+ImapJobDriver.prototype = {
+  /**
+   * Request access to an IMAP folder to perform a mutation on it.  This
+   * compels the ImapFolderConn in question to acquire an IMAP connection
+   * if it does not already have one.  It will also XXX EVENTUALLY provide
+   * mututal exclusion guarantees that there are no other active requests
+   * in the folder.
+   *
+   * The callback will be invoked with the folder and raw connections once
+   * they are available.  The raw connection will be actively in the folder.
+   *
+   * This will ideally be migrated to whatever mechanism we end up using for
+   * mailjobs.
+   */
+  _accessFolderForMutation: function(folderId, callback) {
+    var storage = this.account.getFolderStorageForFolderId(folderId);
+    // XXX have folder storage be in charge of this / don't violate privacy
+    storage._pendingMutationCount++;
+    if (!storage.folderConn._conn) {
+      storage.folderConn.acquireConn(callback);
+    }
+    else {
+      callback(storage.folderConn);
+    }
+  },
+
+  _doneMutatingFolder: function(folderId, folderConn) {
+    var storage = this.account.getFolderStorageForFolderId(folderId);
+    // XXX have folder storage be in charge of this / don't violate privacy
+    storage._pendingMutationCount--;
+    if (!storage._slices.length && !storage._pendingMutationCount)
+      storage.folderConn.relinquishConn();
+  },
+
+
   local_do_modtags: function() {
   },
 
-  do_modtags: function() {
+  do_modtags: function(op, callback) {
+    var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
+    var folderConn, self = this,
+        folderId = null, messages = null,
+        iNextPartition = 0, modsToGo = 0;
+
+    function openNextFolder() {
+      if (iNextPartition >= partitions.length) {
+        done(null);
+        return;
+      }
+
+      var partition = partitions[iNextPartition++];
+      messages = partition.messages;
+      if (partition.folderId !== folderId) {
+        if (folderConn) {
+          self._doneMutatingFolder(folderId, folderConn);
+          folderConn = null;
+        }
+        folderId = partition.folderId;
+        self._accessFolderForMutation(folderId, gotFolderConn);
+      }
+    }
+    function gotFolderConn(_folderConn) {
+      folderConn = _folderConn;
+      if (op.addTags) {
+        modsToGo++;
+        folderConn._conn.addFlags(messages, op.addTags, tagsModded);
+      }
+      if (op.removeTags) {
+        modsToGo++;
+        folderConn._conn.removeFlags(messages, op.removeTags, tagsModded);
+      }
+    }
+    function tagsModded(err) {
+      if (err) {
+        console.error('failure modifying tags', err);
+        done('unknown');
+        return;
+      }
+      if (--modsToGo === 0)
+        openNextFolder();
+    }
+    function done(errString) {
+      if (folderConn) {
+        self._doneMutatingFolder(folderId, folderConn);
+        folderConn = null;
+      }
+      callback(errString);
+    }
+    openNextFolder();
   },
 
   check_modtags: function() {
@@ -142,8 +230,57 @@ MailJobDriver.prototype = {
 
   /**
    * Append a message to a folder.
+   *
+   * XXX update
    */
-  do_append: function() {
+  do_append: function(op, callback) {
+    var folderConn, self = this,
+        storage = this.account.getFolderStorageForFolderId(op.folderId),
+        folderMeta = storage.folderMeta,
+        iNextMessage = 0;
+
+    function gotFolderConn(_folderConn) {
+      if (!_folderConn) {
+        done('unknown');
+        return;
+      }
+      folderConn = _folderConn;
+      if (folderConn._conn.hasCapability('MULTIAPPEND'))
+        multiappend();
+      else
+        append();
+    }
+    function multiappend() {
+      iNextMessage = op.messages.length;
+      folderConn._conn.multiappend(op.messages, appended);
+    }
+    function append() {
+      var message = op.messages[iNextMessage++];
+      folderConn._conn.append(
+        message.messageText,
+        message, // (it will ignore messageText)
+        appended);
+    }
+    function appended(err) {
+      if (err) {
+        console.error('failure appending message', err);
+        done('unknown');
+        return;
+      }
+      if (iNextMessage < op.messages.length)
+        append();
+      else
+        done(null);
+    }
+    function done(errString) {
+      if (folderConn) {
+        self._doneMutatingFolder(op.folderId, folderConn);
+        folderConn = null;
+      }
+      callback(errString);
+    }
+
+    this._accessFolderForMutation(op.folderId, gotFolderConn);
   },
 
   /**

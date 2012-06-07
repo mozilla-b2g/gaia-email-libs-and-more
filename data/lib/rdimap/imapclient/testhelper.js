@@ -214,7 +214,7 @@ var TestImapAccountMixins = {
    * to trigger manipulations, then waiting for the mutation queue to get
    * drained.
    */
-  do_manipulateFolder: function(testFolder, manipFunc) {
+  do_manipulateFolder: function(testFolder, noLocal, manipFunc) {
     var self = this;
     this.T.action(this, 'manipulates folder', testFolder, function() {
       self.expect_manipulationNotified();
@@ -235,7 +235,7 @@ var TestImapAccountMixins = {
     });
   },
 
-  do_manipulateFolderView: function(viewThing, manipFunc) {
+  do_manipulateFolderView: function(viewThing, noLocal, manipFunc) {
     var self = this;
     this.T.action(this, 'manipulates folder view', viewThing, function() {
       self.expect_manipulationNotified();

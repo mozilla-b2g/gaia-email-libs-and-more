@@ -20,7 +20,7 @@
 load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
-  { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
 
 // This needs to match up with what the app is currently using right now, but we
 // should probably just clobber the internal constant via a debugging hook if
@@ -119,7 +119,7 @@ TD.commonCase('folder sync', function(T) {
    */
   T.group('sync detects additions/modifications/deletions');
   // delete 2 from the first interval (of 4), 1 from the second (of 7)
-  testAccount.do_manipulateFolder(msearchFolder, function(slice) {
+  testAccount.do_manipulateFolder(msearchFolder, 'nolocal', function(slice) {
     slice.items[1].deleteMessage();
     MailAPI.deleteMessages([slice.items[2], slice.items[5]]);
     slice.items[3].setRead(true);
@@ -150,7 +150,7 @@ TD.commonCase('folder sync', function(T) {
     deletions: [],
   };
   testAccount.do_manipulateFolderView(
-    msearchView,
+    msearchView, 'nolocal',
     function(slice) {
       expectedRefreshChanges.deletions.push(slice.items[8]);
       slice.items[8].deleteMessage();

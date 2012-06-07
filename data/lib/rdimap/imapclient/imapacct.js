@@ -9,6 +9,7 @@ define(
     './a64',
     './imapdb',
     './imapslice',
+    './imapjobs',
     './util',
     'module',
     'exports'
@@ -19,6 +20,7 @@ define(
     $a64,
     $imapdb,
     $imapslice,
+    $imapjobs,
     $imaputil,
     $module,
     exports
@@ -49,6 +51,8 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
 
   this._ownedConns = [];
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+
+  this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
   if (existingProtoConn) {
     this._LOG.reuseConnection();
@@ -588,155 +592,18 @@ ImapAccount.prototype = {
   },
 
   runOp: function(op, callback) {
-    var methodName = '_do_' + op.type, self = this;
-    if (!(methodName in this))
+    var methodName = 'do_' + op.type, self = this;
+    if (!(methodName in this._jobDriver))
       throw new Error("Unsupported op: '" + op.type + "'");
     this._LOG.runOp_begin(op.type);
-    this[methodName](op, function() {
+    this._jobDriver[methodName](op, function() {
       self._LOG.runOp_end(op.type);
       callback.apply(null, arguments);
     });
   },
 
-  /**
-   * Request access to an IMAP folder to perform a mutation on it.  This
-   * compels the ImapFolderConn in question to acquire an IMAP connection
-   * if it does not already have one.  It will also XXX EVENTUALLY provide
-   * mututal exclusion guarantees that there are no other active requests
-   * in the folder.
-   *
-   * The callback will be invoked with the folder and raw connections once
-   * they are available.  The raw connection will be actively in the folder.
-   *
-   * This will ideally be migrated to whatever mechanism we end up using for
-   * mailjobs.
-   */
-  _accessFolderForMutation: function(folderId, callback) {
-    var storage = this._folderStorages[folderId];
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount++;
-    if (!storage.folderConn._conn) {
-      storage.folderConn.acquireConn(callback);
-    }
-    else {
-      callback(storage.folderConn);
-    }
-  },
-
-  _doneMutatingFolder: function(folderId, folderConn) {
-    var storage = this._folderStorages[folderId];
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount--;
-    if (!storage._slices.length && !storage._pendingMutationCount)
-      storage.folderConn.relinquishConn();
-  },
-
   // NB: this is not final mutation logic; it needs to be more friendly to
   // ImapFolderConn's.  See _do_modtags which is being cleaned up...
-  _do_append: function(op, callback) {
-    var rawConn, self = this,
-        folderMeta = this._folderInfos[op.folderId].$meta,
-        iNextMessage = 0;
-    function gotConn(conn) {
-      rawConn = conn;
-      rawConn.openBox(folderMeta.path, openedBox);
-    }
-    function openedBox(err, box) {
-      if (err) {
-        console.error('failure opening box to append message');
-        done('unknown');
-        return;
-      }
-      if (rawConn.hasCapability('MULTIAPPEND'))
-        multiappend();
-      else
-        append();
-    }
-    function multiappend() {
-      iNextMessage = op.messages.length;
-      rawConn.multiappend(op.messages, appended);
-    }
-    function append() {
-      var message = op.messages[iNextMessage++];
-      rawConn.append(
-        message.messageText,
-        message, // (it will ignore messageText)
-        appended);
-    }
-    function appended(err) {
-      if (err) {
-        console.error('failure appending message', err);
-        done('unknown');
-        return;
-      }
-      if (iNextMessage < op.messages.length)
-        append();
-      else
-        done(null);
-    }
-    function done(errString) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(op.folderId, rawConn);
-        rawConn = null;
-      }
-      callback(errString);
-    }
-
-    this.__folderDemandsConnection(op.folderId, gotConn);
-  },
-
-  _do_modtags: function(op, callback) {
-    var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
-    var folderConn, self = this,
-        folderId = null, messages = null,
-        iNextPartition = 0, modsToGo = 0;
-
-    function openNextFolder() {
-      if (iNextPartition >= partitions.length) {
-        done(null);
-        return;
-      }
-
-      var partition = partitions[iNextPartition++];
-      messages = partition.messages;
-      if (partition.folderId !== folderId) {
-        if (folderConn) {
-          self._doneMutatingFolder(folderId, folderConn);
-          folderConn = null;
-        }
-        folderId = partition.folderId;
-        self._accessFolderForMutation(folderId, gotFolderConn);
-      }
-    }
-    function gotFolderConn(_folderConn) {
-      folderConn = _folderConn;
-      if (op.addTags) {
-        modsToGo++;
-        folderConn._conn.addFlags(messages, op.addTags, tagsModded);
-      }
-      if (op.removeTags) {
-        modsToGo++;
-        folderConn._conn.removeFlags(messages, op.removeTags, tagsModded);
-      }
-    }
-    function tagsModded(err) {
-      if (err) {
-        console.error('failure modifying tags', err);
-        done('unknown');
-        return;
-      }
-      if (--modsToGo === 0)
-        openNextFolder();
-    }
-    function done(errString) {
-      if (folderConn) {
-        self._doneMutatingFolder(folderId, folderConn);
-        folderConn = null;
-      }
-      callback(errString);
-    }
-    openNextFolder();
-  },
 };
 
 /**
