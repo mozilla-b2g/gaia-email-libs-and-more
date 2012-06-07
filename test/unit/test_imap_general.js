@@ -144,7 +144,7 @@ TD.commonCase('folder sync', function(T) {
    * Perform some manipulations with the view still open, then trigger a refresh
    * and make sure the view updates correctly.
    */
-  T.group('sync refresh detections mutations and updates in-place');
+  T.group('sync refresh detects mutations and updates in-place');
   var expectedRefreshChanges = {
     changes: [],
     deletions: [],

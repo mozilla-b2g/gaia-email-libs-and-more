@@ -591,14 +591,44 @@ ImapAccount.prototype = {
     callback();
   },
 
-  runOp: function(op, callback) {
-    var methodName = 'do_' + op.type, self = this;
+  /**
+   * @args[
+   *   @param[op MailOp]
+   *   @param[mode @oneof[
+   *     @case['local_do']{
+   *       Apply the mutation locally to our database rep.
+   *     }
+   *     @case['check']{
+   *       Check if the manipulation has been performed on the server.  There
+   *       is no need to perform a local check because there is no way our
+   *       database can be inconsistent in its view of this.
+   *     }
+   *     @case['do']{
+   *       Perform the manipulation on the server.
+   *     }
+   *     @case['local_undo']{
+   *       Undo the mutation locally.
+   *     }
+   *     @case['undo']{
+   *       Undo the mutation on the server.
+   *     }
+   *   ]]
+   *   @param[callback @func[
+   *     @args[
+   *       @param[error @oneof[String null]]
+   *     ]
+   *   ]]
+   *   }
+   * ]
+   */
+  runOp: function(op, mode, callback) {
+    var methodName = mode + '_' + op.type, self = this;
     if (!(methodName in this._jobDriver))
       throw new Error("Unsupported op: '" + op.type + "'");
-    this._LOG.runOp_begin(op.type);
-    this._jobDriver[methodName](op, function() {
-      self._LOG.runOp_end(op.type);
-      callback.apply(null, arguments);
+    this._LOG.runOp_begin(op.type, null);
+    this._jobDriver[methodName](op, function(error) {
+      self._LOG.runOp_end(op.type, error);
+      callback(error);
     });
   },
 

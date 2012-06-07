@@ -139,8 +139,8 @@ CompositeAccount.prototype = {
     return this._receivePiece.getFolderStorageForFolderId(folderId);
   },
 
-  runOp: function(op, callback) {
-    return this._receivePiece.runOp(op, callback);
+  runOp: function(op, mode, callback) {
+    return this._receivePiece.runOp(op, mode, callback);
   },
 };
 
@@ -676,7 +676,7 @@ MailUniverse.prototype = {
 
     if (queue.length) {
       op = queue[0];
-      account.runOp(op, this._opCompleted.bind(this, account, op));
+      account.runOp(op, 'do', this._opCompleted.bind(this, account, op));
     }
     else if (this._opCompletionListenersByAccount[account.id]) {
       this._opCompletionListenersByAccount[account.id](account);
@@ -688,7 +688,7 @@ MailUniverse.prototype = {
     var queue = this._opsByAccount[account.id];
     queue.push(op);
     if (queue.length === 1)
-      account.runOp(op, this._opCompleted.bind(this, account, op));
+      account.runOp(op, 'do', this._opCompleted.bind(this, account, op));
   },
 
   waitForAccountOps: function(account, callback) {

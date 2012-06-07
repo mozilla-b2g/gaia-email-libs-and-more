@@ -327,19 +327,68 @@ var TestImapAccountMixins = {
     return viewThing;
   },
 
-  _expect_headerChanges: function(expected, changeMap) {
-    var i, deletionRep = {}, changeRep = {};
+  /**
+   * @args[
+   *   @param[viewThing]
+   *   @param[expected @dict[
+   *     @key[changes @listof[
+   *       @list[MailHeader attrName attrValue]{
+   *         The header that we expect to change, and the name of the field
+   *         that we expect to change and the value we expect it to have after
+   *         the change.  We don't know what the previous value is and the
+   *         the notification does not currently compute the field that changed,
+   *         so be careful about ensuring that the value didn't start out with
+   *         the right value.
+   *       }
+   *     ]
+   *     @key[deletions @listof[MailHeader]]{
+   *       The MailHeader that we expect to be deleted.
+   *     }
+   *   ]]
+   * ]
+   */
+  expect_headerChanges: function(viewThing, expected) {
+    var changeMap = {}, self = this;
+    // - generate expectations and populate changeMap
+    var i, iExp, expDeletionRep = {}, expChangeRep = {};
     for (i = 0; i < expected.deletions.length; i++) {
-      deletionRep[expected.deletions[i].subject] = true;
+      expDeletionRep[expected.deletions[i].subject] = true;
     }
     for (i = 0; i < expected.changes.length; i++) {
+      var change = expected.changes[i];
       // We're not actually logging what attributes changed here; we verify
       // correctness with an assertion check that logs an error on mis-match.
-      changeRep[expected.changes[i][0].subject] = true;
-      changeMap[expected.changes[i][0].subject] =
-        { field: expected.changes[i][1], value: expected.changes[i][2] };
+      expChangeRep[change[0].subject] = true;
+      // There may be more than one attribute to check.
+      // (And eventually, there may need to be set-ish checks like for custom
+      // tags.)
+      var expChanges = changeMap[change[0].subject] = [];
+      for (iExp = 1; iExp < change.length; iExp += 2) {
+        expChanges.push({ field: change[iExp], value: change[iExp+1] });
+      }
     }
-    this.expect_changesReported(changeRep, deletionRep);
+    this.expect_changesReported(expChangeRep, expDeletionRep);
+
+    // - listen for the changes
+    var changeRep = {}, deletionRep = {};
+    viewThing.slice.onchange = function(item) {
+      changeRep[item.subject] = true;
+      var changeEntries = changeMap[item.subject];
+      changeEntries.forEach(function(changeEntry) {
+        if (item[changeEntry.field] !== changeEntry.value)
+          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
+      });
+    };
+    viewThing.slice.onremove = function(item) {
+      deletionRep[item.subject] = true;
+    };
+    viewThing.slice.oncomplete = function refreshCompleted() {
+      self._logger.messagesReported(viewThing.slice.items.length);
+      self._logger.changesReported(changeRep, deletionRep);
+
+      viewThing.slice.onchange = null;
+      viewThing.slice.onremove = null;
+    };
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected) {
@@ -348,26 +397,7 @@ var TestImapAccountMixins = {
       var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
                                                  expectedValues);
       self.expect_messagesReported(totalExpected);
-      var changeMap = {};
-      self._expect_headerChanges(checkExpected, changeMap);
-
-      var changeRep = {}, deletionRep = {};
-      viewThing.slice.onchange = function(item) {
-        changeRep[item.subject] = true;
-        var changeEntry = changeMap[item.subject];
-        if (item[changeEntry.field] !== changeEntry.value)
-          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
-      };
-      viewThing.slice.onremove = function(item) {
-        deletionRep[item.subject] = true;
-      };
-      viewThing.slice.oncomplete = function refreshCompleted() {
-        self._logger.messagesReported(viewThing.slice.items.length);
-        self._logger.changesReported(changeRep, deletionRep);
-
-        viewThing.slice.onchange = null;
-        viewThing.slice.onremove = null;
-      };
+      self.expect_headerChanges(viewThing, checkExpected);
       viewThing.slice.refresh();
     });
   },
