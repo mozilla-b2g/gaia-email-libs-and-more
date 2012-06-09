@@ -163,6 +163,13 @@ function filterOutBuiltinFlags(flags) {
 }
 
 /**
+ * Extract the canonical naming attributes out of the MailHeader instance.
+ */
+function serializeMessageName(x) {
+  return { date: x.date.valueOf(), suid: x.id };
+}
+
+/**
  * Email overview information for displaying the message in the list as planned
  * for the current UI.  Things that we don't need (ex: to/cc/bcc) for the list
  * end up on the body, currently.  They will probably migrate to the header in
@@ -384,7 +391,9 @@ MailAttachment.prototype = {
  * get a list of recently performed actions, the goal is to make it feasible
  * in the future.
  */
-function UndoableOperation(operation, affectedCount, _tempHandle, _longtermId) {
+function UndoableOperation(_api, operation, affectedCount,
+                           _tempHandle, _longtermIds) {
+  this._api = _api;
   /**
    * @oneof[
    *   @case['read']{
@@ -425,13 +434,16 @@ function UndoableOperation(operation, affectedCount, _tempHandle, _longtermId) {
   /**
    * The temporary handle we use to refer to the operation immediately after
    * issuing it until we hear back from the mail bridge about its more permanent
-   * _longtermId.
+   * _longtermIds.
    */
   this._tempHandle = _tempHandle;
   /**
-   * The name that this mutation is know to the back-end as.
+   * The names of the per-account operations that this operation was mapped
+   * to.
    */
-  this._longtermId = null;
+  this._longtermIds = null;
+
+  this._undoRequested = false;
 }
 UndoableOperation.prototype = {
   toString: function() {
@@ -441,8 +453,18 @@ UndoableOperation.prototype = {
     return {
       type: 'UndoableOperation',
       handle: this._tempHandle,
-      id: this._longtermId,
+      longtermIds: this._longtermIds,
     };
+  },
+
+  undo: function() {
+    // We can't issue the undo until we've heard the longterm id, so just flag
+    // it to be processed when we do.
+    if (!this._longtermIds) {
+      this._undoRequested = true;
+      return;
+    }
+    this._api.__undo(this);
   },
 };
 
@@ -1090,8 +1112,8 @@ MailAPI.prototype = {
     // XXX for now, just pose this as a flag change rather than any moving
     // to trash semantics.  We just want to be able to make our sync logic
     // perceive a deletion.  Obviously, DO NOT HOOK THIS UP TO THE UI YET.
-    this.modifyMessageTags(messages,
-                           ['\\Deleted'], null, 'delete');
+    return this.modifyMessageTags(messages,
+                                  ['\\Deleted'], null, 'delete');
   },
 
   copyMessages: function ma_copyMessages(messages, targetFolder) {
@@ -1101,17 +1123,17 @@ MailAPI.prototype = {
   },
 
   markMessagesRead: function ma_markMessagesRead(messages, beRead) {
-    this.modifyMessageTags(messages,
-                           beRead ? ['\\Seen'] : null,
-                           beRead ? null : ['\\Seen'],
-                           beRead ? 'read' : 'unread');
+    return this.modifyMessageTags(messages,
+                                  beRead ? ['\\Seen'] : null,
+                                  beRead ? null : ['\\Seen'],
+                                  beRead ? 'read' : 'unread');
   },
 
   markMessagesStarred: function ma_markMessagesStarred(messages, beStarred) {
-    this.modifyMessageTags(messages,
-                           beStarred ? ['\\Flagged'] : null,
-                           beStarred ? null : ['\\Flagged'],
-                           beStarred ? 'star' : 'unstar');
+    return this.modifyMessageTags(messages,
+                                  beStarred ? ['\\Flagged'] : null,
+                                  beStarred ? null : ['\\Flagged'],
+                                  beStarred ? 'star' : 'unstar');
   },
 
   modifyMessageTags: function ma_modifyMessageTags(messages, addTags,
@@ -1126,15 +1148,18 @@ MailAPI.prototype = {
       else if (removeTags && removeTags.length)
         _opcode = 'removetag';
     }
-    var undoableOp = new UndoableOperation(_opcode, messages.length),
-        msgSuids = messages.map(function(x) { return x.id; });
+    var undoableOp = new UndoableOperation(this, _opcode, messages.length,
+                                           handle),
+        msgSuids = messages.map(serializeMessageName);
 
     this._pendingRequests[handle] = {
       type: 'mutation',
+      handle: handle,
       undoableOp: undoableOp
     };
     this.__bridgeSend({
       type: 'modifyMessageTags',
+      handle: handle,
       opcode: _opcode,
       addTags: addTags,
       removeTags: removeTags,
@@ -1144,14 +1169,24 @@ MailAPI.prototype = {
     return undoableOp;
   },
 
-  _recv_mutationConfirmed: function() {
+  _recv_mutationConfirmed: function(msg) {
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for mutation:', msg.handle);
       return;
     }
 
+    req.undoableOp._tempHandle = null;
+    req.undoableOp._longtermIds = msg.longtermIds;
+    if (req.undoableOp._undoRequested)
+      req.undoableOp.undo();
+  },
 
+  __undo: function undo(undoableOp) {
+    this.__bridgeSend({
+      type: 'undo',
+      longtermIds: undoableOp._longtermIds,
+    });
   },
 
   //////////////////////////////////////////////////////////////////////////////

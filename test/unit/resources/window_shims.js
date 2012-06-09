@@ -52,8 +52,18 @@ var window = {
     connection: {
       bandwidth: 1000,
       metered: false,
+      _listener: null,
       addEventListener: function(eventName, listener) {
+        this._listener = listener;
       },
+      removeEventListener: function(eventName, listener) {
+        this._listener = null;
+      },
+      TEST_setOffline: function(beOffline) {
+        this.bandwidth = beOffline ? 0 : 1000;
+        if (this._listener)
+          this._listener({});
+      }
     },
   },
 

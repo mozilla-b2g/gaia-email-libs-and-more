@@ -164,6 +164,8 @@ TestRuntimeContext.prototype = {
    *  sub-actors as active this step, allowing them to be used for expectations.
    */
   reportActiveActorThisStep: function(actor) {
+    if (!actor)
+      throw new Error("You are passing in a null actor!");
     if (this._liveActors === null)
       throw new Error("We are not in a step!");
     if (actor._activeForTestStep)

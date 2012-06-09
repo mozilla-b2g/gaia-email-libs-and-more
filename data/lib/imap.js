@@ -1595,8 +1595,11 @@ function parseFetch(str, literalData, fetchData) {
       fetchData.id = parseInt(result[i+1], 10);
     else if (result[i] === 'INTERNALDATE')
       fetchData.date = parseImapDateTime(result[i+1]);
-    else if (result[i] === 'FLAGS')
+    else if (result[i] === 'FLAGS') {
       fetchData.flags = result[i+1].filter(isNotEmpty);
+      // simplify comparison for downstream logic by sorting.
+      fetchData.flags.sort();
+    }
     // MODSEQ (####)
     else if (result[i] === 'MODSEQ')
       fetchData.modseq = result[i+1].slice(1, -1);

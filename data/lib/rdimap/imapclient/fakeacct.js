@@ -572,6 +572,9 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
       sentFolder,
       generator.makeMessages(
         { folderId: sentFolder.id, count: 4, from: ourNameAndAddress }));
+
+  this.meta = folderInfo.$meta;
+  this.mutations = folderInfo.$mutations;
 }
 exports.FakeAccount = FakeAccount;
 FakeAccount.prototype = {

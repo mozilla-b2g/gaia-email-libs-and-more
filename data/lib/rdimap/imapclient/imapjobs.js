@@ -107,15 +107,73 @@ ImapJobDriver.prototype = {
       storage.folderConn.relinquishConn();
   },
 
+  local_do_modtags: function(op, ignoredCallback, undo) {
+    var addTags = undo ? op.removeTags : op.addTags,
+        removeTags = undo ? op.addTags : op.removeTags;
+    function modifyHeader(header) {
+      var iTag, tag, existing, modified = false;
+      if (addTags) {
+        for (iTag = 0; iTag < addTags.length; iTag++) {
+          tag = addTags[iTag];
+          // The list should be small enough that native stuff is better than
+          // JS bsearch.
+          existing = header.flags.indexOf(tag);
+          if (existing !== -1)
+            continue;
+          header.flags.push(tag);
+          header.flags.sort(); // (maintain sorted invariant)
+          modified = true;
+        }
+      }
+      if (removeTags) {
+        for (iTag = 0; iTag < removeTags.length; iTag++) {
+          tag = removeTags[iTag];
+          existing = header.flags.indexOf(tag);
+          if (existing === -1)
+            continue;
+          header.flags.splice(existing, 1);
+          modified = true;
+        }
+      }
+      return modified;
+    }
 
-  local_do_modtags: function() {
+    var lastFolderId = null, lastStorage;
+    for (var i = 0; i < op.messages.length; i++) {
+      var msgNamer = op.messages[i],
+          lslash = msgNamer.suid.lastIndexOf('/'),
+          // folder id's are strings!
+          folderId = msgNamer.suid.substring(0, lslash),
+          // uid's are not strings!
+          uid = parseInt(msgNamer.suid.substring(lslash + 1)),
+          storage;
+      if (folderId === lastFolderId) {
+        storage = lastStorage;
+      }
+      else {
+        storage = lastStorage =
+          this.account.getFolderStorageForFolderId(folderId);
+        lastFolderId = folderId;
+      }
+      storage.updateMessageHeader(msgNamer.date, uid, false, modifyHeader);
+    }
+
+    return null;
   },
 
-  do_modtags: function(op, callback) {
+  do_modtags: function(op, callback, undo) {
     var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
     var folderConn, self = this,
         folderId = null, messages = null,
-        iNextPartition = 0, modsToGo = 0;
+        iNextPartition = 0, curPartition = null, modsToGo = 0;
+
+    var addTags = undo ? op.removeTags : op.addTags,
+        removeTags = undo ? op.addTags : op.removeTags;
+
+    // Perform the 'undo' in the opposite order of the 'do' so that our progress
+    // count is always relative to the normal order.
+    if (undo)
+      partitions.reverse();
 
     function openNextFolder() {
       if (iNextPartition >= partitions.length) {
@@ -123,26 +181,26 @@ ImapJobDriver.prototype = {
         return;
       }
 
-      var partition = partitions[iNextPartition++];
-      messages = partition.messages;
-      if (partition.folderId !== folderId) {
+      curPartition = partitions[iNextPartition++];
+      messages = curPartition.messages;
+      if (curPartition.folderId !== folderId) {
         if (folderConn) {
           self._doneMutatingFolder(folderId, folderConn);
           folderConn = null;
         }
-        folderId = partition.folderId;
+        folderId = curPartition.folderId;
         self._accessFolderForMutation(folderId, gotFolderConn);
       }
     }
     function gotFolderConn(_folderConn) {
       folderConn = _folderConn;
-      if (op.addTags) {
+      if (addTags) {
         modsToGo++;
-        folderConn._conn.addFlags(messages, op.addTags, tagsModded);
+        folderConn._conn.addFlags(messages, addTags, tagsModded);
       }
-      if (op.removeTags) {
+      if (removeTags) {
         modsToGo++;
-        folderConn._conn.removeFlags(messages, op.removeTags, tagsModded);
+        folderConn._conn.delFlags(messages, removeTags, tagsModded);
       }
     }
     function tagsModded(err) {
@@ -151,6 +209,8 @@ ImapJobDriver.prototype = {
         done('unknown');
         return;
       }
+      op.progress += (undo ? -curPartition.messages.length
+                           : curPartition.messages.length);
       if (--modsToGo === 0)
         openNextFolder();
     }
@@ -168,10 +228,14 @@ ImapJobDriver.prototype = {
     return UNCHECKED_IDEMPOTENT;
   },
 
-  local_undo_modtags: function() {
+  local_undo_modtags: function(op, callback) {
+    // Undoing is just a question of flipping the add and remove lists.
+    return this.local_do_modtags(op, callback, true);
   },
 
-  undo_modtags: function() {
+  undo_modtags: function(op, callback) {
+    // Undoing is just a question of flipping the add and remove lists.
+    return this.do_modtags(op, callback, true);
   },
 
   /**

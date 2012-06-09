@@ -14,7 +14,7 @@ var gAccountCreated = false;
 
 var TestImapAccountMixins = {
   __constructor: function(self, opts) {
-    self._eTestAccount = self.T.actor('ImapAccount', self.__name, null, self);
+    self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
     self._bridgeLog = null;
 
     // Pick a 'now' for the purposes of our testing that does not change
@@ -38,7 +38,7 @@ var TestImapAccountMixins = {
         return;
 
       self.expect_createUniverse();
-      MailUniverse = new $_mailuniverse.MailUniverse(
+      MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
         // Do not force everything to be under test; leave that to the test
         // framework.  (If we passed true, we would break the testing
         // framework's ability to log things, as well.)
@@ -71,7 +71,7 @@ var TestImapAccountMixins = {
     self.T.convenienceSetup(self, 'creates test account', function() {
       if (gAccountCreated)
         return;
-      self.RT.reportActiveActorThisStep(self._eTestAccount);
+      self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.expect_accountCreated();
 
       MailAPI.tryToCreateAccount(
@@ -118,11 +118,11 @@ var TestImapAccountMixins = {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
         return;
-      self.RT.reportActiveActorThisStep(self._eTestAccount);
+      self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self);
-      self._eTestAccount.expect_reuseConnection();
-      self._eTestAccount.expect_releaseConnection();
-      self._eTestAccount.expect_deleteFolder();
+      self.eImapAccount.expect_reuseConnection();
+      self.eImapAccount.expect_releaseConnection();
+      self.eImapAccount.expect_deleteFolder();
       self.expect_deletionNotified(1);
 
       gAllFoldersSlice.onsplice = function(index, howMany, added,
@@ -133,13 +133,13 @@ var TestImapAccountMixins = {
       MailUniverse.accounts[0].deleteFolder(existingFolder.id);
     });
 
-    this.T.convenienceSetup(self._eTestAccount, 'create test folder',function(){
+    this.T.convenienceSetup(self.eImapAccount, 'create test folder',function(){
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
-      self._eTestAccount.expect_reuseConnection();
-      self._eTestAccount.expect_releaseConnection();
-      self._eTestAccount.expect_createFolder();
+      self.eImapAccount.expect_reuseConnection();
+      self.eImapAccount.expect_releaseConnection();
+      self.eImapAccount.expect_createFolder();
       self.expect_creationNotified(1);
 
       gAllFoldersSlice.onsplice = function(index, howMany, added,
@@ -171,8 +171,17 @@ var TestImapAccountMixins = {
   _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
     var self = this;
     this.T.convenienceSetup(this, desc, testFolder,function(){
+      self.RT.reportActiveActorThisStep(self.eImapAccount);
+      self.universe._testModeDisablingLocalOps = true;
       var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
+
+      // the append will need to check out and check back-in a connection
+      self.eImapAccount.expect_runOp_begin('do', 'append');
+      self.eImapAccount.expect_reuseConnection();
+      self.eImapAccount.expect_releaseConnection();
+      self.eImapAccount.expect_runOp_end('do', 'append');
       self.expect_appendNotified();
+
       var messageBodies = generator.makeMessages(messageSetDef);
       // no messages in there yet, just use the list as-is
       if (!testFolder.messages) {
@@ -195,6 +204,7 @@ var TestImapAccountMixins = {
       MailUniverse.appendMessages(testFolder.id, messageBodies);
       MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
         self._logger.appendNotified();
+        self.universe._testModeDisablingLocalOps = false;
       });
     }).timeoutMS = 1000 + 600 * messageSetDef.count; // appending can take a bit.
   },
@@ -217,6 +227,8 @@ var TestImapAccountMixins = {
   do_manipulateFolder: function(testFolder, noLocal, manipFunc) {
     var self = this;
     this.T.action(this, 'manipulates folder', testFolder, function() {
+      if (noLocal)
+        self.universe._testModeDisablingLocalOps = true;
       self.expect_manipulationNotified();
       // XXX we want to put the system in a mode where the manipulations are
       // not played locally.
@@ -229,6 +241,8 @@ var TestImapAccountMixins = {
         MailAPI.ping(function() {
           MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
             self._logger.manipulationNotified();
+            if (noLocal)
+              self.universe._testModeDisablingLocalOps = false;
           });
         });
       };
@@ -238,11 +252,15 @@ var TestImapAccountMixins = {
   do_manipulateFolderView: function(viewThing, noLocal, manipFunc) {
     var self = this;
     this.T.action(this, 'manipulates folder view', viewThing, function() {
+      if (noLocal)
+        self.universe._testModeDisablingLocalOps = true;
       self.expect_manipulationNotified();
       manipFunc(viewThing.slice);
       MailAPI.ping(function() {
         MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
           self._logger.manipulationNotified();
+          if (noLocal)
+            self.universe._testModeDisablingLocalOps = false;
         });
       });
     });
@@ -252,12 +270,17 @@ var TestImapAccountMixins = {
    * Start/stop pretending to be offline.  In this case, pretending means that
    * we claim we are offline but do not tear down our IMAP connections.
    */
-  do_pretendToBeOffline: function(beOffline) {
-    this.T.convenienceSetup(
-      beOffline ? 'pretend to be offline' : 'stop pretending to be offline',
+  do_pretendToBeOffline: function(beOffline, runBefore) {
+    var step = this.T.convenienceSetup(
+      beOffline ? 'go offline' : 'go online',
       function() {
-        MailUniverse.online = !beOffline;
+        if (runBefore)
+          runBefore();
+        window.navigator.connection.TEST_setOffline(beOffline);
       });
+    // the step isn't boring if we add expectations to it.
+    if (runBefore)
+      step.log.boring(false);
   },
 
   _expect_dateSyncs: function(testFolder, expectedValues) {
@@ -345,9 +368,21 @@ var TestImapAccountMixins = {
    *       The MailHeader that we expect to be deleted.
    *     }
    *   ]]
+   *  @param[completeCheckOn #:optional @oneof[
+   *    @default{
+   *      The slice's oncomplete method is used.
+   *    }
+   *    @case['roundtrip']{
+   *      Expect that we will have heard all modifications by the time a ping
+   *      issued during the call has its callback invoked.  (Make sure to call
+   *      this method after issuing the mutations for this to work out...)
+   *    }
    * ]
    */
-  expect_headerChanges: function(viewThing, expected) {
+  expect_headerChanges: function(viewThing, expected, completeCheckOn) {
+    this.RT.reportActiveActorThisStep(this);
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+
     var changeMap = {}, self = this;
     // - generate expectations and populate changeMap
     var i, iExp, expDeletionRep = {}, expChangeRep = {};
@@ -382,13 +417,18 @@ var TestImapAccountMixins = {
     viewThing.slice.onremove = function(item) {
       deletionRep[item.subject] = true;
     };
-    viewThing.slice.oncomplete = function refreshCompleted() {
-      self._logger.messagesReported(viewThing.slice.items.length);
+    function completed() {
+      if (!completeCheckOn)
+        self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(changeRep, deletionRep);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
     };
+    if (completeCheckOn === 'roundtrip')
+      MailAPI.ping(completed);
+    else
+      viewThing.slice.oncomplete = completed;
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected) {

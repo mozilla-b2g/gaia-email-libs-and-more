@@ -31,6 +31,15 @@ define(
   ) {
 const allbackMaker = $allback.allbackMaker;
 
+/**
+ * How many operations per account should we track to allow for undo operations?
+ * The B2G email app only demands a history of 1 high-level op for undoing, but
+ * we are supporting somewhat more for unit tests, potential fancier UIs, and
+ * because high-level ops may end up decomposing into multiple lower-level ops
+ * someday.
+ */
+const MAX_MUTATIONS_FOR_UNDO = 10;
+
 const PIECE_ACCOUNT_TYPE_TO_CLASS = {
   'imap': $imapacct.ImapAccount,
   'smtp': $smtpacct.SmtpAccount,
@@ -81,6 +90,8 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
+  this.meta = this._receivePiece.meta;
+  this.mutations = this._receivePiece.mutations;
 }
 CompositeAccount.prototype = {
   toString: function() {
@@ -152,6 +163,17 @@ const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
 
 // Simple hard-coded autoconfiguration by domain...
 var autoconfigByDomain = {
+  // this is for testing, and won't work because of bad certs.
+  'asutherland.org': {
+    type: 'imap+smtp',
+    imapHost: 'mail.asutherland.org',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'mail.asutherland.org',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: true,
+  },
   'yahoo.com': {
     type: 'imap+smtp',
     imapHost: 'imap.mail.yahoo.com',
@@ -283,6 +305,10 @@ Configurators['imap+smtp'] = {
     var folderInfo = {
       $meta: {
         nextFolderNum: 0,
+        nextMutationNum: 0,
+        lastFullFolderProbeAt: 0,
+        capability: imapProtoConn.capabilities,
+        rootDelim: imapProtoConn.delim,
       },
       $mutations: [],
     };
@@ -324,6 +350,9 @@ Configurators['fake'] = {
     };
 
     var folderInfo = {
+      $meta: {
+        nextMutationNum: 0,
+      },
       $mutations: [],
     };
     universe._db.saveAccountDef(accountDef, folderInfo);
@@ -406,16 +435,15 @@ Configurators['fake'] = {
  *   @key[receiveConnInfo ConnInfo]
  *   @key[sendConnInfo ConnInfo]
  * ]]
+ * @typedef[MessageNamer @dict[
+ *   @key[date DateMS]
+ *   @key[suid SUID]
+ * ]]{
+ *   The information we need to locate a message within our storage.  When the
+ *   MailAPI tells the back-end things, it uses this representation.
+ * }
  * @typedef[SerializedMutation @dict[
- *   @key[id]{
- *     Unique-ish identifier for the mutation.  Just needs to be unique enough
- *     to not refer to any pending or still undoable-operation.
- *   }
- *   @key[friendlyOp String]{
- *     The user friendly opcode where flag manipulations like starring have
- *     their own opcode.
- *   }
- *   @key[realOp @oneof[
+ *   @key[type @oneof[
  *     @case['modtags']{
  *       Modify tags by adding and/or removing them.
  *     }
@@ -430,8 +458,23 @@ Configurators['fake'] = {
  *   ]]{
  *     The implementation opcode used to determine what functions to call.
  *   }
- *   @key[messages @listof[SUID]]
- *   @key[targetFolder #:optional FolderId]{
+ *   @key[longtermId]{
+ *     Unique-ish identifier for the mutation.  Just needs to be unique enough
+ *     to not refer to any pending or still undoable-operation.
+ *   }
+ *   @key[status @oneof[
+ *     @case[null]
+ *     @case['running']
+ *     @case['done']
+ *   ]]{
+ *   }
+ *   @key[humanOp String]{
+ *     The user friendly opcode where flag manipulations like starring have
+ *     their own opcode.
+ *   }
+ *   @key[messages @listof[MessageNamer]]
+ *
+ *   @key[folderId #:optional FolderId]{
  *     If this is a move/copy, the target folder
  *   }
  * ]]
@@ -454,8 +497,11 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
   var connection = window.navigator.connection ||
                      window.navigator.mozConnection ||
                      window.navigator.webkitConnection;
+  this.online = true; // just so we don't cause an offline->online transition
   this._onConnectionChange();
   connection.addEventListener('change', this._onConnectionChange.bind(this));
+
+  this._testModeDisablingLocalOps = false;
 
   /**
    * @dictof[
@@ -505,6 +551,7 @@ MailUniverse.prototype = {
     var connection = window.navigator.connection ||
                        window.navigator.mozConnection ||
                        window.navigator.webkitConnection;
+    var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
      * This should ideally be false behind a captive portal.
@@ -524,6 +571,21 @@ MailUniverse.prototype = {
      * infinite wi-fi.
      */
     this.networkCostsMoney = connection.metered;
+
+    if (!wasOnline && this.online) {
+      // - check if we have any pending actions to run and run them if so.
+      for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
+        var account = this.accounts[iAcct],
+            queue = this._opsByAccount[account.id];
+        if (queue.length &&
+            (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
+          var op = queue[0];
+          account.runOp(
+            op, op.status !== 'done' ? 'do' : 'undo',
+            this._opCompleted.bind(this, account, op));
+        }
+      }
+    }
   },
 
   registerBridge: function(mailBridge) {
@@ -646,14 +708,15 @@ MailUniverse.prototype = {
    * may require it.  (Ex: activesync and gmail may be able to do things
    * that way.)
    */
-  _partitionMessagesByAccount: function(messageSuids, targetAccountId) {
+  _partitionMessagesByAccount: function(messageNamers, targetAccountId) {
     var results = [], acctToMsgs = {};
 
-    for (var i = 0; i < messageSuids.length; i++) {
-      var messageSuid = messageSuids[i],
+    for (var i = 0; i < messageNamers.length; i++) {
+      var messageNamer = messageNamers[i],
+          messageSuid = messageNamer.suid,
           accountId = messageSuid.substring(0, messageSuid.indexOf('/'));
       if (!acctToMsgs.hasOwnProperty(accountId)) {
-        var messages = [messageSuid];
+        var messages = [messageNamer];
         results.push({
           account: this._accountsById[accountId],
           messages: messages,
@@ -662,7 +725,7 @@ MailUniverse.prototype = {
         acctToMsgs[accountId] = messages;
       }
       else {
-        acctToMsgs[accountId].push(messageSuid);
+        acctToMsgs[accountId].push(messageNamer);
       }
     }
 
@@ -676,7 +739,9 @@ MailUniverse.prototype = {
 
     if (queue.length) {
       op = queue[0];
-      account.runOp(op, 'do', this._opCompleted.bind(this, account, op));
+      account.runOp(
+        op, op.status !== 'done' ? 'do' : 'undo',
+        this._opCompleted.bind(this, account, op));
     }
     else if (this._opCompletionListenersByAccount[account.id]) {
       this._opCompletionListenersByAccount[account.id](account);
@@ -684,11 +749,36 @@ MailUniverse.prototype = {
     }
   },
 
+  /**
+   * Immediately run the local mutation (synchronously) for an operation and
+   * enqueue its server operation for asynchronous operation.
+   *
+   * (nb: Header updates' execution may actually be deferred into the future if
+   * block loads are required, but they will maintain their apparent ordering
+   * on the folder in question.)
+   */
   _queueAccountOp: function(account, op) {
     var queue = this._opsByAccount[account.id];
     queue.push(op);
-    if (queue.length === 1)
-      account.runOp(op, 'do', this._opCompleted.bind(this, account, op));
+
+    if (op.status === null) {
+      op.longtermId = account.id + '/' +
+                        $a64.encodeInt(account.meta.nextMutationNum++);
+      account.mutations.push(op);
+      if (account.mutations.length > MAX_MUTATIONS_FOR_UNDO)
+        account.mutations.shift();
+    }
+
+    // - run the local manipulation immediately
+    if (!this._testModeDisablingLocalOps)
+      account.runOp(op, op.status !== 'done' ? 'local_do' : 'local_undo');
+
+    // - initiate async execution if this is the first op
+    if (this.online && queue.length === 1)
+      account.runOp(
+        op, op.status !== 'done' ? 'do' : 'undo',
+        this._opCompleted.bind(this, account, op));
+    return op.longtermId;
   },
 
   waitForAccountOps: function(account, callback) {
@@ -699,35 +789,80 @@ MailUniverse.prototype = {
   },
 
   modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
-    var self = this;
+    var self = this, longtermIds = [];
     this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
-      self._queueAccountOp(
+      var longtermId = self._queueAccountOp(
         x.account,
         {
           type: 'modtags',
+          longtermId: null,
+          status: null,
           humanOp: humanOp,
-          messages: messageSuids,
+          messages: x.messages,
           addTags: addTags,
           removeTags: removeTags,
+          // how many messages have had their tags changed already.
+          progress: 0,
         });
+      longtermIds.push(longtermId);
     });
+    return longtermIds;
   },
 
   moveMessages: function(messageSuids, targetFolderId) {
   },
 
-  undoMutation: function(mutationId) {
-  },
-
   appendMessages: function(folderId, messages) {
     var account = this.getAccountForFolderId(folderId);
-    this._queueAccountOp(
+    var longtermId = this._queueAccountOp(
       account,
       {
         type: 'append',
-        folderId: folderId,
+        longtermId: null,
+        status: null,
+        humanOp: 'append',
         messages: messages,
+        folderId: folderId,
       });
+    return [longtermId];
+  },
+
+  undoMutation: function(longtermIds) {
+    for (var i = 0; i < longtermIds.length; i++) {
+      var longtermId = longtermIds[i],
+          account = this.getAccountForFolderId(longtermId); // (it's fine)
+
+      for (var iOp = 0; iOp < account.mutations.length; iOp++) {
+        var op = account.mutations[iOp];
+        if (op.longtermId === longtermId) {
+          switch (op.status) {
+            // if we haven't started doing the operation, we can cancel it
+            case null:
+            case 'undone':
+              var queue = this._opsByAccount[account.id],
+                  idx = queue.indexOf(op);
+              if (idx !== -1) {
+                queue.splice(idx, 1);
+                // we still need to trigger the local_undo, of course
+                account.runOp(op, 'local_undo');
+              }
+              // If it somehow didn't exist, enqueue it.  Presumably this is
+              // something odd like a second undo request, which is logically
+              // a 'do' request, which is unsupported, but hey.
+              else
+                this._queueAccountOp(account, op);
+              break;
+            // If it has been completed or is in the processing of happening, we
+            // should just enqueue it again to trigger its undoing/doing.
+            case 'done':
+            case 'doing':
+            case 'undoing':
+              this._queueAccountOp(account, op);
+              break;
+          }
+        }
+      }
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////

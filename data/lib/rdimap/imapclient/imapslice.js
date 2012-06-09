@@ -835,10 +835,10 @@ ImapFolderConn.prototype = {
               }
             }
             var header = knownHeaders[i];
-
+            // (msg.flags comes sorted and we maintain that invariant)
             if (header.flags.toString() !== msg.flags.toString()) {
               header.flags = msg.flags;
-              storage.updateMessageHeader(header);
+              storage.updateMessageHeader(header.date, header.id, true, header);
             }
             else {
               storage.unchangedMessageHeader(header);
@@ -2180,42 +2180,60 @@ ImapFolderStorage.prototype = {
    * A message header gets updated ONLY because of a change in its flags.  We
    * don't consider this change large enough to cause us to need to split a
    * block.
+   *
+   * This function can either be used to replace the header or to look it up
+   * and then call a function to manipulate the header.
    */
-  updateMessageHeader: function ifs_updateMessageHeader(header) {
+  updateMessageHeader: function ifs_updateMessageHeader(date, uid, partOfSync,
+                                                        headerOrMutationFunc) {
+    // (While this method can complete synchronously, we want to maintain its
+    // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.updateMessageHeader.bind(this, header));
+      this._deferredCalls.push(this.updateMessageHeader.bind(
+                                 this, date, uid, partOfSync,
+                                 headerOrMutationFunc));
       return;
     }
 
-    if (this._curSyncSlice)
-      this._curSyncSlice.onHeaderAdded(header);
-    if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
-      for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
-        var slice = this._slices[iSlice];
-        if (slice === this._curSyncSlice)
-          continue;
-        if (BEFORE(header.date, slice.startTS) ||
-            STRICTLY_AFTER(header.date, slice.endTS))
-          continue;
-        if ((header.date === slice.startTS &&
-             header.id < slice.startUID) ||
-            (header.date === slice.endTS &&
-             header.id > slice.endUID))
-          continue;
-        slice.onHeaderModified(header);
-      }
-    }
-
-    // NB: This is potentially overkill since we probably will try and avoid
-    // evicting header blocks while the headers are in use, but let's wait
-    // before we go declaring/assuming that invariant.
+    // We need to deal with the potential for the block having been discarded
+    // from memory thanks to the potential asynchrony due to pending loads or
+    // on the part of the caller.
     var infoTuple = this._findRangeObjIndexForDateAndUID(
-                      this._headerBlockInfos, header.date, header.id),
+                      this._headerBlockInfos, date, uid),
         iInfo = infoTuple[0], info = infoTuple[1], self = this;
     function doUpdateHeader(block) {
-      var idx = block.uids.indexOf(header.id);
-      block.headers[idx] = header;
+      var idx = block.uids.indexOf(uid), header;
+      if (idx === -1)
+        throw new Error("Failed to find UID " + uid + "!");
+      if (headerOrMutationFunc instanceof Function) {
+        // If it returns false it means that the header did not change and so
+        // there is no need to mark anything dirty and we can leave without
+        // notifying anyone.
+        if (!headerOrMutationFunc((header = block.headers[idx])))
+          return;
+      }
+      else
+        header = block.headers[idx] = headerOrMutationFunc;
       self._dirtyHeaderBlocks = block;
+
+      if (partOfSync && self._curSyncSlice)
+        self._curSyncSlice.onHeaderAdded(header);
+      if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
+        for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
+          var slice = self._slices[iSlice];
+          if (partOfSync && slice === self._curSyncSlice)
+            continue;
+          if (BEFORE(date, slice.startTS) ||
+              STRICTLY_AFTER(date, slice.endTS))
+            continue;
+          if ((date === slice.startTS &&
+               uid < slice.startUID) ||
+              (date === slice.endTS &&
+               uid > slice.endUID))
+            continue;
+          slice.onHeaderModified(header);
+        }
+      }
     }
     if (!this._headerBlocks.hasOwnProperty(info.blockId))
       this._loadBlock('header', info.blockId, doUpdateHeader);

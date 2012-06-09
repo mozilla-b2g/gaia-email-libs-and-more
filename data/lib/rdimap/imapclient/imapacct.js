@@ -84,12 +84,15 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
    *   @param[nextFolderNum Number]{
    *     The next numeric folder number to be allocated.
    *   }
+   *   @param[nextMutationNum Number]{
+   *     The next mutation id to be allocated.
+   *   }
    *   @param[lastFullFolderProbeAt DateMS]{
    *     When was the last time we went through our list of folders and got the
    *     unread count in each folder.
    *   }
-   *   @param[capability String]{
-   *     The post-login capability string from the server.
+   *   @param[capability @listof[String]]{
+   *     The post-login capabilities from the server.
    *   }
    *   @param[rootDelim String]{
    *     The root hierarchy delimiter.  It is possible for servers to not
@@ -101,7 +104,21 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
    *   This information gets flushed on database upgrades.
    * }
    */
-  this._meta = this._folderInfos.$meta;
+  this.meta = this._folderInfos.$meta;
+  /**
+   * @listof[SerializedMutation]{
+   *   The list of recently issued mutations against us.  Mutations are added
+   *   as soon as they are requested and remain until evicted based on a hard
+   *   numeric limit.  The limit is driven by our unit tests rather than our
+   *   UI which currently only allows a maximum of 1 (high-level) undo.  The
+   *   status of whether the mutation has been run is tracked on the mutation
+   *   but does not affect its presence or position in the list.
+   *
+   *   Right now, the `MailUniverse` is in charge of this and we just are a
+   *   convenient place to stash the data.
+   * }
+   */
+  this.mutations = this._folderInfos.$mutations;
   for (var folderId in folderInfos) {
     if (folderId[0] === '$')
       continue;
@@ -124,7 +141,7 @@ ImapAccount.prototype = {
    * Make a given folder known to us, creating state tracking instances, etc.
    */
   _learnAboutFolder: function(name, path, type, delim) {
-    var folderId = this.id + '/' + $a64.encodeInt(this._meta.nextFolderNum++);
+    var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     console.log('FOLDER', name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -216,7 +233,7 @@ ImapAccount.prototype = {
     }
     else {
       path = '';
-      delim = this._meta.rootDelim;
+      delim = this.meta.rootDelim;
     }
     if (typeof(folderName) === 'string')
       path += folderName;
@@ -328,6 +345,13 @@ ImapAccount.prototype = {
   },
 
   getFolderStorageForFolderId: function(folderId) {
+    if (this._folderStorages.hasOwnProperty(folderId))
+      return this._folderStorages[folderId];
+    throw new Error('No folder with id: ' + folderId);
+  },
+
+  getFolderStorageForMessageSuid: function(messageSuid) {
+    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('/'));
     if (this._folderStorages.hasOwnProperty(folderId))
       return this._folderStorages[folderId];
     throw new Error('No folder with id: ' + folderId);
@@ -622,14 +646,31 @@ ImapAccount.prototype = {
    * ]
    */
   runOp: function(op, mode, callback) {
-    var methodName = mode + '_' + op.type, self = this;
+    var methodName = mode + '_' + op.type, self = this,
+        isLocal = (mode === 'local_do' || mode === 'local_undo');
+
     if (!(methodName in this._jobDriver))
-      throw new Error("Unsupported op: '" + op.type + "'");
-    this._LOG.runOp_begin(op.type, null);
-    this._jobDriver[methodName](op, function(error) {
-      self._LOG.runOp_end(op.type, error);
-      callback(error);
-    });
+      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
+
+    if (!isLocal)
+      op.status = mode + 'ing';
+
+    if (callback) {
+      this._LOG.runOp_begin(mode, op.type, null);
+      this._jobDriver[methodName](op, function(error) {
+        self._LOG.runOp_end(mode, op.type, error);
+        if (!isLocal)
+          op.status = mode + 'ne';
+        callback(error);
+      });
+    }
+    else {
+      this._LOG.runOp_begin(mode, op.type, null);
+      var rval = this._jobDriver[methodName](op);
+      if (!isLocal)
+        op.status = mode + 'ne';
+      this._LOG.runOp_end(mode, op.type, rval);
+    }
   },
 
   // NB: this is not final mutation logic; it needs to be more friendly to
@@ -670,7 +711,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       folderAlreadyHasConn: { folderId: false },
     },
     asyncJobs: {
-      runOp: { type: false },
+      runOp: { mode: true, type: true },
     },
   },
 });

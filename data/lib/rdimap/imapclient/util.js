@@ -63,13 +63,14 @@ var bsearchMaybeExists = exports.bsearchMaybeExists =
 };
 
 exports.partitionMessagesByFolderId =
-    function partitionMessagesByFolderId(messageSuids, onlyKeepMsgId) {
+    function partitionMessagesByFolderId(messageNamers, onlyKeepMsgId) {
   var results = [], foldersToMsgs = {};
-  for (var i = 0; i < messageSuids.length; i++) {
-    var messageSuid = messageSuids[i],
+  for (var i = 0; i < messageNamers.length; i++) {
+    var messageSuid = messageNamers[i].suid,
         idxLastSlash = messageSuid.lastIndexOf('/'),
         folderId = messageSuid.substring(0, idxLastSlash),
-        useId = onlyKeepMsgId ? messageSuid.substring(idxLastSlash+1)
+        // if we only want the UID, do so, but make sure to parse it as a #!
+        useId = onlyKeepMsgId ? parseInt(messageSuid.substring(idxLastSlash+1))
                               : messageSuid;
 
     if (!foldersToMsgs.hasOwnProperty(folderId)) {

@@ -232,8 +232,17 @@ MailBridge.prototype = {
     //   know enough to reverse the operation.
     // - Speculative changes are made to the headers in the database locally.
 
-    this.universe.modifyMessageTags(
+    var longtermIds = this.universe.modifyMessageTags(
       msg.opcode, msg.messages, msg.addTags, msg.removeTags);
+    this.__sendMessage({
+      type: 'mutationConfirmed',
+      handle: msg.handle,
+      longtermIds: longtermIds,
+    });
+  },
+
+  _cmd_undo: function mb__cmd_undo(msg) {
+    this.universe.undoMutation(msg.longtermIds);
   },
 
   //////////////////////////////////////////////////////////////////////////////
