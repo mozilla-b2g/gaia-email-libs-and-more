@@ -47,10 +47,10 @@ TD.commonCase('folder sync', function(T) {
     'test_empty_sync', { count: 0 });
   testAccount.do_viewFolder('syncs', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(false);
+  testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 });
 
@@ -64,10 +64,10 @@ TD.commonCase('folder sync', function(T) {
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder('syncs', fullSyncFolder,
                             { count: 4, full: 4, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
                             { count: 4, full: 0, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(false);
+  testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', fullSyncFolder,
                             { count: 4, full: 0, flags: 4, deleted: 0 });
 
@@ -83,10 +83,10 @@ TD.commonCase('folder sync', function(T) {
   // line up perfectly so we actually get 21, which is not what we want.)
   testAccount.do_viewFolder('syncs', saturatedFolder,
                             { count: 20, full: 20, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', saturatedFolder,
                             { count: 20, full: 0, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(false);
+  testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', saturatedFolder,
                             { count: 20, full: 0, flags: 20, deleted: 0 });
 
@@ -103,12 +103,12 @@ TD.commonCase('folder sync', function(T) {
                             [{ count: 4, full: 4, flags: 0, deleted: 0 },
                              { count: 7, full: 7, flags: 0, deleted: 0 },
                              { count: 7, full: 7, flags: 0, deleted: 0 }]);
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', msearchFolder,
                             // Distinct date ranges are not required since we
                             // are offline...
                             { count: 18, full: 0, flags: 0, deleted: 0 });
-  testAccount.do_pretendToBeOffline(false);
+  testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', msearchFolder,
                             [{ count: 4, full: 0, flags: 4, deleted: 0 },
                              { count: 7, full: 0, flags: 7, deleted: 0 },

@@ -24,6 +24,9 @@ var TestUniverseMixins = {
     // corresponding loggers will be created.
     self.__restoredAccounts = [];
 
+    self.__folderConnLoggerSoup = {};
+    self.__folderStorageLoggerSoup = {};
+
     // Pick a 'now' for the purposes of our testing that does not change
     // throughout the test.  We really don't want to break because midnight
     // happened during the test run.
@@ -40,6 +43,11 @@ var TestUniverseMixins = {
     self.T.convenienceSetup(self, 'initializes', self.eUniverse, function() {
       self.__attachToLogger(LOGFAB.testUniverse(self, null, self.__name));
       self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
+
+      self.RT.captureAllLoggersByType(
+        'ImapFolderConn', self.__folderConnLoggerSoup);
+      self.RT.captureAllLoggersByType(
+        'ImapFolderStorage', self.__folderStorageLoggerSoup);
 
       for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
         var testAccount = self.__restoredAccounts[iAcct];
@@ -130,6 +138,7 @@ var TestImapAccountMixins = {
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
+      self._do_issueRestoredAccountQueries();
     }
     else {
       self._do_createAccount();
@@ -152,6 +161,28 @@ var TestImapAccountMixins = {
   _expect_restore: function() {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(this.eSmtpAccount);
+  },
+
+  _do_issueRestoredAccountQueries: function() {
+    var self = this;
+    self.T.convenienceSetup(self, 'issues helper queries', function() {
+      self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+
+      self.universe = self.testUniverse.universe;
+
+      var callbacks = $_allback.allbackMaker(
+        ['accounts', 'folders'],
+        function gotSlices() {
+          self._logger.accountCreated();
+        });
+
+      gAllAccountsSlice = self.allAccountsSlice =
+        MailAPI.viewAccounts(false);
+      gAllAccountsSlice.oncomplete = callbacks.accounts;
+
+      gAllFoldersSlice = self.allFoldersSlice = MailAPI.viewFolders('navigation');
+      gAllFoldersSlice.oncomplete = callbacks.folders;
+    });
   },
 
   _do_createAccount: function() {
@@ -264,6 +295,27 @@ var TestImapAccountMixins = {
     return testFolder;
   },
 
+  do_useExistingFolder: function(folderName, suffix, oldFolder) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName + suffix);
+    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
+    testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
+    testFolder.messages = null;
+    this.T.convenienceSetup('find test folder', testFolder, function() {
+      testFolder.mailFolder = self.allFoldersSlice.getFirstFolderWithName(
+                                folderName);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder)
+        testFolder.messages = oldFolder.messages;
+
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
+
   _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
     var self = this;
     this.T.convenienceSetup(this, desc, testFolder,function(){
@@ -312,7 +364,6 @@ var TestImapAccountMixins = {
     this._do_addMessagesToTestFolder(testFolder, 'add messages to',
                                      messageSetDef);
   },
-
 
   /**
    * Provide a context in which to manipulate the contents of a folder by

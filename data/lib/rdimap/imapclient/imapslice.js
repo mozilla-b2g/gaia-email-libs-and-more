@@ -541,7 +541,7 @@ const FLAG_FETCH_PARAMS = {
 function ImapFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
-  this._LOG = LOGFAB.ImapFolderConn(this, _parentLog, [storage.folderId, storage.folderMeta.path]);
+  this._LOG = LOGFAB.ImapFolderConn(this, _parentLog, storage.folderId);
 
   this._conn = null;
   this.box = null;
@@ -644,7 +644,8 @@ ImapFolderConn.prototype = {
       ['search', 'db'],
       function syncDateRangeLogic(results) {
         var serverUIDs = results.search, headers = results.db,
-            knownUIDs = [], uid, numDeleted = 0;
+            knownUIDs = [], uid, numDeleted = 0,
+            modseq = self._conn._state.box.highestModSeq || '';
 
         // -- infer deletion, flag to distinguish known messages
         // rather than splicing lists and causing shifts, we null out values.
@@ -674,6 +675,7 @@ ImapFolderConn.prototype = {
           function(newCount, knownCount) {
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
                                         startTS, endTS);
+            self._storage.markSyncRange(startTS, endTS, modseq, Date.now());
             doneCallback();
           });
       });
@@ -1054,7 +1056,7 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._folderImpl = persistedFolderInfo.$impl;
 
   this._LOG = LOGFAB.ImapFolderStorage(
-    this, _parentLog, [folderId, this.folderMeta.path]);
+    this, _parentLog, folderId);
 
   /**
    * @listof[AccuracyRangeInfo]{
@@ -1758,8 +1760,14 @@ ImapFolderStorage.prototype = {
 
     var self = this;
     function onLoaded(block) {
-      self._LOG.loadBlock_end(type, blockId);
-      self._pendingLoads.splice(index, 1);
+      if (!block)
+        self._LOG.badBlockLoad(type, blockId);
+      self._LOG.loadBlock_end(type, blockId, block);
+      if (type === 'header')
+        self._headerBlocks[blockId] = block;
+      else
+        self._bodyBlocks[blockId] = block;
+      self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
@@ -2098,6 +2106,9 @@ ImapFolderStorage.prototype = {
    * ]
    */
   markSyncRange: function(startTS, endTS, modseq, updated) {
+    // If our range was marked open-ended, it's really accurate through now.
+    if (!endTS)
+      endTS = Date.now();
     var aranges = this._accuracyRanges;
     function makeRange(start, end, modseq, updated) {
       return {
@@ -2109,7 +2120,6 @@ ImapFolderStorage.prototype = {
             updated: modseq.fullSync.updated },
       };
     }
-
 
     var newInfo = this._findFirstObjIndexForDateRange(aranges, startTS, endTS),
         oldInfo = this._findLastObjIndexForDateRange(aranges, startTS, endTS),
@@ -2426,7 +2436,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     asyncJobs: {
       loadBlock: { type: false, blockId: false },
     },
+    TEST_ONLY_asyncJobs: {
+      loadBlock: { block: false },
+    },
     errors: {
+      badBlockLoad: { type: false, blockId: false },
     }
   },
 }); // end LOGFAB

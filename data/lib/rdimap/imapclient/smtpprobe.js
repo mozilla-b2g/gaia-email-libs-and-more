@@ -20,8 +20,7 @@ function SmtpProber(credentials, connInfo) {
       secureConnection: connInfo.crypto === true,
       ignoreTLS: connInfo.crypto === false,
       auth: { user: credentials.username, pass: credentials.password },
-      // XXX debug is on
-      debug: true,
+      debug: false,
     });
   this._conn.on('idle', this.onIdle.bind(this));
   this._conn.on('error', this.onBadness.bind(this));

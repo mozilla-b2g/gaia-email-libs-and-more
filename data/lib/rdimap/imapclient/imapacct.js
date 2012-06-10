@@ -142,7 +142,6 @@ ImapAccount.prototype = {
    */
   _learnAboutFolder: function(name, path, type, delim) {
     var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
-    console.log('FOLDER', name, path, type);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
@@ -177,6 +176,8 @@ ImapAccount.prototype = {
     delete this._folderInfos[folderId];
     var folderStorage = this._folderStorages[folderId];
     delete this._folderStorages[folderId];
+    var idx = this.folders.indexOf(folderMeta);
+    this.folders.splice(idx, 1);
     if (this._deadFolderIds === null)
       this._deadFolderIds = [];
     this._deadFolderIds.push(folderId);
@@ -202,15 +203,17 @@ ImapAccount.prototype = {
           folderStorage = this._folderStorages[folderPub.id],
           folderStuff = folderStorage.generatePersistenceInfo();
       if (folderStuff)
-          perFolderStuff.push(folderStuff);
+        perFolderStuff.push(folderStuff);
     }
     this._LOG.saveAccountState_begin();
     var trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff,
+      this._deadFolderIds,
       function stateSaved() {
         self._LOG.saveAccountState_end();
       },
       reuseTrans);
+    this._deadFolderIds = null;
     return trans;
   },
 

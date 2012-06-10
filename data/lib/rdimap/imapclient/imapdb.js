@@ -258,6 +258,7 @@ ImapDB.prototype = {
    * ]
    */
   saveAccountFolderStates: function(accountId, folderInfo, perFolderStuff,
+                                    deletedFolderIds,
                                     callback, reuseTrans) {
     var trans = reuseTrans ||
       this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
@@ -265,18 +266,36 @@ ImapDB.prototype = {
                            'readwrite');
     trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
-        bodyStore = trans.objectStore(TBL_BODY_BLOCKS);
-    for (var i = 0; i < perFolderStuff.length; i++) {
-      var pfs = perFolderStuff[i];
+        bodyStore = trans.objectStore(TBL_BODY_BLOCKS), i;
+
+    for (i = 0; i < perFolderStuff.length; i++) {
+      var pfs = perFolderStuff[i], block;
 
       for (var headerBlockId in pfs.headerBlocks) {
-        headerStore.put(pfs.headersBlocks[headerBlockId],
-                        pfs.id + ':' + headerBlockId);
+        block = pfs.headerBlocks[headerBlockId];
+        if (block)
+          headerStore.put(block, pfs.id + ':' + headerBlockId);
+        else
+          headerStore.delete(pfs.id + ':' + headerBlockId);
       }
 
       for (var bodyBlockId in pfs.bodyBlocks) {
-        bodyStore.put(pfs.bodyBlocks[bodyBlockId],
-                      pfs.id + ':' + bodyBlockId);
+        block = pfs.bodyBlocks[bodyBlockId];
+        if (block)
+          bodyStore.put(block, pfs.id + ':' + bodyBlockId);
+        else
+          bodyStore.delete(pfs.id + ':' + bodyBlockId);
+      }
+    }
+
+    if (deletedFolderIds) {
+      for (i = 0; i < deletedFolderIds.length; i++) {
+        var folderId = deletedFolderIds[i],
+            range = IDBKeyRange.bound(folderId + ':',
+                                      folderId + ':\ufffe',
+                                      false, false)
+        headerStore.delete(range);
+        bodyStore.delete(range);
       }
     }
 

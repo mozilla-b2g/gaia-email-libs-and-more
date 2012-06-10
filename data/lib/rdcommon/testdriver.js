@@ -72,6 +72,7 @@ var DEFAULT_STEP_TIMEOUT_MS = $testcontext.STEP_TIMEOUT_MS;
 function TestRuntimeContext(envOptions) {
   this._loggerStack = [];
   this._pendingActorsByLoggerType = {};
+  this._captureAllLoggersByType = {};
   this.envOptions = envOptions || {};
   this.blackboard = {};
 
@@ -127,6 +128,20 @@ TestRuntimeContext.prototype = {
   },
 
   /**
+   * Hackish mechanism to deal with the case where a bunch of loggers may be
+   * created all at once and where our code only wants a subset of them,
+   * indexed by name.  We stash the loggers by their name into the dict IFF
+   * their names are simple strings.  We should probably also support a list
+   * so that more complex names could also be inspected...
+   */
+  captureAllLoggersByType: function(type, dict) {
+    if (dict)
+      this._captureAllLoggersByType[type] = dict;
+    else
+      delete this._captureAllLoggersByType[type];
+  },
+
+  /**
    * Logfabs that are told about this context invoke this method when creating a
    *  new logger so that we can hook up actors and insert containing parents.
    *
@@ -151,6 +166,10 @@ TestRuntimeContext.prototype = {
       actor.__attachToLogger(logger);
       // There is no need to generate a fake __loggerFired notification because
       //  the logger is brand new and cannot have any entries at this point.
+    }
+    else if (this._captureAllLoggersByType.hasOwnProperty(type) &&
+             typeof(logger._ident) === 'string') {
+      this._captureAllLoggersByType[type][logger._ident] = logger;
     }
 
     // - if there is no explicit parent, use the top of the logger stack
