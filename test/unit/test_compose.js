@@ -14,7 +14,8 @@ var TD = $tc.defineTestsFor(
  * XXX todo: verify that our account received it.
  */
 TD.commonCase('compose message in one shot', function(T) {
-  var testAccount = T.actor('testImapAccount', 'A');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 
   var composer, eLazy = T.lazyLogger('misc');
   T.action('begin composition', eLazy, function() {

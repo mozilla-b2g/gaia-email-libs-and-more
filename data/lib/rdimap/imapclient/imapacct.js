@@ -186,6 +186,35 @@ ImapAccount.prototype = {
   },
 
   /**
+   * Save the state of this account to the database.  This entails updating all
+   * of our highly-volatile state (folderInfos which contains counters, accuracy
+   * structures, and our block info structures) as well as any dirty blocks.
+   *
+   * This should be entirely coherent because the structured clone should occur
+   * synchronously during this call, but it's important to keep in mind that if
+   * that ever ends up not being the case that we need to cause mutating
+   * operations to defer until after that snapshot has occurred.
+   */
+  saveAccountState: function(reuseTrans) {
+    var perFolderStuff = [], self = this;
+    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
+      var folderPub = this.folders[iFolder],
+          folderStorage = this._folderStorages[folderPub.id],
+          folderStuff = folderStorage.generatePersistenceInfo();
+      if (folderStuff)
+          perFolderStuff.push(folderStuff);
+    }
+    this._LOG.saveAccountState_begin();
+    var trans = this._db.saveAccountFolderStates(
+      this.id, this._folderInfos, perFolderStuff,
+      function stateSaved() {
+        self._LOG.saveAccountState_end();
+      },
+      reuseTrans);
+    return trans;
+  },
+
+  /**
    * Create a folder that is the child/descendant of the given parent folder.
    * If no parent folder id is provided, we attempt to create a root folder.
    *
@@ -366,6 +395,23 @@ ImapAccount.prototype = {
         slice = new $imapslice.ImapSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
+  },
+
+  shutdown: function() {
+    // - kill all folder storages (for their loggers)
+    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
+      var folderPub = this.folders[iFolder],
+          folderStorage = this._folderStorages[folderPub.id];
+      folderStorage.shutdown();
+    }
+
+    // - close all connections
+    for (var i = 0; i < this._ownedConns.length; i++) {
+      var connInfo = this._ownedConns[i];
+      connInfo.conn.die();
+    }
+
+    this._LOG.__die();
   },
 
   /**
@@ -712,6 +758,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true },
+      saveAccountState: {},
     },
   },
 });

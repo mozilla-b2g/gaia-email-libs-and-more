@@ -21,6 +21,10 @@ function SmtpAccount(universe, accountId, credentials, connInfo, _parentLog) {
   this.accountId = accountId;
   this.credentials = credentials;
   this.connInfo = connInfo;
+
+  this._LOG = LOGFAB.SmtpAccount(this, _parentLog, accountId);
+
+  this._activeConnections = [];
 }
 exports.SmtpAccount = SmtpAccount;
 SmtpAccount.prototype = {
@@ -39,10 +43,15 @@ SmtpAccount.prototype = {
           user: this.credentials.username,
           pass: this.credentials.password
         },
-        // XXX debug is on
-        debug: true,
+        debug: false,
       });
     return conn;
+  },
+
+  shutdown: function(callback) {
+    // (there should be no live connections during a unit-test initiated
+    // shutdown.)
+    this._LOG.__die();
   },
 
   /**

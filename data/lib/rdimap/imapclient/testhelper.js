@@ -7,15 +7,22 @@ var $log = require('rdcommon/log'),
     $fakeacct = require('rdimap/imapclient/fakeacct'),
     $imapslice = require('rdimap/imapclient/imapslice'),
     $imaputil = require('rdimap/imapclient/util'),
-    $imapjs = require('imap');
+    $imapjs = require('imap'),
+    $smtpacct = require('rdimap/imapclient/smtpacct');
 
 
-var gAccountCreated = false;
-
-var TestImapAccountMixins = {
+var TestUniverseMixins = {
   __constructor: function(self, opts) {
-    self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
+    self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
+
     self._bridgeLog = null;
+
+    // self-registered accounts that belong to this universe
+    self.__testAccounts = [];
+    // Self-registered accounts that think they are getting restored; we use
+    // this to let them hook into the universe bootstrap process when their
+    // corresponding loggers will be created.
+    self.__restoredAccounts = [];
 
     // Pick a 'now' for the purposes of our testing that does not change
     // throughout the test.  We really don't want to break because midnight
@@ -30,12 +37,14 @@ var TestImapAccountMixins = {
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
      */
-    self.T.convenienceSetup(self, 'initializes', function() {
-      self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+    self.T.convenienceSetup(self, 'initializes', self.eUniverse, function() {
+      self.__attachToLogger(LOGFAB.testUniverse(self, null, self.__name));
       self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
 
-      if (MailUniverse)
-        return;
+      for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
+        var testAccount = self.__restoredAccounts[iAcct];
+        testAccount._expect_restore();
+      }
 
       self.expect_createUniverse();
       MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
@@ -63,16 +72,103 @@ var TestImapAccountMixins = {
           MailUniverse.registerBridge(TMB);
         });
     });
+  },
+
+  do_saveState: function() {
+    var self = this;
+    this.T.action('save state', function() {
+      for (var i = 0; i < self.__testAccounts.length; i++) {
+        self.__testAccounts[i].expect_saveState();
+      }
+      self.universe.saveUniverseState();
+    });
+  },
+
+  do_shutdown: function() {
+    var self = this;
+    this.T.convenienceSetup('shutdown', this, this.__testAccounts, function() {
+      for (var i = 0; i < self.__testAccounts.length; i++) {
+        self.__testAccounts[i].expect_shutdown();
+      }
+      self.universe.shutdown();
+    });
+  },
+
+  /**
+   * Start/stop pretending to be offline.  In this case, pretending means that
+   * we claim we are offline but do not tear down our IMAP connections.
+   */
+  do_pretendToBeOffline: function(beOffline, runBefore) {
+    var step = this.T.convenienceSetup(
+      beOffline ? 'go offline' : 'go online',
+      function() {
+        if (runBefore)
+          runBefore();
+        window.navigator.connection.TEST_setOffline(beOffline);
+      });
+    // the step isn't boring if we add expectations to it.
+    if (runBefore)
+      step.log.boring(false);
+  },
+
+};
+
+var TestImapAccountMixins = {
+  __constructor: function(self, opts) {
+    self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
+    self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
+
+    if (!opts.universe)
+      throw new Error("Universe not specified!");
+    if (!opts.universe.__testAccounts)
+      throw new Error("Universe is not of the right type: " + opts.universe);
+
+    self.universe = null;
+    self.testUniverse = opts.universe;
+    self.testUniverse.__testAccounts.push(this);
+    self._useDate = self.testUniverse._useDate;
+
+    if (opts.restored) {
+      self.testUniverse.__restoredAccounts.push(this);
+    }
+    else {
+      self._do_createAccount();
+    }
+  },
+
+  expect_shutdown: function() {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.eImapAccount.expectOnly__die();
+    this.RT.reportActiveActorThisStep(this.eSmtpAccount);
+    this.eSmtpAccount.expectOnly__die();
+  },
+
+  expect_saveState: function() {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.eImapAccount.expect_saveAccountState_begin();
+    this.eImapAccount.expect_saveAccountState_end();
+  },
+
+  _expect_restore: function() {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.RT.reportActiveActorThisStep(this.eSmtpAccount);
+  },
+
+  _do_createAccount: function() {
+    var self = this;
     /**
      * Create a test account as defined by TEST_PARAMS and query for the list of
      * all accounts and folders, advancing to the next test when both slices are
      * populated.
      */
     self.T.convenienceSetup(self, 'creates test account', function() {
-      if (gAccountCreated)
-        return;
+      self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+
       self.RT.reportActiveActorThisStep(self.eImapAccount);
+      self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.expect_accountCreated();
+
+      self.universe = self.testUniverse.universe;
 
       MailAPI.tryToCreateAccount(
         {
@@ -88,14 +184,14 @@ var TestImapAccountMixins = {
           var callbacks = $_allback.allbackMaker(
             ['accounts', 'folders'],
             function gotSlices() {
-              gAccountCreated = true;
               self._logger.accountCreated();
             });
 
-          gAllAccountsSlice = MailAPI.viewAccounts(false);
+          gAllAccountsSlice = self.allAccountsSlice =
+            MailAPI.viewAccounts(false);
           gAllAccountsSlice.oncomplete = callbacks.accounts;
 
-          gAllFoldersSlice = MailAPI.viewFolders('navigation');
+          gAllFoldersSlice = self.allFoldersSlice = MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
         });
     }).timeoutMS = 5000; // there can be slow startups...
@@ -264,23 +360,6 @@ var TestImapAccountMixins = {
         });
       });
     });
-  },
-
-  /**
-   * Start/stop pretending to be offline.  In this case, pretending means that
-   * we claim we are offline but do not tear down our IMAP connections.
-   */
-  do_pretendToBeOffline: function(beOffline, runBefore) {
-    var step = this.T.convenienceSetup(
-      beOffline ? 'go offline' : 'go online',
-      function() {
-        if (runBefore)
-          runBefore();
-        window.navigator.connection.TEST_setOffline(beOffline);
-      });
-    // the step isn't boring if we add expectations to it.
-    if (runBefore)
-      step.log.boring(false);
   },
 
   _expect_dateSyncs: function(testFolder, expectedValues) {
@@ -463,13 +542,21 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       bridgeSend: { type: false, msg: false },
     },
   },
+  testUniverse: {
+    type: $log.TEST_SYNTHETIC_ACTOR,
+    subtype: $log.DAEMON,
+    topBilling: true,
+
+    events: {
+      createUniverse: {},
+    },
+  },
   testImapAccount: {
     type: $log.TEST_SYNTHETIC_ACTOR,
     subtype: $log.CLIENT,
     topBilling: true,
 
     events: {
-      createUniverse: {},
       accountCreated: {},
 
       deletionNotified: { count: true },
@@ -497,8 +584,10 @@ exports.TESTHELPER = {
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $imapacct.LOGFAB, $imapslice.LOGFAB,
     $imapjs.LOGFAB,
+    $smtpacct.LOGFAB,
   ],
   actorMixins: {
+    testUniverse: TestUniverseMixins,
     testImapAccount: TestImapAccountMixins,
   }
 };

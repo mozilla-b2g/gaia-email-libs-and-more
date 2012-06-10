@@ -862,6 +862,10 @@ ImapFolderConn.prototype = {
       doneCallback(newUIDs.length, knownUIDs.length);
     }
   },
+
+  shutdown: function() {
+    this._LOG.__die();
+  },
 };
 
 /**
@@ -1148,6 +1152,20 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
 }
 exports.ImapFolderStorage = ImapFolderStorage;
 ImapFolderStorage.prototype = {
+  generatePersistenceInfo: function() {
+    if (!this._dirty)
+      return null;
+    var pinfo = {
+      id: this.folderId,
+      headerBlocks: this._dirtyHeaderBlocks,
+      bodyBlocks: this._dirtyBodyBlocks,
+    };
+    this._dirtyHeaderBlocks = {};
+    this._dirtyBodyBlocks = {};
+    this._dirty = false;
+    return pinfo;
+  },
+
   /**
    * Create an empty header `FolderBlockInfo` and matching `HeaderBlock`.  The
    * `HeaderBlock` will be inserted into the block map, but it's up to the
@@ -1180,6 +1198,7 @@ ImapFolderStorage.prototype = {
     var idx = bsearchForInsert(block.headers, header, cmpHeaderYoungToOld);
     block.uids.splice(idx, 0, header.id);
     block.headers.splice(idx, 0, header);
+    this._dirty = true;
     this._dirtyHeaderBlocks[info.blockId] = block;
     // Insertion does not need to update start/end TS/UID because the calling
     // logic is able to handle it.
@@ -1282,6 +1301,7 @@ ImapFolderStorage.prototype = {
     var idx = bsearchForInsert(block.uids, uid, cmpBodyByUID);
     block.uids.splice(idx, 0, uid);
     block.bodies[uid] = body;
+    this._dirty = true;
     this._dirtyBodyBlocks[info.blockId] = block;
     // Insertion does not need to update start/end TS/UID because the calling
     // logic is able to handle it.
@@ -1787,6 +1807,7 @@ ImapFolderStorage.prototype = {
         blockInfoList.splice(iInfo, 1);
         delete blockMap[info.blockId];
 
+        this._dirty = true;
         if (type === 'header')
           this._dirtyHeaderBlocks[info.blockId] = null;
         else
@@ -2214,7 +2235,8 @@ ImapFolderStorage.prototype = {
       }
       else
         header = block.headers[idx] = headerOrMutationFunc;
-      self._dirtyHeaderBlocks = block;
+      self._dirty = true;
+      self._dirtyHeaderBlocks[info.blockId] = block;
 
       if (partOfSync && self._curSyncSlice)
         self._curSyncSlice.onHeaderAdded(header);
@@ -2321,6 +2343,15 @@ ImapFolderStorage.prototype = {
     if (!bodyInfo)
       this._LOG.bodyNotFound();
     callback(bodyInfo);
+  },
+
+  shutdown: function() {
+    // reverse iterate since they will remove themselves as we kill them
+    for (var i = this._slices.length - 1; i >= 0; i++) {
+      this._slices[i].die();
+    }
+    this.folderConn.shutdown();
+    this._LOG.__die();
   },
 
   /**

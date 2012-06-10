@@ -603,6 +603,13 @@ FakeAccount.prototype = {
     };
   },
 
+  saveAccountState: function(reuseTrans) {
+    return reuseTrans;
+  },
+
+  shutdown: function() {
+  },
+
   createFolder: function() {
     throw new Error('XXX not implemented');
   },

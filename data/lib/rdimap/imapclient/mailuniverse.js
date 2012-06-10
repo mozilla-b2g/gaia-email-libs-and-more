@@ -37,6 +37,8 @@ const allbackMaker = $allback.allbackMaker;
  * we are supporting somewhat more for unit tests, potential fancier UIs, and
  * because high-level ops may end up decomposing into multiple lower-level ops
  * someday.
+ *
+ * This limit obviously is not used to discard operations not yet performed!
  */
 const MAX_MUTATIONS_FOR_UNDO = 10;
 
@@ -122,6 +124,18 @@ CompositeAccount.prototype = {
         }
       ],
     };
+  },
+
+  saveAccountState: function(reuseTrans) {
+    return this._receivePiece.saveAccountState(reuseTrans);
+  },
+
+  /**
+   * Shutdown the account; see `MailUniverse.shutdown` for semantics.
+   */
+  shutdown: function() {
+    this._sendPiece.shutdown();
+    this._receivePiece.shutdown();
   },
 
   createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
@@ -312,7 +326,7 @@ Configurators['imap+smtp'] = {
       },
       $mutations: [],
     };
-    universe._db.saveAccountDef(accountDef, folderInfo);
+    universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
   },
 };
@@ -355,7 +369,7 @@ Configurators['fake'] = {
       },
       $mutations: [],
     };
-    universe._db.saveAccountDef(accountDef, folderInfo);
+    universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
     callback(true, account);
   },
@@ -528,7 +542,7 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
   this._db = new $imapdb.ImapDB();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos) {
-    self._LOG.configLoaded(configObj);
+    self._LOG.configLoaded(configObj, accountInfos);
     if (configObj) {
       self.config = configObj;
       for (var i = 0; i < accountInfos.length; i++) {
@@ -538,9 +552,13 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
     }
     else {
       self.config = {
+        // We need to put the id in here because our startup query can't
+        // efficiently get both the key name and the value, just the values.
+        id: 'config',
         nextAccountNum: 0,
         nextIdentityNum: 0,
       };
+      self._db.saveConfig(self.config);
     }
     callAfterBigBang();
   });
@@ -615,6 +633,10 @@ MailUniverse.prototype = {
                                            callback, this._LOG);
   },
 
+  saveAccountDef: function(accountDef, folderInfo) {
+    this._db.saveAccountDef(this.config, accountDef, folderInfo);
+  },
+
   /**
    * Instantiate an account from the persisted representation.
    */
@@ -654,6 +676,37 @@ MailUniverse.prototype = {
       var bridge = this._bridges[iBridge];
       bridge.notifyFolderRemoved(accountId, folderMeta);
     }
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Lifetime Stuff
+
+  /**
+   * Write the current state of the universe to the database.
+   */
+  saveUniverseState: function() {
+    var curTrans = null;
+
+    for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
+      var account = this.accounts[iAcct];
+      curTrans = account.saveAccountState(curTrans);
+    }
+  },
+
+  /**
+   * Shutdown all accounts; this is currently for the benefit of unit testing.
+   * We expect our app to operate in a crash-only mode of operation where a
+   * clean shutdown means we get a heads-up, put ourselves offline, and trigger a
+   * state save before we just demand that our page be closed.  That's future
+   * work, of course.
+   */
+  shutdown: function() {
+    for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
+      var account = this.accounts[iAcct];
+      account.shutdown();
+    }
+    this._db.close();
+    this._LOG.__die();
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -765,8 +818,11 @@ MailUniverse.prototype = {
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
-      if (account.mutations.length > MAX_MUTATIONS_FOR_UNDO)
+      while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
+             (account.mutations[0].status === 'done' ||
+              account.mutations[0].status === 'undone')) {
         account.mutations.shift();
+      }
     }
 
     // - run the local manipulation immediately
@@ -876,7 +932,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createAccount: { type: true, id: false },
     },
     TEST_ONLY_events: {
-      configLoaded: { config: false },
+      configLoaded: { config: false, accounts: false },
       createAccount: { name: false },
     },
     errors: {

@@ -698,6 +698,22 @@ ImapConnection.prototype.connect = function(loginCb) {
   };
 };
 
+/**
+ * Aggressively shutdown the connection, ideally so that no further callbacks
+ * are invoked.
+ */
+ImapConnection.prototype.die = function() {
+  // NB: there's still a lot of events that could happen, but this is only
+  // being used by unit tests right now.
+  if (this._state.conn) {
+    this._state.conn.onclose = null;
+    this._state.conn.onerror = null;
+    this._state.conn.close();
+  }
+  this._reset();
+  this._LOG.__die();
+};
+
 ImapConnection.prototype.isAuthenticated = function() {
   return this._state.status >= STATES.AUTH;
 };

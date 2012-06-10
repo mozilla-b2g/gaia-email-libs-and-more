@@ -34,7 +34,8 @@ const INITIAL_SYNC_DAYS = 7,
 
 TD.commonCase('folder sync', function(T) {
   T.group('setup');
-  var testAccount = T.actor('testImapAccount', 'A'),
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   /**

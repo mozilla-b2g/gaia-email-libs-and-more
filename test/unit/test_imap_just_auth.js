@@ -4,7 +4,8 @@ var TD = $tc.defineTestsFor(
   { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('just auth', function(T) {
-  var testAccount = T.actor('testImapAccount', 'A');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 });
 
 function run_test() {

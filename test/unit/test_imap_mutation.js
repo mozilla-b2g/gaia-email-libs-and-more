@@ -31,7 +31,8 @@ var TD = $tc.defineTestsFor(
 
 TD.commonCase('mutate flags', function(T) {
   T.group('setup');
-  var testAccount = T.actor('testImapAccount', 'A'),
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync'),
       numMessages = 7;
 
@@ -53,7 +54,7 @@ TD.commonCase('mutate flags', function(T) {
    * punting it.
    */
   T.group('offline manipulation; released to server');
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes, no network use by',
            testAccount, testAccount.eImapAccount, function() {
     // by mentioning testAccount we ensure that we will assert if we see a
@@ -131,7 +132,7 @@ TD.commonCase('mutate flags', function(T) {
     { changes: [], deletions: [] });
 
   T.group('undo while offline; released to server');
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   T.action('undo!', testAccount.eImapAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
@@ -168,7 +169,7 @@ TD.commonCase('mutate flags', function(T) {
    * locally and remotely as if it never happened.
    */
   T.group('offline manipulation undone while offline (never online)');
-  testAccount.do_pretendToBeOffline(true);
+  testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes',
            testAccount, testAccount.eImapAccount, function() {
     applyManips();

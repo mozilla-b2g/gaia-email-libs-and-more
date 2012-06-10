@@ -147,6 +147,13 @@ function ImapDB() {
 }
 exports.ImapDB = ImapDB;
 ImapDB.prototype = {
+  close: function() {
+    if (this._db) {
+      this._db.close();
+      this._db = null;
+    }
+  },
+
   getConfig: function(configCallback) {
     if (!this._db) {
       this._onDB.push(this.getConfig.bind(this, configCallback));
@@ -189,6 +196,7 @@ ImapDB.prototype = {
 
   saveConfig: function(config) {
     var req = this._db.transaction(TBL_CONFIG, 'readwrite')
+                        .objectStore(TBL_CONFIG)
                         .put(config, 'config');
     req.onerror = this._fatalError;
   },
@@ -197,13 +205,15 @@ ImapDB.prototype = {
    * Save the addition of a new account or when changing account settings.  Only
    * pass `folderInfo` for the new account case; omit it for changing settings
    * so it doesn't get updated.  For coherency reasons it should only be updated
-   * using saveFolderStates.
+   * using saveAccountFolderStates.
    */
-  saveAccountDef: function(accountDef, folderInfo) {
+  saveAccountDef: function(config, accountDef, folderInfo) {
     var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
                                      'readwrite');
-    trans.objectStore(TBL_CONFIG)
-         .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
+
+    var configStore = trans.objectStore(TBL_CONFIG);
+    configStore.put(config, 'config');
+    configStore.put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
     if (folderInfo) {
       trans.objectStore(TBL_FOLDER_INFO)
            .put(folderInfo, accountDef.id);
@@ -238,7 +248,7 @@ ImapDB.prototype = {
    * instead of per-account.  Revisit if performance data shows stupidity.
    *
    * @args[
-   *   @param[accountDef]
+   *   @param[accountId]
    *   @param[folderInfo]
    *   @param[perFolderStuff @listof[@dict[
    *     @key[id FolderId]
@@ -247,12 +257,13 @@ ImapDB.prototype = {
    *   ]]]
    * ]
    */
-  saveAccountFolderStates: function(accountDef, folderInfo, perFolderStuff,
-                                    callback) {
-    var trans = this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
-                                      TBL_BODY_BLOCKS],
-                                      'readwrite');
-    trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountDef.id);
+  saveAccountFolderStates: function(accountId, folderInfo, perFolderStuff,
+                                    callback, reuseTrans) {
+    var trans = reuseTrans ||
+      this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
+                           TBL_BODY_BLOCKS],
+                           'readwrite');
+    trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
         bodyStore = trans.objectStore(TBL_BODY_BLOCKS);
     for (var i = 0; i < perFolderStuff.length; i++) {
@@ -270,7 +281,9 @@ ImapDB.prototype = {
     }
 
     if (callback)
-      trans.onsuccess = callback;
+      trans.addEventListener('complete', callback);
+
+    return trans;
   },
 };
 
