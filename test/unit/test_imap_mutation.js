@@ -207,19 +207,114 @@ TD.commonCase('mutate flags', function(T) {
     { changes: [], deletions: [] });
 
   /**
+   * Verify that mutations and their undos survive a restart.
+   */
+  T.group('offline manipulation, shutdown, startup, go online, see mutations');
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('manipulate flags, hear local changes',
+           testAccount, testAccount.eImapAccount, function() {
+    applyManips();
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
+      testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
+    }
+    testAccount.expect_headerChanges(folderView, doHeaderExps, 'roundtrip');
+  });
+  testAccount.do_closeFolderView(folderView);
+  testUniverse.do_saveState();
+  testUniverse.do_shutdown();
+  var testUniverse2 = T.actor('testUniverse', 'U2'),
+      testAccount2 = T.actor('testImapAccount', 'A2',
+                             { universe: testUniverse2, restored: true }),
+      testFolder2 = testAccount2.do_useExistingFolder(
+                      'test_mutation_flags', '#2', testFolder),
+      folderView2 = testAccount2.do_openFolderView(
+        'folderView2', testFolder2,
+        { count: numMessages, full: numMessages, flags: 0, deleted: 0 });
+  T.action('go online, see changes happen for', testAccount2.eImapAccount,
+           eSync, function() {
+    var created = false;
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount2.eImapAccount.expect_runOp_begin('do', 'modtags');
+      if (!created) {
+        testAccount2.eImapAccount.expect_createConnection();
+        created = true;
+      }
+      testAccount2.eImapAccount.expect_runOp_end('do', 'modtags');
+    }
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+  T.group('offline undo, shutdown, startup, go online, see undos');
+  testUniverse2.do_pretendToBeOffline(true);
+  T.action('undo!', testAccount2.eImapAccount, eSync, function() {
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount2.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
+      testAccount2.eImapAccount.expect_runOp_end('local_undo', 'modtags');
+    }
+
+    // NB: our undoOps did not usefully survive the restart; they are still
+    // hooked up to the old universe/bridge, and so are not useful.  However,
+    // their longterm identifiers are still valid, so we can just directly
+    // issue the undo requests against the universe.  (If we issued new
+    // mutations without restarting, we could have those be alive and use them,
+    // but we don't need coverage for that.
+    undoOps.forEach(function(x) {
+      MailUniverse.undoMutation(x._longtermIds);
+    });
+    testAccount2.expect_headerChanges(folderView2, undoHeaderExps, 'roundtrip');
+  });
+  testUniverse2.do_saveState();
+  testUniverse2.do_shutdown();
+  var testUniverse3 = T.actor('testUniverse', 'U3'),
+      testAccount3 = T.actor('testImapAccount', 'A3',
+                             { universe: testUniverse3, restored: true }),
+      testFolder3 = testAccount3.do_useExistingFolder(
+        'test_mutation_flags', '#3', testFolder2),
+      folderView3 = testAccount3.do_openFolderView(
+        'folderView3', testFolder3,
+        { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+        'create');
+
+  T.action('go online, see undos happen for', testAccount3.eImapAccount,
+           eSync, function() {
+    var created = false;
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount3.eImapAccount.expect_runOp_begin('undo', 'modtags');
+      if (!created) {
+        testAccount3.eImapAccount.expect_createConnection();
+        created = true;
+      }
+      testAccount3.eImapAccount.expect_runOp_end('undo', 'modtags');
+    }
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+
+  /**
    * Do a single manipulation and its undo while online, cases we haven't tried
    * yet.  By doing a single manipulation we avoid any races between local_do
    * and do events (which could happen).
    */
   T.group('online manipulation and undo');
-  T.action('star the 0th dude', testAccount, testAccount.eImapAccount, eSync,
+  T.action('star the 0th dude', testAccount3, testAccount3.eImapAccount, eSync,
            function() {
     // - expectations
-    var toStar = folderView.slice.items[0];
-    testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
-    testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
-    testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
-    testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+    var toStar = folderView3.slice.items[0];
+    testAccount3.eImapAccount.expect_runOp_begin('local_do', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_end('local_do', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_begin('do', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_end('do', 'modtags');
     eSync.expect_event('ops-done');
 
     doHeaderExps = {
@@ -238,7 +333,7 @@ TD.commonCase('mutate flags', function(T) {
     // - do it!
     undoOps = [toStar.setStarred(true)];
 
-    testAccount.expect_headerChanges(folderView, doHeaderExps, 'roundtrip');
+    testAccount3.expect_headerChanges(folderView3, doHeaderExps, 'roundtrip');
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -248,20 +343,20 @@ TD.commonCase('mutate flags', function(T) {
     });
   });
   // Sync should find no changes from our predictive changes
-  testAccount.do_refreshFolderView(
-    folderView,
+  testAccount3.do_refreshFolderView(
+    folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] });
-  T.action('undo the starring', testAccount, testAccount.eImapAccount, eSync,
+  T.action('undo the starring', testAccount3, testAccount3.eImapAccount, eSync,
            function() {
-    testAccount.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
-    testAccount.eImapAccount.expect_runOp_end('local_undo', 'modtags');
-    testAccount.eImapAccount.expect_runOp_begin('undo', 'modtags');
-    testAccount.eImapAccount.expect_runOp_end('undo', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_end('local_undo', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_begin('undo', 'modtags');
+    testAccount3.eImapAccount.expect_runOp_end('undo', 'modtags');
     eSync.expect_event('ops-done');
 
     undoOps[0].undo();
-    testAccount.expect_headerChanges(folderView, undoHeaderExps, 'roundtrip');
+    testAccount3.expect_headerChanges(folderView3, undoHeaderExps, 'roundtrip');
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -271,8 +366,8 @@ TD.commonCase('mutate flags', function(T) {
     });
   });
   // And again, sync should find no changes
-  testAccount.do_refreshFolderView(
-    folderView,
+  testAccount3.do_refreshFolderView(
+    folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] });
 

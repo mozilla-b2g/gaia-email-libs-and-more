@@ -760,7 +760,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       folderAlreadyHasConn: { folderId: false },
     },
     asyncJobs: {
-      runOp: { mode: true, type: true },
+      runOp: { mode: true, type: true, error: false, op: false },
       saveAccountState: {},
     },
   },

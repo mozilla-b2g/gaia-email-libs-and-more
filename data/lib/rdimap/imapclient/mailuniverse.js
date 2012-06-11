@@ -596,10 +596,11 @@ MailUniverse.prototype = {
         var account = this.accounts[iAcct],
             queue = this._opsByAccount[account.id];
         if (queue.length &&
+            // (it's possible there is still an active job right now)
             (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
           var op = queue[0];
           account.runOp(
-            op, op.status !== 'done' ? 'do' : 'undo',
+            op, op.desire,
             this._opCompleted.bind(this, account, op));
         }
       }
@@ -659,6 +660,13 @@ MailUniverse.prototype = {
       var identity = accountDef.identities[iIdent];
       this.identities.push(identity);
       this._identitiesById[identity.id] = identity;
+    }
+
+    // - check for mutations that still need to be processed
+    for (var i = 0; i < account.mutations.length; i++) {
+      var op = account.mutations[i];
+      if (op.desire)
+        this._queueAccountOp(account, op);
     }
 
     return account;
@@ -786,6 +794,13 @@ MailUniverse.prototype = {
   },
 
   _opCompleted: function(account, op, err) {
+    // Clear the desire if it is satisfied.  It's possible the desire is now
+    // to undo it, in which case we don't want to clobber the undo desire with
+    // the completion of the do desire.
+    if (op.status === 'done' && op.desire === 'do')
+      op.desire = null;
+    else if (op.status === 'undone' && op.desire === 'undo')
+      op.desire = null;
     var queue = this._opsByAccount[account.id];
     // shift the running op off.
     queue.shift();
@@ -793,7 +808,7 @@ MailUniverse.prototype = {
     if (queue.length) {
       op = queue[0];
       account.runOp(
-        op, op.status !== 'done' ? 'do' : 'undo',
+        op, op.desire,
         this._opCompleted.bind(this, account, op));
     }
     else if (this._opCompletionListenersByAccount[account.id]) {
@@ -814,25 +829,24 @@ MailUniverse.prototype = {
     var queue = this._opsByAccount[account.id];
     queue.push(op);
 
-    if (op.status === null) {
+    if (op.longtermId === null) {
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
       while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
-             (account.mutations[0].status === 'done' ||
-              account.mutations[0].status === 'undone')) {
+             account.mutations[0].desire === null) {
         account.mutations.shift();
       }
     }
 
     // - run the local manipulation immediately
     if (!this._testModeDisablingLocalOps)
-      account.runOp(op, op.status !== 'done' ? 'local_do' : 'local_undo');
+      account.runOp(op, op.desire === 'do' ? 'local_do' : 'local_undo');
 
     // - initiate async execution if this is the first op
     if (this.online && queue.length === 1)
       account.runOp(
-        op, op.status !== 'done' ? 'do' : 'undo',
+        op, op.desire,
         this._opCompleted.bind(this, account, op));
     return op.longtermId;
   },
@@ -853,6 +867,7 @@ MailUniverse.prototype = {
           type: 'modtags',
           longtermId: null,
           status: null,
+          desire: 'do',
           humanOp: humanOp,
           messages: x.messages,
           addTags: addTags,
@@ -876,6 +891,7 @@ MailUniverse.prototype = {
         type: 'append',
         longtermId: null,
         status: null,
+        desire: 'do',
         humanOp: 'append',
         messages: messages,
         folderId: folderId,
@@ -901,18 +917,25 @@ MailUniverse.prototype = {
                 queue.splice(idx, 1);
                 // we still need to trigger the local_undo, of course
                 account.runOp(op, 'local_undo');
+                op.desire = null;
               }
               // If it somehow didn't exist, enqueue it.  Presumably this is
               // something odd like a second undo request, which is logically
               // a 'do' request, which is unsupported, but hey.
-              else
+              else {
+                op.desire = 'do';
                 this._queueAccountOp(account, op);
+              }
               break;
             // If it has been completed or is in the processing of happening, we
             // should just enqueue it again to trigger its undoing/doing.
             case 'done':
             case 'doing':
+              op.desire = 'undo';
+              this._queueAccountOp(account, op);
+              break;
             case 'undoing':
+              op.desire = 'do';
               this._queueAccountOp(account, op);
               break;
           }

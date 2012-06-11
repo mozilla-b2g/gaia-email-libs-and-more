@@ -172,6 +172,28 @@ ImapSlice.prototype = {
     this._bridgeHandle.sendSplice(this.headers.length, 0, headers,
                                   true, moreComing);
     this.headers = this.headers.concat(headers);
+
+    for (var i = 0; i < headers.length; i++) {
+      var header = headers[i];
+      if (this.startTS === null ||
+          BEFORE(header.date, this.startTS)) {
+        this.startTS = header.date;
+        this.startUID = header.id;
+      }
+      else if (header.date === this.startTS &&
+               header.id < this.startUID) {
+        this.startUID = header.id;
+      }
+      if (this.endTS === null ||
+          STRICTLY_AFTER(header.date, this.endTS)) {
+        this.endTS = header.date;
+        this.endUID = header.id;
+      }
+      else if (header.date === this.endTS &&
+               header.id > this.endUID) {
+        this.endUID = header.id;
+      }
+    }
   },
 
   /**
@@ -2357,7 +2379,7 @@ ImapFolderStorage.prototype = {
 
   shutdown: function() {
     // reverse iterate since they will remove themselves as we kill them
-    for (var i = this._slices.length - 1; i >= 0; i++) {
+    for (var i = this._slices.length - 1; i >= 0; i--) {
       this._slices[i].die();
     }
     this.folderConn.shutdown();

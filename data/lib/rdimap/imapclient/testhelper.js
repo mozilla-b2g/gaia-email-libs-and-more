@@ -15,6 +15,9 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
+    self.universe = null;
+    self.MailAPI = null;
+
     self._bridgeLog = null;
 
     // self-registered accounts that belong to this universe
@@ -62,8 +65,8 @@ var TestUniverseMixins = {
         false,
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $_mailbridge.MailBridge(MailUniverse);
-          var TMA = MailAPI = new $_mailapi.MailAPI();
+          var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
+          var TMA = MailAPI = self.MailAPI = new $_mailapi.MailAPI();
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
             window.setZeroTimeout(function() {
@@ -77,7 +80,7 @@ var TestUniverseMixins = {
                                   });
           };
           self._logger.createUniverse();
-          MailUniverse.registerBridge(TMB);
+          self.universe.registerBridge(TMB);
         });
     });
   },
@@ -132,6 +135,7 @@ var TestImapAccountMixins = {
       throw new Error("Universe is not of the right type: " + opts.universe);
 
     self.universe = null;
+    self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
     self._useDate = self.testUniverse._useDate;
@@ -167,20 +171,23 @@ var TestImapAccountMixins = {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
       self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+      self.expect_queriesRestored();
 
       self.universe = self.testUniverse.universe;
+      self.MailAPI = self.testUniverse.MailAPI;
 
       var callbacks = $_allback.allbackMaker(
         ['accounts', 'folders'],
         function gotSlices() {
-          self._logger.accountCreated();
+          self._logger.queriesRestored();
         });
 
       gAllAccountsSlice = self.allAccountsSlice =
-        MailAPI.viewAccounts(false);
+        self.MailAPI.viewAccounts(false);
       gAllAccountsSlice.oncomplete = callbacks.accounts;
 
-      gAllFoldersSlice = self.allFoldersSlice = MailAPI.viewFolders('navigation');
+      gAllFoldersSlice = self.allFoldersSlice =
+        self.MailAPI.viewFolders('navigation');
       gAllFoldersSlice.oncomplete = callbacks.folders;
     });
   },
@@ -200,8 +207,9 @@ var TestImapAccountMixins = {
       self.expect_accountCreated();
 
       self.universe = self.testUniverse.universe;
+      self.MailAPI = self.testUniverse.MailAPI;
 
-      MailAPI.tryToCreateAccount(
+      self.MailAPI.tryToCreateAccount(
         {
           displayName: 'Baron von Testendude',
           emailAddress: TEST_PARAMS.emailAddress,
@@ -219,10 +227,11 @@ var TestImapAccountMixins = {
             });
 
           gAllAccountsSlice = self.allAccountsSlice =
-            MailAPI.viewAccounts(false);
+            self.MailAPI.viewAccounts(false);
           gAllAccountsSlice.oncomplete = callbacks.accounts;
 
-          gAllFoldersSlice = self.allFoldersSlice = MailAPI.viewFolders('navigation');
+          gAllFoldersSlice = self.allFoldersSlice =
+            self.MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
         });
     }).timeoutMS = 5000; // there can be slow startups...
@@ -379,13 +388,13 @@ var TestImapAccountMixins = {
       self.expect_manipulationNotified();
       // XXX we want to put the system in a mode where the manipulations are
       // not played locally.
-      var slice = MailAPI.viewFolderMessages(testFolder.mailFolder);
+      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
         manipFunc(slice);
         slice.die();
         // Only wait on the operations completing after we are sure the bridge
         // has heard about them.
-        MailAPI.ping(function() {
+        self.MailAPI.ping(function() {
           MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
             self._logger.manipulationNotified();
             if (noLocal)
@@ -403,7 +412,7 @@ var TestImapAccountMixins = {
         self.universe._testModeDisablingLocalOps = true;
       self.expect_manipulationNotified();
       manipFunc(viewThing.slice);
-      MailAPI.ping(function() {
+      self.MailAPI.ping(function() {
         MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
           self._logger.manipulationNotified();
           if (noLocal)
@@ -454,7 +463,7 @@ var TestImapAccountMixins = {
           testFolder.messages[totalExpected - 1].headerInfo.subject);
       }
 
-      var slice = MailAPI.viewFolderMessages(testFolder.mailFolder);
+      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
@@ -556,7 +565,7 @@ var TestImapAccountMixins = {
       viewThing.slice.onremove = null;
     };
     if (completeCheckOn === 'roundtrip')
-      MailAPI.ping(completed);
+      this.MailAPI.ping(completed);
     else
       viewThing.slice.oncomplete = completed;
   },
@@ -609,6 +618,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
     events: {
       accountCreated: {},
+      queriesRestored: {},
 
       deletionNotified: { count: true },
       creationNotified: { count: true },
