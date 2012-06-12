@@ -335,17 +335,21 @@ MailHeader.prototype = {
  * management to worry about.  However, you should keep the `MailHeader` alive
  * and worry about its lifetime since the message can get deleted, etc.
  */
-function MailBody(api, id) {
+function MailBody(api, suid, wireRep) {
   this._api = api;
-  this.id = id;
+  this.id = suid;
 
-  this.to = null;
-  this.cc = null;
-  this.bcc = null;
-  this.attachments = null;
+  this.to = wireRep.to;
+  this.cc = wireRep.cc;
+  this.bcc = wireRep.bcc;
+  this.replyTo = wireRep.replyTo;
+  this.attachments = [];
+  for (var iAtt = 0; iAtt < wireRep.attachments.length; iAtt++) {
+    this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
+  }
   // for the time being, we only provide text/plain contents, and we provide
   // those flattened.
-  this.bodyText = null;
+  this.bodyText = wireRep.bodyText;
 }
 MailBody.prototype = {
   toString: function() {
@@ -364,9 +368,11 @@ MailBody.prototype = {
  * In the future this will also be the means for requesting the download of
  * an attachment or for attachment-forwarding semantics.
  */
-function MailAttachment() {
-  this.filename = null;
-  this.mimetype = null;
+function MailAttachment(wireRep) {
+  this.partId = wireRep.part;
+  this.filename = wireRep.name;
+  this.mimetype = wireRep.type;
+  this.sizeEstimateInBytes = wireRep.sizeEstimate;
 
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
@@ -908,7 +914,8 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    req.callback.call(null, msg.bodyInfo);
+    var body = new MailBody(this, req.suid, msg.bodyInfo);
+    req.callback.call(null, body);
   },
 
   /**

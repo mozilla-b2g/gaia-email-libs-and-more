@@ -275,7 +275,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     for (var i = 0; i < atts.length; i++) {
       var att = atts[i];
       sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
-                   att.name.length +  att.type.length +
+                   att.name.length + att.type.length +
                    NUM_ATTR_OVERHEAD_EST;
     }
     return atts;

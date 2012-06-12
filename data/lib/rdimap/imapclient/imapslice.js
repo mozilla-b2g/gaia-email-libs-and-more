@@ -1076,9 +1076,10 @@ ImapFolderConn.prototype = {
  *   }
  * ]]
  * @typedef[AttachmentInfo @dict[
- *   @key[filename String]
- *   @key[mimetype String]
- *   @key[size Number]{
+ *   @key[name String]
+ *   @key[type String]
+ *   @key[part String]
+ *   @key[sizeEstimate Number]{
  *     Estimated file size in bytes.
  *   }
  * ]]
