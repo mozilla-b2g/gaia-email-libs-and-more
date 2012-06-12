@@ -55,7 +55,6 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
   this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
   if (existingProtoConn) {
-    this._LOG.reuseConnection();
     this._ownedConns.push({
         conn: existingProtoConn,
         inUse: false,
@@ -184,6 +183,14 @@ ImapAccount.prototype = {
     folderStorage.youAreDeadCleanupAfterYourself();
 
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
+  },
+
+  /**
+   * We are being told that a synchronization pass completed, and that we may
+   * want to consider persisting our state.
+   */
+  __checkpointSyncCompleted: function() {
+    this.saveAccountState();
   },
 
   /**
@@ -661,6 +668,8 @@ ImapAccount.prototype = {
     }
 
     this.__folderDoneWithConnection(null, conn);
+    // be sure to save our state now that we are up-to-date on this.
+    this.saveAccountState();
     callback();
   },
 

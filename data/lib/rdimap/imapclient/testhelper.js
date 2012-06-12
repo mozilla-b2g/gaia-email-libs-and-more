@@ -139,6 +139,7 @@ var TestImapAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
     self._useDate = self.testUniverse._useDate;
+    self._hasConnection = false;
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
@@ -160,6 +161,16 @@ var TestImapAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.eImapAccount.expect_saveAccountState_begin();
     this.eImapAccount.expect_saveAccountState_end();
+  },
+
+  _expect_connection: function() {
+    if (!this._hasConnection) {
+      this.eImapAccount.expect_createConnection();
+      this._hasConnection = true;
+    }
+    else {
+      this.eImapAccount.expect_reuseConnection();
+    }
   },
 
   _expect_restore: function() {
@@ -209,6 +220,14 @@ var TestImapAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
+      // we expect the connection to be reused and release to sync the folders
+      self._hasConnection = true;
+      self._expect_connection();
+      self.eImapAccount.expect_releaseConnection();
+      // we expect the account state to be saved after syncing folders
+      self.eImapAccount.expect_saveAccountState_begin();
+      self.eImapAccount.expect_saveAccountState_end();
+
       self.MailAPI.tryToCreateAccount(
         {
           displayName: 'Baron von Testendude',
@@ -256,7 +275,7 @@ var TestImapAccountMixins = {
         return;
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self);
-      self.eImapAccount.expect_reuseConnection();
+      self._expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_deleteFolder();
       self.expect_deletionNotified(1);
@@ -273,7 +292,7 @@ var TestImapAccountMixins = {
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
-      self.eImapAccount.expect_reuseConnection();
+      self._expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_createFolder();
       self.expect_creationNotified(1);
@@ -334,7 +353,7 @@ var TestImapAccountMixins = {
 
       // the append will need to check out and check back-in a connection
       self.eImapAccount.expect_runOp_begin('do', 'append');
-      self.eImapAccount.expect_reuseConnection();
+      self._expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_runOp_end('do', 'append');
       self.expect_appendNotified();
@@ -386,17 +405,36 @@ var TestImapAccountMixins = {
       if (noLocal)
         self.universe._testModeDisablingLocalOps = true;
       self.expect_manipulationNotified();
+      self.RT.reportActiveActorThisStep(self.eImapAccount);
+      if (self.universe.online) {
+        // Turn on set matching since connection reuse and account saving are
+        // not strongly ordered, nor do they need to be.
+        self.eImapAccount.expectUseSetMatching();
+        self._expect_connection();
+        self.expect_saveState();
+      }
+      self.eImapAccount.asyncEventsAreComingDoNotResolve();
+
       // XXX we want to put the system in a mode where the manipulations are
       // not played locally.
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
         manipFunc(slice);
-        slice.die();
+        if (self.universe.online)
+          self.eImapAccount.expect_releaseConnection();
+        self.eImapAccount.asyncEventsAllDoneDoResolve();
+
         // Only wait on the operations completing after we are sure the bridge
         // has heard about them.
         self.MailAPI.ping(function() {
           MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-            self._logger.manipulationNotified();
+            // Only kill the slice after the ops complete so the slice stays
+            // alive and so there is less connection reuse flapping.
+            slice.ondead = function() {
+              self._logger.manipulationNotified();
+            };
+            slice.die();
+
             if (noLocal)
               self.universe._testModeDisablingLocalOps = false;
           });
@@ -423,6 +461,7 @@ var TestImapAccountMixins = {
   },
 
   _expect_dateSyncs: function(testFolder, expectedValues) {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (!Array.isArray(expectedValues))
       expectedValues = [expectedValues];
@@ -431,11 +470,15 @@ var TestImapAccountMixins = {
     for (var i = 0; i < expectedValues.length; i++) {
       var einfo = expectedValues[i];
       totalMessageCount += einfo.count;
-      if (MailUniverse.online) {
+      if (this.universe.online) {
         testFolder.connActor.expect_syncDateRange_begin(null, null, null);
         testFolder.connActor.expect_syncDateRange_end(
           einfo.full, einfo.flags, einfo.deleted);
       }
+    }
+    if (this.universe.online) {
+      this.eImapAccount.expect_saveAccountState_begin();
+      this.eImapAccount.expect_saveAccountState_end();
     }
 
     return totalMessageCount;
@@ -450,6 +493,16 @@ var TestImapAccountMixins = {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
+      if (self.universe.online) {
+        self.RT.reportActiveActorThisStep(self.eImapAccount);
+        // Turn on set matching since connection reuse and account saving are
+        // not strongly ordered, nor do they need to be.
+        self.eImapAccount.expectUseSetMatching();
+        self._expect_connection();
+        if (!_saveToThing)
+          self.eImapAccount.expect_releaseConnection();
+      }
+
       // generate expectations for each date sync range
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
       // Generate overall count expectation and first and last message

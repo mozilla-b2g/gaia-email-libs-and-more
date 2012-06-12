@@ -297,7 +297,13 @@ ImapSlice.prototype = {
   },
 };
 
-const BASELINE_SEARCH_OPTIONS = ['!DRAFT', '!DELETED'];
+/**
+ * We don't care about deleted messages, it's best that we're not aware of them.
+ * However, it's important to keep in mind that this means that EXISTS provides
+ * us with an upper bound on the messages in the folder since we are blinding
+ * ourselves to deleted messages.
+ */
+const BASELINE_SEARCH_OPTIONS = ['!DELETED'];
 
 /**
  * What is the maximum number of bytes a block should store before we split
@@ -486,6 +492,22 @@ const INITIAL_SYNC_DAYS = 7;
  * take?
  */
 const INCREMENTAL_SYNC_DAYS = 14;
+/**
+ * What is the furthest back in time we are willing to go?  This is an
+ * arbitrary choice to avoid our logic going crazy, not to punish people with
+ * comprehensive mail collections.
+ */
+const OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
+
+/**
+ * If we issued a search for a date range and we are getting told about more
+ * than the following number of messages, we will try and reduce the date
+ * range proportionately (assuming a linear distribution) so that we sync
+ * a smaller number of messages.  This will result in some wasted traffic
+ * but better a small wasted amount (for UIDs) than a larger wasted amount
+ * (to get the dates for all the messages.)
+ */
+const SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
 
 /**
  * What's the maximum number of messages we should ever handle in a go and
@@ -698,7 +720,7 @@ ImapFolderConn.prototype = {
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
                                         startTS, endTS);
             self._storage.markSyncRange(startTS, endTS, modseq, Date.now());
-            doneCallback();
+            doneCallback(newCount + knownCount);
           });
       });
 
@@ -1171,6 +1193,7 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * The start range of the (backward-moving) sync time range.
    */
   this._curSyncStartTS = null;
+  this._curSyncDayStep = null;
 
   this.folderConn = new ImapFolderConn(account, this, this._LOG);
 }
@@ -1913,12 +1936,13 @@ ImapFolderStorage.prototype = {
     slice.waitingOnData = 'sync';
     this._curSyncSlice = slice;
     this._curSyncStartTS = pastDate;
+    this._curSyncDayStep = INITIAL_SYNC_DAYS;
     this.folderConn.syncDateRange(pastDate, futureNow, true,
                                   this.onSyncCompleted.bind(this));
   },
 
   refreshSlice: function ifs_refreshSlice(slice) {
-    var startTS = slice.startTS, endTS = slice.endTS;
+    var startTS = slice.startTS, endTS = slice.endTS, self = this;
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     if (this._headerBlockInfos.length &&
@@ -1936,6 +1960,7 @@ ImapFolderStorage.prototype = {
     if (this._curSyncSlice)
       throw new Error("Can't refresh a slice when there is an existing sync");
     this.folderConn.syncDateRange(startTS, endTS, true, function() {
+      self._account.__checkpointSyncCompleted();
       slice.setStatus('synced');
     });
   },
@@ -1953,10 +1978,17 @@ ImapFolderStorage.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted() {
+  onSyncCompleted: function ifs_onSyncCompleted(messagesSeen) {
     console.log("Sync Completed!");
     // If the slice already knows about all the messages in the folder, make
-    // sure it doesn't want additional messages that don't exist.
+    // sure it doesn't want additional messages that don't exist.  NB: if there
+    // are any deleted messages, this logic will not save us because we ignored
+    // those messages.  This is made less horrible by issuing a time-date that
+    // expands as we go further back in time.
+    //
+    // (I have considered asking to see deleted messages too and ignoring them;
+    // that might be suitable.  We could also just be a jerk and force an
+    // expunge.)
     if (this.folderConn && this.folderConn.box &&
         (this._curSyncSlice.desiredHeaders >
          this.folderConn.box.messages.total))
@@ -1965,16 +1997,43 @@ ImapFolderStorage.prototype = {
     // - Done if we don't want any more headers.
     // XXX prefetch may need a different success heuristic
     if ((this._curSyncSlice.headers.length >=
-         this._curSyncSlice.desiredHeaders)) {
+         this._curSyncSlice.desiredHeaders) ||
+    // - Done if we've already looked far enough back in time.
+        (this._curSyncStartTS < OLDEST_SYNC_DATE)) {
       console.log("SYNCDONE Enough headers retrieved.");
       this._curSyncSlice.waitingOnData = false;
       this._curSyncSlice.setStatus('synced');
       this._curSyncSlice = null;
+
+      this._account.__checkpointSyncCompleted();
       return;
     }
 
+    // - Increase our search window size if we aren't finding anything
+    // Our goal is that if we are going backwards in time and aren't finding
+    // anything, we want to keep expanding our window
+    var daysToSearch;
+    if (messagesSeen) {
+      daysToSearch = this._curSyncDayStep;
+    }
+    else {
+      var lastSyncDaysInPast = (this._curSyncStartTS -
+                               (TIME_WARPED_NOW || Date.now())) / DAY_MILLIS;
+      if (lastSyncDaysInPast < 180)
+        daysToSearch = INCREMENTAL_SYNC_DAYS;
+      else if (lastSyncDaysInPast < 365) // 1 year
+        daysToSearch = INCREMENTAL_SYNC_DAYS * 2; // one month
+      else if (lastSyncDaysInPast < 730) // 2 years
+        daysToSearch = INCREMENTAL_SYNC_DAYS * 4; // two months
+      else if (lastSyncDaysInPast < 1095) // 3 years
+        daysToSearch = INCREMENTAL_SYNC_DAYS * 8; // four months
+      else if (lastSyncDaysInPast < 1825) // 5 years
+        daysToSearch = 365; // a year!
+    }
+
+
     // - Move the time range back in time more.
-    var startTS = makeDaysBefore(this._curSyncStartTS, INCREMENTAL_SYNC_DAYS),
+    var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
         endTS = this._curSyncStartTS;
     this._curSyncStartTS = startTS;
     this.folderConn.syncDateRange(startTS, endTS, true,
@@ -2310,7 +2369,8 @@ ImapFolderStorage.prototype = {
 
   deleteMessageHeaderAndBody: function(header) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.deleteMessageHeader.bind(this, header));
+      this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(this,
+                                                                    header));
       return;
     }
 

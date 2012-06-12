@@ -97,49 +97,54 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial fetch spans multiple time ranges');
   var msearchFolder = testAccount.do_createTestFolder(
     'test_multiple_ranges', // (insert one more than we want to find)
-    { count: 19, age: { days: 0, hours: 1 }, age_incr: { days: 2 } });
-  // will fetch: 4, 7, 7 = 18
+    { count: 17, age: { days: 0, hours: 13 }, age_incr: { days: 1 } });
+  // will fetch: 7, 7, 3 = 17
   testAccount.do_viewFolder('syncs', msearchFolder,
-                            [{ count: 4, full: 4, flags: 0, deleted: 0 },
+                            [{ count: 7, full: 7, flags: 0, deleted: 0 },
                              { count: 7, full: 7, flags: 0, deleted: 0 },
-                             { count: 7, full: 7, flags: 0, deleted: 0 }]);
+                             { count: 3, full: 3, flags: 0, deleted: 0 }]);
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', msearchFolder,
                             // Distinct date ranges are not required since we
                             // are offline...
-                            { count: 18, full: 0, flags: 0, deleted: 0 });
+                            { count: 17, full: 0, flags: 0, deleted: 0 });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', msearchFolder,
-                            [{ count: 4, full: 0, flags: 4, deleted: 0 },
+                            [{ count: 7, full: 0, flags: 7, deleted: 0 },
                              { count: 7, full: 0, flags: 7, deleted: 0 },
-                             { count: 7, full: 0, flags: 7, deleted: 0 }]);
+                             { count: 3, full: 0, flags: 3, deleted: 0 }]);
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
    * to cause some apparent flag changes and deletions to occur.
    */
   T.group('sync detects additions/modifications/deletions');
-  // delete 2 from the first interval (of 4), 1 from the second (of 7)
+  // delete 2 from the first interval (of 7), 1 from the second (of 7)
   testAccount.do_manipulateFolder(msearchFolder, 'nolocal', function(slice) {
     slice.items[1].deleteMessage();
-    MailAPI.deleteMessages([slice.items[2], slice.items[5]]);
+    MailAPI.deleteMessages([slice.items[2], slice.items[8]]);
     slice.items[3].setRead(true);
     slice.items[4].setStarred(true);
 
+    for (var i = 0; i < 4; i++) {
+      testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
+      testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+    }
+
     // update our test's idea of what messages exist where.
-    msearchFolder.messages.splice(5, 1);
+    msearchFolder.messages.splice(8, 1);
     msearchFolder.messages.splice(2, 1);
     msearchFolder.messages.splice(1, 1);
   });
-  // add messages (4, 3) so our fetches become: 6, 12 = 18
+  // add messages (4, 3) to (7-2=5, 7-1=6) so our fetches become: 9, 9
   testAccount.do_addMessagesToFolder(
     msearchFolder,
-    { count: 10, age: { days: 0 }, age_incr: { days: 2 } });
+    { count: 7, age: { days: 0 }, age_incr: { days: 2 } });
   // - open view, checking refresh, and _leave it open_ for the next group
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
-    [{ count: 6, full: 4, flags: 2, deleted: 2 },
-     { count: 12, full: 6, flags: 6, deleted: 1 }]);
+    [{ count:  9, full: 4, flags: 5, deleted: 2 },
+     { count:  9, full: 3, flags: 6, deleted: 1 }]);
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
