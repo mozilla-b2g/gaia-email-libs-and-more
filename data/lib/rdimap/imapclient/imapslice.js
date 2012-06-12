@@ -121,7 +121,7 @@ function ImapSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;
   bridgeHandle.__listener = this;
   this._storage = storage;
-  this._LOG = LOGFAB.ImapSlice(this, _parentLog, bridgeHandle.id);
+  this._LOG = LOGFAB.ImapSlice(this, _parentLog, bridgeHandle._handle);
 
   // The time range of the headers we are looking at right now.
   this.startTS = null;
@@ -455,7 +455,8 @@ exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
 function makeDaysAgo(numDays) {
   var //now = quantizeDate(TIME_WARPED_NOW || Date.now()),
       //past = now - numDays * DAY_MILLIS;
-      past = FUTURE_TIME_WARPED_NOW - (numDays + 1) * DAY_MILLIS;
+      past = (FUTURE_TIME_WARPED_NOW || quantizeDate(Date.now())) -
+               (numDays + 1) * DAY_MILLIS;
   return past;
 }
 function makeDaysBefore(date, numDaysBefore) {
@@ -690,6 +691,27 @@ ImapFolderConn.prototype = {
         var serverUIDs = results.search, headers = results.db,
             knownUIDs = [], uid, numDeleted = 0,
             modseq = self._conn._state.box.highestModSeq || '';
+
+        if (serverUIDs.length > SYNC_BISECT_DATE_AT_N_MESSAGES) {
+          var effEndTS = endTS || FUTURE_TIME_WARPED_NOW ||
+                           quantizeDate(Date.now() + DAY_MILLIS),
+              curDaysDelta = effEndTS - startTS / DAY_MILLIS;
+          // We are searching more than one day, we can shrink our search.
+
+          if (curDaysDelta > 1) {
+            // Assume a linear distribution of messages, but overestimated by
+            // a factor of two so we undershoot.
+            var shrinkScale = SYNC_BISECT_DATE_AT_N_MESSAGES /
+                                (serverUIDs.length * 2),
+                backDays = Main.max(1,
+                                    Math.ceil(shrinkScale * curDaysDelta));
+            self._curSyncDoNotGrowWindowBefore = startTS;
+            self._curSyncDayStep = backDays;
+            self._curSyncStartTS = startTS = makeDaysBefore(endTS, backDays);
+            return self.syncDateRange(startTS, endTS,
+                                      newToOld, doneCallback);
+          }
+        }
 
         // -- infer deletion, flag to distinguish known messages
         // rather than splicing lists and causing shifts, we null out values.
@@ -1193,7 +1215,18 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * The start range of the (backward-moving) sync time range.
    */
   this._curSyncStartTS = null;
+  /**
+   * The number of days we are looking into the past in the current sync step.
+   */
   this._curSyncDayStep = null;
+  /**
+   * If non-null, then we must reach a sync start date of the provided date
+   * before we begin increasing _curSyncDayStep.  This helps us avoid
+   * oscillation where we make the window too large, shrink it, but then find
+   * find nothing.  Since we know that there are going to be a lot of messages
+   * before we hit this date, it makes sense to keep taking smaller sync steps.
+   */
+  this._curSyncDoNotGrowWindowBefore = null;
 
   this.folderConn = new ImapFolderConn(account, this, this._LOG);
 }
@@ -1937,6 +1970,7 @@ ImapFolderStorage.prototype = {
     this._curSyncSlice = slice;
     this._curSyncStartTS = pastDate;
     this._curSyncDayStep = INITIAL_SYNC_DAYS;
+    this._curSyncDoNotGrowWindowBefore = null;
     this.folderConn.syncDateRange(pastDate, futureNow, true,
                                   this.onSyncCompleted.bind(this));
   },
@@ -1979,7 +2013,8 @@ ImapFolderStorage.prototype = {
    * current sync.
    */
   onSyncCompleted: function ifs_onSyncCompleted(messagesSeen) {
-    console.log("Sync Completed!");
+    console.log("Sync Completed!", this._curSyncDayStep, "days",
+                messagesSeen, "messages synced");
     // If the slice already knows about all the messages in the folder, make
     // sure it doesn't want additional messages that don't exist.  NB: if there
     // are any deleted messages, this logic will not save us because we ignored
@@ -1999,8 +2034,13 @@ ImapFolderStorage.prototype = {
     if ((this._curSyncSlice.headers.length >=
          this._curSyncSlice.desiredHeaders) ||
     // - Done if we've already looked far enough back in time.
-        (this._curSyncStartTS < OLDEST_SYNC_DATE)) {
-      console.log("SYNCDONE Enough headers retrieved.");
+        (BEFORE(this._curSyncStartTS, OLDEST_SYNC_DATE))) {
+      console.log("SYNCDONE Enough headers retrieved.",
+                  "have", this._curSyncSlice.headers.length,
+                  "want", this._curSyncSlice.desiredHeaders,
+                  "box knows about", this.folderConn.box.messages.total,
+                  "sync date", this._curSyncStartTS,
+                  "oldest", OLDEST_SYNC_DATE);
       this._curSyncSlice.waitingOnData = false;
       this._curSyncSlice.setStatus('synced');
       this._curSyncSlice = null;
@@ -2012,25 +2052,50 @@ ImapFolderStorage.prototype = {
     // - Increase our search window size if we aren't finding anything
     // Our goal is that if we are going backwards in time and aren't finding
     // anything, we want to keep expanding our window
-    var daysToSearch;
-    if (messagesSeen) {
+    var daysToSearch, lastSyncDaysInPast;
+    // If we saw messages, there is no need to increase the window size.  We
+    // also should not increase the size if we explicitly shrank the window and
+    // left a do-not-expand-until marker.
+    if (messagesSeen ||
+        (this._curSyncDoNotGrowWindowBefore !== null &&
+         SINCE(this._curSyncStartTS, this._curSyncDoNotGrowWindowBefore))) {
       daysToSearch = this._curSyncDayStep;
     }
     else {
-      var lastSyncDaysInPast = (this._curSyncStartTS -
-                               (TIME_WARPED_NOW || Date.now())) / DAY_MILLIS;
-      if (lastSyncDaysInPast < 180)
-        daysToSearch = INCREMENTAL_SYNC_DAYS;
-      else if (lastSyncDaysInPast < 365) // 1 year
-        daysToSearch = INCREMENTAL_SYNC_DAYS * 2; // one month
-      else if (lastSyncDaysInPast < 730) // 2 years
-        daysToSearch = INCREMENTAL_SYNC_DAYS * 4; // two months
-      else if (lastSyncDaysInPast < 1095) // 3 years
-        daysToSearch = INCREMENTAL_SYNC_DAYS * 8; // four months
-      else if (lastSyncDaysInPast < 1825) // 5 years
-        daysToSearch = 365; // a year!
-    }
+      // This may be a fractional value because of DST
+      lastSyncDaysInPast = ((TIME_WARPED_NOW || quantizeDate(Date.now())) -
+                            this._curSyncStartTS) / DAY_MILLIS;
+      daysToSearch = Math.ceil(this._curSyncDayStep * 1.6);
 
+      if (lastSyncDaysInPast < 180) {
+        if (daysToSearch > 14)
+          daysToSearch = 14;
+      }
+      else if (lastSyncDaysInPast < 365) {
+        if (daysToSearch > 30)
+          daysToSearch = 30;
+      }
+      else if (lastSyncDaysInPast < 730) {
+        if (daysToSearch > 60)
+          daysToSearch = 60;
+      }
+      else if (lastSyncDaysInPast < 1095) {
+        if (daysToSearch > 90)
+          daysToSearch = 90;
+      }
+      else if (lastSyncDaysInPast < 1825) { // 5 years
+        if (daysToSearch > 120)
+          daysToSearch = 120;
+      }
+      else if (lastSyncDaysInPast < 3650) {
+        if (daysToSearch > 365)
+          daysToSearch = 365;
+      }
+      else if (daysToSearch > 730) {
+        daysToSearch = 730;
+      }
+      this._curSyncDayStep = daysToSearch;
+    }
 
     // - Move the time range back in time more.
     var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
