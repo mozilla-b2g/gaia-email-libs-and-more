@@ -389,7 +389,19 @@ MessageGenerator.prototype = {
     bodyInfo.bodyText = headerInfo.snippet + '\n' +
       'This message is automatically created for you by robots.\n' +
       '\nThe robots may or may not be friendly.\n' +
-      'They definitely do not know latin, which is why no lorax gypsum.';
+      'They definitely do not know latin, which is why no lorax gypsum.\n' +
+      '\nI am endeavouring to write more words now because scrolling turns' +
+      ' out to be something important to test.  I know, I know.  You also' +
+      ' are surprised that scrolling is important?  Who would have thunk?\n' +
+      '\nI actually have some synthetic markov chain stuff lying around, do' +
+      ' you think that would go better?  Perhaps?  Possibly?  Potentially?' +
+      ' Pertinent?\n' +
+      '\nTo-do:\n' +
+      '1: Write more made-up text.\n' +
+      '2: Cheat and just add more lines...\n' +
+      '\n\n\n\n' +
+      '3: ...\n' +
+      '\nIt is a tiny screen we target, thank goodness!';
 
     if (this._mode === 'info') {
       return {
