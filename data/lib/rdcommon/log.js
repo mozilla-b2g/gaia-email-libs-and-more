@@ -646,7 +646,8 @@ var TestActorProtoBase = {
           expy = this._expectations[iExp];
 
           // - on matches, reorder the expectation and bump our pointer
-          if (this['_verify_' + expy[0]](expy, entry)) {
+          if (expy[0] === entry[0] &&
+              this['_verify_' + expy[0]](expy, entry)) {
             if (iExp !== this._iExpectation) {
               this._expectations[iExp] = this._expectations[this._iExpectation];
               this._expectations[this._iExpectation] = expy;
