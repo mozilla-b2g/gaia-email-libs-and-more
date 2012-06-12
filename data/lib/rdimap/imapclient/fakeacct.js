@@ -523,6 +523,13 @@ MessageGenerator.prototype = {
 /**
  * Fake accounts always regenerate from scratch when instantiated; there is
  * no disk persistence.
+ *
+ * This might be better off being rejiggered to leverage the IMAP account
+ * implementation and use some combination of making it think it is
+ * permanently offline, manually cramming messages in, and pretending that
+ * jobs actually ran on the server.  A mock/fakish IMAP protocol or real
+ * protocol talking to a fake socket would likely be too much effort for
+ * something likely to be brittle.
  */
 function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
   this.universe = universe;
@@ -632,6 +639,12 @@ FakeAccount.prototype = {
 
   getFolderStorageForFolderId: function fa_getFolderStorageForFolderId(folderId){
     return this._folderStorages[folderId];
+  },
+
+  runOp: function(op, mode, callback) {
+    // Just pretend we performed the op so no errors trigger.
+    if (callback)
+      setZeroTimeout(callback);
   },
 };
 

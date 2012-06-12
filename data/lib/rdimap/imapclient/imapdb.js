@@ -26,7 +26,7 @@ else {
   throw new Error("I need IndexedDB; load me in a content page universe!");
 }
 
-const CUR_VERSION = 1;
+const CUR_VERSION = 2;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -137,6 +137,12 @@ function ImapDB() {
   };
   openRequest.onupgradeneeded = function(event) {
     var db = openRequest.result;
+
+    // cost/benefit right now is total nuke.
+    var existingNames = db.objectStoreNames;
+    for (var i = 0; i < existingNames.length; i++) {
+      db.deleteObjectStore(existingNames[i]);
+    }
 
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_FOLDER_INFO);
