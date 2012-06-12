@@ -917,7 +917,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    var body = new MailBody(this, req.suid, msg.bodyInfo);
+    var body = msg.bodyInfo ? new MailBody(this, req.suid, msg.bodyInfo) : null;
     req.callback.call(null, body);
   },
 

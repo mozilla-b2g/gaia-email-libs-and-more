@@ -188,6 +188,16 @@ var autoconfigByDomain = {
     smtpCrypto: true,
     usernameIsFullEmail: true,
   },
+  'mozilla.com': {
+    type: 'imap+smtp',
+    imapHost: 'mail.mozilla.com',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'smtp.mozilla.org',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: true,
+  },
   'yahoo.com': {
     type: 'imap+smtp',
     imapHost: 'imap.mail.yahoo.com',

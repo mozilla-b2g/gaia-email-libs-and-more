@@ -22,10 +22,7 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
 
-// This needs to match up with what the app is currently using right now, but we
-// should probably just clobber the internal constant via a debugging hook if
-// we change it.
-//
+// This gets clobbered into $imapslice by testhelper.js as a default.
 // This really means 7.5 days
 const INITIAL_SYNC_DAYS = 7,
       // This is the number of messages after which the sync logic will

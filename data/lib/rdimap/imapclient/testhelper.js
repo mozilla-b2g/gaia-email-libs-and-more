@@ -39,6 +39,7 @@ var TestUniverseMixins = {
     self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
     self._useDate.setHours(12, 0, 0, 0);
     $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
+    $imapslice.TEST_adjustSyncValues(7);
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.

@@ -482,17 +482,22 @@ const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
 /**
  * How many messages should we send to the UI in the first go?
  */
-const INITIAL_FILL_SIZE = 15;
+var INITIAL_FILL_SIZE = 15;
 
 /**
  * How many days in the past should we first look for messages.
  */
-const INITIAL_SYNC_DAYS = 7;
+var INITIAL_SYNC_DAYS = 3;
+
 /**
- * When looking further into the past, how big a bite of the past should we
- * take?
+ * Testing support to adjust the value we use for the number of initial sync
+ * days.  The tests are written with a value in mind (7), but 7 turns out to
+ * be too high an initial value for actual use, but is fine for tests.
  */
-const INCREMENTAL_SYNC_DAYS = 14;
+exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncDays) {
+  INITIAL_SYNC_DAYS = syncDays;
+};
+
 /**
  * What is the furthest back in time we are willing to go?  This is an
  * arbitrary choice to avoid our logic going crazy, not to punish people with
@@ -695,7 +700,7 @@ ImapFolderConn.prototype = {
         if (serverUIDs.length > SYNC_BISECT_DATE_AT_N_MESSAGES) {
           var effEndTS = endTS || FUTURE_TIME_WARPED_NOW ||
                            quantizeDate(Date.now() + DAY_MILLIS),
-              curDaysDelta = effEndTS - startTS / DAY_MILLIS;
+              curDaysDelta = (effEndTS - startTS) / DAY_MILLIS;
           // We are searching more than one day, we can shrink our search.
 
           if (curDaysDelta > 1) {
@@ -703,11 +708,13 @@ ImapFolderConn.prototype = {
             // a factor of two so we undershoot.
             var shrinkScale = SYNC_BISECT_DATE_AT_N_MESSAGES /
                                 (serverUIDs.length * 2),
-                backDays = Main.max(1,
+                backDays = Math.max(1,
                                     Math.ceil(shrinkScale * curDaysDelta));
             self._curSyncDoNotGrowWindowBefore = startTS;
             self._curSyncDayStep = backDays;
-            self._curSyncStartTS = startTS = makeDaysBefore(endTS, backDays);
+            self._curSyncStartTS = startTS = makeDaysBefore(effEndTS, backDays);
+console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
+            "startTS", startTS, "endTS", endTS, "backDays", backDays);
             return self.syncDateRange(startTS, endTS,
                                       newToOld, doneCallback);
           }
@@ -736,7 +743,7 @@ ImapFolderConn.prototype = {
         if (numDeleted)
           compactArray(headers);
 
-        self._commonSync(
+        return self._commonSync(
           newUIDs, knownUIDs, headers,
           function(newCount, knownCount) {
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
