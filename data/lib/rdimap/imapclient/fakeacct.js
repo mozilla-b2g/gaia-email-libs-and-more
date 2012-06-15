@@ -386,22 +386,35 @@ MessageGenerator.prototype = {
     // use two subjects for the snippet to get it good and long.
     headerInfo.snippet = this.makeSubject() + ' ' + this.makeSubject();
 
-    bodyInfo.bodyText = headerInfo.snippet + '\n' +
-      'This message is automatically created for you by robots.\n' +
-      '\nThe robots may or may not be friendly.\n' +
-      'They definitely do not know latin, which is why no lorax gypsum.\n' +
-      '\nI am endeavouring to write more words now because scrolling turns' +
-      ' out to be something important to test.  I know, I know.  You also' +
-      ' are surprised that scrolling is important?  Who would have thunk?\n' +
-      '\nI actually have some synthetic markov chain stuff lying around, do' +
-      ' you think that would go better?  Perhaps?  Possibly?  Potentially?' +
-      ' Pertinent?\n' +
-      '\nTo-do:\n' +
-      '1: Write more made-up text.\n' +
-      '2: Cheat and just add more lines...\n' +
-      '\n\n\n\n' +
-      '3: ...\n' +
-      '\nIt is a tiny screen we target, thank goodness!';
+    var rawBody = aArgs.rawBody || null,
+        replaceHeaders = aArgs.replaceHeaders || null;
+
+    // If a raw body was provided, try and take mailcomposer's logic out of
+    // the picture by providing a stub body that we can replace after the
+    // MIME structure has been built.  (Alternately, we could fall back to
+    // Thunderbird's synthetic mime header stuff, but that is much more
+    // limited...)
+    if (rawBody) {
+      bodyInfo.bodyText = '::BODYTEXT::';
+    }
+    else {
+      bodyInfo.bodyText = headerInfo.snippet + '\n' +
+        'This message is automatically created for you by robots.\n' +
+        '\nThe robots may or may not be friendly.\n' +
+        'They definitely do not know latin, which is why no lorax gypsum.\n' +
+        '\nI am endeavouring to write more words now because scrolling turns' +
+        ' out to be something important to test.  I know, I know.  You also' +
+        ' are surprised that scrolling is important?  Who would have thunk?\n' +
+        '\nI actually have some synthetic markov chain stuff lying around, do' +
+        ' you think that would go better?  Perhaps?  Possibly?  Potentially?' +
+        ' Pertinent?\n' +
+        '\nTo-do:\n' +
+        '1: Write more made-up text.\n' +
+        '2: Cheat and just add more lines...\n' +
+        '\n\n\n\n' +
+        '3: ...\n' +
+        '\nIt is a tiny screen we target, thank goodness!';
+    }
 
     if (this._mode === 'info') {
       return {
@@ -434,6 +447,18 @@ MessageGenerator.prototype = {
       };
       composer._composeMessage();
       process.immediate = false;
+
+      if (rawBody)
+        data = data.replace('::BODYTEXT::', rawBody);
+      if (replaceHeaders) {
+        for (var headerName in replaceHeaders) {
+          var headerValue = replaceHeaders[headerName],
+              headerRE = new RegExp('^' + headerName + ': [^\r]+\r\n', 'm');
+          data = data.replace(headerRE, headerName + ': ' + headerValue +
+                              '\r\n');
+        }
+      }
+
       return {
         date: new Date(headerInfo.date),
         headerInfo: headerInfo,
@@ -448,8 +473,9 @@ MessageGenerator.prototype = {
   MAKE_MESSAGES_DEFAULTS: {
     count: 10,
   },
-  MAKE_MESSAGES_PROPAGATE: ['attachments', 'body', 'cc', 'from', 'inReplyTo',
-                            'subject', 'to', 'clobberHeaders', 'junk', 'read'],
+  MAKE_MESSAGES_PROPAGATE: ['attachments', 'body',
+                            'cc', 'from', 'to', 'inReplyTo',
+                            'subject', 'clobberHeaders', 'junk', 'read'],
   /**
    * Given a set definition, produce a list of synthetic messages.
    *
@@ -500,6 +526,11 @@ MessageGenerator.prototype = {
 
     var count = aSetDef.count || this.MAKE_MESSAGES_DEFAULTS.count;
     var messagsPerThread = aSetDef.msgsPerThread || 1;
+    var rawBodies = aSetDef.hasOwnProperty('rawBodies') ? aSetDef.rawBodies
+                                                        : null,
+        replaceHeaders = aSetDef.hasOwnProperty('replaceHeaders') ?
+                           aSetDef.replaceHeaders : null;
+
     var lastMessage = null;
     for (var iMsg = 0; iMsg < count; iMsg++) {
       // primitive threading support...
@@ -507,6 +538,12 @@ MessageGenerator.prototype = {
         args.inReplyTo = lastMessage;
       else if (!("inReplyTo" in aSetDef))
         args.inReplyTo = null;
+
+      if (rawBodies)
+        args.rawBody = rawBodies[iMsg];
+      if (replaceHeaders)
+        args.replaceHeaders = replaceHeaders[iMsg];
+
       lastMessage = this.makeMessage(args);
       if (this._mode === 'info') {
         lastMessage.headerInfo.id = '' + iMsg;

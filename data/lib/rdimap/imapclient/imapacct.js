@@ -128,6 +128,9 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
                                        this._LOG);
     folderPubs.push(folderInfo.$meta);
   }
+  this.folders.sort(function(a, b) {
+    return a.path.localeCompare(b.path);
+  });
 }
 exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {

@@ -84,6 +84,15 @@ var TestUniverseMixins = {
           self.universe.registerBridge(TMB);
         });
     });
+    self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
+                                      function() {
+      if (self.universe) {
+        for (var i = 0; i < self.__testAccounts.length; i++) {
+          self.__testAccounts[i].expect_shutdown();
+        }
+        self.universe.shutdown();
+      }
+    });
   },
 
   do_saveState: function() {
@@ -350,7 +359,6 @@ var TestImapAccountMixins = {
     this.T.convenienceSetup(this, desc, testFolder,function(){
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.universe._testModeDisablingLocalOps = true;
-      var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
 
       // the append will need to check out and check back-in a connection
       self.eImapAccount.expect_runOp_begin('do', 'append');
@@ -359,7 +367,14 @@ var TestImapAccountMixins = {
       self.eImapAccount.expect_runOp_end('do', 'append');
       self.expect_appendNotified();
 
-      var messageBodies = generator.makeMessages(messageSetDef);
+      var messageBodies;
+      if (messageSetDef instanceof Function) {
+        messageBodies = messageSetDef();
+      }
+      else {
+        var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
+        messageBodies = generator.makeMessages(messageSetDef);
+      }
       // no messages in there yet, just use the list as-is
       if (!testFolder.messages) {
         testFolder.messages = messageBodies;

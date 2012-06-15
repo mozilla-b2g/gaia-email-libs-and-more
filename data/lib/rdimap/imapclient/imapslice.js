@@ -843,7 +843,12 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             process.immediate = true;
             mparser._process(true);
             process.immediate = false;
-            return mparser._currentNode.content;
+            // We end up having provided an extra newline that we don't
+            // want, so let's cut it off if it exists.
+            var content = mparser._currentNode.content;
+            if (content.charCodeAt(content.length - 1) === 10)
+              content = content.substring(0, content.length - 1);
+            return content;
           }
 
           // XXX imap.js is currently not capable of issuing/parsing multiple

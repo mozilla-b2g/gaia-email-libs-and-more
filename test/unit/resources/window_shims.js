@@ -85,7 +85,21 @@ var window = {
     }, Components.interfaces.nsIThread.DISPATCH_NORMAL);
   },
 
-  btoa: moduleGlobalsHack.btoa,
-  atob: moduleGlobalsHack.atob
+  btoa: function(data) {
+    try {
+      return moduleGlobalsHack.btoa(data);
+    }
+    catch(ex) {
+      throw new Error("btoa of '" + data + "' failed.");
+    }
+  },
+  atob: function(data) {
+    try {
+      return moduleGlobalsHack.atob(data);
+    }
+    catch(ex) {
+      throw new Error("atob of '" + data + "' failed.");
+    }
+  },
 };
 var navigator = undefined, document = undefined;

@@ -6,7 +6,7 @@
 	url = git://github.com/asutherland/wmsy.git
 [submodule "node-deps/mailparser"]
 	path = node-deps/mailparser
-	url = git://github.com/andris9/mailparser.git
+	url = git://github.com/asutherland/mailparser.git
 [submodule "node-deps/mimelib"]
 	path = node-deps/mimelib
 	url = git://github.com/andris9/mimelib.git
