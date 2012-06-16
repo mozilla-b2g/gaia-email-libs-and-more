@@ -826,13 +826,16 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             mparser._currentNode = mparser._createMimeNode(null);
             // nb: mparser._multipartTree is an empty list (always)
             mparser._currentNode.meta.contentType =
-              partDef.type + '/' + partDef.subtype;
+              partDef.type.toLowerCase() + '/' +
+              partDef.subtype.toLowerCase();
             mparser._currentNode.meta.charset =
-              partDef.params && partDef.params.charset;
+              partDef.params && partDef.params.charset &&
+              partDef.params.charset.toLowerCase();
             mparser._currentNode.meta.transferEncoding =
-              partDef.encoding;
+              partDef.encoding && partDef.encoding.toLowerCase();
             mparser._currentNode.meta.textFormat =
-              partDef.params && partDef.params.format;
+              partDef.params && partDef.params.format &&
+              partDef.params.format.toLowerCase();
           }
           function bodyParseBuffer(buffer) {
             process.immediate = true;

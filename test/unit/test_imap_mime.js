@@ -86,7 +86,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       bpartUtf8Name =
         new SyntheticPartLeaf(
           utf8UnicodeName,
-          { charset: 'utf-8', format: null }),
+          { charset: 'utf-8', format: null, encoding: '8bit' }),
       bpartQpUtf8Name =
         new SyntheticPartLeaf(
           qpUtf8UnicodeName,
