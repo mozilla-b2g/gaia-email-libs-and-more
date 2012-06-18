@@ -662,7 +662,7 @@ FakeAccount.prototype = {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
-      path: '',
+      path: this.accountDef.name,
       type: 'account',
     };
   },

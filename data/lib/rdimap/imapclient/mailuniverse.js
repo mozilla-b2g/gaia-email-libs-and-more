@@ -351,7 +351,7 @@ Configurators['fake'] = {
   tryToCreateAccount: function cfg_fake(universe, userDetails, domainInfo,
                                         callback, _LOG) {
     var credentials = {
-      username: userDetails.username,
+      username: userDetails.emailAddress,
       password: userDetails.password,
     };
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
