@@ -658,6 +658,14 @@ FakeAccount.prototype = {
       ]
     };
   },
+  toBridgeFolder: function() {
+    return {
+      id: this.accountDef.id,
+      name: this.accountDef.name,
+      path: '',
+      type: 'account',
+    };
+  },
 
   saveAccountState: function(reuseTrans) {
     return reuseTrans;

@@ -59,6 +59,14 @@ var TestUniverseMixins = {
       }
 
       self.expect_createUniverse();
+
+      self.expect_queriesIssued();
+      var callbacks = $_allback.allbackMaker(
+        ['accounts', 'folders'],
+        function gotSlices() {
+          self._logger.queriesIssued();
+        });
+
       MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
         // Do not force everything to be under test; leave that to the test
         // framework.  (If we passed true, we would break the testing
@@ -82,6 +90,15 @@ var TestUniverseMixins = {
           };
           self._logger.createUniverse();
           self.universe.registerBridge(TMB);
+
+
+          gAllAccountsSlice = self.allAccountsSlice =
+            self.MailAPI.viewAccounts(false);
+          gAllAccountsSlice.oncomplete = callbacks.accounts;
+
+          gAllFoldersSlice = self.allFoldersSlice =
+            self.MailAPI.viewFolders('navigation');
+          gAllFoldersSlice.oncomplete = callbacks.folders;
         });
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
@@ -132,6 +149,38 @@ var TestUniverseMixins = {
       step.log.boring(false);
   },
 
+  /**
+   * Issue range queries on the database, failing if rows are present in any
+   * of the given
+   */
+  help_checkDatabaseDoesNotContain: function(tablesAndKeyPrefixes) {
+    var self = this;
+    var idb = self.universe._db._db,
+        desiredStores = [], i, checkArgs;
+
+    for (i = 0; i < tablesAndKeyPrefixes.length; i++) {
+      checkArgs = tablesAndKeyPrefixes[i];
+      desiredStores.push(checkArgs.table);
+    }
+    var trans = idb.transaction(desiredStores, 'readonly');
+
+    tablesAndKeyPrefixes.forEach(function(checkArgs) {
+      self.expect_dbRowPresent(checkArgs.table, checkArgs.prefix, false);
+      var store = trans.objectStore(checkArgs.table),
+          range = IDBKeyRange.bound(checkArgs.prefix,
+                                    checkArgs.prefix + '\ufff0',
+                                    false, false),
+          req = store.get(range);
+      req.onerror = function(event) {
+        self._logger.dbProblem(event.target.errorCode);
+      };
+      req.onsuccess = function() {
+        self._logger.dbRowPresent(
+          checkArgs.table, checkArgs.prefix, req.result !== undefined);
+      };
+    });
+  },
+
 };
 
 var TestImapAccountMixins = {
@@ -144,6 +193,7 @@ var TestImapAccountMixins = {
     if (!opts.universe.__testAccounts)
       throw new Error("Universe is not of the right type: " + opts.universe);
 
+    self.accountId = null;
     self.universe = null;
     self.MailAPI = null;
     self.testUniverse = opts.universe;
@@ -192,24 +242,11 @@ var TestImapAccountMixins = {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
       self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
-      self.expect_queriesRestored();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
-
-      var callbacks = $_allback.allbackMaker(
-        ['accounts', 'folders'],
-        function gotSlices() {
-          self._logger.queriesRestored();
-        });
-
-      gAllAccountsSlice = self.allAccountsSlice =
-        self.MailAPI.viewAccounts(false);
-      gAllAccountsSlice.oncomplete = callbacks.accounts;
-
-      gAllFoldersSlice = self.allFoldersSlice =
-        self.MailAPI.viewFolders('navigation');
-      gAllFoldersSlice.oncomplete = callbacks.folders;
+      self.accountId = self.universe.accounts[
+                         self.testUniverse.__testAccounts.indexOf(self)].id;
     });
   },
 
@@ -248,20 +285,10 @@ var TestImapAccountMixins = {
           if (error)
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
                      ': ' + error);
-
-          var callbacks = $_allback.allbackMaker(
-            ['accounts', 'folders'],
-            function gotSlices() {
-              self._logger.accountCreated();
-            });
-
-          gAllAccountsSlice = self.allAccountsSlice =
-            self.MailAPI.viewAccounts(false);
-          gAllAccountsSlice.oncomplete = callbacks.accounts;
-
-          gAllFoldersSlice = self.allFoldersSlice =
-            self.MailAPI.viewFolders('navigation');
-          gAllFoldersSlice.oncomplete = callbacks.folders;
+          self._logger.accountCreated();
+          self.accountId = self.universe.accounts[
+                             self.testUniverse.__testAccounts.indexOf(self)].id;
+console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(self));
         });
     }).timeoutMS = 5000; // there can be slow startups...
   },
@@ -340,7 +367,7 @@ var TestImapAccountMixins = {
     testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
     testFolder.messages = null;
     this.T.convenienceSetup('find test folder', testFolder, function() {
-      testFolder.mailFolder = self.allFoldersSlice.getFirstFolderWithName(
+      testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
                                 folderName);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder)
@@ -678,6 +705,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
     events: {
       createUniverse: {},
+      queriesIssued: {},
+
+      dbRowPresent: { table: true, prefix: true, present: true },
+    },
+    errors: {
+      dbProblem: { err: false },
     },
   },
   testImapAccount: {
@@ -687,7 +720,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
     events: {
       accountCreated: {},
-      queriesRestored: {},
 
       deletionNotified: { count: true },
       creationNotified: { count: true },

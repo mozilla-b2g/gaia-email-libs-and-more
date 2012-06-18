@@ -48,6 +48,15 @@ MailAccount.prototype = {
   modifyAccount: function() {
     throw new Error("NOT YET IMPLEMENTED");
   },
+
+  /**
+   * Delete the account and all its associated data.  No privacy guarantees are
+   * provided; we just delete the data from the database, so it's up to the
+   * (IndexedDB) database's guarantees on that.
+   */
+  deleteAccount: function() {
+    this._api._deleteAccount(this);
+  },
 };
 
 /**
@@ -81,11 +90,6 @@ MailSenderIdentity.prototype = {
 };
 
 function MailFolder(api, wireRep) {
-  // Accounts have a somewhat different wireRep serialization, but we can best
-  // tell by the id's; a folder's id is derived from the account with a dash
-  // separating.
-  var isAccount = wireRep.id.indexOf('/') === -1;
-
   this._api = api;
   this.id = wireRep.id;
 
@@ -127,9 +131,9 @@ function MailFolder(api, wireRep) {
    *   for styling purposes.
    * }
    */
-  this.type = isAccount ? 'account' : wireRep.type;
+  this.type = wireRep.type;
 
-  this.selectable = !isAccount && wireRep.type !== 'nomail';
+  this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
   this.onchange = null;
   this.onremove = null;
@@ -1002,6 +1006,13 @@ MailAPI.prototype = {
     delete this._pendingRequests[msg.handle];
 
     req.callback.call(null, msg.error);
+  },
+
+  _deleteAccount: function ma__deleteAccount(account) {
+    this.__bridgeSend({
+      type: 'deleteAccount',
+      accountId: account.id,
+    });
   },
 
   /**

@@ -24,11 +24,42 @@ function toBridgeWireOn(x) {
   return x.toBridgeWire();
 }
 
-function cmpFolderMarkers(a, b) {
-  var d = a[0].localeCompare(b[0]);
-  if (d)
-    return d;
-  return a[1].localeCompare(b[1]);
+const FOLDER_TYPE_TO_SORT_PRIORITY = {
+  account: 'a',
+  inbox: 'c',
+  starred: 'e',
+  drafts: 'g',
+  sent: 'i',
+  junk: 'k',
+  trash: 'm',
+  archive: 'o',
+  normal: 'z',
+  // nomail folders are annoying since they are basically just hierarchy,
+  //  but they are also rare and should only happen amongst normal folders.
+  nomail: 'z',
+};
+
+/**
+ * Make a folder sorting function that groups folders by account, puts the
+ * account header first in that group, maps priorities using
+ * FOLDER_TYPE_TO_SORT_PRIORITY, then sorts by path within that.
+ *
+ * This is largely necessitated by localeCompare being at the mercy of glibc's
+ * locale database and failure to fallback to unicode code points for
+ * comparison purposes.
+ */
+function makeFolderSortString(acctId, folder) {
+  // '!' is before alphanum, so is a good separator for variable length id's
+  return acctId + '!' + FOLDER_TYPE_TO_SORT_PRIORITY[folder.type] + '!' +
+    folder.path.toLocaleLowerCase();
+}
+
+function strcmp(a, b) {
+  if (a < b)
+    return -1;
+  else if (a > b)
+    return 1;
+  return 0;
 }
 
 /**
@@ -87,13 +118,85 @@ MailBridge.prototype = {
       });
   },
 
+  _cmd_deleteAccount: function mb__cmd_deleteAccount(msg) {
+    this.universe.deleteAccount(msg.accountId);
+  },
+
   _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, 'accounts', msg.handle);
+    proxy.markers = this.universe.accounts.map(function(x) { return x.id; });
+
     this._slicesByType['accounts'].push(proxy);
     var wireReps = this.universe.accounts.map(toBridgeWireOn);
     // send all the accounts in one go.
     proxy.sendSplice(0, 0, wireReps, true, false);
+  },
+
+  notifyAccountAdded: function(account) {
+    var accountWireRep = account.toBridgeWire();
+    var i, proxy, slices, wireSplice = null;
+    // -- notify account slices
+    slices = this._slicesByType['accounts'];
+    for (i = 0; i < slices.length; i++) {
+      proxy = slices[i];
+      proxy.sendSplice(proxy.markers.length, 0, [accountWireRep], false, false);
+      proxy.markers.push(account.id);
+    }
+
+    // -- notify folder slices
+    accountWireRep = account.toBridgeFolder();
+    slices = this._slicesByType['folders'];
+    var startMarker = makeFolderSortString(account.id, accountWireRep),
+        idxStart;
+    for (i = 0; i < slices.length; i++) {
+      proxy = slices[i];
+      // If it's filtered to an account, it can't care about us.  (You can't
+      // know about an account before it's created.)
+      if (proxy.mode === 'account')
+        continue;
+
+      idxStart = bsearchForInsert(proxy.markers, startMarker, strcmp);
+      wireSplice = [accountWireRep];
+      var markerSpliceArgs = [idxStart, 0, startMarker];
+      for (var iFolder = 0; iFolder < account.folders.length; iFolder++) {
+        var folder = account.folders[iFolder];
+        wireSplice.push(folder);
+        markerSpliceArgs.push(makeFolderSortString(account.id, folder));
+      }
+      proxy.sendSplice(idxStart, 0, wireSplice);
+      proxy.markers.splice.apply(proxy.markers, markerSpliceArgs);
+    }
+  },
+
+  notifyAccountRemoved: function(accountId) {
+    var i, proxy, slices;
+    // -- notify account slices
+    slices = this._slicesByType['accounts'];
+    for (i = 0; i < slices.length; i++) {
+      proxy = slices[i];
+      var idx = proxy.markers.indexOf(accountId);
+      if (idx !== -1) {
+        proxy.sendSplice(idx, 1, [], false, false);
+        proxy.markers.splice(idx, 1);
+      }
+    }
+
+    // -- notify folder slices
+    slices = this._slicesByType['folders'];
+    var startMarker = accountId + '!!',
+        endMarker = accountId + '!|';
+    for (i = 0; i < slices.length; i++) {
+      proxy = slices[i];
+      var idxStart = bsearchForInsert(proxy.markers, startMarker,
+                                      strcmp),
+          idxEnd = bsearchForInsert(proxy.markers, endMarker,
+                                    strcmp);
+      if (idxEnd !== idxStart) {
+        proxy.sendSplice(idxStart, idxEnd - idxStart, [], false, false);
+        proxy.markers.splice(idxStart, idxEnd - idxStart);
+      }
+    }
   },
 
   _cmd_viewSenderIdentities: function mb__cmd_viewSenderIdentities(msg) {
@@ -106,25 +209,24 @@ MailBridge.prototype = {
   },
 
   notifyFolderAdded: function(accountId, folderMeta) {
-    var newMarker = [accountId, folderMeta.path];
-
+    var newMarker = makeFolderSortString(accountId, folderMeta);
     var slices = this._slicesByType['folders'];
     for (var i = 0; i < slices.length; i++) {
       var proxy = slices[i];
-      var idx = bsearchForInsert(proxy.markers, newMarker, cmpFolderMarkers);
+      var idx = bsearchForInsert(proxy.markers, newMarker, strcmp);
       proxy.sendSplice(idx, 0, [folderMeta], false, false);
       proxy.markers.splice(idx, 0, newMarker);
     }
   },
 
   notifyFolderRemoved: function(accountId, folderMeta) {
-    var marker = [accountId, folderMeta.path];
+    var marker = makeFolderSortString(accountId, folderMeta);
 
     var slices = this._slicesByType['folders'];
     for (var i = 0; i < slices.length; i++) {
       var proxy = slices[i];
 
-      var idx = bsearchMaybeExists(proxy.markers, marker, cmpFolderMarkers);
+      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
       if (idx === null)
         continue;
       proxy.sendSplice(idx, 1, [], false, false);
@@ -147,7 +249,7 @@ MailBridge.prototype = {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
         wireReps.push(folder);
-        markers.push([acct.id, folder.path]);
+        markers.push([acct.id, makeFolderSortString(folder)]);
       }
     }
 
@@ -165,8 +267,8 @@ MailBridge.prototype = {
 
       for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
         var acct = accounts[iAcct];
-        wireReps.push(acct.toBridgeWire());
-        markers.push([acct.id, '']);
+        wireReps.push(acct.toBridgeFolder());
+        markers.push([acct.id, ACCT_FOLDER_SENTINEL]);
         pushAccountFolders(acct);
       }
     }

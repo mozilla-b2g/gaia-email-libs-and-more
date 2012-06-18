@@ -270,6 +270,7 @@ ImapDB.prototype = {
       this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
                            TBL_BODY_BLOCKS],
                            'readwrite');
+    trans.onerror = this._fatalError;
     trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
         bodyStore = trans.objectStore(TBL_BODY_BLOCKS), i;
@@ -298,7 +299,7 @@ ImapDB.prototype = {
       for (i = 0; i < deletedFolderIds.length; i++) {
         var folderId = deletedFolderIds[i],
             range = IDBKeyRange.bound(folderId + ':',
-                                      folderId + ':\ufffe',
+                                      folderId + ':\ufff0',
                                       false, false)
         headerStore.delete(range);
         bodyStore.delete(range);
@@ -309,6 +310,25 @@ ImapDB.prototype = {
       trans.addEventListener('complete', callback);
 
     return trans;
+  },
+
+  /**
+   * Delete all traces of an account from the database.
+   */
+  deleteAccount: function(accountId, reuseTrans) {
+    var trans = reuseTrans ||
+      this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
+                           TBL_BODY_BLOCKS],
+                           'readwrite');
+    trans.onerror = this._fatalError;
+
+    trans.objectStore(TBL_CONFIG).delete('accountDef:' + accountId);
+    trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
+    var range = IDBKeyRange.bound(accountId + '/',
+                                  accountId + '/\ufff0',
+                                  false, false);
+    trans.objectStore(TBL_HEADER_BLOCKS).delete(range);
+    trans.objectStore(TBL_BODY_BLOCKS).delete(range);
   },
 };
 

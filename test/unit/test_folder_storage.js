@@ -7,7 +7,7 @@
 load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
-  { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_folder_storage' }, null, [$th_imap.TESTHELPER], ['app']);
 
 var $imapslice = require('rdimap/imapclient/imapslice');
 

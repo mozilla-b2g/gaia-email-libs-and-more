@@ -103,7 +103,6 @@ CompositeAccount.prototype = {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
-      path: this.accountDef.name, // allows it to masquerade as a folder
       type: this.accountDef.type,
 
       identities: this.identities,
@@ -123,6 +122,14 @@ CompositeAccount.prototype = {
           connInfo: this.accountDef.sendConnInfo,
         }
       ],
+    };
+  },
+  toBridgeFolder: function() {
+    return {
+      id: this.accountDef.id,
+      name: this.accountDef.name,
+      path: this.accountDef.name,
+      type: 'account',
     };
   },
 
@@ -644,6 +651,41 @@ MailUniverse.prototype = {
                                            callback, this._LOG);
   },
 
+  /**
+   * Shutdown the account, forget about it, nuke associated database entries.
+   */
+  deleteAccount: function(accountId) {
+    var savedEx = null;
+    var account = this._accountsById[accountId];
+    try {
+      account.shutdown();
+    }
+    catch (ex) {
+      // save the failure until after we have done other cleanup.
+      savedEx = ex;
+    }
+    this._db.deleteAccount(accountId);
+
+    delete this._accountsById[accountId];
+    var idx = this.accounts.indexOf(account);
+    this.accounts.splice(idx, 1);
+
+    for (var i = 0; i < account.identities.length; i++) {
+      var identity = account.identities[i];
+      idx = this.identities.indexOf(identity);
+      this.identities.splice(idx, 1);
+      delete this._identitiesById[identity.id];
+    }
+
+    delete this._opsByAccount[accountId];
+    delete this._opCompletionListenersByAccount[accountId];
+
+    this.__notifyRemovedAccount(accountId);
+
+    if (savedEx)
+      throw savedEx;
+  },
+
   saveAccountDef: function(accountDef, folderInfo) {
     this._db.saveAccountDef(this.config, accountDef, folderInfo);
   },
@@ -672,6 +714,8 @@ MailUniverse.prototype = {
       this._identitiesById[identity.id] = identity;
     }
 
+    this.__notifyAddedAccount(account);
+
     // - check for mutations that still need to be processed
     for (var i = 0; i < account.mutations.length; i++) {
       var op = account.mutations[i];
@@ -680,6 +724,20 @@ MailUniverse.prototype = {
     }
 
     return account;
+  },
+
+  __notifyAddedAccount: function(account) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyAccountAdded(account);
+    }
+  },
+
+  __notifyRemovedAccount: function(accountId) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyAccountRemoved(accountId);
+    }
   },
 
   __notifyAddedFolder: function(accountId, folderMeta) {
