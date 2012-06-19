@@ -124,7 +124,31 @@ function ImapDB() {
    * error cases.
    */
   this._fatalError = function(event) {
-    console.error('indexedDB error: ' + event.target.errorCode);
+    function explainSource(source) {
+      if (!source)
+        return 'unknown source';
+      if (source instanceof IDBObjectStore)
+        return 'object store "' + source.name + '"';
+      if (source instanceof IDBIndex)
+        return 'index "' + source.name + '" on object store "' +
+          source.objectStore.name + '"';
+      if (source instanceof IDBCursor)
+        return 'cursor on ' + explainSource(source.source);
+      return 'unexpected source';
+    }
+    var explainedSource, target = event.target;
+    if (target instanceof IDBTransaction) {
+      explainedSource = 'transaction (' + target.mode + ')';
+    }
+    else if (target instanceof IDBRequest) {
+      explainedSource = 'request as part of ' + target.transaction.mode +
+        ' transaction on ' + explainSource(target.source);
+    }
+    else { // dunno, ask it to stringify itself.
+      explainedSource = target.toString();
+    }
+    console.error('indexedDB error:', target.error.name, 'from',
+                  explainedSource);
   };
 
   var openRequest = IndexedDB.open('b2g-email', CUR_VERSION), self = this;
