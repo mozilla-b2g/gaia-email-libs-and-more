@@ -249,7 +249,7 @@ MailBridge.prototype = {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
         wireReps.push(folder);
-        markers.push([acct.id, makeFolderSortString(acct.id, folder)]);
+        markers.push(makeFolderSortString(acct.id, folder));
       }
     }
 
@@ -266,9 +266,9 @@ MailBridge.prototype = {
       });
 
       for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
-        var acct = accounts[iAcct];
-        wireReps.push(acct.toBridgeFolder());
-        markers.push([acct.id, ACCT_FOLDER_SENTINEL]);
+        var acct = accounts[iAcct], acctBridgeRep = acct.toBridgeFolder();
+        wireReps.push(acctBridgeRep);
+        markers.push(makeFolderSortString(acct.id, acctBridgeRep));
         pushAccountFolders(acct);
       }
     }
