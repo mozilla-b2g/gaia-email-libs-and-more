@@ -24,6 +24,10 @@ var rawTruthBeauty =
 b64TruthBeauty = b64TruthBeauty.substring(0, 76) + '\r\n' +
                  b64TruthBeauty.substring(76);
 
+// "Snake, Sammy", but with a much cooler looking S-like character!
+var rawSammySnake = '\u00dfnake, \u00dfammy',
+    mwqSammySnake = '=?iso-8859-1?Q?=DFnake=2C_=DFammy?=';
+
 var rawUnicodeName = 'Figui\u00e8re',
     utf8UnicodeName = new Buffer('Figui\u00c3\u00a8re', 'binary'),
     qpUtf8UnicodeName = 'Figui=C3=A8re';
@@ -91,6 +95,11 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           qpUtf8UnicodeName,
           { charset: 'utf-8', format: null, encoding: 'quoted-printable' }),
+      // Body text that contains a mime word that should *not* be decoded.
+      bpartMimeWord =
+        new SyntheticPartLeaf(
+          mwqSammySnake,
+          { charset: 'utf-8', format: null, encoding: null }),
   // - bodies: text/html
       bpartIgnoredHtml =
         new SyntheticPartLeaf(
@@ -111,6 +120,14 @@ TD.commonCase('MIME hierarchies', function(T) {
 
   // -- full definitions and expectations
   var testMessages = [
+    // - straight up verification we don't do mime-word decoding on bodies
+    {
+      name: 'simple text/plain with mimeword in the body',
+      bodyPart: bpartMimeWord,
+      // the body should not get decoded; it should still be the mime-word
+      checkBody: mwqSammySnake,
+    },
+    // - alternatives that test proper encoding
     {
       name: 'multipart/alternative simple',
       bodyPart: alternStraight,

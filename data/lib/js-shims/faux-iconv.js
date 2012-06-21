@@ -11,12 +11,14 @@
 
 define(function(require, exports, module) {
 
+var ENCODER_OPTIONS = { fatal: false };
+
 exports.Iconv = function Iconv(sourceEnc, destEnc) {
 
   // - decoding
   if (/^UTF-8/.test(destEnc)) {
     this.decode = true;
-    this.coder = new TextDecoder('utf-8');
+    this.coder = new TextDecoder('utf-8', ENCODER_OPTIONS);
   }
   // - encoding
   else {
@@ -25,11 +27,11 @@ exports.Iconv = function Iconv(sourceEnc, destEnc) {
     if (idxSlash !== -1 && destEnc[idxSlash+1] === '/')
       destEnc = destEnc.substring(0, idxSlash);
     this.decode = false;
-    this.coder = new TextEncoder(destEnc);
+    this.coder = new TextEncoder(destEnc, ENCODER_OPTIONS);
   }
 
 };
-exports.Iconv.protoype = {
+exports.Iconv.prototype = {
   /**
    * Takes a buffer, returns a (different) buffer.
    */

@@ -12,7 +12,7 @@
 	url = git://github.com/andris9/mimelib.git
 [submodule "deps/stringencoding"]
 	path = deps/stringencoding
-	url = https://code.google.com/p/stringencoding/
+	url = git://github.com/asutherland/stringencoding.git
 [submodule "node-deps/mailcomposer"]
 	path = node-deps/mailcomposer
 	url = git://github.com/andris9/mailcomposer.git

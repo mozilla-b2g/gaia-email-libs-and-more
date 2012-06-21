@@ -19,16 +19,30 @@ function coerce(length) {
   return length < 0 ? 0 : length;
 }
 
+var ENCODER_OPTIONS = { fatal: false };
+
 /**
  * Encode a unicode string into a (Uint8Array) byte array with the given
  * encoding. Wraps TextEncoder to provide hex and base64 encoding (which it does
  * not provide).
  */
 function encode(string, encoding) {
+  var buf, i;
   switch (encoding) {
+    case 'base64':
+      // (atob is base64 ASCII string -> binary JS string)
+      string = window.atob(string);
+      // fall through to the binary case since what we have is binary now!
+    // the stringencoding polyfill no longer implements binary, so it's up to us
+    case 'binary':
+      buf = new Uint8Array(string.length);
+      for (i = 0; i < string.length; i++) {
+        buf[i] = string.charCodeAt(i);
+      }
+      return buf;
     case 'hex':
-      var buf = new Uint8Array(string.length * 2);
-      for (var i = 0; i < string.length; i++) {
+      buf = new Uint8Array(string.length * 2);
+      for (i = 0; i < string.length; i++) {
         var c = string.charCodeAt(i), nib;
         nib = c >> 4;
         buf[i*2] = (nib < 10) ? (nib + 48) : (nib - 10 + 97);
@@ -36,19 +50,13 @@ function encode(string, encoding) {
         buf[i*2 + 1] = (nib < 10) ? (nib + 48) : (nib - 10 + 97);
       }
       return buf;
-    case 'base64':
-      // (atob is base64 ASCII string -> binary JS string)
-      // we use the textencoder to go from the binary JS string to the array
-      // view. (which is a buffer for our purposes because of our prototype
-      // clobbering.)
-      return TextEncoder('binary').encode(window.atob(string));
     // need to normalize the name (for now at least)
     case 'utf8':
       encoding = 'utf-8';
     default:
       if (!encoding)
         encoding = 'utf-8';
-      return TextEncoder(encoding).encode(string);
+      return TextEncoder(encoding, ENCODER_OPTIONS).encode(string);
   }
 }
 
@@ -58,10 +66,22 @@ function encode(string, encoding) {
  * does not provide).
  */
 function decode(view, encoding) {
+  var sbits, i;
   switch (encoding) {
+    case 'base64':
+      // base64 wants a string, so go through binary first...
+    case 'binary':
+      sbits = new Array(view.length);
+      for (i = 0; i < view.length; i++) {
+        sbits[i] = String.fromCharCode(view[i]);
+      }
+      // (btoa is binary JS string -> base64 ASCII string)
+      if (encoding === 'base64')
+        return window.btoa(sbits.join(''));
+      return sbits.join('');
     case 'hex':
-      var sbits = [];
-      for (var i = 0; i < view.length; i += 2) {
+      sbits = new Array(view.length / 2);
+      for (i = 0; i < view.length; i += 2) {
         var nib = view[i], c;
         if (nib <= 57)
           c = 16 * (nib - 48);
@@ -78,19 +98,14 @@ function decode(view, encoding) {
           c += (nib - 97 + 10);
         sbits.push(String.fromCharCode(c));
       }
-      return sbits.join("");
-    case 'base64':
-      // (btoa is binary JS string -> base64 ASCII string)
-      // we need to use the textdecoder to get from the binary array to the
-      // binary string; we use 'binary' to avoid truncation/loss.
-      return window.btoa(TextDecoder('binary').decode(view));
+      return sbits.join('');
     // need to normalize the name (for now at least)
     case 'utf8':
       encoding = 'utf-8';
     default:
       if (!encoding)
         encoding = 'utf-8';
-      return TextDecoder(encoding).decode(view);
+      return TextDecoder(encoding, ENCODER_OPTIONS).decode(view);
   }
 }
 

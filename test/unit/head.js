@@ -217,6 +217,7 @@ require({
   },
 });
 
+load('../../deps/stringencoding/encoding-indexes.js');
 load('../../deps/stringencoding/encoding.js');
 var Buffer = window.Buffer = require('buffer').Buffer;
 // brief node shims... a-la shim-sham.js

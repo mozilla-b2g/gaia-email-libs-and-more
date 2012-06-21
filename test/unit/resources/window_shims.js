@@ -103,3 +103,5 @@ var window = {
   },
 };
 var navigator = undefined, document = undefined;
+// new to me, but apparently it's a thing...
+var self = window.self = window;

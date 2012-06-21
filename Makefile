@@ -32,7 +32,7 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 
 xpi: $(DEP_NODE_PKGS)
 	$(RSYNC) deps/wmsy/lib/wmsy data/deps/
-	$(RSYNC) deps/stringencoding/encoding.js data/deps
+	$(RSYNC) deps/stringencoding/encoding.js deps/stringencoding/encoding-indexes.js data/deps
 	cfx --templatedir=xpi-template $(JSONARG) xpi
 
 # create the XPI and post it to our web browser, assuming we are running with:
