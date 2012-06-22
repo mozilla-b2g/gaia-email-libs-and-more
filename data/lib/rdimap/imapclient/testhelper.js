@@ -89,7 +89,6 @@ var TestUniverseMixins = {
                                   });
           };
           self._logger.createUniverse();
-          self.universe.registerBridge(TMB);
 
 
           gAllAccountsSlice = self.allAccountsSlice =

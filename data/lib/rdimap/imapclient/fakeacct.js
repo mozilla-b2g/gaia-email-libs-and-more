@@ -585,6 +585,9 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
+  this.enabled = true;
+  this.problems = [];
+
   var generator = new MessageGenerator();
 
   this.identities = accountDef.identities;
@@ -644,6 +647,9 @@ FakeAccount.prototype = {
       path: this.accountDef.name,
       type: this.accountDef.type,
 
+      enabled: this.enabled,
+      problems: this.problems,
+
       identities: this.identities,
 
       credentials: {
@@ -665,6 +671,10 @@ FakeAccount.prototype = {
       path: this.accountDef.name,
       type: 'account',
     };
+  },
+
+  get numActiveConns() {
+    return 0;
   },
 
   saveAccountState: function(reuseTrans) {

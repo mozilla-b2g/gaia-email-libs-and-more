@@ -69,6 +69,7 @@ function strcmp(a, b) {
  */
 function MailBridge(universe) {
   this.universe = universe;
+  this.universe.registerBridge(this);
 
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
@@ -118,8 +119,71 @@ MailBridge.prototype = {
       });
   },
 
+  _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId),
+        self = this;
+
+    account.checkAccount(function(err) {
+      // If we succeeded or the problem was not an authentication, assume
+      // everything went fine and clear the problems.
+      if (!err || err !== 'bad-user-or-pass') {
+        self.universe.clearAccountProblems(account);
+      }
+      // The login information is still bad; re-send the bad login notification.
+      else {
+        // This is only being sent over this, the same bridge the clear request
+        // came from rather than sent via the mailuniverse.  No point having the
+        // notifications stack up on inactive UIs.
+        self.notifyBadLogin(account);
+      }
+    });
+  },
+
+  _cmd_modifyAccount: function mb__cmd_modifyAccount(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId),
+        accountDef = account.accountDef;
+
+    for (var key in msg.mods) {
+      var val = msg.mods[key];
+
+      switch (key) {
+        case 'name':
+          accountDef.name = val;
+          break;
+
+        case 'username':
+          accountDef.credentials.username = val;
+          break;
+        case 'password':
+          accountDef.credentials.password = val;
+          break;
+
+        case 'identities':
+          // TODO: support identity mutation
+          // we expect a list of identity mutation objects, namely an id and the
+          // rest are attributes to change
+          break;
+
+        case 'servers':
+          // TODO: support server mutation
+          // we expect a list of server mutation objects; namely, the type names
+          // the server and the rest are attributes to change
+          break;
+      }
+    }
+    account.saveAccountState();
+  },
+
   _cmd_deleteAccount: function mb__cmd_deleteAccount(msg) {
     this.universe.deleteAccount(msg.accountId);
+  },
+
+  notifyBadLogin: function mb_notifyBadLogin(account) {
+console.log('sending bad login');
+    this.__sendMessage({
+      type: 'badLogin',
+      account: account.toBridgeWire(),
+    });
   },
 
   _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
@@ -133,7 +197,7 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
-  notifyAccountAdded: function(account) {
+  notifyAccountAdded: function mb_notifyAccountAdded(account) {
     var accountWireRep = account.toBridgeWire();
     var i, proxy, slices, wireSplice = null;
     // -- notify account slices

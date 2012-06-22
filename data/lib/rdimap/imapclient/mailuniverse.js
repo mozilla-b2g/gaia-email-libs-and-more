@@ -67,6 +67,13 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
+
+  // Currently we don't persist the disabled state of an account because it's
+  // easier for the UI to be edge-triggered right now and ensure that the
+  // triggering occurs once each session.
+  this.enabled = true;
+  this.problems = [];
+
   // XXX for now we are stealing the universe's logger
   this._LOG = _LOG;
 
@@ -81,12 +88,12 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
 
   this._receivePiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
-      universe,
+      universe, this,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
       folderInfo, dbConn, this._LOG, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
-      universe,
+      universe, this,
       accountDef.id, accountDef.credentials,
       accountDef.sendConnInfo, dbConn, this._LOG);
 
@@ -105,6 +112,9 @@ CompositeAccount.prototype = {
       name: this.accountDef.name,
       type: this.accountDef.type,
 
+      enabled: this.enabled,
+      problems: this.problems,
+
       identities: this.identities,
 
       credentials: {
@@ -116,10 +126,12 @@ CompositeAccount.prototype = {
         {
           type: this.accountDef.receiveType,
           connInfo: this.accountDef.receiveConnInfo,
+          activeConns: this._receivePiece.numActiveConns,
         },
         {
           type: this.accountDef.sendType,
           connInfo: this.accountDef.sendConnInfo,
+          activeConns: this._sendPiece.numActiveConns,
         }
       ],
     };
@@ -135,6 +147,15 @@ CompositeAccount.prototype = {
 
   saveAccountState: function(reuseTrans) {
     return this._receivePiece.saveAccountState(reuseTrans);
+  },
+
+  /**
+   * Check that the account is healthy in that we can login at all.
+   */
+  checkAccount: function(callback) {
+    // Since we use the same credential for both cases, we can just have the
+    // IMAP account attempt to establish a connection and forget about SMTP.
+    this._receivePiece.checkAccount(callback);
   },
 
   /**
@@ -610,17 +631,25 @@ MailUniverse.prototype = {
     if (!wasOnline && this.online) {
       // - check if we have any pending actions to run and run them if so.
       for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
-        var account = this.accounts[iAcct],
-            queue = this._opsByAccount[account.id];
-        if (queue.length &&
-            // (it's possible there is still an active job right now)
-            (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
-          var op = queue[0];
-          account.runOp(
-            op, op.desire,
-            this._opCompleted.bind(this, account, op));
-        }
+        this._resumeOpProcessingForAccount(this.accounts[iAcct]);
       }
+    }
+  },
+
+  /**
+   * Start processing ops for an account if it's able and has ops to run.
+   */
+  _resumeOpProcessingForAccount: function(account) {
+    var queue = this._opsByAccount[account.id];
+    if (!account.enabled)
+      return;
+    if (queue.length &&
+        // (it's possible there is still an active job right now)
+        (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
+      var op = queue[0];
+      account.runOp(
+        op, op.desire,
+        this._opCompleted.bind(this, account, op));
     }
   },
 
@@ -724,6 +753,38 @@ MailUniverse.prototype = {
     }
 
     return account;
+  },
+
+  /**
+   * Self-reporting by an account that it is experiencing difficulties.
+   *
+   * We mutate its state for it, and generate a notification if this is a new
+   * problem.
+   */
+  __reportAccountProblem: function(account, problem) {
+    // nothing to do if the problem is already known
+    if (account.problems.indexOf(problem) !== -1)
+      return;
+    account.problems.push(problem);
+    account.enabled = false;
+
+    if (problem === 'bad-user-or-pass')
+      this.__notifyBadLogin(account);
+  },
+
+  clearAccountProblems: function(account) {
+    // TODO: this would be a great time to have any slices that had stalled
+    // syncs do whatever it takes to make them happen again.
+    account.enabled = true;
+    account.problems = [];
+    this._resumeOpProcessingForAccount(account);
+  },
+
+  __notifyBadLogin: function(account) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyBadLogin(account);
+    }
   },
 
   __notifyAddedAccount: function(account) {
@@ -873,7 +934,7 @@ MailUniverse.prototype = {
     // shift the running op off.
     queue.shift();
 
-    if (queue.length) {
+    if (queue.length && this.online && account.enabled) {
       op = queue[0];
       account.runOp(
         op, op.desire,
@@ -912,7 +973,7 @@ MailUniverse.prototype = {
       account.runOp(op, op.desire === 'do' ? 'local_do' : 'local_undo');
 
     // - initiate async execution if this is the first op
-    if (this.online && queue.length === 1)
+    if (this.online && account.enabled && queue.length === 1)
       account.runOp(
         op, op.desire,
         this._opCompleted.bind(this, account, op));

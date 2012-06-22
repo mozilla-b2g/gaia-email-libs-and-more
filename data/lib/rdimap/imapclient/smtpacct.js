@@ -16,8 +16,10 @@ define(
     exports
   ) {
 
-function SmtpAccount(universe, accountId, credentials, connInfo, _parentLog) {
+function SmtpAccount(universe, compositeAccount, accountId, credentials,
+                     connInfo, _parentLog) {
   this.universe = universe;
+  this.compositeAccount = compositeAccount;
   this.accountId = accountId;
   this.credentials = credentials;
   this.connInfo = connInfo;
@@ -31,6 +33,10 @@ SmtpAccount.prototype = {
   type: 'smtp',
   toString: function() {
     return '[SmtpAccount: ' + this.id + ']';
+  },
+
+  get numActiveConns() {
+    return this._activeConnections.length;
   },
 
   _makeConnection: function() {
@@ -102,6 +108,7 @@ SmtpAccount.prototype = {
    */
   sendMessage: function(composedMessage, callback) {
     var conn = this._makeConnection(), bailed = false, sendingMessage = false;
+    this._activeConnections.push(conn);
 
     // - Optimistic case
     // Send the envelope once the connection is ready (fires again after
@@ -182,12 +189,17 @@ SmtpAccount.prototype = {
         // the connection gets automatically closed.
       });
       conn.on('end', function() {
+        var idx = this._activeConnections.indexOf(conn);
+        if (idx !== -1)
+          this._activeConnections.splice(idx, 1);
+        else
+          console.error('Dead unknown connection?');
         if (bailed)
           return;
         callback('connection-lost', null);
         bailed = true;
         // (the connection is already closed if we are here)
-      });
+      }.bind(this));
   },
 
 

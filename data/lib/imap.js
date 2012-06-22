@@ -638,8 +638,17 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
 
 
-      var recentReq = self._state.requests.shift(),
-          recentCmd = recentReq.command;
+      var recentReq = self._state.requests.shift();
+      if (!recentReq) {
+        // We expect this to happen in the case where our callback above
+        // resulted in our connection being killed.  So just bail in that case.
+        if (self._state.status === STATES.NOCONNECT)
+          return;
+        // This is unexpected and bad.  Log a poor man's error for now.
+        console.error('IMAP: Somehow no recentReq for data:', data);
+        return;
+      }
+      var recentCmd = recentReq.command;
       if (self._LOG) self._LOG.cmd_end(recentReq.prefix, recentCmd, /^LOGIN$/.test(recentCmd) ? '***BLEEPING OUT LOGON***' : recentReq.cmddata);
       if (self._state.requests.length === 0
           && recentCmd !== 'LOGOUT') {
@@ -1141,7 +1150,9 @@ ImapConnection.prototype.__defineGetter__('seq', function() {
 /****** Private Functions ******/
 
 ImapConnection.prototype._fnTmrConn = function(loginCb) {
-  loginCb(new Error('Connection timed out'));
+  var err = new Error('Connection timed out');
+  err.type = 'timeout';
+  loginCb(err);
   this._state.conn.close();
 }
 

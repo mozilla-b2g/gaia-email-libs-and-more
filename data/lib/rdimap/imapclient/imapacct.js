@@ -39,10 +39,12 @@ function cmpFolderPubPath(a, b) {
  * API in such a way that we never know the API.  Se a vida e.
  *
  */
-function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
+function ImapAccount(universe, compositeAccount, accountId, credentials,
+                     connInfo, folderInfos,
                      dbConn,
                      _parentLog, existingProtoConn) {
   this.universe = universe;
+  this.compositeAccount = compositeAccount;
   this.id = accountId;
 
   this._credentials = credentials;
@@ -54,13 +56,8 @@ function ImapAccount(universe, accountId, credentials, connInfo, folderInfos,
 
   this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
-  if (existingProtoConn) {
-    this._ownedConns.push({
-        conn: existingProtoConn,
-        inUse: false,
-        folderId: null,
-      });
-  }
+  if (existingProtoConn)
+    this._reuseConnection(existingProtoConn);
 
   // Yes, the pluralization is suspect, but unambiguous.
   /** @dictof[@key[FolderId] @value[ImapFolderStorage] */
@@ -427,6 +424,10 @@ ImapAccount.prototype = {
     this._LOG.__die();
   },
 
+  get numActiveConns() {
+    return this._ownedConns.length;
+  },
+
   /**
    * Mechanism for an `ImapFolderConn` to request an IMAP protocol connection.
    * This is to potentially support some type of (bounded) connection pooling
@@ -475,7 +476,20 @@ ImapAccount.prototype = {
     this._makeConnection(folderId, callback);
   },
 
-  _makeConnection: function(folderId, callback) {
+  checkAccount: function(callback) {
+    var self = this;
+    this._makeConnection(
+      ':check',
+      function success(conn) {
+        self.__folderDoneWithConnection(null, conn);
+        callback(null);
+      },
+      function badness(err) {
+        callback(err);
+      });
+  },
+
+  _makeConnection: function(folderId, callback, errback) {
     this._LOG.createConnection(folderId);
     var opts = {
       host: this._connInfo.hostname,
@@ -492,17 +506,66 @@ ImapAccount.prototype = {
         inUse: true,
         folderId: folderId,
       });
-    conn.on('close', function() {
-      });
-    conn.on('error', function(err) {
-        // this hears about connection errors too
-        console.warn('Connection error:', err);
-      });
+    this._bindConnectionDeathHandlers(conn);
     conn.connect(function(err) {
-      if (!err) {
+      if (err) {
+        var errName;
+        switch (err.type) {
+          // error-codes as defined in `MailApi.js` for tryToCreateAccount
+          case 'NO':
+          case 'no':
+            errName = 'bad-user-or-pass';
+            this.universe.__reportAccountProblem(this.compositeAccount,
+                                                 errName);
+            break;
+          case 'timeout':
+            errName = 'unresponsive-server';
+            break;
+          default:
+            errName = 'unknown';
+            break;
+        }
+        console.error('Connect error:', errName, 'formal:', err, 'on',
+                      this._connInfo.hostname, this._connInfo.port);
+        if (errback)
+          errback(errName);
+        conn.die();
+      }
+      else {
         callback(conn);
       }
-    });
+    }.bind(this));
+  },
+
+  _reuseConnection: function(existingProtoConn) {
+    // We don't want the probe being kept alive and we certainly don't need its
+    // listeners.
+    existingProtoConn.removeAllListeners();
+    this._ownedConns.push({
+        conn: existingProtoConn,
+        inUse: false,
+        folderId: null,
+      });
+    this._bindConnectionDeathHandlers(existingProtoConn);
+  },
+
+  _bindConnectionDeathHandlers: function(conn) {
+    // on close, stop tracking the connection in our list of live connections
+    conn.on('close', function() {
+      for (var i = 0; i < this._ownedConns.length; i++) {
+        var connInfo = this._ownedConns[i];
+        if (connInfo.conn === conn) {
+          this._LOG.deadConnection(connInfo.folderId);
+          this._ownedConns.splice(i, 1);
+          return;
+        }
+      }
+    }.bind(this));
+    conn.on('error', function(err) {
+      // this hears about connection errors too
+      console.warn('Conn steady error:', err, 'on',
+                   this._connInfo.hostname, this._connInfo.port);
+    }.bind(this));
   },
 
   __folderDoneWithConnection: function(folderId, conn) {
@@ -759,6 +822,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createConnection: {},
       reuseConnection: {},
       releaseConnection: {},
+      deadConnection: {},
+      connectionMismatch: {},
     },
     TEST_ONLY_events: {
       createFolder: { path: false },
@@ -767,6 +832,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createConnection: { folderId: false },
       reuseConnection: { folderId: false },
       releaseConnection: { folderId: false },
+      deadConnection: { folderId: false },
+      connectionMismatch: { folderId: false },
     },
     errors: {
       folderAlreadyHasConn: { folderId: false },

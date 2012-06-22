@@ -20,6 +20,32 @@ function MailAccount(api, wireRep) {
   this.type = wireRep.type;
   this.name = wireRep.name;
 
+  /**
+   * Is the account currently enabled, as in will we talk to the server?
+   * Accounts will be automatically disabled in cases where it would be
+   * counter-productive for us to keep trying to access the server.
+   *
+   * For example: the user's password being (apparently) bad, or gmail getting
+   * upset about the amount of data transfer and locking the account out for the
+   * rest of the day.
+   */
+  this.enabled = wireRep.enabled;
+  /**
+   * @listof[@oneof[
+   *   @case['login-failed']{
+   *     The login explicitly failed, suggesting that the user's password is
+   *     bad.  Other possible interpretations include the account settings are
+   *     somehow wrong now, the server is experiencing a transient failure,
+   *     or who knows.
+   *   }
+   * ]]{
+   *   A list of known problems with the account which explain why the account
+   *   might not be `enabled`.  Once a problem is believed to have been
+   *   addressed, `clearProblems` should be called.
+   * }
+   */
+  this.problems = wireRep.problems;
+
   this.identities = [];
   for (var iIdent = 0; iIdent < wireRep.identities.length; iIdent++) {
     this.identities.push(new MailSenderIdentity(this._api,
@@ -45,8 +71,23 @@ MailAccount.prototype = {
     };
   },
 
-  modifyAccount: function() {
-    throw new Error("NOT YET IMPLEMENTED");
+  /**
+   * Tell the back-end to clear the list of problems with the account, re-enable
+   * it, and try and connect.
+   */
+  clearProblems: function() {
+    this._api._clearAccountProblems(this);
+  },
+
+  /**
+   * @args[
+   *   @param[mods @dict[
+   *     @key[password String]
+   *   ]]
+   * ]
+   */
+  modifyAccount: function(mods) {
+    this._api._modifyAccount(this, mods);
   },
 
   /**
@@ -723,14 +764,29 @@ var unexpectedBridgeDataError = reportError,
     reportClientCodeError = reportError;
 
 /**
- *
+ * The public API exposed to the client via the MailAPI global.
  */
 function MailAPI() {
   this._nextHandle = 1;
-  this.onstatuschange = null;
 
   this._slices = {};
   this._pendingRequests = {};
+
+  /**
+   * @func[
+   *   @args[
+   *     @param[account MailAccount]
+   *   ]
+   * ]{
+   *   A callback invoked when we fail to login to an account and the server
+   *   explicitly told us the login failed and we have no reason to suspect
+   *   the login was temporarily disabled.
+   *
+   *   The account is put in a disabled/offline state until such time as the
+   *
+   * }
+   */
+  this.onbadlogin = null;
 }
 exports.MailAPI = MailAPI;
 MailAPI.prototype = {
@@ -766,6 +822,11 @@ MailAPI.prototype = {
                     '\n', ex.stack);
       return;
     }
+  },
+
+  _recv_badLogin: function ma__recv_badLogin(msg) {
+    if (this.onbadlogin)
+      this.onbadlogin(new MailAccount(this, msg.account));
   },
 
   _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
@@ -961,6 +1022,9 @@ MailAPI.prototype = {
    *     The username and password didn't check out.  We don't know which one
    *     is wrong, just that one of them is wrong.
    *   }
+   *   @case['unknown']{
+   *     We don't know what happened; count this as our bug for not knowing.
+   *   }
    *   @case[null]{
    *     No error, the account was created and everything is terrific.
    *   }
@@ -1006,6 +1070,21 @@ MailAPI.prototype = {
     delete this._pendingRequests[msg.handle];
 
     req.callback.call(null, msg.error);
+  },
+
+  _clearAccountProblems: function ma__clearAccountProblems(account) {
+    this.__bridgeSend({
+      type: 'clearAccountProblems',
+      accountId: account.id,
+    });
+  },
+
+  _modifyAccount: function ma__modifyAccount(account, mods) {
+    this.__bridgeSend({
+      type: 'modifyAccount',
+      accountId: account.id,
+      mods: mods,
+    });
   },
 
   _deleteAccount: function ma__deleteAccount(account) {
@@ -1357,7 +1436,6 @@ MailAPI.prototype = {
   },
 
   _recv_sent: function(msg) {
-    console.log("processing sent", msg.handle);
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for sent:', msg.handle);
