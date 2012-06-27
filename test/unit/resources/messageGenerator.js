@@ -2,6 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+function Object_extend(proto, mix, propdefs) {
+  var obj = Object.create(proto, propdefs);
+  for (var key in mix) {
+    obj[key] = mix[key];
+  }
+  return obj;
+}
+
 /**
  * A list of first names for use by MessageGenerator to create deterministic,
  *  reversible names.  To keep things easily reversible, if you add names, make
@@ -146,8 +154,7 @@ function SyntheticPartLeaf(aBody, aProperties) {
   SyntheticPart.call(this, aProperties);
   this.body = aBody;
 }
-SyntheticPartLeaf.prototype = {
-  __proto__: SyntheticPart.prototype,
+SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'text/plain',
   _charset: 'ISO-8859-1',
   _format: 'flowed',
@@ -158,7 +165,7 @@ SyntheticPartLeaf.prototype = {
   prettyString: function MimeMessage_prettyString(aIndent) {
     return "Leaf: " + this._contentType;
   },
-};
+});
 
 /**
  * A part that tells us to produce NO output in a multipart section.  So if our
@@ -185,8 +192,7 @@ function SyntheticPartMulti(aParts, aProperties) {
   this.BOUNDARY_COUNTER_HOME.BOUNDARY_COUNTER += 1;
   this.parts = (aParts != null) ? aParts : [];
 }
-SyntheticPartMulti.prototype = {
-  __proto__: SyntheticPart.prototype,
+SyntheticPartMulti.prototype = Object_extend(SyntheticPart.prototype, {
   BOUNDARY_COUNTER: 0,
   toMessageString: function() {
     let s = "This is a multi-part message in MIME format.\r\n";
@@ -224,7 +230,7 @@ SyntheticPartMulti.prototype = {
 
     return s;
   }
-};
+});
 SyntheticPartMulti.prototype.BOUNDARY_COUNTER_HOME = SyntheticPartMulti.prototype;
 
 /**
@@ -233,10 +239,9 @@ SyntheticPartMulti.prototype.BOUNDARY_COUNTER_HOME = SyntheticPartMulti.prototyp
 function SyntheticPartMultiMixed() {
   SyntheticPartMulti.apply(this, arguments);
 }
-SyntheticPartMultiMixed.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiMixed.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/mixed',
-};
+});
 
 /**
  * Multipart mixed (multipart/mixed) MIME part.
@@ -244,10 +249,9 @@ SyntheticPartMultiMixed.prototype = {
 function SyntheticPartMultiParallel() {
   SyntheticPartMulti.apply(this, arguments);
 }
-SyntheticPartMultiParallel.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiParallel.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/parallel',
-};
+});
 
 /**
  * Multipart digest (multipart/digest) MIME part.
@@ -255,10 +259,9 @@ SyntheticPartMultiParallel.prototype = {
 function SyntheticPartMultiDigest() {
   SyntheticPartMulti.apply(this, arguments);
 }
-SyntheticPartMultiDigest.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiDigest.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/digest',
-};
+});
 
 /**
  * Multipart alternative (multipart/alternative) MIME part.
@@ -266,10 +269,9 @@ SyntheticPartMultiDigest.prototype = {
 function SyntheticPartMultiAlternative() {
   SyntheticPartMulti.apply(this, arguments);
 }
-SyntheticPartMultiAlternative.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiAlternative.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/alternative',
-};
+});
 
 /**
  * Multipart related (multipart/related) MIME part.
@@ -277,10 +279,9 @@ SyntheticPartMultiAlternative.prototype = {
 function SyntheticPartMultiRelated() {
   SyntheticPartMulti.apply(this, arguments);
 }
-SyntheticPartMultiRelated.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiRelated.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/related',
-};
+});
 
 const PKCS_SIGNATURE_MIME_TYPE = 'application/x-pkcs7-signature';
 /**
@@ -301,14 +302,13 @@ function SyntheticPartMultiSignedSMIME(aPart, aProperties) {
       name: 'smime.p7s',
     }));
 }
-SyntheticPartMultiSignedSMIME.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiSignedSMIME.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
     protocol: PKCS_SIGNATURE_MIME_TYPE,
     micalg: 'SHA1'
   },
-};
+});
 
 const PGP_SIGNATURE_MIME_TYPE = 'application/pgp-signature';
 /**
@@ -328,14 +328,13 @@ function SyntheticPartMultiSignedPGP(aPart, aProperties) {
       contentType: PGP_SIGNATURE_MIME_TYPE,
     }));
 }
-SyntheticPartMultiSignedPGP.prototype = {
-  __proto__: SyntheticPartMulti.prototype,
+SyntheticPartMultiSignedPGP.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
     protocol: PGP_SIGNATURE_MIME_TYPE,
     micalg: 'pgp-sha1'
   },
-};
+});
 
 
 const _DEFAULT_META_STATES = {
@@ -369,52 +368,11 @@ function SyntheticMessage(aHeaders, aBodyPart, aMetaState) {
   }
 }
 
-SyntheticMessage.prototype = {
-  __proto__: SyntheticPart.prototype,
+SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'message/rfc822',
   _charset: null,
   _format: null,
   _encoding: null,
-
-  /** @returns the Message-Id header value. */
-  get messageId() { return this._messageId; },
-  /**
-   * Sets the Message-Id header value.
-   *
-   * @param aMessageId A unique string without the greater-than and less-than,
-   *     we add those for you.
-   */
-  set messageId(aMessageId) {
-    this._messageId = aMessageId;
-    this.headers["Message-Id"] = "<" + aMessageId + ">";
-  },
-
-  /** @returns the message Date header value. */
-  get date() { return this._date; },
-  /**
-   * Sets the Date header to the given javascript Date object.
-   *
-   * @param aDate The date you want the message to claim to be from.
-   */
-  set date(aDate) {
-    this._date = aDate;
-    let dateParts = aDate.toString().split(" ");
-    this.headers["Date"] = dateParts[0] + ", " + dateParts[2] + " " +
-                           dateParts[1] + " " + dateParts[3] + " " +
-                           dateParts[4] + " " + dateParts[5].substring(3);
-  },
-
-  /** @returns the message subject */
-  get subject() { return this._subject; },
-  /**
-   * Sets the message subject.
-   *
-   * @param aSubject A string sans newlines or other illegal characters.
-   */
-  set subject(aSubject) {
-    this._subject = aSubject;
-    this.headers["Subject"] = aSubject;
-  },
 
   /**
    * Given a tuple containing [a display name, an e-mail address], returns a
@@ -449,32 +407,6 @@ SyntheticMessage.prototype = {
     return [name, email];
   },
 
-  /** @returns the name-and-address tuple used when setting the From header. */
-  get from() { return this._from; },
-  /**
-   * Sets the From header using the given tuple containing [a display name,
-   *  an e-mail address].
-   *
-   * @param aNameAndAddress A list with two elements.  The first should be the
-   *     display name (sans wrapping quotes).  The second element should be the
-   *     e-mail address (sans wrapping greater-than/less-than).
-   *     Can also be a string, should then be a valid raw From: header value.
-   */
-  set from(aNameAndAddress) {
-    if (typeof aNameAndAddress === "string") {
-      this._from = this._parseMailbox(aNameAndAddress);
-      this.headers["From"] = aNameAndAddress;
-      return;
-    }
-    this._from = aNameAndAddress;
-    this.headers["From"] = this._formatMailFromNameAndAddress(aNameAndAddress);
-  },
-
-  /** @returns The display name part of the From header. */
-  get fromName() { return this._from[0]; },
-  /** @returns The e-mail address part of the From header (no display name). */
-  get fromAddress() { return this._from[1]; },
-
   /**
    * For our header storage, we may need to pre-add commas, this does it.
    *
@@ -485,81 +417,6 @@ SyntheticMessage.prototype = {
     for (let i=0; i < aList.length - 1; i++)
       aList[i] = aList[i] + ",";
     return aList;
-  },
-
-  /**
-   * @returns the comma-ized list of name-and-address tuples used to set the To
-   *     header.
-   */
-  get to() { return this._to; },
-  /**
-   * Sets the To header using a list of tuples containing [a display name,
-   *  an e-mail address].
-   *
-   * @param aNameAndAddress A list of name-and-address tuples.  Each tuple is a
-   *     list with two elements.  The first should be the
-   *     display name (sans wrapping quotes).  The second element should be the
-   *     e-mail address (sans wrapping greater-than/less-than).
-   *     Can also be a string, should then be a valid raw To: header value.
-   */
-  set to(aNameAndAddresses) {
-    if (typeof aNameAndAddresses === "string") {
-      this._to = [];
-      let people = aNameAndAddresses.split(",");
-      for (let i = 0; i < people.length; i++) {
-        this._to.push(this._parseMailbox(people[i]));
-      }
-
-      this.headers["To"] = aNameAndAddresses;
-      return;
-    }
-    this._to = aNameAndAddresses;
-    this.headers["To"] = this._commaize(
-                           [this._formatMailFromNameAndAddress(nameAndAddr)
-                            for each (nameAndAddr in aNameAndAddresses)]);
-  },
-  /** @returns The display name of the first intended recipient. */
-  get toName() { return this._to[0][0]; },
-  /** @returns The email address (no display name) of the first recipient. */
-  get toAddress() { return this._to[0][1]; },
-
-  /**
-   * @returns The comma-ized list of name-and-address tuples used to set the Cc
-   *     header.
-   */
-  get cc() { return this._cc; },
-  /**
-   * Sets the Cc header using a list of tuples containing [a display name,
-   *  an e-mail address].
-   *
-   * @param aNameAndAddress A list of name-and-address tuples.  Each tuple is a
-   *     list with two elements.  The first should be the
-   *     display name (sans wrapping quotes).  The second element should be the
-   *     e-mail address (sans wrapping greater-than/less-than).
-   *     Can also be a string, should then be a valid raw Cc: header value.
-   */
-  set cc(aNameAndAddresses) {
-    if (typeof aNameAndAddresses === "string") {
-      this._cc = [];
-      let people = aNameAndAddresses.split(",");
-      for (let i = 0; i < people.length; i++) {
-        this._cc.push(this._parseMailbox(people[i]));
-      }
-      this.headers["Cc"] = aNameAndAddresses;
-      return;
-    }
-    this._cc = aNameAndAddresses;
-    this.headers["Cc"] = this._commaize(
-                           [this._formatMailFromNameAndAddress(nameAndAddr)
-                            for each (nameAndAddr in aNameAndAddresses)]);
-  },
-
-  get bodyPart() {
-    return this._bodyPart;
-  },
-  set bodyPart(aBodyPart) {
-    this._bodyPart = aBodyPart;
-    this.headers["Content-Type"] = this._bodyPart.contentTypeHeaderValue;
   },
 
   /**
@@ -620,40 +477,173 @@ SyntheticMessage.prototype = {
   toMboxString: function() {
     return "From " + this._from[1] + "\r\n" + this.toMessageString() + "\r\n";
   },
-
-  /**
-   * @returns this message in rfc822 format in a string stream.
-   */
-  toStream: function () {
-    let stream = Cc["@mozilla.org/io/string-input-stream;1"]
-                   .createInstance(Ci.nsIStringInputStream);
-    let str = this.toMessageString();
-    stream.setData(str, str.length);
-    return stream;
+}, {
+  messageId: {
+    /** @returns the Message-Id header value. */
+    get: function() { return this._messageId; },
+    /**
+     * Sets the Message-Id header value.
+     *
+     * @param aMessageId A unique string without the greater-than and less-than,
+     *     we add those for you.
+     */
+    set: function(aMessageId) {
+      this._messageId = aMessageId;
+      this.headers["Message-Id"] = "<" + aMessageId + ">";
+    },
   },
 
-  /**
-   * Writes this message to an mbox stream.  This means adding a "From " line
-   *  and making sure we've got a trailing newline.
-   */
-  writeToMboxStream: function (aStream) {
-    let str = this.toMboxString();
-    aStream.write(str, str.length);
-  }
-};
+  date: {
+    /** @returns the message Date header value. */
+    get: function() { return this._date; },
+    /**
+     * Sets the Date header to the given javascript Date object.
+     *
+     * @param aDate The date you want the message to claim to be from.
+     */
+    set: function(aDate) {
+      this._date = aDate;
+      let dateParts = aDate.toString().split(" ");
+      this.headers["Date"] = dateParts[0] + ", " + dateParts[2] + " " +
+                             dateParts[1] + " " + dateParts[3] + " " +
+                             dateParts[4] + " " + dateParts[5].substring(3);
+    },
+  },
 
-/**
- * Write a list of messages to a folder
- *
- * @param aMessages The list of SyntheticMessages instances to write.
- * @param aFolder The folder to write to.
- */
-function addMessagesToFolder (aMessages, aFolder)
-{
-  let localFolder = aFolder.QueryInterface(Ci.nsIMsgLocalMailFolder);
-  for (let [, message] in Iterator(aMessages))
-    localFolder.addMessage(message.toMboxString());
-}
+  subject: {
+    /** @returns the message subject */
+    get: function() { return this._subject; },
+    /**
+     * Sets the message subject.
+     *
+     * @param aSubject A string sans newlines or other illegal characters.
+     */
+    set: function(aSubject) {
+      this._subject = aSubject;
+      this.headers["Subject"] = aSubject;
+    },
+  },
+
+  from: {
+    /** @returns the name-and-address tuple used when setting the From header. */
+    get: function() { return this._from; },
+    /**
+     * Sets the From header using the given tuple containing [a display name,
+     *  an e-mail address].
+     *
+     * @param aNameAndAddress A list with two elements.  The first should be the
+     *     display name (sans wrapping quotes).  The second element should be the
+     *     e-mail address (sans wrapping greater-than/less-than).
+     *     Can also be a string, should then be a valid raw From: header value.
+     */
+    set: function(aNameAndAddress) {
+      if (typeof aNameAndAddress === "string") {
+        this._from = this._parseMailbox(aNameAndAddress);
+        this.headers["From"] = aNameAndAddress;
+        return;
+      }
+      this._from = aNameAndAddress;
+      this.headers["From"] = this._formatMailFromNameAndAddress(aNameAndAddress);
+    },
+  },
+
+  fromName: {
+    /** @returns The display name part of the From header. */
+    get: function() { return this._from[0]; },
+  },
+
+  fromAddress: {
+    /** @returns The e-mail address part of the From header (no display name). */
+    get: function() { return this._from[1]; },
+  },
+
+  to: {
+      /**
+       * @returns the comma-ized list of name-and-address tuples used to set the To
+       *     header.
+       */
+      get: function() { return this._to; },
+      /**
+       * Sets the To header using a list of tuples containing [a display name,
+       *  an e-mail address].
+       *
+       * @param aNameAndAddress A list of name-and-address tuples.  Each tuple is a
+       *     list with two elements.  The first should be the
+       *     display name (sans wrapping quotes).  The second element should be the
+       *     e-mail address (sans wrapping greater-than/less-than).
+       *     Can also be a string, should then be a valid raw To: header value.
+       */
+      set: function(aNameAndAddresses) {
+        if (typeof aNameAndAddresses === "string") {
+          this._to = [];
+          let people = aNameAndAddresses.split(",");
+          for (let i = 0; i < people.length; i++) {
+            this._to.push(this._parseMailbox(people[i]));
+          }
+
+          this.headers["To"] = aNameAndAddresses;
+          return;
+        }
+        this._to = aNameAndAddresses;
+        this.headers["To"] = this._commaize(
+                               [this._formatMailFromNameAndAddress(nameAndAddr)
+                                for each (nameAndAddr in aNameAndAddresses)]);
+      },
+  },
+
+  toName: {
+    /** @returns The display name of the first intended recipient. */
+    get: function() { return this._to[0][0]; },
+  },
+
+  toAddress: {
+    /** @returns The email address (no display name) of the first recipient. */
+    get: function() { return this._to[0][1]; },
+  },
+
+  cc: {
+    /**
+     * @returns The comma-ized list of name-and-address tuples used to set the Cc
+     *     header.
+     */
+    get: function() { return this._cc; },
+    /**
+     * Sets the Cc header using a list of tuples containing [a display name,
+     *  an e-mail address].
+     *
+     * @param aNameAndAddress A list of name-and-address tuples.  Each tuple is a
+     *     list with two elements.  The first should be the
+     *     display name (sans wrapping quotes).  The second element should be the
+     *     e-mail address (sans wrapping greater-than/less-than).
+     *     Can also be a string, should then be a valid raw Cc: header value.
+     */
+    set: function(aNameAndAddresses) {
+      if (typeof aNameAndAddresses === "string") {
+        this._cc = [];
+        let people = aNameAndAddresses.split(",");
+        for (let i = 0; i < people.length; i++) {
+          this._cc.push(this._parseMailbox(people[i]));
+        }
+        this.headers["Cc"] = aNameAndAddresses;
+        return;
+      }
+      this._cc = aNameAndAddresses;
+      this.headers["Cc"] = this._commaize(
+                             [this._formatMailFromNameAndAddress(nameAndAddr)
+                              for each (nameAndAddr in aNameAndAddresses)]);
+    },
+  },
+
+  bodyPart: {
+    get: function() {
+      return this._bodyPart;
+    },
+    set: function(aBodyPart) {
+      this._bodyPart = aBodyPart;
+      this.headers["Content-Type"] = this._bodyPart.contentTypeHeaderValue;
+    },
+  },
+});
 
 /**
  * Provides mechanisms for creating vaguely interesting, but at least valid,
