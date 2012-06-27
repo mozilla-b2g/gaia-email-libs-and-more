@@ -568,51 +568,46 @@ BridgedViewSlice.prototype = {
 function FoldersViewSlice(api, handle) {
   BridgedViewSlice.call(this, api, 'folders', handle);
 }
-FoldersViewSlice.prototype = {
-  __proto__: BridgedViewSlice.prototype,
+FoldersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 
-  getFirstFolderWithType: function(type, items) {
-    // allow an explicit list of items to be provided, specifically for use in
-    // onsplice handlers where the items have not yet been spliced in.
-    if (!items)
-      items = this.items;
-    for (var i = 0; i < items.length; i++) {
-      var folder = items[i];
-      if (folder.type === type)
-        return folder;
-    }
-    return null;
-  },
+FoldersViewSlice.prototype.getFirstFolderWithType = function(type, items) {
+  // allow an explicit list of items to be provided, specifically for use in
+  // onsplice handlers where the items have not yet been spliced in.
+  if (!items)
+    items = this.items;
+  for (var i = 0; i < items.length; i++) {
+    var folder = items[i];
+    if (folder.type === type)
+      return folder;
+  }
+  return null;
+};
 
-  getFirstFolderWithName: function(name, items) {
-    if (!items)
-      items = this.items;
-    for (var i = 0; i < items.length; i++) {
-      var folder = items[i];
-      if (folder.name === name)
-        return folder;
-    }
-    return null;
-  },
+FoldersViewSlice.prototype.getFirstFolderWithName = function(name, items) {
+  if (!items)
+    items = this.items;
+  for (var i = 0; i < items.length; i++) {
+    var folder = items[i];
+    if (folder.name === name)
+      return folder;
+  }
+  return null;
 };
 
 function HeadersViewSlice(api, handle) {
   BridgedViewSlice.call(this, api, 'headers', handle);
 }
-HeadersViewSlice.prototype = {
-  __proto__: BridgedViewSlice.prototype,
-
-  /**
-   * Request a re-sync of the time interval covering the effective/visible time
-   * range.  If the most recently displayed message is the most recent message
-   * known to us, then the date range will cover through "now".
-   */
-  refresh: function() {
-    this._api.__bridgeSend({
-        type: 'refreshHeaders',
-        handle: this._handle,
-      });
-  },
+HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
+/**
+ * Request a re-sync of the time interval covering the effective/visible time
+ * range.  If the most recently displayed message is the most recent message
+ * known to us, then the date range will cover through "now".
+ */
+HeadersViewSlice.prototype.refresh = function() {
+  this._api.__bridgeSend({
+      type: 'refreshHeaders',
+      handle: this._handle,
+    });
 };
 
 

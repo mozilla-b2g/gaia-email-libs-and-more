@@ -302,16 +302,17 @@ var ThingProto = exports.ThingProto = {
  *  responsibility of exposing the thing via a logger or the like.
  */
 exports.__makeThing = function makeThing(type, humanName, digitalName, proto) {
+  var thing;
   if (proto === undefined)
     proto = ThingProto;
-  return {
-    __proto__: proto,
-    __type: type,
-    __name: humanName,
-    __diginame: digitalName,
-    __hardcodedFamily: null,
-    _uniqueName: gUniqueThingName--,
-  };
+  thing = Object.create(proto);
+
+  thing.__type = type;
+  thing.__name = humanName;
+  thing.__diginame = digitalName;
+  thing.__hardcodedFamily = null;
+  thing._uniqueName = gUniqueThingName--;
+  return thing;
 };
 
 function NOP() {
@@ -404,36 +405,33 @@ var LogProtoBase = {
  *  functions implemented by LogProtoBase and wraps them with a parameterized
  *  decorator.
  */
-var TestLogProtoBase = {
-  __proto__: LogProtoBase,
+var TestLogProtoBase = Object.create(LogProtoBase);
+TestLogProtoBase.__unexpectedEntry = function(iEntry, unexpEntry) {
+  var entry = ['!unexpected', unexpEntry];
+  this._entries[iEntry] = entry;
+};
 
-  __unexpectedEntry: function(iEntry, unexpEntry) {
-    var entry = ['!unexpected', unexpEntry];
-    this._entries[iEntry] = entry;
-  },
+TestLogProtoBase.__mismatchEntry = function(iEntry, expected, actual) {
+  var entry = ['!mismatch', expected, actual];
+  this._entries[iEntry] = entry;
+};
 
-  __mismatchEntry: function(iEntry, expected, actual) {
-    var entry = ['!mismatch', expected, actual];
-    this._entries[iEntry] = entry;
-  },
+TestLogProtoBase.__failedExpectation = function(exp) {
+  var entry = ['!failedexp', exp, $microtime.now(), gSeq++];
+  this._entries.push(entry);
+};
 
-  __failedExpectation: function(exp) {
-    var entry = ['!failedexp', exp, $microtime.now(), gSeq++];
-    this._entries.push(entry);
-  },
-
-  __die: function() {
-    this._died = $microtime.now();
-    var testActor = this._actor;
-    if (testActor) {
-      if (testActor._expectDeath) {
-        testActor._expectDeath = false;
-        testActor.__loggerFired();
-      }
-      if (testActor._lifecycleListener)
-        testActor._lifecycleListener.call(null, 'dead', this.__instance, this);
+TestLogProtoBase.__die = function() {
+  this._died = $microtime.now();
+  var testActor = this._actor;
+  if (testActor) {
+    if (testActor._expectDeath) {
+      testActor._expectDeath = false;
+      testActor.__loggerFired();
     }
-  },
+    if (testActor._lifecycleListener)
+      testActor._lifecycleListener.call(null, 'dead', this.__instance, this);
+  }
 };
 
 const DIED_EVENTNAME = '(died)', DIED_EXP = [DIED_EVENTNAME];
@@ -880,31 +878,26 @@ function LoggestClassMaker(moduleFab, name) {
   this._latchedVars = [];
 
   // steady-state minimal logging logger (we always want statistics!)
-  this.dummyProto = {
-    __proto__: DummyLogProtoBase,
-    __defName: name,
-    __latchedVars: this._latchedVars,
-    __FAB: this.moduleFab,
-  };
+  var dummyProto = this.dummyProto = Object.create(DummyLogProtoBase);
+  dummyProto.__defName = name;
+  dummyProto.__latchedVars = this._latchedVars;
+  dummyProto.__FAB = this.moduleFab;
+
   // full-logging logger
-  this.logProto = {
-    __proto__: LogProtoBase,
-    __defName: name,
-    __latchedVars: this._latchedVars,
-    __FAB: this.moduleFab,
-  };
+  var logProto = this.logProto = Object.create(LogProtoBase);
+  logProto.__defName = name;
+  logProto.__latchedVars = this._latchedVars;
+  logProto.__FAB = this.moduleFab;
+
   // testing full-logging logger
-  this.testLogProto = {
-    __proto__: TestLogProtoBase,
-    __defName: name,
-    __latchedVars: this._latchedVars,
-    __FAB: this.moduleFab,
-  };
+  var testLogProto = this.testLogProto = Object.create(TestLogProtoBase);
+  testLogProto.__defName = name;
+  testLogProto.__latchedVars = this._latchedVars;
+  testLogProto.__FAB = this.moduleFab;
+
   // testing actor for expectations, etc.
-  this.testActorProto = {
-    __proto__: TestActorProtoBase,
-    __defName: name,
-  };
+  var testActorProto = this.testActorProto = Object.create(TestActorProtoBase);
+  testActorProto.__defName = name;
 
   /** Maps helper names to their type for collision reporting by `_define`. */
   this._definedAs = {};

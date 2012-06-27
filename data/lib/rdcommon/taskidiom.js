@@ -145,38 +145,33 @@ var TaskProto = exports.TaskProto = {
   },
 };
 
-var SoftFailureTaskProto = exports.SoftFailureTaskProto = {
-  __proto__: TaskProto,
-  __fail: function() {
-    // iNextStep is always one beyond the most recent/current step...
-    this.log.failed(this.__steps[this.__iNextStep - 1][0]);
-    // call the cleanup function safely-like
-    if (this.__cleanup)
-      this.log.cleaup(this, this.__cleanup);
-    this.log.__die();
-    this.__deferred.resolve(false);
-  },
-  __succeed: function(val) {
-    this.log.__die();
-    this.__deferred.resolve(val);
-  },
+var SoftFailureTaskProto = exports.SoftFailureTaskProto = Object.create(TaskProto);
+SoftFailureTaskProto.__fail = function() {
+  // iNextStep is always one beyond the most recent/current step...
+  this.log.failed(this.__steps[this.__iNextStep - 1][0]);
+  // call the cleanup function safely-like
+  if (this.__cleanup)
+    this.log.cleaup(this, this.__cleanup);
+  this.log.__die();
+  this.__deferred.resolve(false);
+};
+SoftFailureTaskProto.__succeed = function(val) {
+  this.log.__die();
+  this.__deferred.resolve(val);
 };
 
-var EarlyReturnTaskProto = exports.EarlyReturnTaskProto = {
-  __proto__: TaskProto,
+var EarlyReturnTaskProto = exports.EarlyReturnTaskProto = Object.create(TaskProto);
+EarlyReturnTaskProto.__succeed = function(val) {
+  if (val === MAGIC_EARLY_RETURN) {
+    val = this.__retVal;
+  }
+  this.log.__die();
+  this.__deferred.resolve(val);
+};
 
-  __succeed: function(val) {
-    if (val === MAGIC_EARLY_RETURN) {
-      val = this.__retVal;
-    }
-    this.log.__die();
-    this.__deferred.resolve(val);
-  },
-
-  earlyReturn: function(val) {
-    this.__retVal = val;
-    return MAGIC_EARLY_RETURN;
-  },
+EarlyReturnTaskProto.earlyReturn = function(val) {
+  this.__retVal = val;
+  return MAGIC_EARLY_RETURN;
 };
 
 /**
@@ -287,12 +282,10 @@ TaskMaster.prototype = {
                   stepName + "_begin", stepName + "_end"]);
     }
 
-    var proto = {
-      __proto__: useTaskProto,
-      __name: taskDef.name,
-      __steps: steps,
-      __cleanup: ("cleanup" in taskDef ? taskDef.cleanup : null),
-    };
+    var proto = Object.create(useTaskProto);
+    proto.__name = taskDef.name;
+    proto.__steps = steps;
+    proto.__cleanup = ("cleanup" in taskDef ? taskDef.cleanup : null);
 
     if ("impl" in taskDef) {
       for (var implKey in taskDef.impl)

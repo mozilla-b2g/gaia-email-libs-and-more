@@ -51,6 +51,15 @@ OUR_JS_DEPS := $(wildcard data/lib/rdimap/imapclient/*.js) $(wildcard data/deps/
 gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/r.js -o scripts/gaia-email-opt.build.js
 
+gaia-symlink:
+	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
+
+clean-install-gaia-email-opt:
+	rm gaia-email-opt.js
+	$(MAKE) install-gaia-email-opt
+
+install-gaia-email-opt: gaia-email-opt.js gaia-symlink
+	cp gaia-email-opt.js gaia-symlink/apps/email/js/ext
 
 PYTHON=python
 B2GSD=b2g-srcdir-symlink
@@ -70,3 +79,4 @@ clean:
 	rm -rf node-transformed-deps
 
 .DEFAULT_GOAL=xpi
+.PHONY: install-gaia-email-opt
