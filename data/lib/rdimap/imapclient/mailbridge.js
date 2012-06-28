@@ -429,13 +429,22 @@ console.log('sending bad login');
     };
 
     // - figure out the identity to use
-    var account, identity;
+    var account, identity, folderId;
     if (msg.mode === 'new' && msg.submode === 'folder')
-      account = this.universe.getAccountForFolderId(msg.reference);
+      account = this.universe.getAccountForFolderId(msg.refSuid);
     else
-      account = this.universe.getAccountForMessageSuid(msg.reference);
+      account = this.universe.getAccountForMessageSuid(msg.refSuid);
 
     identity = account.identities[0];
+
+    if (msg.mode === 'reply' ||
+        msg.mode === 'forward') {
+      var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.refSuid);
+      folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
+
+      });
+      return;
+    }
 
     this.__sendMessage({
       type: 'composeBegun',

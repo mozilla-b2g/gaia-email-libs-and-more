@@ -56,6 +56,8 @@ const CT_SIGNATURE = 0x2;
  */
 const CT_LEADIN_TO_QUOTE = 0x3;
 
+const CT_QUOTED_TYPE = 0x4;
+
 /**
  * A quoted reply; eligible for collapsing.  Depth of quoting will also be
  * encoded in the actual integer value.
@@ -67,11 +69,11 @@ const CT_QUOTED_REPLY = 0x14;
  */
 const CT_QUOTED_FORWARD = 0x24;
 /**
- * Quoted content that has not been pruned.
+ * Quoted content that has not been pruned.  Aspirational!
  */
 const CT_QUOTED_IN_ENTIRETY = 0x40;
 /**
- * The quote has been subjected to some level of manual intervention,
+ * The quote has been subjected to some level of manual intervention. Aspirational!
  */
 const CT_QUOTED_GARDENED = 0x80;
 
@@ -100,7 +102,8 @@ const CT_BOILERPLATE_ADS = 0x8;
 
 const CHARCODE_GT = ('>').charCodeAt(0),
       CHARCODE_SPACE = (' ').charCodeAt(0),
-      CHARCODE_NBSP = ('\xa0').charCodeAt(0);
+      CHARCODE_NBSP = ('\xa0').charCodeAt(0),
+      CHARCODE_NEWLINE = ('\n').charCodeAt(0);
 
 const RE_ORIG_MESAGE_DELIM = /^-{5} Original Message -{5}$/;
 
@@ -133,6 +136,19 @@ function indexOfDefault(string, search, startIndex, defVal) {
   if (idx === -1)
     return defVal;
   return idx;
+}
+
+const NEWLINE = '\n', RE_NEWLINE = /\n/g;
+
+function countNewlinesInRegion(string, startIndex, endIndex) {
+  var idx = startIndex - 1, count = 0;
+  for (;;) {
+    idx = string.indexOf(NEWLINE, idx + 1);
+    if (idx === -1 || idx >= endIndex)
+      return count;
+    count++;
+  }
+  return null;
 }
 
 /**
@@ -267,30 +283,62 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
   /**
    * Assume that we are in a content region and that all variables are proper.
    */
-  function pushContent(considerForBoilerplate) {
-    if (idxRegionStart === null)
-      return;
-    var chunk = fullBodyText.substring(idxRegionStart,
-                                       idxLastNonWhitespaceLineEnd);
-    contentRep.push(CT_AUTHORED_CONTENT);
-    var iChunk = contentRep.push(chunk) - 1;
+  function pushContent(considerForBoilerplate, upToPoint, forcePostLine) {
+    if (idxRegionStart === null) {
+      if (atePreLines) {
+        // decrement atePreLines if we are not the first chunk because then we get
+        // an implicit/free newline.
+        if (contentRep.length)
+          atePreLines--;
+        contentRep.push((atePreLines&0xff) << 8 | CT_AUTHORED_CONTENT);
+        contentRep.push('');
+      }
+    }
+    else {
+      if (upToPoint === undefined)
+        upToPoint = idxLineStart;
 
-    if (considerForBoilerplate)
-      contentRep[iChunk] = lookBackwardsForBoilerplate(chunk);
+      var chunk = fullBodyText.substring(idxRegionStart,
+                                         idxLastNonWhitespaceLineEnd);
+      var atePostLines = forcePostLine ? 1 : 0;
+      if (idxLastNonWhitespaceLineEnd + 1 !== upToPoint) {
+        // We want to count the number of newlines after the newline that
+        // belongs to the last non-meaningful-whitespace line up to the
+        // effective point.  If we saw a lead-in, the effective point is
+        // preceding the lead-in line's newline.  Otherwise it is the start point
+        // of the current line.
+        atePostLines += countNewlinesInRegion(fullBodyText,
+                                              idxLastNonWhitespaceLineEnd + 1,
+                                              upToPoint);
+      }
+      contentRep.push(((atePreLines&0xff) << 8) | ((atePostLines&0xff) << 16) |
+                      CT_AUTHORED_CONTENT);
+      var iChunk = contentRep.push(chunk) - 1;
 
+      if (considerForBoilerplate)
+        contentRep[iChunk] = lookBackwardsForBoilerplate(chunk);
+    }
+
+    atePreLines = 0;
+    idxRegionStart = null;
     lastNonWhitespaceLine = null;
     idxLastNonWhitespaceLineEnd = null;
     idxPrevLastNonWhitespaceLineEnd = null;
   }
 
   function pushQuote(newQuoteDepth) {
+    var atePostLines = 0;
     // Discard empty lines at the end.  We already skipped adding blank lines, so
     // no need to do the front side.
     while (quoteRunLines.length &&
            !quoteRunLines[quoteRunLines.length - 1]) {
       quoteRunLines.pop();
+      atePostLines++;
     }
-    contentRep.push((inQuoteDepth << 8) | CT_QUOTED_REPLY);
+    contentRep.push(((atePostLines&0xff) << 24) |
+                    ((ateQuoteLines&0xff) << 16) |
+                    ((inQuoteDepth - 1) << 8) |
+                    CT_QUOTED_REPLY);
     contentRep.push(quoteRunLines.join('\n'));
     inQuoteDepth = newQuoteDepth;
     if (inQuoteDepth)
@@ -298,6 +346,7 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
     else
       quoteRunLines = null;
 
+    ateQuoteLines = 0;
     generatedQuoteBlock = true;
   }
 
@@ -320,7 +369,8 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       inQuoteDepth = 0,
       quoteRunLines = null,
       contentType = null,
-      generatedQuoteBlock = false;
+      generatedQuoteBlock = false,
+      atePreLines = 0, ateQuoteLines = 0;
   for (idxLineStart = 0,
          idxLineEnd = fullBodyText.indexOf('\n', idxLineStart);
        idxLineStart < bodyLength;
@@ -337,8 +387,13 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
     // because our slice will include them.
     if (!line.length ||
         (line.length === 1
-         && line.charCodeAt(0) === CHARCODE_NBSP))
+         && line.charCodeAt(0) === CHARCODE_NBSP)) {
+      if (inQuoteDepth)
+        pushQuote(0);
+      if (idxRegionStart === null)
+        atePreLines++;
       continue;
+    }
 
     if (line.charCodeAt(0) === CHARCODE_GT) {
       var lineDepth = countQuoteDepthAndNormalize();
@@ -348,6 +403,8 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         if (lastNonWhitespaceLine &&
             RE_WROTE_LINE.test(lastNonWhitespaceLine)) {
 
+          // count the newlines up to the lead-in's newline
+          var upToPoint = idxLastNonWhitespaceLineEnd;
           idxLastNonWhitespaceLineEnd = idxPrevLastNonWhitespaceLineEnd;
           // Nuke the content region if the lead-in was the start of the region;
           // this can be inferred by there being no prior content line.
@@ -355,8 +412,12 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
             idxRegionStart = null;
 
           var leadin = lastNonWhitespaceLine;
-          pushContent(!generatedQuoteBlock);
-          contentRep.push(CT_LEADIN_TO_QUOTE);
+          pushContent(!generatedQuoteBlock, upToPoint);
+          var leadinNewlines = 0;
+          if (upToPoint + 1 !== idxLineStart)
+            leadinNewlines = countNewlinesInRegion(fullBodyText,
+                                                   upToPoint + 1, idxLineStart);
+          contentRep.push((leadinNewlines << 8) | CT_LEADIN_TO_QUOTE);
           contentRep.push(leadin);
         }
         else {
@@ -373,11 +434,12 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       // Eat whitespace lines until we get a non-whitespace (quoted) line.
       if (quoteRunLines.length || line.length)
         quoteRunLines.push(line);
+      else
+        ateQuoteLines++;
     }
     else {
       if (inQuoteDepth) {
         pushQuote(0);
-        idxRegionStart = null;
         idxLastNonWhitespaceLineEnd = null;
       }
       if (idxRegionStart === null)
@@ -388,12 +450,184 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       idxLastNonWhitespaceLineEnd = idxLineEnd;
     }
   }
-  if (inQuoteDepth)
+  if (inQuoteDepth) {
     pushQuote(0);
-  else
-    pushContent(true);
+  }
+  else {
+    // There is no implicit newline for the final block, so force it if we had
+    // a newline.
+    pushContent(true, fullBodyText.length,
+                (fullBodyText.charCodeAt(fullBodyText.length - 1) ===
+                  CHARCODE_NEWLINE));
+  }
 
   return contentRep;
+};
+
+
+/**
+ * What is the deepest quoting level that we should repeat?  Our goal is not to be
+ * the arbiter of style, but to provide a way to bound message growth in the face
+ * of reply styles where humans do not manually edit quotes.
+ *
+ * We accept depth levels up to 5 mainly because a quick perusal of mozilla lists
+ * shows cases where 5 levels of nesting were used to provide useful context.
+ */
+const MAX_QUOTE_REPEAT_DEPTH = 5;
+// we include a few more than we need for forwarded text regeneration
+const replyQuotePrefixStrings = [
+  '> ', '>> ', '>>> ', '>>>> ', '>>>>> ', '>>>>>> ', '>>>>>>> ', '>>>>>>>> ',
+  '>>>>>>>>> ',
+];
+const replyQuotePrefixStringsNoSpace = [
+  '>', '>>', '>>>', '>>>>', '>>>>>', '>>>>>>', '>>>>>>>', '>>>>>>>>',
+  '>>>>>>>>>',
+];
+const replyQuoteNewlineReplaceStrings = [
+  '\n> ', '\n>> ', '\n>>> ', '\n>>>> ', '\n>>>>> ', '\n>>>>>> ', '\n>>>>>>> ',
+  '\n>>>>>>>> ',
+];
+const replyQuoteNewlineReplaceStringsNoSpace = [
+  '\n>', '\n>>', '\n>>>', '\n>>>>', '\n>>>>>', '\n>>>>>>', '\n>>>>>>>',
+  '\n>>>>>>>>',
+];
+const replyPrefix = '> ', replyNewlineReplace = '\n> ';
+
+function expandQuotedPrefix(s, depth) {
+  if (s.charCodeAt(0) === CHARCODE_NEWLINE)
+    return replyQuotePrefixStringsNoSpace[depth];
+  return replyQuotePrefixStrings[depth];;
+}
+
+/**
+ * Expand a quoted block so that it has the right number of greater than signs
+ * and inserted whitespace where appropriate.  (Blank lines don't want whitespace
+ * injected.)
+ */
+function expandQuoted(s, depth) {
+  var ws = replyQuoteNewlineReplaceStrings[depth],
+      nows = replyQuoteNewlineReplaceStringsNoSpace[depth];
+  return s.replace(RE_NEWLINE, function(m, idx) {
+    if (s.charCodeAt(idx+1) === CHARCODE_NEWLINE)
+      return nows;
+    else
+      return ws;
+  });
+}
+
+var l10n_wroteString = '{{name}} wrote',
+    l10n_originalMessageString = 'Original Message';
+
+exports.setLocalizedStrings = function(strings) {
+  l10n_wroteString = strings.wrote;
+  l10n_originalMessageString = strings.originalMessage;
+};
+
+/**
+ * Generate a text message reply given an already quote-processed body.  We do not
+ * simply '>'-prefix everything because 1) we don't store the raw message text
+ * because it's faster for us to not quote-process everything every time we display
+ * a message, 2) we want to strip some stuff out, 3) we don't care about providing
+ * a verbatim quote.
+ */
+exports.generateReplyText = function generateReplyText(rep) {
+  var strBits = [];
+
+  for (var i = 0; i < rep.length; i += 2) {
+    var etype = rep[i]&0xf, block = rep[i + 1];
+    switch (etype) {
+      case CT_AUTHORED_CONTENT:
+      case CT_SIGNATURE:
+      case CT_LEADIN_TO_QUOTE:
+        strBits.push(replyPrefix);
+        strBits.push(block.replace(RE_NEWLINE, replyNewlineReplace));
+        break;
+      case CT_QUOTED_TYPE:
+        var depth = ((rep[i] >> 8)&0xff) + 1;
+        if (depth < MAX_QUOTE_REPEAT_DEPTH) {
+          strBits.push(expandQuotedPrefix(block, depth));
+          strBits.push(expandQuoted(block, depth));
+        }
+        break;
+      // -- eat boilerplate!
+      // No one needs to read boilerplate in a reply; the point is to
+      // provide context, not the whole message.  (Forward the message if
+      // you want the whole thing!)
+      case CT_BOILERPLATE_DISCLAIMER:
+      case CT_BOILERPLATE_LIST_INFO:
+      case CT_BOILERPLATE_PRODUCT:
+      case CT_BOILERPLATE_ADS:
+        break;
+    }
+  }
+
+  return strBits.join('');
+};
+
+/**
+ * Regenerate the text of a message for forwarding.  'Original Message' is not
+ * prepended and information about the message's header is not prepended.  That
+ * is done in `generateForwardMessage`.
+ *
+ * We attempt to generate a message as close to the original message as
+ * possible, but it doesn't have to be 100%.
+ */
+exports.generateForwardBodyText = function generateForwardBodyText(rep) {
+  var strBits = [], nl;
+
+  for (var i = 0; i < rep.length; i += 2) {
+    if (i)
+      strBits.push(NEWLINE);
+
+    var etype = rep[i]&0xf, block = rep[i + 1];
+    switch (etype) {
+      // - injected with restored whitespace
+      case CT_AUTHORED_CONTENT:
+        // pre-newlines
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+          strBits.push(NEWLINE);
+        strBits.push(block);
+        // post new-lines
+        for (nl = (rep[i] >> 16)&0xff; nl; nl--)
+          strBits.push(NEWLINE);
+        break;
+      case CT_LEADIN_TO_QUOTE:
+        strBits.push(block);
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+          strBits.push(NEWLINE);
+        break;
+      // - injected verbatim,
+      case CT_SIGNATURE:
+      case CT_BOILERPLATE_DISCLAIMER:
+      case CT_BOILERPLATE_LIST_INFO:
+      case CT_BOILERPLATE_PRODUCT:
+      case CT_BOILERPLATE_ADS:
+        strBits.push(block);
+        break;
+      // - quote character reconstruction
+      // this is not guaranteed to round-trip since we assume the non-whitespace
+      // variant...
+      case CT_QUOTED_TYPE:
+        var depth = Math.min((rep[i] >> 8)&0xff, 8);
+        for (nl = (rep[i] >> 16)&0xff; nl; nl--) {
+          strBits.push(replyQuotePrefixStringsNoSpace[depth]);
+          strBits.push(NEWLINE);
+        }
+        strBits.push(expandQuotedPrefix(block, depth));
+        strBits.push(expandQuoted(block, depth));
+        for (nl = (rep[i] >> 24)&0xff; nl; nl--) {
+          strBits.push(NEWLINE);
+          strBits.push(replyQuotePrefixStringsNoSpace[depth]);
+        }
+        break;
+    }
+  }
+
+  return strBits.join('');
+};
+
+exports.generateForwardMessage = function generateForwardMessage(headerInfo,
+                                                                 bodyInfo) {
 };
 
 }); // end define

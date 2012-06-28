@@ -246,6 +246,7 @@ const ENVIRON_MAPPINGS = [
   }
 ];
 var TEST_PARAMS = {
+  name: 'Baron von Testendude',
   emailAddress: 'testy@localhost',
   password: 'testy',
 };

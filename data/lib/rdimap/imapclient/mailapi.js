@@ -333,7 +333,10 @@ MailHeader.prototype = {
    * @args[
    *   @param[replyMode @oneof[
    *     @default[null]{
-   *       Just reply to the sender.
+   *       To be specified...
+   *     }
+   *     @case['sender']{
+   *       Reply to the author of the message.
    *     }
    *     @case['list']{
    *       Reply to the mailing list the message was received from.  If there
@@ -1339,29 +1342,31 @@ MailAPI.prototype = {
       handle: handle,
       mode: null,
       submode: null,
-      reference: null,
+      refSuid: null,
+      refDate: null,
     };
     if (options.hasOwnProperty('replyTo') && options.replyTo) {
       msg.mode = 'reply';
       msg.submode = options.replyMode;
-      msg.reference = options.replyTo.id;
-      throw new Error('XXX replying not implemented');
+      msg.refSuid = options.replyTo.id;
+      msg.refDate = options.replyTo.date.valueOf();
     }
     else if (options.hasOwnProperty('forwardOf') && options.forwardOf) {
       msg.mode = 'forward';
       msg.submode = options.forwardMode;
-      msg.reference = options.forwardOf.id;
+      msg.refSuid = options.forwardOf.id;
+      msg.refDate = options.forwardOf.date.valueOf();
       throw new Error('XXX forwarding not implemented');
     }
     else {
       msg.mode = 'new';
       if (message) {
         msg.submode = 'message';
-        msg.reference = message.id;
+        msg.refSuid = message.id;
       }
       else if (folder) {
         msg.submode = 'folder';
-        msg.reference = folder.id;
+        msg.refSuid = folder.id;
       }
     }
     this.__bridgeSend(msg);
@@ -1441,6 +1446,22 @@ MailAPI.prototype = {
       req.callback.call(null, msg.err, msg.badAddresses);
       req.callback = null;
     }
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Localization
+
+  /**
+   * Provide a list of localized strings for use in message composition.  This
+   * should be a dictionary with the following values, with their expected
+   * default values for English provided.  Try to avoid being clever and instead
+   * just pick the same strings Thunderbird uses for these for the given locale.
+   *
+   * - wrote: "{{name}} wrote".  Used for the lead-in to the quoted message.
+   * - originalMessage: "Original Message".  Gets put between a bunch of dashes
+   *    when forwarding a message inline.
+   */
+  useLocalizedStrings: function(strings) {
   },
 
   //////////////////////////////////////////////////////////////////////////////

@@ -276,7 +276,7 @@ var TestImapAccountMixins = {
 
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: 'Baron von Testendude',
+          displayName: TEST_PARAMS.name,
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
         },
@@ -684,6 +684,17 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         self._logger.sliceDied(viewThing.slice.handle);
       };
       viewThing.slice.die();
+    });
+  },
+
+  /**
+   * Wait for a message with the given subject to show up in the account.
+   *
+   * For now we repeatedly poll for the arrival of the message
+   */
+  do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
+    this.T.action(this, 'wait for message', expectSubject, function() {
+
     });
   },
 };

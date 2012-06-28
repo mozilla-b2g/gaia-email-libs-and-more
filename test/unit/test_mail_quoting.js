@@ -25,17 +25,17 @@ TD.commonCase('Quoting', function(T) {
     {
       name: 'just whitespace: one newline',
       body: '\n',
-      chunks: [],
+      chunks: ['content', ''],
     },
     {
       name: 'just whitespace: multiple newlines',
       body: '\n\n\n',
-      chunks: [],
+      chunks: ['content', ''],
     },
     {
       name: 'just whitespace: newlines, nbsp',
       body: '\n\xa0\n\n\xa0\n',
-      chunks: [],
+      chunks: ['content', ''],
     },
     // - quoting fundamentals
     {
@@ -137,6 +137,7 @@ TD.commonCase('Quoting', function(T) {
           'q2', j('B1', '', 'B2'),
           'q1', j('A2', 'A3'),
           'q2', j('B3'),
+          'content', '',
           'q1', j('A4'),
           'q2', j('B4'),
           'content', j('Z1'),
@@ -215,13 +216,15 @@ TD.commonCase('Quoting', function(T) {
     },
   ];
 
-  var eCheck = T.lazyLogger('quoteCheck');
+  var eCheck = T.lazyLogger('quoteCheck'), eRawRep = T.lazyLogger('rawRep');
   quoteTests.forEach(function(tdef) {
     T.check(eCheck, tdef.name, function() {
       var i;
       for (i = 0; i < tdef.chunks.length; i += 2) {
         eCheck.expect_namedValue(tdef.chunks[i], tdef.chunks[i+1]);
       }
+      eCheck.expect_namedValue('forwardText',
+                               JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
       eCheck.expect_event('done');
 
       var rep = $_quotechew.quoteProcessTextBody(tdef.body);
@@ -238,7 +241,7 @@ TD.commonCase('Quoting', function(T) {
             rtype = 'leadin';
             break;
           case 0x4:
-            rtype = 'q' + ((rep[i] >> 8)&0xff);
+            rtype = 'q' + (((rep[i] >> 8)&0xff) + 1);
             break;
           case 0x5:
             rtype = 'disclaimer';
@@ -258,6 +261,13 @@ TD.commonCase('Quoting', function(T) {
         }
         eCheck.namedValue(rtype, rep[i+1]);
       }
+      eRawRep.value(rep.map(function(x, i) {
+        if (i%2)
+          return x;
+        return x.toString(16);
+      }));
+      var forwardText = $_quotechew.generateForwardBodyText(rep);
+      eCheck.namedValue('forwardText', JSON.stringify(forwardText));
       eCheck.event('done');
     });
   });

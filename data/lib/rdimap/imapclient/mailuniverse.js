@@ -877,6 +877,13 @@ MailUniverse.prototype = {
     return account.getFolderStorageForFolderId(folderId);
   },
 
+  getFolderStorageForMessageSuid: function mu_getFolderStorageForFolderId(
+                                    messageSuid) {
+    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('/')),
+        account = this.getAccountForFolderId(folderId);
+    return account.getFolderStorageForFolderId(folderId);
+  },
+
   getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(
                                    identityId) {
     var accountId = identityId.substring(0, identityId.indexOf('/')),

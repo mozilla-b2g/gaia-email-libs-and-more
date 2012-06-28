@@ -13,9 +13,12 @@ var TD = $tc.defineTestsFor(
  *
  * XXX todo: verify that our account received it.
  */
-TD.commonCase('compose message in one shot', function(T) {
+TD.commonCase('compose, verify, reply, verify', function(T) {
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
+
+  var uniqueSubject = 'Composition: ' + Date.now() + ' ' +
+        Math.floor(Math.random() * 100000);
 
   var composer, eLazy = T.lazyLogger('misc');
   T.action('begin composition', eLazy, function() {
@@ -28,7 +31,7 @@ TD.commonCase('compose message in one shot', function(T) {
     eLazy.expect_event('sent');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
-    composer.subject = 'Dance dance dance!';
+    composer.subject = uniqueSubject;
     composer.body = 'Antelope banana credenza.\n\nDialog excitement!';
 
     composer.finishCompositionSendMessage(function(err, badAddrs) {
@@ -38,6 +41,33 @@ TD.commonCase('compose message in one shot', function(T) {
         eLazy.event('sent');
     });
   }).timeoutMS = 5000;
+
+  var inboxFolder = testAccount.do_useExistingFolder('INBOX', ''),
+      inboxView = testAccount.do_viewFolder('open', inboxFolder, null),
+      replyComposer;
+  testAccount.do_waitForMessage(inboxView, uniqueSubject, {
+    expect: function() {
+      // We are top-posting biased, so we automatically insert two blank lines;
+      // one for typing to start at, and one for whitespace purposes.
+      var expectedBody = [
+          '', '',
+          TEST_PARAMS.name + ' wrote:',
+          '> Antelope banana credenza.',
+          '>',
+          '> Dialog excitement!',
+        ].join('\n');
+      eLazy.expect_event('setup completed');
+      eLazy.expect_namedValue('body', expectedBody);
+    },
+    withMessage: function(header) {
+      replyComposer = header.replyToMessage('sender', function() {
+        eLazy.event('setup completed');
+      });
+    },
+  });
+  T.action('reply', eLazy, function() {
+  });
+
 });
 
 /**
