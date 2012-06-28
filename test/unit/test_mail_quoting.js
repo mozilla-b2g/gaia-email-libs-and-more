@@ -115,6 +115,33 @@ TD.commonCase('Quoting', function(T) {
           'content', 'cheese'
         ],
     },
+    // - nested quoting
+    // nb: we don't bother with lead-in detection on nested levels
+    {
+      name: 'nest: 2 deep, no spacing',
+      body: j(
+          'Alice wrote:',
+          '> A1', '>',
+          '> Bob wrote:',
+          '>> B1', '>>', '>> B2',
+          '>', '> A2', '> A3', '>',
+          '>> B3',
+          '',
+          '> A4',
+          '>> B4',
+          'Z1'
+        ),
+      chunks: [
+          'leadin', 'Alice wrote:',
+          'q1', j('A1', '', 'Bob wrote:'),
+          'q2', j('B1', '', 'B2'),
+          'q1', j('A2', 'A3'),
+          'q2', j('B3'),
+          'q1', j('A4'),
+          'q2', j('B4'),
+          'content', j('Z1'),
+        ],
+    },
     // - product boilerplate
     {
       name: 'simple product boilerplate',

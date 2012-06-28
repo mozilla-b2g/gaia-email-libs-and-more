@@ -152,7 +152,6 @@ function indexOfDefault(string, search, startIndex, defVal) {
  *   until we reach something that we don't think is boilerplate.
  */
 exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
-console.log('QUOTETECT:', JSON.stringify(fullBodyText));
   var contentRep = [];
   var line;
   /**
@@ -223,7 +222,6 @@ console.log('QUOTETECT:', JSON.stringify(fullBodyText));
          idxLineEnd = idxLineStart - 1,
            idxLineStart = chunk.lastIndexOf('\n', idxLineEnd - 1) + 1,
            scanLinesLeft--) {
-console.log("  back", idxLineStart, idxLineEnd);
 
       line = chunk.substring(idxLineStart, idxLineEnd);
 
@@ -272,7 +270,6 @@ console.log("  back", idxLineStart, idxLineEnd);
   function pushContent(considerForBoilerplate) {
     if (idxRegionStart === null)
       return;
-console.log("content", idxRegionStart, idxLastNonWhitespaceLineEnd);
     var chunk = fullBodyText.substring(idxRegionStart,
                                        idxLastNonWhitespaceLineEnd);
     contentRep.push(CT_AUTHORED_CONTENT);
@@ -330,7 +327,7 @@ console.log("content", idxRegionStart, idxLastNonWhitespaceLineEnd);
        idxLineStart = idxLineEnd + 1,
          idxLineEnd = indexOfDefault(fullBodyText, '\n', idxLineStart,
                                      fullBodyText.length)) {
-console.log("forward", idxLineStart, idxLineEnd);
+
     line = fullBodyText.substring(idxLineStart, idxLineEnd);
 
     // - Do not process purely whitespace lines.
@@ -342,7 +339,6 @@ console.log("forward", idxLineStart, idxLineEnd);
         (line.length === 1
          && line.charCodeAt(0) === CHARCODE_NBSP))
       continue;
-console.log('  not just WS!', JSON.stringify(line));
 
     if (line.charCodeAt(0) === CHARCODE_GT) {
       var lineDepth = countQuoteDepthAndNormalize();
@@ -397,7 +393,6 @@ console.log('  not just WS!', JSON.stringify(line));
   else
     pushContent(true);
 
-  console.log("::", JSON.stringify(contentRep));
   return contentRep;
 };
 
