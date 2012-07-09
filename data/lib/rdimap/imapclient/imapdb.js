@@ -12,7 +12,7 @@ define(
 'use strict';
 
 var IndexedDB;
-if (("IndexedDB" in window) && window.indexedDB) {
+if (("indexedDB" in window) && window.indexedDB) {
   IndexedDB = window.indexedDB;
 }
 else if (("mozIndexedDB" in window) && window.mozIndexedDB) {
@@ -90,7 +90,7 @@ const TBL_BODY_BLOCKS = 'bodyBlocks';
 
 /**
  * DB helper methods for Gecko's IndexedDB implementation.  We are assuming
- * the presence of the Mozilla-specific getAll helper right now.  Since our
+ * the presence of the Mozilla-specific mozGetAll helper right now.  Since our
  * app is also dependent on the existence of the TCP API that no one else
  * supports right now and we are assuming a SQLite-based IndexedDB
  * implementation, this does not seem too crazy.
@@ -196,8 +196,8 @@ ImapDB.prototype = {
         folderInfoStore = transaction.objectStore(TBL_FOLDER_INFO);
 
     // these will fire sequentially
-    var configReq = configStore.getAll(),
-        folderInfoReq = folderInfoStore.getAll();
+    var configReq = configStore.mozGetAll(),
+        folderInfoReq = folderInfoStore.mozGetAll();
 
     configReq.onerror = this._fatalError;
     // no need to track success, we can read it off folderInfoReq
