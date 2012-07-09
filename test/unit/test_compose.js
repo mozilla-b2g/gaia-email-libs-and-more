@@ -47,6 +47,7 @@ TD.commonCase('compose, verify, reply, verify', function(T) {
       replyComposer;
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
     expect: function() {
+      T.reportActiveActorThisStep(eLazy);
       // We are top-posting biased, so we automatically insert two blank lines;
       // one for typing to start at, and one for whitespace purposes.
       var expectedBody = [
@@ -57,17 +58,31 @@ TD.commonCase('compose, verify, reply, verify', function(T) {
           '> Dialog excitement!',
         ].join('\n');
       eLazy.expect_event('setup completed');
+      eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
+                                       address: TEST_PARAMS.emailAddress }]);
+      eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
       eLazy.expect_namedValue('body', expectedBody);
     },
     withMessage: function(header) {
       replyComposer = header.replyToMessage('sender', function() {
         eLazy.event('setup completed');
+        eLazy.namedValue('to', replyComposer.to);
+        eLazy.namedValue('subject', replyComposer.subject);
+        eLazy.namedValue('body', replyComposer.body);
       });
     },
   });
   T.action('reply', eLazy, function() {
-  });
-
+    eLazy.expect_event('sent');
+    replyComposer.body = 'This bit is new!' + replyComposer.body;
+    replyComposer.finishCompositionSendMessage(function(err, badAddrs) {
+      if (err)
+        eLazy.error(err);
+      else
+        eLazy.event('sent');
+    });
+  }).timeoutMS = 5000;
+  testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {});
 });
 
 /**
@@ -79,5 +94,5 @@ TD.commonCase('compose, verify, reply, verify', function(T) {
 //});
 
 function run_test() {
-  runMyTests(6);
+  runMyTests(15);
 }

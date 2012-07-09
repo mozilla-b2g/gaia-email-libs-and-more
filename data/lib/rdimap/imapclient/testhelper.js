@@ -693,9 +693,30 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
    * For now we repeatedly poll for the arrival of the message
    */
   do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
+    var self = this;
     this.T.action(this, 'wait for message', expectSubject, function() {
+      self.expect_messageSubject(null, expectSubject);
+      var foundIt = false;
+      if (funcOpts.expect)
+        funcOpts.expect();
 
-    });
+      viewThing.slice.onadd = function(header) {
+        if (header.subject !== expectSubject)
+          return;
+        self._logger.messageSubject(null, header.subject);
+        foundIt = true;
+        if (funcOpts.withMessage)
+          funcOpts.withMessage(header);
+      };
+      viewThing.slice.oncomplete = function() {
+        if (foundIt)
+          return;
+        setTimeout(function() {
+          viewThing.slice.refresh();
+        }, 150);
+      };
+      viewThing.slice.refresh();
+    }).timeoutMS = 5000;
   },
 };
 

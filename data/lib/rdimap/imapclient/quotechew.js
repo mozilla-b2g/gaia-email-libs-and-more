@@ -222,10 +222,14 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
 
     function pushBoilerplate(contentType) {
       var boilerChunk = chunk.substring(idxLineStart, idxRegionEnd);
-      contentRep.splice(insertAt, 0, contentType, boilerChunk);
-
-      chunk = chunk.substring(0, idxLineStart - 1).trimRight();
+      var newChunk = chunk.substring(0, idxLineStart - 1).trimRight();
+      var ate = countNewlinesInRegion(chunk, newChunk.length, idxLineStart - 1);
+      chunk = newChunk;
       idxRegionEnd = chunk.length;
+
+      contentRep.splice(insertAt, 0,
+                        ((ate&0xff) << 8) | contentType,
+                        boilerChunk);
 
       sawNonWhitespaceLine = false;
       scanLinesLeft = MAX_BOILERPLATE_LINES;
@@ -602,6 +606,8 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
       case CT_BOILERPLATE_LIST_INFO:
       case CT_BOILERPLATE_PRODUCT:
       case CT_BOILERPLATE_ADS:
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+          strBits.push(NEWLINE);
         strBits.push(block);
         break;
       // - quote character reconstruction
