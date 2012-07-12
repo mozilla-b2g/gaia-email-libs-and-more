@@ -194,7 +194,7 @@ TD.commonCase('folder sync', function(T) {
         'bodyInfo',
         bodyInfo && {
           to: bodyInfo.to,
-          bodyText: bodyInfo.bodyText,
+          bodyText: bodyInfo.bodyRep[1],
         });
     });
   });

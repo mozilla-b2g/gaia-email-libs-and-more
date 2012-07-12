@@ -401,7 +401,7 @@ function MailBody(api, suid, wireRep) {
   }
   // for the time being, we only provide text/plain contents, and we provide
   // those flattened.
-  this.bodyText = wireRep.bodyText;
+  this.bodyRep = wireRep.bodyRep;
 }
 MailBody.prototype = {
   toString: function() {

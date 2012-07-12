@@ -326,8 +326,8 @@ MessageGenerator.prototype = {
     var headerInfo = {
       id: null,
       suid: null,
-      guid: '<' + Date.now() + Math.random().toString(16).substr(1) +
-              '@mozgaia>',
+      guid: Date.now() + Math.random().toString(16).substr(1) +
+              '@mozgaia',
       author: null,
       date: null,
       flags: [],
@@ -435,7 +435,7 @@ MessageGenerator.prototype = {
 
       composer.setMessageOption(messageOpts);
       composer.addHeader('Date', new Date(headerInfo.date));
-      composer.addHeader('Message-Id', headerInfo.guid);
+      composer.addHeader('Message-Id', '<' + headerInfo.guid + '>');
 
       // have it internally accumulate the data rather than using the stream
       // mechanism.

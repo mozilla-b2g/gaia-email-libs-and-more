@@ -66,10 +66,10 @@ TD.commonCase('message encodings', function(T) {
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
     qpHeader.getBody(function(qpBody) {
-      eBodies.namedValue('qp', qpBody.bodyText);
+      eBodies.namedValue('qp', qpBody.bodyRep[1]);
     });
     b64Header.getBody(function(b64Body) {
-      eBodies.namedValue('b64', b64Body.bodyText);
+      eBodies.namedValue('b64', b64Body.bodyRep[1]);
     });
   });
 
@@ -187,7 +187,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       }
 
       folderView.slice.items[iMsg].getBody(function(body) {
-        eCheck.namedValue('body', body.bodyText);
+        eCheck.namedValue('body', body.bodyRep[1]);
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.expect_namedValue('attachment',

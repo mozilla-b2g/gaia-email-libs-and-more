@@ -15,6 +15,9 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
+    if (!opts)
+      opts = {};
+
     self.universe = null;
     self.MailAPI = null;
 

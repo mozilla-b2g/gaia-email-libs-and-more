@@ -308,7 +308,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
                sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
     attachments: sizifyAttachments(rep.attachments),
     references: rep.msg.msg.meta.references,
-    bodyRep: sizifyStr(bodyRep),
+    bodyRep: sizifyBodyRep(bodyRep),
   };
 
   return true;
