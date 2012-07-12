@@ -140,13 +140,13 @@ function MailFolder(api, wireRep) {
    */
   this.name = wireRep.name;
   /**
-   * @listof[String]{
-   *   The hierarchical path of the folder, with each path component as a
-   *   separate string.  All path values are human-readable (as opposed to
-   *   modified modified utf-7 encoded folder names.)
-   * }
+   * The full string of the path.
    */
   this.path = wireRep.path;
+  /**
+   * The hierarchical depth of this folder.
+   */
+  this.depth = wireRep.depth;
   /**
    * @oneof[
    *   @case['account']{

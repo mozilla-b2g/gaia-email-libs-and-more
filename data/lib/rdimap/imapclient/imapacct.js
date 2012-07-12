@@ -139,7 +139,7 @@ ImapAccount.prototype = {
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
    */
-  _learnAboutFolder: function(name, path, type, delim) {
+  _learnAboutFolder: function(name, path, type, delim, depth) {
     var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -148,6 +148,7 @@ ImapAccount.prototype = {
         path: path,
         type: type,
         delim: delim,
+        depth: depth
       },
       $impl: {
         nextHeaderBlock: 0,
@@ -310,18 +311,25 @@ ImapAccount.prototype = {
         done('unknown');
         return;
       }
-      // We need to re-derive the path
+      // We need to re-derive the path.  The hierarchy will only be that
+      // required for our new folder, so we traverse all children and create
+      // the leaf-node when we see it.
       var folderMeta = null;
-      function walkBoxes(boxLevel, pathSoFar) {
+      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
         for (var boxName in boxLevel) {
           var box = boxLevel[boxName],
-              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName,
-              type = self._determineFolderType(box, boxPath);
-          folderMeta = self._learnAboutFolder(boxName, boxPath, type,
-                                              box.delim);
+              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
+          if (box.children) {
+            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
+          }
+          else {
+            var type = self._determineFolderType(box, boxPath);
+            folderMeta = self._learnAboutFolder(boxName, boxPath, type,
+                                                box.delim, pathDepth);
+          }
         }
       }
-      walkBoxes(boxesRoot, '');
+      walkBoxes(boxesRoot, '', 0);
       if (folderMeta)
         done(null, folderMeta);
       else
@@ -699,7 +707,7 @@ ImapAccount.prototype = {
     }
 
     // - walk the boxes
-    function walkBoxes(boxLevel, pathSoFar) {
+    function walkBoxes(boxLevel, pathSoFar, pathDepth) {
       for (var boxName in boxLevel) {
         var box = boxLevel[boxName],
             path = pathSoFar ? (pathSoFar + boxName) : boxName;
@@ -712,14 +720,15 @@ ImapAccount.prototype = {
         // - new to us!
         else {
           var type = self._determineFolderType(box, path);
-          self._learnAboutFolder(boxName, path, type, box.delim);
+          self._learnAboutFolder(boxName, path, type, box.delim, pathDepth);
         }
 
         if (box.children)
-          walkBoxes(box.children, pathSoFar + boxName + box.delim);
+          walkBoxes(box.children, pathSoFar + boxName + box.delim,
+                    pathDepth + 1);
       }
     }
-    walkBoxes(boxesRoot, '');
+    walkBoxes(boxesRoot, '', 0);
 
     // - detect deleted folders
     // track dead folder id's so we can issue a

@@ -605,27 +605,46 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     name: 'Inbox',
     path: 'Inbox',
     type: 'inbox',
+    delim: '/',
+    depth: 0,
+  };
+  var todoFolder = {
+    id: this.id + '/1',
+    name: 'ToDo',
+    path: 'Inbox/ToDo',
+    type: 'normal',
+    delim: '/',
+    depth: 1,
   };
   var draftsFolder = {
-    id: this.id + '/1',
+    id: this.id + '/2',
     name: 'Drafts',
     path: 'Drafts',
     type: 'drafts',
+    delim: '/',
+    depth: 0,
   };
   var sentFolder = {
-    id: this.id + '/2',
+    id: this.id + '/3',
     name: 'Sent',
     path: 'Sent',
     type: 'sent',
+    delim: '/',
+    depth: 0,
   };
 
-  this.folders = [inboxFolder, draftsFolder, sentFolder];
+  this.folders = [inboxFolder, todoFolder, draftsFolder, sentFolder];
   this._folderStorages = {};
   this._folderStorages[inboxFolder.id] =
     new FakeFolderStorage(
       inboxFolder,
       generator.makeMessages(
         { folderId: inboxFolder.id, count: 16, to: [ourNameAndAddress] }));
+  this._folderStorages[todoFolder.id] =
+    new FakeFolderStorage(
+      todoFolder,
+      generator.makeMessages(
+        { folderId: todoFolder.id, count: 2, to: [ourNameAndAddress] }));
   this._folderStorages[draftsFolder.id] =
     new FakeFolderStorage(draftsFolder, []);
   this._folderStorages[sentFolder.id] =

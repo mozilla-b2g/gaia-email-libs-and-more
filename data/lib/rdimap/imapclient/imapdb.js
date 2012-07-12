@@ -26,7 +26,7 @@ else {
   throw new Error("I need IndexedDB; load me in a content page universe!");
 }
 
-const CUR_VERSION = 2;
+const CUR_VERSION = 5;
 
 /**
  * The configuration table contains configuration data that should persist

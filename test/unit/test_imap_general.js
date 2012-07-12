@@ -185,7 +185,7 @@ TD.commonCase('folder sync', function(T) {
       'bodyInfo',
       {
         to: synMessage.bodyInfo.to,
-        bodyText: synMessage.bodyInfo.bodyText,
+        bodyText: synMessage.bodyInfo.bodyRep,
       });
 
     var header = msearchView.slice.items[index];
@@ -194,7 +194,7 @@ TD.commonCase('folder sync', function(T) {
         'bodyInfo',
         bodyInfo && {
           to: bodyInfo.to,
-          bodyText: bodyInfo.bodyRep[1],
+          bodyText: bodyInfo.bodyRep,
         });
     });
   });
