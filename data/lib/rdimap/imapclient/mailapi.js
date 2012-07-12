@@ -227,6 +227,7 @@ function serializeMessageName(x) {
 function MailHeader(slice, wireRep) {
   this._slice = slice;
   this.id = wireRep.suid;
+  this.guid = wireRep.guid;
 
   this.author = wireRep.author;
 
@@ -638,6 +639,7 @@ function MessageComposition(api, handle) {
 
   this.body = null;
 
+  this._references = null;
   this._customHeaders = null;
   // XXX attachments aren't implemented yet, of course.  They will be added
   // via helper method.
@@ -675,6 +677,7 @@ MessageComposition.prototype = {
       bcc: this.bcc,
       subject: this.subject,
       body: this.body,
+      referencesStr: this._references,
       customHeaders: this._customHeaders,
       attachments: this._attachments,
     };
@@ -913,14 +916,16 @@ MailAPI.prototype = {
 
     // - generate 'oncomplete' notification
     if (slice.oncomplete && msg.requested && !msg.moreExpected) {
+      var completeFunc = slice.oncomplete;
+      // reset before calling in case it wants to chain.
+      slice.oncomplete = null;
       try {
-        slice.oncomplete();
+        completeFunc();
       }
       catch (ex) {
         reportClientCodeError('oncomplete notification error', ex,
                               '\n', ex.stack);
       }
-      slice.oncomplete = null;
     }
   },
 
@@ -1344,19 +1349,25 @@ MailAPI.prototype = {
       submode: null,
       refSuid: null,
       refDate: null,
+      refGuid: null,
+      refAuthor: null,
+      refSubject: null,
     };
     if (options.hasOwnProperty('replyTo') && options.replyTo) {
       msg.mode = 'reply';
       msg.submode = options.replyMode;
       msg.refSuid = options.replyTo.id;
       msg.refDate = options.replyTo.date.valueOf();
+      msg.refGuid = options.replyTo.guid;
+      msg.refAuthor = options.replyTo.author;
+      msg.refSubject = options.replyTo.subject;
     }
     else if (options.hasOwnProperty('forwardOf') && options.forwardOf) {
       msg.mode = 'forward';
       msg.submode = options.forwardMode;
       msg.refSuid = options.forwardOf.id;
       msg.refDate = options.forwardOf.date.valueOf();
-      throw new Error('XXX forwarding not implemented');
+      msg.refSubject = options.forwardOf.subject;
     }
     else {
       msg.mode = 'new';
@@ -1400,6 +1411,7 @@ MailAPI.prototype = {
     req.composer.to = msg.to;
     req.composer.cc = msg.cc;
     req.composer.bcc = msg.bcc;
+    req.composer._references = msg.referencesStr;
     // XXX attachments
 
     if (req.callback) {

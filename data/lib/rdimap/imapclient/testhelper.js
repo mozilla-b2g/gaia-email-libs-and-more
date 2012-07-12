@@ -36,10 +36,15 @@ var TestUniverseMixins = {
     // Of course, we don't want to future-date things and have servers be
     // mad at us either, so let's have yesterday be our current time.  We use
     // our time-warp functionality on the server to make this okay.
-    self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    self._useDate.setHours(12, 0, 0, 0);
-    $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
-    $imapslice.TEST_adjustSyncValues(7);
+    if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
+      self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      self._useDate.setHours(12, 0, 0, 0);
+      $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
+      $imapslice.TEST_adjustSyncValues(7);
+    }
+    else {
+      self._useDate = new Date();
+    }
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
@@ -505,17 +510,19 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
   _expect_dateSyncs: function(testFolder, expectedValues) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
-    if (!Array.isArray(expectedValues))
-      expectedValues = [expectedValues];
+    if (expectedValues) {
+      if (!Array.isArray(expectedValues))
+        expectedValues = [expectedValues];
 
-    var totalMessageCount = 0;
-    for (var i = 0; i < expectedValues.length; i++) {
-      var einfo = expectedValues[i];
-      totalMessageCount += einfo.count;
-      if (this.universe.online) {
-        testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-        testFolder.connActor.expect_syncDateRange_end(
-          einfo.full, einfo.flags, einfo.deleted);
+      var totalMessageCount = 0;
+      for (var i = 0; i < expectedValues.length; i++) {
+        var einfo = expectedValues[i];
+        totalMessageCount += einfo.count;
+        if (this.universe.online) {
+          testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+          testFolder.connActor.expect_syncDateRange_end(
+            einfo.full, einfo.flags, einfo.deleted);
+        }
       }
     }
     if (this.universe.online) {
@@ -547,15 +554,17 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
 
       // generate expectations for each date sync range
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
-      // Generate overall count expectation and first and last message
-      // expectations by subject.
-      self.expect_messagesReported(totalExpected);
-      if (totalExpected) {
-        self.expect_messageSubject(
-          0, testFolder.messages[0].headerInfo.subject);
-        self.expect_messageSubject(
-          totalExpected - 1,
-          testFolder.messages[totalExpected - 1].headerInfo.subject);
+      if (expectedValues) {
+        // Generate overall count expectation and first and last message
+        // expectations by subject.
+        self.expect_messagesReported(totalExpected);
+        if (totalExpected) {
+          self.expect_messageSubject(
+            0, testFolder.messages[0].headerInfo.subject);
+          self.expect_messageSubject(
+            totalExpected - 1,
+            testFolder.messages[totalExpected - 1].headerInfo.subject);
+        }
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -708,13 +717,15 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         if (funcOpts.withMessage)
           funcOpts.withMessage(header);
       };
-      viewThing.slice.oncomplete = function() {
+      function completeFunc() {
         if (foundIt)
           return;
         setTimeout(function() {
+          viewThing.slice.oncomplete = completeFunc;
           viewThing.slice.refresh();
         }, 150);
       };
+      viewThing.slice.oncomplete = completeFunc;
       viewThing.slice.refresh();
     }).timeoutMS = 5000;
   },

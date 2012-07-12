@@ -21,27 +21,32 @@ TD.commonCase('Quoting', function(T) {
       name: 'empty string',
       body: '',
       chunks: [],
+      snippet: '',
     },
     {
       name: 'just whitespace: one newline',
       body: '\n',
       chunks: ['content', ''],
+      snippet: '',
     },
     {
       name: 'just whitespace: multiple newlines',
       body: '\n\n\n',
       chunks: ['content', ''],
+      snippet: '',
     },
     {
       name: 'just whitespace: newlines, nbsp',
       body: '\n\xa0\n\n\xa0\n',
       chunks: ['content', ''],
+      snippet: '',
     },
     // - quoting fundamentals
     {
       name: 'no quoting',
       body: j('Foo', 'bar', '', 'baz'),
       chunks: ['content', j('Foo', 'bar', '', 'baz')],
+      snippet: 'Foo bar baz',
     },
     {
       name: 'simple bottom posting',
@@ -54,7 +59,8 @@ TD.commonCase('Quoting', function(T) {
           'leadin', j('John wrote:'),
           'q1', j('Foo', '', 'Bar'),
           'content', j('Baz', '', 'Chaz')
-        ]
+        ],
+      snippet: 'Baz Chaz',
     },
     {
       name: 'simple top posting',
@@ -68,6 +74,7 @@ TD.commonCase('Quoting', function(T) {
           'leadin', 'Jim Bob wrote:',
           'q1', j('I like hats', 'Yes I do!'),
         ],
+      snippet: 'Hats are where it is at.',
     },
     {
       name: 'interspersed reply',
@@ -88,6 +95,7 @@ TD.commonCase('Quoting', function(T) {
           'q1', j('I like hats!', 'How bout you?'),
           'content', 'Verily!',
         ],
+      snippet: 'I concur with this point.',
     },
     {
       name: 'german nbsp',
@@ -102,6 +110,7 @@ TD.commonCase('Quoting', function(T) {
           'q1', 'Robots like to dance',
           'content', 'Hats!  Hats!',
         ],
+      snippet: 'Hats! Hats!',
     },
     {
       name: 'leadin fakeout paranoia',
@@ -114,6 +123,7 @@ TD.commonCase('Quoting', function(T) {
           'q1', 'wrote',
           'content', 'cheese'
         ],
+      snippet: 'running all the time',
     },
     // - nested quoting
     // nb: we don't bother with lead-in detection on nested levels
@@ -142,8 +152,75 @@ TD.commonCase('Quoting', function(T) {
           'q2', j('B4'),
           'content', j('Z1'),
         ],
+      snippet: 'Z1',
     },
-    // - product boilerplate
+    // - explicit signature
+    {
+      name: 'single line signature',
+      body: j('Foo', '', '-- ', 'Baron Bob'),
+      chunks: [
+          'content', 'Foo',
+          'signature', '-- \nBaron Bob',
+        ],
+      snippet: 'Foo',
+    },
+    {
+      name: 'multiple line signature',
+      body: j('Foo', '', '-- ', 'Baron Bob', 'King of Kingland'),
+      chunks: [
+          'content', 'Foo',
+          'signature', '-- \nBaron Bob\nKing of Kingland',
+        ],
+      snippet: 'Foo',
+    },
+    {
+      name: 'signature after quoted, boilerplate consumes content',
+      body: j(
+          'New text',
+          '',
+          'Bob wrote:',
+          '> Foo',
+          '>',
+          '> Bar',
+          '',
+          '-- ',
+          'Signature text'
+        ),
+      chunks: [
+          'content', 'New text',
+          'leadin', 'Bob wrote:',
+          'q1', j('Foo', '', 'Bar'),
+          // right here there used to be a content line!
+          'signature', '-- \nSignature text',
+        ],
+      snippet: 'New text',
+    },
+    {
+      name: 'signature after quoted w/post lines, boilerplate consumes content',
+      body: j(
+          'New text',
+          '',
+          'Bob wrote:',
+          '> Foo',
+          '>',
+          '> Bar',
+          '',
+          '-- ',
+          'Signature text',
+          // these are the post lines we want consumed:
+          '',
+          ''
+        ),
+      chunks: [
+          'content', 'New text',
+          'leadin', 'Bob wrote:',
+          'q1', j('Foo', '', 'Bar'),
+          // right here there used to be a content line!
+          'signature', '-- \nSignature text',
+        ],
+      snippet: 'New text',
+    },
+    // - product boilerplate (not as signature)
     {
       name: 'simple product boilerplate',
       body: j('Foo', '', 'Sent from my iPhone'),
@@ -151,6 +228,7 @@ TD.commonCase('Quoting', function(T) {
           'content', 'Foo',
           'product', 'Sent from my iPhone',
         ],
+      snippet: 'Foo',
     },
     {
       name: 'simple product boilerplate on top-posting',
@@ -164,6 +242,7 @@ TD.commonCase('Quoting', function(T) {
           'leadin', 'John wrote:',
           'q1', 'Dance time?',
         ],
+      snippet: 'Yes, dance time.',
     },
     {
       name: 'android product boilerplate',
@@ -174,6 +253,27 @@ TD.commonCase('Quoting', function(T) {
           'content', 'Foo',
           'product', 'Sent from my Android toaster runing ToastedBagelMail v2.3',
         ],
+      snippet: 'Foo',
+    },
+    // - product boilerplate in an explicit signature
+    {
+      name: 'product as signature',
+      body: j('Foo', '', '-- ', 'Sent from my Phone thing'),
+      chunks: [
+          'content', 'Foo',
+          'product', '-- \nSent from my Phone thing',
+        ],
+      snippet: 'Foo',
+    },
+    {
+      name: 'signature and product',
+      body: j('Foo', '', '-- ', 'Baron Bob', '', 'Sent from my Phone thing'),
+      chunks: [
+          'content', 'Foo',
+          'signature', '-- \nBaron Bob',
+          'product', 'Sent from my Phone thing',
+        ],
+      snippet: 'Foo',
     },
     // - legal boilerplate
     {
@@ -186,6 +286,7 @@ TD.commonCase('Quoting', function(T) {
           'content', 'Foo',
           'disclaimer', j('________', 'This message is intended only for you.'),
         ],
+      snippet: 'Foo',
     },
     // - mailing list boilerplate
     {
@@ -198,6 +299,7 @@ TD.commonCase('Quoting', function(T) {
         'content', 'Foo',
         'list', j('________', 'dev-b2g mailing list'),
       ],
+      snippet: 'Foo',
     },
     // - multiple boilerplates at once
     {
@@ -213,6 +315,7 @@ TD.commonCase('Quoting', function(T) {
           'list', j('________', 'dev-b2g mailing list'),
           'disclaimer', j('________', 'This message is intended only for you.'),
         ],
+      snippet: 'Foo',
     },
   ];
 
@@ -223,6 +326,7 @@ TD.commonCase('Quoting', function(T) {
       for (i = 0; i < tdef.chunks.length; i += 2) {
         eCheck.expect_namedValue(tdef.chunks[i], tdef.chunks[i+1]);
       }
+      eCheck.expect_namedValue('snippet', JSON.stringify(tdef.snippet));
       eCheck.expect_namedValue('forwardText',
                                JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
       eCheck.expect_event('done');
@@ -266,6 +370,8 @@ TD.commonCase('Quoting', function(T) {
           return x;
         return x.toString(16);
       }));
+      var snippetText = $_quotechew.generateSnippet(rep);
+      eCheck.namedValue('snippet', JSON.stringify(snippetText));
       var forwardText = $_quotechew.generateForwardBodyText(rep);
       eCheck.namedValue('forwardText', JSON.stringify(forwardText));
       eCheck.event('done');

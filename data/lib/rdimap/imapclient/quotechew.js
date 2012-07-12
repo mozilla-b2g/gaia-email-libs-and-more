@@ -115,6 +115,8 @@ const RE_LIST_BOILER = /mailing list$/;
 
 const RE_WROTE_LINE = /wrote/;
 
+const RE_SIGNATURE_LINE = /^-- $/;
+
 /**
  * The maximum number of lines that can be in a boilerplate chunk.  We expect
  * disclaimer boilerplate to be what drives this.
@@ -123,11 +125,14 @@ const MAX_BOILERPLATE_LINES = 20;
 
 /**
  * Catch various common well-known product branding lines:
- * - Sent from my iPhone/iPad/mobile device
- * - Sent from my Android ...
- * - Sent from Mobile/mobile device
+ * - "Sent from my iPhone/iPad/mobile device".  Apple, others.
+ * - "Sent from my Android ...".  Common prefix for wildly varying Android
+ *     strings.
+ * - "Sent from my ...".  And there are others that don't match the above but
+ *     that match the prefix.
+ * - "Sent from Mobile"
  */
-const RE_PRODUCT_BOILER = /^(?:Sent from (?:Mobile|my (?:iPhone|iPad|mobile device|Android.+)))$/;
+const RE_PRODUCT_BOILER = /^(?:Sent from (?:Mobile|my .+))$/;
 
 const RE_LEGAL_BOILER_START = /^(?:This message|Este mensaje)/;
 
@@ -217,23 +222,43 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         scanLinesLeft = MAX_BOILERPLATE_LINES,
         sawNonWhitespaceLine = false,
         lastContentLine = null,
+        lastBoilerplateStart = null,
         sawProduct = false,
         insertAt = contentRep.length;
 
-    function pushBoilerplate(contentType) {
+    function pushBoilerplate(contentType, merge) {
       var boilerChunk = chunk.substring(idxLineStart, idxRegionEnd);
-      var newChunk = chunk.substring(0, idxLineStart - 1).trimRight();
+      var idxChunkEnd = idxLineStart - 1;
+      // We used to do a trimRight here, but that would eat spaces in addition
+      // to newlines.  This was undesirable for both roundtripping purposes and
+      // mainly because the "-- " signature marker has a significant space
+      // character on the end there.
+      while (chunk.charCodeAt(idxChunkEnd - 1) === CHARCODE_NEWLINE) {
+        idxChunkEnd--;
+      }
+      var newChunk = chunk.substring(0, idxChunkEnd);
       var ate = countNewlinesInRegion(chunk, newChunk.length, idxLineStart - 1);
       chunk = newChunk;
       idxRegionEnd = chunk.length;
 
-      contentRep.splice(insertAt, 0,
-                        ((ate&0xff) << 8) | contentType,
-                        boilerChunk);
+      if (!merge) {
+        contentRep.splice(insertAt, 0,
+                          ((ate&0xff) << 8) | contentType,
+                          boilerChunk);
+      }
+      else {
+        // nb: this merge does not properly reuse the previous existing 'ate'
+        // value; if we start doing more complex merges, the hardcoded '\n'
+        // below will need to be computed.
+        contentRep[insertAt] = ((ate&0xff) << 8) | (contentRep[insertAt]&0xff);
+        contentRep[insertAt + 1] = boilerChunk + '\n' +
+                                     contentRep[insertAt + 1];
+      }
 
       sawNonWhitespaceLine = false;
       scanLinesLeft = MAX_BOILERPLATE_LINES;
       lastContentLine = null;
+      lastBoilerplateStart = idxLineStart;
     }
 
     for (idxLineStart = chunk.lastIndexOf('\n') + 1,
@@ -243,12 +268,26 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
            idxLineStart = chunk.lastIndexOf('\n', idxLineEnd - 1) + 1,
            scanLinesLeft--) {
 
+      // (do not include the newline character)
       line = chunk.substring(idxLineStart, idxLineEnd);
 
       // - Skip whitespace lines.
       if (!line.length ||
           (line.length === 1 && line.charCodeAt(0) === CHARCODE_NBSP))
         continue;
+
+      // - Explicit signature demarcation
+      if (RE_SIGNATURE_LINE.test(line)) {
+        // Check if this is just tagging something we decided was boilerplate in
+        // a proper signature wrapper.  If so, then execute a boilerplate merge.
+        if (idxLineEnd + 1 === lastBoilerplateStart) {
+          pushBoilerplate(null, true);
+        }
+        else {
+          pushBoilerplate(CT_SIGNATURE);
+        }
+        continue;
+      }
 
       // - Section delimiter; try and classify what lives in this section
       if (RE_SECTION_DELIM.test(line)) {
@@ -319,8 +358,36 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
                       CT_AUTHORED_CONTENT);
       var iChunk = contentRep.push(chunk) - 1;
 
-      if (considerForBoilerplate)
-        contentRep[iChunk] = lookBackwardsForBoilerplate(chunk);
+      if (considerForBoilerplate) {
+        var newChunk = lookBackwardsForBoilerplate(chunk);
+        if (chunk.length !== newChunk.length) {
+          // Propagate any atePost lines.
+          if (atePostLines) {
+            var iLastMeta = contentRep.length - 2;
+            // We can blindly write post-lines since boilerplate currently
+            // doesn't infer any post-newlines on its own.
+            contentRep[iLastMeta] = ((atePostLines&0xff) << 16) |
+                                    contentRep[iLastMeta];
+            contentRep[iChunk - 1] = ((atePreLines&0xff) << 8) |
+                                     CT_AUTHORED_CONTENT;
+          }
+
+          // If we completely processed the chunk into boilerplate, then we can
+          // remove it after propagating any pre-eat amount.
+          if (!newChunk.length) {
+            if (atePreLines) {
+              var bpAte = (contentRep[iChunk + 1] >> 8)&0xff;
+              bpAte += atePreLines;
+              contentRep[iChunk + 1] = ((bpAte&0xff) << 8) |
+                                       (contentRep[iChunk + 1]&0xffff00ff);
+            }
+            contentRep.splice(iChunk - 1, 2);
+          }
+          else {
+            contentRep[iChunk] = newChunk;
+          }
+        }
+      }
     }
 
     atePreLines = 0;
@@ -468,6 +535,44 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
   return contentRep;
 };
 
+/**
+ * The maximum number of characters to shrink the snippet to try and find a
+ * whitespace boundary.  If it would take more characters than this, we just
+ * do a hard truncation and hope things work out visually.
+ */
+const MAX_WORD_SHRINK = 8;
+
+const RE_NORMALIZE_WHITESPACE = /\s+/g;
+
+/**
+ * Derive the snippet for a message from its processed body representation.  We
+ * take the snippet from the first non-empty content block, normalizing
+ * all whitespace to a single space character for each instance, then truncate
+ * with a minor attempt to align on word boundaries.
+ */
+exports.generateSnippet = function generateSnippet(rep, desiredLength) {
+  for (var i = 0; i < rep.length; i += 2) {
+    var etype = rep[i]&0xf, block = rep[i + 1];
+    switch (etype) {
+      case CT_AUTHORED_CONTENT:
+        if (!block.length)
+          break;
+        // - truncate
+        // (no need to truncate if short)
+        if (block.length < desiredLength)
+          return block.trim().replace(RE_NORMALIZE_WHITESPACE, ' ');
+        // try and truncate on a whitespace boundary
+        var idxPrevSpace = block.lastIndexOf(' ', desiredLength);
+        if (desiredLength - idxPrevSpace < MAX_WORD_SHRINK)
+          return block.substring(0, idxPrevSpace).trim()
+                      .replace(RE_NORMALIZE_WHITESPACE, ' ');
+        return block.substring(0, desiredLength).trim()
+                    .replace(RE_NORMALIZE_WHITESPACE, ' ');
+    }
+  }
+
+  return '';
+};
 
 /**
  * What is the deepest quoting level that we should repeat?  Our goal is not to be
@@ -500,7 +605,7 @@ const replyPrefix = '> ', replyNewlineReplace = '\n> ';
 function expandQuotedPrefix(s, depth) {
   if (s.charCodeAt(0) === CHARCODE_NEWLINE)
     return replyQuotePrefixStringsNoSpace[depth];
-  return replyQuotePrefixStrings[depth];;
+  return replyQuotePrefixStrings[depth];
 }
 
 /**
@@ -522,9 +627,61 @@ function expandQuoted(s, depth) {
 var l10n_wroteString = '{{name}} wrote',
     l10n_originalMessageString = 'Original Message';
 
+/*
+ * L10n strings for forward headers.  In Thunderbird, these come from
+ * mime.properties:
+ * http://mxr.mozilla.org/comm-central/source/mail/locales/en-US/chrome/messenger/mime.properties
+ *
+ * The libmime logic that injects them is mime_insert_normal_headers:
+ * http://mxr.mozilla.org/comm-central/source/mailnews/mime/src/mimedrft.cpp#791
+ *
+ * Our dictionary maps from the lowercased header name to the human-readable
+ * string.
+ *
+ * XXX actually do the l10n hookup for this
+ */
+var l10n_forward_header_labels = {
+  subject: 'Subject',
+  date: 'Date',
+  from: 'From',
+  replyTo: 'Reply-To',
+  to: 'To',
+  cc: 'CC',
+};
+
 exports.setLocalizedStrings = function(strings) {
   l10n_wroteString = strings.wrote;
   l10n_originalMessageString = strings.originalMessage;
+};
+
+const RE_RE = /^[Rr][Ee]: /;
+
+/**
+ * Generate the reply subject for a message given the prior subject.  This is
+ * simply prepending "Re: " to the message if it does not already have an
+ * "Re:" equivalent.
+ *
+ * Note, some clients/gateways (ex: I think the google groups web client? at
+ * least whatever has a user-agent of G2/1.0) will structure mailing list
+ * replies so they look like "[list] Re: blah" rather than the "Re: [list] blah"
+ * that Thunderbird would produce.  Thunderbird (and other clients) pretend like
+ * that inner "Re:" does not exist, and so do we.
+ *
+ * We _always_ use the exact string "Re: " when prepending and do not localize.
+ * This is done primarily for consistency with Thunderbird, but it also is
+ * friendly to other e-mail applications out there.
+ *
+ * Thunderbird does support recognizing a
+ * mail/chrome/messenger-region/region.properties property,
+ * "mailnews.localizedRe" for letting locales specify other strings used by
+ * clients that do attempt to localize "Re:".  Thunderbird also supports a
+ * weird "Re(###):" or "Re[###]:" idiom; see
+ * http://mxr.mozilla.org/comm-central/ident?i=NS_MsgStripRE for more details.
+ */
+exports.generateReplySubject = function generateReplySubject(origSubject) {
+  if (RE_RE.test(origSubject))
+      return origSubject;
+  return 'Re: ' + origSubject;
 };
 
 /**
@@ -536,15 +693,14 @@ exports.setLocalizedStrings = function(strings) {
  */
 exports.generateReplyText = function generateReplyText(rep) {
   var strBits = [];
-
   for (var i = 0; i < rep.length; i += 2) {
     var etype = rep[i]&0xf, block = rep[i + 1];
     switch (etype) {
       case CT_AUTHORED_CONTENT:
       case CT_SIGNATURE:
       case CT_LEADIN_TO_QUOTE:
-        strBits.push(replyPrefix);
-        strBits.push(block.replace(RE_NEWLINE, replyNewlineReplace));
+        strBits.push(expandQuotedPrefix(block, 0));
+        strBits.push(expandQuoted(block, 0));
         break;
       case CT_QUOTED_TYPE:
         var depth = ((rep[i] >> 8)&0xff) + 1;
@@ -566,6 +722,27 @@ exports.generateReplyText = function generateReplyText(rep) {
   }
 
   return strBits.join('');
+};
+
+/**
+ *
+ */
+exports.generateReplyMessage = function generateReplyMessage(rep, authorPair,
+                                                             msgDate,
+                                                             identity) {
+  var useName = authorPair.name || authorPair.address;
+
+  var msg = '\n\n';
+
+  msg += l10n_wroteString.replace('{{name}}', useName) + ':\n' +
+    exports.generateReplyText(rep);
+
+  // Thunderbird's default is to put the signature after the quote, so us too.
+  // (It also has complete control over all of this, but not us too.)
+  if (identity.signature)
+    msg += '\n\n-- \n' + identity.signature + '\n';
+
+  return msg;
 };
 
 /**
@@ -609,6 +786,8 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
         for (nl = (rep[i] >> 8)&0xff; nl; nl--)
           strBits.push(NEWLINE);
         strBits.push(block);
+        for (nl = (rep[i] >> 16)&0xff; nl; nl--)
+          strBits.push(NEWLINE);
         break;
       // - quote character reconstruction
       // this is not guaranteed to round-trip since we assume the non-whitespace
@@ -632,8 +811,47 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
   return strBits.join('');
 };
 
-exports.generateForwardMessage = function generateForwardMessage(headerInfo,
-                                                                 bodyInfo) {
+/**
+ * Generate the body of an inline forward message.  XXX we need to generate
+ * the header summary which needs some localized strings.
+ */
+exports.generateForwardMessage = function generateForwardMessage(
+                                   author, date, subject, bodyInfo, identity) {
+  var text = '\n\n';
+
+  if (identity.signature)
+    text += '-- \n' + identity.signature + '\n\n';
+
+  text += '-------- ' + l10n_originalMessageString + ' --------\n';
+  // XXX l10n! l10n! l10n!
+
+  // Add the headers in the same order libmime adds them in
+  // mime_insert_normal_headers so that any automated attempt to re-derive
+  // the headers has a little bit of a chance (since the strings are
+  // localized.)
+
+  // : subject
+
+  // We do not track or remotely care about the 'resent' headers
+  // : resent-comments
+  // : resent-date
+  // : resent-from
+  // : resent-to
+  // : resent-cc
+  // : date
+  // : from
+  // : reply-to
+  // : organization
+  // : to
+  // : cc
+  // (bcc should never be forwarded)
+  // : newsgroups
+  // : followup-to
+  // : references (only for newsgroups)
+
+  text += exports.generateForwardBodyText(bodyInfo.bodyRep);
+
+  return text;
 };
 
 }); // end define

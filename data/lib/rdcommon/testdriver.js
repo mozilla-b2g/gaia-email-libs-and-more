@@ -414,7 +414,8 @@ TestDefinerRunner.prototype = {
     self._runtimeContext.pushLogger(defContext._log);
 
     // - execute the test-case definition function with the context
-    var rval = defContext._log.setupFunc({}, testCase.setupFunc, defContext);
+    var rval = defContext._log.setupFunc({}, testCase.setupFunc, defContext,
+                                         self._runtimeContext);
     if (rval instanceof Error) {
       // in the event we threw during the case setup phase, it's a failure.
       defContext._log.result('fail');

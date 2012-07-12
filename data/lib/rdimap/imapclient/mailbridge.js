@@ -6,6 +6,7 @@ define(
   [
     'rdcommon/log',
     'mailcomposer',
+    './quotechew',
     './util',
     'module',
     'exports'
@@ -13,6 +14,7 @@ define(
   function(
     $log,
     $mailcomposer,
+    $quotechew,
     $imaputil,
     $module,
     exports
@@ -61,6 +63,15 @@ function strcmp(a, b) {
     return 1;
   return 0;
 }
+
+function checkIfAddressListContainsAddress(list, addrPair) {
+  var checkAddress = addrPair.address;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].address === checkAddress)
+      return true;
+  }
+  return false;
+};
 
 /**
  * There is exactly one `MailBridge` instance for each `MailAPI` instance.
@@ -179,7 +190,6 @@ MailBridge.prototype = {
   },
 
   notifyBadLogin: function mb_notifyBadLogin(account) {
-console.log('sending bad login');
     this.__sendMessage({
       type: 'badLogin',
       account: account.toBridgeWire(),
@@ -439,10 +449,97 @@ console.log('sending bad login');
 
     if (msg.mode === 'reply' ||
         msg.mode === 'forward') {
-      var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.refSuid);
-      folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
+      var folderStorage = this.universe.getFolderStorageForMessageSuid(
+                            msg.refSuid);
+      var self = this;
+      folderStorage.getMessageBody(
+        msg.refSuid, msg.refDate,
+        function(bodyInfo) {
+          if (msg.mode === 'reply') {
+            var rTo, rCc, rBcc;
+            // clobber the sender's e-mail with the reply-to
+            var effectiveAuthor = {
+              name: msg.refAuthor.name,
+              address: bodyInfo.replyTo || msg.refAuthor.address,
+            };
+            switch (msg.submode) {
+              case 'list':
+                // XXX we can't do this without headers we're not retrieving,
+                // fall through for now.
+              case null:
+              case 'sender':
+                rTo = [effectiveAuthor];
+                rCc = rBcc = [];
+                break;
+              case 'all':
+                // No need to change the lists if the author is already on the
+                // reply lists.
+                //
+                // nb: Our logic here is fairly simple; Thunderbird's
+                // nsMsgCompose.cpp does a lot of checking that we should audit,
+                // although much of it could just be related to its much more
+                // extensive identity support.
+                if (checkIfAddressListContainsAddress(bodyInfo.to,
+                                                      effectiveAuthor) ||
+                    checkIfAddressListContainsAddress(bodyInfo.cc,
+                                                      effectiveAuthor)) {
+                  rTo = bodyInfo.to;
+                }
+                // add the author as the first 'to' person
+                else {
+                  rTo = [effectiveAuthor].concat(bodyInfo.to);
+                }
+                rCc = bodyInfo.cc;
+                rBcc = bodyInfo.bcc;
+                break;
+            }
 
-      });
+            var referencesStr;
+            if (bodyInfo.references) {
+              referencesStr = bodyInfo.references.concat([msg.refGuid])
+                                .map(function(x) { return '<' + x + '>'; })
+                                .join(' ');
+            }
+            else {
+              referencesStr = '<' + msg.refGuid + '>';
+            }
+            self.__sendMessage({
+              type: 'composeBegun',
+              handle: msg.handle,
+              identity: identity,
+              subject: $quotechew.generateReplySubject(msg.refSubject),
+              // blank lines at the top are baked in
+              body: $quotechew.generateReplyMessage(
+                      bodyInfo.bodyRep, effectiveAuthor, msg.refDate,
+                      identity),
+              to: rTo,
+              cc: rCc,
+              bcc: rBcc,
+              referencesStr: referencesStr,
+            });
+          }
+          else {
+            self.__sendMessage({
+              type: 'composeBegun',
+              handle: msg.handle,
+              identity: identity,
+              subject: 'Fwd: ' + msg.refSubject,
+              // blank lines at the top are baked in by the func
+              body: $quotechew.generateForwardMessage(
+                      msg.refAuthor, msg.refDate, msg.refSubject,
+                      bodyInfo, identity),
+              // forwards have no assumed envelope information
+              to: [],
+              cc: [],
+              bcc: [],
+              // XXX imitate Thunderbird current or previous behaviour; I
+              // think we ended up linking forwards into the conversation
+              // they came from, but with an extra header so that it was
+              // possible to detect it was a forward.
+              references: null,
+            });
+          }
+        });
       return;
     }
 
@@ -455,6 +552,7 @@ console.log('sending bad login');
       to: [],
       cc: [],
       bcc: [],
+      references: null,
     });
   },
 
@@ -499,16 +597,11 @@ console.log('sending bad login');
                     wireRep.senderId);
 
     var body = wireRep.body;
-    if (identity.signature) {
-      if (body[body.length - 1] !== '\n')
-        body += '\n';
-      body += '-- \n' + identity.signature;
-    }
 
     var messageOpts = {
       from: this._formatAddresses([identity]),
       subject: wireRep.subject,
-      body: body
+      body: body,
     };
     if (identity.replyTo)
       messageOpts.replyTo = identity.replyTo;
@@ -533,6 +626,8 @@ console.log('sending bad login');
       '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
 
     composer.addHeader('Message-Id', messageId);
+    if (wireRep.references)
+      composer.addHeader('References', wireRep.references);
 
     if (msg.command === 'send') {
       var self = this;

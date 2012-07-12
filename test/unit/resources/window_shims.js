@@ -35,7 +35,7 @@ Components.utils.import("resource://test/resources/globalshack.jsm",
 
 var window = {
   // - indexed db
-  mozIndexedDB: mozIndexedDB,
+  indexedDB: indexedDB,
   DOMException: DOMException,
   IDBCursor: IDBCursor,
   IDBTransaction: IDBTransaction,

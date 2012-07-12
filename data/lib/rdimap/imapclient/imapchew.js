@@ -4,9 +4,11 @@
 
 define(
   [
+    './quotechew',
     'exports'
   ],
   function(
+    $quotechew,
     exports
   ) {
 
@@ -213,7 +215,8 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
 // especially numbers which may or may not be zig-zag encoded/etc.
 const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
       NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
-      NULL_ATTR_OVERHEAD_EST = 2;
+      NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
+      NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
 
 /**
  * Call once the body parts requested by `chewHeaderAndBodyStructure` have been
@@ -234,10 +237,9 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  */
 exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
                                                folderId) {
-  // XXX we really want to perform quoting analysis, yadda yadda.
-  var fullBody = bodyPartContents.join('\n'),
-      // Up to 80 characters of snippet, normalizing whitespace.
-      snippet = fullBody.substring(0, 80).replace(/[\r\n\t ]+/g, ' ');
+
+  var bodyRep = $quotechew.quoteProcessTextBody(bodyPartContents.join('\n')),
+      snippet = $quotechew.generateSnippet(bodyRep);
 
   rep.header = {
     // the UID (as an integer)
@@ -247,7 +249,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     suid: folderId + '/' + rep.msg.id,
     // The message-id header value; as GUID as get for now; on gmail we can
     // use their unique value, or if we could convince dovecot to tell us, etc.
-    guid: rep.msg.msg.parsedHeaders['message-id'],
+    guid: rep.msg.msg.meta.messageId,
     // mailparser models from as an array; we do not.
     author: rep.msg.msg.from[0] || null,
     date: rep.msg.date,
@@ -256,6 +258,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     subject: rep.msg.msg.subject,
     snippet: snippet,
   };
+
 
   // crappy size estimates where we assume the world is ASCII and so a UTF-8
   // encoding will take exactly 1 byte per character.
@@ -284,6 +287,17 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     sizeEst += STR_ATTR_OVERHEAD_EST + str.length;
     return str;
   }
+  function sizifyBodyRep(rep) {
+    sizeEst += LIST_OVERHEAD_EST +
+                 NUM_OVERHEAD_EST * (rep.length / 2) +
+                 STR_OVERHEAD_EST * (rep.length / 2);
+    for (var i = 1; i < rep.length; i += 2) {
+      if (rep[i])
+        sizeEst += rep[i].length;
+    }
+    return rep;
+  };
+
   rep.bodyInfo = {
     date: rep.msg.date,
     size: sizeEst,
@@ -293,7 +307,8 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     replyTo: ('reply-to' in rep.msg.msg.parsedHeaders) ?
                sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
     attachments: sizifyAttachments(rep.attachments),
-    bodyText: sizifyStr(fullBody),
+    references: rep.msg.msg.meta.references,
+    bodyRep: sizifyStr(bodyRep),
   };
 
   return true;

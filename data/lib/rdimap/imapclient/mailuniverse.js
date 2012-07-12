@@ -48,12 +48,10 @@ const PIECE_ACCOUNT_TYPE_TO_CLASS = {
   //'gmail-imap': GmailAccount,
 };
 
-// So, I want to poke fun at the iPhone signature, although we know there is
-// also the flip side of explaining brevity, rampant typos, limited attention
-// due to driving/flying a plane/other-dangerous-thing while using it.
-const DEFAULT_SIGNATURE = [
-  "Sent from my B2G phone.  That's right.  I've got one.",
-].join("\n");
+// A boring signature that conveys the person was probably typing on a touch
+// screen, helping to explain typos and short replies.
+const DEFAULT_SIGNATURE = exports.DEFAULT_SIGNATURE =
+  'Sent from my Firefox OS device.';
 
 /**
  * Composite account type to expose account piece types with individual
