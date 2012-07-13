@@ -189,7 +189,8 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
     for (var i = 1; i < line.length; i++) {
       var c = line.charCodeAt(i);
       if (c === CHARCODE_GT) {
-        lastStartOffset = ++count;
+        count++;
+        lastStartOffset++;
         spaceOk = true;
       }
       else if (c === CHARCODE_SPACE) {

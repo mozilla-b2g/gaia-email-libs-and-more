@@ -154,6 +154,25 @@ TD.commonCase('Quoting', function(T) {
         ],
       snippet: 'Z1',
     },
+    {
+      name: 'nest: 2 deep with spacing',
+      body: j(
+          '> Foo',
+          '> ',
+          '> On 7/4/12 7:04 AM, Bob wrote:',
+          '> > some text',
+          '> >',
+          '> > some more text'
+        ),
+      chunks: [
+          // quoted leadin gets treated as quoted
+          'q1', j('Foo', '', 'On 7/4/12 7:04 AM, Bob wrote:'),
+          'q2', j('some text', '', 'some more text'),
+        ],
+      snippet: '',
+      // because of the spacing, we can't roundtrip this
+      roundtrip: false,
+    },
     // - explicit signature
     {
       name: 'single line signature',
@@ -326,9 +345,14 @@ TD.commonCase('Quoting', function(T) {
       for (i = 0; i < tdef.chunks.length; i += 2) {
         eCheck.expect_namedValue(tdef.chunks[i], tdef.chunks[i+1]);
       }
+      var roundtrip = true;
+      if (tdef.hasOwnProperty('roundtrip'))
+        roundtrip = tdef.roundtrip;
+
       eCheck.expect_namedValue('snippet', JSON.stringify(tdef.snippet));
-      eCheck.expect_namedValue('forwardText',
-                               JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
+      if (roundtrip)
+        eCheck.expect_namedValue(
+          'forwardText', JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
       eCheck.expect_event('done');
 
       var rep = $_quotechew.quoteProcessTextBody(tdef.body);
@@ -372,8 +396,10 @@ TD.commonCase('Quoting', function(T) {
       }));
       var snippetText = $_quotechew.generateSnippet(rep);
       eCheck.namedValue('snippet', JSON.stringify(snippetText));
-      var forwardText = $_quotechew.generateForwardBodyText(rep);
-      eCheck.namedValue('forwardText', JSON.stringify(forwardText));
+      if (roundtrip) {
+        var forwardText = $_quotechew.generateForwardBodyText(rep);
+        eCheck.namedValue('forwardText', JSON.stringify(forwardText));
+      }
       eCheck.event('done');
     });
   });
