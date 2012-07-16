@@ -688,6 +688,18 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     });
   },
 
+  do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
+                              expectedValues) {
+    var self = this;
+    this.T.action(this, 'grows', viewThing, function() {
+      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
+                                                 expectedValues);
+      self.expect_messagesReported(totalExpected);
+      self.expect_headerChanges(viewThing, { changes: [], deletions: [] });
+      viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
+    });
+  },
+
   do_closeFolderView: function(viewThing) {
     var self = this;
     this.T.action(this, 'close', viewThing, function() {

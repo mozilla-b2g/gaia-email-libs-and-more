@@ -364,7 +364,32 @@ MailBridge.prototype = {
       this._LOG.badSliceHandle(msg.handle);
       return;
     }
-    proxy.__listener.refresh();
+
+    if (proxy.__listener)
+      proxy.__listener.refresh();
+  },
+
+  _cmd_growSlice: function mb__cmd_growSlice(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+
+    if (proxy.__listener)
+      proxy.__listener.reqGrow(msg.dirMagnitude, msg.userRequestsGrowth);
+  },
+
+  _cmd_shrinkSlice: function mb__cmd_shrinkSlice(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+
+    if (proxy.__listener)
+      proxy.__listener.reqNoteRanges(
+        msg.firstIndex, msg.firstSuid, msg.lastIndex, msg.lastSuid);
   },
 
   _cmd_killSlice: function mb__cmd_killSlice(msg) {
@@ -656,6 +681,9 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.__listener = null;
 }
 SliceBridgeProxy.prototype = {
+  /**
+   * Issue a splice to add and remove items.
+   */
   sendSplice: function sbp_sendSplice(index, howMany, addItems, requested,
                                       moreExpected) {
     this._bridge.__sendMessage({
@@ -669,6 +697,9 @@ SliceBridgeProxy.prototype = {
     });
   },
 
+  /**
+   * Issue an update for existing items.
+   */
   sendUpdate: function sbp_sendUpdate(indexUpdatesRun) {
     this._bridge.__sendMessage({
       type: 'sliceUpdate',

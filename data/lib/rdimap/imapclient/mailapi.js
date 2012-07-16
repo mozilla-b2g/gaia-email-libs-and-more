@@ -527,7 +527,10 @@ UndoableOperation.prototype = {
 };
 
 /**
- *
+ * Ordered list collection abstraction where we may potentially only be viewing
+ * a subset of the actual items in the collection.  This allows us to handle
+ * lists with lots of items as well as lists where we have to retrieve data
+ * from a remote server to populate the list.
  */
 function BridgedViewSlice(api, ns, handle) {
   this._api = api;
@@ -536,8 +539,35 @@ function BridgedViewSlice(api, ns, handle) {
 
   this.items = [];
 
-  this.atTop = null;
+  /**
+   * False if we can grow the slice in the negative direction without
+   * requiring user prompting.
+   */
+  this.atTop = false;
+  /**
+   * False if we can grow the slice in the positive direction without
+   * requiring user prompting.
+   */
   this.atBottom = false;
+
+  /**
+   * Can we potentially grow the slice in the positive direction if the user
+   * requests it?  For example, triggering an IMAP sync for a part of the
+   * time-range we have not previously synchronized.
+   */
+  this.userCanGrowDownwards = false;
+
+  /**
+   * Number of pending requests to the back-end.  To be used by logic that can
+   * defer further requests until existing requests are complete.  For example,
+   * infinite scrolling logic would do best to wait for the back-end to service
+   * its requests before issuing new ones.
+   */
+  this.pendingRequests = 0;
+  /**
+   * The direction we are growing, if any (0 if not).
+   */
+  this._growing = 0;
 
   this.onadd = null;
   this.onchange = null;
@@ -558,7 +588,42 @@ BridgedViewSlice.prototype = {
     };
   },
 
-  requestGrowth: function() {
+  /**
+   * Tell the back-end we no longer need some of the items we know about.  This
+   * will manifest as a requested splice at some point in the future, although
+   * the back-end may attenuate partially or entirely.
+   */
+  requestShrinkage: function(firstUsedIndex, lastUsedIndex) {
+    this.pendingRequests++;
+
+    // We send indices and suid's.  The indices are used for fast-pathing;
+    // if the suid's don't match, a linear search is undertaken.
+    this._api.__bridgeSend({
+        type: 'shrinkSlice',
+        firstIndex: firstUsedIndex,
+        firstSuid: this.items[firstUsedIndex].suid,
+        lastIndex: lastUsedIndex,
+        lastSuid: this.items[lastUsedIndex].suid,
+        handle: this._handle
+      });
+  },
+
+  /**
+   * Request additional data in the given direction, optionally specifying that
+   * some potentially costly growth of the data set should be performed.
+   */
+  requestGrowth: function(dirMagnitude, userRequestsGrowth) {
+    if (this._growing)
+      throw new Error('Already growing in ' + this._growing + ' dir.');
+    this._growing = dirMagnitude;
+    this.pendingRequests++;
+
+    this._api.__bridgeSend({
+        type: 'growSlice',
+        dirMagnitude: dirMagnitude,
+        userRequestsGrowth: userRequestsGrowth,
+        handle: this._handle
+      });
   },
 
   die: function() {

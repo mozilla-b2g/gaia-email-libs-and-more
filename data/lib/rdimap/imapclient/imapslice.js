@@ -126,20 +126,16 @@ function ImapSlice(bridgeHandle, storage, _parentLog) {
   // The time range of the headers we are looking at right now.
   this.startTS = null;
   this.startUID = null;
+  // If the end values line up with the most recent message known about for this
+  // folder, then we will grow to encompass more recent messages.
   this.endTS = null;
   this.endUID = null;
 
-  /**
-   * Will we ingest new messages we hear about in our 'start' direction?
-   */
-  this.openStart = true;
-  /**
-   * Will we ingest new messages we hear about in our 'end' direction?
-   */
-  this.openEnd = true;
-
   this.waitingOnData = false;
 
+  /**
+   * @listof[HeaderInfo]
+   */
   this.headers = [];
   this.desiredHeaders = INITIAL_FILL_SIZE;
 }
@@ -152,12 +148,55 @@ ImapSlice.prototype = {
     this._storage.refreshSlice(this);
   },
 
-  reqNoteRanges: function() {
-    // XXX implement and contend with the generals problem.  probably just have
-    // the other side name the values by id rather than offsets.
+  reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {
+    var i;
+    // - Fixup indices if required
+    if (firstIndex >= this.headers.length ||
+        this.headers[firstIndex].suid !== firstSuid) {
+      firstIndex = 0; // default to not splicing if it's gone
+      for (i = 0; i < this.headers.length; i++) {
+        if (this.headers[i].suid === firstSuid) {
+          firstIndex = i;
+          break;
+        }
+      }
+    }
+    if (lastIndex >= this.headers.length ||
+        this.headers[lastIndex].suid !== lastSuid) {
+      for (i = this.headers.length - 1; i >= 0; i--) {
+        if (this.headers[i].suid === lastSuid) {
+          lastIndex = i;
+          break;
+        }
+      }
+    }
+
+    // - Perform splices as required
+    // (high before low to avoid index changes)
+    if (lastIndex + 1 < this.headers.length) {
+      this._bridgeHandle.sendSplice(
+        lastIndex + 1, this.headers.length - lastIndex  - 1, [],
+        // This is expected; more coming if there's a low-end splice
+        true, firstIndex > 0);
+      var lastHeader = this.headers[lastIndex];
+      this.startTS = lastHeader.date;
+      this.startUID = lastHeader.id;
+    }
+    if (firstIndex > 0) {
+      this._bridgeHandle.sendSplice(
+        0, firstIndex, [], true, false);
+      var firstHeader = this.headers[firstIndex];
+      this.endTS = firstHeader.date;
+      this.endUID = firstHeader.id;
+    }
   },
 
-  reqGrow: function(dirMagnitude) {
+  reqGrow: function(dirMagnitude, userRequestsGrowth) {
+    if (dirMagnitude === -1)
+      dirMagnitude = -INITIAL_FILL_SIZE;
+    else if (dirMagnitude === 1)
+      dirMagnitude = INITIAL_FILL_SIZE;
+    this._storage.growSlice(this, dirMagnitude, userRequestsGrowth);
   },
 
   setStatus: function(status) {
@@ -352,9 +391,11 @@ const MAX_BLOCK_SIZE = 96 * 1024,
 // Observe the pretty ASCII art where as you move to the right you are moving
 // forward in time.
 //
-//        ________________________________________
-// BEFORE)| midnight (0 millis) ... 11:59:59:999 |
-//        [SINCE......................................
+//             ________________________________________
+//      BEFORE)| midnight (0 millis) ... 11:59:59:999 |
+// ON_OR_BEFORE]
+//             [SINCE......................................
+//              (AFTER.....................................
 //
 // Our date range comparisons (noting that larger timestamps are 'younger') are:
 // SINCE analog:  (testDate >= comparisonDate)
@@ -426,7 +467,7 @@ function IN_BS_DATE_RANGE(testDate, startTS, endTS) {
  * since there is not a lot of variability in what we are storing and this
  * is probably good enough.
  */
-const HEADER_EST_SIZE_IN_BYTES = 200;
+const HEADER_EST_SIZE_IN_BYTES = exports.HEADER_EST_SIZE_IN_BYTES = 200;
 
 const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
@@ -756,8 +797,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
 
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._reliaSearch(searchOptions, callbacks.search);
-    this._storage.getAllMessagesInDateRange(startTS, endTS,
-                                            callbacks.db);
+    this._storage.getAllMessagesInImapDateRange(startTS, endTS, callbacks.db);
   },
 
   searchDateRange: function(endTS, startTS, newToOld, searchParams,
@@ -1555,22 +1595,21 @@ ImapFolderStorage.prototype = {
     for (i = 0; i < list.length; i++) {
       var info = list[i];
       // - Stop if we will never find a match if we keep going.
-      // If our comparison range starts AT OR AFTER the end of this range, then
-      // it does not overlap this range and will never overlap any subsequent
+      // If our comparison range starts AFTER the end of this range, then it
+      // does not overlap this range and will never overlap any subsequent
       // ranges because they are all chronologically earlier than this range.
       //
       // nb: We are saying that there is no overlap if one range starts where
       // the other one ends.  This is consistent with the inclusive/exclusive
       // definition of since/before and our ranges.
-      if (SINCE(startTS, info.endTS))
+      if (STRICTLY_AFTER(startTS, info.endTS))
         return [i, null];
-      // therefore BEFORE(startTS, info.endTS)
+      // therefore ON_OR_BEFORE(startTS, info.endTS)
 
       // nb: SINCE(endTS, info.startTS) is not right here because the equals
       // case does not result in overlap because endTS is exclusive.
       if (STRICTLY_AFTER(endTS, info.startTS))
         return [i, info];
-
       // (no overlap yet)
     }
 
@@ -1900,7 +1939,7 @@ ImapFolderStorage.prototype = {
     // If someone is asking for us to delete something, there should definitely
     // be a block that includes it!
     if (!info) {
-      console.warn('Unable to find block that owns:', type, date, uid);
+      this._LOG.badDeletionRequest(type, date, uid);
       return;
     }
 
@@ -1980,8 +2019,9 @@ ImapFolderStorage.prototype = {
       // We can adjust our start time to the dawn of time since we have a
       // limit in effect.
       slice.waitingOnData = 'db';
-      this.getMessagesInDateRange(0, futureNow, INITIAL_FILL_SIZE,
-                                  this.onFetchDBHeaders.bind(this, slice));
+      this.getMessagesInImapDateRange(0, futureNow,
+                                      INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+                                      this.onFetchDBHeaders.bind(this, slice));
       return;
     }
 
@@ -1996,13 +2036,71 @@ ImapFolderStorage.prototype = {
                                   this.onSyncCompleted.bind(this));
   },
 
+  /**
+   * The slice wants more headers.  Grab from the database and/or sync as
+   * appropriate to get more headers.  If there is a cost, require a user
+   * request to perform the sync.  When growing in the more recent (negative)
+   * direction, we never issue a sync because our sync is always started from
+   * 'now' and everything in that direction is inherently recently sync'ed.
+   *
+   * There are two primary steps here, and they are short-circuiting:
+   *
+   * 1) Figure out what we already have synchronized "in the can".  Count out
+   * the requested number of headers (or as many as we have), then issue a sync
+   * to cover the time range that includes that message.  This will be faster
+   * than growing our time range since it is largely a delta check.  We then
+   * stop, and leave the caller to re-issue a request to trigger #2.
+   *
+   * 2) Issue a sync request for a fresh new time range, leaving it to
+   * `onSyncCompleted` to keep searching further back in time as needed.
+   *
+   * Because IMAP sync happens on day boundaries, we do explicitly exclude any
+   * date overlap from sync activity.
+   */
+  growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
+    var dir, desiredCount;
+    if (dirMagnitude < 0) {
+      dir = -1;
+      desiredCount = -dirMagnitude;
+
+      // Request 'desiredCount' messages, provide them in a batch.
+
+    }
+    else {
+      dir = 1;
+      desiredCount = dirMagnitude;
+
+      // Iterate up to 'desiredCount' messages into the past, compute the sync
+      // range, subtracting off the already known sync'ed range.
+
+      // If there is no sync range, just report the batch.
+    }
+  },
+
+  /**
+   * Refresh our understanding of the time range covered by the messages
+   * contained in the slice, plus expansion to the bounds of our known sync
+   * date boundaries if the messages are the first/last known message.
+   *
+   * In other words, if the most recently known message is from a week ago and
+   * that is the most recent message the slice is displaying, then we will
+   * expand our sync range to go all the way through today.  Likewise, if the
+   * oldest known message is from two weeks ago and is in the slice, but we
+   * scanned for messages all the way back to 1990 then we will query all the
+   * way back to 1990.  And if we have no messages in the slice, then we use the
+   * full date bounds.
+   */
   refreshSlice: function ifs_refreshSlice(slice) {
     var startTS = slice.startTS, endTS = slice.endTS, self = this;
+    // - Grow endTS
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
-    if (this._headerBlockInfos.length &&
-        endTS === this._headerBlockInfos[0].endTS &&
-        slice.endUID === this._headerBlockInfos[0].endUID) {
+    // OR if we just have no known messages
+    if ((this._headerBlockInfos.length &&
+         endTS === this._headerBlockInfos[0].endTS &&
+         slice.endUID === this._headerBlockInfos[0].endUID) ||
+        (endTS === null)) {
+console.log("growing endTS from", endTS, "to nowish");
       endTS = FUTURE_TIME_WARPED_NOW || null;
     }
     else {
@@ -2011,6 +2109,33 @@ ImapFolderStorage.prototype = {
       // quantize.
       endTS = quantizeDate(endTS - DAY_MILLIS);
     }
+
+    // - Grow startTS
+    var idxLastHBlock = this._headerBlockInfos.length - 1;
+    // Grow the start-stamp to include the oldest continuous accuracy range
+    // coverage date.
+    if ((idxLastHBlock >= 0 &&
+         startTS === this._headerBlockInfos[idxLastHBlock].startTS &&
+         slice.startUID === this._headerBlockInfos[idxLastHBlock].startUID) ||
+        (startTS === null)) {
+      // Find the accuracy range containing the start timestamp
+      var idxAR = this._findRangeObjIndexForDate(this._accuracyRanges,
+                                                 startTS || Date.now());
+      // Run backward in time until we find one without a fullSync or run out
+      while (idxAR < this._accuracyRanges.length &&
+             this._accuracyRanges[idxAR].fullSync) {
+        idxAR++;
+      }
+      // Decrement because the point is we went one too far.
+      idxAR--;
+      // Sanity-check, then use the startTS.
+      if (idxAR && idxAR < this._accuracyRanges.length) {
+console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
+            "from", startTS);
+        startTS = this._accuracyRanges[idxAR].startTS;
+      }
+    }
+
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
       throw new Error("Can't refresh a slice when there is an existing sync");
@@ -2144,12 +2269,19 @@ ImapFolderStorage.prototype = {
 
   /**
    * Retrieve the (ordered list) of messages covering a given IMAP-style date
-   * range that we know about.  Messages are returned from newest to oldest.
+   * range that we know about.  Use `getMessagesBeforeMessage` or
+   * `getMessagesAfterMessage` to perform iteration relative to a known
+   * message.
    *
    * @args[
-   *   @param[startTS DateMS]
-   *   @param[endTS DateMS]
-   *   @param[limit #:optional Number]
+   *   @param[startTS DateMS]{
+   *     SINCE-evaluated start timestamp. (inclusive)
+   *   }
+   *   @param[endTS DateMS]{
+   *     BEFORE-evaluated end timestamp. (exclusive)
+   *   }
+   *   @param[minDesired #:optional Number]
+   *   @param[maxDesired #:optional Number]
    *   @param[messageCallback @func[
    *     @args[
    *       @param[headers @listof[HeaderInfo]]
@@ -2158,20 +2290,22 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getMessagesInDateRange: function ifs_getMessagesInDateRange(
-      startTS, endTS, limit, messageCallback) {
-    var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this,
+  getMessagesInImapDateRange: function ifs_getMessagesInDateRange(
+      startTS, endTS, minDesired, maxDesired, messageCallback) {
+    var toFill = (minDesired != null) ? minDesired : TOO_MANY_MESSAGES,
+        maxFill = (maxDesired != null) ? maxDesired : TOO_MANY_MESSAGES,
+        self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
     if (endTS == null)
       endTS = TIME_WARPED_NOW || Date.now(); // or just use a huge number?
 
-    // find the first header block with the data we want (was destructuring)
-    var headerPair = this._findFirstObjIndexForDateRange(this._headerBlockInfos,
-                                                         startTS, endTS);
+    // find the first header block with the data we want
+    var headerPair = this._findFirstObjIndexForDateRange(
+                       this._headerBlockInfos, startTS, endTS);
     iHeadBlockInfo = headerPair[0];
     headBlockInfo = headerPair[1];
-
+console.log("headerPair for", startTS, endTS, ":", iHeadBlockInfo, JSON.stringify(headBlockInfo));
     if (!headBlockInfo) {
       // no blocks equals no messages.
       messageCallback([], false);
@@ -2200,14 +2334,15 @@ ImapFolderStorage.prototype = {
         // (at least one usable message)
 
         var iHeader = iFirstHeader;
-        for (; iHeader < headerBlock.headers.length; iHeader++) {
+        for (; iHeader < headerBlock.headers.length && maxFill;
+             iHeader++, maxFill--) {
           header = headerBlock.headers[iHeader];
           if (BEFORE(header.date, startTS))
             break;
         }
         // (iHeader is pointing at the index of message we don't want)
         // There is no further processing to do if we bailed early.
-        if (iHeader < headerBlock.headers.length)
+        if (maxFill && iHeader < headerBlock.headers.length)
           toFill = 0;
         else
           toFill -= iHeader - iFirstHeader;
@@ -2222,7 +2357,7 @@ ImapFolderStorage.prototype = {
         else {
           headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
           // We may not want to go back any farther
-          if (AFTER(startTS, headBlockInfo.endTS))
+          if (STRICTLY_AFTER(startTS, headBlockInfo.endTS))
             toFill = 0;
         }
         // generate the notifications fo what we did create
@@ -2238,7 +2373,8 @@ ImapFolderStorage.prototype = {
   },
 
   /**
-   * Batch/non-streaming version of `getMessagesInDateRange`.
+   * Batch/non-streaming version of `getMessagesInDateRange` using an IMAP
+   * style date-range for syncing.
    *
    * @args[
    *   @param[allCallback @func[
@@ -2248,7 +2384,7 @@ ImapFolderStorage.prototype = {
    *   ]
    * ]
    */
-  getAllMessagesInDateRange: function ifs_getAllMessagesInDateRange(
+  getAllMessagesInImapDateRange: function ifs_getAllMessagesInDateRange(
       startTS, endTS, allCallback) {
     var allHeaders = null;
     function someMessages(headers, moreHeadersExpected) {
@@ -2259,8 +2395,159 @@ ImapFolderStorage.prototype = {
       if (!moreHeadersExpected)
         allCallback(allHeaders);
     }
-    this.getMessagesInDateRange(startTS, endTS, null, someMessages);
+    this.getMessagesInImapDateRange(startTS, endTS, null, null, someMessages);
   },
+
+  /**
+   * Fetch up to `limit` messages chronologically before the given message
+   * (in the direction of 'start').
+   */
+  getMessagesBeforeMessage: function(date, uid, limit, messageCallback) {
+    var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this;
+
+    var headerPair = this._findRangeObjIndexForDateAndUID(
+                       this._headerBlockInfos, date, uid);
+    var iHeadBlockInfo = headerPair[0];
+    var headBlockInfo = headerPair[1];
+
+    if (!headBlockInfo) {
+      // The iteration request is somehow not current; log an error and return
+      // an empty result set.
+      this._LOG.badIterationStart(date, uid);
+      messageCallback([], false);
+      return;
+    }
+
+    var iHeader = null;
+    function fetchMore() {
+      while (true) {
+        // - load the header block if required
+        if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
+          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          return;
+        }
+        var headerBlock = self._headerBlocks[headBlockInfo.blockId];
+
+        // Null means find it by uid...
+        if (iHeader === null) {
+          iHeader = headerBlock.uids.indexOf(uid);
+          if (iHeader === -1) {
+            self._LOG.badIterationStart(date, uid);
+            toFill = 0;
+          }
+          iHeader++;
+        }
+        // otherwise we know we are starting at the front of the block.
+        else {
+          iHeader = 0;
+        }
+
+        var useHeaders = Math.min(
+              headerBlock.headers.length - iHeader,
+              toFill);
+        if (iHeader >= headerBlock.headers.length)
+          useHeaders = 0;
+        toFill -= useHeaders;
+
+        // If there's nothing more to...
+        if (!toFill) {
+        }
+        // - There may be viable messages in the next block, check.
+        else if (++iHeadBlockInfo >= self._headerBlockInfos.length) {
+          // Nope, there are no more messages, nothing left to do.
+          toFill = 0;
+        }
+        else {
+          headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
+        }
+        // generate the notifications for what we did create
+        messageCallback(headerBlock.headers.slice(iHeader,
+                                                  iHeader + useHeaders),
+                        Boolean(toFill));
+        if (!toFill)
+          return;
+        // (there must be some overlap, keep going)
+      }
+    }
+
+    fetchMore();
+  },
+
+  /**
+   * Fetch up to `limit` messages chronologically after the given message (in
+   * the direction of 'end').
+   */
+  getMessagesAfterMessage: function(date, uid, limit, messageCallback) {
+    var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this;
+
+    var headerPair = this._findRangeObjIndexForDateAndUID(
+                       this._headerBlockInfos, date, uid);
+    var iHeadBlockInfo = headerPair[0];
+    var headBlockInfo = headerPair[1];
+
+    if (!headBlockInfo) {
+      // The iteration request is somehow not current; log an error and return
+      // an empty result set.
+      this._LOG.badIterationStart(date, uid);
+      messageCallback([], false);
+      return;
+    }
+
+    var iHeader = null;
+    function fetchMore() {
+      while (true) {
+        // - load the header block if required
+        if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
+          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          return;
+        }
+        var headerBlock = self._headerBlocks[headBlockInfo.blockId];
+
+        // Null means find it by uid...
+        if (iHeader === null) {
+          iHeader = headerBlock.uids.indexOf(uid);
+          if (iHeader === -1) {
+            self._LOG.badIterationStart(date, uid);
+            toFill = 0;
+          }
+          iHeader--;
+        }
+        // otherwise we know we are starting at the end of the block (and
+        // moving towards the front)
+        else {
+          iHeader = headerBlock.headers.length - 1;
+        }
+
+        var useHeaders = Math.min(iHeader + 1, toFill);
+        if (iHeader < 0)
+          useHeaders = 0;
+        toFill -= useHeaders;
+
+        // If there's nothing more to...
+        if (!toFill) {
+        }
+        // - There may be viable messages in the previous block, check.
+        else if (--iHeadBlockInfo < 0) {
+          // Nope, there are no more messages, nothing left to do.
+          toFill = 0;
+        }
+        else {
+          headBlockInfo = self._headerBlockInfos[iHeadBlockInfo];
+        }
+        // generate the notifications for what we did create
+        var messages = headerBlock.headers.slice(iHeader - useHeaders + 1,
+                                                 iHeader + 1);
+        messages.reverse();
+        messageCallback(messages, Boolean(toFill));
+        if (!toFill)
+          return;
+        // (there must be some overlap, keep going)
+      }
+    }
+
+    fetchMore();
+  },
+
 
   /**
    * Mark a given time range as synchronized.
@@ -2269,7 +2556,7 @@ ImapFolderStorage.prototype = {
    *   @param[startTS DateMS]
    *   @param[endTS DateMS]
    *   @param[modseq]
-   *   @parma[updated DateMS]
+   *   @param[updated DateMS]
    * ]
    */
   markSyncRange: function(startTS, endTS, modseq, updated) {
@@ -2636,6 +2923,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     errors: {
       badBlockLoad: { type: false, blockId: false },
+      badIterationStart: { date: false, uid: false },
+      badDeletionRequest: { type: false, date: false, uid: false },
     }
   },
 }); // end LOGFAB
