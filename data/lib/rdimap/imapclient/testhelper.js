@@ -516,7 +516,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues) {
+  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -534,7 +534,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         }
       }
     }
-    if (this.universe.online) {
+    if (this.universe.online && flag !== 'nosave') {
       this.eImapAccount.expect_saveAccountState_begin();
       this.eImapAccount.expect_saveAccountState_end();
     }
@@ -604,6 +604,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
+    viewThing.offset = 0;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
                        viewThing);
     return viewThing;
@@ -709,16 +710,75 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
   },
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
-                              alreadyExists, expectedValues, expectedFlags) {
+                              alreadyExists, expectedValues, expectedFlags,
+                              extraFlag) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
-                                                 expectedValues) +
+      if (dirMagnitude < 0)
+        viewThing.offset += dirMagnitude;
+
+      var totalExpected = self._expect_dateSyncs(
+                            viewThing.testFolder, expectedValues,
+                            extraFlag) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
       self.expect_headerChanges(viewThing, { changes: [], deletions: [] },
                                 expectedFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
+    });
+  },
+
+  do_shrinkFolderView: function(viewThing, useLow, useHigh, expectedTotal,
+                                expectedFlags) {
+    var self = this;
+    this.T.action(this, 'shrinks', viewThing, function() {
+      if (useHigh === null)
+        useHigh = viewThing.slice.items.length - 1;
+      else if (useHigh < 0)
+        useHigh += viewThing.slice.items.length;
+
+      // note our offset for message headers...
+      viewThing.offset += useLow;
+
+      // Expect one or two removal splices, high before low
+      if (useHigh + 1 < viewThing.slice.items.length) {
+        self.expect_splice(useHigh + 1,
+                           viewThing.slice.items.length - useHigh - 1);
+      }
+      if (useLow > 0) {
+        self.expect_splice(0, useLow);
+      }
+
+      self.expect_messagesReported(expectedTotal);
+      self.expect_messageSubject(
+        0, viewThing.testFolder.messages[viewThing.offset].headerInfo.subject);
+      var idxHighMessage = viewThing.offset + (useHigh - useLow);
+      self.expect_messageSubject(
+        useHigh - useLow,
+        viewThing.testFolder.messages[idxHighMessage].headerInfo.subject);
+      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.grow, 'synced');
+
+
+      viewThing.slice.onsplice = function(index, howMany, added,
+                                          requested, moreExpected) {
+        self._logger.splice(index, howMany);
+      };
+      viewThing.slice.oncomplete = function() {
+        viewThing.slice.onsplice = null;
+
+        self._logger.messagesReported(viewThing.slice.items.length);
+        self._logger.messageSubject(0, viewThing.slice.items[0].subject);
+        self._logger.messageSubject(
+          viewThing.slice.items.length - 1,
+          viewThing.slice.items[viewThing.slice.items.length - 1].subject);
+        self._logger.sliceFlags(
+          viewThing.slice.atTop, viewThing.slice.atBottom,
+          viewThing.slice.userCanGrowDownwards,
+          viewThing.slice.status);
+      };
+
+      viewThing.slice.requestShrinkage(useLow, useHigh);
     });
   },
 
@@ -807,6 +867,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       appendNotified: {},
       manipulationNotified: {},
 
+      splice: { index: true, howMany: true },
       sliceFlags: { top: true, bottom: true, grow: true, status: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },

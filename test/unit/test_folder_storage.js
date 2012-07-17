@@ -939,40 +939,73 @@ TD.commonSimple('header iteration', function test_header_iteration() {
 
 
   // -- getMessagesAfterMessage
+  // The time ordering of the headers is always the same (most recent in
+  // a group at index 0, least recent at the last index) in a block, but
+  // this requires different logic than chexpect...
+  function rexpect(firstDate, firstUID, lastDate, lastUID) {
+    var seen = [];
+    return function(headers, moreExpected) {
+      console.log(
+        "headers!", headers.length, ":",
+        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+      // zero message case
+      if (!headers.length) {
+        if (moreExpected)
+          return;
+        do_check_eq(firstDate, null);
+        do_check_eq(firstUID, null);
+        do_check_eq(lastDate, null);
+        do_check_eq(lastUID, null);
+        return;
+      }
+
+      if (!seen.length) {
+        var last = headers.length - 1;
+        do_check_eq(lastUID, headers[last].id);
+        do_check_eq(lastDate, headers[last].date);
+      }
+      seen = headers.concat(seen);
+      if (!moreExpected) {
+        do_check_eq(firstDate, headers[0].date);
+        do_check_eq(firstUID, headers[0].id);
+      }
+    };
+  }
   // start from first message, no limit
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, null,
-    chexpect(dA, uidA2, dC, uidC3));
+    rexpect(dC, uidC3, dA, uidA2));
   // start from last message, limit avoids block crossing
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, 2,
-    chexpect(dA, uidA2, dA, uidA3));
+    rexpect(dA, uidA3, dA, uidA2));
   // start from last message, limit allows block crossing
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, 5,
-    chexpect(dA, uidA2, dB, uidB3));
+    rexpect(dB, uidB3, dA, uidA2));
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, 6,
-    chexpect(dA, uidA2, dC, uidC1));
+    rexpect(dC, uidC1, dA, uidA2));
 
   // start from non-first message, no limit
   ctx.storage.getMessagesAfterMessage(
     dA, uidA2, null,
-    chexpect(dA, uidA3, dC, uidC3));
+    rexpect(dC, uidC3, dA, uidA3));
   // start from non-first message, limit avoids block crossing
   ctx.storage.getMessagesAfterMessage(
     dA, uidA2, 1,
-    chexpect(dA, uidA3, dA, uidA3));
+    rexpect(dA, uidA3, dA, uidA3));
   // start from non-first message, limit allows block crossing
   ctx.storage.getMessagesAfterMessage(
     dA, uidA2, 4,
-    chexpect(dA, uidA3, dB, uidB3));
+    rexpect(dB, uidB3, dA, uidA3));
   ctx.storage.getMessagesAfterMessage(
     dA, uidA2, 5,
-    chexpect(dA, uidA3, dC, uidC1));
+    rexpect(dC, uidC1, dA, uidA3));
   ctx.storage.getMessagesAfterMessage(
     dA, uidA3, 2,
-    chexpect(dB, uidB1, dB, uidB2));
+    rexpect(dB, uidB2, dB, uidB1));
 
 
   // start from first message, nothing to find after

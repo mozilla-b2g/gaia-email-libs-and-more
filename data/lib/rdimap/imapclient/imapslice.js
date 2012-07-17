@@ -199,18 +199,23 @@ ImapSlice.prototype = {
     // - Perform splices as required
     // (high before low to avoid index changes)
     if (lastIndex + 1 < this.headers.length) {
+      this.atBottom = false;
+      this.userCanGrowDownwards = false;
       this._bridgeHandle.sendSplice(
         lastIndex + 1, this.headers.length - lastIndex  - 1, [],
         // This is expected; more coming if there's a low-end splice
         true, firstIndex > 0);
+      this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
       var lastHeader = this.headers[lastIndex];
       this.startTS = lastHeader.date;
       this.startUID = lastHeader.id;
     }
     if (firstIndex > 0) {
+      this.atTop = false;
       this._bridgeHandle.sendSplice(
         0, firstIndex, [], true, false);
-      var firstHeader = this.headers[firstIndex];
+      this.headers.splice(0, firstIndex);
+      var firstHeader = this.headers[0];
       this.endTS = firstHeader.date;
       this.endUID = firstHeader.id;
     }
@@ -2107,7 +2112,11 @@ ImapFolderStorage.prototype = {
       desiredCount = -dirMagnitude;
 
       // Request 'desiredCount' messages, provide them in a batch.
-
+      this.getMessagesAfterMessage(
+        slice.endTS, slice.endUID, desiredCount,
+        function(headers, moreExpected) {
+          slice.batchAppendHeaders(headers, 0, moreExpected);
+        });
     }
     else {
       dir = 1;
@@ -2689,7 +2698,6 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
         // generate the notifications for what we did create
         var messages = headerBlock.headers.slice(iHeader - useHeaders + 1,
                                                  iHeader + 1);
-        messages.reverse();
         messageCallback(messages, Boolean(toFill));
         if (!toFill)
           return;

@@ -621,9 +621,9 @@ BridgedViewSlice.prototype = {
     this._api.__bridgeSend({
         type: 'shrinkSlice',
         firstIndex: firstUsedIndex,
-        firstSuid: this.items[firstUsedIndex].suid,
+        firstSuid: this.items[firstUsedIndex].id,
         lastIndex: lastUsedIndex,
-        lastSuid: this.items[lastUsedIndex].suid,
+        lastSuid: this.items[lastUsedIndex].id,
         handle: this._handle
       });
   },

@@ -85,24 +85,54 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { count: 16, full: 16, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: true });
 
+  T.group('fail to grow older without request');
+  testAccount.do_growFolderView(
+    syncView, 1, false, 16,
+    [],
+    { top: true, bottom: true, grow: true }, 'nosave');
+
   T.group('grow older');
   testAccount.do_growFolderView(
-    syncView, 1, true, 16,
+    syncView, 15, true, 16,
     { count: 15, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: true });
   testAccount.do_growFolderView(
-    syncView, 1, true, 31,
+    syncView, 15, true, 31,
     { count: 15, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('shrink off new');
+  testAccount.do_shrinkFolderView(
+    syncView, 1, null, 45,
+    { top: false, bottom: true, grow: false });
+  testAccount.do_shrinkFolderView(
+    syncView, 15, null, 30,
+    { top: false, bottom: true, grow: false });
 
   T.group('grow younger again');
+  testAccount.do_growFolderView(
+    syncView, -8, false, 38,
+    [],
+    { top: false, bottom: true, grow: false }, 'nosave');
+  testAccount.do_growFolderView(
+    syncView, -8, false, 46,
+    [],
+    { top: true, bottom: true, grow: false }, 'nosave');
+
 
   T.group('shrink off old');
+  testAccount.do_shrinkFolderView(
+    syncView, 0, -2, 45, // -2 gets rid of 1, because it's inclusive
+    { top: true, bottom: false, grow: false });
+  testAccount.do_shrinkFolderView(
+    syncView, 0, -21, 25, // -21 gets rid of 20, because it's inclusive
+    { top: true, bottom: false, grow: false });
 
   T.group('grow old again');
-
+  testAccount.do_growFolderView(
+    syncView, 21, false, 46,
+    [],
+    { top: true, bottom: true, grow: false }, 'nosave');
 
   T.group('cleanup');
 });
