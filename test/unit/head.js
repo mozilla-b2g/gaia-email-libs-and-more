@@ -4,11 +4,15 @@ const Cr = Components.results;
 const Cu = Components.utils;
 const CC = Components.Constructor;
 
+var gConsoleLogFunc = null;
+
 function consoleHelper() {
   var msg = arguments[0] + ":";
   for (var i = 1; i < arguments.length; i++) {
     msg += " " + arguments[i];
   }
+  if (gConsoleLogFunc)
+    gConsoleLogFunc(msg.substring(msg.indexOf('m') + 1));
   msg += "\x1b[0m";
   print(msg);
 }

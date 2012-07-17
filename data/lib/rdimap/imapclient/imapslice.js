@@ -141,6 +141,31 @@ function ImapSlice(bridgeHandle, storage, _parentLog) {
 }
 exports.ImapSlice = ImapSlice;
 ImapSlice.prototype = {
+  set atTop(val) {
+    this._bridgeHandle.atTop = val;
+  },
+  set atBottom(val) {
+    this._bridgeHandle.atBottom = val;
+  },
+  set userCanGrowDownwards(val) {
+    this._bridgeHandle.userCanGrowDownwards = val;
+  },
+
+  _updateSliceFlags: function() {
+    var flagHolder = this._bridgeHandle;
+    flagHolder.atTop = this._storage.headerIsYoungestKnown(this.endTS,
+                                                           this.endUID);
+    flagHolder.atBottom = this._storage.headerIsOldestKnown(this.startTS,
+                                                            this.startUID);
+    if (flagHolder.atBottom) {
+      flagHolder.userCanGrowDownwards =
+        !this._storage.syncedToDawnOfTime();
+    }
+    else {
+      flagHolder.userCanGrowDownwards = false;
+    }
+  },
+
   /**
    * Force an update of our current date range.
    */
@@ -199,19 +224,26 @@ ImapSlice.prototype = {
     this._storage.growSlice(this, dirMagnitude, userRequestsGrowth);
   },
 
+  sendEmptyCompletion: function() {
+    this.setStatus('synced');
+  },
+
   setStatus: function(status) {
     if (!this._bridgeHandle)
       return;
 
+    if (status === 'synced')
+      this._updateSliceFlags();
     this._bridgeHandle.sendStatus(status, status === 'synced');
   },
 
-  batchAppendHeaders: function(headers, moreComing) {
+  batchAppendHeaders: function(headers, insertAt, moreComing) {
     this._LOG.headersAppended(headers);
-    this._bridgeHandle.sendSplice(this.headers.length, 0, headers,
-                                  true, moreComing);
-    this.headers = this.headers.concat(headers);
+    if (insertAt === -1)
+      insertAt = this.headers.length;
+    this.headers.splice.apply(this.headers, [insertAt, 0].concat(headers));
 
+    // XXX this can obviously be optimized to not be a loop
     for (var i = 0; i < headers.length; i++) {
       var header = headers[i];
       if (this.startTS === null ||
@@ -233,6 +265,10 @@ ImapSlice.prototype = {
         this.endUID = header.id;
       }
     }
+
+    this._updateSliceFlags();
+    this._bridgeHandle.sendSplice(insertAt, 0, headers,
+                                  true, moreComing);
   },
 
   /**
@@ -1986,6 +2022,7 @@ ImapFolderStorage.prototype = {
       console.error("Trying to open a slice and initiate a sync when there",
                     "is already an active sync slice!");
     }
+    slice.atTop = true;
 
     // -- Check if we have sufficiently useful data on hand.
 
@@ -1996,7 +2033,7 @@ ImapFolderStorage.prototype = {
         // What is the startTS fullSync data we have for the time range?
         worstGoodData = 0;
 
-    for (iAcc = 0; iAcc < this._accuracyRanges.length; i++) {
+    for (iAcc = 0; iAcc < this._accuracyRanges.length; iAcc++) {
       ainfo = this._accuracyRanges[iAcc];
       if (BEFORE(pastDate, ainfo.endTS))
         break;
@@ -2026,13 +2063,19 @@ ImapFolderStorage.prototype = {
     }
 
     // -- Bad existing data, issue a sync and have the slice
+    this._startSync(slice, pastDate, futureNow);
+  },
+
+  _startSync: function ifs__startSync(slice, startTS, endTS) {
+    if (startTS === null)
+      startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
     slice.setStatus('synchronizing');
     slice.waitingOnData = 'sync';
     this._curSyncSlice = slice;
-    this._curSyncStartTS = pastDate;
+    this._curSyncStartTS = startTS;
     this._curSyncDayStep = INITIAL_SYNC_DAYS;
     this._curSyncDoNotGrowWindowBefore = null;
-    this.folderConn.syncDateRange(pastDate, futureNow, true,
+    this.folderConn.syncDateRange(startTS, endTS, true,
                                   this.onSyncCompleted.bind(this));
   },
 
@@ -2070,10 +2113,52 @@ ImapFolderStorage.prototype = {
       dir = 1;
       desiredCount = dirMagnitude;
 
+      // The sync wants to be BEFORE the earliest day (which we are assuming
+      // is fully synced based on our day granularity).
+      var syncEndTS = quantizeDate(slice.startTS);
+
+      var batchHeaders = [];
+      // Process the oldest traversed message
+      function gotMessages(headers, moreExpected) {
+        batchHeaders = batchHeaders.concat(headers);
+        if (!moreExpected) {
+          var syncStartTS = null;
+          if (batchHeaders.length)
+            syncStartTS = batchHeaders[batchHeaders.length - 1].date;
+
+          if (syncStartTS) {
+            // We are computing a SINCE value, so quantize (to midnight)
+            syncStartTS = quantizeDate(syncStartTS);
+            // If we're not syncing at least one day, flag to give up.
+            if (syncStartTS === syncEndTS)
+              syncStartTS = null;
+          }
+
+          // Perform the sync if there is a range.
+          if (syncStartTS) {
+            this._startSync(slice, syncStartTS, syncEndTS);
+          }
+          // If there is no sync range (left), but there were messsages, report
+          // the messages.
+          else if (batchHeaders.length) {
+            slice.batchAppendHeaders(batchHeaders, -1, false);
+          }
+          // If growth was requested/is allowed or our accuracy range already
+          // covers as far back as we go, issue a (potentially expanding) sync.
+          else if (userRequestsGrowth) {
+            this._startSync(slice, null, slice.startTS);
+          }
+          // We are at the 'bottom', as it were.  Send an empty set.
+          else {
+            slice.sendEmptyCompletion();
+          }
+        }
+      }
+
       // Iterate up to 'desiredCount' messages into the past, compute the sync
       // range, subtracting off the already known sync'ed range.
-
-      // If there is no sync range, just report the batch.
+      this.getMessagesBeforeMessage(slice.startTS, slice.startUID,
+                                    desiredCount, gotMessages.bind(this));
     }
   },
 
@@ -2096,10 +2181,7 @@ ImapFolderStorage.prototype = {
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
-    if ((this._headerBlockInfos.length &&
-         endTS === this._headerBlockInfos[0].endTS &&
-         slice.endUID === this._headerBlockInfos[0].endUID) ||
-        (endTS === null)) {
+    if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
 console.log("growing endTS from", endTS, "to nowish");
       endTS = FUTURE_TIME_WARPED_NOW || null;
     }
@@ -2111,29 +2193,13 @@ console.log("growing endTS from", endTS, "to nowish");
     }
 
     // - Grow startTS
-    var idxLastHBlock = this._headerBlockInfos.length - 1;
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.
-    if ((idxLastHBlock >= 0 &&
-         startTS === this._headerBlockInfos[idxLastHBlock].startTS &&
-         slice.startUID === this._headerBlockInfos[idxLastHBlock].startUID) ||
-        (startTS === null)) {
-      // Find the accuracy range containing the start timestamp
-      var idxAR = this._findRangeObjIndexForDate(this._accuracyRanges,
-                                                 startTS || Date.now());
-      // Run backward in time until we find one without a fullSync or run out
-      while (idxAR < this._accuracyRanges.length &&
-             this._accuracyRanges[idxAR].fullSync) {
-        idxAR++;
-      }
-      // Decrement because the point is we went one too far.
-      idxAR--;
-      // Sanity-check, then use the startTS.
-      if (idxAR && idxAR < this._accuracyRanges.length) {
-console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
-            "from", startTS);
-        startTS = this._accuracyRanges[idxAR].startTS;
-      }
+    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
+      var syncStartTS = this.getOldestFullSyncDate(startTS);
+if (syncStartTS !== startTS)
+console.log("growing startTS to", syncStartTS, "from", startTS);
+      startTS = syncStartTS;
     }
 
     // XXX use mutex scheduling to avoid this possibly happening...
@@ -2161,26 +2227,37 @@ console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
   onSyncCompleted: function ifs_onSyncCompleted(messagesSeen) {
     console.log("Sync Completed!", this._curSyncDayStep, "days",
                 messagesSeen, "messages synced");
-    // If the slice already knows about all the messages in the folder, make
-    // sure it doesn't want additional messages that don't exist.  NB: if there
-    // are any deleted messages, this logic will not save us because we ignored
-    // those messages.  This is made less horrible by issuing a time-date that
-    // expands as we go further back in time.
+
+    // If it now appears we know about all the messages in the folder, then we
+    // are done syncing and can mark the entire folder as synchronized.  This
+    // requires that the number of messages we know about is the same as the
+    // number the server most recently told us are in the folder, plus that the
+    // slice's oldest know message is the oldest message known to the db,
+    // implying that we have fully synchronized the folder during this session.
+    //
+    // NB: If there are any deleted messages, this logic will not save us
+    // because we ignored those messages.  This is made less horrible by issuing
+    // a time-date that expands as we go further back in time.
     //
     // (I have considered asking to see deleted messages too and ignoring them;
     // that might be suitable.  We could also just be a jerk and force an
     // expunge.)
-    if (this.folderConn && this.folderConn.box &&
-        (this._curSyncSlice.desiredHeaders >
-         this.folderConn.box.messages.total))
-      this._curSyncSlice.desiredHeaders = this.folderConn.box.messages.total;
+    var folderMessageCount = this.folderConn && this.folderConn.box &&
+                               this.folderConn.box.messages.total,
+        dbCount = this.getKnownMessageCount();
+    if (folderMessageCount === dbCount &&
+        this.headerIsOldestKnown(this._curSyncSlice.startTS,
+                                 this._curSyncSlice.startUID)) {
+      // (do not desire more headers)
+      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
+      // expand the accuracy range to cover everybody
+      this.markSyncedEntireFolder();
+    }
 
     // - Done if we don't want any more headers.
     // XXX prefetch may need a different success heuristic
-    if ((this._curSyncSlice.headers.length >=
-         this._curSyncSlice.desiredHeaders) ||
-    // - Done if we've already looked far enough back in time.
-        (BEFORE(this._curSyncStartTS, OLDEST_SYNC_DATE))) {
+    if (this._curSyncSlice.headers.length >=
+          this._curSyncSlice.desiredHeaders) {
       console.log("SYNCDONE Enough headers retrieved.",
                   "have", this._curSyncSlice.headers.length,
                   "want", this._curSyncSlice.desiredHeaders,
@@ -2252,11 +2329,13 @@ console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
   },
 
   /**
-   * Receive messages directly from the database.
+   * Receive messages directly from the database (streaming).
    */
   onFetchDBHeaders: function(slice, headers, moreMessagesComing) {
+    slice.atBottom = this.headerIsOldestKnown(slice.endTS, slice.endUID);
+
     if (headers.length)
-      slice.batchAppendHeaders(headers, moreMessagesComing);
+      slice.batchAppendHeaders(headers, -1, moreMessagesComing);
     else if (!moreMessagesComing)
       slice.setStatus('synced');
 
@@ -2265,6 +2344,80 @@ console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
   },
 
   sliceQuicksearch: function ifs_sliceQuicksearch(slice, searchParams) {
+  },
+
+  /**
+   * Return true if the identified header is the most recent known message for
+   * this folder as part of our fully-synchronized time-span.  Messages known
+   * because of sparse searches do not count.  If null/null is passed and there
+   * are no known headers, we will return true.
+   */
+  headerIsYoungestKnown: function(date, uid) {
+    // NB: unlike oldest known, this should not actually be impacted by messages
+    // found by search.
+    if (!this._headerBlockInfos.length)
+      return (date === null && uid === null);
+
+    var blockInfo = this._headerBlockInfos[0];
+    return (date === blockInfo.endTS &&
+            uid === blockInfo.endUID);
+  },
+
+  /**
+   * Return true if the identified header is the oldest known message for this
+   * folder as part of our fully-synchronized time-span.  Messages known because
+   * of sparse searches do not count.  If null/null is passed and there are no
+   * known headers, we will return true.
+   */
+  headerIsOldestKnown: function(date, uid) {
+    // TODO: when we implement search, this logic will need to be more clever
+    // to check our full-sync range since we may indeed have cached messages
+    // from way in the past.
+    if (!this._headerBlockInfos.length)
+      return (date === null && uid === null);
+
+    var blockInfo = this._headerBlockInfos[this._headerBlockInfos.length - 1];
+    return (date === blockInfo.startTS &&
+            uid === blockInfo.startUID);
+  },
+
+  /**
+   * What is the oldest date we have fully synchronized through per our
+   * accuracy information?
+   */
+  getOldestFullSyncDate: function() {
+    var idxAR = 0;
+    // Run backward in time until we find one without a fullSync or run out
+    while (idxAR < this._accuracyRanges.length &&
+           this._accuracyRanges[idxAR].fullSync) {
+      idxAR++;
+    }
+    // Decrement because the point is we went one too far.
+    idxAR--;
+    // Sanity-check, use.
+    var syncTS;
+    if (idxAR >= 0 && idxAR < this._accuracyRanges.length)
+      syncTS = this._accuracyRanges[idxAR].startTS;
+    else
+      syncTS = TIME_WARPED_NOW || Date.now();
+    return syncTS;
+  },
+
+  syncedToDawnOfTime: function() {
+    var oldestSyncTS = this.getOldestFullSyncDate();
+    return ON_OR_BEFORE(oldestSyncTS, OLDEST_SYNC_DATE);
+  },
+
+  /**
+   * Tally and return the number of messages we believe to exist in the folder.
+   */
+  getKnownMessageCount: function() {
+    var count = 0;
+    for (var i = 0; i < this._headerBlockInfos.length; i++) {
+      var blockInfo = this._headerBlockInfos[i];
+      count += blockInfo.count;
+    }
+    return count;
   },
 
   /**
@@ -2305,7 +2458,6 @@ console.log("growing startTS to", this._accuracyRanges[idxAR].startTS,
                        this._headerBlockInfos, startTS, endTS);
     iHeadBlockInfo = headerPair[0];
     headBlockInfo = headerPair[1];
-console.log("headerPair for", startTS, endTS, ":", iHeadBlockInfo, JSON.stringify(headBlockInfo));
     if (!headBlockInfo) {
       // no blocks equals no messages.
       messageCallback([], false);
@@ -2636,6 +2788,21 @@ console.log("headerPair for", startTS, endTS, ":", iHeadBlockInfo, JSON.stringif
     }
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
+  },
+
+  /**
+   * Mark that the most recent sync has now fully synchronized the folder.  We
+   * do this when message counts tell us we know about every message in the
+   * folder.
+   */
+  markSyncedEntireFolder: function() {
+    // We can just expand the first accuracy range structure to stretch to the
+    // dawn of time and nuke the rest.
+    var aranges = this._accuracyRanges;
+    // (If aranges is the empty list, there are deep invariant problems and
+    // the exception is desired.)
+    aranges[0].startTS = OLDEST_SYNC_DATE - 1;
+    aranges.splice(1, aranges.length - 1);
   },
 
   /**

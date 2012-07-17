@@ -15,6 +15,12 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
+    var lazyConsole = self.T.lazyLogger('console');
+
+    gConsoleLogFunc = function(msg) {
+      lazyConsole.value(msg);
+    };
+
     if (!opts)
       opts = {};
 
@@ -541,7 +547,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
    * get back the right thing.  Use do_openFolderView if you want to open it
    * and keep it open and detect changes, etc.
    */
-  do_viewFolder: function(desc, testFolder, expectedValues, _saveToThing) {
+  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
+                          _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
@@ -568,6 +575,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].headerInfo.subject);
         }
+        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                               expectedFlags.grow, 'synced');
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -578,6 +587,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
           self._logger.messageSubject(
             totalExpected - 1, slice.items[totalExpected - 1].subject);
         }
+        self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
         }
@@ -588,11 +599,13 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
   },
 
-  do_openFolderView: function(viewName, testFolder, expectedValues) {
+  do_openFolderView: function(viewName, testFolder, expectedValues,
+                              expectedFlags) {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
-    this.do_viewFolder('opens', testFolder, expectedValues, viewThing);
+    this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
+                       viewThing);
     return viewThing;
   },
 
@@ -625,7 +638,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
    *    }
    * ]
    */
-  expect_headerChanges: function(viewThing, expected, completeCheckOn) {
+  expect_headerChanges: function(viewThing, expected, expectedFlags,
+                                 completeCheckOn) {
     this.RT.reportActiveActorThisStep(this);
     this.RT.reportActiveActorThisStep(this.eImapAccount);
 
@@ -649,6 +663,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       }
     }
     this.expect_changesReported(expChangeRep, expDeletionRep);
+    this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                           expectedFlags.grow, 'synced');
 
     // - listen for the changes
     var changeRep = {}, deletionRep = {};
@@ -667,6 +683,9 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(changeRep, deletionRep);
+      self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                              viewThing.slice.userCanGrowDownwards,
+                              viewThing.slice.status);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -677,25 +696,28 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       viewThing.slice.oncomplete = completed;
   },
 
-  do_refreshFolderView: function(viewThing, expectedValues, checkExpected) {
+  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
+                                 expectedFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
                                                  expectedValues);
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
       viewThing.slice.refresh();
     });
   },
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
-                              expectedValues) {
+                              alreadyExists, expectedValues, expectedFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
-                                                 expectedValues);
+                                                 expectedValues) +
+                          alreadyExists;
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, { changes: [], deletions: [] });
+      self.expect_headerChanges(viewThing, { changes: [], deletions: [] },
+                                expectedFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
     });
   },
@@ -785,6 +807,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       appendNotified: {},
       manipulationNotified: {},
 
+      sliceFlags: { top: true, bottom: true, grow: true, status: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
 

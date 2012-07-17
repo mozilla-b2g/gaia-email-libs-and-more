@@ -76,21 +76,33 @@ TD.commonCase('sync further back in time on demand', function(T) {
   T.group('initial sync');
   // Create 3 time regions that sync's heuristics will view as sufficient for
   // initial sync and each growth.  The intervals work out to 7.5 days,
-  // 7 days, and 7 days.  So we pick 11.9 hours to get 16, 15, 15.
+  // 7 days, and 7 days.  So we pick 11.5 hours to get 16, 15, 15.
   var syncFolder = testAccount.do_createTestFolder(
     'test_sync_grow',
-    { count: 46, age: { days: 0 }, age_incr: { hours: 11.9 } });
+    { count: 46, age: { days: 0 }, age_incr: { hours: 11.4 } });
   var syncView = testAccount.do_openFolderView(
     'grower', syncFolder,
-    { count: 16, full: 16, flags: 0, deleted: 0 });
+    { count: 16, full: 16, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: true });
 
-  T.group('grow');
+  T.group('grow older');
   testAccount.do_growFolderView(
-    syncView, 1, true,
-    { count: 15, full: 15, flags: 0, deleted: 0 });
+    syncView, 1, true, 16,
+    { count: 15, full: 15, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: true });
   testAccount.do_growFolderView(
-    syncView, 1, true,
-    { count: 15, full: 15, flags: 0, deleted: 0 });
+    syncView, 1, true, 31,
+    { count: 15, full: 15, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
+  T.group('shrink off new');
+
+  T.group('grow younger again');
+
+  T.group('shrink off old');
+
+  T.group('grow old again');
+
 
   T.group('cleanup');
 });

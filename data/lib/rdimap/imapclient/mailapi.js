@@ -540,6 +540,23 @@ function BridgedViewSlice(api, ns, handle) {
   this.items = [];
 
   /**
+   * @oneof[
+   *   @case['synchronizing']{
+   *     We are talking to a server to populate/expand the contents of this
+   *     list.
+   *   }
+   *   @case['synced']{
+   *     We are not talking to a server.
+   *   }
+   * ]{
+   *   Quasi-extensible indicator of whether we are synchronizing or not.  The
+   *   idea is that if we are synchronizing, a spinner indicator can be shown
+   *   at the end of the list of messages.
+   * }
+   */
+  this.status = 'synced';
+
+  /**
    * False if we can grow the slice in the negative direction without
    * requiring user prompting.
    */
@@ -554,6 +571,9 @@ function BridgedViewSlice(api, ns, handle) {
    * Can we potentially grow the slice in the positive direction if the user
    * requests it?  For example, triggering an IMAP sync for a part of the
    * time-range we have not previously synchronized.
+   *
+   * This is only really meaningful when `atBottom` is true; if we are not at
+   * the bottom, this value will be false.
    */
   this.userCanGrowDownwards = false;
 
@@ -563,7 +583,7 @@ function BridgedViewSlice(api, ns, handle) {
    * infinite scrolling logic would do best to wait for the back-end to service
    * its requests before issuing new ones.
    */
-  this.pendingRequests = 0;
+  this.pendingRequestCount = 0;
   /**
    * The direction we are growing, if any (0 if not).
    */
@@ -594,7 +614,7 @@ BridgedViewSlice.prototype = {
    * the back-end may attenuate partially or entirely.
    */
   requestShrinkage: function(firstUsedIndex, lastUsedIndex) {
-    this.pendingRequests++;
+    this.pendingRequestCount++;
 
     // We send indices and suid's.  The indices are used for fast-pathing;
     // if the suid's don't match, a linear search is undertaken.
@@ -616,7 +636,7 @@ BridgedViewSlice.prototype = {
     if (this._growing)
       throw new Error('Already growing in ' + this._growing + ' dir.');
     this._growing = dirMagnitude;
-    this.pendingRequests++;
+    this.pendingRequestCount++;
 
     this._api.__bridgeSend({
         type: 'growSlice',
@@ -934,6 +954,11 @@ MailAPI.prototype = {
         break;
     }
 
+    slice.status = msg.status;
+    slice.atTop = msg.atTop;
+    slice.atBottom = msg.atBottom;
+    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
+
     // - generate slice 'onsplice' notification
     if (slice.onsplice) {
       try {
@@ -980,16 +1005,23 @@ MailAPI.prototype = {
     }
 
     // - generate 'oncomplete' notification
-    if (slice.oncomplete && msg.requested && !msg.moreExpected) {
-      var completeFunc = slice.oncomplete;
-      // reset before calling in case it wants to chain.
-      slice.oncomplete = null;
-      try {
-        completeFunc();
-      }
-      catch (ex) {
-        reportClientCodeError('oncomplete notification error', ex,
-                              '\n', ex.stack);
+    if (msg.requested && !msg.moreExpected) {
+      slice._growing = 0;
+console.log('req-pre', slice.pendingRequestCount);
+      if (slice.pendingRequestCount)
+        slice.pendingRequestCount--;
+console.log('req-post', slice.pendingRequestCount);
+      if (slice.oncomplete) {
+        var completeFunc = slice.oncomplete;
+        // reset before calling in case it wants to chain.
+        slice.oncomplete = null;
+        try {
+          completeFunc();
+        }
+        catch (ex) {
+          reportClientCodeError('oncomplete notification error', ex,
+                                '\n', ex.stack);
+        }
       }
     }
   },

@@ -679,6 +679,11 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this._ns = ns;
   this._handle = handle;
   this.__listener = null;
+
+  this.status = 'synced';
+  this.atTop = false;
+  this.atBottom = false;
+  this.userCanGrowDownwards = false;
 }
 SliceBridgeProxy.prototype = {
   /**
@@ -694,6 +699,10 @@ SliceBridgeProxy.prototype = {
       addItems: addItems,
       requested: requested,
       moreExpected: moreExpected,
+      status: this.status,
+      atTop: this.atTop,
+      atBottom: this.atBottom,
+      userCanGrowDownwards: this.userCanGrowDownwards,
     });
   },
 
@@ -709,6 +718,7 @@ SliceBridgeProxy.prototype = {
   },
 
   sendStatus: function sbp_sendStatus(status, flushSplice) {
+    this.status = status;
     if (flushSplice) {
       this.sendSplice(0, 0, [], true, false);
     }
