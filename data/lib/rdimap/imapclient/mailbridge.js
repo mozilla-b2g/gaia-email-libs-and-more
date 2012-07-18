@@ -238,7 +238,7 @@ MailBridge.prototype = {
         wireSplice.push(folder);
         markerSpliceArgs.push(makeFolderSortString(account.id, folder));
       }
-      proxy.sendSplice(idxStart, 0, wireSplice);
+      proxy.sendSplice(idxStart, 0, wireSplice, false, false);
       proxy.markers.splice.apply(proxy.markers, markerSpliceArgs);
     }
   },
@@ -717,11 +717,9 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendStatus: function sbp_sendStatus(status, flushSplice) {
+  sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
     this.status = status;
-    if (flushSplice) {
-      this.sendSplice(0, 0, [], true, false);
-    }
+    this.sendSplice(0, 0, [], requested, moreExpected);
   },
 
   die: function sbp_die() {

@@ -230,16 +230,16 @@ ImapSlice.prototype = {
   },
 
   sendEmptyCompletion: function() {
-    this.setStatus('synced');
+    this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status) {
+  setStatus: function(status, requested, moreExpected) {
     if (!this._bridgeHandle)
       return;
 
     if (status === 'synced')
       this._updateSliceFlags();
-    this._bridgeHandle.sendStatus(status, status === 'synced');
+    this._bridgeHandle.sendStatus(status, requested, moreExpected);
   },
 
   batchAppendHeaders: function(headers, insertAt, moreComing) {
@@ -309,7 +309,8 @@ ImapSlice.prototype = {
                                cmpHeaderYoungToOld);
     this._LOG.headerAdded(idx, header);
     this._bridgeHandle.sendSplice(idx, 0, [header],
-                                  this.waitingOnData, this.waitingOnData);
+                                  Boolean(this.waitingOnData),
+                                  Boolean(this.waitingOnData));
     this.headers.splice(idx, 0, header);
   },
 
@@ -342,7 +343,8 @@ ImapSlice.prototype = {
     if (idx !== null) {
       this._LOG.headerRemoved(idx, header);
       this._bridgeHandle.sendSplice(idx, 1, [],
-                                    this.waitingOnData, this.waitingOnData);
+                                    Boolean(this.waitingOnData),
+                                    Boolean(this.waitingOnData));
       this.headers.splice(idx, 1);
 
       // update time-ranges if required...
@@ -875,6 +877,13 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
     var conn = this._conn, storage = this._storage;
+
+    var callbacks = allbackMaker(
+      ['newMsgs', 'knownMsgs'],
+      function() {
+        doneCallback(newUIDs.length, knownUIDs.length);
+      });
+
     // -- Fetch headers/bodystructures for new UIDs
     var newChewReps = [];
     if (newUIDs.length) {
@@ -949,9 +958,19 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           var pendingFetches = 0;
           newChewReps.forEach(function(chewRep, iChewRep) {
             var partsReceived = [];
+            // If there are no parts to process, consume it now.
+            if (chewRep.bodyParts.length === 0) {
+              if ($imapchew.chewBodyParts(chewRep, partsReceived,
+                                          storage.folderId)) {
+                storage.addMessageHeader(chewRep.header);
+                storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
+              }
+            }
+
             chewRep.bodyParts.forEach(function(bodyPart) {
               var opts = { request: { body: bodyPart.partID } };
               pendingFetches++;
+
               var fetcher = conn.fetch(chewRep.msg.id, opts);
               setupBodyParser(bodyPart);
               fetcher.on('message', function(msg) {
@@ -970,13 +989,18 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
                    // If this is the last chew rep, then use its completion
                    // to report our completion.
                     if (--pendingFetches === 0)
-                      doneCallback(newUIDs.length, knownUIDs.length);
+                      callbacks.newMsgs();
                   }
                 });
               });
             });
           });
+          if (pendingFetches === 0)
+            callbacks.newMsgs();
         });
+    }
+    else {
+      callbacks.newMsgs();
     }
 
     // -- Fetch updated flags for known UIDs
@@ -1016,15 +1040,12 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           // we could drop back from a bulk fetch to a one-by-one fetch.
           console.warn('Known UIDs fetch error, ideally harmless:', err);
         });
-      if (!newUIDs.length) {
-        knownFetcher.on('end', function() {
-            doneCallback(newUIDs.length, knownUIDs.length);
-          });
-      }
+      knownFetcher.on('end', function() {
+        callbacks.knownMsgs();
+      });
     }
-
-    if (!knownUIDs.length && !newUIDs.length) {
-      doneCallback(newUIDs.length, knownUIDs.length);
+    else {
+      callbacks.knownMsgs();
     }
   },
 
@@ -2074,7 +2095,7 @@ ImapFolderStorage.prototype = {
   _startSync: function ifs__startSync(slice, startTS, endTS) {
     if (startTS === null)
       startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
-    slice.setStatus('synchronizing');
+    slice.setStatus('synchronizing', false, true);
     slice.waitingOnData = 'sync';
     this._curSyncSlice = slice;
     this._curSyncStartTS = startTS;
@@ -2216,7 +2237,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
       throw new Error("Can't refresh a slice when there is an existing sync");
     this.folderConn.syncDateRange(startTS, endTS, true, function() {
       self._account.__checkpointSyncCompleted();
-      slice.setStatus('synced');
+      slice.setStatus('synced', true, false);
     });
   },
 
@@ -2274,7 +2295,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
                   "sync date", this._curSyncStartTS,
                   "oldest", OLDEST_SYNC_DATE);
       this._curSyncSlice.waitingOnData = false;
-      this._curSyncSlice.setStatus('synced');
+      this._curSyncSlice.setStatus('synced', true, false);
       this._curSyncSlice = null;
 
       this._account.__checkpointSyncCompleted();
@@ -2346,7 +2367,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     if (headers.length)
       slice.batchAppendHeaders(headers, -1, moreMessagesComing);
     else if (!moreMessagesComing)
-      slice.setStatus('synced');
+      slice.setStatus('synced', true, false);
 
     if (!moreMessagesComing)
       slice.waitingOnData = false;

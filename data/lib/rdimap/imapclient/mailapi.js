@@ -593,6 +593,7 @@ function BridgedViewSlice(api, ns, handle) {
   this.onchange = null;
   this.onsplice = null;
   this.onremove = null;
+  this.onstatus = null;
   this.oncomplete = null;
   this.ondead = null;
 }
@@ -954,10 +955,15 @@ MailAPI.prototype = {
         break;
     }
 
-    slice.status = msg.status;
+    // - generate namespace-specific notifications
     slice.atTop = msg.atTop;
     slice.atBottom = msg.atBottom;
     slice.userCanGrowDownwards = msg.userCanGrowDownwards;
+    if (msg.status && slice.status !== msg.status) {
+      slice.status = msg.status;
+      if (slice.onstatus)
+        slice.onstatus(slice.status);
+    }
 
     // - generate slice 'onsplice' notification
     if (slice.onsplice) {
@@ -1007,10 +1013,9 @@ MailAPI.prototype = {
     // - generate 'oncomplete' notification
     if (msg.requested && !msg.moreExpected) {
       slice._growing = 0;
-console.log('req-pre', slice.pendingRequestCount);
       if (slice.pendingRequestCount)
         slice.pendingRequestCount--;
-console.log('req-post', slice.pendingRequestCount);
+
       if (slice.oncomplete) {
         var completeFunc = slice.oncomplete;
         // reset before calling in case it wants to chain.

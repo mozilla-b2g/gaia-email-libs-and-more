@@ -215,7 +215,7 @@ ImapConnection.prototype.connect = function(loginCb) {
                                    this._options.connTimeout, loginCb);
 
   this._state.conn.onopen = function(evt) {
-    if (this._LOG) this._LOG.connected();
+    if (self._LOG) self._LOG.connected();
     clearTimeout(self._state.tmrConn);
     self._state.status = STATES.NOAUTH;
     fnInit();

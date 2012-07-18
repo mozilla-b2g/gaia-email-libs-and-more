@@ -138,5 +138,5 @@ TD.commonCase('sync further back in time on demand', function(T) {
 });
 
 function run_test() {
-  runMyTests(20);
+  runMyTests(10);
 }
