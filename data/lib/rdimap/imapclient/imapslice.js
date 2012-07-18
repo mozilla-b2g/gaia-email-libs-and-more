@@ -2293,7 +2293,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
                   "want", this._curSyncSlice.desiredHeaders,
                   "box knows about", this.folderConn.box.messages.total,
                   "sync date", this._curSyncStartTS,
-                  "oldest", OLDEST_SYNC_DATE);
+                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
       this._curSyncSlice.waitingOnData = false;
       this._curSyncSlice.setStatus('synced', true, false);
       this._curSyncSlice = null;

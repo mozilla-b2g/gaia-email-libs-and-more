@@ -616,6 +616,8 @@ BridgedViewSlice.prototype = {
    */
   requestShrinkage: function(firstUsedIndex, lastUsedIndex) {
     this.pendingRequestCount++;
+    if (lastUsedIndex >= this.items.length)
+      lastUsedIndex = this.items.length - 1;
 
     // We send indices and suid's.  The indices are used for fast-pathing;
     // if the suid's don't match, a linear search is undertaken.
