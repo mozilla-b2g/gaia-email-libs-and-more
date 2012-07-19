@@ -16,6 +16,8 @@
     "event-queue": "data/lib/js-shims/event-queue",
     "microtime": "data/lib/js-shims/microtime",
     "path": "data/lib/js-shims/path",
+    "wbxml": "data/lib/js-shims/wbxml",
+    "activesync": "data/lib/js-shims/activesync",
 
     "imap": "data/lib/imap",
 
