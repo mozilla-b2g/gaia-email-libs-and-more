@@ -1194,9 +1194,19 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
  *   }
  * ]]
  * @typedef[AttachmentInfo @dict[
- *   @key[name String]
- *   @key[type String]
- *   @key[part String]
+ *   @key[name String]{
+ *     The filename of the attachment if this is an attachment, the content-id
+ *     of the attachemtn if this is a related part for inline display.
+ *   }
+ *   @key[type String]{
+ *     The (full) mime-type of the attachment.
+ *   }
+ *   @key[part String]{
+ *     The IMAP part number for fetching the attachment.
+ *   }
+ *   @key[encoding String]{
+ *     The encoding of the attachment so we know how to decode it.
+ *   }
  *   @key[sizeEstimate Number]{
  *     Estimated file size in bytes.
  *   }
@@ -1213,13 +1223,28 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
  *   @key[cc @listof[NameAddressPair]]
  *   @key[bcc @listof[NameAddressPair]]
  *   @key[replyTo EmailAddress]
- *   @key[attachments @listof[AttachmentInfo]]
+ *   @key[attachments @listof[AttachmentInfo]]{
+ *     Proper attachments for explicit downloading.
+ *   }
+ *   @key[relatedParts @oneof[null @listof[AttachmentInfo]]]{
+ *     Attachments for inline display in the contents of the (hopefully)
+ *     multipart/related message.
+ *   }
  *   @key[references @oneof[null @listof[String]]]{
  *     The contents of the references header as a list of de-quoted ('<' and
  *     '>' removed) message-id's.  If there was no header, this is null.
  *   }
- *   @key[bodyRep Array]{
- *     The `quotechew.js` processed body representation.
+ *   @key[bodyRep @oneof[String Array]]{
+ *     If it's an array, then it's the `quotechew.js` processed body
+ *     representation.  If it's a string, then this is an HTML message and the
+ *     contents are already sanitized and already quote-normalized.
+ *   }
+ *   @key[htmlFixups Array]{
+ *     The list of fixups that can be performed.  Elements that are strings are
+ *     external image URLs.  Elements that are integers are indexes into
+ *     `relatedParts`.  All things that need to be fixed up are marked with a
+ *     attribute so that we can get the nodes and then in one pass perform the
+ *     appropriate fixups.  Or maybe we just need a flag?
  *   }
  * ]]{
  *   Information on the message body that is only for full message display.
