@@ -12,7 +12,7 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_internals' }, null, [$th_imap.TESTHELPER], ['app']);
 
-TD.DISABLED_commonCase('account persistence', function(T) {
+TD.commonCase('account persistence', function(T) {
   T.group('create universe, account');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
@@ -21,8 +21,10 @@ TD.DISABLED_commonCase('account persistence', function(T) {
   var testFolder = testAccount.do_createTestFolder(
     'test_internals',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  testAccount.do_viewFolder('syncs', testFolder,
-                            { count: 4, full: 4, flags: 0, deleted: 0 });
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 4, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   T.group('cleanly shutdown account, universe');
   testUniverse.do_saveState();
@@ -37,15 +39,19 @@ TD.DISABLED_commonCase('account persistence', function(T) {
   T.group('verify sync is not starting from scratch');
   testFolder = testAccount.do_useExistingFolder('test_internals', '#2',
                                                 testFolder);
-  testAccount.do_viewFolder('re-syncs', testFolder,
-                            { count: 4, full: 0, flags: 4, deleted: 0 });
+  testAccount.do_viewFolder(
+    're-syncs', testFolder,
+    { count: 4, full: 0, flags: 4, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   T.group('add more messages, verify sync');
   testAccount.do_addMessagesToFolder(
     testFolder,
     { count: 2, age: { days: 0, hours: 2 }, age_incr: { days: 1 } });
-  testAccount.do_viewFolder('re-syncs', testFolder,
-                            { count: 6, full: 2, flags: 4, deleted: 0 });
+  testAccount.do_viewFolder(
+    're-syncs', testFolder,
+    { count: 6, full: 2, flags: 4, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   T.group('save account state');
   testUniverse.do_saveState();
@@ -60,17 +66,23 @@ TD.DISABLED_commonCase('account persistence', function(T) {
                         { universe: testUniverse, restored: true });
   testFolder = testAccount.do_useExistingFolder('test_internals', '#3',
                                                 testFolder);
-  testAccount.do_viewFolder('re-syncs', testFolder,
-                            { count: 6, full: 0, flags: 6, deleted: 0 });
+  testAccount.do_viewFolder(
+    're-syncs', testFolder,
+    { count: 6, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
 });
 
 
+/**
+ * This is our primary test of 'grow' logic.
+ */
 TD.commonCase('sync further back in time on demand', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
   T.group('initial sync');
@@ -137,6 +149,44 @@ TD.commonCase('sync further back in time on demand', function(T) {
   T.group('cleanup');
 });
 
+/**
+ * Grow a slice where the initial sync will fail to find any messages and so
+ * it will need to issue additional requests to find those messages.
+ */
+TD.commonCase('grow with deepening required', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  T.group('populate folder');
+  var syncFolder = testAccount.do_createTestFolder(
+    'test_sync_grow_deepen',
+    { count: 15, age: { days: 0 }, age_incr: { hours: 12 } });
+  testAccount.do_addMessagesToFolder(
+    syncFolder,
+    { count: 15, age: { days: 30}, age_incr: { hours: 24} });
+
+  T.group('initial sync');
+  var syncView = testAccount.do_openFolderView(
+    'grower', syncFolder,
+    { count: 15, full: 15, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+
+
+  T.group('grow older with deepending');
+  testAccount.do_growFolderView(
+    syncView, 15, true, 15,
+    [{ count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 11, full: 11, flags: 0, deleted: 0 },
+     { count: 4, full: 4, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
+
+  T.group('cleanup');
+});
+
 function run_test() {
-  runMyTests(10);
+  runMyTests(15);
 }

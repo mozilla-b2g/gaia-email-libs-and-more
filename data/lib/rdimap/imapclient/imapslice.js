@@ -201,8 +201,10 @@ ImapSlice.prototype = {
     if (lastIndex + 1 < this.headers.length) {
       this.atBottom = false;
       this.userCanGrowDownwards = false;
+      var delCount = this.headers.length - lastIndex  - 1;
+      this.desiredHeaders -= delCount;
       this._bridgeHandle.sendSplice(
-        lastIndex + 1, this.headers.length - lastIndex  - 1, [],
+        lastIndex + 1, delCount, [],
         // This is expected; more coming if there's a low-end splice
         true, firstIndex > 0);
       this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
@@ -212,6 +214,7 @@ ImapSlice.prototype = {
     }
     if (firstIndex > 0) {
       this.atTop = false;
+      this.desiredHeaders -= firstIndex;
       this._bridgeHandle.sendSplice(
         0, firstIndex, [], true, false);
       this.headers.splice(0, firstIndex);
@@ -2156,6 +2159,7 @@ ImapFolderStorage.prototype = {
     if (dirMagnitude < 0) {
       dir = -1;
       desiredCount = -dirMagnitude;
+      slice.desiredHeaders += desiredCount;
 
       // Request 'desiredCount' messages, provide them in a batch.
       this.getMessagesAfterMessage(
@@ -2197,10 +2201,12 @@ ImapFolderStorage.prototype = {
           // the messages.
           else if (batchHeaders.length) {
             slice.batchAppendHeaders(batchHeaders, -1, false);
+            slice.desiredHeaders = slice.headers.length;
           }
           // If growth was requested/is allowed or our accuracy range already
           // covers as far back as we go, issue a (potentially expanding) sync.
           else if (userRequestsGrowth) {
+            slice.desiredHeaders += desiredCount;
             this._startSync(slice, null, slice.startTS);
           }
           // We are at the 'bottom', as it were.  Send an empty set.

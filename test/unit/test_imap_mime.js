@@ -58,7 +58,8 @@ TD.commonCase('message encodings', function(T) {
     });
   var folderView = testAccount.do_openFolderView(
     'syncs', fullSyncFolder,
-    { count: 2, full: 2, flags: 0, deleted: 0 });
+    { count: 2, full: 2, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
   T.check('check message', eBodies, function() {
     eBodies.expect_namedValue('qp', rawTruthBeauty);
     eBodies.expect_namedValue('b64', rawTruthBeauty);
@@ -175,7 +176,8 @@ TD.commonCase('MIME hierarchies', function(T) {
   var folderView = testAccount.do_openFolderView(
     'syncs', fullSyncFolder,
     { count: testMessages.length, full: testMessages.length, flags: 0,
-      deleted: 0 });
+      deleted: 0 },
+    { top: true, bottom: true, grow: false });
   // -- check each message in its own step
   testMessages.forEach(function checkMessage(msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
