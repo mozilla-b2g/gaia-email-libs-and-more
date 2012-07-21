@@ -325,14 +325,14 @@ function NOP() {
 var DummyLogProtoBase = {
   _kids: undefined,
   toString: function() {
-    return '[Log]';
+    return '[DummyLog]';
   },
   toJSON: function() {
     // will this actually break JSON.stringify or just cause it to not use us?
     throw new Error("I WAS NOT PLANNING ON BEING SERIALIZED");
   },
-  __updateIdent: NOP,
   __die: NOP,
+  __updateIdent: NOP,
 };
 
 /**
@@ -1226,7 +1226,8 @@ LoggestClassMaker.prototype = {
       var rval;
       try {
         rval = arguments[numLogArgs+1].apply(
-          arguments[numLogArgs], Array.prototype.slice.call(arguments, iArg+2));
+          arguments[numLogArgs], Array.prototype.slice.call(arguments,
+                                                            numLogArgs+2));
       }
       catch(ex) {
         // (call errors are events)
@@ -1606,9 +1607,21 @@ exports.__augmentFab = augmentFab;
 
 var ALL_KNOWN_FABS = [];
 
+/**
+ * Do not turn on event-logging without an explicit call to
+ * `enableGeneralLogging`.  This is done because logging is a memory leak
+ * without a known consumer.
+ */
+var GENERAL_LOG_DEFAULT = false;
+
 exports.register = function register(mod, defs) {
-  var fab = {_generalLog: true, _underTest: false, _actorCons: {},
-             _rawDefs: {}, _onDeath: null};
+  var fab = {
+    _generalLog: GENERAL_LOG_DEFAULT,
+    _underTest: false,
+    _actorCons: {},
+    _rawDefs: {},
+    _onDeath: null
+  };
   ALL_KNOWN_FABS.push(fab);
   return augmentFab(mod, fab, defs);
 };
@@ -1633,6 +1646,17 @@ var BogusTester = {
     //  triggered.
     return parentLogger;
   },
+};
+
+/**
+ * Turn on logging at an event granularity.
+ */
+exports.enableGeneralLogging = function() {
+  GENERAL_LOG_DEFAULT = true;
+  for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
+    var logfab = ALL_KNOWN_FABS[i];
+    logfab._generalLog = true;
+  }
 };
 
 /**
