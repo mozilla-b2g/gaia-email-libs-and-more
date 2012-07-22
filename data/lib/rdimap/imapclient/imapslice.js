@@ -515,6 +515,7 @@ function IN_BS_DATE_RANGE(testDate, startTS, endTS) {
  */
 const HEADER_EST_SIZE_IN_BYTES = exports.HEADER_EST_SIZE_IN_BYTES = 200;
 
+const HOUR_MILLIS = 60 * 60 * 1000;
 const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 /**
@@ -558,11 +559,70 @@ function quantizeDate(date) {
   return date.setHours(0, 0, 0, 0).valueOf();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Display Heuristic Time Values
+//
+// Here are some values we can tweak to try and strike a balance between how
+// long before we display something when entering a folder and avoiding visual
+// churn as new messages are added to the display.
+//
+// These are not constants because unit tests need to muck with these.
+
 /**
- * How recent is recent enough for us to not have to talk to the server before
- * showing results?
+ * How recently do we have to have synced a folder for us to to treat a request
+ * to enter the folder as a database-backed load followed by a refresh rather
+ * than falling back to known-date-range sync (which does not display anything
+ * until the sync has completed) or (the same thing we use for initial sync)
+ * iterative deepening?
+ *
+ * This is sync strategy #1 per `sliceOpenFromNow`.
+ *
+ * A good value is approximately how long we would expect it to take for V/2
+ * messages to show up in the folder, where V is the number of messages the
+ * device's screen can display at a time.  This is because since we will
+ * populate the folder prior to the refresh, any new messages will end up
+ * displacing the messages.
+ *
+ * There are non-inbox and inbox variants of this value because we expect
+ * churn in the INBOX to happen at a much different rate than other boxes.
+ * Ideally, we might also be able to detect folders that have new things
+ * filtered into them, as that will affect this too.
+ *
+ * There is also a third variant for folders that we have previously
+ * synchronized and found that their messages start waaaay in the past,
+ * suggesting that this is some type of archival folder with low churn,
+ * `SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH`.
  */
-const RECENT_ENOUGH_TIME_THRESH = 6 * 60 * 60 * 1000;
+var SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX = 6 * HOUR_MILLIS;
+var SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX = 2 * HOUR_MILLIS;
+
+/**
+ * If the most recent message in a folder is older than this threshold, then
+ * we assume it's some type of archival folder and so is unlikely to have any
+ * meaningful churn so a refresh is optimal.  Also, the time range is
+ * far enough back that our deepening strategy would result in unacceptable
+ * latency.
+ */
+var SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH = 4 * 30 * DAY_MILLIS;
+var SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD = 2 * 30 * DAY_MILLIS;
+
+/**
+ * How recently do we have to have synced a folder for us to reuse the known
+ * date bounds of the messages contained in the folder as the basis for our
+ * sync?  We will perform a sync with this date range before displaying any
+ * messages, avoiding churn should new messages have appeared.
+ *
+ * This is sync strategy #2 per `sliceOpenFromNow`, and is the fallback mode
+ * if the #1 strategy is not appropriate.
+ *
+ * This is most useful for folders with a message density lower than
+ * INITIAL_FILL_SIZE / INITIAL_SYNC_DAYS messages/day.  If we are able
+ * to characterize folders based on whether new messages show up in them
+ * based on some reliable information, then we could let #1 handle more cases
+ * that this case currently covers.
+ */
+var SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX = 7 * DAY_MILLIS;
+var SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX = 6 * HOUR_MILLIS;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -581,8 +641,22 @@ var INITIAL_SYNC_DAYS = 3;
  * days.  The tests are written with a value in mind (7), but 7 turns out to
  * be too high an initial value for actual use, but is fine for tests.
  */
-exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncDays) {
-  INITIAL_SYNC_DAYS = syncDays;
+exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
+  INITIAL_SYNC_DAYS = syncValues.days;
+
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX =
+    syncValues.refreshNonInbox;
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX =
+    syncValues.refreshInbox;
+  SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH =
+    syncValues.oldIsSafeForRefresh;
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD =
+    syncValues.refreshOld;
+
+  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
+    syncValues.useRangeNonInbox;
+  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
+    syncValues.useRangeInbox;
 };
 
 /**
@@ -771,6 +845,7 @@ ImapFolderConn.prototype = {
    * mercy to the server.)
    */
   syncDateRange: function(startTS, endTS, newToOld, doneCallback) {
+console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
     if (startTS)
@@ -836,7 +911,8 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           function(newCount, knownCount) {
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
                                         startTS, endTS);
-            self._storage.markSyncRange(startTS, endTS, modseq, Date.now());
+            self._storage.markSyncRange(startTS, endTS, modseq,
+                                        self._curSyncAccuracyStamp);
             doneCallback(newCount + knownCount);
           });
       });
@@ -880,7 +956,8 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
     var conn = this._conn, storage = this._storage;
-
+console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
+            knownUIDs.length, 'knownHeaders', knownHeaders.length);
     var callbacks = allbackMaker(
       ['newMsgs', 'knownMsgs'],
       function() {
@@ -893,7 +970,9 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
       var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
       newFetcher.on('message', function onNewMessage(msg) {
           msg.on('end', function onNewMsgEnd() {
+console.log('  new fetched, header processing');
             newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
+console.log('   header processed');
           });
         });
       newFetcher.on('error', function onNewFetchError(err) {
@@ -974,12 +1053,25 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
               var opts = { request: { body: bodyPart.partID } };
               pendingFetches++;
 
-              var fetcher = conn.fetch(chewRep.msg.id, opts);
+console.log('  fetching for', chewRep.msg.id, bodyPart.partID);
+              var fetcher;
+try {
+              fetcher = conn.fetch(chewRep.msg.id, opts);
+} catch (ex) {
+  console.warn('!failure fetching', ex);
+  return;
+}
               setupBodyParser(bodyPart);
+              fetcher.on('error', function(err) {
+                console.warn('body fetch error', err);
+                if (--pendingFetches === 0)
+                  callbacks.newMsgs();
+              });
               fetcher.on('message', function(msg) {
                 setupBodyParser(bodyPart);
                 msg.on('data', bodyParseBuffer);
                 msg.on('end', function() {
+console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID);
                   partsReceived.push(finishBodyParsing());
 
                   // -- Process
@@ -989,15 +1081,16 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
                       storage.addMessageHeader(chewRep.header);
                       storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                     }
-                   // If this is the last chew rep, then use its completion
-                   // to report our completion.
-                    if (--pendingFetches === 0)
-                      callbacks.newMsgs();
                   }
+                  // If this is the last chew rep, then use its completion
+                  // to report our completion.
+                  if (--pendingFetches === 0)
+                    callbacks.newMsgs();
                 });
               });
             });
           });
+console.log('  pending fetches', pendingFetches);
           if (pendingFetches === 0)
             callbacks.newMsgs();
         });
@@ -1362,6 +1455,13 @@ function ImapFolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * about all header modifications/notes as they occur.
    */
   this._curSyncSlice = null;
+  /**
+   * The timestamp to use for `markSyncRange` for all syncs in this higher
+   * level sync.  Accuracy time-info does not need high precision, so this
+   * results in fewer accuracy structures and simplifies our decision logic
+   * in `sliceOpenFromNow`.
+   */
+  this._curSyncAccuracyStamp = null;
   /**
    * The start range of the (backward-moving) sync time range.
    */
@@ -2063,11 +2163,30 @@ ImapFolderStorage.prototype = {
    * Track a new slice that wants to start from 'now'.  We will provide it with
    * messages once we have a "sufficiently recent" set of data on the messages.
    *
-   * We will tell the slice about what we know about immediately (and without
-   * waiting for the server) if we are offline or the data we have is fairly
-   * recent.  We will wait for sync if we have no data or we believe we have
-   * network and are sufficiently out-of-date that what we show the user would
-   * be useless.
+   * There are three core strategies we can use, listed in order of immediacy
+   * of results:
+   *
+   * 1) Immediately display the most recent messages we have in the folder and
+   *    then trigger a refresh over the time range covering 'now' through the
+   *    oldest message we displayed which may add/modify/remove messages from
+   *    the displayed list.
+   *
+   * 2) Use our knowledge of the messages in the folder to issue a sync request
+   *    over the time range that we think will net us a reasonable number of
+   *    messages, only displaying any messages once the sync over that time
+   *    range completes.
+   *
+   * 3) (Act like) we know nothing about the messages in the folder, issuing
+   *    an initial sync request over `daysDesired`/`INITIAL_SYNC_DAYS`, and
+   *    issuing successive sync requests back further in time as we go,
+   *    adjusting the size of the sync requests as we go.
+   *
+   * If we are offline, we basically do #1 but without triggering a refresh.
+   *
+   * The strategies we use are controlled via constants that are documented in
+   * the "Display Heuristic Time Values" group in this file and which elaborate
+   * on these strategies a bit more.  Also, the comments in the method may be
+   * informative.
    */
   sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired) {
     daysDesired = daysDesired || INITIAL_SYNC_DAYS;
@@ -2076,47 +2195,90 @@ ImapFolderStorage.prototype = {
       console.error("Trying to open a slice and initiate a sync when there",
                     "is already an active sync slice!");
     }
+    // by definition, we must be at the top
     slice.atTop = true;
 
     // -- Check if we have sufficiently useful data on hand.
-
+    // For checking accuracy ranges, the first accuracy range is authoritative
+    // for at least all of what `sliceOpenFromNow` returned last time, so we can
+    // just check against it.  (It may have been bisected by subsequent scrolled
+    // refreshes, but they will be more recent and thus won't affect the least
+    // accurate data, which is what we care about.)
     var now = TIME_WARPED_NOW || Date.now(),
         futureNow = FUTURE_TIME_WARPED_NOW || null,
         pastDate = makeDaysAgo(daysDesired),
         iAcc, iHeadBlock, ainfo,
         // What is the startTS fullSync data we have for the time range?
-        worstGoodData = 0;
+        worstGoodData = 0,
+        existingDataGood = false;
 
-    for (iAcc = 0; iAcc < this._accuracyRanges.length; iAcc++) {
-      ainfo = this._accuracyRanges[iAcc];
-      if (BEFORE(pastDate, ainfo.endTS))
-        break;
-      if (!ainfo.fullSync)
-        break;
-      if (worstGoodData)
-        worstGoodData = Math.min(ainfo.fullSync.updated, worstGoodData);
-      else
-        worstGoodData = ainfo.fullSync.updated;
-    }
-    var existingDataGood;
-    if (!this._account.universe.online)
+    // If we're offline, there's nothing to look into; use the DB.
+    if (!this._account.universe.online) {
       existingDataGood = true;
-    else // TODO: consider just filling from the db if recent enough
-      //existingDataGood = (worstGoodData + RECENT_ENOUGH_TIME_THRESH > now);
-      existingDataGood = false;
+    }
+    else if (this._accuracyRanges.length) {
+      ainfo = this._accuracyRanges[0];
+      var newestMessage = this.getYoungestMessageTimestamp();
+      var refreshThresh;
+      if (this.folderMeta.type === 'inbox')
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
+      else if (ON_OR_BEFORE(newestMessage,
+                            now - SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD;
+      else
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
+
+      // We can do the refresh thing if we have updated more recently than
+      // the cutoff threshold.
+console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
+      if (ainfo.fullSync &&
+          SINCE(ainfo.fullSync.updated, now - refreshThresh)) {
+        existingDataGood = true;
+      }
+      // Look into using an adjusted date range.
+      else {
+        var rangeThresh;
+        if (this.folderMeta.type === 'inbox')
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
+        else
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
+
+console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
+        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, now - rangeThresh)){
+          // METHOD #2
+          // We need to iterate over the headers to figure out the right
+          // date to use.  We can't just use the accuracy range because it may
+          // have been bisected by the user scrolling into the past and
+          // triggering a refresh.
+          this.getMessagesBeforeMessage(
+            null, null, INITIAL_FILL_SIZE - 1,
+            function(headers, moreExpected) {
+              if (moreExpected)
+                return;
+              var header = headers[headers.length - 1];
+              pastDate = quantizeDate(header.date);
+              this._startSync(slice, pastDate, futureNow);
+            }.bind(this));
+          return;
+        }
+      }
+    }
 
     // -- Good existing data, fill the slice from the DB
     if (existingDataGood) {
       // We can adjust our start time to the dawn of time since we have a
       // limit in effect.
       slice.waitingOnData = 'db';
-      this.getMessagesInImapDateRange(0, futureNow,
-                                      INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
-                                      this.onFetchDBHeaders.bind(this, slice));
+      // METHOD #1
+      this.getMessagesInImapDateRange(
+        0, futureNow, INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+        // trigger a refresh if we are online
+        this.onFetchDBHeaders.bind(this, slice, this._account.universe.online));
       return;
     }
 
     // -- Bad existing data, issue a sync and have the slice
+    // METHOD #3
     this._startSync(slice, pastDate, futureNow);
   },
 
@@ -2126,6 +2288,7 @@ ImapFolderStorage.prototype = {
     slice.setStatus('synchronizing', false, true);
     slice.waitingOnData = 'sync';
     this._curSyncSlice = slice;
+    this._curSyncAccuracyStamp = Date.now();
     this._curSyncStartTS = startTS;
     this._curSyncDayStep = INITIAL_SYNC_DAYS;
     this._curSyncDoNotGrowWindowBefore = null;
@@ -2178,7 +2341,7 @@ ImapFolderStorage.prototype = {
 
       var batchHeaders = [];
       // Process the oldest traversed message
-      function gotMessages(headers, moreExpected) {
+      var gotMessages = function gotMessages(headers, moreExpected) {
         batchHeaders = batchHeaders.concat(headers);
         if (!moreExpected) {
           var syncStartTS = null;
@@ -2214,7 +2377,7 @@ ImapFolderStorage.prototype = {
             slice.sendEmptyCompletion();
           }
         }
-      }
+      };
 
       // Iterate up to 'desiredCount' messages into the past, compute the sync
       // range, subtracting off the already known sync'ed range.
@@ -2238,6 +2401,7 @@ ImapFolderStorage.prototype = {
    */
   refreshSlice: function ifs_refreshSlice(slice) {
     var startTS = slice.startTS, endTS = slice.endTS, self = this;
+
     // - Grow endTS
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
@@ -2266,6 +2430,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
       throw new Error("Can't refresh a slice when there is an existing sync");
+    this._curSyncAccuracyStamp = Date.now();
     this.folderConn.syncDateRange(startTS, endTS, true, function() {
       self._account.__checkpointSyncCompleted();
       slice.setStatus('synced', true, false);
@@ -2314,6 +2479,12 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
       // expand the accuracy range to cover everybody
       this.markSyncedEntireFolder();
     }
+    // If our slice has now gone to the dawn of time, we can decide we have
+    // enough headers.
+    else if (this._curSyncSlice.startTS &&
+             ON_OR_BEFORE(this._curSyncSlice.startTS, OLDEST_SYNC_DATE)) {
+      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
+    }
 
     // - Done if we don't want any more headers.
     // XXX prefetch may need a different success heuristic
@@ -2325,6 +2496,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
                   "box knows about", this.folderConn.box.messages.total,
                   "sync date", this._curSyncStartTS,
                   "[oldest defined as", OLDEST_SYNC_DATE, "]");
+      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
       this._curSyncSlice.waitingOnData = false;
       this._curSyncSlice.setStatus('synced', true, false);
       this._curSyncSlice = null;
@@ -2392,19 +2564,36 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
   /**
    * Receive messages directly from the database (streaming).
    */
-  onFetchDBHeaders: function(slice, headers, moreMessagesComing) {
+  onFetchDBHeaders: function(slice, triggerRefresh,
+                             headers, moreMessagesComing) {
     slice.atBottom = this.headerIsOldestKnown(slice.endTS, slice.endUID);
 
-    if (headers.length)
-      slice.batchAppendHeaders(headers, -1, moreMessagesComing);
-    else if (!moreMessagesComing)
-      slice.setStatus('synced', true, false);
+    var triggerNow = false;
+    if (!moreMessagesComing && triggerRefresh) {
+      moreMessagesComing = true;
+      triggerNow = true;
+    }
 
-    if (!moreMessagesComing)
+    if (headers.length) {
+      slice.batchAppendHeaders(headers, -1, moreMessagesComing);
+    }
+    else if (!moreMessagesComing) {
+      slice.setStatus('synced', true, false);
       slice.waitingOnData = false;
+    }
+    else if (triggerNow) {
+      slice.waitingOnData = 'refresh';
+      this.refreshSlice(slice);
+    }
   },
 
   sliceQuicksearch: function ifs_sliceQuicksearch(slice, searchParams) {
+  },
+
+  getYoungestMessageTimestamp: function() {
+    if (!this._headerBlockInfos.length)
+      return 0;
+    return this._headerBlockInfos[0].endTS;
   },
 
   /**
@@ -2614,14 +2803,24 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
   /**
    * Fetch up to `limit` messages chronologically before the given message
    * (in the direction of 'start').
+   *
+   * If date/uid are null, it as if the date/uid of the most recent message
+   * are passed.
    */
   getMessagesBeforeMessage: function(date, uid, limit, messageCallback) {
     var toFill = (limit != null) ? limit : TOO_MANY_MESSAGES, self = this;
 
-    var headerPair = this._findRangeObjIndexForDateAndUID(
-                       this._headerBlockInfos, date, uid);
-    var iHeadBlockInfo = headerPair[0];
-    var headBlockInfo = headerPair[1];
+    var headerPair, iHeadBlockInfo, headBlockInfo;
+    if (date) {
+      headerPair = this._findRangeObjIndexForDateAndUID(
+                     this._headerBlockInfos, date, uid);
+      iHeadBlockInfo = headerPair[0];
+      headBlockInfo = headerPair[1];
+    }
+    else {
+      iHeadBlockInfo = 0;
+      headBlockInfo = this._headerBlockInfos[0];
+    }
 
     if (!headBlockInfo) {
       // The iteration request is somehow not current; log an error and return
@@ -2643,7 +2842,10 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
 
         // Null means find it by uid...
         if (iHeader === null) {
-          iHeader = headerBlock.uids.indexOf(uid);
+          if (uid !== null)
+            iHeader = headerBlock.uids.indexOf(uid);
+          else
+            iHeader = 0;
           if (iHeader === -1) {
             self._LOG.badIterationStart(date, uid);
             toFill = 0;

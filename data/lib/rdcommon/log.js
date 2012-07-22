@@ -511,6 +511,17 @@ var TestActorProtoBase = {
   },
 
   /**
+   * Expect nothing to be logged this turn, and therefore also that no
+   * expectations will be added.
+   */
+  expectNothing: function() {
+    if (this._expectations.length)
+      throw new Error("Already expecting something this turn! " +
+                      JSON.stringify(this._expectations[0]));
+    this._expectNothing = true;
+  },
+
+  /**
    * Indicate that the only expectation we have on this actor is that its
    *  logger will die during this step.
    */
@@ -570,6 +581,9 @@ var TestActorProtoBase = {
    *  null.
    */
   __waitForExpectations: function() {
+    if (this._expectNothing &&
+        (this._expectations.length || this._iExpectation))
+      return false;
     if ((this._iExpectation >= this._expectations.length) &&
         (this._expectDeath ? (this._logger && this._logger._died) : true)) {
       this._resolved = true;
@@ -601,6 +615,7 @@ var TestActorProtoBase = {
     // kill all processed entries.
     this._iExpectation = 0;
     this._expectations.splice(0, this._expectations.length);
+    this._expectNothing = false;
     this._expectDeath = false;
     this._unorderedSetMode = false;
     this._deferred = null;
@@ -722,17 +737,25 @@ var TestActorProtoBase = {
     }
     // - unexpected log events should count as failure
     // We only care if: 1) we were marked active, 2) we had at least one
-    //  expectation this step.
+    //  expectation this step OR we were explicitly marked to have no
+    //  expectations this step.
     // Because we will already have resolved() our promise if we get here,
     //  it's up to the test driver to come back and check us for this weird
     //  failure, possibly after waiting a tick to see if any additional events
     //  come in.
-    if (this._activeForTestStep && this._expectations.length &&
-        (this._iExpectation === this._expectations.length) &&
-        (entries.length > this._iEntry)) {
+    if (this._activeForTestStep &&
+        ((this._expectations.length &&
+          (this._iExpectation === this._expectations.length) &&
+          (entries.length > this._iEntry)) ||
+         (!this._expectations.length &&
+          this._expectNothing))) {
       this._expectationsMetSoFar = false;
-      // no need to -1 because we haven't incremented past the entry.
       this._logger.__unexpectedEntry(this._iEntry, entries[this._iEntry]);
+      // We intentionally increment iEntry because otherwise we'll keep marking
+      // the same entry as unexpected when that is in fact not what we desire.
+      // In previous parts of this function it made sense not to increment, but
+      // here it just causes confusion.
+      this._iEntry++;
     }
 
     if ((this._iExpectation >= this._expectations.length) && this._deferred &&
@@ -1472,6 +1495,7 @@ LoggestClassMaker.prototype = {
       this._logger = undefined;
       this._expectations = [];
       this._expectationsMetSoFar = true;
+      this._expectNothing = false;
       this._expectDeath = false;
       this._unorderedSetMode = false;
       this._activeForTestStep = false;

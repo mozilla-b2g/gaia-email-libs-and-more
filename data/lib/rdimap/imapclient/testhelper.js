@@ -49,7 +49,16 @@ var TestUniverseMixins = {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       self._useDate.setHours(12, 0, 0, 0);
       $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
-      $imapslice.TEST_adjustSyncValues(7);
+      var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+      $imapslice.TEST_adjustSyncValues({
+        days: 7,
+        refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
+        refreshInbox: DISABLE_THRESH_USING_FUTURE,
+        oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
+        refreshOld: DISABLE_THRESH_USING_FUTURE,
+        useRangeNonInbox: DISABLE_THRESH_USING_FUTURE,
+        useRangeInbox: DISABLE_THRESH_USING_FUTURE
+      });
     }
     else {
       self._useDate = new Date();
@@ -82,10 +91,6 @@ var TestUniverseMixins = {
         });
 
       MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
-        // Do not force everything to be under test; leave that to the test
-        // framework.  (If we passed true, we would break the testing
-        // framework's ability to log things, as well.)
-        false,
         function onUniverse() {
           console.log('Universe created');
           var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
@@ -537,6 +542,10 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     if (this.universe.online && flag !== 'nosave') {
       this.eImapAccount.expect_saveAccountState_begin();
       this.eImapAccount.expect_saveAccountState_end();
+    }
+    else {
+      // Make account saving cause a failure; also, connection reuse, etc.
+      this.eImapAccount.expectNothing();
     }
 
     return totalMessageCount;

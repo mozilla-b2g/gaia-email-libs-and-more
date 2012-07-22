@@ -119,6 +119,22 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
+    switch (msg.cmd) {
+      case 'setLogging':
+        this.universe.modifyConfig({ debugLogging: msg.arg });
+        break;
+
+      case 'dumpLog':
+        switch (msg.arg) {
+          case 'storage':
+            this.universe.dumpLogToDeviceStorage();
+            break;
+        }
+        break;
+    }
+  },
+
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
     this.universe.tryToCreateAccount(msg.details, function(good, account) {
@@ -732,6 +748,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   MailBridge: {
     type: $log.DAEMON,
     events: {
+      // NB: under unit test, this is not used and bridgeSnoop is used instead.
+      send: { type: true },
     },
     TEST_ONLY_events: {
     },
@@ -740,7 +758,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badSliceHandle: { handle: true },
     },
     calls: {
-      cmd: {command: true},
+      cmd: { command: true },
     },
     TEST_ONLY_calls: {
     },
