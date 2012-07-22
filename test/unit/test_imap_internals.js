@@ -147,6 +147,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { top: true, bottom: true, grow: false }, 'nosave');
 
   T.group('cleanup');
+  testAccount.do_closeFolderView(syncView);
 });
 
 /**
@@ -185,6 +186,7 @@ TD.commonCase('grow with deepening required', function(T) {
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
+  testAccount.do_closeFolderView(syncView);
 });
 
 function run_test() {

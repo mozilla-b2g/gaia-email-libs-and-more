@@ -2,8 +2,8 @@
  * Test our IMAP sync logic under non-pathological conditions.  We exercise
  * logic with a reasonable number of messages.  Test cases that involve folders
  * with ridiculous numbers of messages and/or huge gaps in time which will take
- * a while to run and/or might upset the IMAP servers are handled in
- * `test_imap_excessive.js`.
+ * a while to run and/or might upset the IMAP servers are/will be handled by
+ * `test_imap_complex.js`.
  *
  * Our tests verify that:
  * - Live synchronization provides the expected results where the messages come
