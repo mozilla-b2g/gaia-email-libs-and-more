@@ -417,8 +417,8 @@ Configurators['fake'] = {
   },
 };
 Configurators['activesync'] = {
-  tryToCreateAccount: function cfg_fake(universe, userDetails, domainInfo,
-                                        callback, _LOG) {
+  tryToCreateAccount: function cfg_activesync(universe, userDetails, domainInfo,
+                                              callback, _LOG) {
     var credentials = {
       username: userDetails.emailAddress,
       password: userDetails.password,
@@ -452,12 +452,15 @@ Configurators['activesync'] = {
     var folderInfo = {
       $meta: {
         nextMutationNum: 0,
+        syncKey: "0",
       },
       $mutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
-    callback(true, account);
+    account.syncFolderList(function() {
+      callback(true, account);
+    });
   },
 };
 
