@@ -8,6 +8,7 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
+    './util',
     'exports'
   ],
   function(
@@ -15,8 +16,10 @@ define(
     $wbxml,
     $ascp,
     $activesync,
+    $imaputil,
     exports
   ) {
+const bsearchForInsert = $imaputil.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                            receiveProtoConn, _LOG) {
@@ -56,9 +59,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this.folders.push(folderInfo.$meta);
   }
   // TODO: we should probably be smarter about sorting.
-  this.folders.sort(function(a, b) {
-    return a.path.localeCompare(b.path);
-  });
+  this.folders.sort(function(a, b) a.path.localeCompare(b.path));
 
   if (this.meta.syncKey != "0") {
     // TODO: this is a really hacky way of syncing folders later
@@ -148,9 +149,6 @@ ActiveSyncAccount.prototype = {
         var folder;
         var depth = 0;
         this.doCommand(w, function(aResponse) {
-          dump(aResponse.dump());
-          aResponse.rewind();
-
           for (var node in aResponse.document) {
             if (node.type == "STAG" && node.tag == fh.SyncKey) {
               var text = aResponse.document.next();
@@ -162,7 +160,7 @@ ActiveSyncAccount.prototype = {
               account.meta.syncKey = text.textContent;
             }
             else if (node.type == "STAG" &&
-                     (node.tag == fh.Add || node.tag == fh.Remove)) {
+                     (node.tag == fh.Add || node.tag == fh.Delete)) {
               depth = 1;
               folder = { add: node.tag == fh.Add };
             }
@@ -170,11 +168,10 @@ ActiveSyncAccount.prototype = {
               if (node.type == "ETAG") {
                 if (--depth == 0) {
                   if (folder.add)
-                    account._addFolder(folder.ServerId, folder.DisplayName,
-                                       folder.Type);
+                    account._addedFolder(folder.ServerId, folder.DisplayName,
+                                         folder.Type);
                   else
-                    account._removeFolder(folder.ServerId, folder.DisplayName,
-                                          folder.Type);
+                    account._deletedFolder(folder.ServerId);
                 }
               }
               else if (node.type == "STAG") {
@@ -198,7 +195,7 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  _addFolder: function as__addFolder(serverId, displayName, typeNum) {
+  _addedFolder: function as__addFolder(serverId, displayName, typeNum) {
     const types = {
        1: "normal", // User-created generic folder
        2: "inbox",
@@ -212,9 +209,10 @@ ActiveSyncAccount.prototype = {
     if (!(typeNum in types))
       return; // Not a folder type we care about.
 
+    var folderId = this.id + '/' + serverId;
     var folderInfo = {
       $meta: {
-        id: this.id + '/' + serverId,
+        id: folderId,
         name: displayName,
         path: displayName,
         type: types[typeNum],
@@ -230,13 +228,19 @@ ActiveSyncAccount.prototype = {
       bodyBlocks: [],
     };
 
-    this._folderInfos[folderInfo.$meta.id] = folderInfo;
-    this.folders.push(folderInfo.$meta);
-    this._folderStorages[folderInfo.$meta.id] = new ActiveSyncFolderStorage();
+    this._folderInfos[folderId] = folderInfo;
+    this._folderStorages[folderId] = new ActiveSyncFolderStorage();
+
+    var account = this;
+    var idx = bsearchForInsert(this.folders, folderInfo.$meta, function(a, b) {
+      return a.path.localeCompare(b.path);
+    });
+    this.folders.splice(idx, 0, folderInfo.$meta);
+
     this.universe.__notifyAddedFolder(this.id, folderInfo.$meta);
   },
 
-  _removeFolder: function as__removeFolder(serverId) {
+  _deletedFolder: function as__removeFolder(serverId) {
     var folderId = this.id + '/' + serverId;
     var folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
