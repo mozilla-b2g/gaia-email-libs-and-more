@@ -115,7 +115,30 @@ function cmpHeaderYoungToOld(a, b) {
 /**
  * Book-keeping and limited agency for the slices.
  *
- * The way this works is that we get opened and
+ * === Batching ===
+ *
+ * We do a few different types of batching based on the current sync state,
+ * with these choices being motivated by UX desires and some efficiency desires
+ * (in pursuit of improved UX).  We want the user to feel like they get their
+ * messages quickly, but we also don't want messages jumping all over the
+ * screen.
+ *
+ * - Fresh sync (all messages are new to us): Messages are being added from
+ *   most recent to oldest.  Currently, we just let this pass through, but
+ *   we might want to do some form of limited time-based batching.  (ex:
+ *   wait 50ms or for notification of completion before sending a batch).
+ *
+ * - Refresh (sync): No action required because we either already have the
+ *   messages or get them in efficient-ish batches.  This is followed by
+ *   what should be minimal changes (and where refresh was explicitly chosen
+ *   to be used rather than date sync for this reason.)
+ *
+ * - Date sync (some messages are new, some messages are known):  We currently
+ *   get the known headers added one by one from youngest to oldest, followed
+ *   by the new messages also youngest to oldest.  The notional UX (enforced
+ *   by unit tests) for this is that we want all the changes coherently and with
+ *   limits made effective.  To this end, we do not generate any splices until
+ *   sync is complete and then generate a single slice.
  */
 function ImapSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;
@@ -131,7 +154,18 @@ function ImapSlice(bridgeHandle, storage, _parentLog) {
   this.endTS = null;
   this.endUID = null;
 
+  /**
+   * A string value for hypothetical debugging purposes, but which is coerced
+   * to a Boolean value for some of our slice notifications as both the
+   * userRequested/moreExpected values, although they aren't super important.
+   */
   this.waitingOnData = false;
+
+  /**
+   * When true, we are not generating splices and are just accumulating state
+   * in this.headers.
+   */
+  this._accumulating = false;
 
   /**
    * @listof[HeaderInfo]
@@ -163,6 +197,24 @@ ImapSlice.prototype = {
     }
     else {
       flagHolder.userCanGrowDownwards = false;
+    }
+  },
+
+  /**
+   * Clear out any known headers because a refresh went wrong and so we are
+   * converting our refresh into a sync.
+   */
+  _resetHeadersBecauseOfRefreshExplosion: function() {
+    if (this.headers.length) {
+      // If we're accumulating, we were starting from zero to begin with, so
+      // there is no need to send a nuking splice.
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(0, this.headers.length, [], false, true);
+      this.headers.splice(0, this.headers.length);
+      this.startTS = null;
+      this.startUID = null;
+      this.endTS = null;
+      this.endUID = null;
     }
   },
 
@@ -203,10 +255,11 @@ ImapSlice.prototype = {
       this.userCanGrowDownwards = false;
       var delCount = this.headers.length - lastIndex  - 1;
       this.desiredHeaders -= delCount;
-      this._bridgeHandle.sendSplice(
-        lastIndex + 1, delCount, [],
-        // This is expected; more coming if there's a low-end splice
-        true, firstIndex > 0);
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(
+          lastIndex + 1, delCount, [],
+          // This is expected; more coming if there's a low-end splice
+          true, firstIndex > 0);
       this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
       var lastHeader = this.headers[lastIndex];
       this.startTS = lastHeader.date;
@@ -215,8 +268,8 @@ ImapSlice.prototype = {
     if (firstIndex > 0) {
       this.atTop = false;
       this.desiredHeaders -= firstIndex;
-      this._bridgeHandle.sendSplice(
-        0, firstIndex, [], true, false);
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
       this.headers.splice(0, firstIndex);
       var firstHeader = this.headers[0];
       this.endTS = firstHeader.date;
@@ -236,13 +289,31 @@ ImapSlice.prototype = {
     this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status, requested, moreExpected) {
+  setStatus: function(status, requested, moreExpected, flushAccumulated) {
     if (!this._bridgeHandle)
       return;
 
-    if (status === 'synced')
+    if (status === 'synced') {
       this._updateSliceFlags();
-    this._bridgeHandle.sendStatus(status, requested, moreExpected);
+    }
+    if (flushAccumulated && this._accumulating) {
+      if (this.headers.length > this.desiredHeaders) {
+        this.headers.splice(this.desiredHeaders,
+                            this.headers.length - this.desiredHeaders);
+        this.endTS = this.headers[this.headers.length - 1].date;
+        this.endUID = this.headers[this.headers.length - 1].id;
+      }
+
+      this._accumulating = false;
+      this._bridgeHandle.status = status;
+      // XXX remove concat() once our bridge sending makes rep sharing
+      // impossible by dint of actual postMessage or JSON roundtripping.
+      this._bridgeHandle.sendSplice(0, 0, this.headers.concat(),
+                                    requested, moreExpected);
+    }
+    else {
+      this._bridgeHandle.sendStatus(status, requested, moreExpected);
+    }
   },
 
   batchAppendHeaders: function(headers, insertAt, moreComing) {
@@ -275,8 +346,9 @@ ImapSlice.prototype = {
     }
 
     this._updateSliceFlags();
-    this._bridgeHandle.sendSplice(insertAt, 0, headers,
-                                  true, moreComing);
+    if (!this._accumulating)
+      this._bridgeHandle.sendSplice(insertAt, 0, headers,
+                                    true, moreComing);
   },
 
   /**
@@ -285,8 +357,21 @@ ImapSlice.prototype = {
    * called when the header is in the time-range of interest and a refresh,
    * cron-triggered sync, or IDLE/push tells us to do so.
    */
-  onHeaderAdded: function(header) {
+  onHeaderAdded: function(header, syncDriven) {
     if (!this._bridgeHandle)
+      return;
+
+    var idx = bsearchForInsert(this.headers, header,
+                               cmpHeaderYoungToOld);
+    var hlen = this.headers.length;
+    // Don't append the header if it would expand us beyond our requested amount
+    // and there is no subsequent step, like accumulate flushing, that would get
+    // rid of the excess.  Note that this does not guarantee that we won't
+    // end up with more headers than originally planned; if we get told about
+    // headers earlier than the last slot, we will insert them and grow without
+    // forcing a removal of something else to offset.
+    if (hlen >= this.desiredHeaders && idx === hlen &&
+        !this._accumulating)
       return;
 
     if (this.startTS === null ||
@@ -308,12 +393,11 @@ ImapSlice.prototype = {
       this.endUID = header.id;
     }
 
-    var idx = bsearchForInsert(this.headers, header,
-                               cmpHeaderYoungToOld);
     this._LOG.headerAdded(idx, header);
-    this._bridgeHandle.sendSplice(idx, 0, [header],
-                                  Boolean(this.waitingOnData),
-                                  Boolean(this.waitingOnData));
+    if (!this._accumulating)
+      this._bridgeHandle.sendSplice(idx, 0, [header],
+                                    Boolean(this.waitingOnData),
+                                    Boolean(this.waitingOnData));
     this.headers.splice(idx, 0, header);
   },
 
@@ -329,8 +413,12 @@ ImapSlice.prototype = {
     var idx = bsearchMaybeExists(this.headers, header,
                                  cmpHeaderYoungToOld);
     if (idx !== null) {
+      // There is no identity invariant to ensure this is already true.
+      this.headers[idx] = header;
       this._LOG.headerModified(idx, header);
-      this._bridgeHandle.sendUpdate([idx, header]);
+      // If we are accumulating, the update will be observed.
+      if (!this._accumulating)
+        this._bridgeHandle.sendUpdate([idx, header]);
     }
   },
 
@@ -345,9 +433,10 @@ ImapSlice.prototype = {
                                  cmpHeaderYoungToOld);
     if (idx !== null) {
       this._LOG.headerRemoved(idx, header);
-      this._bridgeHandle.sendSplice(idx, 1, [],
-                                    Boolean(this.waitingOnData),
-                                    Boolean(this.waitingOnData));
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(idx, 1, [],
+                                      Boolean(this.waitingOnData),
+                                      Boolean(this.waitingOnData));
       this.headers.splice(idx, 1);
 
       // update time-ranges if required...
@@ -637,27 +726,12 @@ var INITIAL_FILL_SIZE = 15;
 var INITIAL_SYNC_DAYS = 3;
 
 /**
- * Testing support to adjust the value we use for the number of initial sync
- * days.  The tests are written with a value in mind (7), but 7 turns out to
- * be too high an initial value for actual use, but is fine for tests.
+ * What should be multiple the current number of sync days by when we perform
+ * a sync and don't find any messages?  There are upper bounds in
+ * `ImapFolderStorage.onSyncCompleted` that cap this and there's more comments
+ * there.
  */
-exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
-  INITIAL_SYNC_DAYS = syncValues.days;
-
-  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX =
-    syncValues.refreshNonInbox;
-  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX =
-    syncValues.refreshInbox;
-  SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH =
-    syncValues.oldIsSafeForRefresh;
-  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD =
-    syncValues.refreshOld;
-
-  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
-    syncValues.useRangeNonInbox;
-  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
-    syncValues.useRangeInbox;
-};
+var TIME_SCALE_FACTOR_ON_NO_MESSAGES = 1.6;
 
 /**
  * What is the furthest back in time we are willing to go?  This is an
@@ -674,7 +748,7 @@ const OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
  * but better a small wasted amount (for UIDs) than a larger wasted amount
  * (to get the dates for all the messages.)
  */
-const SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
+var SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
 
 /**
  * What's the maximum number of messages we should ever handle in a go and
@@ -686,7 +760,37 @@ const SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
  * density is high (from our block indices) or by re-issuing search results
  * when the server is telling us more than we can handle.
  */
-const TOO_MANY_MESSAGES = 2000;
+var TOO_MANY_MESSAGES = 2000;
+
+/**
+ * Testing support to adjust the value we use for the number of initial sync
+ * days.  The tests are written with a value in mind (7), but 7 turns out to
+ * be too high an initial value for actual use, but is fine for tests.
+ */
+exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
+  INITIAL_FILL_SIZE = syncValues.fillSize;
+  INITIAL_SYNC_DAYS = syncValues.days;
+
+  SYNC_BISECT_DATE_AT_N_MESSAGES = syncValues.bisectThresh;
+  TOO_MANY_MESSAGES = syncValues.tooMany;
+
+  TIME_SCALE_FACTOR_ON_NO_MESSAGES = syncValues.scaleFactor;
+
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX =
+    syncValues.refreshNonInbox;
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX =
+    syncValues.refreshInbox;
+  SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH =
+    syncValues.oldIsSafeForRefresh;
+  SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD =
+    syncValues.refreshOld;
+
+  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
+    syncValues.useRangeNonInbox;
+  SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
+    syncValues.useRangeInbox;
+};
+
 
 /**
  * Fetch parameters to get the headers / bodystructure; exists to reuse the
@@ -844,10 +948,13 @@ ImapFolderConn.prototype = {
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
    */
-  syncDateRange: function(startTS, endTS, newToOld, doneCallback) {
+  syncDateRange: function(startTS, endTS, accuracyStamp, useBisectLimit,
+                          doneCallback) {
 console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
+    if (!useBisectLimit)
+      useBisectLimit = SYNC_BISECT_DATE_AT_N_MESSAGES;
     if (startTS)
       searchOptions.push(['SINCE', startTS]);
     if (endTS)
@@ -860,26 +967,46 @@ console.log("syncDateRange:", startTS, endTS);
             knownUIDs = [], uid, numDeleted = 0,
             modseq = self._conn._state.box.highestModSeq || '';
 
-        if (serverUIDs.length > SYNC_BISECT_DATE_AT_N_MESSAGES) {
+console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
+        if (serverUIDs.length > useBisectLimit) {
           var effEndTS = endTS || FUTURE_TIME_WARPED_NOW ||
                            quantizeDate(Date.now() + DAY_MILLIS),
               curDaysDelta = (effEndTS - startTS) / DAY_MILLIS;
           // We are searching more than one day, we can shrink our search.
 
+console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           if (curDaysDelta > 1) {
+            // Sanity check the time delta; if we grew the bounds to the dawn
+            // of time, then our interpolation is useless and it's better for
+            // us to crank things way down, even if it's erroneously so.
+            if (curDaysDelta > 1000)
+              curDaysDelta = 30;
+
+            // - Interpolate better time bounds.
             // Assume a linear distribution of messages, but overestimated by
             // a factor of two so we undershoot.
             var shrinkScale = SYNC_BISECT_DATE_AT_N_MESSAGES /
                                 (serverUIDs.length * 2),
                 backDays = Math.max(1,
                                     Math.ceil(shrinkScale * curDaysDelta));
-            self._curSyncDoNotGrowWindowBefore = startTS;
-            self._curSyncDayStep = backDays;
-            self._curSyncStartTS = startTS = makeDaysBefore(effEndTS, backDays);
+            // mark the bisection abort...
+            self._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+            var bisectInfo = {
+              oldStartTS: startTS,
+              dayStep: backDays,
+              newStartTS: makeDaysBefore(effEndTS, backDays),
+            };
+            startTS = bisectInfo.newStartTS;
+            // If we were being used for a refresh, they may want us to stop
+            // and change their sync strategy.
+            if (doneCallback(bisectInfo, null) === 'abort') {
+              doneCallback('aborted', null);
+              return null;
+            }
 console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             "startTS", startTS, "endTS", endTS, "backDays", backDays);
-            return self.syncDateRange(startTS, endTS,
-                                      newToOld, doneCallback);
+            return self.syncDateRange(startTS, endTS, accuracyStamp, null,
+                                      doneCallback);
           }
         }
 
@@ -912,8 +1039,8 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
                                         startTS, endTS);
             self._storage.markSyncRange(startTS, endTS, modseq,
-                                        self._curSyncAccuracyStamp);
-            doneCallback(newCount + knownCount);
+                                        accuracyStamp);
+            doneCallback(null, newCount + knownCount);
           });
       });
 
@@ -922,7 +1049,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     this._storage.getAllMessagesInImapDateRange(startTS, endTS, callbacks.db);
   },
 
-  searchDateRange: function(endTS, startTS, newToOld, searchParams,
+  searchDateRange: function(endTS, startTS, searchParams,
                             slice) {
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(searchParams);
     if (startTS)
@@ -961,7 +1088,12 @@ console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
     var callbacks = allbackMaker(
       ['newMsgs', 'knownMsgs'],
       function() {
-        doneCallback(newUIDs.length, knownUIDs.length);
+        // It is possible that async I/O will be required to add a header or a
+        // body, so we need to defer declaring the synchronization done until
+        // after all of the storage's deferred calls have run because the
+        // header/body affecting calls will have been deferred.
+        storage.runAfterDeferredCalls(
+          doneCallback.bind(null, newUIDs.length, knownUIDs.length));
       });
 
     // -- Fetch headers/bodystructures for new UIDs
@@ -1071,8 +1203,9 @@ try {
                 setupBodyParser(bodyPart);
                 msg.on('data', bodyParseBuffer);
                 msg.on('end', function() {
-console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID);
                   partsReceived.push(finishBodyParsing());
+console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
+            partsReceived.length, chewRep.bodyParts.length);
 
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
@@ -1081,6 +1214,7 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID);
                       storage.addMessageHeader(chewRep.header);
                       storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                     }
+else { console.warn("failure to parse body!!!"); }
                   }
                   // If this is the last chew rep, then use its completion
                   // to report our completion.
@@ -2069,6 +2203,24 @@ ImapFolderStorage.prototype = {
       this._loadBlock(type, info.blockId, processBlock.bind(this));
   },
 
+  runAfterDeferredCalls: function(callback) {
+    if (this._deferredCalls.length)
+      this._deferredCalls.push(callback);
+    else
+      callback();
+  },
+
+  /**
+   * Run deferred calls until we run out of deferred calls or _pendingLoads goes
+   * non-zero again.
+   */
+  _runDeferredCalls: function ifs__runDeferredCalls() {
+    while (this._deferredCalls.length && this._pendingLoads.length === 0) {
+      var toCall = this._deferredCalls.shift();
+      toCall();
+    }
+  },
+
   /**
    * Request the load of the given block and the invocation of the callback with
    * the block when the load completes.
@@ -2101,6 +2253,9 @@ ImapFolderStorage.prototype = {
       for (var i = 0; i < listeners.length; i++) {
         listeners[i](block);
       }
+
+      if (self._pendingLoads.length === 0)
+        self._runDeferredCalls();
     }
 
     this._LOG.loadBlock_begin(type, blockId);
@@ -2188,7 +2343,8 @@ ImapFolderStorage.prototype = {
    * on these strategies a bit more.  Also, the comments in the method may be
    * informative.
    */
-  sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired) {
+  sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired,
+                                                  forceDeepening) {
     daysDesired = daysDesired || INITIAL_SYNC_DAYS;
     this._slices.push(slice);
     if (this._curSyncSlice) {
@@ -2212,12 +2368,14 @@ ImapFolderStorage.prototype = {
         worstGoodData = 0,
         existingDataGood = false;
 
+console.log("accuracy ranges length:", this._accuracyRanges.length);
     // If we're offline, there's nothing to look into; use the DB.
     if (!this._account.universe.online) {
       existingDataGood = true;
     }
-    else if (this._accuracyRanges.length) {
+    else if (this._accuracyRanges.length && !forceDeepening) {
       ainfo = this._accuracyRanges[0];
+console.log("type", this.folderMeta.type, "ainfo", JSON.stringify(ainfo));
       var newestMessage = this.getYoungestMessageTimestamp();
       var refreshThresh;
       if (this.folderMeta.type === 'inbox')
@@ -2257,7 +2415,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
                 return;
               var header = headers[headers.length - 1];
               pastDate = quantizeDate(header.date);
-              this._startSync(slice, pastDate, futureNow);
+              this._startSync(slice, pastDate, futureNow, true);
             }.bind(this));
           return;
         }
@@ -2279,21 +2437,26 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
     // -- Bad existing data, issue a sync and have the slice
     // METHOD #3
-    this._startSync(slice, pastDate, futureNow);
+    this._startSync(slice, pastDate, futureNow, false);
   },
 
-  _startSync: function ifs__startSync(slice, startTS, endTS) {
+  _startSync: function ifs__startSync(slice, startTS, endTS, accumulateMode) {
     if (startTS === null)
       startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
     slice.setStatus('synchronizing', false, true);
     slice.waitingOnData = 'sync';
+console.log("accumulate request", accumulateMode);
+    if (accumulateMode && slice.headers.length === 0) {
+console.log("ACCUMULATE MODE ON");
+      slice._accumulating = true;
+    }
     this._curSyncSlice = slice;
-    this._curSyncAccuracyStamp = Date.now();
+    this._curSyncAccuracyStamp = TIME_WARPED_NOW || Date.now();
     this._curSyncStartTS = startTS;
     this._curSyncDayStep = INITIAL_SYNC_DAYS;
     this._curSyncDoNotGrowWindowBefore = null;
-    this.folderConn.syncDateRange(startTS, endTS, true,
-                                  this.onSyncCompleted.bind(this));
+    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
+                                  null, this.onSyncCompleted.bind(this));
   },
 
   /**
@@ -2358,6 +2521,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
           // Perform the sync if there is a range.
           if (syncStartTS) {
+            slice.desiredHeaders += desiredCount;
             this._startSync(slice, syncStartTS, syncEndTS);
           }
           // If there is no sync range (left), but there were messsages, report
@@ -2399,7 +2563,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
    * way back to 1990.  And if we have no messages in the slice, then we use the
    * full date bounds.
    */
-  refreshSlice: function ifs_refreshSlice(slice) {
+  refreshSlice: function ifs_refreshSlice(slice, useBisectLimit) {
     var startTS = slice.startTS, endTS = slice.endTS, self = this;
 
     // - Grow endTS
@@ -2430,11 +2594,32 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
       throw new Error("Can't refresh a slice when there is an existing sync");
-    this._curSyncAccuracyStamp = Date.now();
-    this.folderConn.syncDateRange(startTS, endTS, true, function() {
-      self._account.__checkpointSyncCompleted();
-      slice.setStatus('synced', true, false);
-    });
+    slice.waitingOnData = 'refresh';
+    this._curSyncAccuracyStamp = TIME_WARPED_NOW || Date.now();
+    this.folderConn.syncDateRange(
+      startTS, endTS, this._curSyncAccuracyStamp, useBisectLimit,
+      function(bisectInfo, numMessages) {
+        // If a bisection occurred then this can no longer be a refresh and
+        // instead we need to retract all known messages and instead convert
+        // this into a synchronization.
+        if (bisectInfo) {
+          if (bisectInfo === 'aborted') {
+            self._slices.splice(self._slices.indexOf(slice), 1);
+            self.sliceOpenFromNow(slice, null, true);
+           }
+          else {
+            slice._resetHeadersBecauseOfRefreshExplosion();
+          }
+          return 'abort';
+        }
+
+        slice.waitingOnData = false;
+        if (self._curSyncSlice === slice)
+          self._curSyncSlice = null;
+        self._account.__checkpointSyncCompleted();
+        slice.setStatus('synced', true, false);
+        return undefined;
+      });
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2450,7 +2635,16 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+    // In the event the time range had to be bisected, update our info so if
+    // we need to take another step we do the right thing.
+    if (bisectInfo) {
+      this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
+      this._curSyncDayStep = bisectInfo.dayStep;
+      this._curSyncStartTS = bisectInfo.newStartTS;
+      return;
+    }
+
     console.log("Sync Completed!", this._curSyncDayStep, "days",
                 messagesSeen, "messages synced");
 
@@ -2471,6 +2665,10 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     var folderMessageCount = this.folderConn && this.folderConn.box &&
                                this.folderConn.box.messages.total,
         dbCount = this.getKnownMessageCount();
+console.log("folder message count", folderMessageCount,
+            "dbCount", dbCount,
+            "oldest known", this.headerIsOldestKnown(this._curSyncSlice.startTS,
+                                 this._curSyncSlice.startUID));
     if (folderMessageCount === dbCount &&
         this.headerIsOldestKnown(this._curSyncSlice.startTS,
                                  this._curSyncSlice.startUID)) {
@@ -2496,13 +2694,19 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
                   "box knows about", this.folderConn.box.messages.total,
                   "sync date", this._curSyncStartTS,
                   "[oldest defined as", OLDEST_SYNC_DATE, "]");
-      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
+      // If we are accumulating, we don't want to adjust our count upwards;
+      // the release will slice the excess off for us.
+      if (!this._curSyncSlice._accumulating)
+        this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
       this._curSyncSlice.waitingOnData = false;
-      this._curSyncSlice.setStatus('synced', true, false);
+      this._curSyncSlice.setStatus('synced', true, false, true);
       this._curSyncSlice = null;
 
       this._account.__checkpointSyncCompleted();
       return;
+    }
+    else if (this._curSyncSlice._accumulating) {
+      this._curSyncSlice.setStatus('synchronizing', true, true, true);
     }
 
     // - Increase our search window size if we aren't finding anything
@@ -2519,9 +2723,10 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     }
     else {
       // This may be a fractional value because of DST
-      lastSyncDaysInPast = ((TIME_WARPED_NOW || quantizeDate(Date.now())) -
+      lastSyncDaysInPast = ((quantizeDate(TIME_WARPED_NOW || Date.now())) -
                             this._curSyncStartTS) / DAY_MILLIS;
-      daysToSearch = Math.ceil(this._curSyncDayStep * 1.6);
+      daysToSearch = Math.ceil(this._curSyncDayStep *
+                               TIME_SCALE_FACTOR_ON_NO_MESSAGES);
 
       if (lastSyncDaysInPast < 180) {
         if (daysToSearch > 14)
@@ -2557,8 +2762,8 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
         endTS = this._curSyncStartTS;
     this._curSyncStartTS = startTS;
-    this.folderConn.syncDateRange(startTS, endTS, true,
-                                  this.onSyncCompleted.bind(this));
+    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
+                                  null, this.onSyncCompleted.bind(this));
   },
 
   /**
@@ -2577,13 +2782,23 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     if (headers.length) {
       slice.batchAppendHeaders(headers, -1, moreMessagesComing);
     }
-    else if (!moreMessagesComing) {
+
+    if (!moreMessagesComing) {
+      slice.desiredHeaders = slice.headers.length;
       slice.setStatus('synced', true, false);
       slice.waitingOnData = false;
     }
     else if (triggerNow) {
-      slice.waitingOnData = 'refresh';
-      this.refreshSlice(slice);
+      slice.desiredHeaders = slice.headers.length;
+      // refreshSlice expects this to be null for two reasons:
+      // 1) Invariant about only having one sync-like thing happening at a time.
+      // 2) We want to generate header deltas rather than initial filling,
+      //    and this is keyed off of whether the slice is the current sync
+      //    slice.
+      this._curSyncSlice = null;
+      // We do want to use the bisection limit so that the refresh gets
+      // converted to a sync in the event of an overflow.
+      this.refreshSlice(slice, SYNC_BISECT_DATE_AT_N_MESSAGES);
     }
   },
 
@@ -2683,8 +2898,15 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
    *   @param[endTS DateMS]{
    *     BEFORE-evaluated end timestamp. (exclusive)
    *   }
-   *   @param[minDesired #:optional Number]
-   *   @param[maxDesired #:optional Number]
+   *   @param[minDesired #:optional Number]{
+   *     The minimum number of messages to return.  We will keep loading blocks
+   *     from disk until this limit is reached.
+   *   }
+   *   @param[maxDesired #:optional Number]{
+   *     The maximum number of messages to return.  If there are extra messages
+   *     available in a header block after satisfying `minDesired`, we will
+   *     return them up to this limit.
+   *   }
    *   @param[messageCallback @func[
    *     @args[
    *       @param[headers @listof[HeaderInfo]]
@@ -3077,7 +3299,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     }
 
     if (this._curSyncSlice)
-      this._curSyncSlice.onHeaderAdded(header);
+      this._curSyncSlice.onHeaderAdded(header, true);
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       var date = header.date, uid = header.id;
@@ -3103,7 +3325,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
                   uid > slice.endUID)) {
           continue;
         }
-        slice.onHeaderAdded(header);
+        slice.onHeaderAdded(header, false);
       }
     }
 
@@ -3159,7 +3381,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
       self._dirtyHeaderBlocks[info.blockId] = block;
 
       if (partOfSync && self._curSyncSlice)
-        self._curSyncSlice.onHeaderAdded(header);
+        self._curSyncSlice.onHeaderAdded(header, false);
       if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
         for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
           var slice = self._slices[iSlice];
@@ -3193,7 +3415,7 @@ console.log("growing startTS to", syncStartTS, "from", startTS);
     }
     // (no block update required)
     if (this._curSyncSlice)
-      this._curSyncSlice.onHeaderAdded(header);
+      this._curSyncSlice.onHeaderAdded(header, true);
   },
 
   deleteMessageHeaderAndBody: function(header) {

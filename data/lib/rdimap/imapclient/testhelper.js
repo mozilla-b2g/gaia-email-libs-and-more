@@ -50,8 +50,16 @@ var TestUniverseMixins = {
       self._useDate.setHours(12, 0, 0, 0);
       $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+      // These are all the default values that tests code against by default.
+      // If a test wants to use different values,
       $imapslice.TEST_adjustSyncValues({
+        fillSize: 15,
         days: 7,
+        scaleFactor: 1.6,
+        // We don't want to test this at scale as part of our unit tests, so
+        // crank it way up so we don't ever accidentally run into this.
+        bisectThresh: 2000,
+        tooMany: 2000,
         refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
         refreshInbox: DISABLE_THRESH_USING_FUTURE,
         oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
@@ -127,6 +135,23 @@ var TestUniverseMixins = {
         }
         self.universe.shutdown();
       }
+    });
+  },
+
+  do_timewarpNow: function(useAsNowTS, humanMsg) {
+    var self = this;
+    this.T.convenienceSetup(humanMsg, function() {
+      self._useDate = useAsNowTS;
+      for (var i = 0; i < self.__testAccounts.length; i++) {
+        self.__testAccounts[i]._useDate = useAsNowTS;
+      }
+      $imapslice.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
+    });
+  },
+
+  do_adjustSyncValues: function(useSyncValues) {
+    this.T.convenienceSetup('adjust sync values for test', function() {
+      $imapslice.TEST_adjustSyncValues(useSyncValues);
     });
   },
 

@@ -1440,6 +1440,11 @@ function buildSearchQuery(options, extensions, isOrChild) {
             throw new Error('Incorrect number of arguments for search option: '
                             + criteria);
           else if (!(args[0] instanceof Date)) {
+            // XXX although the timestamp is in UTC time, this conversion is
+            // to our local timezone, so daylight savings time can be an issue.
+            // There is also the issue of what timezone the server's internal
+            // date operates in.  For now we are doing nothing about this,
+            // and this might ultimately be a higher level issue...
             if ((args[0] = new Date(args[0])).toString() === 'Invalid Date')
               throw new Error('Search option argument must be a Date object'
                               + ' or a parseable date string');

@@ -25,7 +25,6 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
-
   /**
    * General setup:
    *
@@ -54,7 +53,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
    * "minimal changes we expected have happened"
    *
    * - Add a message, verify a #1 open refresh with the new message coming
-   *   last.
+   *   last.  This will be an 'old' message.
    * - Add another message, verify a #1 open refresh with one less message
    *   off the 'old' side and the new message coming last.
    * - Add another message, verify a #2 date sync with the new message coming
@@ -69,37 +68,264 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
    * - Adjust overflow values, create a new folder with the same heuristics
    *   as before.
    * - Perform initial deepening sync.
-   * - Add enough messages to trigger overflow conditions on the refresh.
+   * - Add enough messages to trigger overflow conditions on the refresh and
+   *   a subsequent naive date sync for expanding the range.
    * - Perform a #1-qualifying open, observe the initial set of messages
    *   followed by some of the overflow messages, and the retraction of the
    *   initial set of messages because our sync no longer reaches them.
+   * - (We now have two islands of synchronized data.  The original fully
+   *   synced interval, plus the new deepended interval, with a gap in between.
+   *   This raises semantics issues for atBottom, but we define that the answer
+   *   is we are not at the bottom and we will perform the extra sync required
+   *   to link us up with our friends.)
+   * - Grow in the older direction, and verify that this appears to result in
+   *   an overflow case that gets bisected down.
    *
    * - Create another new folder.
    * - Perform initial deepening sync.
    * - Add enough messages to trigger overflow conditions.
    * - Perform a #2 qualifying open, observe that we get some of the overflow
    *   messages and never see the older messages.
-   * 
+   *
    **/
 
-  /**
-   * Try and synchronize an empty folder.  Verify that our slice completes with
-   * minimal legwork.
-   */
-  T.group('refresh, no changes');
-  var emptyFolder = testAccount.do_createTestFolder(
-    'test_empty_sync', { count: 0 });
-  testAccount.do_viewFolder('syncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
-  testUniverse.do_pretendToBeOffline(true);
-  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
-  testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  // Jan 28th, yo.  Intentionally avoiding dalight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const TSYNCI = 3;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 3 * TSYNCI,
+    days: TSYNCI,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 15,
+    tooMany: 2000,
+    // The exact thresholds do not matter...
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+    // But this does; be older than our #1 and #2 triggering cases
+    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
+    refreshOld: 2 * DAY_MILLIS,
+
+    useRangeNonInbox: 4 * HOUR_MILLIS,
+    useRangeInbox: 4 * HOUR_MILLIS,
+  });
+
+  T.group('no change: setup');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  var createdAt = staticNow;
+  var c1Folder = testAccount.do_createTestFolder(
+    'test_complex_old1',
+    // we will sync 9, leave an extra 1 not to sync so grow is true.
+    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', c1Folder,
+    [{ count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+
+  T.group('no change: #1 refresh');
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  // XXX need to differentiate refresh and verify
+  testAccount.do_viewFolder(
+    '#1 refresh sync', c1Folder,
+    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+
+  T.group('no change: #2 date range');
+  staticNow += 3 * HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+3 hours');
+  testAccount.do_viewFolder(
+    '#2 date range sync', c1Folder,
+    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+
+  T.group('no change: deepening fallback');
+  // Jump time so that the messages are just under the old threshold.  They
+  // are already 6 time intervals in the past, but we want them at 15, so
+  // add 9 TSYNCI less 0.5 days.
+  staticNow = createdAt +
+              ((9 * TSYNCI) + 0.5) * DAY_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 0.5 days out');
+  testAccount.do_viewFolder(
+    'syncs', c1Folder,
+    [{ count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 3, full: 0, flags: 3, deleted: 0 },
+     { count: 3, full: 0, flags: 3, deleted: 0 },
+     { count: 3, full: 0, flags: 3, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+
+  T.group('no change: #1 old thresh');
+  staticNow = createdAt +
+              ((9 * TSYNCI) + 1.5) * DAY_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 1.5 days out');
+  // XXX need to differentiate refresh and verify
+  testAccount.do_viewFolder(
+    '#1 refresh sync', c1Folder,
+    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+
+  T.group('minimal changes: add, #1 (old) refresh');
+  testAccount.do_addMessagesToFolder(
+    c1Folder,
+    { count: 1, age: { days: 1 } });
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  testAccount.do_viewFolder(
+    '#1 refresh sync', c1Folder,
+    { count: 10, full: 1, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+  // (no longer qualifies as 'old' now)
+
+  T.group('minimal changes: add, #2 date range');
+  testAccount.do_addMessagesToFolder(
+    c1Folder,
+    { count: 1, age: { days: 1 } });
+  staticNow += 3 * HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+3 hours');
+  testAccount.do_viewFolder(
+    '#2 date range sync', c1Folder,
+    { count: 9, full: 1, flags: 9, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('minimal changes: add, #2 date range falloff');
+  testAccount.do_addMessagesToFolder(
+    c1Folder,
+    { count: 1, age: { days: 1 } });
+  staticNow += 3 * HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+3 hours');
+  testAccount.do_viewFolder(
+    '#2 date range sync', c1Folder,
+    { count: 9, full: 1, flags: 9, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+
+  T.group('lots of messages: setup for #1');
+  // May 28th, intentionally staying far away from daylight savings time.
+  staticNow = Date.UTC(2012, 4, 28, 0, 0, 0);
+  testUniverse.do_timewarpNow(staticNow, 'May 28th midnight UTC');
+  createdAt = staticNow;
+  var c2Folder = testAccount.do_createTestFolder(
+    'test_complex_old2',
+    { count: 9, age: { days: 7 * TSYNCI + 1 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', c2Folder,
+    [{ count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
+
+  T.group('lots of messages:  #1 refresh open with overflow');
+  testAccount.do_addMessagesToFolder(
+    c2Folder,
+    { count: 21, age: { days: 1.5 }, age_incr: { days: 1 } });
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  var f2View = testAccount.do_openFolderView(
+    '#1 refresh sync', c2Folder,
+    // the aborted refresh manifests as this...
+    [{ count: 0, full: null, flags: null, deleted: null },
+    // and then we get a normal deepening sync sequence
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+
+  T.group('growth syncs extra');
+  testAccount.do_growFolderView(
+    // do not request growth; we want to make sure we provide it for free since
+    // we are saying atBottom is false and therefore so is grow.
+    f2View, 9, false, 9,
+    // this will explode into a bisect covering 21 messages, it will guess 8
+    // because Math.ceil(15 / 42 * 21 = 7.5) = 8.  This will trigger an
+    // automated follow-on for another 8 days because it will use the same
+    // time-window for the follow-on, 4 of which will already be known
+    [{ count: 0, full: null, flags: null, deleted: null },
+     { count: 8, full: 8, flags: 0, deleted: 0 },
+     // this should properly only give us 1 message, but what happens is we get
+     // 1 from the database fill, then the 4 new ones get inserted in front of
+     // that and we don't retract them, so we will end up at 22.
+     { count: 5, full: 4, flags: 4, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+  // and another sync, which will somewhat redundantly refresh things.
+  testAccount.do_growFolderView(
+    // request 10 even though we know there's only 8...
+    f2View, 10, false, 22,
+    { count: 8, full: 0, flags: 8, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  testAccount.do_closeFolderView(f2View);
+
+  T.group('lots of messages: setup for #2');
+  // May 28th, intentionally staying far away from daylight savings time.
+  staticNow = Date.UTC(2012, 4, 30, 0, 0, 0);
+  testUniverse.do_timewarpNow(staticNow, 'May 30th midnight UTC');
+  createdAt = staticNow;
+
+  var c3Folder = testAccount.do_createTestFolder(
+    'test_complex_old3',
+    // By choosing one more than the fill size(9), we ensure that the time range
+    // won't stretch to the dawn of time and therefore that the interpolation
+    // will not have to exercise its sanity check mode.
+    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', c3Folder,
+    [{ count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 0, full: 0, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 },
+     { count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+
+  T.group('lots of messages: #2 date range with overflow');
+  testAccount.do_addMessagesToFolder(
+    c3Folder,
+    { count: 16, age: { days: 1.5 }, age_incr: { days: 1 } });
+  staticNow += 3 * HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+3 hour');
+  testAccount.do_viewFolder(
+    '#2 date range', c3Folder,
+    // this ends up as a bisection with 8 messages
+    [{ count: 0, full: null, flags: null, deleted: null },
+     { count: 8, full: 8, flags: 0, deleted: 0 },
+     { count: 1, full: 8, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
 
   T.group('cleanup');
 });

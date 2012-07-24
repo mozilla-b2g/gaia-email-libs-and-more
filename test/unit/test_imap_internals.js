@@ -91,60 +91,60 @@ TD.commonCase('sync further back in time on demand', function(T) {
   // 7 days, and 7 days.  So we pick 11.5 hours to get 16, 15, 15.
   var syncFolder = testAccount.do_createTestFolder(
     'test_sync_grow',
-    { count: 46, age: { days: 0 }, age_incr: { hours: 11.4 } });
+    { count: 45, age: { days: 0.5 }, age_incr: { hours: 11.4 } });
   var syncView = testAccount.do_openFolderView(
     'grower', syncFolder,
-    { count: 16, full: 16, flags: 0, deleted: 0 },
+    { count: 15, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: true });
 
   T.group('fail to grow older without request');
   testAccount.do_growFolderView(
-    syncView, 1, false, 16,
+    syncView, 1, false, 15,
     [],
     { top: true, bottom: true, grow: true }, 'nosave');
 
   T.group('grow older');
   testAccount.do_growFolderView(
-    syncView, 15, true, 16,
+    syncView, 15, true, 15,
     { count: 15, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: true });
   testAccount.do_growFolderView(
-    syncView, 15, true, 31,
+    syncView, 15, true, 30,
     { count: 15, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('shrink off new');
   testAccount.do_shrinkFolderView(
-    syncView, 1, null, 45,
+    syncView, 1, null, 44,
     { top: false, bottom: true, grow: false });
   testAccount.do_shrinkFolderView(
-    syncView, 15, null, 30,
+    syncView, 15, null, 29,
     { top: false, bottom: true, grow: false });
 
   T.group('grow younger again');
   testAccount.do_growFolderView(
-    syncView, -8, false, 38,
+    syncView, -8, false, 37,
     [],
     { top: false, bottom: true, grow: false }, 'nosave');
   testAccount.do_growFolderView(
-    syncView, -8, false, 46,
+    syncView, -8, false, 45,
     [],
     { top: true, bottom: true, grow: false }, 'nosave');
 
 
   T.group('shrink off old');
   testAccount.do_shrinkFolderView(
-    syncView, 0, -2, 45, // -2 gets rid of 1, because it's inclusive
+    syncView, 0, -2, 44, // -2 gets rid of 1, because it's inclusive
     { top: true, bottom: false, grow: false });
   testAccount.do_shrinkFolderView(
-    syncView, 0, -21, 25, // -21 gets rid of 20, because it's inclusive
+    syncView, 0, -21, 24, // -21 gets rid of 20, because it's inclusive
     { top: true, bottom: false, grow: false });
 
   T.group('grow old again');
   testAccount.do_growFolderView(
-    syncView, 21, false, 46,
+    syncView, 21, false, 45,
     [],
-    { top: true, bottom: true, grow: false }, 'nosave');
+    { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);
