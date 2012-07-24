@@ -59,7 +59,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this.folders.push(folderInfo.$meta);
   }
   // TODO: we should probably be smarter about sorting.
-  this.folders.sort(function(a, b) a.path.localeCompare(b.path));
+  this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
 
   if (this.meta.syncKey != "0") {
     // TODO: this is a really hacky way of syncing folders later
@@ -136,7 +136,8 @@ ActiveSyncAccount.prototype = {
 
   syncFolderList: function fa_syncFolderList(callback) {
     var account = this;
-    var conn = new $activesync.Connection(
+    // TODO: create the connection elsewhere
+    this.conn = new $activesync.Connection(
       this.accountDef.credentials.username,
       this.accountDef.credentials.password,
       function(aResult) {
@@ -258,8 +259,24 @@ ActiveSyncAccount.prototype = {
   },
 
   sendMessage: function fa_sendMessage(composedMessage, callback) {
-    // XXX put a copy of the message in the sent folder
-    callback(null);
+    // XXX: This is very hacky and gross. Fix it to use pipes later.
+    composedMessage._cacheOutput = true;
+    composedMessage._composeMessage();
+
+    var cm = $ascp.ComposeMail.Tags;
+    var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+    w.stag(cm.SendMail)
+       .tag(cm.ClientId, Date.now().toString()+"@mozgaia")
+       .tag(cm.SaveInSentItems)
+       .stag(cm.Mime)
+         .opaque(composedMessage._outputBuffer)
+       .etag()
+     .etag();
+
+    this.conn.doCommand(w, function(aResponse) {
+      dump(aResponse.dump()+"\n\n");
+      callback(null);
+    });
   },
 
   getFolderStorageForFolderId: function fa_getFolderStorageForFolderId(folderId){
