@@ -146,47 +146,28 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.doCommand(w, function(aResponse) {
-      var folder;
-      var depth = 0;
-      for (var node in aResponse.document) {
-        if (node.type == "STAG" && node.tag == fh.SyncKey) {
-          var text = aResponse.document.next();
-          if (text.type != "TEXT")
-            throw new Error("expected TEXT node");
-          if (aResponse.document.next().type != "ETAG")
-            throw new Error("expected ETAG node");
+      var e = new $wbxml.EventParser();
 
-          account.meta.syncKey = text.textContent;
-        }
-        else if (node.type == "STAG" &&
-                 (node.tag == fh.Add || node.tag == fh.Delete)) {
-          depth = 1;
-          folder = { add: node.tag == fh.Add };
-        }
-        else if (depth) {
-          if (node.type == "ETAG") {
-            if (--depth == 0) {
-              if (folder.add)
-                account._addedFolder(folder.ServerId, folder.DisplayName,
-                                     folder.Type);
-              else
-                account._deletedFolder(folder.ServerId);
-            }
-          }
-          else if (node.type == "STAG") {
-            var text = aResponse.document.next();
-            if (text.type != "TEXT")
-              throw new Error("expected TEXT node");
-            if (aResponse.document.next().type != "ETAG")
-              throw new Error("expected ETAG node");
+      e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
+        account.meta.syncKey = node.children[0].textContent;
+      });
 
-            folder[node.localTagName] = text.textContent;
-          }
-          else {
-            throw new Error("unexpected node!");
-          }
+      e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Remove]],
+                         function(node) {
+        var folder = {};
+        for (var i = 0; i < node.children.length; i++) {
+          folder[node.children[i].localTagName] =
+            node.children[i].children[0].textContent;
         }
-      }
+
+        if (node.tag == fh.Add)
+          account._addedFolder(folder.ServerId, folder.DisplayName,
+                               folder.Type);
+        else
+          account._deletedFolder(folder.ServerId);
+      });
+
+      e.run(aResponse);
 
       account.saveAccountState();
       callback();
