@@ -27,6 +27,8 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
+  this.conn = new $activesync.Connection(accountDef.credentials.username,
+                                         accountDef.credentials.password);
   this._db = dbConn;
 
   this.enabled = true;
@@ -136,63 +138,58 @@ ActiveSyncAccount.prototype = {
 
   syncFolderList: function fa_syncFolderList(callback) {
     var account = this;
-    // TODO: create the connection elsewhere
-    this.conn = new $activesync.Connection(
-      this.accountDef.credentials.username,
-      this.accountDef.credentials.password,
-      function(aResult) {
-        var fh = $ascp.FolderHierarchy.Tags;
-        var w = new $wbxml.Writer("1.3", 1, "UTF-8");
-        w.stag(fh.FolderSync)
-           .tag(fh.SyncKey, account.meta.syncKey)
-         .etag();
 
-        var folder;
-        var depth = 0;
-        this.doCommand(w, function(aResponse) {
-          for (var node in aResponse.document) {
-            if (node.type == "STAG" && node.tag == fh.SyncKey) {
-              var text = aResponse.document.next();
-              if (text.type != "TEXT")
-                throw new Error("expected TEXT node");
-              if (aResponse.document.next().type != "ETAG")
-                throw new Error("expected ETAG node");
+    var fh = $ascp.FolderHierarchy.Tags;
+    var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+    w.stag(fh.FolderSync)
+       .tag(fh.SyncKey, account.meta.syncKey)
+     .etag();
 
-              account.meta.syncKey = text.textContent;
-            }
-            else if (node.type == "STAG" &&
-                     (node.tag == fh.Add || node.tag == fh.Delete)) {
-              depth = 1;
-              folder = { add: node.tag == fh.Add };
-            }
-            else if (depth) {
-              if (node.type == "ETAG") {
-                if (--depth == 0) {
-                  if (folder.add)
-                    account._addedFolder(folder.ServerId, folder.DisplayName,
-                                         folder.Type);
-                  else
-                    account._deletedFolder(folder.ServerId);
-                }
-              }
-              else if (node.type == "STAG") {
-                var text = aResponse.document.next();
-                if (text.type != "TEXT")
-                  throw new Error("expected TEXT node");
-                if (aResponse.document.next().type != "ETAG")
-                  throw new Error("expected ETAG node");
+    this.conn.doCommand(w, function(aResponse) {
+      var folder;
+      var depth = 0;
+      for (var node in aResponse.document) {
+        if (node.type == "STAG" && node.tag == fh.SyncKey) {
+          var text = aResponse.document.next();
+          if (text.type != "TEXT")
+            throw new Error("expected TEXT node");
+          if (aResponse.document.next().type != "ETAG")
+            throw new Error("expected ETAG node");
 
-                folder[node.localTagName] = text.textContent;
-              }
-              else {
-                throw new Error("unexpected node!");
-              }
+          account.meta.syncKey = text.textContent;
+        }
+        else if (node.type == "STAG" &&
+                 (node.tag == fh.Add || node.tag == fh.Delete)) {
+          depth = 1;
+          folder = { add: node.tag == fh.Add };
+        }
+        else if (depth) {
+          if (node.type == "ETAG") {
+            if (--depth == 0) {
+              if (folder.add)
+                account._addedFolder(folder.ServerId, folder.DisplayName,
+                                     folder.Type);
+              else
+                account._deletedFolder(folder.ServerId);
             }
           }
+          else if (node.type == "STAG") {
+            var text = aResponse.document.next();
+            if (text.type != "TEXT")
+              throw new Error("expected TEXT node");
+            if (aResponse.document.next().type != "ETAG")
+              throw new Error("expected ETAG node");
 
-          account.saveAccountState();
-          callback();
-        });
+            folder[node.localTagName] = text.textContent;
+          }
+          else {
+            throw new Error("unexpected node!");
+          }
+        }
+      }
+
+      account.saveAccountState();
+      callback();
     });
   },
 
