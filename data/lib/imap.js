@@ -122,7 +122,9 @@ function ImapConnection (options) {
     tmoKeepalive: 10000,
     tmrConn: null,
     curData: null,
-    curExpected: 0,
+    // Because 0-length literals are a possibility, use null to represent no
+    // expected data.
+    curExpected: null,
     curXferred: 0,
     box: {
       _uidnext: 0,
@@ -244,7 +246,7 @@ ImapConnection.prototype.connect = function(loginCb) {
     var idxCRLF = null, literalInfo;
 
     // - Accumulate data until newlines when not in a literal
-    if (self._state.curExpected === 0) {
+    if (self._state.curExpected === null) {
       // no newline, append and bail
       if ((idxCRLF = bufferIndexOfCRLF(data, 0)) === -1) {
         if (self._state.curData)
@@ -263,7 +265,7 @@ ImapConnection.prototype.connect = function(loginCb) {
 
     // -- Literal
     // Don't mess with incoming data if it's part of a literal
-    if (self._state.curExpected > 0) {
+    if (self._state.curExpected !== null) {
       var curReq = self._state.requests[0];
       if (!curReq._done) {
         var chunk = data;
@@ -318,7 +320,7 @@ ImapConnection.prototype.connect = function(loginCb) {
           data = self._state.curData.slice(idxCRLF + 2);
           curReq._done = false;
           self._state.curXferred = 0;
-          self._state.curExpected = 0;
+          self._state.curExpected = null;
           self._state.curData = null;
           curReq._msg.emit('end');
           // XXX we could just change the next else to not be an else, and then

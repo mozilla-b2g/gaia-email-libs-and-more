@@ -31,13 +31,13 @@ function createBridgePair(universe) {
   var TMA = new $mailapi.MailAPI();
   // shim-sham provide window.setZeroTimeout
   TMA.__bridgeSend = function(msg) {
-    this._LOG.send(msg.type);
     window.setZeroTimeout(function() {
       TMB.__receiveMessage(msg);
     });
   };
   TMB.__sendMessage = function(msg) {
     window.setZeroTimeout(function() {
+      TMB._LOG.send(msg.type);
       TMA.__bridgeReceive(msg);
     });
   };

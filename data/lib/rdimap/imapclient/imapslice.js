@@ -2519,8 +2519,20 @@ console.log("ACCUMULATE MODE ON");
               syncStartTS = null;
           }
 
+          // If we're offline, just use what we've got and be done with it.
+          if (!this._account.universe.online) {
+            // (Yes this logic is the same as cases below, but I allege the
+            // 'if' statement might be simpler this way.)
+            if (batchHeaders.length) {
+              slice.batchAppendHeaders(batchHeaders, -1, false);
+              slice.desiredHeaders = slice.headers.length;
+            }
+            else {
+              slice.sendEmptyCompletion();
+            }
+          }
           // Perform the sync if there is a range.
-          if (syncStartTS) {
+          else if (syncStartTS) {
             slice.desiredHeaders += desiredCount;
             this._startSync(slice, syncStartTS, syncEndTS);
           }
