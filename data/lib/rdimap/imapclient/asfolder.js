@@ -3,12 +3,14 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
+    'mimelib',
     'exports'
   ],
   function(
     $wbxml,
     $ascp,
     $activesync,
+    $mimelib,
     exports
   ) {
 'use strict';
@@ -62,7 +64,7 @@ ActiveSyncFolderStorage.prototype = {
         var bodies = [];
         e.addEventListener([as.Sync, as.Collections, as.Collection, as.Commands,
                             as.Add, as.ApplicationData],
-        function(node) {
+                           function(node) {
           var guid = Date.now() + Math.random().toString(16).substr(1) +
             '@mozgaia';
           var header = {
@@ -92,25 +94,29 @@ ActiveSyncFolderStorage.prototype = {
             var childText = child.children.length &&
                             child.children[0].textContent;
 
-            if (child.tag == em.Subject)
+            switch (child.tag) {
+            case em.Subject:
               header.subject = childText;
-            else if (child.tag == em.From || child.tag == em.To) {
-              // XXX: This address parser is probably very bad. Fix it.
-              var addrs = childText.split(/, /).map(function(x) {
-                var m = x.match(/"(.+?)" <(.+)>/);
-                return m ? { name: m[1], address: m[2] } :
-                           { name: '', address: x };
-              });
-              if (child.tag == em.From)
-                header.author = addrs[0];
-              else
-                body.to = addrs;
-            }
-            else if (child.tag == em.DateReceived)
+              break;
+            case em.From:
+              header.author = $mimelib.parseAddresses(childText)[0];
+              break;
+            case em.To:
+              body.to = $mimelib.parseAddresses(childText);
+              break;
+            case em.Cc:
+              nody.cc = $mimelib.parseAddresses(childText);
+              break;
+            case em.ReplyTo:
+              body.replyTo = $mimelib.parseAddresses(childText);
+              break;
+            case em.DateReceived:
               header.date = new Date(childText).valueOf();
-            else if (child.tag == em.Read) {
+              break;
+            case em.Read:
               if (childText == '1')
                 header.flags.push('\\Seen');
+              break;
             }
           }
 
