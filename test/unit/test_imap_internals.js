@@ -111,11 +111,22 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { top: true, bottom: true, grow: true }, 'nosave');
   testUniverse.do_pretendToBeOffline(false);
 
-  T.group('grow older');
+  T.group('grow older (sync more than requested)');
+  // only ask for 11 messages, but sync 15.
   testAccount.do_growFolderView(
-    syncView, 15, true, 15,
-    { count: 15, full: 15, flags: 0, deleted: 0 },
+    syncView, 11, true, 15,
+    { count: 11, full: 15, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+  T.group('grow older, get spare from last sync');
+  // We're asking for 15 here, but we should just get a sync on the spare 4
+  // from last time.  We had a bug previously where this date sync would still
+  // have more desiredHeaders left-over and so would accidentally trigger a
+  // further sync without explicit user action which is not cool.
+  testAccount.do_growFolderView(
+    syncView, 15, false, 26,
+    { count: 4, full: 0, flags: 4, deleted: 0 },
     { top: true, bottom: true, grow: true });
+  T.group('grow older (normal)');
   testAccount.do_growFolderView(
     syncView, 15, true, 30,
     { count: 15, full: 15, flags: 0, deleted: 0 },

@@ -591,9 +591,21 @@ function MailUniverse(callAfterBigBang) {
     if (configObj) {
       self.config = configObj;
       if (self.config.debugLogging) {
-        console.warn("GENERAL LOGGING ENABLED!");
-        console.warn("(CIRCULAR EVENT LOGGING WITH NON-SENSITIVE DATA)");
-        $log.enableGeneralLogging();
+        if (self.config.debugLogging !== 'dangerous') {
+          console.warn('GENERAL LOGGING ENABLED!');
+          console.warn('(CIRCULAR EVENT LOGGING WITH NON-SENSITIVE DATA)');
+          $log.enableGeneralLogging();
+        }
+        else {
+          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+          console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
+          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+          console.warn('This means contents of e-mails and passwords if you');
+          console.warn('set up a new account.  (The IMAP protocol sanitizes');
+          console.warn('passwords, but the bridge logger may not.)');
+          console.warn('...................................................');
+          $log.DEBUG_markAllFabsUnderTest();
+        }
       }
       self._LOG = LOGFAB.MailUniverse(this, null, null);
       if (self.config.debugLogging)

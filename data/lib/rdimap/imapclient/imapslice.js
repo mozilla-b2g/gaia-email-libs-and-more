@@ -2415,7 +2415,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
                 return;
               var header = headers[headers.length - 1];
               pastDate = quantizeDate(header.date);
-              this._startSync(slice, pastDate, futureNow, true);
+              this._startSync(slice, pastDate, futureNow, 'sync', true);
             }.bind(this));
           return;
         }
@@ -2437,14 +2437,15 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
     // -- Bad existing data, issue a sync and have the slice
     // METHOD #3
-    this._startSync(slice, pastDate, futureNow, false);
+    this._startSync(slice, pastDate, futureNow, 'sync', false);
   },
 
-  _startSync: function ifs__startSync(slice, startTS, endTS, accumulateMode) {
+  _startSync: function ifs__startSync(slice, startTS, endTS, syncMode,
+                                      accumulateMode) {
     if (startTS === null)
       startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
     slice.setStatus('synchronizing', false, true);
-    slice.waitingOnData = 'sync';
+    slice.waitingOnData = syncMode;
 console.log("accumulate request", accumulateMode);
     if (accumulateMode && slice.headers.length === 0) {
 console.log("ACCUMULATE MODE ON");
@@ -2534,7 +2535,9 @@ console.log("ACCUMULATE MODE ON");
           // Perform the sync if there is a range.
           else if (syncStartTS) {
             slice.desiredHeaders += desiredCount;
-            this._startSync(slice, syncStartTS, syncEndTS);
+            // Perform a limited synchronization; do not issue additional
+            // syncs!
+            this._startSync(slice, syncStartTS, syncEndTS, 'limsync');
           }
           // If there is no sync range (left), but there were messsages, report
           // the messages.
@@ -2546,7 +2549,7 @@ console.log("ACCUMULATE MODE ON");
           // covers as far back as we go, issue a (potentially expanding) sync.
           else if (userRequestsGrowth) {
             slice.desiredHeaders += desiredCount;
-            this._startSync(slice, null, slice.startTS);
+            this._startSync(slice, null, slice.startTS, 'sync');
           }
           // We are at the 'bottom', as it were.  Send an empty set.
           else {
@@ -2697,9 +2700,10 @@ console.log("folder message count", folderMessageCount,
     }
 
     // - Done if we don't want any more headers.
-    // XXX prefetch may need a different success heuristic
     if (this._curSyncSlice.headers.length >=
-          this._curSyncSlice.desiredHeaders) {
+          this._curSyncSlice.desiredHeaders ||
+        // (limited syncs aren't allowed to expand themselves)
+        (this._curSyncSlice.waitingOnData === 'limsync')) {
       console.log("SYNCDONE Enough headers retrieved.",
                   "have", this._curSyncSlice.headers.length,
                   "want", this._curSyncSlice.desiredHeaders,
