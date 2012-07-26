@@ -177,18 +177,19 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  _addedFolder: function as__addFolder(serverId, displayName, typeNum) {
-    const types = {
-       1: "normal", // User-created generic folder
-       2: "inbox",
-       3: "drafts",
-       4: "trash",
-       5: "sent",
-       6: "normal", // Outbox, actually
-      12: "normal", // User-created mail folder
-    };
+  // Map folder type numbers from ActiveSync to Gaia's types
+  _folderTypes: {
+     1: "normal", // User-created generic folder
+     2: "inbox",
+     3: "drafts",
+     4: "trash",
+     5: "sent",
+     6: "normal", // Outbox, actually
+    12: "normal", // User-created mail folder
+  },
 
-    if (!(typeNum in types))
+  _addedFolder: function as__addFolder(serverId, displayName, typeNum) {
+    if (!(typeNum in this._folderTypes))
       return; // Not a folder type we care about.
 
     var folderId = this.id + '/' + serverId;
@@ -197,7 +198,7 @@ ActiveSyncAccount.prototype = {
         id: folderId,
         name: displayName,
         path: displayName,
-        type: types[typeNum],
+        type: this._folderTypes[typeNum],
         delim: "/",
         depth: 0,
       },
