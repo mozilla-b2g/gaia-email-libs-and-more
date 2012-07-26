@@ -11,6 +11,7 @@ define(
     $activesync,
     exports
   ) {
+'use strict';
 
 function ActiveSyncFolderStorage(account, serverId) {
   this.account = account;
@@ -24,11 +25,11 @@ ActiveSyncFolderStorage.prototype = {
     var as = $ascp.AirSync.Tags;
     var em = $ascp.Email.Tags;
 
-    var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection)
-           .tag(as.SyncKey, "0")
+           .tag(as.SyncKey, '0')
            .tag(as.CollectionId, serverId)
          .etag()
        .etag()
@@ -43,7 +44,7 @@ ActiveSyncFolderStorage.prototype = {
       });
       e.run(aResponse);
 
-      var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+      var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
       w.stag(as.Sync)
          .stag(as.Collections)
            .stag(as.Collection)
@@ -82,8 +83,8 @@ ActiveSyncFolderStorage.prototype = {
             replyTo: null,
             attachments: null,
             references: null,
-            bodyRep: [0x1, "This is my message body. There are many like it, " +
-                      "but this one is mine."],
+            bodyRep: [0x1, 'This is just some filler text. Nothing to see ' +
+                      'here.'],
           };
 
           for (var i = 0; i < node.children.length; i++) {
@@ -98,7 +99,7 @@ ActiveSyncFolderStorage.prototype = {
               var addrs = childText.split(/, /).map(function(x) {
                 var m = x.match(/"(.+?)" <(.+)>/);
                 return m ? { name: m[1], address: m[2] } :
-                           { name: "", address: x };
+                           { name: '', address: x };
               });
               if (child.tag == em.From)
                 header.author = addrs[0];
@@ -108,7 +109,7 @@ ActiveSyncFolderStorage.prototype = {
             else if (child.tag == em.DateReceived)
               header.date = new Date(childText).valueOf();
             else if (child.tag == em.Read) {
-              if (childText == "1")
+              if (childText == '1')
                 header.flags.push('\\Seen');
             }
           }
