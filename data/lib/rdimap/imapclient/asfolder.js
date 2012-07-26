@@ -25,6 +25,7 @@ ActiveSyncFolderStorage.prototype = {
   _loadMessages: function(serverId, callback) {
     var account = this.account;
     var as = $ascp.AirSync.Tags;
+    let asb = $ascp.AirSyncBase.Tags;
     var em = $ascp.Email.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -53,6 +54,13 @@ ActiveSyncFolderStorage.prototype = {
              .tag(as.SyncKey, syncKey)
              .tag(as.CollectionId, serverId)
              .tag(as.GetChanges)
+             .stag(as.Options)
+               .stag(asb.BodyPreference)
+                 .tag(asb.Type, '1')
+               .etag()
+               .tag(as.MIMESupport, '2')
+               .tag(as.MIMETruncation, '7')
+             .etag()
            .etag()
          .etag()
        .etag();
@@ -85,8 +93,7 @@ ActiveSyncFolderStorage.prototype = {
             replyTo: null,
             attachments: null,
             references: null,
-            bodyRep: [0x1, 'This is just some filler text. Nothing to see ' +
-                      'here.'],
+            bodyRep: null,
           };
 
           for (var i = 0; i < node.children.length; i++) {
@@ -116,6 +123,13 @@ ActiveSyncFolderStorage.prototype = {
             case em.Read:
               if (childText == '1')
                 header.flags.push('\\Seen');
+              break;
+            case asb.Body:
+              for (var j = 0; j < child.children.length; j++) {
+                if (child.children[j].tag === asb.Data)
+                  body.bodyRep = [0x1, child.children[j].children[0]
+                                            .textContent];
+              }
               break;
             }
           }
