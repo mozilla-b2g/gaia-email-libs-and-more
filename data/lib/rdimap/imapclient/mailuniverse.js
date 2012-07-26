@@ -14,6 +14,7 @@ define(
     './smtpprobe',
     './smtpacct',
     './fakeacct',
+    './activesync',
     'module',
     'exports'
   ],
@@ -28,6 +29,7 @@ define(
     $smtpprobe,
     $smtpacct,
     $fakeacct,
+    $activesync,
     $module,
     exports
   ) {
@@ -200,6 +202,7 @@ CompositeAccount.prototype = {
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
   'imap+smtp': CompositeAccount,
   'fake': $fakeacct.FakeAccount,
+  'activesync': $activesync.ActiveSyncAccount,
 };
 
 
@@ -258,6 +261,9 @@ var autoconfigByDomain = {
   },
   'example.com': {
     type: 'fake',
+  },
+  'hotmail.com': {
+    type: 'activesync',
   },
 };
 
@@ -410,6 +416,53 @@ Configurators['fake'] = {
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
     callback(true, account);
+  },
+};
+Configurators['activesync'] = {
+  tryToCreateAccount: function cfg_activesync(universe, userDetails, domainInfo,
+                                              callback, _LOG) {
+    var credentials = {
+      username: userDetails.emailAddress,
+      password: userDetails.password,
+    };
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: userDetails.emailAddress,
+
+      type: 'activesync',
+
+      credentials: credentials,
+      connInfo: {
+        hostname: 'm.hotmail.com',
+        port: 1337,
+        crypto: true,
+      },
+
+      identities: [
+        {
+          id: accountId + '/' +
+                $a64.encodeInt(universe.config.nextIdentityNum++),
+          name: userDetails.displayName,
+          address: userDetails.emailAddress,
+          replyTo: null,
+          signature: DEFAULT_SIGNATURE
+        },
+      ]
+    };
+
+    var folderInfo = {
+      $meta: {
+        nextMutationNum: 0,
+        syncKey: "0",
+      },
+      $mutations: [],
+    };
+    universe.saveAccountDef(accountDef, folderInfo);
+    var account = universe._loadAccount(accountDef, folderInfo, null);
+    account.syncFolderList(function() {
+      callback(true, account);
+    });
   },
 };
 
