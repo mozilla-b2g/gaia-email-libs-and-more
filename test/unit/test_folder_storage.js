@@ -912,6 +912,11 @@ TD.commonSimple('header iteration', function test_header_iteration() {
     dC, uidC3, 6,
     chexpect(dC, uidC2, dA, uidA3));
 
+  // start from last message using null/null lazy logic.
+  ctx.storage.getMessagesBeforeMessage(
+    null, null, null,
+    chexpect(dC, uidC2, dA, uidA1));
+
   // start from non-last message, no limit
   ctx.storage.getMessagesBeforeMessage(
     dC, uidC2, null,

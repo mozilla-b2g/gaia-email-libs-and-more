@@ -657,6 +657,8 @@ var LOGFAB = exports.LOGFAB = $log.register(null, {
     },
   },
 });
+// Test contexts always want logging.
+LOGFAB._generalLog = true;
 // other people should stay away from this dude
 var LAZYLOGFAB = exports.__LAZYLOGFAB = $log.register(null, {
   /**

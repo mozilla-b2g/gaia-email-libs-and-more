@@ -623,11 +623,11 @@ BridgedViewSlice.prototype = {
     // if the suid's don't match, a linear search is undertaken.
     this._api.__bridgeSend({
         type: 'shrinkSlice',
+        handle: this._handle,
         firstIndex: firstUsedIndex,
         firstSuid: this.items[firstUsedIndex].id,
         lastIndex: lastUsedIndex,
-        lastSuid: this.items[lastUsedIndex].id,
-        handle: this._handle
+        lastSuid: this.items[lastUsedIndex].id
       });
   },
 
@@ -691,14 +691,17 @@ function HeadersViewSlice(api, handle) {
 }
 HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 /**
- * Request a re-sync of the time interval covering the effective/visible time
+ * Request a re-sync of the time interval covering the effective time
  * range.  If the most recently displayed message is the most recent message
- * known to us, then the date range will cover through "now".
+ * known to us, then the date range will cover through "now".  The refresh
+ * mechanism will disable normal sync bisection limits, so take care to
+ * `requestShrinkage` to a reasonable value if you have a ridiculous number of
+ * headers currently present.
  */
 HeadersViewSlice.prototype.refresh = function() {
   this._api.__bridgeSend({
       type: 'refreshHeaders',
-      handle: this._handle,
+      handle: this._handle
     });
 };
 
@@ -860,6 +863,11 @@ function MailAPI() {
 
   this._slices = {};
   this._pendingRequests = {};
+
+  /**
+   * Various, unsupported config data.
+   */
+  this.config = {};
 
   /**
    * @func[
@@ -1283,6 +1291,8 @@ MailAPI.prototype = {
   viewFolderMessages: function ma_viewFolderMessages(folder) {
     var handle = this._nextHandle++,
         slice = new HeadersViewSlice(this, handle);
+    // the initial population counts as a request.
+    slice.pendingRequestCount++;
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -1605,6 +1615,16 @@ MailAPI.prototype = {
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback();
+  },
+
+  debugSupport: function(command, argument) {
+    if (command === 'setLogging')
+      this.config.debugLogging = argument;
+    this.__bridgeSend({
+      type: 'debugSupport',
+      cmd: command,
+      arg: argument
+    });
   }
 
   //////////////////////////////////////////////////////////////////////////////

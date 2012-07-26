@@ -2,8 +2,8 @@
  * Test our IMAP sync logic under non-pathological conditions.  We exercise
  * logic with a reasonable number of messages.  Test cases that involve folders
  * with ridiculous numbers of messages and/or huge gaps in time which will take
- * a while to run and/or might upset the IMAP servers are handled in
- * `test_imap_excessive.js`.
+ * a while to run and/or might upset the IMAP servers are/will be handled by
+ * `test_imap_complex.js`.
  *
  * Our tests verify that:
  * - Live synchronization provides the expected results where the messages come
@@ -84,9 +84,10 @@ TD.commonCase('folder sync', function(T) {
     { count: 21, age: { days: 0 }, age_incr: { hours: 9.1 } });
   // This should provide 20 messages in our 7.5 day range.  (9 hours makes it
   // line up perfectly so we actually get 21, which is not what we want.)
-  testAccount.do_viewFolder('syncs', saturatedFolder,
-                            { count: 20, full: 20, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: true });
+  testAccount.do_viewFolder(
+    'syncs', saturatedFolder,
+    { count: INITIAL_FILL_SIZE, full: 20, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
@@ -94,9 +95,10 @@ TD.commonCase('folder sync', function(T) {
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', saturatedFolder,
-                            { count: 20, full: 0, flags: 20, deleted: 0 },
-                            { top: true, bottom: true, grow: true });
+  testAccount.do_viewFolder(
+    'resyncs', saturatedFolder,
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 20, deleted: 0 },
+    { top: true, bottom: false, grow: false });
 
   /**
    * Perform a folder sync where we need to search multiple time ranges in order
@@ -107,11 +109,12 @@ TD.commonCase('folder sync', function(T) {
     'test_multiple_ranges', // (insert one more than we want to find)
     { count: 17, age: { days: 0, hours: 13 }, age_incr: { days: 1 } });
   // will fetch: 7, 7, 3 = 17
-  testAccount.do_viewFolder('syncs', msearchFolder,
-                            [{ count: 7, full: 7, flags: 0, deleted: 0 },
-                             { count: 7, full: 7, flags: 0, deleted: 0 },
-                             { count: 3, full: 3, flags: 0, deleted: 0 }],
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'syncs', msearchFolder,
+    [{ count: 7, full: 7, flags: 0, deleted: 0 },
+     { count: 7, full: 7, flags: 0, deleted: 0 },
+     { count: 1, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
@@ -119,11 +122,12 @@ TD.commonCase('folder sync', function(T) {
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', msearchFolder,
-                            [{ count: 7, full: 0, flags: 7, deleted: 0 },
-                             { count: 7, full: 0, flags: 7, deleted: 0 },
-                             { count: 3, full: 0, flags: 3, deleted: 0 }],
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'resyncs', msearchFolder,
+    [{ count: 7, full: 0, flags: 7, deleted: 0 },
+     { count: 7, full: 0, flags: 7, deleted: 0 },
+     { count: 1, full: 0, flags: 3, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -155,6 +159,8 @@ TD.commonCase('folder sync', function(T) {
   // - open view, checking refresh, and _leave it open_ for the next group
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
+    // because the new messages are interleaved rather than at the end, we will
+    // end up with more than 15/INITIAL_FILL_SIZE in the second case.
     [{ count:  9, full: 4, flags: 5, deleted: 2 },
      { count:  9, full: 3, flags: 6, deleted: 1 }],
     { top: true, bottom: false, grow: false });
