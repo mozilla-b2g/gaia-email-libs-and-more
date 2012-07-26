@@ -96,9 +96,8 @@ ActiveSyncFolderStorage.prototype = {
             bodyRep: null,
           };
 
-          for (var i = 0; i < node.children.length; i++) {
-            var child = node.children[i];
-            var childText = child.children.length &&
+          for (let [,child] in Iterator(node.children)) {
+            let childText = child.children.length &&
                             child.children[0].textContent;
 
             switch (child.tag) {
@@ -124,11 +123,38 @@ ActiveSyncFolderStorage.prototype = {
               if (childText == '1')
                 header.flags.push('\\Seen');
               break;
+            case em.Flag:
+              for (let [,grandchild] in Iterator(child.children)) {
+                if (grandchild.tag === em.Status &&
+                    grandchild.children[0].textContent !== '0')
+                  header.flags.push('\\Flagged');
+              }
+              break;
             case asb.Body:
-              for (var j = 0; j < child.children.length; j++) {
-                if (child.children[j].tag === asb.Data)
-                  body.bodyRep = [0x1, child.children[j].children[0]
-                                            .textContent];
+              for (let [,grandchild] in Iterator(child.children)) {
+                if (grandchild.tag === asb.Data)
+                  body.bodyRep = [0x1, grandchild.children[0].textContent];
+              }
+              break;
+            case asb.Attachments:
+              header.hasAttachments = true;
+              body.attachments = [];
+              for (let [,attachmentNode] in Iterator(child.children)) {
+                if (attachmentNode.tag !== asb.Attachment)
+                  continue; // XXX: throw an error here??
+                let attachment = { type: 'text/plain' }; // XXX: this is lies
+                for (let [,attachData] in Iterator(attachmentNode.children)) {
+                  switch (attachData.tag) {
+                  case asb.DisplayName:
+                    attachment.name = attachData.children[0].textContent;
+                    break;
+                  case asb.EstimatedDataSize:
+                    attachment.sizeEstimate = attachData.children[0]
+                                                        .textContent;
+                    break;
+                  }
+                }
+                body.attachments.push(attachment);
               }
               break;
             }
