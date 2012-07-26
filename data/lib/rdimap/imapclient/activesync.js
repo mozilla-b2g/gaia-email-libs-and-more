@@ -21,6 +21,8 @@ define(
     $imaputil,
     exports
   ) {
+'use strict';
+
 const bsearchForInsert = $imaputil.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
@@ -65,7 +67,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   // TODO: we should probably be smarter about sorting.
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
 
-  if (this.meta.syncKey != "0") {
+  if (this.meta.syncKey != '0') {
     // TODO: this is a really hacky way of syncing folders after the first
     // time.
     var account = this;
@@ -143,7 +145,7 @@ ActiveSyncAccount.prototype = {
     var account = this;
 
     var fh = $ascp.FolderHierarchy.Tags;
-    var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.SyncKey, account.meta.syncKey)
      .etag();
@@ -179,13 +181,13 @@ ActiveSyncAccount.prototype = {
 
   // Map folder type numbers from ActiveSync to Gaia's types
   _folderTypes: {
-     1: "normal", // User-created generic folder
-     2: "inbox",
-     3: "drafts",
-     4: "trash",
-     5: "sent",
-     6: "normal", // Outbox, actually
-    12: "normal", // User-created mail folder
+     1: 'normal', // User-created generic folder
+     2: 'inbox',
+     3: 'drafts',
+     4: 'trash',
+     5: 'sent',
+     6: 'normal', // Outbox, actually
+    12: 'normal', // User-created mail folder
   },
 
   _addedFolder: function as__addFolder(serverId, displayName, typeNum) {
@@ -199,7 +201,7 @@ ActiveSyncAccount.prototype = {
         name: displayName,
         path: displayName,
         type: this._folderTypes[typeNum],
-        delim: "/",
+        delim: '/',
         depth: 0,
       },
       $impl: {
@@ -247,9 +249,9 @@ ActiveSyncAccount.prototype = {
     composedMessage._composeMessage();
 
     var cm = $ascp.ComposeMail.Tags;
-    var w = new $wbxml.Writer("1.3", 1, "UTF-8");
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(cm.SendMail)
-       .tag(cm.ClientId, Date.now().toString()+"@mozgaia")
+       .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
        .tag(cm.SaveInSentItems)
        .stag(cm.Mime)
          .opaque(composedMessage._outputBuffer)
@@ -260,8 +262,8 @@ ActiveSyncAccount.prototype = {
       if (aResponse === null)
         callback(null);
       else {
-        dump("Error sending message. XML dump follows:\n" + aResponse.dump() +
-             "\n");
+        dump('Error sending message. XML dump follows:\n' + aResponse.dump() +
+             '\n');
       }
     });
   },
