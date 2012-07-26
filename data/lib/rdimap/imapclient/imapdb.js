@@ -324,7 +324,7 @@ ImapDB.prototype = {
         var folderId = deletedFolderIds[i],
             range = IDBKeyRange.bound(folderId + ':',
                                       folderId + ':\ufff0',
-                                      false, false)
+                                      false, false);
         headerStore.delete(range);
         bodyStore.delete(range);
       }

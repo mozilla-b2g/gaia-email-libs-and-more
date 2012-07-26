@@ -470,8 +470,10 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     let lines = [headerKey + ": " + this._formatHeaderValues(headerValues)
                  for each ([headerKey, headerValues] in Iterator(this.headers))];
 
-    return lines.join("\r\n") + "\r\n\r\n" + this.bodyPart.toMessageString() +
-      "\r\n";
+    var msgString = this.bodyPart.toMessageString();
+
+    return lines.join("\r\n") + "\r\n\r\n" + msgString +
+      (msgString ? "\r\n" : "");
   },
 
   toMboxString: function() {

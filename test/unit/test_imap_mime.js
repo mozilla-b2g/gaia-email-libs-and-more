@@ -86,8 +86,10 @@ TD.commonCase('message encodings', function(T) {
 TD.commonCase('MIME hierarchies', function(T) {
   // -- pieces
   // - bodies: text/plain
-  var bpartStraightASCII =
-        new SyntheticPartLeaf("I am text! Woo!"),
+  var bpartEmptyText =
+        new SyntheticPartLeaf(''),
+      bpartStraightASCII =
+        new SyntheticPartLeaf('I am text! Woo!'),
       bpartUtf8Name =
         new SyntheticPartLeaf(
           utf8UnicodeName,
@@ -104,7 +106,7 @@ TD.commonCase('MIME hierarchies', function(T) {
   // - bodies: text/html
       bpartIgnoredHtml =
         new SyntheticPartLeaf(
-          "<html><head></head><body>I am HTML! Woo! </body></html>",
+          '<html><head></head><body>I am HTML! Woo! </body></html>',
           { contentType: 'text/html' }),
 
   // - multipart/alternative
@@ -121,6 +123,14 @@ TD.commonCase('MIME hierarchies', function(T) {
 
   // -- full definitions and expectations
   var testMessages = [
+    // - text/plain variants
+    // Empty contents with care taken to alter messageGenerator.js to generate
+    // a zero-length body.  This previously broke us.
+    {
+      name: 'text/plain with empty contents',
+      bodyPart: bpartEmptyText,
+      checkBody: '',
+    },
     // - straight up verification we don't do mime-word decoding on bodies
     {
       name: 'simple text/plain with mimeword in the body',
@@ -189,7 +199,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       }
 
       folderView.slice.items[iMsg].getBody(function(body) {
-        eCheck.namedValue('body', body.bodyRep[1]);
+        eCheck.namedValue('body', body.bodyRep.length ? body.bodyRep[1] : '');
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.expect_namedValue('attachment',
