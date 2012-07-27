@@ -192,6 +192,9 @@ require({
     "microtime": "data/lib/js-shims/microtime",
     "path": "data/lib/js-shims/path",
 
+    "wbxml": "deps/activesync/wbxml/wbxml",
+    "activesync": "deps/activesync",
+
     "imap": "data/lib/imap",
 
     "rdplat": "data/lib/rdplat",
