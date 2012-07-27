@@ -2,8 +2,8 @@
  * Test our IMAP sync logic under non-pathological conditions.  We exercise
  * logic with a reasonable number of messages.  Test cases that involve folders
  * with ridiculous numbers of messages and/or huge gaps in time which will take
- * a while to run and/or might upset the IMAP servers are handled in
- * `test_imap_excessive.js`.
+ * a while to run and/or might upset the IMAP servers are/will be handled by
+ * `test_imap_complex.js`.
  *
  * Our tests verify that:
  * - Live synchronization provides the expected results where the messages come
@@ -43,13 +43,16 @@ TD.commonCase('folder sync', function(T) {
   var emptyFolder = testAccount.do_createTestFolder(
     'test_empty_sync', { count: 0 });
   testAccount.do_viewFolder('syncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 });
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 });
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 });
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
@@ -60,13 +63,16 @@ TD.commonCase('folder sync', function(T) {
     'test_initial_full_sync',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder('syncs', fullSyncFolder,
-                            { count: 4, full: 4, flags: 0, deleted: 0 });
+                            { count: 4, full: 4, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
-                            { count: 4, full: 0, flags: 0, deleted: 0 });
+                            { count: 4, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', fullSyncFolder,
-                            { count: 4, full: 0, flags: 4, deleted: 0 });
+                            { count: 4, full: 0, flags: 4, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
@@ -78,14 +84,21 @@ TD.commonCase('folder sync', function(T) {
     { count: 21, age: { days: 0 }, age_incr: { hours: 9.1 } });
   // This should provide 20 messages in our 7.5 day range.  (9 hours makes it
   // line up perfectly so we actually get 21, which is not what we want.)
-  testAccount.do_viewFolder('syncs', saturatedFolder,
-                            { count: 20, full: 20, flags: 0, deleted: 0 });
+  testAccount.do_viewFolder(
+    'syncs', saturatedFolder,
+    { count: INITIAL_FILL_SIZE, full: 20, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
+  // We get all the headers in one go because we are offline, and they get
+  // thresholded to the initial fill size.
   testAccount.do_viewFolder('checks persisted data of', saturatedFolder,
-                            { count: 20, full: 0, flags: 0, deleted: 0 });
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', saturatedFolder,
-                            { count: 20, full: 0, flags: 20, deleted: 0 });
+  testAccount.do_viewFolder(
+    'resyncs', saturatedFolder,
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 20, deleted: 0 },
+    { top: true, bottom: false, grow: false });
 
   /**
    * Perform a folder sync where we need to search multiple time ranges in order
@@ -96,20 +109,25 @@ TD.commonCase('folder sync', function(T) {
     'test_multiple_ranges', // (insert one more than we want to find)
     { count: 17, age: { days: 0, hours: 13 }, age_incr: { days: 1 } });
   // will fetch: 7, 7, 3 = 17
-  testAccount.do_viewFolder('syncs', msearchFolder,
-                            [{ count: 7, full: 7, flags: 0, deleted: 0 },
-                             { count: 7, full: 7, flags: 0, deleted: 0 },
-                             { count: 3, full: 3, flags: 0, deleted: 0 }]);
+  testAccount.do_viewFolder(
+    'syncs', msearchFolder,
+    [{ count: 7, full: 7, flags: 0, deleted: 0 },
+     { count: 7, full: 7, flags: 0, deleted: 0 },
+     { count: 1, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
+  // We get all the headers in one go because we are offline, and they get
+  // thresholded to the initial fill size.
   testAccount.do_viewFolder('checks persisted data of', msearchFolder,
-                            // Distinct date ranges are not required since we
-                            // are offline...
-                            { count: 17, full: 0, flags: 0, deleted: 0 });
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', msearchFolder,
-                            [{ count: 7, full: 0, flags: 7, deleted: 0 },
-                             { count: 7, full: 0, flags: 7, deleted: 0 },
-                             { count: 3, full: 0, flags: 3, deleted: 0 }]);
+  testAccount.do_viewFolder(
+    'resyncs', msearchFolder,
+    [{ count: 7, full: 0, flags: 7, deleted: 0 },
+     { count: 7, full: 0, flags: 7, deleted: 0 },
+     { count: 1, full: 0, flags: 3, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -134,14 +152,18 @@ TD.commonCase('folder sync', function(T) {
     msearchFolder.messages.splice(1, 1);
   });
   // add messages (4, 3) to (7-2=5, 7-1=6) so our fetches become: 9, 9
+  // (and we are no longer covering all known messages)
   testAccount.do_addMessagesToFolder(
     msearchFolder,
     { count: 7, age: { days: 0 }, age_incr: { days: 2 } });
   // - open view, checking refresh, and _leave it open_ for the next group
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
+    // because the new messages are interleaved rather than at the end, we will
+    // end up with more than 15/INITIAL_FILL_SIZE in the second case.
     [{ count:  9, full: 4, flags: 5, deleted: 2 },
-     { count:  9, full: 3, flags: 6, deleted: 1 }]);
+     { count:  9, full: 3, flags: 6, deleted: 1 }],
+    { top: true, bottom: false, grow: false });
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
@@ -174,7 +196,8 @@ TD.commonCase('folder sync', function(T) {
     // Our expectations happen in a single go here because the refresh covers
     // the entire date range in question.
     { count: 16, full: 0, flags: 16, deleted: 2 },
-    expectedRefreshChanges);
+    expectedRefreshChanges,
+    { top: true, bottom: false, grow: false });
 
   T.group('get the message body for an existing message');
   T.action(eSync, 'request message body from', msearchView, function() {
@@ -185,7 +208,7 @@ TD.commonCase('folder sync', function(T) {
       'bodyInfo',
       {
         to: synMessage.bodyInfo.to,
-        bodyText: synMessage.bodyInfo.bodyRep,
+        bodyRep: synMessage.bodyInfo.bodyRep,
       });
 
     var header = msearchView.slice.items[index];
@@ -194,7 +217,7 @@ TD.commonCase('folder sync', function(T) {
         'bodyInfo',
         bodyInfo && {
           to: bodyInfo.to,
-          bodyText: bodyInfo.bodyRep,
+          bodyRep: bodyInfo.bodyRep,
         });
     });
   });

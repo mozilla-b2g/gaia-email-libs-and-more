@@ -5,6 +5,7 @@
 define(
   [
     'rdcommon/log',
+    'rdcommon/logreaper',
     './a64',
     './allback',
     './imapdb',
@@ -19,6 +20,7 @@ define(
   ],
   function(
     $log,
+    $logreaper,
     $a64,
     $allback,
     $imapdb,
@@ -465,6 +467,12 @@ Configurators['activesync'] = {
 };
 
 /**
+ * When debug logging is enabled, how many second's worth of samples should
+ * we keep?
+ */
+const MAX_LOG_BACKLOG = 30;
+
+/**
  * The MailUniverse is the keeper of the database, the root logging instance,
  * and the mail accounts.  It loads the accounts from the database on startup
  * asynchronously, so whoever creates it needs to pass a callback for it to
@@ -525,6 +533,15 @@ Configurators['activesync'] = {
  *     it must be plaintext.
  *   }
  * ]]
+ * @typedef[UniverseConfig @dict[
+ *   @key[nextAccountNum Number]
+ *   @key[nextIdentityNum Number]
+ *   @key[debugLogging Boolean]{
+ *     Has logging been turned on for debug purposes?
+ *   }
+ * ]]{
+ *   The configuration fields stored in the database.
+ * }
  * @typedef[AccountDef @dict[
  *   @key[id AccountId]
  *   @key[name String]{
@@ -582,7 +599,7 @@ Configurators['activesync'] = {
  *   }
  * ]]
  */
-function MailUniverse(testingModeLogData, callAfterBigBang) {
+function MailUniverse(callAfterBigBang) {
   /** @listof[CompositeAccount] */
   this.accounts = [];
   this._accountsById = {};
@@ -617,35 +634,52 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
   this._pendingMutationsByAcct = {};
 
   this.config = null;
+  this._logReaper = null;
+  this._logBacklog = null;
 
-  if (testingModeLogData) {
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    console.log("! DEVELOPMENT MODE ACTIVE!                !");
-    console.log("! LOGGING SUBSYSTEM ENTRAINING USER DATA! !");
-    console.log("! (the data does not leave the browser.)  !");
-    console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    $log.DEBUG_markAllFabsUnderTest();
-  }
-
-  this._LOG = LOGFAB.MailUniverse(this, null, null);
+  this._LOG = null;
   this._db = new $imapdb.ImapDB();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos) {
-    self._LOG.configLoaded(configObj, accountInfos);
     if (configObj) {
       self.config = configObj;
+      if (self.config.debugLogging) {
+        if (self.config.debugLogging !== 'dangerous') {
+          console.warn('GENERAL LOGGING ENABLED!');
+          console.warn('(CIRCULAR EVENT LOGGING WITH NON-SENSITIVE DATA)');
+          $log.enableGeneralLogging();
+        }
+        else {
+          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+          console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
+          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+          console.warn('This means contents of e-mails and passwords if you');
+          console.warn('set up a new account.  (The IMAP protocol sanitizes');
+          console.warn('passwords, but the bridge logger may not.)');
+          console.warn('...................................................');
+          $log.DEBUG_markAllFabsUnderTest();
+        }
+      }
+      self._LOG = LOGFAB.MailUniverse(this, null, null);
+      if (self.config.debugLogging)
+        self._enableCircularLogging();
+
+      self._LOG.configLoaded(self.config, accountInfos);
+
       for (var i = 0; i < accountInfos.length; i++) {
         var accountInfo = accountInfos[i];
         self._loadAccount(accountInfo.def, accountInfo.folderInfo);
       }
     }
     else {
+      self._LOG = LOGFAB.MailUniverse(this, null, null);
       self.config = {
         // We need to put the id in here because our startup query can't
         // efficiently get both the key name and the value, just the values.
         id: 'config',
         nextAccountNum: 0,
         nextIdentityNum: 0,
+        debugLogging: false,
       };
       self._db.saveConfig(self.config);
     }
@@ -654,6 +688,81 @@ function MailUniverse(testingModeLogData, callAfterBigBang) {
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
+  //////////////////////////////////////////////////////////////////////////////
+  // Logging
+  _enableCircularLogging: function() {
+    this._logReaper = new $logreaper.LogReaper(this._LOG);
+    this._logBacklog = [];
+    window.setInterval(
+      function() {
+        var logTimeSlice = this._logReaper.reapHierLogTimeSlice();
+        // if nothing interesting happened, this could be empty, yos.
+        if (logTimeSlice.logFrag) {
+          this._logBacklog.push(logTimeSlice);
+          // throw something away if we've got too much stuff already
+          if (this._logBacklog.length > MAX_LOG_BACKLOG)
+            this._logBacklog.shift();
+        }
+      }.bind(this),
+      1000);
+  },
+
+  createLogBacklogRep: function(id) {
+    return {
+      type: 'backlog',
+      id: id,
+      schema: $log.provideSchemaForAllKnownFabs(),
+      backlog: this._logBacklog,
+    };
+  },
+
+  dumpLogToDeviceStorage: function() {
+    console.log('Planning to dump log to device storage for "pictures"');
+    try {
+      // 'default' does not work, but pictures does.  Hopefully gallery is
+      // smart enough to stay away from my log files!
+      var storage = navigator.getDeviceStorage('pictures')[0];
+      var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
+                          {
+                            type: 'application/json',
+                            endings: 'transparent'
+                          });
+      var filename = 'gem-log-' + Date.now() + '.json';
+      var req = storage.addNamed(blob, filename);
+      req.onsuccess = function() {
+        console.log('saved log to', filename);
+      };
+      req.onerror = function() {
+        console.error('failed to save log to', filename);
+      };
+    }
+    catch(ex) {
+      console.error('Problem dumping log to device storage:', ex,
+                    '\n', ex.stack);
+    }
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Config / Settings
+
+  /**
+   * Return the subset of our configuration that the client can know about.
+   */
+  exposeConfigForClient: function() {
+    // eventually, iterate over a whitelist, but for now, it's easy...
+    return {
+      debugLogging: this.config.debugLogging,
+    };
+  },
+
+  modifyConfig: function(changes) {
+    for (var key in changes) {
+      this.config[key] = changes[key];
+    }
+    this._db.saveConfig(this.config);
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
   _onConnectionChange: function() {
     var connection = window.navigator.connection ||
                        window.navigator.mozConnection ||

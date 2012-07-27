@@ -119,6 +119,22 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
+    switch (msg.cmd) {
+      case 'setLogging':
+        this.universe.modifyConfig({ debugLogging: msg.arg });
+        break;
+
+      case 'dumpLog':
+        switch (msg.arg) {
+          case 'storage':
+            this.universe.dumpLogToDeviceStorage();
+            break;
+        }
+        break;
+    }
+  },
+
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
     this.universe.tryToCreateAccount(msg.details, function(good, account) {
@@ -238,7 +254,7 @@ MailBridge.prototype = {
         wireSplice.push(folder);
         markerSpliceArgs.push(makeFolderSortString(account.id, folder));
       }
-      proxy.sendSplice(idxStart, 0, wireSplice);
+      proxy.sendSplice(idxStart, 0, wireSplice, false, false);
       proxy.markers.splice.apply(proxy.markers, markerSpliceArgs);
     }
   },
@@ -364,7 +380,32 @@ MailBridge.prototype = {
       this._LOG.badSliceHandle(msg.handle);
       return;
     }
-    proxy.__listener.refresh();
+
+    if (proxy.__listener)
+      proxy.__listener.refresh();
+  },
+
+  _cmd_growSlice: function mb__cmd_growSlice(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+
+    if (proxy.__listener)
+      proxy.__listener.reqGrow(msg.dirMagnitude, msg.userRequestsGrowth);
+  },
+
+  _cmd_shrinkSlice: function mb__cmd_shrinkSlice(msg) {
+    var proxy = this._slices[msg.handle];
+    if (!proxy) {
+      this._LOG.badSliceHandle(msg.handle);
+      return;
+    }
+
+    if (proxy.__listener)
+      proxy.__listener.reqNoteRanges(
+        msg.firstIndex, msg.firstSuid, msg.lastIndex, msg.lastSuid);
   },
 
   _cmd_killSlice: function mb__cmd_killSlice(msg) {
@@ -654,8 +695,16 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this._ns = ns;
   this._handle = handle;
   this.__listener = null;
+
+  this.status = 'synced';
+  this.atTop = false;
+  this.atBottom = false;
+  this.userCanGrowDownwards = false;
 }
 SliceBridgeProxy.prototype = {
+  /**
+   * Issue a splice to add and remove items.
+   */
   sendSplice: function sbp_sendSplice(index, howMany, addItems, requested,
                                       moreExpected) {
     this._bridge.__sendMessage({
@@ -666,9 +715,16 @@ SliceBridgeProxy.prototype = {
       addItems: addItems,
       requested: requested,
       moreExpected: moreExpected,
+      status: this.status,
+      atTop: this.atTop,
+      atBottom: this.atBottom,
+      userCanGrowDownwards: this.userCanGrowDownwards,
     });
   },
 
+  /**
+   * Issue an update for existing items.
+   */
   sendUpdate: function sbp_sendUpdate(indexUpdatesRun) {
     this._bridge.__sendMessage({
       type: 'sliceUpdate',
@@ -677,10 +733,9 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendStatus: function sbp_sendStatus(status, flushSplice) {
-    if (flushSplice) {
-      this.sendSplice(0, 0, [], true, false);
-    }
+  sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
+    this.status = status;
+    this.sendSplice(0, 0, [], requested, moreExpected);
   },
 
   die: function sbp_die() {
@@ -693,6 +748,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   MailBridge: {
     type: $log.DAEMON,
     events: {
+      // NB: under unit test, this is not used and bridgeSnoop is used instead.
+      send: { type: true },
     },
     TEST_ONLY_events: {
     },
@@ -701,7 +758,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badSliceHandle: { handle: true },
     },
     calls: {
-      cmd: {command: true},
+      cmd: { command: true },
     },
     TEST_ONLY_calls: {
     },

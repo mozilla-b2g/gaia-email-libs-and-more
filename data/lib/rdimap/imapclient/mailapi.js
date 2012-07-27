@@ -527,7 +527,10 @@ UndoableOperation.prototype = {
 };
 
 /**
- *
+ * Ordered list collection abstraction where we may potentially only be viewing
+ * a subset of the actual items in the collection.  This allows us to handle
+ * lists with lots of items as well as lists where we have to retrieve data
+ * from a remote server to populate the list.
  */
 function BridgedViewSlice(api, ns, handle) {
   this._api = api;
@@ -536,13 +539,61 @@ function BridgedViewSlice(api, ns, handle) {
 
   this.items = [];
 
-  this.atTop = null;
+  /**
+   * @oneof[
+   *   @case['synchronizing']{
+   *     We are talking to a server to populate/expand the contents of this
+   *     list.
+   *   }
+   *   @case['synced']{
+   *     We are not talking to a server.
+   *   }
+   * ]{
+   *   Quasi-extensible indicator of whether we are synchronizing or not.  The
+   *   idea is that if we are synchronizing, a spinner indicator can be shown
+   *   at the end of the list of messages.
+   * }
+   */
+  this.status = 'synced';
+
+  /**
+   * False if we can grow the slice in the negative direction without
+   * requiring user prompting.
+   */
+  this.atTop = false;
+  /**
+   * False if we can grow the slice in the positive direction without
+   * requiring user prompting.
+   */
   this.atBottom = false;
+
+  /**
+   * Can we potentially grow the slice in the positive direction if the user
+   * requests it?  For example, triggering an IMAP sync for a part of the
+   * time-range we have not previously synchronized.
+   *
+   * This is only really meaningful when `atBottom` is true; if we are not at
+   * the bottom, this value will be false.
+   */
+  this.userCanGrowDownwards = false;
+
+  /**
+   * Number of pending requests to the back-end.  To be used by logic that can
+   * defer further requests until existing requests are complete.  For example,
+   * infinite scrolling logic would do best to wait for the back-end to service
+   * its requests before issuing new ones.
+   */
+  this.pendingRequestCount = 0;
+  /**
+   * The direction we are growing, if any (0 if not).
+   */
+  this._growing = 0;
 
   this.onadd = null;
   this.onchange = null;
   this.onsplice = null;
   this.onremove = null;
+  this.onstatus = null;
   this.oncomplete = null;
   this.ondead = null;
 }
@@ -558,7 +609,44 @@ BridgedViewSlice.prototype = {
     };
   },
 
-  requestGrowth: function() {
+  /**
+   * Tell the back-end we no longer need some of the items we know about.  This
+   * will manifest as a requested splice at some point in the future, although
+   * the back-end may attenuate partially or entirely.
+   */
+  requestShrinkage: function(firstUsedIndex, lastUsedIndex) {
+    this.pendingRequestCount++;
+    if (lastUsedIndex >= this.items.length)
+      lastUsedIndex = this.items.length - 1;
+
+    // We send indices and suid's.  The indices are used for fast-pathing;
+    // if the suid's don't match, a linear search is undertaken.
+    this._api.__bridgeSend({
+        type: 'shrinkSlice',
+        handle: this._handle,
+        firstIndex: firstUsedIndex,
+        firstSuid: this.items[firstUsedIndex].id,
+        lastIndex: lastUsedIndex,
+        lastSuid: this.items[lastUsedIndex].id
+      });
+  },
+
+  /**
+   * Request additional data in the given direction, optionally specifying that
+   * some potentially costly growth of the data set should be performed.
+   */
+  requestGrowth: function(dirMagnitude, userRequestsGrowth) {
+    if (this._growing)
+      throw new Error('Already growing in ' + this._growing + ' dir.');
+    this._growing = dirMagnitude;
+    this.pendingRequestCount++;
+
+    this._api.__bridgeSend({
+        type: 'growSlice',
+        dirMagnitude: dirMagnitude,
+        userRequestsGrowth: userRequestsGrowth,
+        handle: this._handle
+      });
   },
 
   die: function() {
@@ -603,14 +691,17 @@ function HeadersViewSlice(api, handle) {
 }
 HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 /**
- * Request a re-sync of the time interval covering the effective/visible time
+ * Request a re-sync of the time interval covering the effective time
  * range.  If the most recently displayed message is the most recent message
- * known to us, then the date range will cover through "now".
+ * known to us, then the date range will cover through "now".  The refresh
+ * mechanism will disable normal sync bisection limits, so take care to
+ * `requestShrinkage` to a reasonable value if you have a ridiculous number of
+ * headers currently present.
  */
 HeadersViewSlice.prototype.refresh = function() {
   this._api.__bridgeSend({
       type: 'refreshHeaders',
-      handle: this._handle,
+      handle: this._handle
     });
 };
 
@@ -774,6 +865,11 @@ function MailAPI() {
   this._pendingRequests = {};
 
   /**
+   * Various, unsupported config data.
+   */
+  this.config = {};
+
+  /**
    * @func[
    *   @args[
    *     @param[account MailAccount]
@@ -869,6 +965,16 @@ MailAPI.prototype = {
         break;
     }
 
+    // - generate namespace-specific notifications
+    slice.atTop = msg.atTop;
+    slice.atBottom = msg.atBottom;
+    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
+    if (msg.status && slice.status !== msg.status) {
+      slice.status = msg.status;
+      if (slice.onstatus)
+        slice.onstatus(slice.status);
+    }
+
     // - generate slice 'onsplice' notification
     if (slice.onsplice) {
       try {
@@ -915,16 +1021,22 @@ MailAPI.prototype = {
     }
 
     // - generate 'oncomplete' notification
-    if (slice.oncomplete && msg.requested && !msg.moreExpected) {
-      var completeFunc = slice.oncomplete;
-      // reset before calling in case it wants to chain.
-      slice.oncomplete = null;
-      try {
-        completeFunc();
-      }
-      catch (ex) {
-        reportClientCodeError('oncomplete notification error', ex,
-                              '\n', ex.stack);
+    if (msg.requested && !msg.moreExpected) {
+      slice._growing = 0;
+      if (slice.pendingRequestCount)
+        slice.pendingRequestCount--;
+
+      if (slice.oncomplete) {
+        var completeFunc = slice.oncomplete;
+        // reset before calling in case it wants to chain.
+        slice.oncomplete = null;
+        try {
+          completeFunc();
+        }
+        catch (ex) {
+          reportClientCodeError('oncomplete notification error', ex,
+                                '\n', ex.stack);
+        }
       }
     }
   },
@@ -1179,6 +1291,8 @@ MailAPI.prototype = {
   viewFolderMessages: function ma_viewFolderMessages(folder) {
     var handle = this._nextHandle++,
         slice = new HeadersViewSlice(this, handle);
+    // the initial population counts as a request.
+    slice.pendingRequestCount++;
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -1501,6 +1615,16 @@ MailAPI.prototype = {
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback();
+  },
+
+  debugSupport: function(command, argument) {
+    if (command === 'setLogging')
+      this.config.debugLogging = argument;
+    this.__bridgeSend({
+      type: 'debugSupport',
+      cmd: command,
+      arg: argument
+    });
   }
 
   //////////////////////////////////////////////////////////////////////////////

@@ -10,8 +10,6 @@
 define(
   [
     './shim-sham',
-    'rdcommon/log',
-    'rdcommon/logreaper',
     './mailapi',
     './mailbridge',
     './mailuniverse',
@@ -20,8 +18,6 @@ define(
   ],
   function(
     $shim_setup,
-    $log,
-    $logreaper,
     $mailapi,
     $mailbridge,
     $mailuniverse,
@@ -41,6 +37,7 @@ function createBridgePair(universe) {
   };
   TMB.__sendMessage = function(msg) {
     window.setZeroTimeout(function() {
+      TMB._LOG.send(msg.type);
       TMA.__bridgeReceive(msg);
     });
   };
@@ -53,6 +50,8 @@ function createBridgePair(universe) {
 var _universeCallbacks = [], localMailAPI = null;
 function onUniverse() {
   localMailAPI = createBridgePair(universe).api;
+  // This obviously needs to be sent over the wire in a worker/multi-page setup.
+  localMailAPI.config = universe.exposeConfigForClient();
   console.log("Mail universe/bridge created, notifying.");
   for (var i = 0; i < _universeCallbacks.length; i++) {
     _universeCallbacks[i](universe);
@@ -63,24 +62,8 @@ function onUniverse() {
   evtObject.mailAPI = localMailAPI;
   window.dispatchEvent(evtObject);
 }
-/**
- * Should the logging subsystem run at unit-test levels of detail (which means
- * capturing potential user data like the contents of e-mails)?  The answer
- * is NEVER BY DEFAULT and ALMOST NEVER THE REST OF THE TIME.
- *
- * The only time we would want to turn this on is when detailed debugging is
- * required, we have data censoring in place for all super-sensitive data like
- * credentials (we have it for IMAP, but not SMTP, although it's not logging
- * right now), there is express user consent, and we have made a reasonable
- * level of effort to create automated tooling that can extract answers from
- * the logs in an oracular fashion so that the user doesn't need to provide
- * us with the logs, but can instead have our analysis code derive answers.
- */
-const DANGEROUS_LOG_EVERYTHING = false;
-var universe = new $mailuniverse.MailUniverse(DANGEROUS_LOG_EVERYTHING,
-                                              onUniverse);
-var LOG_REAPER, LOG_BACKLOG = [], MAX_LOG_BACKLOG = 60;
-LOG_REAPER = new $logreaper.LogReaper(universe._LOG);
+
+var universe = new $mailuniverse.MailUniverse(onUniverse);
 
 function runOnUniverse(callback) {
   if (_universeCallbacks !== null) {
@@ -125,38 +108,13 @@ document.enableLogSpawner = function enableLogSpawner(spawnNow) {
     clearInterval(spamIntervalId);
 
     event.source.postMessage(
-      {
-        type: "backlog",
-        id: channelId,
-        schema: $log.provideSchemaForAllKnownFabs(),
-        backlog: LOG_BACKLOG,
-      },
+      universe.createLogBacklogRep(channelId),
       event.origin);
   }, false);
 
   if (spawnNow)
     document.spawnLogWindow();
 };
-
-////////////////////////////////////////////////////////////////////////////////
-// Logging
-
-// once a second, potentially generate a log
-setInterval(function() {
-  if (!LOG_REAPER)
-    return;
-  var logTimeSlice = LOG_REAPER.reapHierLogTimeSlice();
-  // if nothing interesting happened, this could be empty, yos.
-  if (logTimeSlice.logFrag) {
-    LOG_BACKLOG.push(logTimeSlice);
-    // throw something away if we've got too much stuff already
-    if (LOG_BACKLOG.length > MAX_LOG_BACKLOG)
-      LOG_BACKLOG.shift();
-
-    // In deuxdrop, this is where we would also update our subscribers.  We
-    // may also want to do that here.
-  }
-}, 1000);
 
 ////////////////////////////////////////////////////////////////////////////////
 

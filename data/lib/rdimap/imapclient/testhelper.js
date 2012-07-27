@@ -15,6 +15,12 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
+    var lazyConsole = self.T.lazyLogger('console');
+
+    gConsoleLogFunc = function(msg) {
+      lazyConsole.value(msg);
+    };
+
     if (!opts)
       opts = {};
 
@@ -43,7 +49,24 @@ var TestUniverseMixins = {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       self._useDate.setHours(12, 0, 0, 0);
       $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
-      $imapslice.TEST_adjustSyncValues(7);
+      var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+      // These are all the default values that tests code against by default.
+      // If a test wants to use different values,
+      $imapslice.TEST_adjustSyncValues({
+        fillSize: 15,
+        days: 7,
+        scaleFactor: 1.6,
+        // We don't want to test this at scale as part of our unit tests, so
+        // crank it way up so we don't ever accidentally run into this.
+        bisectThresh: 2000,
+        tooMany: 2000,
+        refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
+        refreshInbox: DISABLE_THRESH_USING_FUTURE,
+        oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
+        refreshOld: DISABLE_THRESH_USING_FUTURE,
+        useRangeNonInbox: DISABLE_THRESH_USING_FUTURE,
+        useRangeInbox: DISABLE_THRESH_USING_FUTURE
+      });
     }
     else {
       self._useDate = new Date();
@@ -76,10 +99,6 @@ var TestUniverseMixins = {
         });
 
       MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
-        // Do not force everything to be under test; leave that to the test
-        // framework.  (If we passed true, we would break the testing
-        // framework's ability to log things, as well.)
-        false,
         function onUniverse() {
           console.log('Universe created');
           var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
@@ -116,6 +135,23 @@ var TestUniverseMixins = {
         }
         self.universe.shutdown();
       }
+    });
+  },
+
+  do_timewarpNow: function(useAsNowTS, humanMsg) {
+    var self = this;
+    this.T.convenienceSetup(humanMsg, function() {
+      self._useDate = useAsNowTS;
+      for (var i = 0; i < self.__testAccounts.length; i++) {
+        self.__testAccounts[i]._useDate = useAsNowTS;
+      }
+      $imapslice.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
+    });
+  },
+
+  do_adjustSyncValues: function(useSyncValues) {
+    this.T.convenienceSetup('adjust sync values for test', function() {
+      $imapslice.TEST_adjustSyncValues(useSyncValues);
     });
   },
 
@@ -510,7 +546,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues) {
+  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -528,9 +564,13 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         }
       }
     }
-    if (this.universe.online) {
+    if (this.universe.online && flag !== 'nosave') {
       this.eImapAccount.expect_saveAccountState_begin();
       this.eImapAccount.expect_saveAccountState_end();
+    }
+    else {
+      // Make account saving cause a failure; also, connection reuse, etc.
+      this.eImapAccount.expectNothing();
     }
 
     return totalMessageCount;
@@ -541,7 +581,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
    * get back the right thing.  Use do_openFolderView if you want to open it
    * and keep it open and detect changes, etc.
    */
-  do_viewFolder: function(desc, testFolder, expectedValues, _saveToThing) {
+  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
+                          _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
@@ -568,6 +609,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].headerInfo.subject);
         }
+        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                               expectedFlags.grow, 'synced');
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -578,6 +621,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
           self._logger.messageSubject(
             totalExpected - 1, slice.items[totalExpected - 1].subject);
         }
+        self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
         }
@@ -588,11 +633,14 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
   },
 
-  do_openFolderView: function(viewName, testFolder, expectedValues) {
+  do_openFolderView: function(viewName, testFolder, expectedValues,
+                              expectedFlags) {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
-    this.do_viewFolder('opens', testFolder, expectedValues, viewThing);
+    viewThing.offset = 0;
+    this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
+                       viewThing);
     return viewThing;
   },
 
@@ -625,7 +673,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
    *    }
    * ]
    */
-  expect_headerChanges: function(viewThing, expected, completeCheckOn) {
+  expect_headerChanges: function(viewThing, expected, expectedFlags,
+                                 completeCheckOn) {
     this.RT.reportActiveActorThisStep(this);
     this.RT.reportActiveActorThisStep(this.eImapAccount);
 
@@ -649,6 +698,8 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       }
     }
     this.expect_changesReported(expChangeRep, expDeletionRep);
+    this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                           expectedFlags.grow, 'synced');
 
     // - listen for the changes
     var changeRep = {}, deletionRep = {};
@@ -667,6 +718,9 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(changeRep, deletionRep);
+      self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                              viewThing.slice.userCanGrowDownwards,
+                              viewThing.slice.status);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -677,14 +731,88 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       viewThing.slice.oncomplete = completed;
   },
 
-  do_refreshFolderView: function(viewThing, expectedValues, checkExpected) {
+  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
+                                 expectedFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
                                                  expectedValues);
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
       viewThing.slice.refresh();
+    });
+  },
+
+  do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
+                              alreadyExists, expectedValues, expectedFlags,
+                              extraFlag) {
+    var self = this;
+    this.T.action(this, 'grows', viewThing, function() {
+      if (dirMagnitude < 0)
+        viewThing.offset += dirMagnitude;
+
+      var totalExpected = self._expect_dateSyncs(
+                            viewThing.testFolder, expectedValues,
+                            extraFlag) +
+                          alreadyExists;
+      self.expect_messagesReported(totalExpected);
+      self.expect_headerChanges(viewThing, { changes: [], deletions: [] },
+                                expectedFlags);
+      viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
+    });
+  },
+
+  do_shrinkFolderView: function(viewThing, useLow, useHigh, expectedTotal,
+                                expectedFlags) {
+    var self = this;
+    this.T.action(this, 'shrinks', viewThing, function() {
+      if (useHigh === null)
+        useHigh = viewThing.slice.items.length - 1;
+      else if (useHigh < 0)
+        useHigh += viewThing.slice.items.length;
+
+      // note our offset for message headers...
+      viewThing.offset += useLow;
+
+      // Expect one or two removal splices, high before low
+      if (useHigh + 1 < viewThing.slice.items.length) {
+        self.expect_splice(useHigh + 1,
+                           viewThing.slice.items.length - useHigh - 1);
+      }
+      if (useLow > 0) {
+        self.expect_splice(0, useLow);
+      }
+
+      self.expect_messagesReported(expectedTotal);
+      self.expect_messageSubject(
+        0, viewThing.testFolder.messages[viewThing.offset].headerInfo.subject);
+      var idxHighMessage = viewThing.offset + (useHigh - useLow);
+      self.expect_messageSubject(
+        useHigh - useLow,
+        viewThing.testFolder.messages[idxHighMessage].headerInfo.subject);
+      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.grow, 'synced');
+
+
+      viewThing.slice.onsplice = function(index, howMany, added,
+                                          requested, moreExpected) {
+        self._logger.splice(index, howMany);
+      };
+      viewThing.slice.oncomplete = function() {
+        viewThing.slice.onsplice = null;
+
+        self._logger.messagesReported(viewThing.slice.items.length);
+        self._logger.messageSubject(0, viewThing.slice.items[0].subject);
+        self._logger.messageSubject(
+          viewThing.slice.items.length - 1,
+          viewThing.slice.items[viewThing.slice.items.length - 1].subject);
+        self._logger.sliceFlags(
+          viewThing.slice.atTop, viewThing.slice.atBottom,
+          viewThing.slice.userCanGrowDownwards,
+          viewThing.slice.status);
+      };
+
+      viewThing.slice.requestShrinkage(useLow, useHigh);
     });
   },
 
@@ -773,6 +901,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       appendNotified: {},
       manipulationNotified: {},
 
+      splice: { index: true, howMany: true },
+      sliceFlags: { top: true, bottom: true, grow: true, status: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
 

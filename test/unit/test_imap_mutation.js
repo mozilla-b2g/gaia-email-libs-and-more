@@ -41,7 +41,8 @@ TD.commonCase('mutate flags', function(T) {
     { count: numMessages, age_incr: { days: 1 } });
   var folderView = testAccount.do_openFolderView(
     'folderView', testFolder,
-    { count: numMessages, full: numMessages, flags: 0, deleted: 0 });
+    { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   var doHeaderExps = null, undoHeaderExps = null, undoOps = null,
       applyManips = null;
@@ -108,7 +109,10 @@ TD.commonCase('mutate flags', function(T) {
       ],
       deletions: []
     };
-    testAccount.expect_headerChanges(folderView, doHeaderExps, 'roundtrip');
+    testAccount.expect_headerChanges(
+      folderView, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
   T.action('go online, see changes happen for', testAccount.eImapAccount,
            eSync, function() {
@@ -129,7 +133,8 @@ TD.commonCase('mutate flags', function(T) {
   testAccount.do_refreshFolderView(
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
-    { changes: [], deletions: [] });
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   T.group('undo while offline; released to server');
   testUniverse.do_pretendToBeOffline(true);
@@ -140,7 +145,10 @@ TD.commonCase('mutate flags', function(T) {
     }
 
     undoOps.forEach(function(x) { x.undo(); });
-    testAccount.expect_headerChanges(folderView, undoHeaderExps, 'roundtrip');
+    testAccount.expect_headerChanges(
+      folderView, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
 
   T.action('go online, see undos happen for', testAccount.eImapAccount,
@@ -162,7 +170,8 @@ TD.commonCase('mutate flags', function(T) {
   testAccount.do_refreshFolderView(
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
-    { changes: [], deletions: [] });
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   /**
    * If we undo an operation without having told it to the server, it should be
@@ -177,7 +186,10 @@ TD.commonCase('mutate flags', function(T) {
       testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
       testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
     }
-    testAccount.expect_headerChanges(folderView, doHeaderExps, 'roundtrip');
+    testAccount.expect_headerChanges(
+      folderView, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
   T.action('trigger undo ops, hear local changes',
            testAccount, testAccount.eImapAccount, function() {
@@ -187,7 +199,10 @@ TD.commonCase('mutate flags', function(T) {
     }
 
     undoOps.forEach(function(x) { x.undo(); });
-    testAccount.expect_headerChanges(folderView, undoHeaderExps, 'roundtrip');
+    testAccount.expect_headerChanges(
+      folderView, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
   T.action('go online, see nothing happen',
            testAccount.eImapAccount, eSync, function() {
@@ -204,7 +219,8 @@ TD.commonCase('mutate flags', function(T) {
   testAccount.do_refreshFolderView(
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
-    { changes: [], deletions: [] });
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   /**
    * Verify that mutations and their undos survive a restart.
@@ -218,7 +234,10 @@ TD.commonCase('mutate flags', function(T) {
       testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
       testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
     }
-    testAccount.expect_headerChanges(folderView, doHeaderExps, 'roundtrip');
+    testAccount.expect_headerChanges(
+      folderView, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_saveState();
@@ -230,7 +249,8 @@ TD.commonCase('mutate flags', function(T) {
                       'test_mutation_flags', '#2', testFolder),
       folderView2 = testAccount2.do_openFolderView(
         'folderView2', testFolder2,
-        { count: numMessages, full: numMessages, flags: 0, deleted: 0 });
+        { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+        { top: true, bottom: true, grow: false });
   T.action('go online, see changes happen for', testAccount2.eImapAccount,
            eSync, function() {
     var created = false;
@@ -267,7 +287,10 @@ TD.commonCase('mutate flags', function(T) {
     undoOps.forEach(function(x) {
       MailUniverse.undoMutation(x._longtermIds);
     });
-    testAccount2.expect_headerChanges(folderView2, undoHeaderExps, 'roundtrip');
+    testAccount2.expect_headerChanges(
+      folderView2, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
   });
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
@@ -279,7 +302,7 @@ TD.commonCase('mutate flags', function(T) {
       folderView3 = testAccount3.do_openFolderView(
         'folderView3', testFolder3,
         { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
-        'create');
+        { top: true, bottom: true, grow: false });
 
   T.action('go online, see undos happen for', testAccount3.eImapAccount,
            eSync, function() {
@@ -333,7 +356,10 @@ TD.commonCase('mutate flags', function(T) {
     // - do it!
     undoOps = [toStar.setStarred(true)];
 
-    testAccount3.expect_headerChanges(folderView3, doHeaderExps, 'roundtrip');
+    testAccount3.expect_headerChanges(
+      folderView3, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -346,7 +372,8 @@ TD.commonCase('mutate flags', function(T) {
   testAccount3.do_refreshFolderView(
     folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
-    { changes: [], deletions: [] });
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
   T.action('undo the starring', testAccount3, testAccount3.eImapAccount, eSync,
            function() {
     testAccount3.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
@@ -356,7 +383,10 @@ TD.commonCase('mutate flags', function(T) {
     eSync.expect_event('ops-done');
 
     undoOps[0].undo();
-    testAccount3.expect_headerChanges(folderView3, undoHeaderExps, 'roundtrip');
+    testAccount3.expect_headerChanges(
+      folderView3, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      'roundtrip');
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -369,7 +399,8 @@ TD.commonCase('mutate flags', function(T) {
   testAccount3.do_refreshFolderView(
     folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
-    { changes: [], deletions: [] });
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
 });
