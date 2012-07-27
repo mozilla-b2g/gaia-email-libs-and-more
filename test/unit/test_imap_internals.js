@@ -13,9 +13,12 @@ var TD = $tc.defineTestsFor(
   { id: 'test_imap_internals' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('account persistence', function(T) {
-  T.group('create universe, account');
+  T.group('U1: create universe, account');
+  //////////////////////////////////////////////////////////////////////////////
+  // Universe 1 : initial
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      eSync = T.lazyLogger('sync');
 
   T.group('cram messages in, sync them');
   var testFolder = testAccount.do_createTestFolder(
@@ -26,19 +29,21 @@ TD.commonCase('account persistence', function(T) {
     { count: 4, full: 4, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
-  T.group('cleanly shutdown account, universe');
+  T.group('(cleanly) shutdown account, universe');
   testUniverse.do_saveState();
   testUniverse.do_shutdown();
 
-  T.group('reload account, universe');
+  //////////////////////////////////////////////////////////////////////////////
+  // Universe 2 : add messages
+  T.group('U2 [add]: reload account, universe');
   // rebind to new universe / (loaded) account
-  testUniverse = T.actor('testUniverse', 'U2'),
-  testAccount = T.actor('testImapAccount', 'A2',
+  testUniverse = T.actor('testUniverse', 'U2');
+  var TA2 = testAccount = T.actor('testImapAccount', 'A2',
                         { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
-  testFolder = testAccount.do_useExistingFolder('test_internals', '#2',
-                                                testFolder);
+  var TF2 = testFolder = testAccount.do_useExistingFolder(
+                           'test_internals', '#2', testFolder);
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 4, full: 0, flags: 4, deleted: 0 },
@@ -53,23 +58,126 @@ TD.commonCase('account persistence', function(T) {
     { count: 6, full: 2, flags: 4, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
+  //////////////////////////////////////////////////////////////////////////////
+  // Universe 3 : delete messages
+  T.group('U3 [delete]: reload account, universe');
+  // rebind to new universe / (loaded) account
+  var TU3 = testUniverse = T.actor('testUniverse', 'U3');
+  var TA3 = testAccount = T.actor('testImapAccount', 'A3',
+                            { universe: testUniverse, restored: true });
+
+  T.group('verify sync is not starting from scratch');
+  var TF3 = testFolder = testAccount.do_useExistingFolder(
+                           'test_internals', '#3', testFolder);
+
+  T.group('delete messages, sync');
+  var deletedHeader;
+  testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
+    deletedHeader = slice.items[0];
+    slice.items[0].deleteMessage();
+
+    // (this is low-level IMAP Deletion and is just a flag change)
+    for (var i = 0; i < 1; i++) {
+      TA3.eImapAccount.expect_runOp_begin('do', 'modtags');
+      TA3.eImapAccount.expect_runOp_end('do', 'modtags');
+    }
+
+    // update our test's idea of what messages exist where.
+    TF3.messages.splice(0, 1);
+  });
+  testAccount.do_viewFolder(
+    're-syncs', testFolder,
+    { count: 5, full: 0, flags: 5, deleted: 1 },
+    { top: true, bottom: true, grow: false });
+
   T.group('save account state');
   testUniverse.do_saveState();
 
-  T.group('uncleanly shutdown account, universe');
+  T.group('(uncleanly) shutdown account, universe');
   // so, yeah, this is exactly like our clean shutdown, effectively...
   testUniverse.do_shutdown();
 
-  T.group('reload account, universe; check syncs detect nothing new');
-  testUniverse = T.actor('testUniverse', 'U3');
-  testAccount = T.actor('testImapAccount', 'A3',
-                        { universe: testUniverse, restored: true });
-  testFolder = testAccount.do_useExistingFolder('test_internals', '#3',
-                                                testFolder);
-  testAccount.do_viewFolder(
+  //////////////////////////////////////////////////////////////////////////////
+  // Universe 4 : change messages
+  T.group('U4 [change]: reload account, universe');
+  // rebind to new universe / (loaded) account
+  var TU4 = testUniverse = T.actor('testUniverse', 'U4');
+  var TA4 = testAccount = T.actor('testImapAccount', 'A4',
+                            { universe: testUniverse, restored: true });
+
+  T.group('verify sync is not starting from scratch');
+  var TF4 = testFolder = testAccount.do_useExistingFolder(
+                           'test_internals', '#4', testFolder);
+
+  testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
+    slice.items[0].setRead(true);
+    slice.items[1].setStarred(true);
+    // (this is low-level IMAP Deletion and is just a flag change)
+    for (var i = 0; i < 2; i++) {
+      // we had to latch TA2 because testAccount is updated statically
+      TA4.eImapAccount.expect_runOp_begin('do', 'modtags');
+      TA4.eImapAccount.expect_runOp_end('do', 'modtags');
+    }
+
+    // update our test's idea of what messages exist where.
+    TF4.messages.splice(0, 1);
+  });
+  var TV4 = testAccount.do_openFolderView(
     're-syncs', testFolder,
-    { count: 6, full: 0, flags: 6, deleted: 0 },
+    { count: 5, full: 0, flags: 5, deleted: 0 },
     { top: true, bottom: true, grow: false });
+  T.check('check modified message flags', eSync, function() {
+    eSync.expect_namedValue('0:read', true);
+    eSync.expect_namedValue('1:starred', true);
+
+    eSync.namedValue('0:read', TV4.slice.items[0].isRead);
+    eSync.namedValue('1:starred', TV4.slice.items[1].isStarred);
+  });
+  testAccount.do_closeFolderView(TV4);
+
+  T.group('save account state');
+  testUniverse.do_saveState();
+
+  T.group('(uncleanly) shutdown account, universe');
+  // so, yeah, this is exactly like our clean shutdown, effectively...
+  testUniverse.do_shutdown();
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Universe 5 : checks
+  T.group('U5 [check]: reload account, universe');
+  var TU5 = testUniverse = T.actor('testUniverse', 'U5');
+  testAccount = T.actor('testImapAccount', 'A5',
+                        { universe: testUniverse, restored: true });
+  var TF5 = testFolder = testAccount.do_useExistingFolder(
+                           'test_internals', '#', testFolder);
+  var TV5 = testAccount.do_openFolderView(
+    're-syncs', testFolder,
+    { count: 5, full: 0, flags: 5, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
+  T.group('verify modified message flags');
+  T.check('check modified message flags', eSync, function() {
+    eSync.expect_namedValue('0:read', true);
+    eSync.expect_namedValue('1:starred', true);
+
+    eSync.namedValue('0:read', TV5.slice.items[0].isRead);
+    eSync.namedValue('1:starred', TV5.slice.items[1].isStarred);
+  });
+  testAccount.do_closeFolderView(TV5);
+
+  T.group('fail to get the message body for a deleted message');
+  T.action(eSync, 'request deleted message body from',
+           testFolder.storageActor, function() {
+    eSync.expect_namedValue('bodyInfo', null);
+    // TF5/TU6 are latched in case we add another step and the static/dynamic
+    // values no longer line up.
+    TF5.storageActor.expect_bodyNotFound();
+    // Use the underlying method used by header.getBody since the dead header
+    // is part of a dead object tree.
+    TU5.MailAPI._getBodyForMessage(deletedHeader, function(bodyInfo) {
+      eSync.namedValue('bodyInfo', bodyInfo);
+    });
+  });
 
   T.group('cleanup');
 });
