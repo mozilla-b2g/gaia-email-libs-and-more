@@ -443,7 +443,7 @@ Configurators['activesync'] = {
         {
           id: accountId + '/' +
                 $a64.encodeInt(universe.config.nextIdentityNum++),
-          name: userDetails.displayName,
+          name: null,
           address: userDetails.emailAddress,
           replyTo: null,
           signature: DEFAULT_SIGNATURE
@@ -461,6 +461,7 @@ Configurators['activesync'] = {
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
     account.syncFolderList(function() {
+      accountDef.identities[0].name = account.conn.config.user.name;
       callback(true, account);
     });
   },

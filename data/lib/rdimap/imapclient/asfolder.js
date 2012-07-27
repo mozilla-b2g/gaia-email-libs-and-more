@@ -4,6 +4,7 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     'mimelib',
+    './quotechew',
     'exports'
   ],
   function(
@@ -11,6 +12,7 @@ define(
     $ascp,
     $activesync,
     $mimelib,
+    $quotechew,
     exports
   ) {
 'use strict';
@@ -132,8 +134,11 @@ ActiveSyncFolderStorage.prototype = {
               break;
             case asb.Body:
               for (let [,grandchild] in Iterator(child.children)) {
-                if (grandchild.tag === asb.Data)
-                  body.bodyRep = [0x1, grandchild.children[0].textContent];
+                if (grandchild.tag === asb.Data) {
+                  body.bodyRep = $quotechew.quoteProcessTextBody(
+                    grandchild.children[0].textContent);
+                  header.snippet = $quotechew.generateSnippet(body.bodyRep);
+                }
               }
               break;
             case asb.Attachments:
