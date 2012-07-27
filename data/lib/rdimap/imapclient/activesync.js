@@ -61,7 +61,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     var folderInfo = folderInfos[folderId];
 
     this._folderStorages[folderId] =
-      new $asfolder.ActiveSyncFolderStorage(this, folderId.split('/')[1]);
+      new $asfolder.ActiveSyncFolderStorage(this, folderInfo, this._db);
     this.folders.push(folderInfo.$meta);
   }
   // TODO: we should probably be smarter about sorting.
@@ -117,10 +117,17 @@ ActiveSyncAccount.prototype = {
   },
 
   saveAccountState: function(reuseTrans) {
-    var trans = this._db.saveAccountFolderStates(
-      this.id, this._folderInfos, [], this._deadFolderIds,
-      function stateSaved() {
-      },
+    let perFolderStuff = [];
+    for (let [,folder] in Iterator(this.folders)) {
+      let folderStuff = this._folderStorages[folder.id]
+                           .generatePersistenceInfo();
+      if (folderStuff)
+        perFolderStuff.push(folderStuff);
+    }
+
+    let trans = this._db.saveAccountFolderStates(
+      this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
+      function stateSaved() {},
       reuseTrans);
     this._deadFolderIds = null;
     return trans;
@@ -190,32 +197,28 @@ ActiveSyncAccount.prototype = {
     12: 'normal', // User-created mail folder
   },
 
-  _addedFolder: function as__addFolder(serverId, displayName, typeNum) {
+  _addedFolder: function as__addedFolder(serverId, displayName, typeNum) {
     if (!(typeNum in this._folderTypes))
       return; // Not a folder type we care about.
 
     var folderId = this.id + '/' + serverId;
-    var folderInfo = {
+    var folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
+        serverId: serverId,
         name: displayName,
         path: displayName,
         type: this._folderTypes[typeNum],
-        delim: '/',
         depth: 0,
       },
       $impl: {
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
-      accuracy: [],
-      headerBlocks: [],
-      bodyBlocks: [],
     };
 
-    this._folderInfos[folderId] = folderInfo;
     this._folderStorages[folderId] = new $asfolder.ActiveSyncFolderStorage(
-      this, serverId);
+      this, folderInfo, this._db);
 
     var account = this;
     var idx = bsearchForInsert(this.folders, folderInfo.$meta, function(a, b) {
@@ -226,7 +229,7 @@ ActiveSyncAccount.prototype = {
     this.universe.__notifyAddedFolder(this.id, folderInfo.$meta);
   },
 
-  _deletedFolder: function as__removeFolder(serverId) {
+  _deletedFolder: function as__deletedFolder(serverId) {
     var folderId = this.id + '/' + serverId;
     var folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
