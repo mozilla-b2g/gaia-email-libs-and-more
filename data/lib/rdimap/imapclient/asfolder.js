@@ -69,7 +69,7 @@ ActiveSyncFolderStorage.prototype = {
       account.conn.doCommand(w, function(aResponse) {
         var e = new $wbxml.EventParser();
         var headers = [];
-        var bodies = [];
+        var bodies = {};
         e.addEventListener([as.Sync, as.Collections, as.Collection, as.Commands,
                             as.Add, as.ApplicationData],
                            function(node) {
@@ -161,10 +161,12 @@ ActiveSyncFolderStorage.prototype = {
           }
 
           headers.push(header);
-          bodies.push(body);
+          bodies[header.suid] = body;
         });
 
         e.run(aResponse);
+
+        headers.sort(function(a, b) a.date < b.date);
         callback(headers, bodies);
       });
     });
@@ -173,8 +175,7 @@ ActiveSyncFolderStorage.prototype = {
   _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
     var folderStorage = this;
     this._loadMessages(this.serverId, function(headers, bodies) {
-      for (var i = 0; i < headers.length; i++)
-        folderStorage._bodiesBySuid[headers[i].suid] = bodies[i];
+      folderStorage._bodiesBySuid = bodies;
       bridgeHandle.sendSplice(0, 0, headers, true, false);
     });
   },
