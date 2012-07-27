@@ -77,7 +77,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
    *   synced interval, plus the new deepended interval, with a gap in between.
    *   This raises semantics issues for atBottom, but we define that the answer
    *   is we are not at the bottom and we will perform the extra sync required
-   *   to link us up with our friends.)
+   *   to link us up with our friends.  However, a distinct grow request is
+   *   still required to trigger the network traffic.)
    * - Grow in the older direction, and verify that this appears to result in
    *   an overflow case that gets bisected down.
    *
@@ -264,28 +265,25 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
-  T.group('growth syncs extra');
+  T.group('free growth to previously synced message bounds');
   testAccount.do_growFolderView(
-    // do not request growth; we want to make sure we provide it for free since
-    // we are saying atBottom is false and therefore so is grow.
     f2View, 9, false, 9,
     // this will explode into a bisect covering 21 messages, it will guess 8
     // because Math.ceil(15 / 42 * 21 = 7.5) = 8.  This will trigger an
     // automated follow-on for another 8 days because it will use the same
     // time-window for the follow-on, 4 of which will already be known
     [{ count: 0, full: null, flags: null, deleted: null },
-     { count: 8, full: 8, flags: 0, deleted: 0 },
-     // this should properly only give us 1 message, but what happens is we get
-     // 1 from the database fill, then the 4 new ones get inserted in front of
-     // that and we don't retract them, so we will end up at 22.
-     { count: 5, full: 4, flags: 4, deleted: 0 }],
+     { count: 8, full: 8, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
-  // and another sync, which will somewhat redundantly refresh things.
   testAccount.do_growFolderView(
-    // request 10 even though we know there's only 8...
-    f2View, 10, false, 22,
-    { count: 8, full: 0, flags: 8, deleted: 0 },
+    // do not request growth; we want to make sure we provide it for free since
+    // we are saying atBottom is false and therefore so is grow.
+    f2View, 10, false, 17,
+     // this should properly only give us 10 messages, but the new messages
+     // get interleaved and so we see them all at once.
+     [{ count: 13, full: 4, flags: 9, deleted: 0 }],
     { top: true, bottom: true, grow: false });
+
   testAccount.do_closeFolderView(f2View);
 
   T.group('lots of messages: setup for #2');
