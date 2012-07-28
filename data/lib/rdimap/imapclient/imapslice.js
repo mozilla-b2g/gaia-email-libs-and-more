@@ -1676,6 +1676,10 @@ ImapFolderStorage.prototype = {
     block.headers.splice(idx, 1);
     info.estSize -= HEADER_EST_SIZE_IN_BYTES;
     info.count--;
+
+    this._dirty = true;
+    this._dirtyHeaderBlocks[info.blockId] = block;
+
     // - update endTS/endUID if necessary
     if (idx === 0 && info.count) {
       header = block.headers[0];
@@ -1721,6 +1725,9 @@ ImapFolderStorage.prototype = {
     splinfo.estSize = numHeaders * HEADER_EST_SIZE_IN_BYTES;
     splinfo.startTS = newerStartHeader.date;
     splinfo.startUID = newerStartHeader.id;
+    // this._dirty is already touched by makeHeaderBlock when it dirties the
+    // block it creates.
+    this._dirtyHeaderBlocks[splinfo.blockId] = splock;
 
     return olderInfo;
   },
@@ -1785,6 +1792,9 @@ ImapFolderStorage.prototype = {
     info.estSize -= body.size;
     info.count--;
 
+    this._dirty = true;
+    this._dirtyBodyBlocks[info.blockId] = block;
+
     // - update endTS/endUID if necessary
     if (idx === 0 && info.count) {
       info.endUID = uid = block.uids[0];
@@ -1833,6 +1843,8 @@ ImapFolderStorage.prototype = {
       oldDict);
     splinfo.estSize = newerBytes;
     splock.bodies = newDict;
+    // _makeBodyBlock dirties the block it creates and touches _dirty
+    this._dirtyBodyBlocks[splinfo.blockId] = splock;
 
     return olderInfo;
   },
@@ -2309,7 +2321,6 @@ ImapFolderStorage.prototype = {
         else
           this._dirtyBodyBlocks[info.blockId] = null;
       }
-
       if (callback)
         callback();
     }

@@ -26,7 +26,11 @@ else {
   throw new Error("I need IndexedDB; load me in a content page universe!");
 }
 
-const CUR_VERSION = 5;
+/**
+ * Bumping to 6 because IMAP during v5 was bad about dirtying all of its blocks
+ * under mutating circumstances.
+ */
+const CUR_VERSION = 6;
 
 /**
  * The configuration table contains configuration data that should persist

@@ -118,9 +118,6 @@ TD.commonCase('account persistence', function(T) {
       TA4.eImapAccount.expect_runOp_begin('do', 'modtags');
       TA4.eImapAccount.expect_runOp_end('do', 'modtags');
     }
-
-    // update our test's idea of what messages exist where.
-    TF4.messages.splice(0, 1);
   });
   var TV4 = testAccount.do_openFolderView(
     're-syncs', testFolder,
