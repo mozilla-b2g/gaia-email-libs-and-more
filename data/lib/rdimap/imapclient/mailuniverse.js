@@ -641,9 +641,8 @@ function MailUniverse(callAfterBigBang) {
   this._LOG = null;
   this._db = new $imapdb.ImapDB();
   var self = this;
-  this._db.getConfig(function(configObj, accountInfos) {
-    if (configObj) {
-      self.config = configObj;
+  this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
+    function setupLogging(config) {
       if (self.config.debugLogging) {
         if (self.config.debugLogging !== 'dangerous') {
           console.warn('GENERAL LOGGING ENABLED!');
@@ -661,28 +660,60 @@ function MailUniverse(callAfterBigBang) {
           $log.DEBUG_markAllFabsUnderTest();
         }
       }
-      self._LOG = LOGFAB.MailUniverse(this, null, null);
+    }
+
+    var accountInfo, i;
+    if (configObj) {
+      self.config = configObj;
+      setupLogging();
+      self._LOG = LOGFAB.MailUniverse(self, null, null);
       if (self.config.debugLogging)
         self._enableCircularLogging();
 
       self._LOG.configLoaded(self.config, accountInfos);
 
-      for (var i = 0; i < accountInfos.length; i++) {
-        var accountInfo = accountInfos[i];
+      for (i = 0; i < accountInfos.length; i++) {
+        accountInfo = accountInfos[i];
         self._loadAccount(accountInfo.def, accountInfo.folderInfo);
       }
     }
     else {
-      self._LOG = LOGFAB.MailUniverse(this, null, null);
       self.config = {
         // We need to put the id in here because our startup query can't
         // efficiently get both the key name and the value, just the values.
         id: 'config',
         nextAccountNum: 0,
         nextIdentityNum: 0,
-        debugLogging: false,
+        debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false,
       };
+      setupLogging();
+      self._LOG = LOGFAB.MailUniverse(self, null, null);
+      if (self.config.debugLogging)
+        self._enableCircularLogging();
       self._db.saveConfig(self.config);
+
+      // - Try to re-create any accounts just using auth info.
+      if (lazyCarryover && self.online) {
+        var waitingCount = 0;
+        for (i = 0; i < lazyCarryover.accountInfos.length; i++){
+          waitingCount++;
+          var accountDef = lazyCarryover.accountInfos[i].def;
+          self.tryToCreateAccount(
+            {
+              displayName: accountDef.identities[0].name,
+              emailAddress: accountDef.name,
+              password: accountDef.credentials.password
+            },
+            // We don't care how they turn out, just that they get a chance
+            // to run to completion before we call our bootstrap complete.
+            function() {
+              if (--waitingCount === 0)
+                callAfterBigBang();
+            });
+          }
+        // do not let callAfterBigBang get called.
+        return;
+      }
     }
     callAfterBigBang();
   });
