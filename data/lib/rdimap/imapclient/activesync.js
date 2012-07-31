@@ -157,7 +157,7 @@ ActiveSyncAccount.prototype = {
        .tag(fh.SyncKey, account.meta.syncKey)
      .etag();
 
-    this.conn.doCommand(w, function(aResponse) {
+    this.conn.doCommand(w, function(aError, aResponse) {
       var e = new $wbxml.EventParser();
 
       e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
@@ -261,7 +261,7 @@ ActiveSyncAccount.prototype = {
        .etag()
      .etag();
 
-    this.conn.doCommand(w, function(aResponse) {
+    this.conn.doCommand(w, function(aError, aResponse) {
       if (aResponse === null)
         callback(null);
       else {

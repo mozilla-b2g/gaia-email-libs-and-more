@@ -64,13 +64,20 @@ ActiveSyncFolderStorage.prototype = {
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection)
-           .tag(as.SyncKey, '0')
+
+    if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
+          w.tag(as.Class, 'Email');
+
+          w.tag(as.SyncKey, '0')
            .tag(as.CollectionId, this.serverId)
          .etag()
        .etag()
      .etag();
 
-    account.conn.doCommand(w, function(aResponse) {
+    account.conn.doCommand(w, function(aError, aResponse) {
+      if (aError)
+        return;
+
       let e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
                          function(node) {
@@ -98,25 +105,35 @@ ActiveSyncFolderStorage.prototype = {
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection)
-           .tag(as.SyncKey, this.folderMeta.syncKey)
+
+    if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
+          w.tag(as.Class, 'Email');
+
+          w.tag(as.SyncKey, this.folderMeta.syncKey)
            .tag(as.CollectionId, this.serverId)
            .tag(as.GetChanges)
            .stag(as.Options)
-             .stag(asb.BodyPreference)
+
+    if (account.conn.currentVersionInt >= $activesync.VersionInt('12.0'))
+            w.stag(asb.BodyPreference)
                .tag(asb.Type, '1')
-             .etag()
-             .tag(as.MIMESupport, '2')
+             .etag();
+
+            w.tag(as.MIMESupport, '2')
              .tag(as.MIMETruncation, '7')
            .etag()
          .etag()
        .etag()
      .etag();
 
-    account.conn.doCommand(w, function(aResponse) {
+    account.conn.doCommand(w, function(aError, aResponse) {
+      if (aError)
+        return;
       if (!aResponse) {
         callback([], {});
         return;
       }
+
       let e = new $wbxml.EventParser();
       let headers = [];
       let bodies = {};
@@ -186,7 +203,7 @@ ActiveSyncFolderStorage.prototype = {
                 header.flags.push('\\Flagged');
             }
             break;
-          case asb.Body:
+          case asb.Body: // ActiveSync 12.0+
             for (let [,grandchild] in Iterator(child.children)) {
               if (grandchild.tag === asb.Data) {
                 body.bodyRep = $quotechew.quoteProcessTextBody(
@@ -195,21 +212,29 @@ ActiveSyncFolderStorage.prototype = {
               }
             }
             break;
-          case asb.Attachments:
+          case em.Body: // pre-ActiveSync 12.0
+            body.bodyRep = $quotechew.quoteProcessTextBody(childText);
+            header.snippet = $quotechew.generateSnippet(body.bodyRep);
+            break;
+          case asb.Attachments: // ActiveSync 12.0+
+          case em.Attachments:  // pre-ActiveSync 12.0
             header.hasAttachments = true;
             body.attachments = [];
             for (let [,attachmentNode] in Iterator(child.children)) {
-              if (attachmentNode.tag !== asb.Attachment)
+              if (attachmentNode.tag !== asb.Attachment &&
+                  attachmentNode.tag !== em.Attachment)
                 continue; // XXX: throw an error here??
+
               let attachment = { type: 'text/plain' }; // XXX: this is lies
               for (let [,attachData] in Iterator(attachmentNode.children)) {
                 switch (attachData.tag) {
                 case asb.DisplayName:
+                case em.DisplayName:
                   attachment.name = attachData.children[0].textContent;
                   break;
                 case asb.EstimatedDataSize:
-                  attachment.sizeEstimate = attachData.children[0]
-                    .textContent;
+                case em.AttSize:
+                  attachment.sizeEstimate = attachData.children[0].textContent;
                   break;
                 }
               }
