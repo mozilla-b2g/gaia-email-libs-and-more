@@ -30,9 +30,16 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
   this._headers = [];
   this._bodiesBySuid = {};
 
-  this._loaded = 0;
+  this._onLoadListeners = [];
+
+  let loading = 0;
   function onLoaded(type, block) {
-    this._loaded++;
+    if (++loading == 2) {
+      this._loaded = true;
+      for (let [,listener] in Iterator(this._onLoadListeners))
+        listener();
+      this._onLoadListeners = [];
+    }
     if (!block)
       return;
 
@@ -90,13 +97,21 @@ ActiveSyncFolderStorage.prototype = {
   },
 
   _loadMessages: function(callback, deferred) {
+    let folderStorage = this;
+    let account = this.account;
+
+    if (!account.conn.connected) {
+      account.conn.autodiscover(function(config) {
+        // TODO: handle errors
+        folderStorage._loadMessages(callback, deferred);
+      });
+      return;
+    }
     if (this.folderMeta.syncKey === '0' && !deferred) {
       this._getSyncKey(this._loadMessages.bind(this, callback, true));
       return;
     }
 
-    let folderStorage = this;
-    let account = this.account;
     let as = $ascp.AirSync.Tags;
     let asb = $ascp.AirSyncBase.Tags;
     let em = $ascp.Email.Tags;
@@ -104,7 +119,7 @@ ActiveSyncFolderStorage.prototype = {
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
        .stag(as.Collections)
-         .stag(as.Collection)
+         .stag(as.Collection);
 
     if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
           w.tag(as.Class, 'Email');
@@ -125,7 +140,6 @@ ActiveSyncFolderStorage.prototype = {
          .etag()
        .etag()
      .etag();
-
     account.conn.doCommand(w, function(aError, aResponse) {
       if (aError)
         return;
@@ -256,11 +270,13 @@ ActiveSyncFolderStorage.prototype = {
   },
 
   _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
-    // XXX: this is a very silly way of handling this error case. Fix it.
-    if (this._loaded !== 2) {
-      bridgeHandle.sendSplice(0, 0, [], true, false);
+    if (!this._loaded) {
+      this._onLoadListeners.push(this._sliceFolderMessages
+                                     .bind(this, bridgeHandle));
       return;
     }
+
+    bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
     this._loadMessages(function(headers, bodies) {
@@ -268,7 +284,7 @@ ActiveSyncFolderStorage.prototype = {
       folderStorage._headers.sort(function(a, b) a.date < b.date);
       for (let [k,v] in Iterator(bodies))
         folderStorage._bodiesBySuid[k] = v;
-      bridgeHandle.sendSplice(0, 0, folderStorage._headers, true, false);
+      bridgeHandle.sendSplice(0, 0, headers, true, false);
       folderStorage.account.saveAccountState();
     });
   },
