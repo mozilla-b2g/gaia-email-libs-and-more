@@ -173,8 +173,8 @@ ActiveSyncAccount.prototype = {
         }
 
         if (node.tag == fh.Add)
-          account._addedFolder(folder.ServerId, folder.DisplayName,
-                               folder.Type);
+          account._addedFolder(folder.ServerId, folder.ParentId,
+                               folder.DisplayName, folder.Type);
         else
           account._deletedFolder(folder.ServerId);
       });
@@ -197,19 +197,28 @@ ActiveSyncAccount.prototype = {
     12: 'normal', // User-created mail folder
   },
 
-  _addedFolder: function as__addedFolder(serverId, displayName, typeNum) {
+  _addedFolder: function as__addedFolder(serverId, parentId, displayName,
+                                         typeNum) {
     if (!(typeNum in this._folderTypes))
       return; // Not a folder type we care about.
 
-    var folderId = this.id + '/' + serverId;
-    var folderInfo = this._folderInfos[folderId] = {
+    let folderId = this.id + '/' + serverId;
+    let path = displayName;
+    let depth = 0;
+    if (parentId !== '0') {
+      let parent = this._folderInfos[this.id + '/' + parentId];
+      path = parent.$meta.path + '/' + path;
+      depth = parent.$meta.depth + 1;
+    }
+
+    let folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
         serverId: serverId,
         name: displayName,
-        path: displayName,
+        path: path,
         type: this._folderTypes[typeNum],
-        depth: 0,
+        depth: depth,
       },
       $impl: {
         nextHeaderBlock: 0,
