@@ -140,6 +140,7 @@ ActiveSyncFolderStorage.prototype = {
          .etag()
        .etag()
      .etag();
+
     account.conn.doCommand(w, function(aError, aResponse) {
       if (aError)
         return;
@@ -151,8 +152,13 @@ ActiveSyncFolderStorage.prototype = {
       let e = new $wbxml.EventParser();
       let headers = [];
       let bodies = {};
+      let status;
 
       const base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+
       e.addEventListener(base.concat(as.SyncKey), function(node) {
         folderStorage.folderMeta.syncKey = node.children[0].textContent;
       });
@@ -264,8 +270,21 @@ ActiveSyncFolderStorage.prototype = {
 
       e.run(aResponse);
 
-      headers.sort(function(a, b) a.date < b.date);
-      callback(headers, bodies);
+      if (status === '1') { // Success
+        headers.sort(function(a, b) a.date < b.date);
+        callback(headers, bodies);
+      }
+      else if (status === '3') { // Bad sync key
+        console.log('ActiveSync had a bad sync key');
+        // This should already be set to 0, but let's just be safe.
+        folderStorage.folderMeta.syncKey = '0';
+        folderStorage._needsPurge = true;
+        folderStorage._loadMessages(callback);
+      }
+      else {
+        console.error('Something went wrong during ActiveSync syncing and we ' +
+                      'got a status of ' + status);
+      }
     });
   },
 
@@ -280,10 +299,19 @@ ActiveSyncFolderStorage.prototype = {
 
     var folderStorage = this;
     this._loadMessages(function(headers, bodies) {
+      if (folderStorage._needsPurge) {
+        bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
+                                true);
+        folderStorage._headers = [];
+        folderStorage._bodiesBySuid = {};
+        folderStorage._needsPurge = false;
+      }
+
       folderStorage._headers = folderStorage._headers.concat(headers);
       folderStorage._headers.sort(function(a, b) a.date < b.date);
       for (let [k,v] in Iterator(bodies))
         folderStorage._bodiesBySuid[k] = v;
+
       bridgeHandle.sendSplice(0, 0, headers, true, false);
       folderStorage.account.saveAccountState();
     });
