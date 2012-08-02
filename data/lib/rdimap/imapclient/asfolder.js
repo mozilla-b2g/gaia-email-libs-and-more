@@ -141,19 +141,21 @@ ActiveSyncFolderStorage.prototype = {
      .etag();
 
     account.conn.doCommand(w, function(aError, aResponse) {
+      let headers = [];
+      let bodies = {};
+      let deleted = [];
+      let status;
+
       if (aError)
         return;
       if (!aResponse) {
-        callback([], {});
+        callback(headers, bodies, deleted);
         return;
       }
 
       let e = new $wbxml.EventParser();
-      let headers = [];
-      let bodies = {};
-      let status;
-
       const base = [as.Sync, as.Collections, as.Collection];
+
       e.addEventListener(base.concat(as.Status), function(node) {
         status = node.children[0].textContent;
       });
@@ -183,11 +185,25 @@ ActiveSyncFolderStorage.prototype = {
         bodies[msg.headers.suid] = msg.body;
       });
 
+      e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
+        let guid;
+
+        for (let [,child] in Iterator(node.children)) {
+          switch (child.tag) {
+          case as.ServerId:
+            guid = child.children[0].textContent;
+            break;
+          }
+        }
+
+        deleted.push(guid);
+      });
+
       e.run(aResponse);
 
       if (status === '1') { // Success
         headers.sort(function(a, b) a.date < b.date);
-        callback(headers, bodies);
+        callback(headers, bodies, deleted);
       }
       else if (status === '3') { // Bad sync key
         console.log('ActiveSync had a bad sync key');
@@ -314,13 +330,25 @@ ActiveSyncFolderStorage.prototype = {
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
-    this._loadMessages(function(headers, bodies) {
+    this._loadMessages(function(headers, bodies, deleted) {
       if (folderStorage._needsPurge) {
         bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
                                 true);
         folderStorage._headers = [];
         folderStorage._bodiesBySuid = {};
         folderStorage._needsPurge = false;
+      }
+
+      // Handle messages that have been deleted
+      for (let [,guid] in Iterator(deleted)) {
+        for (let [i, header] in Iterator(folderStorage._headers)) {
+          if (header.guid === guid) {
+            delete folderStorage._bodiesBySuid[header.suid];
+            folderStorage._headers.splice(i, 1);
+            bridgeHandle.sendSplice(i, 1, [], true, true);
+            break;
+          }
+        }
       }
 
       folderStorage._headers = folderStorage._headers.concat(headers);
