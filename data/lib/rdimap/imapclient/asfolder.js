@@ -114,7 +114,6 @@ ActiveSyncFolderStorage.prototype = {
 
     let as = $ascp.AirSync.Tags;
     let asb = $ascp.AirSyncBase.Tags;
-    let em = $ascp.Email.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -163,109 +162,25 @@ ActiveSyncFolderStorage.prototype = {
         folderStorage.folderMeta.syncKey = node.children[0].textContent;
       });
 
-      e.addEventListener(base.concat(as.Commands, as.Add, as.ApplicationData),
-                         function(node)
-      {
-        let guid = Date.now() + Math.random().toString(16).substr(1) +
-                   '@mozgaia';
-        let header = {
-          subject: null,
-          author: null,
-          date: null,
-          flags: [],
-          id: null,
-          suid: folderStorage.folderId + '/' + guid,
-          guid: guid,
-          hasAttachments: false,
-          snippet: null,
-        };
-        var body = {
-          to: null,
-          cc: null,
-          bcc: null,
-          replyTo: null,
-          attachments: null,
-          references: null,
-          bodyRep: null,
-        };
+      e.addEventListener(base.concat(as.Commands, as.Add), function(node) {
+        let guid;
+        let msg;
 
         for (let [,child] in Iterator(node.children)) {
-          let childText = child.children.length &&
-            child.children[0].textContent;
-
           switch (child.tag) {
-          case em.Subject:
-            header.subject = childText;
+          case as.ServerId:
+            guid = child.children[0].textContent;
             break;
-          case em.From:
-            header.author = $mimelib.parseAddresses(childText)[0];
-            break;
-          case em.To:
-            body.to = $mimelib.parseAddresses(childText);
-            break;
-          case em.Cc:
-            nody.cc = $mimelib.parseAddresses(childText);
-            break;
-          case em.ReplyTo:
-            body.replyTo = $mimelib.parseAddresses(childText);
-            break;
-          case em.DateReceived:
-            header.date = new Date(childText).valueOf();
-            break;
-          case em.Read:
-            if (childText == '1')
-              header.flags.push('\\Seen');
-            break;
-          case em.Flag:
-            for (let [,grandchild] in Iterator(child.children)) {
-              if (grandchild.tag === em.Status &&
-                  grandchild.children[0].textContent !== '0')
-                header.flags.push('\\Flagged');
-            }
-            break;
-          case asb.Body: // ActiveSync 12.0+
-            for (let [,grandchild] in Iterator(child.children)) {
-              if (grandchild.tag === asb.Data) {
-                body.bodyRep = $quotechew.quoteProcessTextBody(
-                  grandchild.children[0].textContent);
-                header.snippet = $quotechew.generateSnippet(body.bodyRep);
-              }
-            }
-            break;
-          case em.Body: // pre-ActiveSync 12.0
-            body.bodyRep = $quotechew.quoteProcessTextBody(childText);
-            header.snippet = $quotechew.generateSnippet(body.bodyRep);
-            break;
-          case asb.Attachments: // ActiveSync 12.0+
-          case em.Attachments:  // pre-ActiveSync 12.0
-            header.hasAttachments = true;
-            body.attachments = [];
-            for (let [,attachmentNode] in Iterator(child.children)) {
-              if (attachmentNode.tag !== asb.Attachment &&
-                  attachmentNode.tag !== em.Attachment)
-                continue; // XXX: throw an error here??
-
-              let attachment = { type: 'text/plain' }; // XXX: this is lies
-              for (let [,attachData] in Iterator(attachmentNode.children)) {
-                switch (attachData.tag) {
-                case asb.DisplayName:
-                case em.DisplayName:
-                  attachment.name = attachData.children[0].textContent;
-                  break;
-                case asb.EstimatedDataSize:
-                case em.AttSize:
-                  attachment.sizeEstimate = attachData.children[0].textContent;
-                  break;
-                }
-              }
-              body.attachments.push(attachment);
-            }
+          case as.ApplicationData:
+            msg = folderStorage._processAddedMessage(child);
             break;
           }
         }
 
-        headers.push(header);
-        bodies[header.suid] = body;
+        msg.headers.guid = guid;
+        msg.headers.suid = folderStorage.folderId + '/' + guid;
+        headers.push(msg.headers);
+        bodies[msg.headers.suid] = msg.body;
       });
 
       e.run(aResponse);
@@ -286,6 +201,107 @@ ActiveSyncFolderStorage.prototype = {
                       'got a status of ' + status);
       }
     });
+  },
+
+  _processAddedMessage: function(node) {
+    let asb = $ascp.AirSyncBase.Tags;
+    let em = $ascp.Email.Tags;
+
+    let headers = {
+      subject: null,
+      author: null,
+      date: null,
+      flags: [],
+      id: null,
+      hasAttachments: false,
+      snippet: null,
+    };
+    var body = {
+      to: null,
+      cc: null,
+      bcc: null,
+      replyTo: null,
+      attachments: null,
+      references: null,
+      bodyRep: null,
+    };
+
+    for (let [,child] in Iterator(node.children)) {
+      let childText = child.children.length &&
+                      child.children[0].textContent;
+
+      switch (child.tag) {
+      case em.Subject:
+        headers.subject = childText;
+        break;
+      case em.From:
+        headers.author = $mimelib.parseAddresses(childText)[0];
+        break;
+      case em.To:
+        body.to = $mimelib.parseAddresses(childText);
+        break;
+      case em.Cc:
+        body.cc = $mimelib.parseAddresses(childText);
+        break;
+      case em.ReplyTo:
+        body.replyTo = $mimelib.parseAddresses(childText);
+        break;
+      case em.DateReceived:
+        headers.date = new Date(childText).valueOf();
+        break;
+      case em.Read:
+        if (childText == '1')
+          headers.flags.push('\\Seen');
+        break;
+      case em.Flag:
+        for (let [,grandchild] in Iterator(child.children)) {
+          if (grandchild.tag === em.Status &&
+              grandchild.children[0].textContent !== '0')
+            headers.flags.push('\\Flagged');
+        }
+        break;
+      case asb.Body: // ActiveSync 12.0+
+        for (let [,grandchild] in Iterator(child.children)) {
+          if (grandchild.tag === asb.Data) {
+            body.bodyRep = $quotechew.quoteProcessTextBody(
+              grandchild.children[0].textContent);
+            headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+          }
+        }
+        break;
+      case em.Body: // pre-ActiveSync 12.0
+        body.bodyRep = $quotechew.quoteProcessTextBody(childText);
+        headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+        break;
+      case asb.Attachments: // ActiveSync 12.0+
+      case em.Attachments:  // pre-ActiveSync 12.0
+        headers.hasAttachments = true;
+        body.attachments = [];
+        for (let [,attachmentNode] in Iterator(child.children)) {
+          if (attachmentNode.tag !== asb.Attachment &&
+              attachmentNode.tag !== em.Attachment)
+            continue; // XXX: throw an error here??
+
+          let attachment = { type: 'text/plain' }; // XXX: this is lies
+          for (let [,attachData] in Iterator(attachmentNode.children)) {
+            switch (attachData.tag) {
+            case asb.DisplayName:
+            case em.DisplayName:
+              attachment.name = attachData.children[0].textContent;
+              break;
+            case asb.EstimatedDataSize:
+            case em.AttSize:
+              attachment.sizeEstimate = attachData.children[0].textContent;
+              break;
+            }
+          }
+          body.attachments.push(attachment);
+        }
+        break;
+      }
+    }
+
+    return { headers: headers, body: body };
   },
 
   _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
