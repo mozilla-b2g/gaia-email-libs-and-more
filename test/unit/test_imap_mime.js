@@ -103,23 +103,30 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           mwqSammySnake,
           { charset: 'utf-8', format: null, encoding: null }),
-  // - bodies: text/html
-      bpartIgnoredHtml =
+  // - bodies: text/enriched (ignored!)
+  // This exists just to test the alternatives logic.
+      bpartIgnoreEnriched =
         new SyntheticPartLeaf(
-          '<html><head></head><body>I am HTML! Woo! </body></html>',
+          '<bold><italic>I am not a popular format! sad woo :(</italic></bold>',
+          { contentType: 'text/enriched' }),
+
+  // - bodies: text/html
+      bpartTrivialHtml =
+        new SyntheticPartLeaf(
+          '<html><head></head><body>I am HTML! Woo!</body></html>',
           { contentType: 'text/html' }),
 
   // - multipart/alternative
   // NB: currently we ignore HTML body parts!
       alternStraight =
         new SyntheticPartMultiAlternative(
-          [bpartStraightASCII, bpartIgnoredHtml]),
+          [bpartStraightASCII, bpartIgnoredEnriched]),
       alternUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartUtf8Name, bpartIgnoredHtml]),
+          [bpartUtf8Name, bpartIgnoredEnriched]),
       alternQpUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartQpUtf8Name, bpartIgnoredHtml]);
+          [bpartQpUtf8Name, bpartIgnoredEnriched]);
 
   // -- full definitions and expectations
   var testMessages = [

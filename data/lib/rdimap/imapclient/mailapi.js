@@ -399,8 +399,6 @@ function MailBody(api, suid, wireRep) {
       this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
     }
   }
-  // for the time being, we only provide text/plain contents, and we provide
-  // those flattened.
   this.bodyRep = wireRep.bodyRep;
 }
 MailBody.prototype = {
@@ -412,6 +410,53 @@ MailBody.prototype = {
       type: 'MailBody',
       id: this.id
     };
+  },
+  get bodyType() {
+    if (typeof(this.bodyRep) === 'string')
+      return 'html';
+    return 'plain';
+  },
+
+  /**
+   * true if this is an HTML document with inline images sent as part of the
+   * messages.
+   */
+  get hasEmbeddedImages() {
+  },
+
+  /**
+   * true if this is an HTML document with references to externally hosted
+   * images.
+   */
+  get hasExternalImages() {
+  },
+
+  /**
+   * Trigger the download of any inline images sent as part of the message.
+   * Once the images have been downloaded
+   */
+  downloadEmbeddedImages: function() {
+  },
+
+  /**
+   * Download the images for this message (assuming they are not already
+   * downloaded) and invoke the callback when they are available.
+   */
+  showEmbeddedImages: function(callback) {
+  },
+
+  /**
+   * Transform
+   */
+  showExternalImages: function(htmlNode) {
+  },
+
+  /**
+   * Call this method when you are done with a message body.  This is required
+   * so that any File/Blob URL's can be revoked or avoid being issued in the
+   * first place.
+   */
+  die: function() {
   },
 };
 
