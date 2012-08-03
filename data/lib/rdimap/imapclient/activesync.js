@@ -18,12 +18,12 @@ define(
     $ascp,
     $activesync,
     $asfolder,
-    $imaputil,
+    $util,
     exports
   ) {
 'use strict';
 
-const bsearchForInsert = $imaputil.bsearchForInsert;
+const bsearchForInsert = $util.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                            receiveProtoConn, _LOG) {
