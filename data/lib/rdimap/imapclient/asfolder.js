@@ -371,7 +371,7 @@ ActiveSyncFolderStorage.prototype = {
           addedBlocks[idx].push(header);
         }
 
-        let keys = Object.keys(addedBlocks).sort(function(a, b) a < b);
+        let keys = Object.keys(addedBlocks).sort(function(a, b) b - a);
         let hdrs = folderStorage._headers;
         for (let [,key] in Iterator(keys)) {
           // XXX: I feel like this is probably slower than it needs to be...
