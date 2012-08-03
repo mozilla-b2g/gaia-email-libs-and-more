@@ -5,6 +5,7 @@ define(
     'activesync/protocol',
     'mimelib',
     './quotechew',
+    './util',
     'exports'
   ],
   function(
@@ -13,6 +14,7 @@ define(
     $activesync,
     $mimelib,
     $quotechew,
+    $util,
     exports
   ) {
 'use strict';
@@ -205,7 +207,6 @@ ActiveSyncFolderStorage.prototype = {
       e.run(aResponse);
 
       if (status === '1') { // Success
-        added.headers.sort(function(a, b) a.date < b.date);
         callback(added, changed, deleted);
       }
       else if (status === '3') { // Bad sync key
@@ -358,13 +359,31 @@ ActiveSyncFolderStorage.prototype = {
         }
       }
 
-      // Handle messages that have been added; TODO: sort them properly
-      folderStorage._headers = folderStorage._headers.concat(added.headers);
-      folderStorage._headers.sort(function(a, b) a.date < b.date);
-      for (let [k,v] in Iterator(added.bodies))
-        folderStorage._bodiesBySuid[k] = v;
+      // Handle messages that have been added
+      if (added.headers.length) {
+        added.headers.sort(function(a, b) b.date - a.date);
+        let addedBlocks = {};
+        for (let [,header] in Iterator(added.headers)) {
+          let idx = $util.bsearchForInsert(folderStorage._headers, header,
+                                           function(a, b) b.date - a.date);
+          if (!(idx in addedBlocks))
+            addedBlocks[idx] = [];
+          addedBlocks[idx].push(header);
+        }
 
-      bridgeHandle.sendSplice(0, 0, added.headers, true, false);
+        let keys = Object.keys(addedBlocks).sort(function(a, b) a < b);
+        let hdrs = folderStorage._headers;
+        for (let [,key] in Iterator(keys)) {
+          // XXX: I feel like this is probably slower than it needs to be...
+          hdrs.splice.apply(hdrs, [key, 0].concat(addedBlocks[key]));
+          bridgeHandle.sendSplice(key, 0, addedBlocks[key], true, true);
+        }
+
+        for (let [k, v] in Iterator(added.bodies))
+          folderStorage._bodiesBySuid[k] = v;
+      }
+
+      bridgeHandle.sendSplice(0, 0, [], true, false);
       folderStorage.account.saveAccountState();
     });
   },
