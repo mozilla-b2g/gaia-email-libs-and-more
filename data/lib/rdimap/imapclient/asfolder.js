@@ -141,15 +141,15 @@ ActiveSyncFolderStorage.prototype = {
      .etag();
 
     account.conn.doCommand(w, function(aError, aResponse) {
-      let headers = [];
-      let bodies = {};
+      let added   = { headers: [], bodies: {} };
+      let changed = { headers: [], bodies: {} };
       let deleted = [];
       let status;
 
       if (aError)
         return;
       if (!aResponse) {
-        callback(headers, bodies, deleted);
+        callback(added, changed, deleted);
         return;
       }
 
@@ -164,7 +164,8 @@ ActiveSyncFolderStorage.prototype = {
         folderStorage.folderMeta.syncKey = node.children[0].textContent;
       });
 
-      e.addEventListener(base.concat(as.Commands, as.Add), function(node) {
+      e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
+                         function(node) {
         let guid;
         let msg;
 
@@ -174,15 +175,17 @@ ActiveSyncFolderStorage.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderStorage._processAddedMessage(child);
+            msg = folderStorage._processMessage(child);
             break;
           }
         }
 
         msg.headers.guid = guid;
         msg.headers.suid = folderStorage.folderId + '/' + guid;
-        headers.push(msg.headers);
-        bodies[msg.headers.suid] = msg.body;
+
+        let collection = node.tag === as.Add ? added : changed;
+        collection.headers.push(msg.headers);
+        collection.bodies[msg.headers.suid] = msg.body;
       });
 
       e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
@@ -202,8 +205,8 @@ ActiveSyncFolderStorage.prototype = {
       e.run(aResponse);
 
       if (status === '1') { // Success
-        headers.sort(function(a, b) a.date < b.date);
-        callback(headers, bodies, deleted);
+        added.headers.sort(function(a, b) a.date < b.date);
+        callback(added, changed, deleted);
       }
       else if (status === '3') { // Bad sync key
         console.log('ActiveSync had a bad sync key');
@@ -219,28 +222,21 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _processAddedMessage: function(node) {
+  _processMessage: function(node) {
     let asb = $ascp.AirSyncBase.Tags;
     let em = $ascp.Email.Tags;
 
     let headers = {
-      subject: null,
-      author: null,
-      date: null,
-      flags: [],
-      id: null,
-      hasAttachments: false,
-      snippet: null,
+      get flags() {
+        let f = [];
+        if (this.read)
+          f.push('\\Seen');
+        if (this.flagged)
+          f.push('\\Flagged');
+        return f;
+      },
     };
-    var body = {
-      to: null,
-      cc: null,
-      bcc: null,
-      replyTo: null,
-      attachments: null,
-      references: null,
-      bodyRep: null,
-    };
+    var body = {};
 
     for (let [,child] in Iterator(node.children)) {
       let childText = child.children.length &&
@@ -266,14 +262,12 @@ ActiveSyncFolderStorage.prototype = {
         headers.date = new Date(childText).valueOf();
         break;
       case em.Read:
-        if (childText == '1')
-          headers.flags.push('\\Seen');
+        headers.read = (childText === '1');
         break;
       case em.Flag:
         for (let [,grandchild] in Iterator(child.children)) {
-          if (grandchild.tag === em.Status &&
-              grandchild.children[0].textContent !== '0')
-            headers.flags.push('\\Flagged');
+          if (grandchild.tag === em.Status)
+            headers.flagged = (grandchild.children[0].textContent !== '0');
         }
         break;
       case asb.Body: // ActiveSync 12.0+
@@ -330,7 +324,7 @@ ActiveSyncFolderStorage.prototype = {
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
-    this._loadMessages(function(headers, bodies, deleted) {
+    this._loadMessages(function(added, changed, deleted) {
       if (folderStorage._needsPurge) {
         bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
                                 true);
@@ -351,12 +345,26 @@ ActiveSyncFolderStorage.prototype = {
         }
       }
 
-      folderStorage._headers = folderStorage._headers.concat(headers);
+      // Handle messages that have been changed
+      for (let [,newHeader] in Iterator(changed.headers)) {
+        for (let [i, oldHeader] in Iterator(folderStorage._headers)) {
+          if (oldHeader.guid === newHeader.guid) {
+            // TODO: update bodies, improve merging
+            for (let [k, v] in Iterator(newHeader))
+              oldHeader[k] = v;
+            bridgeHandle.sendSplice(i, 1, [oldHeader], true, true);
+            break;
+          }
+        }
+      }
+
+      // Handle messages that have been added; TODO: sort them properly
+      folderStorage._headers = folderStorage._headers.concat(added.headers);
       folderStorage._headers.sort(function(a, b) a.date < b.date);
-      for (let [k,v] in Iterator(bodies))
+      for (let [k,v] in Iterator(added.bodies))
         folderStorage._bodiesBySuid[k] = v;
 
-      bridgeHandle.sendSplice(0, 0, headers, true, false);
+      bridgeHandle.sendSplice(0, 0, added.headers, true, false);
       folderStorage.account.saveAccountState();
     });
   },
