@@ -177,7 +177,7 @@ ActiveSyncFolderStorage.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderStorage._processMessage(child);
+            msg = folderStorage._processMessage(child, node.tag === as.Add);
             break;
           }
         }
@@ -223,21 +223,80 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _processMessage: function(node) {
+  _processMessage: function(node, isAdded) {
     let asb = $ascp.AirSyncBase.Tags;
     let em = $ascp.Email.Tags;
+    let headers, body, flagHeader;
 
-    let headers = {
-      get flags() {
-        let f = [];
-        if (this.read)
-          f.push('\\Seen');
-        if (this.flagged)
-          f.push('\\Flagged');
-        return f;
-      },
-    };
-    var body = {};
+    if (isAdded) {
+      headers = {
+        id: null,
+        suid: null,
+        guid: null,
+        author: null,
+        date: null,
+        flags: [],
+        hasAttachments: null,
+        subject: null,
+        snippet: null,
+      };
+
+      body = {
+        date: null,
+        size: null,
+        to: null,
+        cc: null,
+        bcc: null,
+        replyTo: null,
+        attachments: [],
+        references: null,
+        bodyRep: null,
+      };
+
+      flagHeader = function(flag, state) {
+        if (state)
+          headers.flags.push(flag);
+      }
+    }
+    else {
+      headers = {
+        flags: [],
+        mergeInto: function(o) {
+          // Merge flags
+          for (let [,flagstate] in Iterator(this.flags)) {
+            if (flagstate[1]) {
+              o.flags.push(flagstate[0]);
+            }
+            else {
+              let index = o.flags.indexOf(flagstate[0]);
+              if (index !== -1)
+                o.flags.splice(index, 1);
+            }
+          }
+
+          // Merge everything else
+          for (let [key, value] in Iterator(this)) {
+            if (['mergeInto', 'suid', 'guid', 'flags'].indexOf(key) !== -1)
+              continue;
+
+            o[key] = value;
+          }
+        },
+      };
+
+      body = {
+        mergeInto: function(o) {
+          for (let [key, value] in Iterator(this)) {
+            if (key === 'mergeInto') continue;
+            o[key] = value;
+          }
+        },
+      };
+
+      flagHeader = function(flag, state) {
+        headers.flags.push([flag, state]);
+      }
+    }
 
     for (let [,child] in Iterator(node.children)) {
       let childText = child.children.length &&
@@ -260,15 +319,15 @@ ActiveSyncFolderStorage.prototype = {
         body.replyTo = $mimelib.parseAddresses(childText);
         break;
       case em.DateReceived:
-        headers.date = new Date(childText).valueOf();
+        body.date = headers.date = new Date(childText).valueOf();
         break;
       case em.Read:
-        headers.read = (childText === '1');
+        flagHeader('\\Seen', childText === '1');
         break;
       case em.Flag:
         for (let [,grandchild] in Iterator(child.children)) {
           if (grandchild.tag === em.Status)
-            headers.flagged = (grandchild.children[0].textContent !== '0');
+            flagHeader('\\Flagged', grandchild.children[0].textContent !== '0');
         }
         break;
       case asb.Body: // ActiveSync 12.0+
@@ -350,10 +409,13 @@ ActiveSyncFolderStorage.prototype = {
       for (let [,newHeader] in Iterator(changed.headers)) {
         for (let [i, oldHeader] in Iterator(folderStorage._headers)) {
           if (oldHeader.guid === newHeader.guid) {
-            // TODO: update bodies, improve merging
-            for (let [k, v] in Iterator(newHeader))
-              oldHeader[k] = v;
+            let oldBody = folderStorage._bodiesBySuid[oldHeader.suid];
+            let newBody = changed.bodies[oldHeader.suid];
+
+            newHeader.mergeInto(oldHeader);
+            newBody.mergeInto(oldBody);
             bridgeHandle.sendSplice(i, 1, [oldHeader], true, true);
+
             break;
           }
         }
