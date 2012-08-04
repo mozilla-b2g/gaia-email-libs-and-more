@@ -1676,6 +1676,10 @@ ImapFolderStorage.prototype = {
     block.headers.splice(idx, 1);
     info.estSize -= HEADER_EST_SIZE_IN_BYTES;
     info.count--;
+
+    this._dirty = true;
+    this._dirtyHeaderBlocks[info.blockId] = block;
+
     // - update endTS/endUID if necessary
     if (idx === 0 && info.count) {
       header = block.headers[0];
@@ -1721,6 +1725,9 @@ ImapFolderStorage.prototype = {
     splinfo.estSize = numHeaders * HEADER_EST_SIZE_IN_BYTES;
     splinfo.startTS = newerStartHeader.date;
     splinfo.startUID = newerStartHeader.id;
+    // this._dirty is already touched by makeHeaderBlock when it dirties the
+    // block it creates.
+    this._dirtyHeaderBlocks[splinfo.blockId] = splock;
 
     return olderInfo;
   },
@@ -1775,11 +1782,18 @@ ImapFolderStorage.prototype = {
   _deleteBodyFromBlock: function ifs__deleteBodyFromBlock(uid, info, block) {
     // - delete
     var idx = block.uids.indexOf(uid);
-    block.uids.splice(idx, 1);
     var body = block.bodies[uid];
+    if (idx === -1 || !body) {
+      this._LOG.bodyBlockMissing(uid, idx, !!body);
+      return;
+    }
+    block.uids.splice(idx, 1);
     delete block.bodies[uid];
     info.estSize -= body.size;
     info.count--;
+
+    this._dirty = true;
+    this._dirtyBodyBlocks[info.blockId] = block;
 
     // - update endTS/endUID if necessary
     if (idx === 0 && info.count) {
@@ -1829,6 +1843,8 @@ ImapFolderStorage.prototype = {
       oldDict);
     splinfo.estSize = newerBytes;
     splock.bodies = newDict;
+    // _makeBodyBlock dirties the block it creates and touches _dirty
+    this._dirtyBodyBlocks[splinfo.blockId] = splock;
 
     return olderInfo;
   },
@@ -2267,6 +2283,7 @@ ImapFolderStorage.prototype = {
 
   _deleteFromBlock: function ifs__deleteFromBlock(type, date, uid, callback) {
     var blockInfoList, blockMap, deleteFromBlock;
+    this._LOG.deleteFromBlock(type, date, uid);
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
       blockMap = this._headerBlocks;
@@ -2304,7 +2321,6 @@ ImapFolderStorage.prototype = {
         else
           this._dirtyBodyBlocks[info.blockId] = null;
       }
-
       if (callback)
         callback();
     }
@@ -3575,6 +3591,14 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapFolderStorage: {
     type: $log.DATABASE,
     events: {
+      // For now, logging date and uid is useful because the general logging
+      // level will show us if we are trying to redundantly delete things.
+      // Also, date and uid are opaque identifiers with very little entropy
+      // on their own.  (The danger is in correlation with known messages,
+      // but that is likely to be useful in the debugging situations where logs
+      // will be sufaced.)
+      deleteFromBlock: { type: false, date: false, uid: false },
+
       // This was an error but the test results viewer UI is not quite smart
       // enough to understand the difference between expected errors and
       // unexpected errors, so this is getting downgraded for now.
@@ -3590,8 +3614,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     errors: {
       badBlockLoad: { type: false, blockId: false },
+      // Exposing date/uid at a general level is deemed okay because they are
+      // opaque identifiers and the most likely failure models involve the
+      // values being ridiculous (and therefore not legal).
       badIterationStart: { date: false, uid: false },
       badDeletionRequest: { type: false, date: false, uid: false },
+      bodyBlockMissing: { uid: false, idx: false, dict: false },
     }
   },
 }); // end LOGFAB

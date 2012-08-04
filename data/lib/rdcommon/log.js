@@ -1170,6 +1170,10 @@ LoggestClassMaker.prototype = {
         }
         // -- end new bit
         this._entries.push(entry);
+        // ++ firing bit...
+        var testActor = this._actor;
+        if (testActor)
+          testActor.__loggerFired();
       };
       this.testLogProto[name_end] = function() {
         this._eventMap[name_end] = (this._eventMap[name_end] || 0) + 1;
@@ -1191,6 +1195,10 @@ LoggestClassMaker.prototype = {
         }
         // -- end new bit
         this._entries.push(entry);
+        // ++ firing bit...
+        var testActor = this._actor;
+        if (testActor)
+          testActor.__loggerFired();
       };
     }
 
