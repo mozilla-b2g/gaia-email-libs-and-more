@@ -439,10 +439,9 @@ MailBody.prototype = {
   },
 
   /**
-   * Download the images for this message (assuming they are not already
-   * downloaded) and invoke the callback when they are available.
+   * Asynchronously trigger the display of embedded images
    */
-  showEmbeddedImages: function(callback) {
+  showEmbeddedImages: function(htmlNode, callback) {
   },
 
   /**

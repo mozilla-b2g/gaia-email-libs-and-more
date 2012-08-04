@@ -1,5 +1,5 @@
 /**
- * Process message bodies for quoting / signatures.
+ * Process text/plain message bodies for quoting / signatures.
  *
  * We have two main goals in our processing:
  *

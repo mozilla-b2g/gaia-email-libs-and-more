@@ -5,10 +5,12 @@
 define(
   [
     './quotechew',
+    './htmlchew',
     'exports'
   ],
   function(
     $quotechew,
+    $htmlchew,
     exports
   ) {
 
@@ -64,7 +66,8 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   //     [{alternative} [{text/plain}] [{text/html}]]
   //   multipart/mixed text w/attachment =>
   //     [{mixed} [{text/plain}] [{application/pdf}]]
-  var attachments = [], bodyParts = [], unnamedPartCounter = 0;
+  var attachments = [], bodyParts = [], unnamedPartCounter = 0,
+      relatedParts = [];
 
   /**
    * Sizes are the size of the encoded string, not the decoded value.
@@ -140,11 +143,24 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         name: filename,
         type: partInfo.type + '/' + partInfo.subtype,
         part: partInfo.partID,
+        encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
       });
       return;
     }
-    // XXX once we support html we need to save off the related bits.
+    // (must be inline)
+
+    //
+    if (partInfo.type === 'image') {
+      relatedParts.push({
+        name: partInfo.id, // this is the cid
+        type: partInfo.type + '/' + partInfo.subtype,
+        part: partInfo.partID,
+        encoding: partInfo.encoding,
+        sizeEstimate: estimatePartSizeInBytes(partInfo)
+      });
+      return;
+    }
 
     // - We must be an inline part or structure
     switch (partInfo.type) {
@@ -155,38 +171,61 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         }
         // (ignore html)
         break;
-
-      // - multipart that we should recurse into
-      case 'alternative':
-      case 'mixed':
-      case 'signed':
-        for (i = 1; i < branch.length; i++) {
-          chewStruct(branch[i]);
-        }
-        break;
     }
   }
 
   function chewMultipart(branch) {
-    var partInfo = branch[0];
+    var partInfo = branch[0], i;
 
     // - We must be an inline part or structure
     switch (partInfo.type) {
-      // - multipart that we should recurse into
+      // - for alternative, scan from the back to find the first part we like
+      // XXX I believe in Thunderbird we observed some ridiculous misuse of
+      // alternative that we'll probably want to handle.
       case 'alternative':
+        for (i = branch.length - 1; i >= 1; i--) {
+          var subPartInfo = branch[i];
+
+          switch(subPartInfo.type) {
+            case 'text':
+              // fall out for subtype checking
+              break;
+            case 'multipart':
+              // this is probably HTML with attachments, let's give it a try
+              if (chewMultipart(subPartInfo))
+                return true;
+              break;
+            default:
+              // no good, keep going
+              continue;
+          }
+
+          // CODEME: handle text/plain, text/html, plus things that imply text/html
+          // maybe use a return value to indicate whether we processed so that we
+          // can fail out of the guesses like related.
+          switch (subPartInfo.subtype) {
+            case 'html':
+            case 'plain':
+              chewLeaf(subPartInfo);
+              return true;
+          }
+        }
+        // (If we are here, we failed to find a valid choice.)
+        return false;
+      // - multipart that we should recurse into
       case 'mixed':
       case 'signed':
-        for (var i = 1; i < branch.length; i++) {
+        for (i = 1; i < branch.length; i++) {
           if (branch[i].length > 1)
             chewMultipart(branch[i]);
           else
             chewLeaf(branch[i]);
         }
-        break;
+        return true;
 
       default:
         console.warn('Ignoring multipart type:', partInfo.type);
-        break;
+        return false;
     }
   }
 
@@ -202,6 +241,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     msg: msg,
     bodyParts: bodyParts,
     attachments: attachments,
+    relatedParts: relatedParts,
     header: null,
     bodyInfo: null,
   };
@@ -223,6 +263,11 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  * fetched in order to finish processing of the message to produce the header
  * and body data-structures for the message.
  *
+ * This method is currently synchronous because quote-chewing and HTML
+ * sanitization can be performed synchronously.  This may need to become
+ * asynchronous if we still end up with this happening on the same thread as the
+ * UI so we can time slice of something like that.
+ *
  * @args[
  *   @param[rep ChewRep]
  *   @param[bodyPartContents @listof[String]]{
@@ -237,9 +282,29 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  */
 exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
                                                folderId) {
+  var snippet = null;
 
-  var bodyRep = $quotechew.quoteProcessTextBody(bodyPartContents.join('\n')),
-      snippet = $quotechew.generateSnippet(bodyRep);
+  // Mailing lists can result in a text/html body part followed by a text/plain
+  // body part.  Can't rule out multiple HTML parts at this point either, so we
+  // just process everything independently and have the UI do likewise.
+  for (var i = 0; i < rep.bodyParts.length; i++) {
+    var partInfo = rep.bodyParts[i],
+        contents = bodyPartContents[i];
+
+    // HTML parts currently can be synchronously sanitized...
+    switch (partInfo.subtype) {
+      case 'plain':
+        var bodyRep = $quotechew.quoteProcessTextBody(contents);
+        if (!snippet)
+          snippet = $quotechew.generateSnippet(bodyRep);
+        break;
+
+      case 'html':
+
+        break;
+    }
+  }
+
 
   rep.header = {
     // the UID (as an integer)
