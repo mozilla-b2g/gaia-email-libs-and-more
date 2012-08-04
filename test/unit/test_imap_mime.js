@@ -103,23 +103,62 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           mwqSammySnake,
           { charset: 'utf-8', format: null, encoding: null }),
-  // - bodies: text/html
-      bpartIgnoredHtml =
+  // - bodies: text/enriched (ignored!)
+  // This exists just to test the alternatives logic.
+      bpartIgnoredEnriched =
         new SyntheticPartLeaf(
-          '<html><head></head><body>I am HTML! Woo! </body></html>',
-          { contentType: 'text/html' }),
+          '<bold><italic>I am not a popular format! sad woo :(</italic></bold>',
+          { contentType: 'text/enriched' }),
 
-  // - multipart/alternative
-  // NB: currently we ignore HTML body parts!
+  // - bodies: text/html
+      bstrTrivialHtml =
+        '<html><head></head><body>I am HTML! Woo!</body></html>',
+      bpartTrivialHtml =
+        new SyntheticPartLeaf(
+          bstrTrivialHtml,  { contentType: 'text/html' }),
+
+  // - multipart/related text/html with embedded images
+      bstrHtmlWithCids =
+        '<html><head></head><body>image 1: <img src="cid:part1.foo@bar.com">' +
+        ' image 2: <img src="cid:part2.foo@bar.com"></body></html>',
+      bpartHtmlWithCids =
+        new SyntheticPartLeaf(
+          bstrHtmlWithCids, { contentType: 'text/html' }),
+      relImage_1 = {
+          contentType: 'image/png',
+          encoding: 'base64', charset: null, format: null,
+          contentId: 'part1.foo@bar.com',
+          body: 'YWJj\n'
+        },
+      partRelImage_1 = new SyntheticPartLeaf(relImage_1.body, relImage_1),
+      relImage_2 = {
+          contentType: 'image/png',
+          encoding: 'base64', charset: null, format: null,
+          contentId: 'part2.foo@bar.com',
+          body: 'YWJj\n'
+        },
+      partRelImage_2 = new SyntheticPartLeaf(relImage_2.body, relImage_2),
+      bpartRelatedHtml =
+        new SyntheticPartMultiRelated(
+          [bpartHtmlWithCids, partRelImage_1, partRelImage_2]),
+
+  // - multipart/alternative where text/plain should be chosen
       alternStraight =
         new SyntheticPartMultiAlternative(
-          [bpartStraightASCII, bpartIgnoredHtml]),
+          [bpartStraightASCII, bpartIgnoredEnriched]),
       alternUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartUtf8Name, bpartIgnoredHtml]),
+          [bpartUtf8Name, bpartIgnoredEnriched]),
       alternQpUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartQpUtf8Name, bpartIgnoredHtml]);
+          [bpartQpUtf8Name, bpartIgnoredEnriched]),
+      // FUTURE: maybe text/html and text/plain with text/plain last and
+      // therefore theoretically preferred?  Worth checking if anyone honors it.
+
+  // - multipart/alternative where text/html should be chosen
+      alternHtml =
+        new SyntheticPartMultiAlternative(
+          [bpartTrivialHtml, bpartStraightASCII]);
 
   // -- full definitions and expectations
   var testMessages = [
@@ -138,7 +177,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       // the body should not get decoded; it should still be the mime-word
       checkBody: mwqSammySnake,
     },
-    // - alternatives that test proper encoding
+    // - alternatives that test proper (text/plain) encoding
     {
       name: 'multipart/alternative simple',
       bodyPart: alternStraight,
@@ -153,6 +192,18 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'multipart/alternative qp utf8',
       bodyPart: alternQpUtf8Name,
       checkBody: rawUnicodeName,
+    },
+    // - text/html
+    {
+      name: 'text/html trivial',
+      bodyPart: bpartTrivialHtml,
+      checkBody: bstrTrivialHtml,
+    },
+    // - alternative chooses text/html
+    {
+      name: 'multipart/alternative choose text/html',
+      bodyPart: alternHtml,
+      checkBody: bstrTrivialHtml,
     },
   ];
 

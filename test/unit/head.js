@@ -195,6 +195,8 @@ require({
     "wbxml": "deps/activesync/wbxml/wbxml",
     "activesync": "deps/activesync",
 
+    "bleach": "deps/bleach.js/lib/bleach",
+
     "imap": "data/lib/imap",
 
     "rdplat": "data/lib/rdplat",
