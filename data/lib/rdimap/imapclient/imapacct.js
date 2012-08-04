@@ -851,6 +851,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       runOp: { mode: true, type: true, error: false, op: false },
       saveAccountState: {},
     },
+    TEST_ONLY_asyncJobs: {
+    },
   },
 });
 

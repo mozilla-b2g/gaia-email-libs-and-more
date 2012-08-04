@@ -223,7 +223,7 @@ TD.commonCase('folder sync', function(T) {
   });
 
   T.group('fail to get the message body for a deleted message');
-  T.action(eSync, 'request deleted message body from', msearchView,
+  T.action(eSync, 'request deleted message body from',
            msearchFolder.storageActor, function() {
     eSync.expect_namedValue('bodyInfo', null);
     msearchFolder.storageActor.expect_bodyNotFound();
