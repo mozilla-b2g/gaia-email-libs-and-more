@@ -32,27 +32,28 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
   this._headers = [];
   this._bodiesBySuid = {};
 
-  this._onLoadListeners = [];
+  this._onLoadHeaderListeners = [];
+  this._onLoadBodyListeners = [];
 
-  let loading = 0;
-  function onLoaded(type, block) {
-    if (++loading == 2) {
-      this._loaded = true;
-      for (let [,listener] in Iterator(this._onLoadListeners))
-        listener();
-      this._onLoadListeners = [];
-    }
-    if (!block)
-      return;
+  let self = this;
 
-    if (type === 'header')
+  this._db.loadHeaderBlock(this.folderId, 0, function(block) {
+    this._loadedHeaders = true;
+    if (block)
       this._headers = block;
-    else
-      this._bodiesBySuid = block;
-  }
 
-  this._db.loadHeaderBlock(this.folderId, 0, onLoaded.bind(this, 'header'));
-  this._db.loadBodyBlock(this.folderId, 0, onLoaded.bind(this, 'body'));
+    for (let [,listener] in Iterator(this._onLoadHeaderListeners))
+      listener();
+  });
+
+  this._db.loadBodyBlock(this.folderId, 0, function(block) {
+    this._loadedBodies = true;
+    if (block)
+      this._bodiesBySuid = block;
+
+    for (let [,listener] in Iterator(this._onLoadBodyListeners))
+      listener();
+  });
 }
 exports.ActiveSyncFolderStorage = ActiveSyncFolderStorage;
 ActiveSyncFolderStorage.prototype = {
@@ -375,9 +376,9 @@ ActiveSyncFolderStorage.prototype = {
   },
 
   _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
-    if (!this._loaded) {
-      this._onLoadListeners.push(this._sliceFolderMessages
-                                     .bind(this, bridgeHandle));
+    if (!this._loadedHeaders) {
+      this._onLoadHeaderListeners.push(this._sliceFolderMessages
+                                           .bind(this, bridgeHandle));
       return;
     }
 
@@ -451,6 +452,12 @@ ActiveSyncFolderStorage.prototype = {
   },
 
   getMessageBody: function ffs_getMessageBody(suid, date, callback) {
+    if (!this._loadedBodies) {
+      this._onLoadBodyListeners.push(this.getMessageBody.bind(this, suid, date,
+                                                              callback));
+      return;
+    }
+
     callback(this._bodiesBySuid[suid]);
   },
 };
