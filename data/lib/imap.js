@@ -1681,7 +1681,7 @@ function parseBodyStructure(cur, prefix, partID) {
                                                + (prefix !== '' ? '.' : '')
                                                + (partID++).toString(), 1));
       }
-      part = { type: cur[next++].toLowerCase() };
+      part = { type: 'multipart', subtype: cur[next++].toLowerCase() };
       if (partLen > next) {
         if (Array.isArray(cur[next])) {
           part.params = {};
