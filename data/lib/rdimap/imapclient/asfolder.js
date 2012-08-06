@@ -38,20 +38,20 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
   let self = this;
 
   this._db.loadHeaderBlock(this.folderId, 0, function(block) {
-    this._loadedHeaders = true;
+    self._loadedHeaders = true;
     if (block)
-      this._headers = block;
+      self._headers = block;
 
-    for (let [,listener] in Iterator(this._onLoadHeaderListeners))
+    for (let [,listener] in Iterator(self._onLoadHeaderListeners))
       listener();
   });
 
   this._db.loadBodyBlock(this.folderId, 0, function(block) {
-    this._loadedBodies = true;
+    self._loadedBodies = true;
     if (block)
-      this._bodiesBySuid = block;
+      self._bodiesBySuid = block;
 
-    for (let [,listener] in Iterator(this._onLoadBodyListeners))
+    for (let [,listener] in Iterator(self._onLoadBodyListeners))
       listener();
   });
 }
