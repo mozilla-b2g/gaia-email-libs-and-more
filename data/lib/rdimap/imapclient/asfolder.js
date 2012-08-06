@@ -415,7 +415,7 @@ ActiveSyncFolderStorage.prototype = {
 
             newHeader.mergeInto(oldHeader);
             newBody.mergeInto(oldBody);
-            bridgeHandle.sendSplice(i, 1, [oldHeader], true, true);
+            bridgeHandle.sendUpdate([i, oldHeader]);
 
             break;
           }
@@ -446,7 +446,7 @@ ActiveSyncFolderStorage.prototype = {
           folderStorage._bodiesBySuid[k] = v;
       }
 
-      bridgeHandle.sendSplice(0, 0, [], true, false);
+      bridgeHandle.sendStatus(true, false);
       folderStorage.account.saveAccountState();
     });
   },
