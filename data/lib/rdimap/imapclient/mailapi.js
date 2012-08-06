@@ -399,11 +399,11 @@ function MailBody(api, suid, wireRep) {
       this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
     }
   }
-  this.bodyRep = wireRep.bodyRep;
+  this.bodyReps = wireRep.bodyReps;
 }
 MailBody.prototype = {
   toString: function() {
-    return '[MailBody: ' + id + ']';
+    return '[MailBody: ' + this.id + ']';
   },
   toJSON: function() {
     return {

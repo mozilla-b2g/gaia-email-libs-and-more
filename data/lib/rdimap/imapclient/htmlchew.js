@@ -157,9 +157,9 @@ var PRUNE_TAGS = [
  */
 var LEGAL_ATTR_MAP = {
   '*': ['style'],
-  'a': ['href'],
-  'area': ['href'],
-  'img': ['alt'],
+  'a': ['ext-href'],
+  'area': ['ext-href'],
+  'img': ['alt', 'cid-src', 'ext-src'],
 };
 
 var LEGAL_STYLES = [
@@ -167,12 +167,68 @@ var LEGAL_STYLES = [
   'color',
 ];
 
+/**
+ * The regular expression to detect nodes that should be passed to stashLinks.
+ *
+ * ignore-case is not required; the value is checked against the lower-cased tag.
+ */
+const RE_NODE_NEEDS_TRANSFORM = /^(?:a|area|img)$/;
+
+const RE_CID_URL = /^cid:/i;
+const RE_HTTP_URL = /^http(?:s)?/i;
+
+const RE_IMG_TAG = /^img$/;
+
+/**
+ * Transforms src tags, ensure that links are http and transform them too so
+ * that they don't actually navigate when clicked on but we can hook them.  (The
+ * HTML display iframe is not intended to navigate; we just want to trigger the
+ * browser.
+ */
+function stashLinks(node, lowerTag) {
+  // - img: src
+  if (RE_IMG_TAG.test(lowerTag)) {
+    var src = node.getAttribute('src');
+    if (RE_CID_URL.test(src)) {
+      node.classList.add('moz-embedded-image');
+      node.setAttribute('cid-src', src);
+      // 'src' attribute will be removed by whitelist
+    }
+    else if (RE_HTTP_URL.test(src)) {
+      node.classList.add('moz-external-image');
+      node.setAttribute('ext-src', src);
+      // 'src' attribute will be removed by whitelist
+    }
+    else {
+      // paranoia; no known benefit if this got through
+      node.removeAttribute('cid-src');
+      node.removeAttribute('ext-src');
+    }
+  }
+  // - a, area: href
+  else {
+    var link = node.getAttribute('href');
+    if (RE_HTTP_URL.test(link)) {
+      node.classList.add('moz-external-link');
+      node.setAttribute('ext-href', link);
+      // 'href' attribute will be removed by whitelist
+    }
+    else {
+      // paranoia; no known benefit if this got through
+      node.removeAttribute('ext-href');
+    }
+  }
+}
 
 var BLEACH_SETTINGS = {
   tags: LEGAL_TAGS,
+  strip: true,
   prune: PRUNE_TAGS,
   attributes: LEGAL_ATTR_MAP,
   styles: LEGAL_STYLES,
+  asNode: true,
+  callbackRegexp: RE_NODE_NEEDS_TRANSFORM,
+  callback: stashLinks
 };
 
 /**
@@ -192,13 +248,20 @@ var BLEACH_SETTINGS = {
  * }
  */
 exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
-
+  var sanitizedNode = $bleach.clean(htmlString, BLEACH_SETTINGS);
+  return sanitizedNode;
 };
 
 /**
  * Derive snippet text from the already-sanitized HTML representation.
  */
-exports.generateSnippet = function generateSnippet(sanitizedHtmlNode) {
+exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
+                                                   desiredLength) {
+  // XXX this is not efficient to get the entire textContent and then substring
+  // it.
+  // XXX we really should ignore things that we believe to be quoting.
+  var text = sanitizedHtmlNode.textContent;
+  return text.substring(0, desiredLength);
 };
 
 }); // end define

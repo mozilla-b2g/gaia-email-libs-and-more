@@ -132,7 +132,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     if ((partInfo.type === 'application') &&
         (partInfo.subtype === 'pgp-signature' ||
          partInfo.subtype === 'pkcs7-signature'))
-      return;
+      return true;
 
     // - Attachments have names and don't have id's for multipart/related
     if (disposition === 'attachment') {
@@ -146,7 +146,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
       });
-      return;
+      return true;
     }
     // (must be inline)
 
@@ -159,32 +159,36 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo)
       });
-      return;
+      return true;
     }
 
     // - We must be an inline part or structure
+    console.log("considering leaf", partInfo.type, partInfo.subtype);
     switch (partInfo.type) {
       // - content
       case 'text':
-        if (partInfo.subtype === 'plain') {
+        if (partInfo.subtype === 'plain' ||
+            partInfo.subtype === 'html') {
           bodyParts.push(partInfo);
+          return true;
         }
-        // (ignore html)
         break;
     }
+    return false;
   }
 
   function chewMultipart(branch) {
     var partInfo = branch[0], i;
 
     // - We must be an inline part or structure
-    switch (partInfo.type) {
+    // I have no idea why the multipart is the 'type' rather than the subtype?
+    switch (partInfo.subtype) {
       // - for alternative, scan from the back to find the first part we like
       // XXX I believe in Thunderbird we observed some ridiculous misuse of
       // alternative that we'll probably want to handle.
       case 'alternative':
         for (i = branch.length - 1; i >= 1; i--) {
-          var subPartInfo = branch[i];
+          var subPartInfo = branch[i][0];
 
           switch(subPartInfo.type) {
             case 'text':
@@ -192,7 +196,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
               break;
             case 'multipart':
               // this is probably HTML with attachments, let's give it a try
-              if (chewMultipart(subPartInfo))
+              if (chewMultipart(branch[i]))
                 return true;
               break;
             default:
@@ -200,14 +204,12 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
               continue;
           }
 
-          // CODEME: handle text/plain, text/html, plus things that imply text/html
-          // maybe use a return value to indicate whether we processed so that we
-          // can fail out of the guesses like related.
           switch (subPartInfo.subtype) {
             case 'html':
             case 'plain':
-              chewLeaf(subPartInfo);
-              return true;
+              // (returns true if successfully handled)
+              if (chewLeaf(branch[i]))
+                return true;
           }
         }
         // (If we are here, we failed to find a valid choice.)
@@ -215,6 +217,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
       // - multipart that we should recurse into
       case 'mixed':
       case 'signed':
+      case 'related':
         for (i = 1; i < branch.length; i++) {
           if (branch[i].length > 1)
             chewMultipart(branch[i]);
@@ -224,7 +227,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         return true;
 
       default:
-        console.warn('Ignoring multipart type:', partInfo.type);
+        console.warn('Ignoring multipart type:', partInfo.subtype);
         return false;
     }
   }
@@ -235,7 +238,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     chewLeaf(msg.structure);
 
   if (!bodyParts.length)
-    console.log("no body parts?", msg.structure);
+    console.log("no body parts?", JSON.stringify(msg.structure));
 
   return {
     msg: msg,
@@ -257,6 +260,8 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
       NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
       NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
       NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
+
+const DESIRED_SNIPPET_LENGTH = 100;
 
 /**
  * Call once the body parts requested by `chewHeaderAndBodyStructure` have been
@@ -282,7 +287,7 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  */
 exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
                                                folderId) {
-  var snippet = null;
+  var snippet = null, bodyReps = [];
 
   // Mailing lists can result in a text/html body part followed by a text/plain
   // body part.  Can't rule out multiple HTML parts at this point either, so we
@@ -296,11 +301,16 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
       case 'plain':
         var bodyRep = $quotechew.quoteProcessTextBody(contents);
         if (!snippet)
-          snippet = $quotechew.generateSnippet(bodyRep);
+          snippet = $quotechew.generateSnippet(bodyRep,
+                                               DESIRED_SNIPPET_LENGTH);
+        bodyReps.push('plain', bodyRep);
         break;
 
       case 'html':
-
+        var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(contents);
+        if (!snippet)
+          snippet = $htmlchew.generateSnippet(htmlNode, DESIRED_SNIPPET_LENGTH);
+        bodyReps.push('html', htmlNode.innerHTML);
         break;
     }
   }
@@ -362,6 +372,17 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     }
     return rep;
   };
+  function sizifyBodyReps(reps) {
+    sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
+    for (var i = 0; i < reps.length; i += 2) {
+      var type = reps[i], rep = reps[i + 1];
+      if (type === 'html')
+        sizeEst += STR_OVERHEAD_EST + rep.length;
+      else
+        sizeEst += sizifyBodyRep(rep);
+    }
+    return reps;
+  };
 
   rep.bodyInfo = {
     date: rep.msg.date,
@@ -373,7 +394,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
                sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
     attachments: sizifyAttachments(rep.attachments),
     references: rep.msg.msg.meta.references,
-    bodyRep: sizifyBodyRep(bodyRep),
+    bodyReps: sizifyBodyReps(bodyReps),
   };
 
   return true;

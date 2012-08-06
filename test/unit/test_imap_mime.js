@@ -1,8 +1,11 @@
 /**
  * Test our processing of MIME messages.  Because we leave most of this up to
- * the IMAP server, this ends up being a test of `imapchew.js`, the sync logic
- * in `imapslice.js`'s ability to cram things into mailparser, and the
- * mailparser lib itself.
+ * the IMAP server, this ends up being a test of:
+ * - `imapchew.js`
+ * - the sync logic in `imapslice.js`'s ability to cram things into mailparser
+ * - the (external) mailparser lib
+ * - `htmlchew.js`
+ * - the (external) bleach.js lib
  **/
 
 load('resources/loggest_test_framework.js');
@@ -67,10 +70,10 @@ TD.commonCase('message encodings', function(T) {
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
     qpHeader.getBody(function(qpBody) {
-      eBodies.namedValue('qp', qpBody.bodyRep[1]);
+      eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
     });
     b64Header.getBody(function(b64Body) {
-      eBodies.namedValue('b64', b64Body.bodyRep[1]);
+      eBodies.namedValue('b64', b64Body.bodyReps[1][1]);
     });
   });
 
@@ -113,9 +116,18 @@ TD.commonCase('MIME hierarchies', function(T) {
   // - bodies: text/html
       bstrTrivialHtml =
         '<html><head></head><body>I am HTML! Woo!</body></html>',
+      bstrSanitizedTrivialHtml =
+        'I am HTML! Woo!',
       bpartTrivialHtml =
         new SyntheticPartLeaf(
           bstrTrivialHtml,  { contentType: 'text/html' }),
+      bstrLimitedHtml =
+        '<div>I <font>am <span>HTML!</span></font></div>',
+      bstrSanitizedLimitedHtml =
+        '<div>I am <span>HTML!</span></div>',
+      bpartLimitedHtml =
+        new SyntheticPartLeaf(
+          bstrLimitedHtml, { contentType: 'text/html' }),
 
   // - multipart/related text/html with embedded images
       bstrHtmlWithCids =
@@ -158,7 +170,7 @@ TD.commonCase('MIME hierarchies', function(T) {
   // - multipart/alternative where text/html should be chosen
       alternHtml =
         new SyntheticPartMultiAlternative(
-          [bpartTrivialHtml, bpartStraightASCII]);
+          [bpartStraightASCII, bpartTrivialHtml]);
 
   // -- full definitions and expectations
   var testMessages = [
@@ -195,15 +207,20 @@ TD.commonCase('MIME hierarchies', function(T) {
     },
     // - text/html
     {
-      name: 'text/html trivial',
+      name: 'text/html trivial (sanitized to just text)',
       bodyPart: bpartTrivialHtml,
-      checkBody: bstrTrivialHtml,
+      checkBody: bstrSanitizedTrivialHtml,
+    },
+    {
+      name: 'text/html limited (sanitization leaves some behind)',
+      bodyPart: bpartLimitedHtml,
+      checkBody: bstrSanitizedLimitedHtml,
     },
     // - alternative chooses text/html
     {
       name: 'multipart/alternative choose text/html',
       bodyPart: alternHtml,
-      checkBody: bstrTrivialHtml,
+      checkBody: bstrSanitizedTrivialHtml,
     },
   ];
 
@@ -250,7 +267,14 @@ TD.commonCase('MIME hierarchies', function(T) {
       }
 
       folderView.slice.items[iMsg].getBody(function(body) {
-        eCheck.namedValue('body', body.bodyRep.length ? body.bodyRep[1] : '');
+        var bodyValue;
+        if (!body.bodyReps.length)
+          bodyValue = '';
+        else if (body.bodyReps[0] === 'plain')
+          bodyValue = body.bodyReps[1][1] || '';
+        else if (body.bodyReps[0] === 'html')
+          bodyValue = body.bodyReps[1];
+        eCheck.namedValue('body', bodyValue);
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.expect_namedValue('attachment',

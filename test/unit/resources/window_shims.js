@@ -32,6 +32,16 @@ function clearTimeout(handle) {
 var moduleGlobalsHack = {};
 Components.utils.import("resource://test/resources/globalshack.jsm",
                         moduleGlobalsHack);
+var document = {
+  implementation: {
+    createHTMLDocument: function createHTMLDocument(str) {
+      var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
+                     .createInstance(Ci.nsIDOMParser);
+      parser.init();
+      return parser.parseFromString(str, 'text/html');
+    }
+  }
+};
 
 var window = {
   // - indexed db
@@ -101,7 +111,8 @@ var window = {
       throw new Error("atob of '" + data + "' failed.");
     }
   },
+  document: document
 };
-var navigator = undefined, document = undefined;
+var navigator = undefined;
 // new to me, but apparently it's a thing...
 var self = window.self = window;
