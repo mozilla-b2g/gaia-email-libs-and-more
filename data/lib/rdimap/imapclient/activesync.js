@@ -76,10 +76,11 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
-  toString: function fa_toString() {
+  toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
   },
-  toBridgeWire: function fa_toBridgeWire() {
+
+  toBridgeWire: function asa_toBridgeWire() {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
@@ -103,7 +104,8 @@ ActiveSyncAccount.prototype = {
       ]
     };
   },
-  toBridgeFolder: function() {
+
+  toBridgeFolder: function asa_toBridgeFolder() {
     return {
       id: this.accountDef.id,
       name: this.accountDef.name,
@@ -116,7 +118,7 @@ ActiveSyncAccount.prototype = {
     return 0;
   },
 
-  saveAccountState: function(reuseTrans) {
+  saveAccountState: function asa_saveAccountState(reuseTrans) {
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
       let folderStuff = this._folderStorages[folder.id]
@@ -133,22 +135,23 @@ ActiveSyncAccount.prototype = {
     return trans;
   },
 
-  shutdown: function() {
+  shutdown: function asa_shutdown() {
   },
 
-  createFolder: function() {
+  createFolder: function asa_createFolder() {
     throw new Error('XXX not implemented');
   },
 
-  deleteFolder: function() {
+  deleteFolder: function asa_deleteFolder() {
     throw new Error('XXX not implemented');
   },
 
-  sliceFolderMessages: function fa_sliceFolderMessages(folderId, bridgeHandle) {
-    return this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
+  sliceFolderMessages: function asa_sliceFolderMessages(folderId,
+                                                        bridgeHandle) {
+    this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
   },
 
-  syncFolderList: function fa_syncFolderList(callback) {
+  syncFolderList: function asa_syncFolderList(callback) {
     var account = this;
 
     var fh = $ascp.FolderHierarchy.Tags;
@@ -197,8 +200,8 @@ ActiveSyncAccount.prototype = {
     12: 'normal', // User-created mail folder
   },
 
-  _addedFolder: function as__addedFolder(serverId, parentId, displayName,
-                                         typeNum) {
+  _addedFolder: function asa__addedFolder(serverId, parentId, displayName,
+                                          typeNum) {
     if (!(typeNum in this._folderTypes))
       return; // Not a folder type we care about.
 
@@ -238,7 +241,7 @@ ActiveSyncAccount.prototype = {
     this.universe.__notifyAddedFolder(this.id, folderInfo.$meta);
   },
 
-  _deletedFolder: function as__deletedFolder(serverId) {
+  _deletedFolder: function asa__deletedFolder(serverId) {
     var folderId = this.id + '/' + serverId;
     var folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
@@ -255,7 +258,7 @@ ActiveSyncAccount.prototype = {
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
   },
 
-  sendMessage: function fa_sendMessage(composedMessage, callback) {
+  sendMessage: function asa_sendMessage(composedMessage, callback) {
     // XXX: This is very hacky and gross. Fix it to use pipes later.
     composedMessage._cacheOutput = true;
     composedMessage._composeMessage();
@@ -280,11 +283,12 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  getFolderStorageForFolderId: function fa_getFolderStorageForFolderId(folderId){
+  getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
+                               folderId) {
     return this._folderStorages[folderId];
   },
 
-  runOp: function(op, mode, callback) {
+  runOp: function asa_runOp(op, mode, callback) {
     // Just pretend we performed the op so no errors trigger.
     if (callback)
       setZeroTimeout(callback);

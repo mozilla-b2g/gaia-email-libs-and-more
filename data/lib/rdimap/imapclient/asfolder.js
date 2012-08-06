@@ -57,7 +57,7 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
 }
 exports.ActiveSyncFolderStorage = ActiveSyncFolderStorage;
 ActiveSyncFolderStorage.prototype = {
-  generatePersistenceInfo: function() {
+  generatePersistenceInfo: function asfs_generatePersistenceInfo() {
     return {
       id: this.folderId,
       headerBlocks: [ this._headers ],
@@ -65,7 +65,7 @@ ActiveSyncFolderStorage.prototype = {
     };
   },
 
-  _getSyncKey: function(callback) {
+  _getSyncKey: function asfs__getSyncKey(callback) {
     let folderStorage = this;
     let account = this.account;
     let as = $ascp.AirSync.Tags;
@@ -99,7 +99,7 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _loadMessages: function(callback, deferred) {
+  _loadMessages: function asfs__loadMessages(callback, deferred) {
     let folderStorage = this;
     let account = this.account;
 
@@ -224,7 +224,7 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _processMessage: function(node, isAdded) {
+  _processMessage: function asfs__processMessage(node, isAdded) {
     let asb = $ascp.AirSyncBase.Tags;
     let em = $ascp.Email.Tags;
     let headers, body, flagHeader;
@@ -375,7 +375,7 @@ ActiveSyncFolderStorage.prototype = {
     return { headers: headers, body: body };
   },
 
-  _sliceFolderMessages: function ffs__sliceFolderMessages(bridgeHandle) {
+  _sliceFolderMessages: function asfs__sliceFolderMessages(bridgeHandle) {
     if (!this._loadedHeaders) {
       this._onLoadHeaderListeners.push(this._sliceFolderMessages
                                            .bind(this, bridgeHandle));
@@ -451,7 +451,7 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  getMessageBody: function ffs_getMessageBody(suid, date, callback) {
+  getMessageBody: function asfs_getMessageBody(suid, date, callback) {
     if (!this._loadedBodies) {
       this._onLoadBodyListeners.push(this.getMessageBody.bind(this, suid, date,
                                                               callback));
