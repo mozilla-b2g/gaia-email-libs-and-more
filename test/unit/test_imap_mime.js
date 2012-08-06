@@ -71,9 +71,11 @@ TD.commonCase('message encodings', function(T) {
         b64Header = folderView.slice.items[1];
     qpHeader.getBody(function(qpBody) {
       eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
+      qpBody.die();
     });
     b64Header.getBody(function(b64Body) {
       eBodies.namedValue('b64', b64Body.bodyReps[1][1]);
+      b64Body.die();
     });
   });
 
@@ -128,31 +130,6 @@ TD.commonCase('MIME hierarchies', function(T) {
       bpartLimitedHtml =
         new SyntheticPartLeaf(
           bstrLimitedHtml, { contentType: 'text/html' }),
-
-  // - multipart/related text/html with embedded images
-      bstrHtmlWithCids =
-        '<html><head></head><body>image 1: <img src="cid:part1.foo@bar.com">' +
-        ' image 2: <img src="cid:part2.foo@bar.com"></body></html>',
-      bpartHtmlWithCids =
-        new SyntheticPartLeaf(
-          bstrHtmlWithCids, { contentType: 'text/html' }),
-      relImage_1 = {
-          contentType: 'image/png',
-          encoding: 'base64', charset: null, format: null,
-          contentId: 'part1.foo@bar.com',
-          body: 'YWJj\n'
-        },
-      partRelImage_1 = new SyntheticPartLeaf(relImage_1.body, relImage_1),
-      relImage_2 = {
-          contentType: 'image/png',
-          encoding: 'base64', charset: null, format: null,
-          contentId: 'part2.foo@bar.com',
-          body: 'YWJj\n'
-        },
-      partRelImage_2 = new SyntheticPartLeaf(relImage_2.body, relImage_2),
-      bpartRelatedHtml =
-        new SyntheticPartMultiRelated(
-          [bpartHtmlWithCids, partRelImage_1, partRelImage_2]),
 
   // - multipart/alternative where text/plain should be chosen
       alternStraight =
@@ -281,6 +258,7 @@ TD.commonCase('MIME hierarchies', function(T) {
                                      body.attachments[i].filename);
           }
         }
+        body.die();
       });
     });
   });

@@ -219,6 +219,7 @@ TD.commonCase('folder sync', function(T) {
           to: bodyInfo.to,
           bodyReps: bodyInfo.bodyReps,
         });
+      bodyInfo.die();
     });
   });
 
@@ -230,6 +231,7 @@ TD.commonCase('folder sync', function(T) {
     var deletedHeader = expectedRefreshChanges.deletions[0];
     deletedHeader.getBody(function(bodyInfo) {
       eSync.namedValue('bodyInfo', bodyInfo);
+      // it's null so we don't call bodyInfo.die(), but if it wasn't...!
     });
   });
 

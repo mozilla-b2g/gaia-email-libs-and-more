@@ -399,6 +399,7 @@ function MailBody(api, suid, wireRep) {
       this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
     }
   }
+  this._relatedParts = wireRep.relatedParts;
   this.bodyReps = wireRep.bodyReps;
 }
 MailBody.prototype = {
@@ -422,6 +423,13 @@ MailBody.prototype = {
    * messages.
    */
   get hasEmbeddedImages() {
+  },
+
+
+  /**
+   *
+   */
+  get embeddedImagesAlreadyDownloaded() {
   },
 
   /**
@@ -456,6 +464,7 @@ MailBody.prototype = {
    * first place.
    */
   die: function() {
+
   },
 };
 
