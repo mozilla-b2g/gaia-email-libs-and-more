@@ -289,6 +289,27 @@ ActiveSyncAccount.prototype = {
   },
 
   runOp: function asa_runOp(op, mode, callback) {
+    if (op.type === 'modtags' && mode === 'local_do') {
+      for (let [,message] in Iterator(op.messages)) {
+        let [accountId, folderId, messageId] = message.suid.split('/');
+        let folderStorage = this._folderStorages[accountId + '/' + folderId];
+
+        for (let [i, header] in Iterator(folderStorage._headers)) {
+          if (header.guid === messageId) {
+            for (let [,add] in Iterator(op.addTags || []))
+              header.flags.push(add);
+            for (let [,remove] in Iterator(op.removeTags || [])) {
+              let index = header.flags.indexOf(remove);
+              if (index !== -1)
+                header.flags.splice(index, 1);
+            }
+            folderStorage._bridgeHandle.sendUpdate([i, header]);
+            break;
+          }
+        }
+      }
+    }
+
     // Just pretend we performed the op so no errors trigger.
     if (callback)
       setZeroTimeout(callback);

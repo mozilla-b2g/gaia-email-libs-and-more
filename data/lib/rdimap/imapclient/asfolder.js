@@ -382,6 +382,7 @@ ActiveSyncFolderStorage.prototype = {
       return;
     }
 
+    this._bridgeHandle = bridgeHandle;
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
