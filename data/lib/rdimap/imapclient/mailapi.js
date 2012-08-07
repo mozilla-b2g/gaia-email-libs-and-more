@@ -412,11 +412,6 @@ MailBody.prototype = {
       id: this.id
     };
   },
-  get bodyType() {
-    if (typeof(this.bodyRep) === 'string')
-      return 'html';
-    return 'plain';
-  },
 
   /**
    * true if this is an HTML document with inline images sent as part of the

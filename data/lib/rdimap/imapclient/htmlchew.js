@@ -27,6 +27,14 @@ define(
  * Whitelisted HTML tags list. Currently from nsTreeSanitizer.cpp which credits
  * Mark Pilgrim and Sam Ruby for its own initial whitelist.
  *
+ * IMPORTANT THUNDERBIRD NOTE: Thunderbird only engages its sanitization logic
+ * when processing mailto URIs, when the non-default
+ * "view | message body as | simple html" setting is selected, or when
+ * displaying spam messages.  Accordingly, the settings are pretty strict
+ * and not particularly thought-out.  Non-CSS presentation is stripped, which
+ * is pretty much the lingua franca of e-mail.  (Thunderbird itself generates
+ * font tags, for example.)
+ *
  * Some things are just not in the list at all:
  * - SVG: Thunderbird nukes these itself because it forces
  *   SanitizerCidEmbedsOnly which causes flattening of everything in the SVG
@@ -37,9 +45,11 @@ define(
  *   things to happen *given our current capabilities*.
  * - scripty: This thing requires scripting to make anything happen, and we do
  *   not allow scripting.
- * - forms: Thunderbird explicitly and unconditionally forbids forms, presumably
- *   because they are useless locally without scripting, and their target is
- *   is not reflected in the UI like hyperlinks are or at least should be.
+ * - forms: We have no UI to expose the target of a form right now, so it's
+ *   not safe.  Thunderbird displays a scam warning, which isn't realy a big
+ *   help, but it's something.  Because forms are largely unsupported or just
+ *   broken in many places, they are rarely used, so we are turning them off
+ *   entirely.
  * - implicitly-nuked: killed as part of the parse process because we assign
  *   to innerHTML rather than creating a document with the string in it.
  * - inline-style-only: Styles have to be included in the document itself,
@@ -50,10 +60,6 @@ define(
  * - interactive-ui: A cross between scripty and forms, things like (HTML5)
  *   menu and command imply some type of mutation that requires scripting.
  *   They also are frequently very attribute-heavy.
- * - non-css-presentation: It's a styling thing that's not CSS.  Apparently
- *   Thunderbird's original sanitizer didn't let this kind of stuff through.
- *   Now that nsTreeSanitizer is used, SanitizerDropNonCSSPresentation is
- *   specified by default.
  */
 var LEGAL_TAGS = [
   'a', 'abbr', 'acronym', 'area', 'article', 'aside',
@@ -66,7 +72,7 @@ var LEGAL_TAGS = [
   // forms: 'button',
   // scripty: canvas
   'caption',
-  // non-css-presentation: 'center',
+  'center',
   'cite', 'code', 'col', 'colgroup',
   // interactive-ui: 'command',
   // forms: 'datalist',
@@ -74,7 +80,7 @@ var LEGAL_TAGS = [
   'em',
   // forms: 'fieldset' (but allowed by nsTreeSanitizer)
   'figcaption', 'figure',
-  // non-css-presentation: 'font',
+  'font',
   'footer',
   // forms: 'form',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -154,17 +160,199 @@ var PRUNE_TAGS = [
 
 /**
  * What attributes to allow globally and on specific tags.
+ *
+ * Forbidden marker names:
+ * - URL-like: The attribute can contain URL's and we don't care enough to
+ *   sanitize the contents right now.
+ * - sanitized: We manually do something with the attribute in our processing
+ *   logic.
+ * - specific: The attribute is explicitly named on the relevant element types.
+ * - unsupported: Gecko ignores the attribute and there is no chance of
+ *   standardization, so just strip it.
+ * - microformat: we can't do anything with microformats right now, save some
+ *   space.
+ * - awkward: It's not dangerous, but it's not clear how it could have useful
+ *   semantics.
  */
 var LEGAL_ATTR_MAP = {
-  '*': ['style'],
-  'a': ['ext-href'],
-  'area': ['ext-href'],
-  'img': ['alt', 'cid-src', 'ext-src'],
+  '*': [
+    'abbr', // (tables: removed from HTML5)
+    // forms: 'accept', 'accept-charset',
+    // interactive-ui: 'accesskey',
+    // forms: 'action',
+    'align', // (pres)
+    'alt', // (fallback content)
+    // forms: 'autocomplete', 'autofocus',
+    // annoying: 'autoplay',
+    'axis', // (tables: removed from HTML5)
+    // URL-like: 'background',
+    'bgcolor', 'border', // (pres)
+    'cellpadding', 'cellspacing', // (pres)
+    // unsupported: 'char',
+    'charoff', // (tables)
+    // specific: 'charset'
+    // forms, interactive-ui: 'checked',
+    // URL-like: 'cite'
+    'class', 'clear', 'color', // (pres)
+    'cols', 'colspan', // (tables)
+    'compact', // (pres)
+    // dangerous: 'content', (meta content refresh is bad.)
+    // interactive-ui: 'contenteditable', (we already use this ourselves!)
+    // interactive-ui: 'contextmenu',
+    // annoying: 'controls', (media)
+    'coords', // (area image map)
+    'datetime', // (ins, del, time semantic markups)
+    // forms: 'disabled',
+    'dir', // (rtl)
+    // interactive-ui: 'draggable',
+    // forms: 'enctype',
+    'face', // (pres)
+    // forms: 'for',
+    'frame', // (tables)
+    'headers', // (tables)
+    'height', // (layout)
+    // interactive-ui: 'hidden', 'high',
+    // sanitized: 'href',
+    // specific: 'hreflang',
+    'hspace', // (pres)
+    // dangerous: 'http-equiv' (meta refresh, maybe other trickiness)
+    // interactive-ui: 'icon',
+    // inline-style-only: 'id',
+    // specific: 'ismap', (area image map)
+    // microformat: 'itemid', 'itemprop', 'itemref', 'itemscope', 'itemtype',
+    // annoying: 'kind', (media)
+    // annoying, forms, interactive-ui: 'label',
+    'lang', // (language support)
+    // forms: 'list',
+    // dangerous: 'longdesc', (link to a long description, html5 removed)
+    // annoying: 'loop',
+    // interactive-ui: 'low',
+    // forms, interactive-ui: 'max',
+    // forms: 'maxlength',
+    'media', // (media-query for linky things; safe if links are safe)
+    // forms: 'method',
+    // forms, interactive-ui: 'min',
+    // unsupported: 'moz-do-not-send', (thunderbird internal composition)
+    // forms: 'multiple',
+    // annoying: 'muted',
+    // forms, interactive-ui: 'name', (although pretty safe)
+    'nohref', // (image maps)
+    // forms: 'novalidate',
+    'noshade', // (pres)
+    'nowrap', // (tables)
+    'open', // (for "details" element)
+    // interactive-ui: 'optimum',
+    // forms: 'pattern', 'placeholder',
+    // annoying: 'playbackrate',
+    'pointsize', // (pres)
+    // annoying:  'poster', 'preload',
+    // forms: 'prompt',
+    'pubdate', // ("time" element)
+    // forms: 'radiogroup', 'readonly',
+    // dangerous: 'rel', (link rel, a rel, area rel)
+    // forms: 'required',
+    // awkward: 'rev' (reverse link; you can't really link to emails)
+    'reversed', // (pres? "ol" reverse numbering)
+    // interactive-ui: 'role', We don't want a screen reader making the user
+    //   think that part of the e-mail is part of the UI.  (WAI-ARIA defines
+    //   "accessible rich internet applications", not content markup.)
+    'rows', 'rowspan', 'rules', // (tables)
+    // sanitized: 'src',
+    'size', // (pres)
+    'scope', // (tables)
+    // inline-style-only: 'scoped', (on "style" elem)
+    // forms: 'selected',
+    'shape', // (image maps)
+    'span', // (tables)
+    // interactive-ui: 'spellcheck',
+    // sanitized, dangerous: 'src'
+    // annoying: 'srclang',
+    'start', // (pres? "ol" numbering)
+    'summary', // (tables accessibility)
+    'style', // (pres)
+    // interactive-ui: 'tabindex',
+    // dangerous: 'target', (specifies a browsing context, but our semantics
+    //   are extremely clear and don't need help.)
+    'title', // (advisory)
+    // specific, dangerous: type (various, but mime-type for links is not the
+    //   type of thing we would ever want to propagate or potentially deceive
+    //   the user with.)
+    'valign', // (pres)
+    'value', // (pres? "li" override for "ol"; various form uses)
+    'vspace', // (pres)
+    'width', // (layout)
+    // forms: 'wrap',
+  ],
+  'a': ['ext-href', 'hreflang'],
+  'area': ['ext-href', 'hreflang'],
+  'img': ['cid-src', 'ext-src', 'ismap', 'usemap'],
+  // This may only end up being used as a debugging thing, but let's let charset
+  // through for now.
+  'meta': ['charset'],
+  'ol': ['type'], // (pres)
 };
 
+/**
+ * CSS Style rules to support.
+ *
+ * nsTreeSanitizer is super lazy about style binding and does not help us out.
+ * What it does is nuke all rule types except NAMESPACE (@namespace), FONT_FACE
+ * (@font-face), and STYLE rules (actual styling).  This means nuking CHARSET
+ * (@charset to specify the encoding of the stylesheet if the server did not
+ * provide it), IMPORT (@import to reference other stylesheet files), MEDIA
+ * (@media media queries), PAGE (@page page box info for paged media),
+ * MOZ_KEYFRAMES, MOZ_KEYFRAME, SUPPORTS (@supports provides support for rules
+ * conditioned on browser support, but is at risk.)  The only style directive it
+ * nukes is "-moz-binding" which is the XBL magic and considered dangerous.
+ *
+ * Risks: Anything that takes a url() is dangerous insofar as we need to
+ * sanitize the url.  XXX for now we just avoid any style that could potentially
+ * hold a URI.
+ *
+ * Good news: We always cram things into an iframe, so we don't need to worry
+ * about clever styling escaping out into our UI.
+ *
+ * New reasons not to allow:
+ * - animation: We don't want or need animated wackiness.
+ * - slow: Doing the thing is slow!
+ */
 var LEGAL_STYLES = [
+  // animation: animation*
+  // URI-like: background, background-image
   'background-color',
+  // NB: border-image is not set by the 'border' aliases
+  'border',
+  'border-bottom', 'border-bottom-color', 'border-bottom-left-radius',
+  'border-bottom-right-radius', 'border-bottom-style', 'border-bottom-width',
+  'border-color',
+  // URI-like: border-image*
+  'border-left', 'border-left-color', 'border-left-style', 'border-left-width',
+  'border-radius',
+  'border-right', 'border-right-color', 'border-right-style',
+  'border-right-width',
+  'border-style',
+  'border-top', 'border-top-color', 'border-top-left-radius',
+  'border-top-right-radius', 'border-top-style', 'border-top-width',
+  'border-width',
+  // slow: box-shadow
   'color',
+  'font-family',
+  'font-size',
+  'font-style',
+  'font-weight',
+  'height',
+  // URI-like: list-style, list-style-image
+  'list-style-position',
+  'list-style-type',
+  'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top',
+  'padding', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top',
+  'text-align', 'text-align-last',
+  'text-decoration', 'text-decoration-color', 'text-decoration-line',
+  'text-decoration-style', 'text-indent',
+  'vertical-align',
+  'white-space',
+  'width',
+  'word-break', 'word-spacing', 'word-wrap',
 ];
 
 /**
@@ -262,6 +450,20 @@ exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
   // XXX we really should ignore things that we believe to be quoting.
   var text = sanitizedHtmlNode.textContent;
   return text.substring(0, desiredLength);
+};
+
+/**
+ * Wrap text/plain content into a serialized HTML string safe for insertion
+ * via innerHTML.
+ *
+ * NB: simple escaping should also be fine, but this is unlikely to be a
+ * performance hotspot.
+ */
+exports.wrapTextIntoSafeHTMLString = function(text, wrapTag) {
+  var doc = document.implementation.createHTMLDocument(''),
+      wrapNode = doc.createElement(wrapTag || 'code');
+  wrapNode.textContent = text;
+  return wrapNode.outerHTML;
 };
 
 }); // end define

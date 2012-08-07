@@ -6,7 +6,7 @@
 load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
-  { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
 
 /**
  * Compose a new message from scratch without saving it to drafts, verify that
@@ -54,14 +54,17 @@ TD.commonCase('compose, reply', function(T, RT) {
       RT.reportActiveActorThisStep(eLazy);
       // We are top-posting biased, so we automatically insert two blank lines;
       // one for typing to start at, and one for whitespace purposes.
-      expectedReplyBody = [
+      expectedReplyBody = {
+        text: [
           '', '',
           TEST_PARAMS.name + ' wrote:',
           '> Antelope banana credenza.',
           '>',
           '> Dialog excitement!',
           '', '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
-        ].join('\n');
+        ].join('\n'),
+        html: null
+      };
       eLazy.expect_event('reply setup completed');
       eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
                                        address: TEST_PARAMS.emailAddress }]);
@@ -97,12 +100,15 @@ TD.commonCase('compose, reply', function(T, RT) {
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
-      expectedForwardBody = [
-        '', '',
-        '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
-        '-------- Original Message --------',
-        expectedReplyBody
-      ].join('\n');
+      expectedForwardBody = {
+        text: [
+          '', '',
+          '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
+          '-------- Original Message --------',
+          expectedReplyBody
+        ].join('\n'),
+        html: null
+      };
 
       eLazy.expect_event('forward setup completed');
       // these are expectations on the forward...

@@ -6,7 +6,7 @@ define(
   [
     'rdcommon/log',
     'mailcomposer',
-    './quotechew',
+    './mailchew',
     './util',
     'module',
     'exports'
@@ -14,7 +14,7 @@ define(
   function(
     $log,
     $mailcomposer,
-    $quotechew,
+    $mailchew,
     $imaputil,
     $module,
     exports
@@ -548,10 +548,10 @@ MailBridge.prototype = {
               type: 'composeBegun',
               handle: msg.handle,
               identity: identity,
-              subject: $quotechew.generateReplySubject(msg.refSubject),
+              subject: $mailchew.generateReplySubject(msg.refSubject),
               // blank lines at the top are baked in
-              body: $quotechew.generateReplyMessage(
-                      bodyInfo.bodyRep, effectiveAuthor, msg.refDate,
+              body: $mailchew.generateReplyBody(
+                      bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
                       identity),
               to: rTo,
               cc: rCc,
@@ -566,7 +566,7 @@ MailBridge.prototype = {
               identity: identity,
               subject: 'Fwd: ' + msg.refSubject,
               // blank lines at the top are baked in by the func
-              body: $quotechew.generateForwardMessage(
+              body: $mailchew.generateForwardMessage(
                       msg.refAuthor, msg.refDate, msg.refSubject,
                       bodyInfo, identity),
               // forwards have no assumed envelope information
