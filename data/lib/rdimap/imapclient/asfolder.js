@@ -65,6 +65,11 @@ ActiveSyncFolderStorage.prototype = {
     };
   },
 
+  /**
+   * Get the initial sync key for the folder so we can start getting data
+   *
+   * @param {function} callback A callback to be run when the operation finishes
+   */
   _getSyncKey: function asfs__getSyncKey(callback) {
     let folderStorage = this;
     let account = this.account;
@@ -99,19 +104,28 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _loadMessages: function asfs__loadMessages(callback, deferred) {
+  /**
+   * Sync the folder with the server and enumerate all the changes since the
+   * last sync.
+   *
+   * @param {function} callback A function to be called when the operation has
+   *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {boolean} deferred True if this operation was already deferred once
+   *   to get the initial sync key
+   */
+  _syncFolder: function asfs__syncFolder(callback, deferred) {
     let folderStorage = this;
     let account = this.account;
 
     if (!account.conn.connected) {
       account.conn.autodiscover(function(config) {
         // TODO: handle errors
-        folderStorage._loadMessages(callback, deferred);
+        folderStorage._syncFolder(callback, deferred);
       });
       return;
     }
     if (this.folderMeta.syncKey === '0' && !deferred) {
-      this._getSyncKey(this._loadMessages.bind(this, callback, true));
+      this._getSyncKey(this._syncFolder.bind(this, callback, true));
       return;
     }
 
@@ -178,7 +192,7 @@ ActiveSyncFolderStorage.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderStorage._processMessage(child, node.tag === as.Add);
+            msg = folderStorage._parseMessage(child, node.tag === as.Add);
             break;
           }
         }
@@ -215,7 +229,7 @@ ActiveSyncFolderStorage.prototype = {
         // This should already be set to 0, but let's just be safe.
         folderStorage.folderMeta.syncKey = '0';
         folderStorage._needsPurge = true;
-        folderStorage._loadMessages(callback);
+        folderStorage._syncFolder(callback);
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
@@ -224,7 +238,16 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _processMessage: function asfs__processMessage(node, isAdded) {
+  /**
+   * Parse the DOM of an individual message to build header and body objects for
+   * it.
+   *
+   * @param {WBXML.Element} node The fully-parsed node describing the message
+   * @param {boolean} isAdded True if this is a new message, false if it's a
+   *   changed one
+   * @return {object} An object containing the headers and body for the message
+   */
+  _parseMessage: function asfs__parseMessage(node, isAdded) {
     let asb = $ascp.AirSyncBase.Tags;
     let em = $ascp.Email.Tags;
     let headers, body, flagHeader;
@@ -385,7 +408,7 @@ ActiveSyncFolderStorage.prototype = {
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
-    this._loadMessages(function(added, changed, deleted) {
+    this._syncFolder(function(added, changed, deleted) {
       if (folderStorage._needsPurge) {
         bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
                                 true);

@@ -221,7 +221,19 @@ ActiveSyncAccount.prototype = {
     12: 'normal', // User-created mail folder
   },
 
-  // Return true if we added the folder, false if we need to wait.
+  /**
+   * Update the internal database and notify the appropriate listeners when we
+   * discover a new folder.
+   *
+   * @param {string} serverId A GUID representing the new folder
+   * @param {string} parentId A GUID representing the parent folder, or '0' if
+   *   this is a root-level folder
+   * @param {string} displayName The display name for the new folder
+   * @param {string} typeNum A numeric value representing the new folder's type,
+   *   corresponding to the mapping in _folderTypes above
+   * @return {boolean} true if we added the folder, false if we need to wait
+   *   until later (e.g. if we haven't added the folder's parent yet)
+   */
   _addedFolder: function asa__addedFolder(serverId, parentId, displayName,
                                           typeNum) {
     if (!(typeNum in this._folderTypes))
@@ -269,6 +281,12 @@ ActiveSyncAccount.prototype = {
     return true;
   },
 
+  /**
+   * Update the internal database and notify the appropriate listeners when we
+   * find out a folder has been removed.
+   *
+   * @param {string} serverId A GUID representing the deleted folder
+   */
   _deletedFolder: function asa__deletedFolder(serverId) {
     let folderId = this._serverIdToFolderId[serverId],
         folderInfo = this._folderInfos[folderId],
