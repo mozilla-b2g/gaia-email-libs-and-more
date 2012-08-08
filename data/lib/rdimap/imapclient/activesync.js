@@ -178,7 +178,7 @@ ActiveSyncAccount.prototype = {
         for (let [,child] in Iterator(node.children))
           folder[child.localTagName] = child.children[0].textContent;
 
-        if (node.tag == fh.Add) {
+        if (node.tag === fh.Add) {
           if (!account._addedFolder(folder.ServerId, folder.ParentId,
                                     folder.DisplayName, folder.Type))
             deferredAddedFolders.push(folder);
