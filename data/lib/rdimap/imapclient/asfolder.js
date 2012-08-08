@@ -197,12 +197,12 @@ ActiveSyncFolderStorage.prototype = {
           }
         }
 
-        msg.headers.guid = guid;
-        msg.headers.suid = folderStorage.folderId + '/' + guid;
+        msg.header.guid = guid;
+        msg.header.suid = folderStorage.folderId + '/' + guid;
 
         let collection = node.tag === as.Add ? added : changed;
-        collection.headers.push(msg.headers);
-        collection.bodies[msg.headers.suid] = msg.body;
+        collection.headers.push(msg.header);
+        collection.bodies[msg.header.suid] = msg.body;
       });
 
       e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
@@ -245,15 +245,15 @@ ActiveSyncFolderStorage.prototype = {
    * @param {WBXML.Element} node The fully-parsed node describing the message
    * @param {boolean} isAdded True if this is a new message, false if it's a
    *   changed one
-   * @return {object} An object containing the headers and body for the message
+   * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfs__parseMessage(node, isAdded) {
     const asb = $ascp.AirSyncBase.Tags;
     const em = $ascp.Email.Tags;
-    let headers, body, flagHeader;
+    let header, body, flagHeader;
 
     if (isAdded) {
-      headers = {
+      header = {
         id: null,
         suid: null,
         guid: null,
@@ -279,11 +279,11 @@ ActiveSyncFolderStorage.prototype = {
 
       flagHeader = function(flag, state) {
         if (state)
-          headers.flags.push(flag);
+          header.flags.push(flag);
       }
     }
     else {
-      headers = {
+      header = {
         flags: [],
         mergeInto: function(o) {
           // Merge flags
@@ -318,7 +318,7 @@ ActiveSyncFolderStorage.prototype = {
       };
 
       flagHeader = function(flag, state) {
-        headers.flags.push([flag, state]);
+        header.flags.push([flag, state]);
       }
     }
 
@@ -328,10 +328,10 @@ ActiveSyncFolderStorage.prototype = {
 
       switch (child.tag) {
       case em.Subject:
-        headers.subject = childText;
+        header.subject = childText;
         break;
       case em.From:
-        headers.author = $mimelib.parseAddresses(childText)[0];
+        header.author = $mimelib.parseAddresses(childText)[0];
         break;
       case em.To:
         body.to = $mimelib.parseAddresses(childText);
@@ -343,7 +343,7 @@ ActiveSyncFolderStorage.prototype = {
         body.replyTo = $mimelib.parseAddresses(childText);
         break;
       case em.DateReceived:
-        body.date = headers.date = new Date(childText).valueOf();
+        body.date = header.date = new Date(childText).valueOf();
         break;
       case em.Read:
         flagHeader('\\Seen', childText === '1');
@@ -359,17 +359,17 @@ ActiveSyncFolderStorage.prototype = {
           if (grandchild.tag === asb.Data) {
             body.bodyRep = $quotechew.quoteProcessTextBody(
               grandchild.children[0].textContent);
-            headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+            header.snippet = $quotechew.generateSnippet(body.bodyRep);
           }
         }
         break;
       case em.Body: // pre-ActiveSync 12.0
         body.bodyRep = $quotechew.quoteProcessTextBody(childText);
-        headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+        header.snippet = $quotechew.generateSnippet(body.bodyRep);
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        headers.hasAttachments = true;
+        header.hasAttachments = true;
         body.attachments = [];
         for (let [,attachmentNode] in Iterator(child.children)) {
           if (attachmentNode.tag !== asb.Attachment &&
@@ -395,7 +395,7 @@ ActiveSyncFolderStorage.prototype = {
       }
     }
 
-    return { headers: headers, body: body };
+    return { header: header, body: body };
   },
 
   _sliceFolderMessages: function asfs__sliceFolderMessages(bridgeHandle) {
