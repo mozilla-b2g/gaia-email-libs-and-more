@@ -419,8 +419,14 @@ ActiveSyncFolderStorage.prototype = {
         folderStorage._needsPurge = false;
       }
 
+      // XXX: pretty much all of the sync code here needs to be rewritten to
+      // divide headers/bodies into blocks so as not to be a performance
+      // nightmare.
+
       // Handle messages that have been deleted
       for (let [,guid] in Iterator(deleted)) {
+        // This looks dangerous (iterating and splicing at the same time), but
+        // we break out of the loop immediately after the splice, so it's ok.
         for (let [i, header] in Iterator(folderStorage._headers)) {
           if (header.guid === guid) {
             delete folderStorage._bodiesBySuid[header.suid];
