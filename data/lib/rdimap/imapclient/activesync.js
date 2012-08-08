@@ -9,6 +9,7 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     './asfolder',
+    './asjobs',
     './util',
     'exports'
   ],
@@ -18,6 +19,7 @@ define(
     $ascp,
     $activesync,
     $asfolder,
+    $asjobs,
     $util,
     exports
   ) {
@@ -34,6 +36,8 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.conn = new $activesync.Connection(accountDef.credentials.username,
                                          accountDef.credentials.password);
   this._db = dbConn;
+
+  this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
 
   this.enabled = true;
   this.problems = [];
@@ -289,26 +293,11 @@ ActiveSyncAccount.prototype = {
   },
 
   runOp: function asa_runOp(op, mode, callback) {
-    if (op.type === 'modtags' && mode === 'local_do') {
-      for (let [,message] in Iterator(op.messages)) {
-        let [accountId, folderId, messageId] = message.suid.split('/');
-        let folderStorage = this._folderStorages[accountId + '/' + folderId];
+    let methodName = mode + '_' + op.type;
+    if (!(methodName in this._jobDriver))
+      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
 
-        for (let [i, header] in Iterator(folderStorage._headers)) {
-          if (header.guid === messageId) {
-            for (let [,add] in Iterator(op.addTags || []))
-              header.flags.push(add);
-            for (let [,remove] in Iterator(op.removeTags || [])) {
-              let index = header.flags.indexOf(remove);
-              if (index !== -1)
-                header.flags.splice(index, 1);
-            }
-            folderStorage._bridgeHandle.sendUpdate([i, header]);
-            break;
-          }
-        }
-      }
-    }
+    this._jobDriver[methodName](op, callback);
 
     // Just pretend we performed the op so no errors trigger.
     if (callback)
