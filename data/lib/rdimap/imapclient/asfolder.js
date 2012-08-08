@@ -44,6 +44,7 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
 
     for (let [,listener] in Iterator(self._onLoadHeaderListeners))
       listener();
+    self._onLoadHeaderListeners = [];
   });
 
   this._db.loadBodyBlock(this.folderId, 0, function(block) {
@@ -53,6 +54,7 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
 
     for (let [,listener] in Iterator(self._onLoadBodyListeners))
       listener();
+    self._onLoadBodyListeners = [];
   });
 }
 exports.ActiveSyncFolderStorage = ActiveSyncFolderStorage;
