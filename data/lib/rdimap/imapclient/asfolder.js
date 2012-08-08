@@ -73,7 +73,7 @@ ActiveSyncFolderStorage.prototype = {
   _getSyncKey: function asfs__getSyncKey(callback) {
     let folderStorage = this;
     let account = this.account;
-    let as = $ascp.AirSync.Tags;
+    const as = $ascp.AirSync.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -129,8 +129,8 @@ ActiveSyncFolderStorage.prototype = {
       return;
     }
 
-    let as = $ascp.AirSync.Tags;
-    let asb = $ascp.AirSyncBase.Tags;
+    const as = $ascp.AirSync.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -248,8 +248,8 @@ ActiveSyncFolderStorage.prototype = {
    * @return {object} An object containing the headers and body for the message
    */
   _parseMessage: function asfs__parseMessage(node, isAdded) {
-    let asb = $ascp.AirSyncBase.Tags;
-    let em = $ascp.Email.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
+    const em = $ascp.Email.Tags;
     let headers, body, flagHeader;
 
     if (isAdded) {

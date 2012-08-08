@@ -310,8 +310,8 @@ ActiveSyncAccount.prototype = {
     composedMessage._cacheOutput = true;
     composedMessage._composeMessage();
 
-    var cm = $ascp.ComposeMail.Tags;
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    const cm = $ascp.ComposeMail.Tags;
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(cm.SendMail)
        .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
        .tag(cm.SaveInSentItems)
