@@ -1803,19 +1803,25 @@ function parseStructExtra(part, partLen, cur, next) {
   if (partLen > next) {
     // disposition
     // null or a special k/v list with these kinds of values:
-    // e.g.: ['inline', null]
-    //       ['attachment', null]
-    //       ['inline', ['filename', 'foo.pdf']]
-    //       ['inline', ['Bar', 'Baz', 'Bam', 'Pow']]
+    // e.g.: ['Foo', null]
+    //       ['Foo', ['Bar', 'Baz']]
+    //       ['Foo', ['Bar', 'Baz', 'Bam', 'Pow']]
+    var disposition = { type: null, params: null };
     if (Array.isArray(cur[next])) {
-      part.disposition = {type: cur[next][0], params: null};
+      disposition.type = cur[next][0];
       if (Array.isArray(cur[next][1])) {
-        var params = part.disposition.params = {};
+        disposition.params = {};
         for (var i=0,len=cur[next][1].length; i<len; i+=2)
-          params[cur[next][1][i].toLowerCase()] = cur[next][1][i+1];
+          disposition.params[cur[next][1][i].toLowerCase()] = cur[next][1][i+1];
       }
-    } else
-      part.disposition = cur[next];
+    } else if (cur[next] !== null)
+      disposition.type = cur[next];
+
+    if (disposition.type === null)
+      part.disposition = null;
+    else
+      part.disposition = disposition;
+
     ++next;
   }
   if (partLen > next) {
