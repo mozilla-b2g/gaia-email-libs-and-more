@@ -61,10 +61,15 @@ ActiveSyncJobDriver.prototype = {
     // it as an int (it's a GUID).
     let partitions = $util.partitionMessagesByFolderId(op.messages, false);
 
-    let markRead = op.addTags && op.addTags.indexOf('\\Seen') !== -1;
-    let markStar = op.addTags && op.addTags.indexOf('\\Flagged') !== -1;
-    let markUnread = op.removeTags && op.removeTags.indexOf('\\Seen') !== -1;
-    let markUnstar = op.removeTags && op.removeTags.indexOf('\\Flagged') !== -1;
+    function getMark(tag) {
+      if (op.addTags && op.addTags.indexOf(tag) !== -1)
+        return true;
+      if (op.removeTags && op.removeTags.indexOf(tag) !== -1)
+        return false;
+      return undefined;
+    }
+    let markRead = getMark('\\Seen');
+    let markFlagged = getMark('\\Flagged');
 
     const as = $ascp.AirSync.Tags;
     const em = $ascp.Email.Tags;
@@ -94,12 +99,13 @@ ActiveSyncJobDriver.prototype = {
            .tag(as.ServerId, guid)
            .stag(as.ApplicationData);
 
-        if (markRead)
-          w.tag(em.Read, '1');
-        if (markUnread)
-          w.tag(em.Read, '0');
+        if (markRead !== undefined)
+          w.tag(em.Read, markRead ? '1' : '0');
 
-        // XXX: add flagging/unflagging
+        if (markFlagged !== undefined)
+          w.stag(em.Flag)
+             .tag(em.Status, markFlagged ? '2' : '0')
+           .etag();
 
           w.etag()
          .etag();
