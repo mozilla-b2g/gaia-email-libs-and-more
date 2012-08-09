@@ -340,15 +340,29 @@ ActiveSyncAccount.prototype = {
   },
 
   runOp: function asa_runOp(op, mode, callback) {
+    dump('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')\n');
+
     let methodName = mode + '_' + op.type;
+    let isLocal = /^local_/.test(mode);
+
+    if (!isLocal)
+      op.status = mode + 'ing';
+
     if (!(methodName in this._jobDriver))
       throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
 
-    this._jobDriver[methodName](op, callback);
-
-    // Just pretend we performed the op so no errors trigger.
-    if (callback)
-      setZeroTimeout(callback);
+    if (callback) {
+      this._jobDriver[methodName](op, function(error) {
+        if (!isLocal)
+          op.status = mode + 'ne';
+        callback(error);
+      });
+    }
+    else {
+      this._jobDriver[methodName](op);
+      if (!isLocal)
+        op.status = mode + 'ne';
+    }
   },
 };
 
