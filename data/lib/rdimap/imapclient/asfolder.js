@@ -44,6 +44,7 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
 
     for (let [,listener] in Iterator(self._onLoadHeaderListeners))
       listener();
+    self._onLoadHeaderListeners = [];
   });
 
   this._db.loadBodyBlock(this.folderId, 0, function(block) {
@@ -53,6 +54,7 @@ function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
 
     for (let [,listener] in Iterator(self._onLoadBodyListeners))
       listener();
+    self._onLoadBodyListeners = [];
   });
 }
 exports.ActiveSyncFolderStorage = ActiveSyncFolderStorage;
@@ -65,10 +67,15 @@ ActiveSyncFolderStorage.prototype = {
     };
   },
 
+  /**
+   * Get the initial sync key for the folder so we can start getting data
+   *
+   * @param {function} callback A callback to be run when the operation finishes
+   */
   _getSyncKey: function asfs__getSyncKey(callback) {
     let folderStorage = this;
     let account = this.account;
-    let as = $ascp.AirSync.Tags;
+    const as = $ascp.AirSync.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -99,24 +106,33 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _loadMessages: function asfs__loadMessages(callback, deferred) {
+  /**
+   * Sync the folder with the server and enumerate all the changes since the
+   * last sync.
+   *
+   * @param {function} callback A function to be called when the operation has
+   *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {boolean} deferred True if this operation was already deferred once
+   *   to get the initial sync key
+   */
+  _syncFolder: function asfs__syncFolder(callback, deferred) {
     let folderStorage = this;
     let account = this.account;
 
     if (!account.conn.connected) {
       account.conn.autodiscover(function(config) {
         // TODO: handle errors
-        folderStorage._loadMessages(callback, deferred);
+        folderStorage._syncFolder(callback, deferred);
       });
       return;
     }
     if (this.folderMeta.syncKey === '0' && !deferred) {
-      this._getSyncKey(this._loadMessages.bind(this, callback, true));
+      this._getSyncKey(this._syncFolder.bind(this, callback, true));
       return;
     }
 
-    let as = $ascp.AirSync.Tags;
-    let asb = $ascp.AirSyncBase.Tags;
+    const as = $ascp.AirSync.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -178,17 +194,17 @@ ActiveSyncFolderStorage.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderStorage._processMessage(child, node.tag === as.Add);
+            msg = folderStorage._parseMessage(child, node.tag === as.Add);
             break;
           }
         }
 
-        msg.headers.guid = guid;
-        msg.headers.suid = folderStorage.folderId + '/' + guid;
+        msg.header.guid = guid;
+        msg.header.suid = folderStorage.folderId + '/' + guid;
 
         let collection = node.tag === as.Add ? added : changed;
-        collection.headers.push(msg.headers);
-        collection.bodies[msg.headers.suid] = msg.body;
+        collection.headers.push(msg.header);
+        collection.bodies[msg.header.suid] = msg.body;
       });
 
       e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
@@ -215,7 +231,7 @@ ActiveSyncFolderStorage.prototype = {
         // This should already be set to 0, but let's just be safe.
         folderStorage.folderMeta.syncKey = '0';
         folderStorage._needsPurge = true;
-        folderStorage._loadMessages(callback);
+        folderStorage._syncFolder(callback);
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
@@ -224,20 +240,29 @@ ActiveSyncFolderStorage.prototype = {
     });
   },
 
-  _processMessage: function asfs__processMessage(node, isAdded) {
-    let asb = $ascp.AirSyncBase.Tags;
-    let em = $ascp.Email.Tags;
-    let headers, body, flagHeader;
+  /**
+   * Parse the DOM of an individual message to build header and body objects for
+   * it.
+   *
+   * @param {WBXML.Element} node The fully-parsed node describing the message
+   * @param {boolean} isAdded True if this is a new message, false if it's a
+   *   changed one
+   * @return {object} An object containing the header and body for the message
+   */
+  _parseMessage: function asfs__parseMessage(node, isAdded) {
+    const asb = $ascp.AirSyncBase.Tags;
+    const em = $ascp.Email.Tags;
+    let header, body, flagHeader;
 
     if (isAdded) {
-      headers = {
+      header = {
         id: null,
         suid: null,
         guid: null,
         author: null,
         date: null,
         flags: [],
-        hasAttachments: null,
+        hasAttachments: false,
         subject: null,
         snippet: null,
       };
@@ -256,11 +281,11 @@ ActiveSyncFolderStorage.prototype = {
 
       flagHeader = function(flag, state) {
         if (state)
-          headers.flags.push(flag);
+          header.flags.push(flag);
       }
     }
     else {
-      headers = {
+      header = {
         flags: [],
         mergeInto: function(o) {
           // Merge flags
@@ -295,7 +320,7 @@ ActiveSyncFolderStorage.prototype = {
       };
 
       flagHeader = function(flag, state) {
-        headers.flags.push([flag, state]);
+        header.flags.push([flag, state]);
       }
     }
 
@@ -305,10 +330,10 @@ ActiveSyncFolderStorage.prototype = {
 
       switch (child.tag) {
       case em.Subject:
-        headers.subject = childText;
+        header.subject = childText;
         break;
       case em.From:
-        headers.author = $mimelib.parseAddresses(childText)[0];
+        header.author = $mimelib.parseAddresses(childText)[0] || null;
         break;
       case em.To:
         body.to = $mimelib.parseAddresses(childText);
@@ -320,7 +345,7 @@ ActiveSyncFolderStorage.prototype = {
         body.replyTo = $mimelib.parseAddresses(childText);
         break;
       case em.DateReceived:
-        body.date = headers.date = new Date(childText).valueOf();
+        body.date = header.date = new Date(childText).valueOf();
         break;
       case em.Read:
         flagHeader('\\Seen', childText === '1');
@@ -336,29 +361,40 @@ ActiveSyncFolderStorage.prototype = {
           if (grandchild.tag === asb.Data) {
             body.bodyRep = $quotechew.quoteProcessTextBody(
               grandchild.children[0].textContent);
-            headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+            header.snippet = $quotechew.generateSnippet(body.bodyRep);
           }
         }
         break;
       case em.Body: // pre-ActiveSync 12.0
         body.bodyRep = $quotechew.quoteProcessTextBody(childText);
-        headers.snippet = $quotechew.generateSnippet(body.bodyRep);
+        header.snippet = $quotechew.generateSnippet(body.bodyRep);
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        headers.hasAttachments = true;
+        header.hasAttachments = true;
         body.attachments = [];
         for (let [,attachmentNode] in Iterator(child.children)) {
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
             continue; // XXX: throw an error here??
 
-          let attachment = { type: 'text/plain' }; // XXX: this is lies
+          let attachment = { name: null, type: null, part: null,
+                             sizeEstimate: null };
+
           for (let [,attachData] in Iterator(attachmentNode.children)) {
+            let dot, ext;
+
             switch (attachData.tag) {
             case asb.DisplayName:
             case em.DisplayName:
               attachment.name = attachData.children[0].textContent;
+
+              // Get the file's extension to look up a mimetype, but ignore it
+              // if the filename is of the form '.bashrc'.
+              dot = attachment.name.lastIndexOf('.');
+              ext = dot > 0 ? attachment.name.substring(dot + 1) : '';
+              attachment.type = $mimelib.contentTypes[ext] ||
+                                'application/octet-stream';
               break;
             case asb.EstimatedDataSize:
             case em.AttSize:
@@ -372,7 +408,7 @@ ActiveSyncFolderStorage.prototype = {
       }
     }
 
-    return { headers: headers, body: body };
+    return { header: header, body: body };
   },
 
   _sliceFolderMessages: function asfs__sliceFolderMessages(bridgeHandle) {
@@ -386,7 +422,7 @@ ActiveSyncFolderStorage.prototype = {
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
-    this._loadMessages(function(added, changed, deleted) {
+    this._syncFolder(function(added, changed, deleted) {
       if (folderStorage._needsPurge) {
         bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
                                 true);
@@ -395,8 +431,14 @@ ActiveSyncFolderStorage.prototype = {
         folderStorage._needsPurge = false;
       }
 
+      // XXX: pretty much all of the sync code here needs to be rewritten to
+      // divide headers/bodies into blocks so as not to be a performance
+      // nightmare.
+
       // Handle messages that have been deleted
       for (let [,guid] in Iterator(deleted)) {
+        // This looks dangerous (iterating and splicing at the same time), but
+        // we break out of the loop immediately after the splice, so it's ok.
         for (let [i, header] in Iterator(folderStorage._headers)) {
           if (header.guid === guid) {
             delete folderStorage._bodiesBySuid[header.suid];

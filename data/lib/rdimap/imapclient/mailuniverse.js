@@ -453,8 +453,9 @@ Configurators['activesync'] = {
 
     var folderInfo = {
       $meta: {
+        nextFolderNum: 0,
         nextMutationNum: 0,
-        syncKey: "0",
+        syncKey: '0',
       },
       $mutations: [],
     };

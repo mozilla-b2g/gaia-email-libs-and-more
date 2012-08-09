@@ -8,6 +8,7 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
+    './a64',
     './asfolder',
     './asjobs',
     './util',
@@ -18,6 +19,7 @@ define(
     $wbxml,
     $ascp,
     $activesync,
+    $a64,
     $asfolder,
     $asjobs,
     $util,
@@ -53,6 +55,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.folders = [];
   this._folderStorages = {};
   this._folderInfos = folderInfos;
+  this._serverIdToFolderId = {};
   this._deadFolderIds = null;
 
   this.meta = folderInfos.$meta;
@@ -66,6 +69,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
     this._folderStorages[folderId] =
       new $asfolder.ActiveSyncFolderStorage(this, folderInfo, this._db);
+    this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
     this.folders.push(folderInfo.$meta);
   }
   // TODO: we should probably be smarter about sorting.
@@ -156,37 +160,54 @@ ActiveSyncAccount.prototype = {
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
-    var account = this;
+    let account = this;
 
-    var fh = $ascp.FolderHierarchy.Tags;
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    const fh = $ascp.FolderHierarchy.Tags;
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.SyncKey, account.meta.syncKey)
      .etag();
 
     this.conn.doCommand(w, function(aError, aResponse) {
-      var e = new $wbxml.EventParser();
+      let e = new $wbxml.EventParser();
+      let deferredAddedFolders = [];
 
       e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
         account.meta.syncKey = node.children[0].textContent;
       });
 
-      e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Remove]],
+      e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Delete]],
                          function(node) {
-        var folder = {};
-        for (var i = 0; i < node.children.length; i++) {
-          folder[node.children[i].localTagName] =
-            node.children[i].children[0].textContent;
-        }
+        let folder = {};
+        for (let [,child] in Iterator(node.children))
+          folder[child.localTagName] = child.children[0].textContent;
 
-        if (node.tag == fh.Add)
-          account._addedFolder(folder.ServerId, folder.ParentId,
-                               folder.DisplayName, folder.Type);
-        else
+        if (node.tag === fh.Add) {
+          if (!account._addedFolder(folder.ServerId, folder.ParentId,
+                                    folder.DisplayName, folder.Type))
+            deferredAddedFolders.push(folder);
+        }
+        else {
           account._deletedFolder(folder.ServerId);
+        }
       });
 
       e.run(aResponse);
+
+      // It's possible we got some folders in an inconvenient order (i.e. child
+      // folders before their parents). Keep trying to add folders until we're
+      // done.
+      while (deferredAddedFolders.length) {
+        let moreDeferredAddedFolders = [];
+        for (let [,folder] in Iterator(deferredAddedFolders)) {
+          if (!account._addedFolder(folder.ServerId, folder.ParentId,
+                                    folder.DisplayName, folder.Type))
+            moreDeferredAddedFolders.push(folder);
+        }
+        if (moreDeferredAddedFolders.length === deferredAddedFolders.length)
+          throw new Error('got some orphaned folders');
+        deferredAddedFolders = moreDeferredAddedFolders;
+      }
 
       account.saveAccountState();
       callback();
@@ -204,20 +225,36 @@ ActiveSyncAccount.prototype = {
     12: 'normal', // User-created mail folder
   },
 
+  /**
+   * Update the internal database and notify the appropriate listeners when we
+   * discover a new folder.
+   *
+   * @param {string} serverId A GUID representing the new folder
+   * @param {string} parentId A GUID representing the parent folder, or '0' if
+   *   this is a root-level folder
+   * @param {string} displayName The display name for the new folder
+   * @param {string} typeNum A numeric value representing the new folder's type,
+   *   corresponding to the mapping in _folderTypes above
+   * @return {boolean} true if we added the folder, false if we need to wait
+   *   until later (e.g. if we haven't added the folder's parent yet)
+   */
   _addedFolder: function asa__addedFolder(serverId, parentId, displayName,
                                           typeNum) {
     if (!(typeNum in this._folderTypes))
-      return; // Not a folder type we care about.
+      return true; // Not a folder type we care about.
 
-    let folderId = this.id + '/' + serverId;
     let path = displayName;
     let depth = 0;
     if (parentId !== '0') {
-      let parent = this._folderInfos[this.id + '/' + parentId];
+      let parentFolderId = this._serverIdToFolderId[parentId];
+      if (parentFolderId === undefined)
+        return false;
+      let parent = this._folderInfos[parentFolderId];
       path = parent.$meta.path + '/' + path;
       depth = parent.$meta.depth + 1;
     }
 
+    let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     let folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
@@ -235,6 +272,7 @@ ActiveSyncAccount.prototype = {
 
     this._folderStorages[folderId] = new $asfolder.ActiveSyncFolderStorage(
       this, folderInfo, this._db);
+    this._serverIdToFolderId[serverId] = folderId;
 
     var account = this;
     var idx = bsearchForInsert(this.folders, folderInfo.$meta, function(a, b) {
@@ -243,12 +281,21 @@ ActiveSyncAccount.prototype = {
     this.folders.splice(idx, 0, folderInfo.$meta);
 
     this.universe.__notifyAddedFolder(this.id, folderInfo.$meta);
+
+    return true;
   },
 
+  /**
+   * Update the internal database and notify the appropriate listeners when we
+   * find out a folder has been removed.
+   *
+   * @param {string} serverId A GUID representing the deleted folder
+   */
   _deletedFolder: function asa__deletedFolder(serverId) {
-    var folderId = this.id + '/' + serverId;
-    var folderInfo = this._folderInfos[folderId],
+    let folderId = this._serverIdToFolderId[serverId],
+        folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
+    delete this._serverIdToFolderId[serverId];
     delete this._folderInfos[folderId];
     delete this._folderStorages[folderId];
 
@@ -267,8 +314,8 @@ ActiveSyncAccount.prototype = {
     composedMessage._cacheOutput = true;
     composedMessage._composeMessage();
 
-    var cm = $ascp.ComposeMail.Tags;
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    const cm = $ascp.ComposeMail.Tags;
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(cm.SendMail)
        .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
        .tag(cm.SaveInSentItems)
