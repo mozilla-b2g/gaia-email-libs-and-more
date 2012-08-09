@@ -453,15 +453,16 @@ Configurators['activesync'] = {
 
     var folderInfo = {
       $meta: {
+        nextFolderNum: 0,
         nextMutationNum: 0,
-        syncKey: "0",
+        syncKey: '0',
       },
       $mutations: [],
     };
-    universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
     account.syncFolderList(function() {
       accountDef.identities[0].name = account.conn.config.user.name;
+      universe.saveAccountDef(accountDef, folderInfo);
       callback(true, account);
     });
   },
