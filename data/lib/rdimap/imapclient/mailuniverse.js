@@ -753,7 +753,7 @@ MailUniverse.prototype = {
     try {
       // 'default' does not work, but pictures does.  Hopefully gallery is
       // smart enough to stay away from my log files!
-      var storage = navigator.getDeviceStorage('pictures')[0];
+      var storage = navigator.getDeviceStorage('pictures');
       var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
                           {
                             type: 'application/json',

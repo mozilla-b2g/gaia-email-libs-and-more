@@ -1438,8 +1438,26 @@ console.log('  pending fetches', pendingFetches);
  *     The encoding of the attachment so we know how to decode it.
  *   }
  *   @key[sizeEstimate Number]{
- *     Estimated file size in bytes.
+ *     Estimated file size in bytes.  Gets updated to be the correct size on
+ *     attachment download.
  *   }
+ *   @key[file @oneof[
+ *     @case[null]{
+ *       The attachment has not been downloaded, the file size is an estimate.
+ *     }
+ *     @case[@list["device storage type" "file path"]{
+ *       The DeviceStorage type (ex: pictures) and the path to the file within
+ *       device storage.
+ *     }
+ *     @case[HTMLBlob]{
+ *       The Blob that contains the attachment.  It can be thought of as a
+ *       handle/name to access the attachment.  IndexedDB in Gecko stores the
+ *       blobs as (quota-tracked) files on the file-system rather than inline
+ *       with the record, to the attachments don't need to count against our
+ *       block size since they are not part of the direct I/O burden for the
+ *       block.
+ *     }
+ *   ]]
  * ]]
  * @typedef[BodyInfo @dict[
  *   @key[date DateMS]{

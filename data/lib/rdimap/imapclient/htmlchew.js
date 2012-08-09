@@ -336,11 +336,13 @@ var LEGAL_STYLES = [
   'border-width',
   // slow: box-shadow
   'color',
+  'display',
   'font-family',
   'font-size',
   'font-style',
   'font-weight',
   'height',
+  'line-height',
   // URI-like: list-style, list-style-image
   'list-style-position',
   'list-style-type',

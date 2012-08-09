@@ -50,7 +50,8 @@ define(
  */
 const CHECKED_NOTYET = 1;
 /**
- * The operation is idempotent and atomic; no checking was performed.
+ * The operation is idempotent and atomic, just perform the operation again.
+ * No checking performed.
  */
 const UNCHECKED_IDEMPOTENT = 2;
 /**
@@ -68,6 +69,13 @@ const CHECKED_MOOT = 4;
  * check.
  */
 const UNCHECKED_BAILED = 5;
+/**
+ * The job has not yet been performed, and the evidence is that the job was
+ * not marked finished because our database commits are coherent.  This is
+ * appropriate for retrieval of information, like the downloading of
+ * attachments.
+ */
+const UNCHECKED_COHERENT_NOTYET = 6;
 
 function ImapJobDriver(account) {
   this.account = account;
@@ -106,6 +114,32 @@ ImapJobDriver.prototype = {
     if (!storage._slices.length && !storage._pendingMutationCount)
       storage.folderConn.relinquishConn();
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // download: Download one or more attachments from a single message
+
+  local_do_download: function(op, ignoredCallback) {
+    // Downloads are inherently online operations.
+    return null;
+  },
+
+  do_download: function(op, callback) {
+  },
+
+  check_download: function(op, callback) {
+    // XX
+  },
+
+  local_undo_download: function(op, ignoredCallback) {
+  },
+
+  undo_download: function(op, callback) {
+    callback();
+  },
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  // modtags: Modify tags on messages
 
   local_do_modtags: function(op, ignoredCallback, undo) {
     var addTags = undo ? op.removeTags : op.addTags,
@@ -238,6 +272,9 @@ ImapJobDriver.prototype = {
     return this.do_modtags(op, callback, true);
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // delete: Delete messages
+
   /**
    * Move the message to the trash folder.  In Gmail, there is no move target,
    * we just delete it and gmail will (by default) expunge it immediately.
@@ -253,6 +290,9 @@ ImapJobDriver.prototype = {
 
   undo_delete: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // move: Move messages between folders (in a single account)
 
   do_move: function() {
     // get a connection in the source folder, uid validity is asserted
@@ -278,6 +318,9 @@ ImapJobDriver.prototype = {
   undo_move: function() {
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // copy: Copy messages between folders (in a single account)
+
   do_copy: function() {
   },
 
@@ -291,6 +334,9 @@ ImapJobDriver.prototype = {
    */
   undo_copy: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // append: Add a message to a folder
 
   /**
    * Append a message to a folder.
@@ -355,6 +401,8 @@ ImapJobDriver.prototype = {
 
   undo_append: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 function HighLevelJobDriver() {

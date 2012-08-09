@@ -7,7 +7,6 @@ define(
     'exports'
   ],
   function(
-
     exports
   ) {
 
@@ -417,21 +416,20 @@ MailBody.prototype = {
    * true if this is an HTML document with inline images sent as part of the
    * messages.
    */
-  get hasEmbeddedImages() {
-  },
-
-
-  /**
-   *
-   */
-  get embeddedImagesAlreadyDownloaded() {
+  get embeddedImageCount() {
+    return this._relatedParts.length;
   },
 
   /**
-   * true if this is an HTML document with references to externally hosted
-   * images.
+   * true if all of the images are already downloaded.
    */
-  get hasExternalImages() {
+  get embeddedImagesDownloaded() {
+    for (var i = 0; i < this._relatedParts.length; i++) {
+      var relatedPart = this._relatedParts[i];
+      if (!relatedPart.file)
+        return false;
+    }
+    return true;
   },
 
   /**
@@ -439,24 +437,70 @@ MailBody.prototype = {
    * Once the images have been downloaded
    */
   downloadEmbeddedImages: function() {
+
   },
 
   /**
    * Asynchronously trigger the display of embedded images
    */
   showEmbeddedImages: function(htmlNode, callback) {
+    var i, cidToObjectUrl = {};
+    // - Generate object URLs for the attachments
+    for (i = 0; i < this._relatedParts.length; i++) {
+      var relPart = this._relatedParts[i];
+      // Related parts should all be stored as Blobs-in-IndexedDB
+      if (relPart.file && !Array.isArray(relPart.file)) {
+        cidToObjectUrl[relPart.name] = window.URL.createObjectURL(relPart.file);
+      }
+    }
+
+    // - Transform the links
+    var nodes = htmlNode.querySelectorAll('.moz-embedded-image');
+    for (i = 0; i < nodes.length; i++) {
+      var node = nodes[i],
+          cid = node.getAttribute('cid-src');
+      if (!cidToObjectUrl.hasOwnProperty(cid))
+        continue;
+      node.setAttribute('src', cidToObjectUrl[cid]);
+      node.removeAttribute('cid-src');
+      node.classList.remove('moz-embedded-image');
+    }
   },
 
   /**
-   * Transform
+   * @return[Boolean]{
+   *   True if the given HTML node sub-tree contains references to externally
+   *   hosted images.  These are detected by looking for markup left in the
+   *   image by the sanitization process.  The markup is not guaranteed to be
+   *   stable, so don't do this yourself.
+   * }
+   */
+  checkForExternalImages: function(htmlNode) {
+    var someNode = htmlNode.querySelector('.moz-external-image');
+    return someNode !== null;
+  },
+
+  /**
+   * Transform previously sanitized references to external images into live
+   * references to images.  This un-does the operations of the sanitization step
+   * using implementation-specific details subject to change, so don't do this
+   * yourself.
    */
   showExternalImages: function(htmlNode) {
+    // querySelectorAll is not live, whereas getElementsByClassName is; we
+    // don't need/want live, especially with our manipulations.
+    var nodes = htmlNode.querySelectorAll('.moz-external-image');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      node.setAttribute('src', node.getAttribute('ext-src'));
+      node.removeAttribute('ext-src');
+      node.classList.remove('moz-external-image');
+    }
   },
 
   /**
    * Call this method when you are done with a message body.  This is required
-   * so that any File/Blob URL's can be revoked or avoid being issued in the
-   * first place.
+   * so that any File/Blob URL's can be revoked.
    */
   die: function() {
 

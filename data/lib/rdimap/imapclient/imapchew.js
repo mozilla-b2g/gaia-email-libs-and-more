@@ -145,6 +145,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         part: partInfo.partID,
         encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
+        file: null
       });
       return true;
     }
@@ -157,7 +158,8 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         type: partInfo.type + '/' + partInfo.subtype,
         part: partInfo.partID,
         encoding: partInfo.encoding,
-        sizeEstimate: estimatePartSizeInBytes(partInfo)
+        sizeEstimate: estimatePartSizeInBytes(partInfo),
+        file: null
       });
       return true;
     }

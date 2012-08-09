@@ -430,8 +430,7 @@ MailBridge.prototype = {
   _cmd_getBody: function mb__cmd_getBody(msg) {
     var self = this;
     // map the message id to the folder storage
-    var folderId = msg.suid.substring(0, msg.suid.lastIndexOf('/'));
-    var folderStorage = this.universe.getFolderStorageForFolderId(folderId);
+    var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.suid);
     folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
       self.__sendMessage({
         type: 'gotBody',
@@ -439,6 +438,10 @@ MailBridge.prototype = {
         bodyInfo: bodyInfo,
       });
     });
+  },
+
+  _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
+
   },
 
   //////////////////////////////////////////////////////////////////////////////
