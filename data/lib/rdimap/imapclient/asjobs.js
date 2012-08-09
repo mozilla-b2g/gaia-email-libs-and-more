@@ -118,15 +118,34 @@ ActiveSyncJobDriver.prototype = {
 
       let e = new $wbxml.EventParser();
 
-      let status;
-      e.addEventListener([as.Sync, as.Collections, as.Collection, as.Status],
-                         function(node) {
-        status = node.children[0].textContent;
+      let statuses = [];
+      let syncKeys = [];
+      let collectionIds = [];
+
+      const base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        syncKeys.push(node.children[0].textContent);
+      });
+      e.addEventListener(base.concat(as.CollectionId), function(node) {
+        collectionIds.push(node.children[0].textContent);
+      });
+      e.addEventListener(base.concat(as.Status), function(node) {
+        statuses.push(node.children[0].textContent);
       });
 
       e.run(aResponse);
 
-      if (status === '1') { // Success
+      let allGood = statuses.reduce(function(good, status) {
+        return good && status === '1';
+      });
+
+      if (allGood) {
+        for (let i = 0; i < collectionIds.length; i++) {
+          let folderStorage = jobDriver.account.getFolderStorageForServerId(
+            collectionIds[i]);
+          folderStorage.folderMeta.syncKey = syncKeys[i];
+        }
+
         if (callback)
           callback();
         jobDriver.account.saveAccountState();

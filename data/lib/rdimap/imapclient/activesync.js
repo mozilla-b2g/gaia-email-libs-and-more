@@ -339,6 +339,11 @@ ActiveSyncAccount.prototype = {
     return this._folderStorages[folderId];
   },
 
+  getFolderStorageForServerId: function asa_getFolderStorageForServerId(
+                               serverId) {
+    return this._folderStorages[this._serverIdToFolderId[serverId]];
+  },
+
   runOp: function asa_runOp(op, mode, callback) {
     dump('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')\n');
 
