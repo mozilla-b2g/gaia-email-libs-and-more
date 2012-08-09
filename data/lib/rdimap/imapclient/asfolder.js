@@ -262,7 +262,7 @@ ActiveSyncFolderStorage.prototype = {
         author: null,
         date: null,
         flags: [],
-        hasAttachments: null,
+        hasAttachments: false,
         subject: null,
         snippet: null,
       };
@@ -333,7 +333,7 @@ ActiveSyncFolderStorage.prototype = {
         header.subject = childText;
         break;
       case em.From:
-        header.author = $mimelib.parseAddresses(childText)[0];
+        header.author = $mimelib.parseAddresses(childText)[0] || null;
         break;
       case em.To:
         body.to = $mimelib.parseAddresses(childText);
@@ -378,12 +378,23 @@ ActiveSyncFolderStorage.prototype = {
               attachmentNode.tag !== em.Attachment)
             continue; // XXX: throw an error here??
 
-          let attachment = { type: 'text/plain' }; // XXX: this is lies
+          let attachment = { name: null, type: null, part: null,
+                             sizeEstimate: null };
+
           for (let [,attachData] in Iterator(attachmentNode.children)) {
+            let dot, ext;
+
             switch (attachData.tag) {
             case asb.DisplayName:
             case em.DisplayName:
               attachment.name = attachData.children[0].textContent;
+
+              // Get the file's extension to look up a mimetype, but ignore it
+              // if the filename is of the form '.bashrc'.
+              dot = attachment.name.lastIndexOf('.');
+              ext = dot > 0 ? attachment.name.substring(dot + 1) : '';
+              attachment.type = $mimelib.contentTypes[ext] ||
+                                'application/octet-stream';
               break;
             case asb.EstimatedDataSize:
             case em.AttSize:
