@@ -19,7 +19,7 @@ const INITIAL_SYNC_DAYS = 7,
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 15;
 
-TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
+TD.DISABLED_commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
@@ -327,6 +327,74 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
 
   T.group('cleanup');
 });
+
+/**
+ * If there are more messages in the sync range than the initial fill desires,
+ * it's important that the sync routine still gets presented with all the
+ * headers covering the time range.  As a real example, our initial sync range
+ * had 22 messages in it, but the initial fill was 15, so when doing a refresh
+ * we would see 7 new messages.  Things would then break when tried to insert
+ * the duplicate messages.
+ *
+ * For our test, we choose an initial sync of 3 days, a fill size of 4 messages,
+ * and 3 messages per day.
+ */
+TD.commonCase('refresh does not break when db limit hit', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding dalight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const TSYNCI = 3;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 4,
+    days: TSYNCI,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    // The exact thresholds do not matter...
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+    // But this does; be older than our #1 and #2 triggering cases
+    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
+    refreshOld: 2 * DAY_MILLIS,
+
+    useRangeNonInbox: 4 * HOUR_MILLIS,
+    useRangeInbox: 4 * HOUR_MILLIS,
+  });
+
+  T.group('no change: setup');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  var createdAt = staticNow;
+  var c1Folder = testAccount.do_createTestFolder(
+    'test_complex_refresh',
+    // we will sync 9, leave an extra 1 not to sync so grow is true.
+    { count: 6, age: { hours: 12 }, age_incr: { hours: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', c1Folder,
+    [{ count: 6, full: 6, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
+
+  T.group('no change: #1 refresh');
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  // XXX need to differentiate refresh and verify
+  testAccount.do_viewFolder(
+    '#1 refresh sync', c1Folder,
+    { count: 6, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
+  T.group('cleanup');
+});
+
 
 function run_test() {
   runMyTests(20); // we do a lot of appending...
