@@ -153,9 +153,11 @@ var LEGAL_TAGS = [
  * - 'style': no one wants to read the CSS we are (currently) ignoring
  */
 var PRUNE_TAGS = [
-  'button',
-  'datalist',
-  'select',
+  'button', // (forms)
+  'datalist', // (forms)
+  'script', // (script)
+  'select', // (forms)
+  'style', // (style)
 ];
 
 /**
@@ -337,6 +339,7 @@ var LEGAL_STYLES = [
   // slow: box-shadow
   'color',
   'display',
+  'float',
   'font-family',
   'font-size',
   'font-style',
