@@ -2621,6 +2621,8 @@ if (syncStartTS !== startTS)
 console.log("growing startTS to", syncStartTS, "from", startTS);
       startTS = syncStartTS;
     }
+    // quantize the start date
+    startTS = quantizeDate(startTS);
 
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
