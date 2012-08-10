@@ -67,6 +67,14 @@ ActiveSyncFolderStorage.prototype = {
     };
   },
 
+  get syncKey() {
+    return this.folderMeta.syncKey;
+  },
+
+  set syncKey(value) {
+    return this.folderMeta.syncKey = value;
+  },
+
   /**
    * Get the initial sync key for the folder so we can start getting data
    *

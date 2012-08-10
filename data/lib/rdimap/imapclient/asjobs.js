@@ -87,7 +87,7 @@ ActiveSyncJobDriver.prototype = {
       if (this.account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
         w.tag(as.Class, 'Email');
 
-        w.tag(as.SyncKey, folderStorage.folderMeta.syncKey)
+        w.tag(as.SyncKey, folderStorage.syncKey)
            .tag(as.CollectionId, folderStorage.serverId)
            .stag(as.Commands);
 
@@ -149,7 +149,7 @@ ActiveSyncJobDriver.prototype = {
         for (let i = 0; i < collectionIds.length; i++) {
           let folderStorage = jobDriver.account.getFolderStorageForServerId(
             collectionIds[i]);
-          folderStorage.folderMeta.syncKey = syncKeys[i];
+          folderStorage.syncKey = syncKeys[i];
         }
 
         if (callback)
