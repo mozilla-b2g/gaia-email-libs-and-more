@@ -31,10 +31,11 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 6 because IMAP during v5 was bad about dirtying all of its blocks
- * under mutating circumstances.
+ * Bumping to 7 because IMAP during v6 could screw up the refresh logic which
+ * would result in duplicate bodies and headers that would eventually break
+ * things.
  */
-const CUR_VERSION = 6;
+const CUR_VERSION = 7;
 
 /**
  * What is the lowest database version that we are capable of performing a
