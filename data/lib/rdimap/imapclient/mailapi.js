@@ -417,6 +417,8 @@ MailBody.prototype = {
    * messages.
    */
   get embeddedImageCount() {
+    if (!this._relatedParts)
+      return 0;
     return this._relatedParts.length;
   },
 

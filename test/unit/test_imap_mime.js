@@ -124,7 +124,7 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           bstrTrivialHtml,  { contentType: 'text/html' }),
       bstrLimitedHtml =
-        '<div>I <font>am <span>HTML!</span></font></div>',
+        '<div>I <form>am <span>HTML!</span></form></div>',
       bstrSanitizedLimitedHtml =
         '<div>I am <span>HTML!</span></div>',
       bpartLimitedHtml =
