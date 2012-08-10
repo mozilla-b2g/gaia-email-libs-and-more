@@ -25,19 +25,25 @@ ActiveSyncJobDriver.prototype = {
       let folderId = message.suid.substring(0, message.suid.lastIndexOf('/'));
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
 
-      for (let [i, header] in Iterator(folderStorage._headers)) {
-        if (header.suid === message.suid) {
-          for (let [,add] in Iterator(op.addTags || []))
-            header.flags.push(add);
-          for (let [,remove] in Iterator(op.removeTags || [])) {
-            let index = header.flags.indexOf(remove);
-            if (index !== -1)
-              header.flags.splice(index, 1);
-          }
-          folderStorage._bridgeHandle.sendUpdate([i, header]);
-          break;
+      folderStorage.updateMessageHeader(message.suid, function(header) {
+        let modified = false;
+
+        for (let [,tag] in Iterator(op.addTags || [])) {
+          if (header.flags.indexOf(tag) !== -1)
+            continue;
+          header.flags.push(tag);
+          header.flags.sort();
+          modified = true;
         }
-      }
+        for (let [,remove] in Iterator(op.removeTags || [])) {
+          let index = header.flags.indexOf(remove);
+          if (index === -1)
+            continue;
+          header.flags.splice(index, 1);
+          modified = true;
+        }
+        return modified;
+      });
     }
 
     this.account.saveAccountState();

@@ -75,6 +75,17 @@ ActiveSyncFolderStorage.prototype = {
     return this.folderMeta.syncKey = value;
   },
 
+  updateMessageHeader: function asfs_updateMessageHeader(suid, mutatorFunc) {
+    // XXX: this could be a lot faster
+    for (let [i, header] in Iterator(this._headers)) {
+      if (header.suid === suid) {
+        if (mutatorFunc(header))
+          this._bridgeHandle.sendUpdate([i, header]);
+        return;
+      }
+    }
+  },
+
   /**
    * Get the initial sync key for the folder so we can start getting data
    *
