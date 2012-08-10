@@ -19,7 +19,7 @@ const INITIAL_SYNC_DAYS = 7,
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 15;
 
-TD.DISABLED_commonCase('sliceOpenFromNow #1 and #2', function(T) {
+TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
@@ -337,12 +337,13 @@ TD.DISABLED_commonCase('sliceOpenFromNow #1 and #2', function(T) {
  * the duplicate messages.
  *
  * For our test, we choose an initial sync of 3 days, a fill size of 4 messages,
- * and 3 messages per day.
+ * and we just cram 6 messages in one day.
  */
 TD.commonCase('refresh does not break when db limit hit', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
   // Jan 28th, yo.  Intentionally avoiding dalight saving time
@@ -376,12 +377,11 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   var createdAt = staticNow;
   var c1Folder = testAccount.do_createTestFolder(
     'test_complex_refresh',
-    // we will sync 9, leave an extra 1 not to sync so grow is true.
     { count: 6, age: { hours: 12 }, age_incr: { hours: 1 } });
   testAccount.do_viewFolder(
     'syncs', c1Folder,
-    [{ count: 6, full: 6, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
+    [{ count: 4, full: 6, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
 
   T.group('no change: #1 refresh');
   staticNow += HOUR_MILLIS;
@@ -389,8 +389,8 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
     '#1 refresh sync', c1Folder,
-    { count: 6, full: 0, flags: 6, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { count: 4, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: false, grow: false });
 
   T.group('cleanup');
 });
