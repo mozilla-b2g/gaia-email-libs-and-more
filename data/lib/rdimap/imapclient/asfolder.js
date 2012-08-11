@@ -86,6 +86,18 @@ ActiveSyncFolderStorage.prototype = {
     }
   },
 
+  deleteMessage: function asfs_deleteMessage(suid) {
+    // XXX: this could be a lot faster
+    for (let [i, header] in Iterator(this._headers)) {
+      if (header.suid === suid) {
+        delete folderStorage._bodiesBySuid[header.suid];
+        this._headers.splice(i, 1);
+        this._bridgeHandle.sendSplice(i, 1, [], false, false);
+        return;
+      }
+    }
+  },
+
   /**
    * Get the initial sync key for the folder so we can start getting data
    *

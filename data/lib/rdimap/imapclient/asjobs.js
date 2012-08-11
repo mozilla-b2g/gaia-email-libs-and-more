@@ -21,6 +21,10 @@ function ActiveSyncJobDriver(account) {
 exports.ActiveSyncJobDriver = ActiveSyncJobDriver;
 ActiveSyncJobDriver.prototype = {
   local_do_modtags: function(op, callback) {
+    // XXX: we'll probably remove this once deleting stops being a modtag op
+    if (op.addTags && op.addTags.indexOf('\\Deleted') !== -1)
+      return this.local_do_delete(op, callback);
+
     for (let [,message] in Iterator(op.messages)) {
       let folderId = message.suid.substring(0, message.suid.lastIndexOf('/'));
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
@@ -52,6 +56,66 @@ ActiveSyncJobDriver.prototype = {
   },
 
   do_modtags: function(op, callback) {
+    function getMark(tag) {
+      if (op.addTags && op.addTags.indexOf(tag) !== -1)
+        return true;
+      if (op.removeTags && op.removeTags.indexOf(tag) !== -1)
+        return false;
+      return undefined;
+    }
+
+    // XXX: we'll probably remove this once deleting stops being a modtag op
+    if (getMark('\\Deleted'))
+      return this.do_delete(op, callback);
+
+    let markRead = getMark('\\Seen');
+    let markFlagged = getMark('\\Flagged');
+
+    this._do_crossFolderOp(op, callback, function(w, guid) {
+      const as = $ascp.AirSync.Tags;
+      const em = $ascp.Email.Tags;
+
+      w.stag(as.Change)
+         .tag(as.ServerId, guid)
+         .stag(as.ApplicationData);
+
+      if (markRead !== undefined)
+        w.tag(em.Read, markRead ? '1' : '0');
+
+      if (markFlagged !== undefined)
+        w.stag(em.Flag)
+           .tag(em.Status, markFlagged ? '2' : '0')
+         .etag();
+
+        w.etag()
+       .etag();
+    });
+  },
+
+  local_do_delete: function(op, callback) {
+    for (let [,message] in Iterator(op.messages)) {
+      let folderId = message.suid.substring(0, message.suid.lastIndexOf('/'));
+      let folderStorage = this.account.getFolderStorageForFolderId(folderId);
+
+      folderStorage.deleteMessage(message.suid);
+    }
+
+    this.account.saveAccountState();
+    if (callback)
+      setZeroTimeout(callback);
+  },
+
+  do_delete: function(op, callback) {
+    this._do_crossFolderOp(op, callback, function(w, guid) {
+      const as = $ascp.AirSync.Tags;
+
+      w.stag(as.Delete)
+         .tag(as.ServerId, guid)
+       .etag();
+    });
+  },
+
+  _do_crossFolderOp: function(op, callback, command) {
     let jobDriver = this;
 
     if (!this.account.conn.connected) {
@@ -66,16 +130,6 @@ ActiveSyncJobDriver.prototype = {
     // XXX: we really only want the message ID, but this method tries to parse
     // it as an int (it's a GUID).
     let partitions = $util.partitionMessagesByFolderId(op.messages, false);
-
-    function getMark(tag) {
-      if (op.addTags && op.addTags.indexOf(tag) !== -1)
-        return true;
-      if (op.removeTags && op.removeTags.indexOf(tag) !== -1)
-        return false;
-      return undefined;
-    }
-    let markRead = getMark('\\Seen');
-    let markFlagged = getMark('\\Flagged');
 
     const as = $ascp.AirSync.Tags;
     const em = $ascp.Email.Tags;
@@ -95,26 +149,14 @@ ActiveSyncJobDriver.prototype = {
 
         w.tag(as.SyncKey, folderStorage.syncKey)
            .tag(as.CollectionId, folderStorage.serverId)
+           .tag(as.DeletesAsMoves)
            .stag(as.Commands);
 
       for (let [,message] in Iterator(part.messages)) {
         let slash = message.lastIndexOf('/');
         let guid = message.substring(slash+1);
 
-        w.stag(as.Change)
-           .tag(as.ServerId, guid)
-           .stag(as.ApplicationData);
-
-        if (markRead !== undefined)
-          w.tag(em.Read, markRead ? '1' : '0');
-
-        if (markFlagged !== undefined)
-          w.stag(em.Flag)
-             .tag(em.Status, markFlagged ? '2' : '0')
-           .etag();
-
-          w.etag()
-         .etag();
+        command(w, guid);
       }
 
         w.etag()
