@@ -134,6 +134,12 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
          partInfo.subtype === 'pkcs7-signature'))
       return true;
 
+    function stripArrows(s) {
+      if (s[0] === '<')
+        return s.slice(1, -1);
+      return s;
+    }
+
     // - Attachments have names and don't have id's for multipart/related
     if (disposition === 'attachment') {
       // We probably want to do a MIME mapping here for the extension?
@@ -160,7 +166,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     //
     if (partInfo.type === 'image') {
       relatedParts.push({
-        name: partInfo.id, // this is the cid
+        name: stripArrows(partInfo.id), // this is the cid
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
         encoding: partInfo.encoding,
@@ -177,7 +183,6 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     }
 
     // - We must be an inline part or structure
-    console.log("considering leaf", partInfo.type, partInfo.subtype);
     switch (partInfo.type) {
       // - content
       case 'text':
@@ -250,9 +255,6 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     chewMultipart(msg.structure);
   else
     chewLeaf(msg.structure);
-
-  if (!bodyParts.length)
-    console.log("no body parts?", JSON.stringify(msg.structure));
 
   return {
     msg: msg,
@@ -407,6 +409,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     replyTo: ('reply-to' in rep.msg.msg.parsedHeaders) ?
                sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
     attachments: sizifyAttachments(rep.attachments),
+    relatedParts: sizifyAttachments(rep.relatedParts),
     references: rep.msg.msg.meta.references,
     bodyReps: sizifyBodyReps(bodyReps),
   };

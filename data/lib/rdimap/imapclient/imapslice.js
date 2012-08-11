@@ -1297,6 +1297,7 @@ console.log('  pending fetches', pendingFetches);
       mparser._currentNode = mparser._createMimeNode(null);
       mparser._currentNode.attachment = true;
       mparser._currentNode.checksum = dummyChecksummer;
+      mparser._currentNode.content = undefined;
       // nb: mparser._multipartTree is an empty list (always)
       mparser._currentNode.meta.contentType = partInfo.type;
       mparser._currentNode.meta.transferEncoding = partInfo.encoding;
@@ -1320,7 +1321,7 @@ console.log('  pending fetches', pendingFetches);
     partInfos.forEach(function(partInfo) {
       var opts = { request: { body: partInfo.part } };
       pendingFetches++;
-      var fetcher = conn.fetch(chewRep.msg.id, opts);
+      var fetcher = conn.fetch(uid, opts);
 
       setupBodyParser(partInfo);
       fetcher.on('error', function(err) {
@@ -1335,8 +1336,6 @@ console.log('  pending fetches', pendingFetches);
         msg.on('end', function() {
           bodies.push(finishBodyParsing());
 
-          // If this is the last chew rep, then use its completion
-          // to report our completion.
           if (--pendingFetches === 0)
             callback(anyError, bodies);
         });

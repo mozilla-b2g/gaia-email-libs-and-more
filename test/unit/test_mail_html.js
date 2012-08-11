@@ -22,13 +22,13 @@ TD.commonCase('embedded and remote images', function(T) {
         ' image 3: <img src="http://example.com/foo.png">' +
         ' <a href="http://example.com/bar.html">link</a></body></html>',
       bstrSanitizedFancyHtml =
-        'image 1: <img class="moz-embedded-image"' +
-        ' cid-src="cid:part1.foo@bar.com"> ' +
-        'image 2: <img class="moz-embedded-image"' +
-        ' cid-src="cid:part2.foo@bar.com"> ' +
-        'image 3: <img class="moz-external-image"' +
-        ' ext-src="http://example.com/foo.png">' +
-        '<a class="moz-external-link" ext-href="http://example.com/bar.html">' +
+        'image 1: <img cid-src="part1.foo@bar.com"' +
+        ' class="moz-embedded-image"> ' +
+        'image 2: <img cid-src="part2.foo@bar.com"' +
+        ' class="moz-embedded-image"> ' +
+        'image 3: <img ext-src="http://example.com/foo.png"' +
+        ' class="moz-external-image"> ' +
+        '<a ext-href="http://example.com/bar.html" class="moz-external-link">' +
         'link</a>',
       bpartFancyHtml =
         new SyntheticPartLeaf(
@@ -37,14 +37,14 @@ TD.commonCase('embedded and remote images', function(T) {
           contentType: 'image/png',
           encoding: 'base64', charset: null, format: null,
           contentId: 'part1.foo@bar.com',
-          body: 'YWJj\n'
+          body: 'cGFydDE=' // "part1" in base64
         },
       partRelImage_1 = new SyntheticPartLeaf(relImage_1.body, relImage_1),
       relImage_2 = {
           contentType: 'image/png',
           encoding: 'base64', charset: null, format: null,
           contentId: 'part2.foo@bar.com',
-          body: 'YWJj\n'
+          body: 'cGFydDI=' // "part2" in base64
         },
       partRelImage_2 = new SyntheticPartLeaf(relImage_2.body, relImage_2),
       bpartRelatedHtml =
@@ -63,6 +63,8 @@ TD.commonCase('embedded and remote images', function(T) {
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('messageCheck');
+
+  __blobLogFunc = eCheck.namedValue.bind(eCheck);
 
   // -- create the folder, append the messages
   var fullSyncFolder = testAccount.do_createTestFolder(
@@ -101,6 +103,7 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('bodyReps[0]', 'html');
     eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
+    eCheck.expect_namedValue('embeddedImagesDownloaded', false);
     eCheck.expect_namedValue('checkForExternalImages', true);
     fancyHeader = folderView.slice.items[idxFancy];
     fancyHeader.getBody(function(body) {
@@ -110,6 +113,8 @@ TD.commonCase('embedded and remote images', function(T) {
       eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
       eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
       eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
+      eCheck.namedValue('embeddedImagesDownloaded',
+                        fancyBody.embeddedImagesDownloaded);
 
       displayDoc = document.implementation.createHTMLDocument('');
       displayElem = displayDoc.body;
@@ -122,6 +127,8 @@ TD.commonCase('embedded and remote images', function(T) {
   // (We could verify the HTML rep prior to any transforms, but we already
   // verified the string rep of the HTML.)
   T.action(eCheck, 'download embedded images', function() {
+    eCheck.expect_namedValue('createBlob', 'part1');
+    eCheck.expect_namedValue('createBlob', 'part2');
     eCheck.expect_event('downloaded');
     eCheck.expect_namedValue('non-null relpart 0', true);
     eCheck.expect_namedValue('non-null relpart 1', true);
@@ -134,35 +141,82 @@ TD.commonCase('embedded and remote images', function(T) {
     });
   });
   T.check(eCheck, 'show embedded images', function() {
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
+    eCheck.expect_namedValue('createObjectURL', 'url:part1');
+    eCheck.expect_namedValue('createObjectURL', 'url:part2');
+    eCheck.expect_namedValue('image 0 has src', 'url:part1');
+    eCheck.expect_namedValue('image 1 has src', 'url:part2');
     // the transform should not affect the external image
-    eCheck.expect_namedValue('image 2 has src', false);
+    eCheck.expect_namedValue('image 2 has src', null);
 
     fancyBody.showEmbeddedImages(displayElem);
     var imgs = displayElem.querySelectorAll('img');
-    eCheck.namedValue('image 0 has src', imgs[0].hasAttribute('src'));
-    eCheck.namedValue('image 1 has src', imgs[1].hasAttribute('src'));
-    eCheck.namedValue('image 2 has src', imgs[2].hasAttribute('src'));
+    eCheck.namedValue('image 0 has src', imgs[0].getAttribute('src'));
+    eCheck.namedValue('image 1 has src', imgs[1].getAttribute('src'));
+    eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
   });
   T.check(eCheck, 'show external images', function() {
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
-    eCheck.expect_namedValue('image 2 has src', true);
+    eCheck.expect_namedValue('image 0 has src', 'url:part1');
+    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    eCheck.expect_namedValue('image 2 has src', 'http://example.com/foo.png');
 
     fancyBody.showExternalImages(displayElem);
     var imgs = displayElem.querySelectorAll('img');
-    eCheck.namedValue('image 0 has src', imgs[0].hasAttribute('src'));
-    eCheck.namedValue('image 1 has src', imgs[1].hasAttribute('src'));
-    eCheck.namedValue('image 2 has src', imgs[2].hasAttribute('src'));
+    eCheck.namedValue('image 0 has src', imgs[0].getAttribute('src'));
+    eCheck.namedValue('image 1 has src', imgs[1].getAttribute('src'));
+    eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
   });
   T.action(eCheck, 'kill body, verify URLs retracted', function() {
+    eCheck.expect_namedValue('revokeObjectURL', 'url:part1');
+    eCheck.expect_namedValue('revokeObjectURL', 'url:part2');
+    fancyBody.die();
+    fancyBody = null;
   });
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
+    eCheck.expect_event('got body');
+    eCheck.expect_namedValue('bodyReps.length', 2);
+    eCheck.expect_namedValue('bodyReps[0]', 'html');
+    eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
+    eCheck.expect_namedValue('embeddedImageCount', 2);
+    eCheck.expect_namedValue('embeddedImagesDownloaded', true);
+    eCheck.expect_namedValue('checkForExternalImages', true);
+    eCheck.expect_namedValue('createObjectURL', 'url:part1');
+    eCheck.expect_namedValue('createObjectURL', 'url:part2');
+    eCheck.expect_namedValue('image 0 has src', 'url:part1');
+    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    // the transform should not affect the external image
+    eCheck.expect_namedValue('image 2 has src', null);
+
+    fancyHeader.getBody(function(body) {
+      fancyBody = body;
+      eCheck.event('got body');
+      eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
+      eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
+      eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
+      eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
+      eCheck.namedValue('embeddedImagesDownloaded',
+                        fancyBody.embeddedImagesDownloaded);
+
+      displayDoc = document.implementation.createHTMLDocument('');
+      displayElem = displayDoc.body;
+      displayElem.innerHTML = fancyBody.bodyReps[1];
+
+      eCheck.namedValue('checkForExternalImages',
+                        fancyBody.checkForExternalImages(displayElem));
+
+      fancyBody.showEmbeddedImages(displayElem);
+      var imgs = displayElem.querySelectorAll('img');
+      eCheck.namedValue('image 0 has src', imgs[0].getAttribute('src'));
+      eCheck.namedValue('image 1 has src', imgs[1].getAttribute('src'));
+      eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
+    });
   });
 
   T.group('cleanup');
+  T.action(function() {
+    fancyBody.die();
+  });
+  testAccount.do_closeFolderView(folderView);
 });
 
 function run_test() {

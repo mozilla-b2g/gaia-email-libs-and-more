@@ -125,7 +125,9 @@ ImapJobDriver.prototype = {
 
   do_download: function(op, callback) {
     var self = this;
-    var folderId = op.messageSuid.substring(0, op.messageSuid.lastIndexOf('/'));
+    var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+        folderId = op.messageSuid.substring(0, idxLastSlash),
+        uid = op.messageSuid.substring(idxLastSlash + 1);
 
     var folderConn, folderStorage;
     // Once we have the connection, get the current state of the body rep.
@@ -155,18 +157,21 @@ ImapJobDriver.prototype = {
         partsToDownload.push(partInfo);
       }
 
-      folderConn.downloadMessageParts(gotParts);
+      folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
     };
     var gotParts = function gotParts(err, bodyBuffers) {
-      if (bodyBuffers.length !== partsToDownload) {
-        callback(err);
+      if (bodyBuffers.length !== partsToDownload.length) {
+        callback(err, null);
         return;
       }
       for (var i = 0; i < partsToDownload.length; i++) {
         // Because we should be under a mutex, this part should still be the
         // live representation and we can mutate it.
-        var partInfo = partsToDownload[i];
-        partInfo.file = new Blob([bodyBuffers[i]],
+        var partInfo = partsToDownload[i],
+            buffer = bodyBuffers[i];
+
+        partInfo.sizeEstimate = buffer.length;
+        partInfo.file = new Blob([buffer],
                                  { contentType: partInfo.type });
       }
       folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);

@@ -446,6 +446,7 @@ MailBody.prototype = {
       var relatedPart = this._relatedParts[i];
       if (relatedPart.file)
         continue;
+      relPartIndices.push(i);
     }
     if (!relPartIndices.length) {
       callback();
@@ -478,8 +479,10 @@ MailBody.prototype = {
     for (i = 0; i < nodes.length; i++) {
       var node = nodes[i],
           cid = node.getAttribute('cid-src');
+
       if (!cidToObjectUrl.hasOwnProperty(cid))
         continue;
+
       node.setAttribute('src', cidToObjectUrl[cid]);
       node.removeAttribute('cid-src');
       node.classList.remove('moz-embedded-image');
@@ -1232,10 +1235,12 @@ MailAPI.prototype = {
       callback: callback,
     };
     this.__bridgeSend({
-      type: 'getBody',
+      type: 'downloadAttachments',
       handle: handle,
       suid: body.id,
       date: body._date,
+      relPartIndices: relPartIndices,
+      attachmentIndices: attachmentIndices
     });
   },
 

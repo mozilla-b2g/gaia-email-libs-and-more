@@ -384,7 +384,8 @@ function stashLinks(node, lowerTag) {
     var src = node.getAttribute('src');
     if (RE_CID_URL.test(src)) {
       node.classList.add('moz-embedded-image');
-      node.setAttribute('cid-src', src);
+      // strip the cid: bit, it is necessarily there and therefore redundant.
+      node.setAttribute('cid-src', src.substring(4));
       // 'src' attribute will be removed by whitelist
     }
     else if (RE_HTTP_URL.test(src)) {
