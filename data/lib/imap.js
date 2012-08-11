@@ -207,7 +207,7 @@ ImapConnection.prototype.connect = function(loginCb) {
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';
 
-  this._state.conn = MozTCPSocket.open(
+  this._state.conn = navigator.MozTCPSocket.open(
     this._options.host, this._options.port, socketOptions);
 
   // XXX rely on MozTCPSocket for this?

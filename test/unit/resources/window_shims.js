@@ -131,6 +131,7 @@ var window = {
   },
   document: document
 };
+// during the RequireJS bootstrap, have navigator be undefined.
 var navigator = undefined;
 // new to me, but apparently it's a thing...
 var self = window.self = window;

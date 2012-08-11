@@ -240,6 +240,8 @@ var process = window.process = {
   },
 };
 
+// now that RequireJS has bootstrapped, we can setup navigator.
+navigator = window.navigator;
 
 // -- Pull relevant test environment variables out of the environment.
 // The goal is to allow our unit tests to be run against varying server
