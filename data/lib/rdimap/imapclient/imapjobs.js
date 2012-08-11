@@ -103,7 +103,7 @@ ImapJobDriver.prototype = {
       storage.folderConn.acquireConn(callback);
     }
     else {
-      callback(storage.folderConn);
+      callback(storage.folderConn, storage);
     }
   },
 
@@ -124,13 +124,66 @@ ImapJobDriver.prototype = {
   },
 
   do_download: function(op, callback) {
+    var self = this;
+    var folderId = op.messageSuid.substring(0, op.messageSuid.lastIndexOf('/'));
+
+    var folderConn, folderStorage;
+    // Once we have the connection, get the current state of the body rep.
+    var gotConn = function gotConn(_folderConn, _folderStorage) {
+      folderConn = _folderConn;
+      folderStorage = _folderStorage;
+
+      folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+    };
+    // Now that we have the body, we can know the part numbers and eliminate /
+    // filter out any redundant download requests.  Issue all the fetches at
+    // once.
+    var partsToDownload = [], bodyInfo;
+    var gotBody = function gotBody(_bodyInfo) {
+      bodyInfo = _bodyInfo;
+      var i, partInfo;
+      for (i = 0; i < op.relPartIndices.length; i++) {
+        partInfo = bodyInfo.relatedParts[op.relPartIndices[i]];
+        if (partInfo.file)
+          continue;
+        partsToDownload.push(partInfo);
+      }
+      for (i = 0; i < op.attachmentIndices.length; i++) {
+        partInfo = bodyInfo.attachments[op.attachmentIndices[i]];
+        if (partInfo.file)
+          continue;
+        partsToDownload.push(partInfo);
+      }
+
+      folderConn.downloadMessageParts(gotParts);
+    };
+    var gotParts = function gotParts(err, bodyBuffers) {
+      if (bodyBuffers.length !== partsToDownload) {
+        callback(err);
+        return;
+      }
+      for (var i = 0; i < partsToDownload.length; i++) {
+        // Because we should be under a mutex, this part should still be the
+        // live representation and we can mutate it.
+        var partInfo = partsToDownload[i];
+        partInfo.file = new Blob([bodyBuffers[i]],
+                                 { contentType: partInfo.type });
+      }
+      folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
+      callback(err, bodyInfo);
+    };
+
+    self._accessFolderForMutation(folderId, gotConn);
   },
 
   check_download: function(op, callback) {
-    // XX
+    // If we had download the file and persisted it successfully, this job would
+    // be marked done because of the atomicity guarantee on our commits.
+    return UNCHECKED_COHERENT_NOTYET;
   },
 
   local_undo_download: function(op, ignoredCallback) {
+    return null;
   },
 
   undo_download: function(op, callback) {

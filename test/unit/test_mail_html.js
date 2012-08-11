@@ -12,7 +12,7 @@ load('resources/messageGenerator.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_mail_html' }, null, [$th_imap.TESTHELPER], ['app']);
 
-TD.commonCase('MIME hierarchies', function(T) {
+TD.commonCase('embedded and remote images', function(T) {
   // -- pieces
   var
   // - multipart/related text/html with embedded images, remote images, links
@@ -61,7 +61,7 @@ TD.commonCase('MIME hierarchies', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
-                            { universe: testUniverse, restored: true }),
+                            { universe: testUniverse }),
       eCheck = T.lazyLogger('messageCheck');
 
   // -- create the folder, append the messages
@@ -93,14 +93,15 @@ TD.commonCase('MIME hierarchies', function(T) {
 
   // -- check each message in its own step
   // - fancy html
-  var idxFancy = 0, fancyHeader = null, fancyBody = null;
+  var idxFancy = 0, fancyHeader = null, fancyBody = null,
+      displayDoc = null, displayElem = null;
   T.check(eCheck, 'get fancy body', function() {
     eCheck.expect_event('got body');
     eCheck.expect_namedValue('bodyReps.length', 2);
     eCheck.expect_namedValue('bodyReps[0]', 'html');
     eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
-    eCheck.expect_namedValue('hasEmbeddedImages', true);
-    eCheck.expect_namedValue('hasExternalImages', true);
+    eCheck.expect_namedValue('embeddedImageCount', 2);
+    eCheck.expect_namedValue('checkForExternalImages', true);
     fancyHeader = folderView.slice.items[idxFancy];
     fancyHeader.getBody(function(body) {
       fancyBody = body;
@@ -108,21 +109,57 @@ TD.commonCase('MIME hierarchies', function(T) {
       eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
       eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
       eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
-      eCheck.namedValue('hasEmbeddedImages', fancyBody.hasEmbeddedImages);
-      eCheck.namedValue('hasExternalImages', fancyBody.hasExternalImages);
+      eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
+
+      displayDoc = document.implementation.createHTMLDocument('');
+      displayElem = displayDoc.body;
+      displayElem.innerHTML = fancyBody.bodyReps[1];
+
+      eCheck.namedValue('checkForExternalImages',
+                        fancyBody.checkForExternalImages(displayElem));
     });
   });
   // (We could verify the HTML rep prior to any transforms, but we already
   // verified the string rep of the HTML.)
   T.action(eCheck, 'download embedded images', function() {
+    eCheck.expect_event('downloaded');
+    eCheck.expect_namedValue('non-null relpart 0', true);
+    eCheck.expect_namedValue('non-null relpart 1', true);
+    fancyBody.downloadEmbeddedImages(function() {
+      eCheck.event('downloaded');
+      eCheck.namedValue('non-null relpart 0',
+                        !!fancyBody._relatedParts[0].file);
+      eCheck.namedValue('non-null relpart 1',
+                        !!fancyBody._relatedParts[1].file);
+    });
   });
   T.check(eCheck, 'show embedded images', function() {
+    eCheck.expect_namedValue('image 0 has src', true);
+    eCheck.expect_namedValue('image 1 has src', true);
+    // the transform should not affect the external image
+    eCheck.expect_namedValue('image 2 has src', false);
+
+    fancyBody.showEmbeddedImages(displayElem);
+    var imgs = displayElem.querySelectorAll('img');
+    eCheck.namedValue('image 0 has src', imgs[0].hasAttribute('src'));
+    eCheck.namedValue('image 1 has src', imgs[1].hasAttribute('src'));
+    eCheck.namedValue('image 2 has src', imgs[2].hasAttribute('src'));
   });
   T.check(eCheck, 'show external images', function() {
+    eCheck.expect_namedValue('image 0 has src', true);
+    eCheck.expect_namedValue('image 1 has src', true);
+    eCheck.expect_namedValue('image 2 has src', true);
+
+    fancyBody.showExternalImages(displayElem);
+    var imgs = displayElem.querySelectorAll('img');
+    eCheck.namedValue('image 0 has src', imgs[0].hasAttribute('src'));
+    eCheck.namedValue('image 1 has src', imgs[1].hasAttribute('src'));
+    eCheck.namedValue('image 2 has src', imgs[2].hasAttribute('src'));
   });
   T.action(eCheck, 'kill body, verify URLs retracted', function() {
   });
-  T.check(eCheck, 're-get body, re-show embedded images', function() {
+  T.check(eCheck, 're-get body, verify embedded images are still there',
+          function() {
   });
 
   T.group('cleanup');

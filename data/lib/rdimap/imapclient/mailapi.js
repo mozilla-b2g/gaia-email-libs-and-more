@@ -386,6 +386,7 @@ MailHeader.prototype = {
 function MailBody(api, suid, wireRep) {
   this._api = api;
   this.id = suid;
+  this._date = wireRep.date;
 
   this.to = wireRep.to;
   this.cc = wireRep.cc;
@@ -400,6 +401,7 @@ function MailBody(api, suid, wireRep) {
   }
   this._relatedParts = wireRep.relatedParts;
   this.bodyReps = wireRep.bodyReps;
+  this._cleanup = null;
 }
 MailBody.prototype = {
   toString: function() {
@@ -438,14 +440,24 @@ MailBody.prototype = {
    * Trigger the download of any inline images sent as part of the message.
    * Once the images have been downloaded
    */
-  downloadEmbeddedImages: function() {
-
+  downloadEmbeddedImages: function(callback) {
+    var relPartIndices = [];
+    for (var i = 0; i < this._relatedParts.length; i++) {
+      var relatedPart = this._relatedParts[i];
+      if (relatedPart.file)
+        continue;
+    }
+    if (!relPartIndices.length) {
+      callback();
+      return;
+    }
+    this._api._downloadAttachments(this, relPartIndices, [], callback);
   },
 
   /**
-   * Asynchronously trigger the display of embedded images
+   * Synchronously trigger the display of embedded images.
    */
-  showEmbeddedImages: function(htmlNode, callback) {
+  showEmbeddedImages: function(htmlNode) {
     var i, cidToObjectUrl = {};
     // - Generate object URLs for the attachments
     for (i = 0; i < this._relatedParts.length; i++) {
@@ -455,6 +467,11 @@ MailBody.prototype = {
         cidToObjectUrl[relPart.name] = window.URL.createObjectURL(relPart.file);
       }
     }
+    this._cleanup = function revokeURLs() {
+      for (var cid in cidToObjectUrl) {
+        window.URL.revokeObjectURL(cidToObjectUrl[cid]);
+      }
+    };
 
     // - Transform the links
     var nodes = htmlNode.querySelectorAll('.moz-embedded-image');
@@ -505,7 +522,10 @@ MailBody.prototype = {
    * so that any File/Blob URL's can be revoked.
    */
   die: function() {
-
+    if (this._cleanup) {
+      this._cleanup();
+      this._cleanup = null;
+    }
   },
 };
 
@@ -514,11 +534,13 @@ MailBody.prototype = {
  * In the future this will also be the means for requesting the download of
  * an attachment or for attachment-forwarding semantics.
  */
-function MailAttachment(wireRep) {
+function MailAttachment(_body, wireRep) {
+  this._body = _body;
   this.partId = wireRep.part;
   this.filename = wireRep.name;
   this.mimetype = wireRep.type;
   this.sizeEstimateInBytes = wireRep.sizeEstimate;
+  this._file = wireRep.file;
 
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
@@ -533,6 +555,10 @@ MailAttachment.prototype = {
       type: 'MailAttachment',
       filename: this.filename
     };
+  },
+
+  get isDownloaded() {
+    return !!this._file;
   },
 };
 
@@ -1193,6 +1219,49 @@ MailAPI.prototype = {
 
     var body = msg.bodyInfo ? new MailBody(this, req.suid, msg.bodyInfo) : null;
     req.callback.call(null, body);
+  },
+
+  _downloadAttachments: function(body, relPartIndices, attachmentIndices,
+                                 callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'downloadAttachments',
+      body: body,
+      relParts: relPartIndices.length > 0,
+      attachments: attachmentIndices.length >0,
+      callback: callback,
+    };
+    this.__bridgeSend({
+      type: 'getBody',
+      handle: handle,
+      suid: body.id,
+      date: body._date,
+    });
+  },
+
+  _recv_downloadedAttachments: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    // What will have changed are the attachment lists, so update them.
+    if (msg.body) {
+      if (req.relParts)
+        req.body._relatedParts = msg.body.relatedParts;
+      if (req.attachments) {
+        var wireAtts = msg.body.attachments;
+        for (var i = 0; i < wireAtts.length; i++) {
+          var wireAtt = wireAtts[i], bodyAtt = req.body.attachments[i];
+          bodyAtt.sizeEstimateInBytes = wireAtt.sizeEstimate;
+          bodyAtt._file = wireAtt.file;
+        }
+      }
+    }
+    if (req.callback)
+      req.callback.call(null, req.body);
   },
 
   /**

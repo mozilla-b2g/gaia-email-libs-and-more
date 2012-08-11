@@ -141,11 +141,17 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         filename = 'unnamed-' + (++unnamedPartCounter);
       attachments.push({
         name: filename,
-        type: partInfo.type + '/' + partInfo.subtype,
+        type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
         encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
-        file: null
+        file: null,
+        /*
+        charset: (partInfo.params && partInfo.params.charset &&
+                  partInfo.params.charset.toLowerCase()) || undefined,
+        textFormat: (partInfo.params && partInfo.params.format &&
+                     partInfo.params.format.toLowerCase()) || undefined
+         */
       });
       return true;
     }
@@ -155,11 +161,17 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
     if (partInfo.type === 'image') {
       relatedParts.push({
         name: partInfo.id, // this is the cid
-        type: partInfo.type + '/' + partInfo.subtype,
+        type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
         encoding: partInfo.encoding,
         sizeEstimate: estimatePartSizeInBytes(partInfo),
-        file: null
+        file: null,
+        /*
+        charset: (partInfo.params && partInfo.params.charset &&
+                  partInfo.params.charset.toLowerCase()) || undefined,
+        textFormat: (partInfo.params && partInfo.params.format &&
+                     partInfo.params.format.toLowerCase()) || undefined
+         */
       });
       return true;
     }

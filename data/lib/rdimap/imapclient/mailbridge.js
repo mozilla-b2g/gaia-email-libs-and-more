@@ -441,7 +441,16 @@ MailBridge.prototype = {
   },
 
   _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
-
+    var self = this;
+    this.universe.downloadMessageAttachments(
+      msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
+      function(err, bodyInfo) {
+        self.__sendMessage({
+          type: 'downloadedAttachments',
+          handle: msg.handle,
+          bodyInfo: err ? null : bodyInfo
+        });
+      });
   },
 
   //////////////////////////////////////////////////////////////////////////////
