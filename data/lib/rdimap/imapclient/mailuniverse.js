@@ -1125,7 +1125,7 @@ MailUniverse.prototype = {
     return results;
   },
 
-  _opCompleted: function(account, op, err, resultIfAny) {
+  _opCompleted: function(account, op, err, resultIfAny, accountSaveSuggested) {
     // Clear the desire if it is satisfied.  It's possible the desire is now
     // to undo it, in which case we don't want to clobber the undo desire with
     // the completion of the do desire.
@@ -1140,8 +1140,16 @@ MailUniverse.prototype = {
     if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
       var callback = this._opCallbacks[op.longtermId];
       delete this._opCallbacks[op.longtermId];
-      callback(err, resultIfAny, account, op);
+      try {
+        callback(err, resultIfAny, account, op);
+      }
+      catch(ex) {
+        this._LOG.opCallbackErr(op.type);
+      }
     }
+
+    if (accountSaveSuggested)
+      account.saveAccountState();
 
     if (queue.length && this.online && account.enabled) {
       op = queue[0];
@@ -1338,6 +1346,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     errors: {
       badAccountType: { type: true },
+      opCallbackErr: { type: false },
     },
   },
 });

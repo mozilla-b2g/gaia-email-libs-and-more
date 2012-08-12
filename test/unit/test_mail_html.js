@@ -67,7 +67,7 @@ TD.commonCase('embedded and remote images', function(T) {
   __blobLogFunc = eCheck.namedValue.bind(eCheck);
 
   // -- create the folder, append the messages
-  var fullSyncFolder = testAccount.do_createTestFolder(
+  var testFolder = testAccount.do_createTestFolder(
     'test_mail_html', function makeMessages() {
     var messageAppends = [], msgGen = new MessageGenerator();
 
@@ -88,7 +88,7 @@ TD.commonCase('embedded and remote images', function(T) {
   });
   // -- open the folder
   var folderView = testAccount.do_openFolderView(
-    'syncs', fullSyncFolder,
+    'syncs', testFolder,
     { count: testMessages.length, full: testMessages.length, flags: 0,
       deleted: 0 },
     { top: true, bottom: true, grow: false });
@@ -132,6 +132,9 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_event('downloaded');
     eCheck.expect_namedValue('non-null relpart 0', true);
     eCheck.expect_namedValue('non-null relpart 1', true);
+
+    testAccount.expect_runOp('download', /* save account */ true);
+
     fancyBody.downloadEmbeddedImages(function() {
       eCheck.event('downloaded');
       eCheck.namedValue('non-null relpart 0',
@@ -212,15 +215,75 @@ TD.commonCase('embedded and remote images', function(T) {
     });
   });
 
+  T.group('unclean account shutdown');
+  testUniverse.do_shutdown();
+
+  T.group('reload universe');
+  var TU2 = T.actor('testUniverse', 'U2');
+  var TA2 = T.actor('testImapAccount', 'A2',
+                    { universe: TU2, restored: true });
+
+  T.group('verify images persisted');
+  var testFolder2 = TA2.do_useExistingFolder(
+                      'test_mail_html', '#2', testFolder);
+
+  var folderView2 = TA2.do_openFolderView(
+    'syncs', testFolder2,
+    { count: testMessages.length, full: 0, flags: testMessages.length,
+      deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  // THIS IS COPY AND PASTE FROM ABOVE EXCEPT FOR fancyHeader reestablishment
+  T.check(eCheck, 're-get body, verify embedded images are still there',
+          function() {
+    eCheck.expect_event('got body');
+    eCheck.expect_namedValue('bodyReps.length', 2);
+    eCheck.expect_namedValue('bodyReps[0]', 'html');
+    eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
+    eCheck.expect_namedValue('embeddedImageCount', 2);
+    eCheck.expect_namedValue('embeddedImagesDownloaded', true);
+    eCheck.expect_namedValue('checkForExternalImages', true);
+    eCheck.expect_namedValue('createObjectURL', 'url:part1');
+    eCheck.expect_namedValue('createObjectURL', 'url:part2');
+    eCheck.expect_namedValue('image 0 has src', 'url:part1');
+    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    // the transform should not affect the external image
+    eCheck.expect_namedValue('image 2 has src', null);
+
+    fancyHeader = folderView2.slice.items[idxFancy];
+    fancyHeader.getBody(function(body) {
+      fancyBody = body;
+      eCheck.event('got body');
+      eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
+      eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
+      eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
+      eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
+      eCheck.namedValue('embeddedImagesDownloaded',
+                        fancyBody.embeddedImagesDownloaded);
+
+      displayDoc = document.implementation.createHTMLDocument('');
+      displayElem = displayDoc.body;
+      displayElem.innerHTML = fancyBody.bodyReps[1];
+
+      eCheck.namedValue('checkForExternalImages',
+                        fancyBody.checkForExternalImages(displayElem));
+
+      fancyBody.showEmbeddedImages(displayElem);
+      var imgs = displayElem.querySelectorAll('img');
+      eCheck.namedValue('image 0 has src', imgs[0].getAttribute('src'));
+      eCheck.namedValue('image 1 has src', imgs[1].getAttribute('src'));
+      eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
+    });
+  });
+
   T.group('cleanup');
   T.action(function() {
     fancyBody.die();
   });
-  testAccount.do_closeFolderView(folderView);
+  TA2.do_closeFolderView(folderView);
 });
 
 function run_test() {
-  runMyTests(5);
+  runMyTests(10);
 }
 
 

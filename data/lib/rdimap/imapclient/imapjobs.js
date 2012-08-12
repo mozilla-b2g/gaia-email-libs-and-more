@@ -161,7 +161,7 @@ ImapJobDriver.prototype = {
     };
     var gotParts = function gotParts(err, bodyBuffers) {
       if (bodyBuffers.length !== partsToDownload.length) {
-        callback(err, null);
+        callback(err, null, false);
         return;
       }
       for (var i = 0; i < partsToDownload.length; i++) {
@@ -175,7 +175,7 @@ ImapJobDriver.prototype = {
                                  { contentType: partInfo.type });
       }
       folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-      callback(err, bodyInfo);
+      callback(err, bodyInfo, true);
     };
 
     self._accessFolderForMutation(folderId, gotConn);

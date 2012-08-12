@@ -546,6 +546,16 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     });
   },
 
+  expect_runOp: function(jobName, accountSave) {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.eImapAccount.expect_runOp_begin('local_do', jobName);
+    this.eImapAccount.expect_runOp_end('local_do', jobName);
+    this.eImapAccount.expect_runOp_begin('do', jobName);
+    this.eImapAccount.expect_runOp_end('do', jobName);
+    if (accountSave)
+      this.expect_saveState();
+  },
+
   _expect_dateSyncs: function(testFolder, expectedValues, flag) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
