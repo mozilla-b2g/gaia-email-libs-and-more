@@ -337,6 +337,7 @@ var LEGAL_STYLES = [
   'border-top-right-radius', 'border-top-style', 'border-top-width',
   'border-width',
   // slow: box-shadow
+  'clear',
   'color',
   'display',
   'float',
