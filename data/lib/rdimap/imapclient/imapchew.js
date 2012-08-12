@@ -149,7 +149,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         name: filename,
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
-        encoding: partInfo.encoding,
+        encoding: partInfo.encoding && partInfo.encoding.toLowerCase(),
         sizeEstimate: estimatePartSizeInBytes(partInfo),
         file: null,
         /*
@@ -169,7 +169,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         name: stripArrows(partInfo.id), // this is the cid
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
-        encoding: partInfo.encoding,
+        encoding: partInfo.encoding && partInfo.encoding.toLowerCase(),
         sizeEstimate: estimatePartSizeInBytes(partInfo),
         file: null,
         /*
