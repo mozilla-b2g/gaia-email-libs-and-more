@@ -363,6 +363,7 @@ ImapSlice.prototype = {
 
     var idx = bsearchForInsert(this.headers, header,
                                cmpHeaderYoungToOld);
+
     var hlen = this.headers.length;
     // Don't append the header if it would expand us beyond our requested amount
     // and there is no subsequent step, like accumulate flushing, that would get
@@ -2640,6 +2641,19 @@ console.log("ACCUMULATE MODE ON");
           }
           // Perform the sync if there is a range.
           else if (syncStartTS) {
+            // We intentionally quantized syncEndTS to avoid re-synchronizing
+            // messages that got us to our last sync.  So we want to send those
+            // excluded headers in a batch since the sync will not report them
+            // for us.
+            var iFirstNotToSend = 0;
+            for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
+              if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
+                break;
+            }
+            if (iFirstNotToSend)
+              slice.batchAppendHeaders(batchHeaders.slice(0, iFirstNotToSend),
+                                       -1, true);
+
             slice.desiredHeaders += desiredCount;
             // Perform a limited synchronization; do not issue additional
             // syncs!
@@ -2692,7 +2706,6 @@ console.log("ACCUMULATE MODE ON");
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
-console.log("growing endTS from", endTS, "to nowish");
       endTS = FUTURE_TIME_WARPED_NOW || null;
     }
     else {
@@ -2707,8 +2720,6 @@ console.log("growing endTS from", endTS, "to nowish");
     // coverage date.
     if (this.headerIsOldestKnown(startTS, slice.startUID)) {
       var syncStartTS = this.getOldestFullSyncDate(startTS);
-if (syncStartTS !== startTS)
-console.log("growing startTS to", syncStartTS, "from", startTS);
       startTS = syncStartTS;
     }
     // quantize the start date
