@@ -396,7 +396,8 @@ function MailBody(api, suid, wireRep) {
   if (wireRep.attachments) {
     this.attachments = [];
     for (var iAtt = 0; iAtt < wireRep.attachments.length; iAtt++) {
-      this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
+      this.attachments.push(
+        new MailAttachment(this, wireRep.attachments[iAtt]));
     }
   }
   this._relatedParts = wireRep.relatedParts;
@@ -459,18 +460,21 @@ MailBody.prototype = {
    * Synchronously trigger the display of embedded images.
    */
   showEmbeddedImages: function(htmlNode) {
-    var i, cidToObjectUrl = {};
+    var i, cidToObjectUrl = {},
+        // the "|| window" is for our shimmed testing environment and should
+        // not happen in production.
+        useWin = htmlNode.ownerDocument.defaultView || window;
     // - Generate object URLs for the attachments
     for (i = 0; i < this._relatedParts.length; i++) {
       var relPart = this._relatedParts[i];
       // Related parts should all be stored as Blobs-in-IndexedDB
       if (relPart.file && !Array.isArray(relPart.file)) {
-        cidToObjectUrl[relPart.name] = window.URL.createObjectURL(relPart.file);
+        cidToObjectUrl[relPart.name] = useWin.URL.createObjectURL(relPart.file);
       }
     }
     this._cleanup = function revokeURLs() {
       for (var cid in cidToObjectUrl) {
-        window.URL.revokeObjectURL(cidToObjectUrl[cid]);
+        useWin.URL.revokeObjectURL(cidToObjectUrl[cid]);
       }
     };
 
@@ -482,8 +486,10 @@ MailBody.prototype = {
 
       if (!cidToObjectUrl.hasOwnProperty(cid))
         continue;
+      // XXX according to an MDN tutorial we can use onload to destroy the
+      // URL once the image has been loaded.
+      node.src = cidToObjectUrl[cid];
 
-      node.setAttribute('src', cidToObjectUrl[cid]);
       node.removeAttribute('cid-src');
       node.classList.remove('moz-embedded-image');
     }
