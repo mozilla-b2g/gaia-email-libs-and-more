@@ -2723,7 +2723,8 @@ console.log("ACCUMULATE MODE ON");
       startTS = syncStartTS;
     }
     // quantize the start date
-    startTS = quantizeDate(startTS);
+    if (startTS)
+      startTS = quantizeDate(startTS);
 
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
