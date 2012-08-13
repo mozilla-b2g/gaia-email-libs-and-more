@@ -149,7 +149,6 @@ ActiveSyncJobDriver.prototype = {
 
         w.tag(as.SyncKey, folderStorage.syncKey)
            .tag(as.CollectionId, folderStorage.serverId)
-           .tag(as.DeletesAsMoves)
            .stag(as.Commands);
 
       for (let [,message] in Iterator(part.messages)) {
