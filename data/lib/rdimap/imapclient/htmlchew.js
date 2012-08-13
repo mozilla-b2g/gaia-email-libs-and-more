@@ -448,16 +448,58 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
   return sanitizedNode;
 };
 
+const ELEMENT_NODE = 1, TEXT_NODE = 3;
+
 /**
  * Derive snippet text from the already-sanitized HTML representation.
  */
 exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
                                                    desiredLength) {
-  // XXX this is not efficient to get the entire textContent and then substring
-  // it.
-  // XXX we really should ignore things that we believe to be quoting.
-  var text = sanitizedHtmlNode.textContent;
-  return text.substring(0, desiredLength);
+  var snippet = '';
+
+  // Perform a traversal of the DOM tree skipping over things we don't care
+  // about.  Whenever we see an element we can descend into, we do so.
+  // Whenever we finish processing a node, we move to our next sibling.
+  // If there is no next sibling, we move up the tree until there is a next
+  // sibling or we hit the top.
+  var node = sanitizedHtmlNode.firstChild, done = false;
+  while (!done) {
+    if (node.nodeType === ELEMENT_NODE) {
+      switch (node.tagName.toLowerCase()) {
+        // - Things that can't contain useful text.
+        // Avoid including block-quotes in the snippet.
+        case 'blockquote':
+        // The style does not belong in the snippet!
+        case 'style':
+          break;
+
+        default:
+          if (node.firstChild) {
+            node = node.firstChild;
+            continue;
+          }
+          break;
+      }
+    }
+    else if (node.nodeType === TEXT_NODE) {
+      snippet += node.data;
+      if (snippet.length >= desiredLength)
+        break; // (exits the loop)
+    }
+
+    while (!node.nextSibling) {
+      node = node.parentNode;
+      if (node === sanitizedHtmlNode) {
+        // yeah, a goto or embedding this in a function might have been cleaner
+        done = true;
+        break;
+      }
+    }
+    if (!done)
+      node = node.nextSibling;
+  }
+
+  return snippet.substring(0, desiredLength);
 };
 
 /**

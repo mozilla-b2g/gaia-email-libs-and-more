@@ -137,12 +137,13 @@ TD.commonCase('MIME hierarchies', function(T) {
         '@font-face { font-family: "Bob";' +
         ' src: url("http://example.com/bob.woff"); }\n' +
         'blockquote { color: pink; }' +
-        '</style>',
+        '</style>I am the <span>a<span>ctua</span>l</span> content.',
       bstrSanitizedStyleHtml =
         '<style>' +
         'p { color: red; background-color: blue; }\n' +
         'blockquote { color: pink; }' +
-        '</style>',
+        '</style>I am the <span>a<span>ctua</span>l</span> content.',
+      snipStyleHtml = 'I am the actual content.',
       bpartStyleHtml =
         new SyntheticPartLeaf(
           bstrStyleHtml, { contentType: 'text/html' }),
@@ -213,6 +214,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'text/html w/style tag',
       bodyPart: bpartStyleHtml,
       checkBody: bstrSanitizedStyleHtml,
+      checkSnippet: snipStyleHtml,
     },
     // - alternative chooses text/html
     {
@@ -258,13 +260,16 @@ TD.commonCase('MIME hierarchies', function(T) {
   testMessages.forEach(function checkMessage(msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
       eCheck.expect_namedValue('body', msgDef.checkBody);
+      if (msgDef.checkSnippet)
+        eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           eCheck.expect_namedValue('attachment', msgDef.attachments._filename);
         }
       }
 
-      folderView.slice.items[iMsg].getBody(function(body) {
+      var header = folderView.slice.items[iMsg];
+      header.getBody(function(body) {
         var bodyValue;
         if (!body.bodyReps.length)
           bodyValue = '';
@@ -273,6 +278,8 @@ TD.commonCase('MIME hierarchies', function(T) {
         else if (body.bodyReps[0] === 'html')
           bodyValue = body.bodyReps[1];
         eCheck.namedValue('body', bodyValue);
+        if (msgDef.checkSnippet)
+          eCheck.namedValue('snippet', header.snippet);
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.expect_namedValue('attachment',
