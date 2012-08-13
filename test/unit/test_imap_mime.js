@@ -130,6 +130,22 @@ TD.commonCase('MIME hierarchies', function(T) {
       bpartLimitedHtml =
         new SyntheticPartLeaf(
           bstrLimitedHtml, { contentType: 'text/html' }),
+      bstrStyleHtml =
+        '<style type="text/css">' +
+        'p { color: red; background-color: blue;' +
+        ' background-image: url("http://example.com/danger.png"); }\n' +
+        '@font-face { font-family: "Bob";' +
+        ' src: url("http://example.com/bob.woff"); }\n' +
+        'blockquote { color: pink; }' +
+        '</style>',
+      bstrSanitizedStyleHtml =
+        '<style>' +
+        'p { color: red; background-color: blue; }\n' +
+        'blockquote { color: pink; }' +
+        '</style>',
+      bpartStyleHtml =
+        new SyntheticPartLeaf(
+          bstrStyleHtml, { contentType: 'text/html' }),
 
   // - multipart/alternative where text/plain should be chosen
       alternStraight =
@@ -192,6 +208,11 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'text/html limited (sanitization leaves some behind)',
       bodyPart: bpartLimitedHtml,
       checkBody: bstrSanitizedLimitedHtml,
+    },
+    {
+      name: 'text/html w/style tag',
+      bodyPart: bpartStyleHtml,
+      checkBody: bstrSanitizedStyleHtml,
     },
     // - alternative chooses text/html
     {

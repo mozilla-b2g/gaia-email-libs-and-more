@@ -1148,6 +1148,8 @@ MailUniverse.prototype = {
       }
     }
 
+    // This is a suggestion; in the event of high-throughput on operations,
+    // we probably don't want to save the account every tick, etc.
     if (accountSaveSuggested)
       account.saveAccountState();
 

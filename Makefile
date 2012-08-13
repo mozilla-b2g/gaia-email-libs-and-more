@@ -75,6 +75,9 @@ SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-inter
 check-one:
 	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
 
+check-interactive:
+	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+
 
 clean:
 	rm -rf data/deps

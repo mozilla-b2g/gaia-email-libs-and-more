@@ -53,8 +53,9 @@ define(
  * - implicitly-nuked: killed as part of the parse process because we assign
  *   to innerHTML rather than creating a document with the string in it.
  * - inline-style-only: Styles have to be included in the document itself,
- *   and for now, on the elements themselves.  We'll support <style> tags at
- *   some point.
+ *   and for now, on the elements themselves.  We now support <style> tags
+ *   (although src will be sanitized off), but not <link> tags because they want
+ *   to reference external stuff.
  * - dangerous: The semantics of the tag are intentionally at odds with our
  *   goals and/or are extensible.  (ex: link tag.)
  * - interactive-ui: A cross between scripty and forms, things like (HTML5)
@@ -124,7 +125,7 @@ var LEGAL_TAGS = [
   'small',
   // annoying?: 'source',
   'span', 'strike', 'strong',
-  // inline-style-only: 'style'
+  'style',
   'sub', 'summary', 'sup',
   'table', 'tbody', 'td',
   // forms: 'textarea',
