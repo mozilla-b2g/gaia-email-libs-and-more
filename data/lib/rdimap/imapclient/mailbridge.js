@@ -654,8 +654,15 @@ MailBridge.prototype = {
     var messageOpts = {
       from: this._formatAddresses([identity]),
       subject: wireRep.subject,
-      body: body,
     };
+    if (body.html) {
+
+      messageOpts.html = body.html;
+    }
+    else {
+      messageOpts.body = body.text;
+    }
+
     if (identity.replyTo)
       messageOpts.replyTo = identity.replyTo;
     if (wireRep.to && wireRep.to.length)

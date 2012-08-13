@@ -4,6 +4,8 @@
  **/
 
 load('resources/loggest_test_framework.js');
+// currently the verbatim thunderbird message generator dude
+load('resources/messageGenerator.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -13,7 +15,7 @@ var TD = $tc.defineTestsFor(
  * we think it was sent, verify that we received it (which is also a good test
  * of refresh).
  */
-TD.commonCase('compose, reply', function(T, RT) {
+TD.commonCase('compose, reply (text/plain)', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 
@@ -38,7 +40,7 @@ TD.commonCase('compose, reply', function(T, RT) {
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
-    composer.body = 'Antelope banana credenza.\n\nDialog excitement!';
+    composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
 
     composer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
@@ -69,7 +71,8 @@ TD.commonCase('compose, reply', function(T, RT) {
       eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
                                        address: TEST_PARAMS.emailAddress }]);
       eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
-      eLazy.expect_namedValue('body', expectedReplyBody);
+      eLazy.expect_namedValue('body text', expectedReplyBody.text);
+      eLazy.expect_namedValue('body html', expectedReplyBody.html);
     },
     // trigger the reply composer
     withMessage: function(header) {
@@ -77,15 +80,16 @@ TD.commonCase('compose, reply', function(T, RT) {
         eLazy.event('reply setup completed');
         eLazy.namedValue('to', replyComposer.to);
         eLazy.namedValue('subject', replyComposer.subject);
-        eLazy.namedValue('body', replyComposer.body);
+        eLazy.namedValue('body text', replyComposer.body.text);
+        eLazy.namedValue('body html', replyComposer.body.html);
       });
     },
   });
   // - complete and send the reply
   T.action('reply', eLazy, function() {
     eLazy.expect_event('sent');
-    replyComposer.body = expectedReplyBody =
-      'This bit is new!' + replyComposer.body;
+    replyComposer.body.text = expectedReplyBody =
+      'This bit is new!' + replyComposer.body.text;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
         eLazy.error(err);
@@ -114,27 +118,106 @@ TD.commonCase('compose, reply', function(T, RT) {
       // these are expectations on the forward...
       eLazy.expect_namedValue('to', []);
       eLazy.expect_namedValue('subject', 'Fwd: Re: ' + uniqueSubject);
-      eLazy.expect_namedValue('body', expectedForwardBody);
-
+      eLazy.expect_namedValue('body text', expectedForwardBody);
+      eLazy.expect_namedValue('body html', null);
     },
     withMessage: function(header) {
     forwardComposer = header.forwardMessage('inline', function() {
         eLazy.event('forward setup completed');
         eLazy.namedValue('to', forwardComposer.to);
         eLazy.namedValue('subject', forwardComposer.subject);
-        eLazy.namedValue('body', forwardComposer.body);
+        eLazy.namedValue('body text', forwardComposer.body.text);
+        eLazy.namedValue('body html', forwardComposer.body.html);
       });
     },
   });
 });
 
-/**
- * Start message composition, close out the composition, check that the
- * resulting draft looks like what we expect, resume composition of the
- * draft.
- */
-//add_test(function test_compose_and_resume() {
-//});
+
+TD.commonCase('reply/forward html message', function(T, RT) {
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('messageCheck');
+
+  var
+      bstrHtml =
+        '<html><head></head><body>' +
+        '<style type="text/css">p { margin: 0; }</style>' +
+        '<p>I am the reply to the quote below.</p>' +
+        '<blockquote><p>I am the replied-to text!</p></blockquote></body></html>',
+      bstrSanitizedHtml =
+        '<style type="text/css">p { margin: 0; }</style>' +
+        '<p>I am the reply to the quote below.</p>' +
+        '<blockquote><p>I am the replied-to text!</p></blockquote>',
+      replyTextHtml =
+        '',
+      replyHtmlHtml  =
+        '<blockquote>' +
+        // XXX we want this style scoped
+        '<style type="text/css">p { margin: 0; }</style>' +
+        '<p>I am the reply to the quote below.</p>' +
+        '<blockquote><p>I am the replied-to text!</p></blockquote>' +
+        '</blockquote>',
+      bpartHtml =
+        new SyntheticPartLeaf(
+          bstrHtml,  { contentType: 'text/html' });
+
+  var testMessages = [
+    {
+      bodyPart: bpartHtml,
+      checkReply: {
+        text: replyTextHtml,
+        html: replyHtmlHtml,
+      },
+    },
+  ];
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_compose_html', function makeMessages() {
+    var messageAppends = [], msgGen = new MessageGenerator();
+
+    for (var i = 0; i < testMessages.length; i++) {
+      var msgDef = testMessages[i];
+      msgDef.age = { days: 1, hours: i };
+      var synMsg = msgGen.makeMessage(msgDef);
+      messageAppends.push({
+        date: synMsg.date,
+        headerInfo: {
+          subject: synMsg.subject,
+        },
+        messageText: synMsg.toMessageString(),
+      });
+    }
+
+    return messageAppends;
+  });
+
+  var folderView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    { count: testMessages.length, full: testMessages.length, flags: 0,
+      deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  testMessage.forEach(function checkMessage(msgDef, iMsg) {
+    T.action(eCheck,
+             'reply to HTML message (do not send)', msgDef.name, function() {
+      eCheck.expect_namedValue('reply text', msgDef.checkReply.text);
+      eCheck.expect_namedValue('reply html', msgDef.checkReply.html);
+
+      var header = folderView.slice.items[0];
+      header.replyToMessage('sender', function(composer) {
+        eCheck.namedValue('reply text', composer.body.text);
+        eCheck.namedValue('reply html', composer.body.html);
+      });
+    });
+    // XXX IMPLEMENT THIS BEFORE REVIEW
+    /*
+    T.action('forward HTML message (do not send)', function() {
+      var header = folderView.slice.items[0];
+    });
+    */
+  });
+});
 
 function run_test() {
   runMyTests(15);

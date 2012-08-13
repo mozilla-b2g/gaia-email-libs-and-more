@@ -1695,7 +1695,7 @@ MailAPI.prototype = {
 
     req.composer.senderIdentity = new MailSenderIdentity(this, msg.identity);
     req.composer.subject = msg.subject;
-    req.composer.body = msg.body;
+    req.composer.body = msg.body; // rich obj of {text, html}
     req.composer.to = msg.to;
     req.composer.cc = msg.cc;
     req.composer.bcc = msg.bcc;
