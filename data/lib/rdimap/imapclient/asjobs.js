@@ -148,8 +148,8 @@ ActiveSyncJobDriver.prototype = {
         w.tag(as.Class, 'Email');
 
         w.tag(as.SyncKey, folderStorage.syncKey)
-           .tag(as.CollectionId, folderStorage.serverId)
-           .stag(as.Commands);
+         .tag(as.CollectionId, folderStorage.serverId)
+         .stag(as.Commands);
 
       for (let [,message] in Iterator(part.messages)) {
         let slash = message.lastIndexOf('/');
@@ -158,12 +158,12 @@ ActiveSyncJobDriver.prototype = {
         command(w, messageGuid);
       }
 
-        w.etag()
-       .etag();
+        w.etag(as.Commands)
+       .etag(as.Collection);
     }
 
-      w.etag()
-     .etag();
+      w.etag(as.Collections)
+     .etag(as.Sync);
 
     this.account.conn.doCommand(w, function(aError, aResponse) {
       if (aError)
