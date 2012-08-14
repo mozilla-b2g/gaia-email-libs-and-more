@@ -67,6 +67,37 @@ ActiveSyncFolderStorage.prototype = {
     };
   },
 
+  get syncKey() {
+    return this.folderMeta.syncKey;
+  },
+
+  set syncKey(value) {
+    return this.folderMeta.syncKey = value;
+  },
+
+  updateMessageHeader: function asfs_updateMessageHeader(suid, mutatorFunc) {
+    // XXX: this could be a lot faster
+    for (let [i, header] in Iterator(this._headers)) {
+      if (header.suid === suid) {
+        if (mutatorFunc(header))
+          this._bridgeHandle.sendUpdate([i, header]);
+        return;
+      }
+    }
+  },
+
+  deleteMessage: function asfs_deleteMessage(suid) {
+    // XXX: this could be a lot faster
+    for (let [i, header] in Iterator(this._headers)) {
+      if (header.suid === suid) {
+        delete this._bodiesBySuid[header.suid];
+        this._headers.splice(i, 1);
+        this._bridgeHandle.sendSplice(i, 1, [], false, false);
+        return;
+      }
+    }
+  },
+
   /**
    * Get the initial sync key for the folder so we can start getting data
    *
@@ -418,6 +449,7 @@ ActiveSyncFolderStorage.prototype = {
       return;
     }
 
+    this._bridgeHandle = bridgeHandle;
     bridgeHandle.sendSplice(0, 0, this._headers, true, true);
 
     var folderStorage = this;
