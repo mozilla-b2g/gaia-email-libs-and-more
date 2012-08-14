@@ -10,6 +10,7 @@ define(
     'activesync/protocol',
     './a64',
     './asfolder',
+    './asjobs',
     './util',
     'exports'
   ],
@@ -20,6 +21,7 @@ define(
     $activesync,
     $a64,
     $asfolder,
+    $asjobs,
     $util,
     exports
   ) {
@@ -36,6 +38,8 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.conn = new $activesync.Connection(accountDef.credentials.username,
                                          accountDef.credentials.password);
   this._db = dbConn;
+
+  this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
 
   this.enabled = true;
   this.problems = [];
@@ -335,10 +339,35 @@ ActiveSyncAccount.prototype = {
     return this._folderStorages[folderId];
   },
 
+  getFolderStorageForServerId: function asa_getFolderStorageForServerId(
+                               serverId) {
+    return this._folderStorages[this._serverIdToFolderId[serverId]];
+  },
+
   runOp: function asa_runOp(op, mode, callback) {
-    // Just pretend we performed the op so no errors trigger.
-    if (callback)
-      setZeroTimeout(callback);
+    dump('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')\n');
+
+    let methodName = mode + '_' + op.type;
+    let isLocal = /^local_/.test(mode);
+
+    if (!isLocal)
+      op.status = mode + 'ing';
+
+    if (!(methodName in this._jobDriver))
+      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
+
+    if (callback) {
+      this._jobDriver[methodName](op, function(error) {
+        if (!isLocal)
+          op.status = mode + 'ne';
+        callback(error);
+      });
+    }
+    else {
+      this._jobDriver[methodName](op);
+      if (!isLocal)
+        op.status = mode + 'ne';
+    }
   },
 };
 
