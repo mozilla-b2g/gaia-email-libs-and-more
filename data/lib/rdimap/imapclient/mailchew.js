@@ -93,7 +93,7 @@ exports.setLocalizedStrings = function(strings) {
  */
 exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
                                                           msgDate,
-                                                          identity) {
+                                                          identity, refGuid) {
   var useName = authorPair.name || authorPair.address;
 
   var textMsg = '\n\n' +
@@ -117,16 +117,26 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
     else {
       if (!htmlMsg)
         htmlMsg = '';
-      htmlMsg += rep;
+      // rep has already been sanitized and therefore all HTML tags are balanced
+      // and so there should be no rude surprises from this simplistic looking
+      // HTML creation.  The message-id of the message never got sanitized,
+      // however, so it needs to be escaped.
+      htmlMsg += '<blockquote cite="mid:' + $htmlchew.escapeAttrValue(refGuid) +
+                 '" type="cite">' +
+                 rep +
+                 '</blockquote>';
     }
   }
 
   // Thunderbird's default is to put the signature after the quote, so us too.
   // (It also has complete control over all of this, but not us too.)
   if (identity.signature) {
-    // XXX figure out HTML signature idiom
+    // Thunderbird wraps its signature in a:
+    // <pre class="moz-signature" cols="72"> construct and so we do too.
     if (htmlMsg)
-      htmlMsg += $htmlchew.wrapTextIntoSafeHTMLString(identity.signature);
+      htmlMsg += $htmlchew.wrapTextIntoSafeHTMLString(
+                   identity.signature, 'pre', false,
+                   ['class', 'moz-signature', 'cols', '72']);
     else
       textMsg += '\n\n-- \n' + identity.signature + '\n';
   }

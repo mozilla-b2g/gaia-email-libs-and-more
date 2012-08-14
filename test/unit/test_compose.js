@@ -88,7 +88,7 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
   // - complete and send the reply
   T.action('reply', eLazy, function() {
     eLazy.expect_event('sent');
-    replyComposer.body.text = expectedReplyBody =
+    replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
@@ -109,7 +109,7 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
           '', '',
           '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
-          expectedReplyBody
+          expectedReplyBody.text
         ].join('\n'),
         html: null
       };
@@ -118,8 +118,8 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
       // these are expectations on the forward...
       eLazy.expect_namedValue('to', []);
       eLazy.expect_namedValue('subject', 'Fwd: Re: ' + uniqueSubject);
-      eLazy.expect_namedValue('body text', expectedForwardBody);
-      eLazy.expect_namedValue('body html', null);
+      eLazy.expect_namedValue('body text', expectedForwardBody.text);
+      eLazy.expect_namedValue('body html', expectedForwardBody.html);
     },
     withMessage: function(header) {
     forwardComposer = header.forwardMessage('inline', function() {
@@ -150,15 +150,25 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '<style type="text/css">p { margin: 0; }</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>',
+      // the text bit of the reply to the above
       replyTextHtml =
-        '',
+        '\n\n$AUTHOR$ wrote:\n',
+      // the (read-only) bit of the reply to the above
       replyHtmlHtml  =
-        '<blockquote>' +
+        '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
         // XXX we want this style scoped
-        '<style type="text/css">p { margin: 0; }</style>' +
+        // XXX aaaaaargh. our sanitizer is falling victim to platform
+        // helpfulness and turns "margin: 0;" into
+        // "margin-top: 0px; margin-bottom: 0px;"
+        '<style type="text/css">' +
+        'p { margin-top: 0px; margin-bottom: 0px; }' +
+        '</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
-        '</blockquote>',
+        '</blockquote>' +
+        '<pre class="moz-signature" cols="72">' +
+        $_mailuniverse.DEFAULT_SIGNATURE +
+        '</pre>',
       bpartHtml =
         new SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });
@@ -198,13 +208,17 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     { count: testMessages.length, full: testMessages.length, flags: 0,
       deleted: 0 },
     { top: true, bottom: true, grow: false });
-  testMessage.forEach(function checkMessage(msgDef, iMsg) {
+  testMessages.forEach(function checkMessage(msgDef, iMsg) {
     T.action(eCheck,
              'reply to HTML message (do not send)', msgDef.name, function() {
-      eCheck.expect_namedValue('reply text', msgDef.checkReply.text);
-      eCheck.expect_namedValue('reply html', msgDef.checkReply.html);
-
       var header = folderView.slice.items[0];
+      eCheck.expect_namedValue(
+        'reply text',
+        msgDef.checkReply.text.replace('$AUTHOR$', header.author.name));
+      eCheck.expect_namedValue(
+        'reply html',
+        msgDef.checkReply.html.replace('$MESSAGEID$', header.guid));
+
       header.replyToMessage('sender', function(composer) {
         eCheck.namedValue('reply text', composer.body.text);
         eCheck.namedValue('reply html', composer.body.html);

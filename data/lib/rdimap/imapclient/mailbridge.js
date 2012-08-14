@@ -564,7 +564,7 @@ MailBridge.prototype = {
               // blank lines at the top are baked in
               body: $mailchew.generateReplyBody(
                       bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
-                      identity),
+                      identity, msg.refGuid),
               to: rTo,
               cc: rCc,
               bcc: rBcc,
@@ -601,7 +601,7 @@ MailBridge.prototype = {
       handle: msg.handle,
       identity: identity,
       subject: '',
-      body: '',
+      body: { text: '', html: null },
       to: [],
       cc: [],
       bcc: [],
@@ -656,8 +656,7 @@ MailBridge.prototype = {
       subject: wireRep.subject,
     };
     if (body.html) {
-
-      messageOpts.html = body.html;
+      messageOpts.html = $mailchew.mergeUserTextWithHTML(body.text, body.html);
     }
     else {
       messageOpts.body = body.text;

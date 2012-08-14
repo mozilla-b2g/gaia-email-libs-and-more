@@ -139,7 +139,7 @@ TD.commonCase('MIME hierarchies', function(T) {
         'blockquote { color: pink; }' +
         '</style>I am the <span>a<span>ctua</span>l</span> content.',
       bstrSanitizedStyleHtml =
-        '<style>' +
+        '<style type="text/css">' +
         'p { color: red; background-color: blue; }\n' +
         'blockquote { color: pink; }' +
         '</style>I am the <span>a<span>ctua</span>l</span> content.',

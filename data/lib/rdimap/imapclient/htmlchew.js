@@ -6,7 +6,7 @@
  * - TODO: perform normalization of quote markup from different clients into
  *   blockquotes, like how Thunderbird conversations does it.
  * - snippet generation: Try and generate a usable snippet string from something
- *   that is not a quote.  In cases of complicated HTML, probably just fail.
+ *   that is not a quote.
  *
  * We may eventually try and perform more detailed analysis like `quotechew.js`
  * does with structured markup, potentially by calling out to quotechew, but
@@ -61,6 +61,7 @@ define(
  * - interactive-ui: A cross between scripty and forms, things like (HTML5)
  *   menu and command imply some type of mutation that requires scripting.
  *   They also are frequently very attribute-heavy.
+ * - svg: it's SVG, we don't support it yet!
  */
 var LEGAL_TAGS = [
   'a', 'abbr', 'acronym', 'area', 'article', 'aside',
@@ -127,6 +128,7 @@ var LEGAL_TAGS = [
   'span', 'strike', 'strong',
   'style',
   'sub', 'summary', 'sup',
+  // svg: 'svg', NB: this lives in its own namespace
   'table', 'tbody', 'td',
   // forms: 'textarea',
   'tfoot', 'th', 'thead', 'time',
@@ -159,6 +161,7 @@ var PRUNE_TAGS = [
   'script', // (script)
   'select', // (forms)
   'style', // (style)
+  'svg', // (svg)
 ];
 
 /**
@@ -293,6 +296,7 @@ var LEGAL_ATTR_MAP = {
   // through for now.
   'meta': ['charset'],
   'ol': ['type'], // (pres)
+  'style': ['type'],
 };
 
 /**
@@ -506,14 +510,52 @@ exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
  * Wrap text/plain content into a serialized HTML string safe for insertion
  * via innerHTML.
  *
+ * By default we wrap everything in a 'div' tag with 'br' indicating newlines.
+ * Alternately, we could use 'white-space: pre-wrap' if we were more confident
+ * about recipients having sufficient CSS support and our own desire to have
+ * things resemble text/plain.
+ *
  * NB: simple escaping should also be fine, but this is unlikely to be a
  * performance hotspot.
  */
-exports.wrapTextIntoSafeHTMLString = function(text, wrapTag) {
+exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
+                                              transformNewlines, attrs) {
+  if (transformNewlines === undefined)
+    transformNewlines = true;
+
   var doc = document.implementation.createHTMLDocument(''),
-      wrapNode = doc.createElement(wrapTag || 'code');
-  wrapNode.textContent = text;
+      wrapNode = doc.createElement(wrapTag || 'div');
+
+  if (transformNewlines) {
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var lineText = lines[i];
+      if (i)
+        wrapNode.appendChild(doc.createElement('br'));
+      if (lineText.length)
+        wrapNode.appendChild(doc.createTextNode(lineText));
+    }
+  }
+  else {
+    wrapNode.textContent = text;
+  }
+
+  if (attrs) {
+    for (var iAttr = 0; iAttr < attrs.length; iAttr += 2) {
+      wrapNode.setAttribute(attrs[iAttr], attrs[iAttr + 1]);
+    }
+  }
+
   return wrapNode.outerHTML;
+};
+
+const RE_QUOTE_CHAR = /"/g;
+
+/**
+ * Make an HTML attribute value safe.
+ */
+exports.escapeAttrValue = function(s) {
+  return s.replace(RE_QUOTE_CHAR, '&quot;');
 };
 
 }); // end define
