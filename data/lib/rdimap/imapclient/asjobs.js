@@ -71,12 +71,12 @@ ActiveSyncJobDriver.prototype = {
     let markRead = getMark('\\Seen');
     let markFlagged = getMark('\\Flagged');
 
-    this._do_crossFolderOp(op, callback, function(w, guid) {
+    this._do_crossFolderOp(op, callback, function(w, messageGuid) {
       const as = $ascp.AirSync.Tags;
       const em = $ascp.Email.Tags;
 
       w.stag(as.Change)
-         .tag(as.ServerId, guid)
+         .tag(as.ServerId, messageGuid)
          .stag(as.ApplicationData);
 
       if (markRead !== undefined)
@@ -106,11 +106,11 @@ ActiveSyncJobDriver.prototype = {
   },
 
   do_delete: function(op, callback) {
-    this._do_crossFolderOp(op, callback, function(w, guid) {
+    this._do_crossFolderOp(op, callback, function(w, messageGuid) {
       const as = $ascp.AirSync.Tags;
 
       w.stag(as.Delete)
-         .tag(as.ServerId, guid)
+         .tag(as.ServerId, messageGuid)
        .etag();
     });
   },
@@ -153,9 +153,9 @@ ActiveSyncJobDriver.prototype = {
 
       for (let [,message] in Iterator(part.messages)) {
         let slash = message.lastIndexOf('/');
-        let guid = message.substring(slash+1);
+        let messageGuid = message.substring(slash+1);
 
-        command(w, guid);
+        command(w, messageGuid);
       }
 
         w.etag()
