@@ -307,7 +307,7 @@ ActiveSyncFolderStorage.prototype = {
         replyTo: null,
         attachments: [],
         references: null,
-        bodyRep: null,
+        bodyReps: null,
       };
 
       flagHeader = function(flag, state) {
@@ -390,15 +390,21 @@ ActiveSyncFolderStorage.prototype = {
       case asb.Body: // ActiveSync 12.0+
         for (let [,grandchild] in Iterator(child.children)) {
           if (grandchild.tag === asb.Data) {
-            body.bodyRep = $quotechew.quoteProcessTextBody(
-              grandchild.children[0].textContent);
-            header.snippet = $quotechew.generateSnippet(body.bodyRep);
+            body.bodyReps = [
+              'plain',
+              $quotechew.quoteProcessTextBody(
+                grandchild.children[0].textContent)
+            ];
+            header.snippet = $quotechew.generateSnippet(body.bodyReps[1]);
           }
         }
         break;
       case em.Body: // pre-ActiveSync 12.0
-        body.bodyRep = $quotechew.quoteProcessTextBody(childText);
-        header.snippet = $quotechew.generateSnippet(body.bodyRep);
+        body.bodyReps = [
+          'plain',
+          $quotechew.quoteProcessTextBody(childText)
+        ];
+        header.snippet = $quotechew.generateSnippet(body.bodyReps[1]);
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
