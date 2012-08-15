@@ -454,6 +454,8 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
 
 const ELEMENT_NODE = 1, TEXT_NODE = 3;
 
+const RE_NORMALIZE_WHITESPACE = /\s+/g;
+
 /**
  * Derive snippet text from the already-sanitized HTML representation.
  */
@@ -486,7 +488,14 @@ exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
       }
     }
     else if (node.nodeType === TEXT_NODE) {
-      snippet += node.data;
+      // these text nodes can be ridiculously full of whitespace.  Trim and
+      // then normalize internal whitespace too.
+      var normalizedText =
+            node.data.trim().replace(RE_NORMALIZE_WHITESPACE, ' ');
+      if (snippet.length)
+        snippet += ' ' + normalizedText;
+      else
+        snippet += normalizedText;
       if (snippet.length >= desiredLength)
         break; // (exits the loop)
     }
