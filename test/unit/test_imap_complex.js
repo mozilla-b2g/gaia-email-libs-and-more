@@ -374,12 +374,11 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
 
   T.group('no change: setup');
   testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
-  var createdAt = staticNow;
-  var c1Folder = testAccount.do_createTestFolder(
+  var testFolder = testAccount.do_createTestFolder(
     'test_complex_refresh',
     { count: 6, age: { hours: 12 }, age_incr: { hours: 1 } });
   testAccount.do_viewFolder(
-    'syncs', c1Folder,
+    'syncs', testFolder,
     [{ count: 4, full: 6, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
@@ -388,13 +387,77 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
-    '#1 refresh sync', c1Folder,
+    '#1 refresh sync', testFolder,
     { count: 4, full: 0, flags: 6, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   T.group('cleanup');
 });
 
+/**
+ * When syncing/growing, a sync may return more headers than we want, in which
+ * case we do not send them over the wire.  However, when growing, we can
+ * assume the headers were synced by that most recent sync, and so can exclude
+ * that day from the sync range.  However, we still want to send those headers
+ * (and this was indeed a bug), so check for that.
+ *
+ * This can be duplicated by an initial sync that gets more headers than the
+ * fill size where at least one of the excess headers falls on the same day
+ * as the oldest header that is returned.  This demonstrates an inefficiency
+ * of the current grow algorithm in that it does not check the accuracy range
+ * to further reduce the sync range, but that's fine.
+ */
+TD.commonCase('already synced headers are not skipped in grow', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding daylight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const TSYNCI = 4;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 4,
+    days: TSYNCI,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    // The exact thresholds do not matter...
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+    // But this does; be older than our #1 and #2 triggering cases
+    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
+    refreshOld: 2 * DAY_MILLIS,
+
+    useRangeNonInbox: 4 * HOUR_MILLIS,
+    useRangeInbox: 4 * HOUR_MILLIS,
+  });
+
+  T.group('initial sync/view');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_complex_no_skip_synced',
+    { count: 7, age: { hours: 1 }, age_incr: { hours: 12 } });
+  var folderView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    [{ count: 4, full: 7, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+
+  T.group('grow');
+  testAccount.do_growFolderView(
+    folderView, 3, false, 4,
+    [{ count: 3, full: 0, flags: 2, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
+
+  T.group('cleanup');
+});
 
 function run_test() {
   runMyTests(20); // we do a lot of appending...

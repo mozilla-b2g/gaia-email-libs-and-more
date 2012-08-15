@@ -58,7 +58,7 @@ function makeTestContext() {
       var bodyInfo = {
         date: date, size: size,
         to: null, cc: null, bcc: null, replyTo: null,
-        attachments: null, bodyRep: null
+        attachments: null, bodyReps: null
       };
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, size, bodyInfo, function blockPicked(info, block) {

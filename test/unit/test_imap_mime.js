@@ -1,8 +1,11 @@
 /**
  * Test our processing of MIME messages.  Because we leave most of this up to
- * the IMAP server, this ends up being a test of `imapchew.js`, the sync logic
- * in `imapslice.js`'s ability to cram things into mailparser, and the
- * mailparser lib itself.
+ * the IMAP server, this ends up being a test of:
+ * - `imapchew.js`
+ * - the sync logic in `imapslice.js`'s ability to cram things into mailparser
+ * - the (external) mailparser lib
+ * - `htmlchew.js`
+ * - the (external) bleach.js lib
  **/
 
 load('resources/loggest_test_framework.js');
@@ -67,10 +70,12 @@ TD.commonCase('message encodings', function(T) {
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
     qpHeader.getBody(function(qpBody) {
-      eBodies.namedValue('qp', qpBody.bodyRep[1]);
+      eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
+      qpBody.die();
     });
     b64Header.getBody(function(b64Body) {
-      eBodies.namedValue('b64', b64Body.bodyRep[1]);
+      eBodies.namedValue('b64', b64Body.bodyReps[1][1]);
+      b64Body.die();
     });
   });
 
@@ -103,23 +108,63 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           mwqSammySnake,
           { charset: 'utf-8', format: null, encoding: null }),
-  // - bodies: text/html
-      bpartIgnoredHtml =
+  // - bodies: text/enriched (ignored!)
+  // This exists just to test the alternatives logic.
+      bpartIgnoredEnriched =
         new SyntheticPartLeaf(
-          '<html><head></head><body>I am HTML! Woo! </body></html>',
-          { contentType: 'text/html' }),
+          '<bold><italic>I am not a popular format! sad woo :(</italic></bold>',
+          { contentType: 'text/enriched' }),
 
-  // - multipart/alternative
-  // NB: currently we ignore HTML body parts!
+  // - bodies: text/html
+      bstrTrivialHtml =
+        '<html><head></head><body>I am HTML! Woo!</body></html>',
+      bstrSanitizedTrivialHtml =
+        'I am HTML! Woo!',
+      bpartTrivialHtml =
+        new SyntheticPartLeaf(
+          bstrTrivialHtml,  { contentType: 'text/html' }),
+      bstrLimitedHtml =
+        '<div>I <form>am <span>HTML!</span></form></div>',
+      bstrSanitizedLimitedHtml =
+        '<div>I am <span>HTML!</span></div>',
+      bpartLimitedHtml =
+        new SyntheticPartLeaf(
+          bstrLimitedHtml, { contentType: 'text/html' }),
+      bstrStyleHtml =
+        '<style type="text/css">' +
+        'p { color: red; background-color: blue;' +
+        ' background-image: url("http://example.com/danger.png"); }\n' +
+        '@font-face { font-family: "Bob";' +
+        ' src: url("http://example.com/bob.woff"); }\n' +
+        'blockquote { color: pink; }' +
+        '</style>I am the <span>a<span>ctua</span>l</span> content.',
+      bstrSanitizedStyleHtml =
+        '<style type="text/css">' +
+        'p { color: red; background-color: blue; }\n' +
+        'blockquote { color: pink; }' +
+        '</style>I am the <span>a<span>ctua</span>l</span> content.',
+      snipStyleHtml = 'I am the actual content.',
+      bpartStyleHtml =
+        new SyntheticPartLeaf(
+          bstrStyleHtml, { contentType: 'text/html' }),
+
+  // - multipart/alternative where text/plain should be chosen
       alternStraight =
         new SyntheticPartMultiAlternative(
-          [bpartStraightASCII, bpartIgnoredHtml]),
+          [bpartStraightASCII, bpartIgnoredEnriched]),
       alternUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartUtf8Name, bpartIgnoredHtml]),
+          [bpartUtf8Name, bpartIgnoredEnriched]),
       alternQpUtf8Name =
         new SyntheticPartMultiAlternative(
-          [bpartQpUtf8Name, bpartIgnoredHtml]);
+          [bpartQpUtf8Name, bpartIgnoredEnriched]),
+      // FUTURE: maybe text/html and text/plain with text/plain last and
+      // therefore theoretically preferred?  Worth checking if anyone honors it.
+
+  // - multipart/alternative where text/html should be chosen
+      alternHtml =
+        new SyntheticPartMultiAlternative(
+          [bpartStraightASCII, bpartTrivialHtml]);
 
   // -- full definitions and expectations
   var testMessages = [
@@ -138,7 +183,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       // the body should not get decoded; it should still be the mime-word
       checkBody: mwqSammySnake,
     },
-    // - alternatives that test proper encoding
+    // - alternatives that test proper (text/plain) encoding
     {
       name: 'multipart/alternative simple',
       bodyPart: alternStraight,
@@ -153,6 +198,29 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'multipart/alternative qp utf8',
       bodyPart: alternQpUtf8Name,
       checkBody: rawUnicodeName,
+    },
+    // - text/html
+    {
+      name: 'text/html trivial (sanitized to just text)',
+      bodyPart: bpartTrivialHtml,
+      checkBody: bstrSanitizedTrivialHtml,
+    },
+    {
+      name: 'text/html limited (sanitization leaves some behind)',
+      bodyPart: bpartLimitedHtml,
+      checkBody: bstrSanitizedLimitedHtml,
+    },
+    {
+      name: 'text/html w/style tag',
+      bodyPart: bpartStyleHtml,
+      checkBody: bstrSanitizedStyleHtml,
+      checkSnippet: snipStyleHtml,
+    },
+    // - alternative chooses text/html
+    {
+      name: 'multipart/alternative choose text/html',
+      bodyPart: alternHtml,
+      checkBody: bstrSanitizedTrivialHtml,
     },
   ];
 
@@ -192,20 +260,33 @@ TD.commonCase('MIME hierarchies', function(T) {
   testMessages.forEach(function checkMessage(msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
       eCheck.expect_namedValue('body', msgDef.checkBody);
+      if (msgDef.checkSnippet)
+        eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           eCheck.expect_namedValue('attachment', msgDef.attachments._filename);
         }
       }
 
-      folderView.slice.items[iMsg].getBody(function(body) {
-        eCheck.namedValue('body', body.bodyRep.length ? body.bodyRep[1] : '');
+      var header = folderView.slice.items[iMsg];
+      header.getBody(function(body) {
+        var bodyValue;
+        if (!body.bodyReps.length)
+          bodyValue = '';
+        else if (body.bodyReps[0] === 'plain')
+          bodyValue = body.bodyReps[1][1] || '';
+        else if (body.bodyReps[0] === 'html')
+          bodyValue = body.bodyReps[1];
+        eCheck.namedValue('body', bodyValue);
+        if (msgDef.checkSnippet)
+          eCheck.namedValue('snippet', header.snippet);
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.expect_namedValue('attachment',
                                      body.attachments[i].filename);
           }
         }
+        body.die();
       });
     });
   });

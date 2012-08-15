@@ -363,6 +363,7 @@ ImapSlice.prototype = {
 
     var idx = bsearchForInsert(this.headers, header,
                                cmpHeaderYoungToOld);
+
     var hlen = this.headers.length;
     // Don't append the header if it would expand us beyond our requested amount
     // and there is no subsequent step, like accumulate flushing, that would get
@@ -1279,6 +1280,70 @@ console.log('  pending fetches', pendingFetches);
     }
   },
 
+  downloadMessageAttachments: function(uid, partInfos, callback) {
+    var conn = this._conn;
+    var mparser = new $mailparser.MailParser();
+
+    // I actually implemented a usable shim for the checksum purposes, but we
+    // don't actually care about the checksum, so why bother doing the work?
+    var dummyChecksummer = {
+      update: function() {},
+      digest: function() { return null; },
+    };
+
+    function setupBodyParser(partInfo) {
+      mparser._state = 0x2; // body
+      mparser._remainder = '';
+      mparser._currentNode = null;
+      mparser._currentNode = mparser._createMimeNode(null);
+      mparser._currentNode.attachment = true;
+      mparser._currentNode.checksum = dummyChecksummer;
+      mparser._currentNode.content = undefined;
+      // nb: mparser._multipartTree is an empty list (always)
+      mparser._currentNode.meta.contentType = partInfo.type;
+      mparser._currentNode.meta.transferEncoding = partInfo.encoding;
+      mparser._currentNode.meta.charset = null; //partInfo.charset;
+      mparser._currentNode.meta.textFormat = null; //partInfo.textFormat;
+    }
+    function bodyParseBuffer(buffer) {
+      process.immediate = true;
+      mparser.write(buffer);
+      process.immediate = false;
+    }
+    function finishBodyParsing() {
+      process.immediate = true;
+      mparser._process(true);
+      process.immediate = false;
+      // this is a Buffer!
+      return mparser._currentNode.content;
+    }
+
+    var anyError = null, pendingFetches = 0, bodies = [];
+    partInfos.forEach(function(partInfo) {
+      var opts = { request: { body: partInfo.part } };
+      pendingFetches++;
+      var fetcher = conn.fetch(uid, opts);
+
+      setupBodyParser(partInfo);
+      fetcher.on('error', function(err) {
+        if (!anyError)
+          anyError = err;
+        if (--pendingFetches === 0)
+          callback(anyError, bodies);
+      });
+      fetcher.on('message', function(msg) {
+        setupBodyParser(partInfo);
+        msg.on('data', bodyParseBuffer);
+        msg.on('end', function() {
+          bodies.push(finishBodyParsing());
+
+          if (--pendingFetches === 0)
+            callback(anyError, bodies);
+        });
+      });
+    });
+  },
+
   shutdown: function() {
     this._LOG.__die();
   },
@@ -1426,7 +1491,7 @@ console.log('  pending fetches', pendingFetches);
  * @typedef[AttachmentInfo @dict[
  *   @key[name String]{
  *     The filename of the attachment if this is an attachment, the content-id
- *     of the attachemtn if this is a related part for inline display.
+ *     of the attachment if this is a related part for inline display.
  *   }
  *   @key[type String]{
  *     The (full) mime-type of the attachment.
@@ -1438,7 +1503,33 @@ console.log('  pending fetches', pendingFetches);
  *     The encoding of the attachment so we know how to decode it.
  *   }
  *   @key[sizeEstimate Number]{
- *     Estimated file size in bytes.
+ *     Estimated file size in bytes.  Gets updated to be the correct size on
+ *     attachment download.
+ *   }
+ *   @key[file @oneof[
+ *     @case[null]{
+ *       The attachment has not been downloaded, the file size is an estimate.
+ *     }
+ *     @case[@list["device storage type" "file path"]{
+ *       The DeviceStorage type (ex: pictures) and the path to the file within
+ *       device storage.
+ *     }
+ *     @case[HTMLBlob]{
+ *       The Blob that contains the attachment.  It can be thought of as a
+ *       handle/name to access the attachment.  IndexedDB in Gecko stores the
+ *       blobs as (quota-tracked) files on the file-system rather than inline
+ *       with the record, to the attachments don't need to count against our
+ *       block size since they are not part of the direct I/O burden for the
+ *       block.
+ *     }
+ *   ]]
+ *   @key[charset @oneof[undefined String]]{
+ *     The character set, for example "ISO-8859-1".  If not specified, as is
+ *     likely for binary attachments, this should be null.
+ *   }
+ *   @key[textFormat @oneof[undefined String]]{
+ *     The text format, for example, "flowed" for format=flowed.  If not
+ *     specified, as is likely for binary attachments, this should be null.
  *   }
  * ]]
  * @typedef[BodyInfo @dict[
@@ -1452,7 +1543,7 @@ console.log('  pending fetches', pendingFetches);
  *   @key[to @listof[NameAddressPair]]
  *   @key[cc @listof[NameAddressPair]]
  *   @key[bcc @listof[NameAddressPair]]
- *   @key[replyTo EmailAddress]
+ *   @key[replyTo NameAddressPair]
  *   @key[attachments @listof[AttachmentInfo]]{
  *     Proper attachments for explicit downloading.
  *   }
@@ -1464,17 +1555,20 @@ console.log('  pending fetches', pendingFetches);
  *     The contents of the references header as a list of de-quoted ('<' and
  *     '>' removed) message-id's.  If there was no header, this is null.
  *   }
- *   @key[bodyRep @oneof[String Array]]{
- *     If it's an array, then it's the `quotechew.js` processed body
- *     representation.  If it's a string, then this is an HTML message and the
- *     contents are already sanitized and already quote-normalized.
- *   }
- *   @key[htmlFixups Array]{
- *     The list of fixups that can be performed.  Elements that are strings are
- *     external image URLs.  Elements that are integers are indexes into
- *     `relatedParts`.  All things that need to be fixed up are marked with a
- *     attribute so that we can get the nodes and then in one pass perform the
- *     appropriate fixups.  Or maybe we just need a flag?
+ *   @key[bodyReps @listof[@oneof[String Array]]]{
+ *     This is a list where each two consecutive elements describe a body
+ *     representation.  The even indices are the body rep types which are
+ *     either 'plain' or 'html'.  The odd indices are the actual
+ *     representations.
+ *
+ *     The representation for 'plain' values is a `quotechew.js` processed
+ *     body representation (which is itself a similar pair-wise list except
+ *     that the identifiers are packed integers).
+ *
+ *     The body representation for 'html' values is an already sanitized and
+ *     already quote-normalized String representation that could be directly
+ *     fed into innerHTML safely if you were so inclined.  See `htmlchew.js`
+ *     for more on that process.
  *   }
  * ]]{
  *   Information on the message body that is only for full message display.
@@ -2550,6 +2644,19 @@ console.log("ACCUMULATE MODE ON");
           }
           // Perform the sync if there is a range.
           else if (syncStartTS) {
+            // We intentionally quantized syncEndTS to avoid re-synchronizing
+            // messages that got us to our last sync.  So we want to send those
+            // excluded headers in a batch since the sync will not report them
+            // for us.
+            var iFirstNotToSend = 0;
+            for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
+              if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
+                break;
+            }
+            if (iFirstNotToSend)
+              slice.batchAppendHeaders(batchHeaders.slice(0, iFirstNotToSend),
+                                       -1, true);
+
             slice.desiredHeaders += desiredCount;
             // Perform a limited synchronization; do not issue additional
             // syncs!
@@ -2602,7 +2709,6 @@ console.log("ACCUMULATE MODE ON");
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
-console.log("growing endTS from", endTS, "to nowish");
       endTS = FUTURE_TIME_WARPED_NOW || null;
     }
     else {
@@ -2617,12 +2723,11 @@ console.log("growing endTS from", endTS, "to nowish");
     // coverage date.
     if (this.headerIsOldestKnown(startTS, slice.startUID)) {
       var syncStartTS = this.getOldestFullSyncDate(startTS);
-if (syncStartTS !== startTS)
-console.log("growing startTS to", syncStartTS, "from", startTS);
       startTS = syncStartTS;
     }
     // quantize the start date
-    startTS = quantizeDate(startTS);
+    if (startTS)
+      startTS = quantizeDate(startTS);
 
     // XXX use mutex scheduling to avoid this possibly happening...
     if (this._curSyncSlice)
@@ -3483,7 +3588,8 @@ console.log("folder message count", folderMessageCount,
   },
 
   /**
-   *
+   * Add a message body to the system; you must provide the header associated
+   * with the body.
    */
   addMessageBody: function ifs_addMessageBody(header, bodyInfo) {
     if (this._pendingLoads.length) {
@@ -3520,6 +3626,25 @@ console.log("folder message count", folderMessageCount,
     if (!bodyInfo)
       this._LOG.bodyNotFound();
     callback(bodyInfo);
+  },
+
+  /**
+   * Update a message body; this should only happen because of attachments /
+   * related parts being downloaded or purged from the system.
+   *
+   * Right now it is assumed/required that this body was retrieved via
+   * getMessageBody while holding a mutex so that the body block must still
+   * be around in memory.
+   */
+  updateMessageBody: function(suid, date, bodyInfo) {
+    var uid = suid.substring(suid.lastIndexOf('/') + 1),
+        posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
+                                                       date, uid);
+    var bodyBlockInfo = posInfo[1],
+        block = this._bodyBlocks[bodyBlockInfo.blockId];
+    block.bodies[uid] = bodyInfo;
+    this._dirty = true;
+    this._dirtyBodyBlocks[bodyBlockInfo.blockId] = block;
   },
 
   shutdown: function() {
