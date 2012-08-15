@@ -1555,17 +1555,20 @@ console.log('  pending fetches', pendingFetches);
  *     The contents of the references header as a list of de-quoted ('<' and
  *     '>' removed) message-id's.  If there was no header, this is null.
  *   }
- *   @key[bodyRep @oneof[String Array]]{
- *     If it's an array, then it's the `quotechew.js` processed body
- *     representation.  If it's a string, then this is an HTML message and the
- *     contents are already sanitized and already quote-normalized.
- *   }
- *   @key[htmlFixups Array]{
- *     The list of fixups that can be performed.  Elements that are strings are
- *     external image URLs.  Elements that are integers are indexes into
- *     `relatedParts`.  All things that need to be fixed up are marked with a
- *     attribute so that we can get the nodes and then in one pass perform the
- *     appropriate fixups.  Or maybe we just need a flag?
+ *   @key[bodyReps @listof[@oneof[String Array]]]{
+ *     This is a list where each two consecutive elements describe a body
+ *     representation.  The even indices are the body rep types which are
+ *     either 'plain' or 'html'.  The odd indices are the actual
+ *     representations.
+ *
+ *     The representation for 'plain' values is a `quotechew.js` processed
+ *     body representation (which is itself a similar pair-wise list except
+ *     that the identifiers are packed integers).
+ *
+ *     The body representation for 'html' values is an already sanitized and
+ *     already quote-normalized String representation that could be directly
+ *     fed into innerHTML safely if you were so inclined.  See `htmlchew.js`
+ *     for more on that process.
  *   }
  * ]]{
  *   Information on the message body that is only for full message display.
