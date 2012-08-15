@@ -1543,7 +1543,7 @@ console.log('  pending fetches', pendingFetches);
  *   @key[to @listof[NameAddressPair]]
  *   @key[cc @listof[NameAddressPair]]
  *   @key[bcc @listof[NameAddressPair]]
- *   @key[replyTo EmailAddress]
+ *   @key[replyTo NameAddressPair]
  *   @key[attachments @listof[AttachmentInfo]]{
  *     Proper attachments for explicit downloading.
  *   }

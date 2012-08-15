@@ -513,7 +513,8 @@ MailBridge.prototype = {
             // clobber the sender's e-mail with the reply-to
             var effectiveAuthor = {
               name: msg.refAuthor.name,
-              address: bodyInfo.replyTo || msg.refAuthor.address,
+              address: (bodyInfo.replyTo && bodyInfo.replyTo.address) ||
+                       msg.refAuthor.address,
             };
             switch (msg.submode) {
               case 'list':
