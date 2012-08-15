@@ -195,6 +195,8 @@ require({
     "wbxml": "deps/activesync/wbxml/wbxml",
     "activesync": "deps/activesync",
 
+    "bleach": "deps/bleach.js/lib/bleach",
+
     "imap": "data/lib/imap",
 
     "rdplat": "data/lib/rdplat",
@@ -238,6 +240,8 @@ var process = window.process = {
   },
 };
 
+// now that RequireJS has bootstrapped, we can setup navigator.
+navigator = window.navigator;
 
 // -- Pull relevant test environment variables out of the environment.
 // The goal is to allow our unit tests to be run against varying server

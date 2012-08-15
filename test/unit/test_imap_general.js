@@ -208,7 +208,7 @@ TD.commonCase('folder sync', function(T) {
       'bodyInfo',
       {
         to: synMessage.bodyInfo.to,
-        bodyRep: synMessage.bodyInfo.bodyRep,
+        bodyReps: synMessage.bodyInfo.bodyReps,
       });
 
     var header = msearchView.slice.items[index];
@@ -217,8 +217,9 @@ TD.commonCase('folder sync', function(T) {
         'bodyInfo',
         bodyInfo && {
           to: bodyInfo.to,
-          bodyRep: bodyInfo.bodyRep,
+          bodyReps: bodyInfo.bodyReps,
         });
+      bodyInfo.die();
     });
   });
 
@@ -230,6 +231,7 @@ TD.commonCase('folder sync', function(T) {
     var deletedHeader = expectedRefreshChanges.deletions[0];
     deletedHeader.getBody(function(bodyInfo) {
       eSync.namedValue('bodyInfo', bodyInfo);
+      // it's null so we don't call bodyInfo.die(), but if it wasn't...!
     });
   });
 

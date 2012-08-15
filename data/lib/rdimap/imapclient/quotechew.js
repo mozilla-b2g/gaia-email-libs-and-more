@@ -1,5 +1,5 @@
 /**
- * Process message bodies for quoting / signatures.
+ * Process text/plain message bodies for quoting / signatures.
  *
  * We have two main goals in our processing:
  *
@@ -611,8 +611,8 @@ function expandQuotedPrefix(s, depth) {
 
 /**
  * Expand a quoted block so that it has the right number of greater than signs
- * and inserted whitespace where appropriate.  (Blank lines don't want whitespace
- * injected.)
+ * and inserted whitespace where appropriate.  (Blank lines don't want
+ * whitespace injected.)
  */
 function expandQuoted(s, depth) {
   var ws = replyQuoteNewlineReplaceStrings[depth],
@@ -625,72 +625,12 @@ function expandQuoted(s, depth) {
   });
 }
 
-var l10n_wroteString = '{{name}} wrote',
-    l10n_originalMessageString = 'Original Message';
-
-/*
- * L10n strings for forward headers.  In Thunderbird, these come from
- * mime.properties:
- * http://mxr.mozilla.org/comm-central/source/mail/locales/en-US/chrome/messenger/mime.properties
- *
- * The libmime logic that injects them is mime_insert_normal_headers:
- * http://mxr.mozilla.org/comm-central/source/mailnews/mime/src/mimedrft.cpp#791
- *
- * Our dictionary maps from the lowercased header name to the human-readable
- * string.
- *
- * XXX actually do the l10n hookup for this
- */
-var l10n_forward_header_labels = {
-  subject: 'Subject',
-  date: 'Date',
-  from: 'From',
-  replyTo: 'Reply-To',
-  to: 'To',
-  cc: 'CC',
-};
-
-exports.setLocalizedStrings = function(strings) {
-  l10n_wroteString = strings.wrote;
-  l10n_originalMessageString = strings.originalMessage;
-};
-
-const RE_RE = /^[Rr][Ee]: /;
-
 /**
- * Generate the reply subject for a message given the prior subject.  This is
- * simply prepending "Re: " to the message if it does not already have an
- * "Re:" equivalent.
- *
- * Note, some clients/gateways (ex: I think the google groups web client? at
- * least whatever has a user-agent of G2/1.0) will structure mailing list
- * replies so they look like "[list] Re: blah" rather than the "Re: [list] blah"
- * that Thunderbird would produce.  Thunderbird (and other clients) pretend like
- * that inner "Re:" does not exist, and so do we.
- *
- * We _always_ use the exact string "Re: " when prepending and do not localize.
- * This is done primarily for consistency with Thunderbird, but it also is
- * friendly to other e-mail applications out there.
- *
- * Thunderbird does support recognizing a
- * mail/chrome/messenger-region/region.properties property,
- * "mailnews.localizedRe" for letting locales specify other strings used by
- * clients that do attempt to localize "Re:".  Thunderbird also supports a
- * weird "Re(###):" or "Re[###]:" idiom; see
- * http://mxr.mozilla.org/comm-central/ident?i=NS_MsgStripRE for more details.
- */
-exports.generateReplySubject = function generateReplySubject(origSubject) {
-  if (RE_RE.test(origSubject))
-      return origSubject;
-  return 'Re: ' + origSubject;
-};
-
-/**
- * Generate a text message reply given an already quote-processed body.  We do not
- * simply '>'-prefix everything because 1) we don't store the raw message text
- * because it's faster for us to not quote-process everything every time we display
- * a message, 2) we want to strip some stuff out, 3) we don't care about providing
- * a verbatim quote.
+ * Generate a text message reply given an already quote-processed body.  We do
+ * not simply '>'-prefix everything because 1) we don't store the raw message
+ * text because it's faster for us to not quote-process everything every time we
+ * display a message, 2) we want to strip some stuff out, 3) we don't care about
+ * providing a verbatim quote.
  */
 exports.generateReplyText = function generateReplyText(rep) {
   var strBits = [];
@@ -723,27 +663,6 @@ exports.generateReplyText = function generateReplyText(rep) {
   }
 
   return strBits.join('');
-};
-
-/**
- *
- */
-exports.generateReplyMessage = function generateReplyMessage(rep, authorPair,
-                                                             msgDate,
-                                                             identity) {
-  var useName = authorPair.name || authorPair.address;
-
-  var msg = '\n\n';
-
-  msg += l10n_wroteString.replace('{{name}}', useName) + ':\n' +
-    exports.generateReplyText(rep);
-
-  // Thunderbird's default is to put the signature after the quote, so us too.
-  // (It also has complete control over all of this, but not us too.)
-  if (identity.signature)
-    msg += '\n\n-- \n' + identity.signature + '\n';
-
-  return msg;
 };
 
 /**
@@ -810,49 +729,6 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
   }
 
   return strBits.join('');
-};
-
-/**
- * Generate the body of an inline forward message.  XXX we need to generate
- * the header summary which needs some localized strings.
- */
-exports.generateForwardMessage = function generateForwardMessage(
-                                   author, date, subject, bodyInfo, identity) {
-  var text = '\n\n';
-
-  if (identity.signature)
-    text += '-- \n' + identity.signature + '\n\n';
-
-  text += '-------- ' + l10n_originalMessageString + ' --------\n';
-  // XXX l10n! l10n! l10n!
-
-  // Add the headers in the same order libmime adds them in
-  // mime_insert_normal_headers so that any automated attempt to re-derive
-  // the headers has a little bit of a chance (since the strings are
-  // localized.)
-
-  // : subject
-
-  // We do not track or remotely care about the 'resent' headers
-  // : resent-comments
-  // : resent-date
-  // : resent-from
-  // : resent-to
-  // : resent-cc
-  // : date
-  // : from
-  // : reply-to
-  // : organization
-  // : to
-  // : cc
-  // (bcc should never be forwarded)
-  // : newsgroups
-  // : followup-to
-  // : references (only for newsgroups)
-
-  text += exports.generateForwardBodyText(bodyInfo.bodyRep);
-
-  return text;
 };
 
 }); // end define

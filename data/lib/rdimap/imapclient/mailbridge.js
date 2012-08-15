@@ -6,7 +6,7 @@ define(
   [
     'rdcommon/log',
     'mailcomposer',
-    './quotechew',
+    './mailchew',
     './util',
     'module',
     'exports'
@@ -14,7 +14,7 @@ define(
   function(
     $log,
     $mailcomposer,
-    $quotechew,
+    $mailchew,
     $imaputil,
     $module,
     exports
@@ -430,8 +430,7 @@ MailBridge.prototype = {
   _cmd_getBody: function mb__cmd_getBody(msg) {
     var self = this;
     // map the message id to the folder storage
-    var folderId = msg.suid.substring(0, msg.suid.lastIndexOf('/'));
-    var folderStorage = this.universe.getFolderStorageForFolderId(folderId);
+    var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.suid);
     folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
       self.__sendMessage({
         type: 'gotBody',
@@ -439,6 +438,19 @@ MailBridge.prototype = {
         bodyInfo: bodyInfo,
       });
     });
+  },
+
+  _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
+    var self = this;
+    this.universe.downloadMessageAttachments(
+      msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
+      function(err, bodyInfo) {
+        self.__sendMessage({
+          type: 'downloadedAttachments',
+          handle: msg.handle,
+          bodyInfo: err ? null : bodyInfo
+        });
+      });
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -501,7 +513,8 @@ MailBridge.prototype = {
             // clobber the sender's e-mail with the reply-to
             var effectiveAuthor = {
               name: msg.refAuthor.name,
-              address: bodyInfo.replyTo || msg.refAuthor.address,
+              address: (bodyInfo.replyTo && bodyInfo.replyTo.address) ||
+                       msg.refAuthor.address,
             };
             switch (msg.submode) {
               case 'list':
@@ -548,11 +561,11 @@ MailBridge.prototype = {
               type: 'composeBegun',
               handle: msg.handle,
               identity: identity,
-              subject: $quotechew.generateReplySubject(msg.refSubject),
+              subject: $mailchew.generateReplySubject(msg.refSubject),
               // blank lines at the top are baked in
-              body: $quotechew.generateReplyMessage(
-                      bodyInfo.bodyRep, effectiveAuthor, msg.refDate,
-                      identity),
+              body: $mailchew.generateReplyBody(
+                      bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
+                      identity, msg.refGuid),
               to: rTo,
               cc: rCc,
               bcc: rBcc,
@@ -566,7 +579,7 @@ MailBridge.prototype = {
               identity: identity,
               subject: 'Fwd: ' + msg.refSubject,
               // blank lines at the top are baked in by the func
-              body: $quotechew.generateForwardMessage(
+              body: $mailchew.generateForwardMessage(
                       msg.refAuthor, msg.refDate, msg.refSubject,
                       bodyInfo, identity),
               // forwards have no assumed envelope information
@@ -589,7 +602,7 @@ MailBridge.prototype = {
       handle: msg.handle,
       identity: identity,
       subject: '',
-      body: '',
+      body: { text: '', html: null },
       to: [],
       cc: [],
       bcc: [],
@@ -642,8 +655,14 @@ MailBridge.prototype = {
     var messageOpts = {
       from: this._formatAddresses([identity]),
       subject: wireRep.subject,
-      body: body,
     };
+    if (body.html) {
+      messageOpts.html = $mailchew.mergeUserTextWithHTML(body.text, body.html);
+    }
+    else {
+      messageOpts.body = body.text;
+    }
+
     if (identity.replyTo)
       messageOpts.replyTo = identity.replyTo;
     if (wireRep.to && wireRep.to.length)

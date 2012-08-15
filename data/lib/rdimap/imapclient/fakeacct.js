@@ -342,7 +342,7 @@ MessageGenerator.prototype = {
       replyTo: null,
       attachments: null,
       references: null,
-      bodyRep: null,
+      bodyReps: null,
     };
 
     if (aArgs.inReplyTo) {
@@ -416,7 +416,7 @@ MessageGenerator.prototype = {
         '3: ...\n' +
         '\nIt is a tiny screen we target, thank goodness!';
     }
-    bodyInfo.bodyRep = [0x1, bodyText];
+    bodyInfo.bodyReps = ['plain', [0x1, bodyText]];
 
     if (this._mode === 'info') {
       return {

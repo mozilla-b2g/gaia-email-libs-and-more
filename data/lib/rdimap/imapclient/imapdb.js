@@ -31,11 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 7 because IMAP during v6 could screw up the refresh logic which
- * would result in duplicate bodies and headers that would eventually break
- * things.
+ * Bumping to 8 because our attachment representation has changed from v7.
  */
-const CUR_VERSION = 7;
+const CUR_VERSION = 8;
 
 /**
  * What is the lowest database version that we are capable of performing a
