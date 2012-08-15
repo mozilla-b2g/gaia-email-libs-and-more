@@ -11,6 +11,15 @@ var TD = $tc.defineTestsFor(
   { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
 
 /**
+ * Create a nondeterministic subject (in contrast to what TB's messageGenerator
+ * does because unit tests usually like determinism.)
+ */
+function makeRandomSubject() {
+  return 'Composition: ' + Date.now() + ' ' +
+    Math.floor(Math.random() * 100000);
+}
+
+/**
  * Compose a new message from scratch without saving it to drafts, verify that
  * we think it was sent, verify that we received it (which is also a good test
  * of refresh).
@@ -19,8 +28,7 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 
-  var uniqueSubject = 'Composition: ' + Date.now() + ' ' +
-        Math.floor(Math.random() * 100000);
+  var uniqueSubject = makeRandomSubject();
 
   var composer, eLazy = T.lazyLogger('misc');
   // - open the folder
@@ -134,8 +142,12 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
 });
 
 
+/**
+ * Since we currently don't really support composing HTML, we cram an HTML
+ * message into the inbox so that we can reply to it.
+ */
 TD.commonCase('reply/forward html message', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
@@ -152,7 +164,8 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '<blockquote><p>I am the replied-to text!</p></blockquote>',
       // the text bit of the reply to the above
       replyTextHtml =
-        '\n\n$AUTHOR$ wrote:\n',
+        // no trailing newline when followed by an HTML chunk
+        '\n\n$AUTHOR$ wrote:',
       // the (read-only) bit of the reply to the above
       replyHtmlHtml  =
         '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
@@ -173,63 +186,95 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         new SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });
 
-  var testMessages = [
-    {
-      bodyPart: bpartHtml,
-      checkReply: {
-        text: replyTextHtml,
-        html: replyHtmlHtml,
-      },
-    },
-  ];
+  var uniqueSubject = makeRandomSubject();
 
-  var testFolder = testAccount.do_createTestFolder(
-    'test_compose_html', function makeMessages() {
+  var msgDef = {
+    subject: uniqueSubject,
+    from: [TEST_PARAMS.name, TEST_PARAMS.emailAddress],
+    messageId: makeRandomSubject().replace(/[: ]+/g, ''),
+    bodyPart: bpartHtml,
+    checkReply: {
+      text: replyTextHtml,
+      html: replyHtmlHtml,
+    }
+  };
+
+  var inboxFolder = testAccount.do_useExistingFolder('INBOX', '');
+
+  var inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null);
+
+  testAccount.do_addMessagesToFolder(
+    inboxFolder, function makeMessages() {
     var messageAppends = [], msgGen = new MessageGenerator();
 
-    for (var i = 0; i < testMessages.length; i++) {
-      var msgDef = testMessages[i];
-      msgDef.age = { days: 1, hours: i };
-      var synMsg = msgGen.makeMessage(msgDef);
-      messageAppends.push({
-        date: synMsg.date,
-        headerInfo: {
-          subject: synMsg.subject,
-        },
-        messageText: synMsg.toMessageString(),
-      });
-    }
+    msgDef.age = { minutes: 1 };
+    var synMsg = msgGen.makeMessage(msgDef);
+    messageAppends.push({
+      date: synMsg.date,
+      headerInfo: {
+        subject: synMsg.subject,
+      },
+      messageText: synMsg.toMessageString(),
+    });
 
     return messageAppends;
   });
 
-  var folderView = testAccount.do_openFolderView(
-    'syncs', testFolder,
-    { count: testMessages.length, full: testMessages.length, flags: 0,
-      deleted: 0 },
-    { top: true, bottom: true, grow: false });
-  testMessages.forEach(function checkMessage(msgDef, iMsg) {
-    T.action(eCheck,
-             'reply to HTML message (do not send)', msgDef.name, function() {
-      var header = folderView.slice.items[0];
-      eCheck.expect_namedValue(
-        'reply text',
-        msgDef.checkReply.text.replace('$AUTHOR$', header.author.name));
-      eCheck.expect_namedValue(
-        'reply html',
-        msgDef.checkReply.html.replace('$MESSAGEID$', header.guid));
+  var expectedReplyBody, header;
+  testAccount.do_waitForMessage(inboxView, uniqueSubject, {
+    expect: function() {
+      RT.reportActiveActorThisStep(eCheck);
+      eCheck.expect_event('got header');
+    },
+    withMessage: function(_header) {
+      header = _header;
+      eCheck.event('got header');
+    }
+  });
+  T.action(eCheck,
+           'reply to HTML message', msgDef.name, function() {
+    expectedReplyBody = {
+      text: replyTextHtml.replace('$AUTHOR$', TEST_PARAMS.name),
+      html: replyHtmlHtml.replace('$MESSAGEID$', header.guid)
+    };
 
-      header.replyToMessage('sender', function(composer) {
-        eCheck.namedValue('reply text', composer.body.text);
-        eCheck.namedValue('reply html', composer.body.html);
+    eCheck.expect_namedValue('reply text', expectedReplyBody.text);
+    eCheck.expect_namedValue('reply html', expectedReplyBody.html);
+
+    eCheck.expect_event('sent');
+
+    header.replyToMessage('sender', function(composer) {
+      eCheck.namedValue('reply text', composer.body.text);
+      eCheck.namedValue('reply html', composer.body.html);
+
+      composer.finishCompositionSendMessage(function(err, badAddrs) {
+        if (err)
+          eCheck.error(err);
+        else
+          eCheck.event('sent');
       });
     });
-    // XXX IMPLEMENT THIS BEFORE REVIEW
-    /*
-    T.action('forward HTML message (do not send)', function() {
-      var header = folderView.slice.items[0];
-    });
-    */
+  });
+  testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
+    expect: function() {
+      RT.reportActiveActorThisStep(eCheck);
+
+      var expectedHtmlRep = [
+        '<div>',
+        expectedReplyBody.text.replace(/\n/g, '<br>'),
+        '</div>',
+        expectedReplyBody.html,
+      ].join('');
+      eCheck.expect_namedValue('rep type', 'html');
+      eCheck.expect_namedValue('rep', expectedHtmlRep);
+    },
+    // trigger the reply composer
+    withMessage: function(header) {
+      header.getBody(function(body) {
+        eCheck.namedValue('rep type', body.bodyReps[0]);
+        eCheck.namedValue('rep', body.bodyReps[1]);
+      });
+    }
   });
 });
 

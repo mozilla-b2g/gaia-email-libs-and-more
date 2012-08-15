@@ -115,8 +115,11 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
       }
     }
     else {
-      if (!htmlMsg)
+      if (!htmlMsg) {
         htmlMsg = '';
+        // slice off the trailing newline of textMsg
+        textMsg = textMsg.slice(0, -1);
+      }
       // rep has already been sanitized and therefore all HTML tags are balanced
       // and so there should be no rude surprises from this simplistic looking
       // HTML creation.  The message-id of the message never got sanitized,
@@ -214,7 +217,7 @@ exports.generateForwardMessage = function generateForwardMessage(
 };
 
 const HTML_WRAP_TOP =
-  '<html><body><body bgcolor="#FFFFFF" text="#000000">\n';
+  '<html><body><body bgcolor="#FFFFFF" text="#000000">';
 const HTML_WRAP_BOTTOM =
   '</body></html>';
 
@@ -223,7 +226,10 @@ const HTML_WRAP_BOTTOM =
  * them into a final HTML representation.
  */
 exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
-
+  return HTML_WRAP_TOP +
+         $htmlchew.wrapTextIntoSafeHTMLString(text, 'div') +
+         html +
+         HTML_WRAP_BOTTOM;
 };
 
 }); // end define

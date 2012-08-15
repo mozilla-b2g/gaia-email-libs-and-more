@@ -291,6 +291,8 @@ var LEGAL_ATTR_MAP = {
   ],
   'a': ['ext-href', 'hreflang'],
   'area': ['ext-href', 'hreflang'],
+  // these are used by our quoting and Thunderbird's quoting
+  'blockquote': ['cite', 'type'],
   'img': ['cid-src', 'ext-src', 'ismap', 'usemap'],
   // This may only end up being used as a debugging thing, but let's let charset
   // through for now.
