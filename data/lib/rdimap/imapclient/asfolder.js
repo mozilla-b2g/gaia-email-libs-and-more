@@ -163,7 +163,9 @@ ActiveSyncFolderStorage.prototype = {
     }
 
     const as = $ascp.AirSync.Tags;
+    const asEnum = $ascp.AirSync.Enums;
     const asb = $ascp.AirSyncBase.Tags;
+    const asbEnum = $ascp.AirSyncBase.Enums;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -180,11 +182,11 @@ ActiveSyncFolderStorage.prototype = {
 
     if (account.conn.currentVersionInt >= $activesync.VersionInt('12.0'))
             w.stag(asb.BodyPreference)
-               .tag(asb.Type, '1')
+               .tag(asb.Type, asbEnum.Type.PlainText)
              .etag();
 
-            w.tag(as.MIMESupport, '2')
-             .tag(as.MIMETruncation, '7')
+            w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
+             .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
            .etag()
          .etag()
        .etag()
@@ -254,10 +256,10 @@ ActiveSyncFolderStorage.prototype = {
 
       e.run(aResponse);
 
-      if (status === '1') { // Success
+      if (status === asEnum.Status.Success) {
         callback(added, changed, deleted);
       }
-      else if (status === '3') { // Bad sync key
+      else if (status === asEnum.Status.InvalidSyncKey) {
         console.log('ActiveSync had a bad sync key');
         // This should already be set to 0, but let's just be safe.
         folderStorage.folderMeta.syncKey = '0';
