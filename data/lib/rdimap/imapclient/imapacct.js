@@ -790,11 +790,12 @@ ImapAccount.prototype = {
 
     if (callback) {
       this._LOG.runOp_begin(mode, op.type, null);
-      this._jobDriver[methodName](op, function(error) {
+      this._jobDriver[methodName](op, function(error, resultIfAny,
+                                               accountSaveSuggested) {
         self._LOG.runOp_end(mode, op.type, error);
         if (!isLocal)
           op.status = mode + 'ne';
-        callback(error);
+        callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
@@ -850,6 +851,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
       saveAccountState: {},
+    },
+    TEST_ONLY_asyncJobs: {
     },
   },
 });

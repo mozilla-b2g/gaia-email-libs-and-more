@@ -58,7 +58,7 @@ function makeTestContext() {
       var bodyInfo = {
         date: date, size: size,
         to: null, cc: null, bcc: null, replyTo: null,
-        attachments: null, bodyRep: null
+        attachments: null, bodyReps: null
       };
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, size, bodyInfo, function blockPicked(info, block) {
@@ -94,7 +94,7 @@ function makeTestContext() {
       if (bodyIndices == null)
         bodyIndices = [];
       for (i = 0; i < bodyIndices.length; i++) {
-        blockInfo = storage._bodyBlockInfos[i];
+        blockInfo = storage._bodyBlockInfos[bodyIndices[i]];
         do_check_true(
           storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
         do_check_true(
@@ -549,6 +549,9 @@ TD.commonSimple('insertion in block that will overflow',
   ctx.insertBody(d8, uid2, BIG2, 0);
   check_block(bodyBlocks[0], 2, 2 * BIG2, d5, uid1, d8, uid2);
 
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
   // - Split prefers the older block
   ctx.insertBody(d7, uid3, BIG2, 1);
 
@@ -556,13 +559,19 @@ TD.commonSimple('insertion in block that will overflow',
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
 
+  ctx.checkDirtyBodyBlocks([0, 1]);
+  ctx.resetDirtyBlocks();
+
   // - Split prefers the newer block
+  // splits [1] into [1, 2]
   ctx.insertBody(d6, uid4, BIG2, 1);
 
   do_check_eq(bodyBlocks.length, 3);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid3);
   check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
+
+  ctx.checkDirtyBodyBlocks([1, 2]);
 
   run_next_test();
 });

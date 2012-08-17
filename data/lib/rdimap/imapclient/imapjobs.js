@@ -50,7 +50,8 @@ define(
  */
 const CHECKED_NOTYET = 1;
 /**
- * The operation is idempotent and atomic; no checking was performed.
+ * The operation is idempotent and atomic, just perform the operation again.
+ * No checking performed.
  */
 const UNCHECKED_IDEMPOTENT = 2;
 /**
@@ -68,6 +69,13 @@ const CHECKED_MOOT = 4;
  * check.
  */
 const UNCHECKED_BAILED = 5;
+/**
+ * The job has not yet been performed, and the evidence is that the job was
+ * not marked finished because our database commits are coherent.  This is
+ * appropriate for retrieval of information, like the downloading of
+ * attachments.
+ */
+const UNCHECKED_COHERENT_NOTYET = 6;
 
 function ImapJobDriver(account) {
   this.account = account;
@@ -95,7 +103,7 @@ ImapJobDriver.prototype = {
       storage.folderConn.acquireConn(callback);
     }
     else {
-      callback(storage.folderConn);
+      callback(storage.folderConn, storage);
     }
   },
 
@@ -106,6 +114,90 @@ ImapJobDriver.prototype = {
     if (!storage._slices.length && !storage._pendingMutationCount)
       storage.folderConn.relinquishConn();
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // download: Download one or more attachments from a single message
+
+  local_do_download: function(op, ignoredCallback) {
+    // Downloads are inherently online operations.
+    return null;
+  },
+
+  do_download: function(op, callback) {
+    var self = this;
+    var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+        folderId = op.messageSuid.substring(0, idxLastSlash),
+        uid = op.messageSuid.substring(idxLastSlash + 1);
+
+    var folderConn, folderStorage;
+    // Once we have the connection, get the current state of the body rep.
+    var gotConn = function gotConn(_folderConn, _folderStorage) {
+      folderConn = _folderConn;
+      folderStorage = _folderStorage;
+
+      folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+    };
+    // Now that we have the body, we can know the part numbers and eliminate /
+    // filter out any redundant download requests.  Issue all the fetches at
+    // once.
+    var partsToDownload = [], bodyInfo;
+    var gotBody = function gotBody(_bodyInfo) {
+      bodyInfo = _bodyInfo;
+      var i, partInfo;
+      for (i = 0; i < op.relPartIndices.length; i++) {
+        partInfo = bodyInfo.relatedParts[op.relPartIndices[i]];
+        if (partInfo.file)
+          continue;
+        partsToDownload.push(partInfo);
+      }
+      for (i = 0; i < op.attachmentIndices.length; i++) {
+        partInfo = bodyInfo.attachments[op.attachmentIndices[i]];
+        if (partInfo.file)
+          continue;
+        partsToDownload.push(partInfo);
+      }
+
+      folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
+    };
+    var gotParts = function gotParts(err, bodyBuffers) {
+      if (bodyBuffers.length !== partsToDownload.length) {
+        callback(err, null, false);
+        return;
+      }
+      for (var i = 0; i < partsToDownload.length; i++) {
+        // Because we should be under a mutex, this part should still be the
+        // live representation and we can mutate it.
+        var partInfo = partsToDownload[i],
+            buffer = bodyBuffers[i];
+
+        partInfo.sizeEstimate = buffer.length;
+        partInfo.file = new Blob([buffer],
+                                 { contentType: partInfo.type });
+      }
+      folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
+      callback(err, bodyInfo, true);
+    };
+
+    self._accessFolderForMutation(folderId, gotConn);
+  },
+
+  check_download: function(op, callback) {
+    // If we had download the file and persisted it successfully, this job would
+    // be marked done because of the atomicity guarantee on our commits.
+    return UNCHECKED_COHERENT_NOTYET;
+  },
+
+  local_undo_download: function(op, ignoredCallback) {
+    return null;
+  },
+
+  undo_download: function(op, callback) {
+    callback();
+  },
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  // modtags: Modify tags on messages
 
   local_do_modtags: function(op, ignoredCallback, undo) {
     var addTags = undo ? op.removeTags : op.addTags,
@@ -238,6 +330,9 @@ ImapJobDriver.prototype = {
     return this.do_modtags(op, callback, true);
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // delete: Delete messages
+
   /**
    * Move the message to the trash folder.  In Gmail, there is no move target,
    * we just delete it and gmail will (by default) expunge it immediately.
@@ -253,6 +348,9 @@ ImapJobDriver.prototype = {
 
   undo_delete: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // move: Move messages between folders (in a single account)
 
   do_move: function() {
     // get a connection in the source folder, uid validity is asserted
@@ -278,6 +376,9 @@ ImapJobDriver.prototype = {
   undo_move: function() {
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // copy: Copy messages between folders (in a single account)
+
   do_copy: function() {
   },
 
@@ -291,6 +392,9 @@ ImapJobDriver.prototype = {
    */
   undo_copy: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // append: Add a message to a folder
 
   /**
    * Append a message to a folder.
@@ -355,6 +459,8 @@ ImapJobDriver.prototype = {
 
   undo_append: function() {
   },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 function HighLevelJobDriver() {

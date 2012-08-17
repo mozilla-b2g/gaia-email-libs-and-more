@@ -77,7 +77,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
    *   synced interval, plus the new deepended interval, with a gap in between.
    *   This raises semantics issues for atBottom, but we define that the answer
    *   is we are not at the bottom and we will perform the extra sync required
-   *   to link us up with our friends.)
+   *   to link us up with our friends.  However, a distinct grow request is
+   *   still required to trigger the network traffic.)
    * - Grow in the older direction, and verify that this appears to result in
    *   an overflow case that gets bisected down.
    *
@@ -264,28 +265,25 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
-  T.group('growth syncs extra');
+  T.group('free growth to previously synced message bounds');
   testAccount.do_growFolderView(
-    // do not request growth; we want to make sure we provide it for free since
-    // we are saying atBottom is false and therefore so is grow.
     f2View, 9, false, 9,
     // this will explode into a bisect covering 21 messages, it will guess 8
     // because Math.ceil(15 / 42 * 21 = 7.5) = 8.  This will trigger an
     // automated follow-on for another 8 days because it will use the same
     // time-window for the follow-on, 4 of which will already be known
     [{ count: 0, full: null, flags: null, deleted: null },
-     { count: 8, full: 8, flags: 0, deleted: 0 },
-     // this should properly only give us 1 message, but what happens is we get
-     // 1 from the database fill, then the 4 new ones get inserted in front of
-     // that and we don't retract them, so we will end up at 22.
-     { count: 5, full: 4, flags: 4, deleted: 0 }],
+     { count: 8, full: 8, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
-  // and another sync, which will somewhat redundantly refresh things.
   testAccount.do_growFolderView(
-    // request 10 even though we know there's only 8...
-    f2View, 10, false, 22,
-    { count: 8, full: 0, flags: 8, deleted: 0 },
+    // do not request growth; we want to make sure we provide it for free since
+    // we are saying atBottom is false and therefore so is grow.
+    f2View, 10, false, 17,
+     // this should properly only give us 10 messages, but the new messages
+     // get interleaved and so we see them all at once.
+     [{ count: 13, full: 4, flags: 9, deleted: 0 }],
     { top: true, bottom: true, grow: false });
+
   testAccount.do_closeFolderView(f2View);
 
   T.group('lots of messages: setup for #2');
@@ -326,6 +324,137 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 8, full: 8, flags: 0, deleted: 0 },
      { count: 1, full: 8, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
+
+  T.group('cleanup');
+});
+
+/**
+ * If there are more messages in the sync range than the initial fill desires,
+ * it's important that the sync routine still gets presented with all the
+ * headers covering the time range.  As a real example, our initial sync range
+ * had 22 messages in it, but the initial fill was 15, so when doing a refresh
+ * we would see 7 new messages.  Things would then break when tried to insert
+ * the duplicate messages.
+ *
+ * For our test, we choose an initial sync of 3 days, a fill size of 4 messages,
+ * and we just cram 6 messages in one day.
+ */
+TD.commonCase('refresh does not break when db limit hit', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding dalight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const TSYNCI = 3;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 4,
+    days: TSYNCI,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    // The exact thresholds do not matter...
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+    // But this does; be older than our #1 and #2 triggering cases
+    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
+    refreshOld: 2 * DAY_MILLIS,
+
+    useRangeNonInbox: 4 * HOUR_MILLIS,
+    useRangeInbox: 4 * HOUR_MILLIS,
+  });
+
+  T.group('no change: setup');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_complex_refresh',
+    { count: 6, age: { hours: 12 }, age_incr: { hours: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    [{ count: 4, full: 6, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+
+  T.group('no change: #1 refresh');
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  // XXX need to differentiate refresh and verify
+  testAccount.do_viewFolder(
+    '#1 refresh sync', testFolder,
+    { count: 4, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('cleanup');
+});
+
+/**
+ * When syncing/growing, a sync may return more headers than we want, in which
+ * case we do not send them over the wire.  However, when growing, we can
+ * assume the headers were synced by that most recent sync, and so can exclude
+ * that day from the sync range.  However, we still want to send those headers
+ * (and this was indeed a bug), so check for that.
+ *
+ * This can be duplicated by an initial sync that gets more headers than the
+ * fill size where at least one of the excess headers falls on the same day
+ * as the oldest header that is returned.  This demonstrates an inefficiency
+ * of the current grow algorithm in that it does not check the accuracy range
+ * to further reduce the sync range, but that's fine.
+ */
+TD.commonCase('already synced headers are not skipped in grow', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding daylight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const TSYNCI = 4;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 4,
+    days: TSYNCI,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    // The exact thresholds do not matter...
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+    // But this does; be older than our #1 and #2 triggering cases
+    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
+    refreshOld: 2 * DAY_MILLIS,
+
+    useRangeNonInbox: 4 * HOUR_MILLIS,
+    useRangeInbox: 4 * HOUR_MILLIS,
+  });
+
+  T.group('initial sync/view');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_complex_no_skip_synced',
+    { count: 7, age: { hours: 1 }, age_incr: { hours: 12 } });
+  var folderView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    [{ count: 4, full: 7, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+
+  T.group('grow');
+  testAccount.do_growFolderView(
+    folderView, 3, false, 4,
+    [{ count: 3, full: 0, flags: 2, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
 });

@@ -32,6 +32,23 @@ function clearTimeout(handle) {
 var moduleGlobalsHack = {};
 Components.utils.import("resource://test/resources/globalshack.jsm",
                         moduleGlobalsHack);
+var document = {
+  implementation: {
+    createHTMLDocument: function createHTMLDocument(str) {
+      var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
+                     .createInstance(Ci.nsIDOMParser);
+      parser.init();
+      return parser.parseFromString(str, 'text/html');
+    }
+  }
+};
+
+/**
+ * A function that can be clobbered to generate events when blob-related
+ * things happen.
+ */
+var __blobLogFunc = function() {
+};
 
 var window = {
   // - indexed db
@@ -64,6 +81,17 @@ var window = {
         if (this._listener)
           this._listener({});
       }
+    },
+  },
+
+  URL: {
+    createObjectURL: function(fakeBlob) {
+      var fakeURL = 'url:' + fakeBlob.str;
+      __blobLogFunc('createObjectURL', fakeURL);
+      return fakeURL;
+    },
+    revokeObjectURL: function(fakeURL) {
+      __blobLogFunc('revokeObjectURL', fakeURL);
     },
   },
 
@@ -101,7 +129,20 @@ var window = {
       throw new Error("atob of '" + data + "' failed.");
     }
   },
+  document: document
 };
-var navigator = undefined, document = undefined;
+// during the RequireJS bootstrap, have navigator be undefined.
+var navigator = undefined;
 // new to me, but apparently it's a thing...
 var self = window.self = window;
+
+function Blob(parts, properties) {
+  this.parts = parts;
+  this.properties = properties;
+
+  this.str = parts[0].toString();
+
+  __blobLogFunc('createBlob', this.str);
+}
+Blob.prototype = {
+};

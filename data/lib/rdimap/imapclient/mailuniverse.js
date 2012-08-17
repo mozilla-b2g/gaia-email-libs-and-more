@@ -611,7 +611,10 @@ function MailUniverse(callAfterBigBang) {
   this._identitiesById = {};
 
   this._opsByAccount = {};
+  // populated by waitForAccountOps, invoked when all ops complete
   this._opCompletionListenersByAccount = {};
+  // maps longtermId to a callback that cares. non-persisted.
+  this._opCallbacks = {};
 
   this._bridges = [];
 
@@ -642,9 +645,8 @@ function MailUniverse(callAfterBigBang) {
   this._LOG = null;
   this._db = new $imapdb.ImapDB();
   var self = this;
-  this._db.getConfig(function(configObj, accountInfos) {
-    if (configObj) {
-      self.config = configObj;
+  this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
+    function setupLogging(config) {
       if (self.config.debugLogging) {
         if (self.config.debugLogging !== 'dangerous') {
           console.warn('GENERAL LOGGING ENABLED!');
@@ -662,28 +664,60 @@ function MailUniverse(callAfterBigBang) {
           $log.DEBUG_markAllFabsUnderTest();
         }
       }
-      self._LOG = LOGFAB.MailUniverse(this, null, null);
+    }
+
+    var accountInfo, i;
+    if (configObj) {
+      self.config = configObj;
+      setupLogging();
+      self._LOG = LOGFAB.MailUniverse(self, null, null);
       if (self.config.debugLogging)
         self._enableCircularLogging();
 
       self._LOG.configLoaded(self.config, accountInfos);
 
-      for (var i = 0; i < accountInfos.length; i++) {
-        var accountInfo = accountInfos[i];
+      for (i = 0; i < accountInfos.length; i++) {
+        accountInfo = accountInfos[i];
         self._loadAccount(accountInfo.def, accountInfo.folderInfo);
       }
     }
     else {
-      self._LOG = LOGFAB.MailUniverse(this, null, null);
       self.config = {
         // We need to put the id in here because our startup query can't
         // efficiently get both the key name and the value, just the values.
         id: 'config',
         nextAccountNum: 0,
         nextIdentityNum: 0,
-        debugLogging: false,
+        debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false,
       };
+      setupLogging();
+      self._LOG = LOGFAB.MailUniverse(self, null, null);
+      if (self.config.debugLogging)
+        self._enableCircularLogging();
       self._db.saveConfig(self.config);
+
+      // - Try to re-create any accounts just using auth info.
+      if (lazyCarryover && self.online) {
+        var waitingCount = 0;
+        for (i = 0; i < lazyCarryover.accountInfos.length; i++){
+          waitingCount++;
+          var accountDef = lazyCarryover.accountInfos[i].def;
+          self.tryToCreateAccount(
+            {
+              displayName: accountDef.identities[0].name,
+              emailAddress: accountDef.name,
+              password: accountDef.credentials.password
+            },
+            // We don't care how they turn out, just that they get a chance
+            // to run to completion before we call our bootstrap complete.
+            function() {
+              if (--waitingCount === 0)
+                callAfterBigBang();
+            });
+          }
+        // do not let callAfterBigBang get called.
+        return;
+      }
     }
     callAfterBigBang();
   });
@@ -723,7 +757,7 @@ MailUniverse.prototype = {
     try {
       // 'default' does not work, but pictures does.  Hopefully gallery is
       // smart enough to stay away from my log files!
-      var storage = navigator.getDeviceStorage('pictures')[0];
+      var storage = navigator.getDeviceStorage('pictures');
       var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
                           {
                             type: 'application/json',
@@ -1091,7 +1125,7 @@ MailUniverse.prototype = {
     return results;
   },
 
-  _opCompleted: function(account, op, err) {
+  _opCompleted: function(account, op, err, resultIfAny, accountSaveSuggested) {
     // Clear the desire if it is satisfied.  It's possible the desire is now
     // to undo it, in which case we don't want to clobber the undo desire with
     // the completion of the do desire.
@@ -1102,6 +1136,22 @@ MailUniverse.prototype = {
     var queue = this._opsByAccount[account.id];
     // shift the running op off.
     queue.shift();
+
+    if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
+      var callback = this._opCallbacks[op.longtermId];
+      delete this._opCallbacks[op.longtermId];
+      try {
+        callback(err, resultIfAny, account, op);
+      }
+      catch(ex) {
+        this._LOG.opCallbackErr(op.type);
+      }
+    }
+
+    // This is a suggestion; in the event of high-throughput on operations,
+    // we probably don't want to save the account every tick, etc.
+    if (accountSaveSuggested)
+      account.saveAccountState();
 
     if (queue.length && this.online && account.enabled) {
       op = queue[0];
@@ -1122,8 +1172,17 @@ MailUniverse.prototype = {
    * (nb: Header updates' execution may actually be deferred into the future if
    * block loads are required, but they will maintain their apparent ordering
    * on the folder in question.)
+   *
+   * @args[
+   *   @param[account]
+   *   @param[op]
+   *   @param[optionalCallback #:optional Function]{
+   *     A callback to invoke when the operation completes.  Callbacks are
+   *     obviously not capable of being persisted and are merely best effort.
+   *   }
+   * ]
    */
-  _queueAccountOp: function(account, op) {
+  _queueAccountOp: function(account, op, optionalCallback) {
     var queue = this._opsByAccount[account.id];
     queue.push(op);
 
@@ -1136,6 +1195,8 @@ MailUniverse.prototype = {
         account.mutations.shift();
       }
     }
+    if (optionalCallback)
+      this._opCallbacks[op.longtermId] = optionalCallback;
 
     // - run the local manipulation immediately
     if (!this._testModeDisablingLocalOps)
@@ -1154,6 +1215,35 @@ MailUniverse.prototype = {
       callback();
     else
       this._opCompletionListenersByAccount[account.id] = callback;
+  },
+
+  /**
+   * Download one or more related-part or attachments from a message.
+   * Attachments are named by their index because the indices are stable and
+   * flinging around non-authoritative copies of the structures might lead to
+   * some (minor) confusion.
+   *
+   * This request is persistent although the callback will obviously be
+   * discarded in the event the app is killed.
+   */
+  downloadMessageAttachments: function(messageSuid, messageDate,
+                                       relPartIndices, attachmentIndices,
+                                       callback) {
+    var account = this.getAccountForMessageSuid(messageSuid);
+    var longtermId = this._queueAccountOp(
+      account,
+      {
+        type: 'download',
+        longtermId: null,
+        status: null,
+        desire: 'do',
+        humanOp: 'download',
+        messageSuid: messageSuid,
+        messageDate: messageDate,
+        relPartIndices: relPartIndices,
+        attachmentIndices: attachmentIndices
+      },
+      callback);
   },
 
   modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
@@ -1258,6 +1348,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     errors: {
       badAccountType: { type: true },
+      opCallbackErr: { type: false },
     },
   },
 });

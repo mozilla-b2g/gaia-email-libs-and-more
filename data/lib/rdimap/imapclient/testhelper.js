@@ -349,6 +349,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     testFolder.mailFolder = null;
     testFolder.messages = null;
     testFolder._approxMessageCount = messageSetDef.count;
+    testFolder._liveSliceThings = [];
     this.T.convenienceSetup('delete test folder if it exists', function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
@@ -409,6 +410,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
     testFolder.messages = null;
+    testFolder._liveSliceThings = [];
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
                                 folderName);
@@ -432,8 +434,10 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
 
       // the append will need to check out and check back-in a connection
       self.eImapAccount.expect_runOp_begin('do', 'append');
-      self._expect_connection();
-      self.eImapAccount.expect_releaseConnection();
+      if (testFolder._liveSliceThings.length === 0) {
+        self._expect_connection();
+        self.eImapAccount.expect_releaseConnection();
+      }
       self.eImapAccount.expect_runOp_end('do', 'append');
       self.expect_appendNotified();
 
@@ -546,6 +550,16 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     });
   },
 
+  expect_runOp: function(jobName, accountSave) {
+    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.eImapAccount.expect_runOp_begin('local_do', jobName);
+    this.eImapAccount.expect_runOp_end('local_do', jobName);
+    this.eImapAccount.expect_runOp_begin('do', jobName);
+    this.eImapAccount.expect_runOp_end('do', jobName);
+    if (accountSave)
+      this.expect_saveState();
+  },
+
   _expect_dateSyncs: function(testFolder, expectedValues, flag) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
@@ -625,6 +639,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
                                 slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
+          testFolder._liveSliceThings.push(_saveToThing);
         }
         else {
           slice.die();
@@ -819,6 +834,11 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
   do_closeFolderView: function(viewThing) {
     var self = this;
     this.T.action(this, 'close', viewThing, function() {
+      var testFolder = viewThing.testFolder;
+      var idx = testFolder._liveSliceThings.indexOf(viewThing);
+      if (idx === -1)
+        throw new Error('Trying to close a non-live slice thing!');
+      testFolder._liveSliceThings.splice(idx, 1);
       self.expect_sliceDied(viewThing.slice.handle);
       viewThing.slice.ondead = function() {
         self._logger.sliceDied(viewThing.slice.handle);

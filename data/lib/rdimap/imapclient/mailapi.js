@@ -7,7 +7,6 @@ define(
     'exports'
   ],
   function(
-
     exports
   ) {
 
@@ -387,6 +386,7 @@ MailHeader.prototype = {
 function MailBody(api, suid, wireRep) {
   this._api = api;
   this.id = suid;
+  this._date = wireRep.date;
 
   this.to = wireRep.to;
   this.cc = wireRep.cc;
@@ -396,22 +396,145 @@ function MailBody(api, suid, wireRep) {
   if (wireRep.attachments) {
     this.attachments = [];
     for (var iAtt = 0; iAtt < wireRep.attachments.length; iAtt++) {
-      this.attachments.push(new MailAttachment(wireRep.attachments[iAtt]));
+      this.attachments.push(
+        new MailAttachment(this, wireRep.attachments[iAtt]));
     }
   }
-  // for the time being, we only provide text/plain contents, and we provide
-  // those flattened.
-  this.bodyRep = wireRep.bodyRep;
+  this._relatedParts = wireRep.relatedParts;
+  this.bodyReps = wireRep.bodyReps;
+  this._cleanup = null;
 }
 MailBody.prototype = {
   toString: function() {
-    return '[MailBody: ' + id + ']';
+    return '[MailBody: ' + this.id + ']';
   },
   toJSON: function() {
     return {
       type: 'MailBody',
       id: this.id
     };
+  },
+
+  /**
+   * true if this is an HTML document with inline images sent as part of the
+   * messages.
+   */
+  get embeddedImageCount() {
+    if (!this._relatedParts)
+      return 0;
+    return this._relatedParts.length;
+  },
+
+  /**
+   * true if all of the images are already downloaded.
+   */
+  get embeddedImagesDownloaded() {
+    for (var i = 0; i < this._relatedParts.length; i++) {
+      var relatedPart = this._relatedParts[i];
+      if (!relatedPart.file)
+        return false;
+    }
+    return true;
+  },
+
+  /**
+   * Trigger the download of any inline images sent as part of the message.
+   * Once the images have been downloaded
+   */
+  downloadEmbeddedImages: function(callback) {
+    var relPartIndices = [];
+    for (var i = 0; i < this._relatedParts.length; i++) {
+      var relatedPart = this._relatedParts[i];
+      if (relatedPart.file)
+        continue;
+      relPartIndices.push(i);
+    }
+    if (!relPartIndices.length) {
+      callback();
+      return;
+    }
+    this._api._downloadAttachments(this, relPartIndices, [], callback);
+  },
+
+  /**
+   * Synchronously trigger the display of embedded images.
+   */
+  showEmbeddedImages: function(htmlNode) {
+    var i, cidToObjectUrl = {},
+        // the "|| window" is for our shimmed testing environment and should
+        // not happen in production.
+        useWin = htmlNode.ownerDocument.defaultView || window;
+    // - Generate object URLs for the attachments
+    for (i = 0; i < this._relatedParts.length; i++) {
+      var relPart = this._relatedParts[i];
+      // Related parts should all be stored as Blobs-in-IndexedDB
+      if (relPart.file && !Array.isArray(relPart.file)) {
+        cidToObjectUrl[relPart.name] = useWin.URL.createObjectURL(relPart.file);
+      }
+    }
+    this._cleanup = function revokeURLs() {
+      for (var cid in cidToObjectUrl) {
+        useWin.URL.revokeObjectURL(cidToObjectUrl[cid]);
+      }
+    };
+
+    // - Transform the links
+    var nodes = htmlNode.querySelectorAll('.moz-embedded-image');
+    for (i = 0; i < nodes.length; i++) {
+      var node = nodes[i],
+          cid = node.getAttribute('cid-src');
+
+      if (!cidToObjectUrl.hasOwnProperty(cid))
+        continue;
+      // XXX according to an MDN tutorial we can use onload to destroy the
+      // URL once the image has been loaded.
+      node.src = cidToObjectUrl[cid];
+
+      node.removeAttribute('cid-src');
+      node.classList.remove('moz-embedded-image');
+    }
+  },
+
+  /**
+   * @return[Boolean]{
+   *   True if the given HTML node sub-tree contains references to externally
+   *   hosted images.  These are detected by looking for markup left in the
+   *   image by the sanitization process.  The markup is not guaranteed to be
+   *   stable, so don't do this yourself.
+   * }
+   */
+  checkForExternalImages: function(htmlNode) {
+    var someNode = htmlNode.querySelector('.moz-external-image');
+    return someNode !== null;
+  },
+
+  /**
+   * Transform previously sanitized references to external images into live
+   * references to images.  This un-does the operations of the sanitization step
+   * using implementation-specific details subject to change, so don't do this
+   * yourself.
+   */
+  showExternalImages: function(htmlNode) {
+    // querySelectorAll is not live, whereas getElementsByClassName is; we
+    // don't need/want live, especially with our manipulations.
+    var nodes = htmlNode.querySelectorAll('.moz-external-image');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      node.setAttribute('src', node.getAttribute('ext-src'));
+      node.removeAttribute('ext-src');
+      node.classList.remove('moz-external-image');
+    }
+  },
+
+  /**
+   * Call this method when you are done with a message body.  This is required
+   * so that any File/Blob URL's can be revoked.
+   */
+  die: function() {
+    if (this._cleanup) {
+      this._cleanup();
+      this._cleanup = null;
+    }
   },
 };
 
@@ -420,11 +543,13 @@ MailBody.prototype = {
  * In the future this will also be the means for requesting the download of
  * an attachment or for attachment-forwarding semantics.
  */
-function MailAttachment(wireRep) {
+function MailAttachment(_body, wireRep) {
+  this._body = _body;
   this.partId = wireRep.part;
   this.filename = wireRep.name;
   this.mimetype = wireRep.type;
   this.sizeEstimateInBytes = wireRep.sizeEstimate;
+  this._file = wireRep.file;
 
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
@@ -439,6 +564,10 @@ MailAttachment.prototype = {
       type: 'MailAttachment',
       filename: this.filename
     };
+  },
+
+  get isDownloaded() {
+    return !!this._file;
   },
 };
 
@@ -1101,6 +1230,51 @@ MailAPI.prototype = {
     req.callback.call(null, body);
   },
 
+  _downloadAttachments: function(body, relPartIndices, attachmentIndices,
+                                 callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'downloadAttachments',
+      body: body,
+      relParts: relPartIndices.length > 0,
+      attachments: attachmentIndices.length > 0,
+      callback: callback,
+    };
+    this.__bridgeSend({
+      type: 'downloadAttachments',
+      handle: handle,
+      suid: body.id,
+      date: body._date,
+      relPartIndices: relPartIndices,
+      attachmentIndices: attachmentIndices
+    });
+  },
+
+  _recv_downloadedAttachments: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    // What will have changed are the attachment lists, so update them.
+    if (msg.body) {
+      if (req.relParts)
+        req.body._relatedParts = msg.body.relatedParts;
+      if (req.attachments) {
+        var wireAtts = msg.body.attachments;
+        for (var i = 0; i < wireAtts.length; i++) {
+          var wireAtt = wireAtts[i], bodyAtt = req.body.attachments[i];
+          bodyAtt.sizeEstimateInBytes = wireAtt.sizeEstimate;
+          bodyAtt._file = wireAtt.file;
+        }
+      }
+    }
+    if (req.callback)
+      req.callback.call(null, req.body);
+  },
+
   /**
    * Try to create an account.  There is currently no way to abort the process
    * of creating an account.
@@ -1521,7 +1695,7 @@ MailAPI.prototype = {
 
     req.composer.senderIdentity = new MailSenderIdentity(this, msg.identity);
     req.composer.subject = msg.subject;
-    req.composer.body = msg.body;
+    req.composer.body = msg.body; // rich obj of {text, html}
     req.composer.to = msg.to;
     req.composer.cc = msg.cc;
     req.composer.bcc = msg.bcc;

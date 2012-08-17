@@ -867,7 +867,8 @@ function boundedCmpObjs(a, b, depthLeft) {
  * }
  */
 function smartCompareEquiv(a, b, depthLeft) {
-  if (typeof(a) !== 'object' || (a == null) || (b == null))
+  var ta = typeof(a), tb = typeof(b);
+  if (ta !== 'object' || (tb !== ta) || (a == null) || (b == null))
     return a === b;
   // fast-path for identical objects
   if (a === b)
@@ -1170,6 +1171,10 @@ LoggestClassMaker.prototype = {
         }
         // -- end new bit
         this._entries.push(entry);
+        // ++ firing bit...
+        var testActor = this._actor;
+        if (testActor)
+          testActor.__loggerFired();
       };
       this.testLogProto[name_end] = function() {
         this._eventMap[name_end] = (this._eventMap[name_end] || 0) + 1;
@@ -1191,6 +1196,10 @@ LoggestClassMaker.prototype = {
         }
         // -- end new bit
         this._entries.push(entry);
+        // ++ firing bit...
+        var testActor = this._actor;
+        if (testActor)
+          testActor.__loggerFired();
       };
     }
 

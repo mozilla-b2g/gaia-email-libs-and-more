@@ -26,7 +26,24 @@ else {
   throw new Error("I need IndexedDB; load me in a content page universe!");
 }
 
-const CUR_VERSION = 5;
+/**
+ * The current database version.
+ *
+ * Explanation of most recent bump:
+ *
+ * Bumping to 8 because our attachment representation has changed from v7.
+ */
+const CUR_VERSION = 8;
+
+/**
+ * What is the lowest database version that we are capable of performing a
+ * friendly-but-lazy upgrade where we nuke the database but re-create the user's
+ * accounts?  Set this to the CUR_VERSION if we can't.
+ *
+ * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
+ * may blow away user actions that haven't hit a server yet.
+ */
+const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 5;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -119,6 +136,8 @@ function ImapDB() {
   this._db = null;
   this._onDB = [];
 
+  this._lazyConfigCarryover = null;
+
   /**
    * Fatal error handler.  This gets to be the error handler for all unexpected
    * error cases.
@@ -141,7 +160,8 @@ function ImapDB() {
       explainedSource = 'transaction (' + target.mode + ')';
     }
     else if (target instanceof IDBRequest) {
-      explainedSource = 'request as part of ' + target.transaction.mode +
+      explainedSource = 'request as part of ' +
+        (target.transaction ? target.transaction.mode : 'NO') +
         ' transaction on ' + explainSource(target.source);
     }
     else { // dunno, ask it to stringify itself.
@@ -162,7 +182,35 @@ function ImapDB() {
   openRequest.onupgradeneeded = function(event) {
     var db = openRequest.result;
 
-    // cost/benefit right now is total nuke.
+    // friendly, lazy upgrade:
+    if (event.oldVersion >= FRIENDLY_LAZY_DB_UPGRADE_VERSION) {
+      var trans = openRequest.transaction;
+      // Load the current config, save it off so getConfig can use it, then nuke
+      // like usual.  This is obviously a potentially data-lossy approach to
+      // things; but this is a 'lazy' / best-effort approach to make us more
+      // willing to bump revs during development, not the holy grail.
+      self.getConfig(function(configObj, accountInfos) {
+        if (configObj)
+          self._lazyConfigCarryover = {
+            config: configObj,
+            accountInfos: accountInfos
+          };
+        self._nukeDB(db);
+      }, trans);
+    }
+    // - reset to clean slate
+    else {
+      self._nukeDB(db);
+    }
+  };
+  openRequest.onerror = this._fatalError;
+}
+exports.ImapDB = ImapDB;
+ImapDB.prototype = {
+  /**
+   * Reset the contents of the database.
+   */
+  _nukeDB: function(db) {
     var existingNames = db.objectStoreNames;
     for (var i = 0; i < existingNames.length; i++) {
       db.deleteObjectStore(existingNames[i]);
@@ -172,11 +220,8 @@ function ImapDB() {
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_HEADER_BLOCKS);
     db.createObjectStore(TBL_BODY_BLOCKS);
-  };
-  openRequest.onerror = this._fatalError;
-}
-exports.ImapDB = ImapDB;
-ImapDB.prototype = {
+  },
+
   close: function() {
     if (this._db) {
       this._db.close();
@@ -184,13 +229,14 @@ ImapDB.prototype = {
     }
   },
 
-  getConfig: function(configCallback) {
-    if (!this._db) {
+  getConfig: function(configCallback, trans) {
+    if (!this._db && !trans) {
       this._onDB.push(this.getConfig.bind(this, configCallback));
       return;
     }
 
-    var transaction = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
+    var transaction = trans ||
+                      this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
                                            'readonly');
     var configStore = transaction.objectStore(TBL_CONFIG),
         folderInfoStore = transaction.objectStore(TBL_FOLDER_INFO);
@@ -202,8 +248,22 @@ ImapDB.prototype = {
     configReq.onerror = this._fatalError;
     // no need to track success, we can read it off folderInfoReq
     folderInfoReq.onerror = this._fatalError;
+    var self = this;
     folderInfoReq.onsuccess = function(event) {
       var configObj = null, accounts = [], i, obj;
+
+      // - Check for lazy carryover.
+      // IndexedDB provides us with a strong ordering guarantee that this is
+      // happening after any upgrade check.  Doing it outside this closure would
+      // be race-prone/reliably fail.
+      if (self._lazyConfigCarryover) {
+        var lazyCarryover = self._lazyConfigCarryover;
+        self._lazyConfigCarryover = null;
+        configCallback(configObj, accounts, lazyCarryover);
+        return;
+      }
+
+      // - Process the results
       for (i = 0; i < configReq.result.length; i++) {
         obj = configReq.result[i];
         if (obj.id === 'config')

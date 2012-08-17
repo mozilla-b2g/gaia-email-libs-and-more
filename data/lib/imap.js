@@ -175,27 +175,25 @@ ImapConnection.prototype.connect = function(loginCb) {
         // mechanisms
         self._send('CAPABILITY', null, function() {
           // Next, attempt to login
-          self._login(function(err, reentry) {
+          var checkedNS = false;
+          var redo = function(err, reentry) {
             if (err) {
               loginCb(err);
               return;
             }
             // Next, get the list of available namespaces if supported
-            if (!reentry && self.capabilities.indexOf('NAMESPACE') > -1) {
-              var fnMe = arguments.callee;
+            if (!checkedNS && self.capabilities.indexOf('NAMESPACE') > -1) {
               // Re-enter this function after we've obtained the available
               // namespaces
-              self._send('NAMESPACE', null,
-                         function(e) { fnMe.call(this, e, true); });
+              checkedNS = true;
+              self._send('NAMESPACE', null, redo);
               return;
             }
             // Lastly, get the top-level mailbox hierarchy delimiter used by the
             // server
-            self._send(
-              (self.capabilities.indexOf('XLIST') === -1 ? 'LIST' : 'XLIST'),
-              ' "" ""',
-              loginCb);
-          });
+            self._send('LIST "" ""', null, loginCb);
+          };
+          self._login(redo);
         });
       };
   loginCb = loginCb || emptyFn;
@@ -209,7 +207,7 @@ ImapConnection.prototype.connect = function(loginCb) {
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';
 
-  this._state.conn = MozTCPSocket.open(
+  this._state.conn = navigator.MozTCPSocket.open(
     this._options.host, this._options.port, socketOptions);
 
   // XXX rely on MozTCPSocket for this?
@@ -475,10 +473,11 @@ ImapConnection.prototype.connect = function(loginCb) {
         case 'LIST':
         case 'XLIST':
           var result;
-          if (self.delim === null
-              && (result = /^\(\\No[sS]elect\) (.+?) .*$/.exec(data[2])))
+          if (self.delim === null &&
+              (result = /^\(\\No[sS]elect(?:[^)]*)\) (.+?) .*$/.exec(data[2])))
             self.delim = (result[1] === 'NIL'
-                          ? false : result[1].substring(1, result[1].length-1));
+                          ? false
+                          : result[1].substring(1, result[1].length - 1));
           else if (self.delim !== null) {
             if (self._state.requests[0].args.length === 0)
               self._state.requests[0].args.push({});
@@ -1681,7 +1680,7 @@ function parseBodyStructure(cur, prefix, partID) {
                                                + (prefix !== '' ? '.' : '')
                                                + (partID++).toString(), 1));
       }
-      part = { type: cur[next++].toLowerCase() };
+      part = { type: 'multipart', subtype: cur[next++].toLowerCase() };
       if (partLen > next) {
         if (Array.isArray(cur[next])) {
           part.params = {};
@@ -1806,19 +1805,25 @@ function parseStructExtra(part, partLen, cur, next) {
   if (partLen > next) {
     // disposition
     // null or a special k/v list with these kinds of values:
-    // e.g.: ['inline', null]
-    //       ['attachment', null]
-    //       ['inline', ['filename', 'foo.pdf']]
-    //       ['inline', ['Bar', 'Baz', 'Bam', 'Pow']]
+    // e.g.: ['Foo', null]
+    //       ['Foo', ['Bar', 'Baz']]
+    //       ['Foo', ['Bar', 'Baz', 'Bam', 'Pow']]
+    var disposition = { type: null, params: null };
     if (Array.isArray(cur[next])) {
-      part.disposition = {type: cur[next][0], params: null};
+      disposition.type = cur[next][0];
       if (Array.isArray(cur[next][1])) {
-        var params = part.disposition.params = {};
+        disposition.params = {};
         for (var i=0,len=cur[next][1].length; i<len; i+=2)
-          params[cur[next][1][i].toLowerCase()] = cur[next][1][i+1];
+          disposition.params[cur[next][1][i].toLowerCase()] = cur[next][1][i+1];
       }
-    } else
-      part.disposition = cur[next];
+    } else if (cur[next] !== null)
+      disposition.type = cur[next];
+
+    if (disposition.type === null)
+      part.disposition = null;
+    else
+      part.disposition = disposition;
+
     ++next;
   }
   if (partLen > next) {
