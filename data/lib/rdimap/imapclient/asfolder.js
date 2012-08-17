@@ -151,7 +151,7 @@ ActiveSyncFolderStorage.prototype = {
     let account = this.account;
 
     if (!account.conn.connected) {
-      account.conn.autodiscover(function(config) {
+      account.conn.autodiscover(function(status, config) {
         // TODO: handle errors
         folderStorage._syncFolder(callback, deferred);
       });
@@ -506,17 +506,21 @@ ActiveSyncFolderStorage.prototype = {
 
       // Handle messages that have been added
       if (added.headers.length) {
-        added.headers.sort(function(a, b) b.date - a.date);
+        added.headers.sort(function(a, b) { return b.date - a.date; });
         let addedBlocks = {};
         for (let [,header] in Iterator(added.headers)) {
-          let idx = $util.bsearchForInsert(folderStorage._headers, header,
-                                           function(a, b) b.date - a.date);
+          let idx = $util.bsearchForInsert(
+            folderStorage._headers, header, function(a, b) {
+              return b.date - a.date;
+            });
           if (!(idx in addedBlocks))
             addedBlocks[idx] = [];
           addedBlocks[idx].push(header);
         }
 
-        let keys = Object.keys(addedBlocks).sort(function(a, b) b - a);
+        let keys = Object.keys(addedBlocks).sort(function(a, b) {
+          return b - a;
+        });
         let hdrs = folderStorage._headers;
         for (let [,key] in Iterator(keys)) {
           // XXX: I feel like this is probably slower than it needs to be...
