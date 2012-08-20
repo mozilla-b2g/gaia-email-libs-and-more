@@ -13,7 +13,7 @@ define(
     './mailapi',
     './mailbridge',
     './mailuniverse',
-    './imapslice',
+    './imap/slice',
     'exports'
   ],
   function(

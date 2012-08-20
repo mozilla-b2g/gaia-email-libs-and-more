@@ -1,2 +1,2 @@
-require(['rdimap/imapclient/same-frame-setup'], function () {});
+require(['mailapi/same-frame-setup'], function () {});
 }());

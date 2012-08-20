@@ -46,7 +46,7 @@ run: xpi
 runtest: JSONARG='--static-args={"synctest": true}'
 runtest: run
 
-OUR_JS_DEPS := $(wildcard data/lib/rdimap/imapclient/*.js) $(wildcard data/deps/rdcommon/*.js)
+OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync*.js) $(wildcard data/lib/mailapi/fake/*.js) $(wildcard data/deps/rdcommon/*.js)
 
 gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/r.js -o scripts/gaia-email-opt.build.js

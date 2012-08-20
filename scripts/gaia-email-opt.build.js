@@ -26,7 +26,7 @@
 
     "rdplat": "data/lib/rdplat",
     "rdcommon": "data/lib/rdcommon",
-    "rdimap": "data/lib/rdimap",
+    "mailapi": "data/lib/mailapi",
 
     "buffer": "data/lib/node-buffer",
     "crypto": "data/lib/node-crypto",
@@ -49,7 +49,7 @@
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
-  include: ["event-queue", "deps/stringencoding/encoding-indexes.js", "deps/stringencoding/encoding.js", "rdimap/imapclient/same-frame-setup"],
+  include: ["event-queue", "deps/stringencoding/encoding-indexes.js", "deps/stringencoding/encoding.js", "mailapi/same-frame-setup"],
   name: "almond",
   out: "../gaia-email-opt.js",
   wrap: {

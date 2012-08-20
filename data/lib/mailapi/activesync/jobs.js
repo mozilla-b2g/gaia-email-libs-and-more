@@ -3,7 +3,7 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
-    './util',
+    '../util',
     'exports'
   ],
   function(
