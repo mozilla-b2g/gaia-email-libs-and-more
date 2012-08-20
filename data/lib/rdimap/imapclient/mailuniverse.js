@@ -567,15 +567,22 @@ const MAX_LOG_BACKLOG = 30;
  * @typedef[SerializedMutation @dict[
  *   @key[type @oneof[
  *     @case['modtags']{
- *       Modify tags by adding and/or removing them.
+ *       Modify tags by adding and/or removing them.  Idempotent and atomic under
+ *       all implementations;  no explicit account saving required.
  *     }
  *     @case['delete']{
+ *       Delete a message under the "move to trash" model.  For IMAP, this is the
+ *       same as a move operation.
  *     }
  *     @case['move']{
- *       Move message(s) within the same account.
+ *       Move message(s) within the same account.  For IMAP, this is neither
+ *       atomic or idempotent and requires account state to be checkpointed as
+ *       running the operation prior to running it.  Dunno for ActiveSync, but
+ *       probably atomic and idempotent.
  *     }
  *     @case['copy']{
- *       Copy message(s) within the same account.
+ *       NOT YET IMPLEMENTED (no gaia UI requirement).  But will be:
+ *       Copy message(s) within the same account.  For IMAP, atomic and idempotent
  *     }
  *   ]]{
  *     The implementation opcode used to determine what functions to call.
@@ -585,10 +592,36 @@ const MAX_LOG_BACKLOG = 30;
  *     to not refer to any pending or still undoable-operation.
  *   }
  *   @key[status @oneof[
- *     @case[null]
- *     @case['running']
- *     @case['done']
+ *     @case[null]{
+ *       'local_do' has been invoked, but the action has not been run against
+ *       the server.  Invoking `undoMutation` will invoke 'local_undo' and mark
+ *       this as 'undone'.
+ *     }
+ *     @case['doing']{
+ *       'local_do' has been run, and 'do' is currently running.  Invoking
+ *       `undoMutation` will not attempt to stop 'do', but will enqueue
+ *     }
+ *     @case['done']{
+ *       The op ran to completion; all done!  'local_do' and 'do' both ran
+ *       successfully.
+ *     }
+ *     @case['undoing']{
+ *       'local_undo' has been run, and 'undo' is currently happening.
+ *     }
+ *     @case['undone']{
+ *       The operation was 'done', then an undo was run, and it's now 'undone'.
+ *       It is as-if the operation was never scheduled.  This is distinct from
+ *       the null case becase null has run 'local_do'.
+ *     }
+ *     @case['moot']{
+ *       The job
+ *     }
  *   ]]{
+ *   }
+ *   @key[desire @oneof['do' 'undo']]{
+ *     Allows us to indicate that we want to undo an operation even while its
+ *     'do' method is active.  `status` can't be used for this purpose without
+ *     breaking our logic.
  *   }
  *   @key[humanOp String]{
  *     The user friendly opcode where flag manipulations like starring have
@@ -1298,7 +1331,6 @@ MailUniverse.prototype = {
           switch (op.status) {
             // if we haven't started doing the operation, we can cancel it
             case null:
-            case 'undone':
               var queue = this._opsByAccount[account.id],
                   idx = queue.indexOf(op);
               if (idx !== -1) {
@@ -1322,6 +1354,7 @@ MailUniverse.prototype = {
               op.desire = 'undo';
               this._queueAccountOp(account, op);
               break;
+            case 'undone':
             case 'undoing':
               op.desire = 'do';
               this._queueAccountOp(account, op);

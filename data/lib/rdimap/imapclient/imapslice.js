@@ -1464,10 +1464,19 @@ console.log('  pending fetches', pendingFetches);
  * ]]
  * @typedef[HeaderInfo @dict[
  *   @key[id]{
- *     Either the UID or a more globally unique identifier (Gmail).
+ *     An id allocated by the back-end that names the message within the folder.
+ *     We use this instead of the server-issued UID because if we used the UID
+ *     for this purpose then we would still need to issue our own temporary
+ *     speculative id's for offline operations and would need to implement
+ *     renaming and it all gets complicated.
+ *   }
+ *   @key[srvid]{
+ *     The server-issued UID for the folder, or 0 if the folder is an offline
+ *     header.
  *   }
  *   @key[suid]{
- *     The id prefixed with the folder id and a dash.
+ *     Basically "account id/folder id/message id", although technically the
+ *     folder id includes the account id.
  *   }
  *   @key[author NameAddressPair]
  *   @key[date DateMS]
