@@ -6,16 +6,16 @@
 
 // prefixing everything since we are running in the global scope and I don't
 // want the modules to accidentally see these because of a lack of shadowing.
-var $_mailuniverse = require('rdimap/imapclient/mailuniverse'),
-    $_mailbridge = require('rdimap/imapclient/mailbridge'),
-    $_mailapi = require('rdimap/imapclient/mailapi'),
-    $_allback = require('rdimap/imapclient/allback'),
-    $_imapslice = require('rdimap/imapclient/imapslice'),
-    $_quotechew = require('rdimap/imapclient/quotechew'),
+var $_mailuniverse = require('mailapi/mailuniverse'),
+    $_mailbridge = require('mailapi/mailbridge'),
+    $_mailapi = require('mailapi/mailapi'),
+    $_allback = require('mailapi/allback'),
+    $_imapslice = require('mailapi/imap/slice'),
+    $_quotechew = require('mailapi/quotechew'),
     $_Q = require('q'),
     $tc = require('rdcommon/testcontext'),
     $_testdriver = require('rdcommon/testdriver'),
-    $th_imap = require('rdimap/imapclient/testhelper');
+    $th_imap = require('mailapi/testhelper');
 
 var MailAPI = null, MailBridge = null, MailUniverse = null;
 

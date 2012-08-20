@@ -4,8 +4,8 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     'mimelib',
-    './quotechew',
-    './util',
+    '../quotechew',
+    '../util',
     'exports'
   ],
   function(

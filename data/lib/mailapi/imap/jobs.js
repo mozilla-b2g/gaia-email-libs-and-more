@@ -37,7 +37,7 @@
 
 define(
   [
-    './util',
+    '../util',
     'exports'
   ],
   function(

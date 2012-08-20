@@ -1,14 +1,14 @@
 define(function(require, exports, $module) {
 
 var $log = require('rdcommon/log'),
-    $mailuniverse = require('rdimap/imapclient/mailuniverse'),
-    $mailbridge = require('rdimap/imapclient/mailbridge'),
-    $imapacct = require('rdimap/imapclient/imapacct'),
-    $fakeacct = require('rdimap/imapclient/fakeacct'),
-    $imapslice = require('rdimap/imapclient/imapslice'),
-    $imaputil = require('rdimap/imapclient/util'),
+    $mailuniverse = require('mailapi/mailuniverse'),
+    $mailbridge = require('mailapi/mailbridge'),
+    $imapacct = require('mailapi/imap/account'),
+    $fakeacct = require('mailapi/fake/account'),
+    $imapslice = require('mailapi/imap/slice'),
+    $imaputil = require('mailapi/util'),
     $imapjs = require('imap'),
-    $smtpacct = require('rdimap/imapclient/smtpacct');
+    $smtpacct = require('mailapi/smtp/account');
 
 
 var TestUniverseMixins = {

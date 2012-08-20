@@ -8,10 +8,10 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
-    './a64',
-    './asfolder',
-    './asjobs',
-    './util',
+    '../a64',
+    './folder',
+    './jobs',
+    '../util',
     'exports'
   ],
   function(

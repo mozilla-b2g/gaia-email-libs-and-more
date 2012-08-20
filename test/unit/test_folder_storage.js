@@ -9,7 +9,7 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_folder_storage' }, null, [$th_imap.TESTHELPER], ['app']);
 
-var $imapslice = require('rdimap/imapclient/imapslice');
+var $imapslice = require('mailapi/imap/slice');
 
 function MockDB() {
 }
