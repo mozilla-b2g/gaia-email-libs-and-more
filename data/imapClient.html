@@ -31,7 +31,7 @@
 
         "rdplat": "lib/rdplat",
         "rdcommon": "lib/rdcommon",
-        "rdimap": "lib/rdimap",
+        "mailapi": "lib/mailapi",
 
         "buffer": "lib/node-buffer",
         "crypto": "lib/node-crypto",
@@ -54,10 +54,10 @@
       }
     },
 
-    ["deps/encoding.js", "rdimap/imapclient/shim-sham", "event-queue"],
+    ["deps/encoding.js", "mailapi/shim-sham", "event-queue"],
 function() {
 require(
-["rdimap/imapclient/same-frame-setup", "rdcommon/log"],
+["mailapi/same-frame-setup", "rdcommon/log"],
 function(setup, $log) {
   console.log("exposing API");
   window.goSync = function(accountDef) {
