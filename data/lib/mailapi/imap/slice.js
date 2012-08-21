@@ -4,6 +4,7 @@ define(
     'mailparser/mailparser',
     '../a64',
     '../allback',
+    '../date',
     '../util',
     './imapchew',
     'module',
@@ -14,6 +15,7 @@ define(
     $mailparser,
     $a64,
     $allback,
+    $date,
     $util,
     $imapchew,
     $module,
@@ -22,7 +24,11 @@ define(
 const allbackMaker = $allback.allbackMaker,
       bsearchForInsert = $util.bsearchForInsert,
       bsearchMaybeExists = $util.bsearchMaybeExists,
-      cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld;
+      cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
+      DAY_MILLIS = $date.DAY_MILLIS,
+      FUTURE = $date.FUTURE,
+      makeDaysBefore = $date.makeDaysBefore,
+      quantizeDate = $date.quantizeDate;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -85,6 +91,9 @@ const FLAG_FETCH_PARAMS = {
   request: {
   },
 };
+
+// XXX: deduplicate this from mailslice.js
+var SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
 
 
 /**
@@ -236,8 +245,8 @@ console.log("syncDateRange:", startTS, endTS);
 
 console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
         if (serverUIDs.length > useBisectLimit) {
-          var effEndTS = endTS || FUTURE_TIME_WARPED_NOW ||
-                           quantizeDate(Date.now() + DAY_MILLIS),
+          var effEndTS = endTS || FUTURE() ||
+                         quantizeDate(Date.now() + DAY_MILLIS),
               curDaysDelta = (effEndTS - startTS) / DAY_MILLIS;
           // We are searching more than one day, we can shrink our search.
 
