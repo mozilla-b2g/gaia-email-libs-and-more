@@ -8,7 +8,7 @@ define(
     'rdcommon/logreaper',
     './a64',
     './allback',
-    './imap/imapdb',
+    './maildb',
     './imap/probe',
     './imap/account',
     './smtp/probe',
@@ -23,7 +23,7 @@ define(
     $logreaper,
     $a64,
     $allback,
-    $imapdb,
+    $maildb,
     $imapprobe,
     $imapacct,
     $smtpprobe,
@@ -643,7 +643,7 @@ function MailUniverse(callAfterBigBang) {
   this._logBacklog = null;
 
   this._LOG = null;
-  this._db = new $imapdb.ImapDB();
+  this._db = new $maildb.MailDB();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
