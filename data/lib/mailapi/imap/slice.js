@@ -3310,22 +3310,6 @@ GmailMessageStorage.prototype = {
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ImapSlice: {
-    type: $log.QUERY,
-    events: {
-      headersAppended: {},
-      headerAdded: { index: false },
-      headerModified: { index: false },
-      headerRemoved: { index: false },
-    },
-    TEST_ONLY_events: {
-      headersAppended: { headers: false },
-      headerAdded: { header: false },
-      headerModified: { header: false },
-      headerRemoved: { header: false },
-    },
-  },
-
   ImapFolderConn: {
     type: $log.CONNECTION,
     subtype: $log.CLIENT,
