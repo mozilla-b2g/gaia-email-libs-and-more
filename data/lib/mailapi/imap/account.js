@@ -8,6 +8,7 @@ define(
     'rdcommon/log',
     '../a64',
     './imapdb',
+    '../mailslice',
     './slice',
     './jobs',
     '../util',
@@ -19,6 +20,7 @@ define(
     $log,
     $a64,
     $imapdb,
+    $mailslice,
     $imapslice,
     $imapjobs,
     $imaputil,
@@ -410,7 +412,7 @@ ImapAccount.prototype = {
    */
   sliceFolderMessages: function(folderId, bridgeHandle) {
     var storage = this._folderStorages[folderId],
-        slice = new $imapslice.ImapSlice(bridgeHandle, storage, this._LOG);
+        slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
   },

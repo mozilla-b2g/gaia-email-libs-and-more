@@ -75,6 +75,52 @@ ActiveSyncFolderStorage.prototype = {
     return this.folderMeta.syncKey = value;
   },
 
+  sliceOpenFromNow: function asfs_sliceOpenFromNow(slice, daysDesired,
+                                                   forceDeepening) {
+    if (!this._loadedHeaders) {
+      this._onLoadHeaderListeners.push(
+        this.sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening)
+      );
+      return;
+    }
+
+    // by definition, we must be at the top
+    slice.atTop = true;
+    slice.batchAppendHeaders(this._headers, -1, false);
+    this._updateFolder(slice);
+  },
+
+  headerIsYoungestKnown: function asfs_headerIsYoungestKnown() {
+    return true;
+  },
+
+  headerIsOldestKnown: function asfs_headerIsOldestKnown() {
+    return true;
+  },
+
+  syncedToDawnOfTime: function asfs_syncedToDawnOfTime() {
+    return true;
+  },
+
+  refreshSlice: function asfs_refreshSlice() {
+  },
+
+  growSlice: function asfs_growSlice() {
+  },
+
+  dyingSlice: function asfs_dyingSlice() {
+  },
+
+  getMessageBody: function asfs_getMessageBody(suid, date, callback) {
+    if (!this._loadedBodies) {
+      this._onLoadBodyListeners.push(this.getMessageBody.bind(this, suid, date,
+                                                              callback));
+      return;
+    }
+
+    callback(this._bodiesBySuid[suid]);
+  },
+
   updateMessageHeader: function asfs_updateMessageHeader(suid, mutatorFunc) {
     // XXX: this could be a lot faster
     for (let [i, header] in Iterator(this._headers)) {
@@ -146,19 +192,20 @@ ActiveSyncFolderStorage.prototype = {
    * @param {boolean} deferred True if this operation was already deferred once
    *   to get the initial sync key
    */
-  _syncFolder: function asfs__syncFolder(callback, deferred) {
+  _enumerateFolderChanges: function asfs__enumerateFolderChanges(callback,
+                                                                 deferred) {
     let folderStorage = this;
     let account = this.account;
 
     if (!account.conn.connected) {
       account.conn.autodiscover(function(status, config) {
         // TODO: handle errors
-        folderStorage._syncFolder(callback, deferred);
+        folderStorage._enumerateFolderChanges(callback, deferred);
       });
       return;
     }
     if (this.folderMeta.syncKey === '0' && !deferred) {
-      this._getSyncKey(this._syncFolder.bind(this, callback, true));
+      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback, true));
       return;
     }
 
@@ -264,7 +311,7 @@ ActiveSyncFolderStorage.prototype = {
         // This should already be set to 0, but let's just be safe.
         folderStorage.folderMeta.syncKey = '0';
         folderStorage._needsPurge = true;
-        folderStorage._syncFolder(callback);
+        folderStorage._enumerateFolderChanges(callback);
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
@@ -450,21 +497,11 @@ ActiveSyncFolderStorage.prototype = {
     return { header: header, body: body };
   },
 
-  _sliceFolderMessages: function asfs__sliceFolderMessages(bridgeHandle) {
-    if (!this._loadedHeaders) {
-      this._onLoadHeaderListeners.push(this._sliceFolderMessages
-                                           .bind(this, bridgeHandle));
-      return;
-    }
-
-    this._bridgeHandle = bridgeHandle;
-    bridgeHandle.sendSplice(0, 0, this._headers, true, true);
-
+  _updateFolder: function asfs__updateFolder(slice) {
     var folderStorage = this;
-    this._syncFolder(function(added, changed, deleted) {
+    this._enumerateFolderChanges(function(added, changed, deleted) {
       if (folderStorage._needsPurge) {
-        bridgeHandle.sendSplice(0, folderStorage._headers.length, [], false,
-                                true);
+        slice._resetHeadersBecauseOfRefreshExplosion();
         folderStorage._headers = [];
         folderStorage._bodiesBySuid = {};
         folderStorage._needsPurge = false;
@@ -482,7 +519,7 @@ ActiveSyncFolderStorage.prototype = {
           if (header.guid === guid) {
             delete folderStorage._bodiesBySuid[header.suid];
             folderStorage._headers.splice(i, 1);
-            bridgeHandle.sendSplice(i, 1, [], true, true);
+            slice.onHeaderRemoved(header);
             break;
           }
         }
@@ -497,7 +534,7 @@ ActiveSyncFolderStorage.prototype = {
 
             newHeader.mergeInto(oldHeader);
             newBody.mergeInto(oldBody);
-            bridgeHandle.sendUpdate([i, oldHeader]);
+            slice.onHeaderModified(oldHeader);
 
             break;
           }
@@ -505,46 +542,19 @@ ActiveSyncFolderStorage.prototype = {
       }
 
       // Handle messages that have been added
-      if (added.headers.length) {
-        added.headers.sort(function(a, b) { return b.date - a.date; });
-        let addedBlocks = {};
-        for (let [,header] in Iterator(added.headers)) {
-          let idx = $util.bsearchForInsert(
-            folderStorage._headers, header, function(a, b) {
-              return b.date - a.date;
-            });
-          if (!(idx in addedBlocks))
-            addedBlocks[idx] = [];
-          addedBlocks[idx].push(header);
-        }
-
-        let keys = Object.keys(addedBlocks).sort(function(a, b) {
-          return b - a;
-        });
-        let hdrs = folderStorage._headers;
-        for (let [,key] in Iterator(keys)) {
-          // XXX: I feel like this is probably slower than it needs to be...
-          hdrs.splice.apply(hdrs, [key, 0].concat(addedBlocks[key]));
-          bridgeHandle.sendSplice(key, 0, addedBlocks[key], true, true);
-        }
-
-        for (let [k, v] in Iterator(added.bodies))
-          folderStorage._bodiesBySuid[k] = v;
+      for (let [,header] in Iterator(added.headers)) {
+        let idx = $util.bsearchForInsert(
+          folderStorage._headers, header, function(a, b) {
+            return b.date - a.date;
+          });
+        folderStorage._headers.splice(idx, 0, header);
+        slice.onHeaderAdded(header);
       }
+      for (let [k, v] in Iterator(added.bodies))
+        folderStorage._bodiesBySuid[k] = v;
 
-      bridgeHandle.sendStatus(true, false);
       folderStorage.account.saveAccountState();
     });
-  },
-
-  getMessageBody: function asfs_getMessageBody(suid, date, callback) {
-    if (!this._loadedBodies) {
-      this._onLoadBodyListeners.push(this.getMessageBody.bind(this, suid, date,
-                                                              callback));
-      return;
-    }
-
-    callback(this._bodiesBySuid[suid]);
   },
 };
 

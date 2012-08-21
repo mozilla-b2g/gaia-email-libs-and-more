@@ -4,25 +4,31 @@
 
 define(
   [
+    'rdcommon/log',
     'mailcomposer',
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
     '../a64',
+    '../mailslice',
     './folder',
     './jobs',
     '../util',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $mailcomposer,
     $wbxml,
     $ascp,
     $activesync,
     $a64,
+    $mailslice,
     $asfolder,
     $asjobs,
     $util,
+    $module,
     exports
   ) {
 'use strict';
@@ -30,7 +36,7 @@ define(
 const bsearchForInsert = $util.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
-                           receiveProtoConn, _LOG) {
+                           receiveProtoConn, _parentLog) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
@@ -39,18 +45,14 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                                          accountDef.credentials.password);
   this._db = dbConn;
 
+  this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
+
   this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
 
   this.enabled = true;
   this.problems = [];
 
   this.identities = accountDef.identities;
-
-  var ourIdentity = accountDef.identities[0];
-  var ourNameAndAddress = {
-    name: ourIdentity.name,
-    address: ourIdentity.address,
-  };
 
   this.folders = [];
   this._folderStorages = {};
@@ -156,7 +158,12 @@ ActiveSyncAccount.prototype = {
 
   sliceFolderMessages: function asa_sliceFolderMessages(folderId,
                                                         bridgeHandle) {
-    this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
+    try {
+    let storage = this._folderStorages[folderId],
+        slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
+
+    storage.sliceOpenFromNow(slice);
+    } catch(e) { dump(e+"\n"+e.stack); }
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
@@ -370,5 +377,19 @@ ActiveSyncAccount.prototype = {
     }
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ActiveSyncAccount: {
+    type: $log.ACCOUNT,
+    events: {
+      createFolder: {},
+      deleteFolder: {},
+    },
+    asyncJobs: {
+      runOp: { mode: true, type: true, error: false, op: false },
+      saveAccountState: {},
+    },
+  },
+});
 
 }); // end define

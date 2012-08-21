@@ -11,6 +11,21 @@ define(
   ) {
 
 /**
+ * Header info comparator that orders messages in order of numerically
+ * decreasing date and UIDs.  So new messages come before old messages,
+ * and messages with higher UIDs (newer-ish) before those with lower UIDs
+ * (when the date is the same.)
+ */
+const cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
+    function cmpHeaderYoungToOld(a, b) {
+  var delta = b.date - a.date;
+  if (delta)
+    return delta;
+  // favor larger UIDs because they are newer-ish.
+  return b.id - a.id;
+}
+
+/**
  * Perform a binary search on an array to find the correct insertion point
  *  in the array for an item.  From deuxdrop; tested in
  *  deuxdrop's `unit-simple-algos.js` test.
