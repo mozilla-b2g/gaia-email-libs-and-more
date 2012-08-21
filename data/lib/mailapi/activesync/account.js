@@ -70,7 +70,8 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     var folderInfo = folderInfos[folderId];
 
     this._folderStorages[folderId] =
-      new $asfolder.ActiveSyncFolderStorage(this, folderInfo, this._db);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $asfolder.ActiveSyncFolderConn, this._LOG);
     this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
     this.folders.push(folderInfo.$meta);
   }
@@ -143,6 +144,14 @@ ActiveSyncAccount.prototype = {
       reuseTrans);
     this._deadFolderIds = null;
     return trans;
+  },
+
+  /**
+   * We are being told that a synchronization pass completed, and that we may
+   * want to consider persisting our state.
+   */
+  __checkpointSyncCompleted: function() {
+    this.saveAccountState();
   },
 
   shutdown: function asa_shutdown() {
@@ -275,10 +284,14 @@ ActiveSyncAccount.prototype = {
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
+      accuracy: [],
+      headerBlocks: [],
+      bodyBlocks: [],
     };
 
-    this._folderStorages[folderId] = new $asfolder.ActiveSyncFolderStorage(
-      this, folderInfo, this._db);
+    this._folderStorages[folderId] =
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $asfolder.ActiveSyncFolderConn, this._LOG);
     this._serverIdToFolderId[serverId] = folderId;
 
     var account = this;

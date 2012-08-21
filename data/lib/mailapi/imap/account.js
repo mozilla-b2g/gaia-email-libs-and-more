@@ -123,8 +123,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
     var folderInfo = folderInfos[folderId];
 
     folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
-                                       this._LOG);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $imapslice.ImapFolderConn, this._LOG);
     folderPubs.push(folderInfo.$meta);
   }
   this.folders.sort(function(a, b) {
@@ -161,8 +161,8 @@ ImapAccount.prototype = {
       bodyBlocks: [],
     };
     this._folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
-                                       this._LOG);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $imapslice.ImapFolderConn, this._LOG);
 
     var folderMeta = folderInfo.$meta;
     var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);

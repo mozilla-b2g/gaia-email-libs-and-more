@@ -19,129 +19,28 @@ define(
   ) {
 'use strict';
 
-function ActiveSyncFolderStorage(account, folderInfo, dbConn) {
-  this.account = account;
-  this._db = dbConn;
+function ActiveSyncFolderConn(account, storage, _parentLog) {
+  this._account = account;
+  this._storage = storage;
+  this.serverId = storage.folderMeta.serverId;
 
-  this.folderId = folderInfo.$meta.id;
-  this.serverId = folderInfo.$meta.serverId;
-  this.folderMeta = folderInfo.$meta;
-  if (!this.folderMeta.syncKey)
-    this.folderMeta.syncKey = '0';
-
-  this._headers = [];
-  this._bodiesBySuid = {};
-
-  this._onLoadHeaderListeners = [];
-  this._onLoadBodyListeners = [];
-
-  let self = this;
-
-  this._db.loadHeaderBlock(this.folderId, 0, function(block) {
-    self._loadedHeaders = true;
-    if (block)
-      self._headers = block;
-
-    for (let [,listener] in Iterator(self._onLoadHeaderListeners))
-      listener();
-    self._onLoadHeaderListeners = [];
-  });
-
-  this._db.loadBodyBlock(this.folderId, 0, function(block) {
-    self._loadedBodies = true;
-    if (block)
-      self._bodiesBySuid = block;
-
-    for (let [,listener] in Iterator(self._onLoadBodyListeners))
-      listener();
-    self._onLoadBodyListeners = [];
-  });
+  if (!this.syncKey)
+    this.syncKey = '0';
+  if (!storage.folderMeta.totalMessages)
+    storage.folderMeta.totalMessages = 0;
 }
-exports.ActiveSyncFolderStorage = ActiveSyncFolderStorage;
-ActiveSyncFolderStorage.prototype = {
-  generatePersistenceInfo: function asfs_generatePersistenceInfo() {
-    return {
-      id: this.folderId,
-      headerBlocks: [ this._headers ],
-      bodyBlocks:   [ this._bodiesBySuid ],
-    };
-  },
-
+exports.ActiveSyncFolderConn = ActiveSyncFolderConn;
+ActiveSyncFolderConn.prototype = {
   get syncKey() {
-    return this.folderMeta.syncKey;
+    return this._storage.folderMeta.syncKey;
   },
 
   set syncKey(value) {
-    return this.folderMeta.syncKey = value;
+    return this._storage.folderMeta.syncKey = value;
   },
 
-  sliceOpenFromNow: function asfs_sliceOpenFromNow(slice, daysDesired,
-                                                   forceDeepening) {
-    if (!this._loadedHeaders) {
-      this._onLoadHeaderListeners.push(
-        this.sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening)
-      );
-      return;
-    }
-
-    // by definition, we must be at the top
-    slice.atTop = true;
-    slice.batchAppendHeaders(this._headers, -1, false);
-    this._updateFolder(slice);
-  },
-
-  headerIsYoungestKnown: function asfs_headerIsYoungestKnown() {
-    return true;
-  },
-
-  headerIsOldestKnown: function asfs_headerIsOldestKnown() {
-    return true;
-  },
-
-  syncedToDawnOfTime: function asfs_syncedToDawnOfTime() {
-    return true;
-  },
-
-  refreshSlice: function asfs_refreshSlice() {
-  },
-
-  growSlice: function asfs_growSlice() {
-  },
-
-  dyingSlice: function asfs_dyingSlice() {
-  },
-
-  getMessageBody: function asfs_getMessageBody(suid, date, callback) {
-    if (!this._loadedBodies) {
-      this._onLoadBodyListeners.push(this.getMessageBody.bind(this, suid, date,
-                                                              callback));
-      return;
-    }
-
-    callback(this._bodiesBySuid[suid]);
-  },
-
-  updateMessageHeader: function asfs_updateMessageHeader(suid, mutatorFunc) {
-    // XXX: this could be a lot faster
-    for (let [i, header] in Iterator(this._headers)) {
-      if (header.suid === suid) {
-        if (mutatorFunc(header))
-          this._bridgeHandle.sendUpdate([i, header]);
-        return;
-      }
-    }
-  },
-
-  deleteMessage: function asfs_deleteMessage(suid) {
-    // XXX: this could be a lot faster
-    for (let [i, header] in Iterator(this._headers)) {
-      if (header.suid === suid) {
-        delete this._bodiesBySuid[header.suid];
-        this._headers.splice(i, 1);
-        this._bridgeHandle.sendSplice(i, 1, [], false, false);
-        return;
-      }
-    }
+  get totalMessages() {
+    return this._storage.folderMeta.totalMessages;
   },
 
   /**
@@ -150,8 +49,8 @@ ActiveSyncFolderStorage.prototype = {
    * @param {function} callback A callback to be run when the operation finishes
    */
   _getSyncKey: function asfs__getSyncKey(callback) {
-    let folderStorage = this;
-    let account = this.account;
+    let folderConn = this;
+    let account = this._account;
     const as = $ascp.AirSync.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -175,7 +74,7 @@ ActiveSyncFolderStorage.prototype = {
       let e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
                          function(node) {
-        folderStorage.folderMeta.syncKey = node.children[0].textContent;
+        folderConn.syncKey = node.children[0].textContent;
       });
       e.run(aResponse);
 
@@ -194,17 +93,17 @@ ActiveSyncFolderStorage.prototype = {
    */
   _enumerateFolderChanges: function asfs__enumerateFolderChanges(callback,
                                                                  deferred) {
-    let folderStorage = this;
-    let account = this.account;
+    let folderConn = this;
+    let account = this._account;
 
     if (!account.conn.connected) {
       account.conn.autodiscover(function(status, config) {
         // TODO: handle errors
-        folderStorage._enumerateFolderChanges(callback, deferred);
+        folderConn._enumerateFolderChanges(callback, deferred);
       });
       return;
     }
-    if (this.folderMeta.syncKey === '0' && !deferred) {
+    if (this.syncKey === '0' && !deferred) {
       this._getSyncKey(this._enumerateFolderChanges.bind(this, callback, true));
       return;
     }
@@ -222,7 +121,7 @@ ActiveSyncFolderStorage.prototype = {
     if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
           w.tag(as.Class, 'Email');
 
-          w.tag(as.SyncKey, this.folderMeta.syncKey)
+          w.tag(as.SyncKey, this.syncKey)
            .tag(as.CollectionId, this.serverId)
            .tag(as.GetChanges)
            .stag(as.Options)
@@ -260,7 +159,7 @@ ActiveSyncFolderStorage.prototype = {
       });
 
       e.addEventListener(base.concat(as.SyncKey), function(node) {
-        folderStorage.folderMeta.syncKey = node.children[0].textContent;
+        folderConn.syncKey = node.children[0].textContent;
       });
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
@@ -274,13 +173,13 @@ ActiveSyncFolderStorage.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderStorage._parseMessage(child, node.tag === as.Add);
+            msg = folderConn._parseMessage(child, node.tag === as.Add);
             break;
           }
         }
 
         msg.header.guid = guid;
-        msg.header.suid = folderStorage.folderId + '/' + guid;
+        msg.header.suid = folderConn._storage.folderId + '/' + guid;
 
         let collection = node.tag === as.Add ? added : changed;
         collection.headers.push(msg.header);
@@ -309,9 +208,10 @@ ActiveSyncFolderStorage.prototype = {
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.log('ActiveSync had a bad sync key');
         // This should already be set to 0, but let's just be safe.
-        folderStorage.folderMeta.syncKey = '0';
-        folderStorage._needsPurge = true;
-        folderStorage._enumerateFolderChanges(callback);
+        throw new Error('not supported yet');
+        folderConn.syncKey = '0';
+        folderConn._needsPurge = true;
+        folderConn._enumerateFolderChanges(callback);
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
@@ -497,63 +397,29 @@ ActiveSyncFolderStorage.prototype = {
     return { header: header, body: body };
   },
 
-  _updateFolder: function asfs__updateFolder(slice) {
-    var folderStorage = this;
+  syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
+                                             useBisectLimit, doneCallback) {
+    let storage = this._storage;
+    let self = this;
     this._enumerateFolderChanges(function(added, changed, deleted) {
-      if (folderStorage._needsPurge) {
-        slice._resetHeadersBecauseOfRefreshExplosion();
-        folderStorage._headers = [];
-        folderStorage._bodiesBySuid = {};
-        folderStorage._needsPurge = false;
-      }
-
-      // XXX: pretty much all of the sync code here needs to be rewritten to
-      // divide headers/bodies into blocks so as not to be a performance
-      // nightmare.
-
-      // Handle messages that have been deleted
-      for (let [,guid] in Iterator(deleted)) {
-        // This looks dangerous (iterating and splicing at the same time), but
-        // we break out of the loop immediately after the splice, so it's ok.
-        for (let [i, header] in Iterator(folderStorage._headers)) {
-          if (header.guid === guid) {
-            delete folderStorage._bodiesBySuid[header.suid];
-            folderStorage._headers.splice(i, 1);
-            slice.onHeaderRemoved(header);
-            break;
-          }
-        }
-      }
-
-      // Handle messages that have been changed
-      for (let [,newHeader] in Iterator(changed.headers)) {
-        for (let [i, oldHeader] in Iterator(folderStorage._headers)) {
-          if (oldHeader.guid === newHeader.guid) {
-            let oldBody = folderStorage._bodiesBySuid[oldHeader.suid];
-            let newBody = changed.bodies[oldHeader.suid];
-
-            newHeader.mergeInto(oldHeader);
-            newBody.mergeInto(oldBody);
-            slice.onHeaderModified(oldHeader);
-
-            break;
-          }
-        }
-      }
-
-      // Handle messages that have been added
       for (let [,header] in Iterator(added.headers)) {
-        let idx = $util.bsearchForInsert(
-          folderStorage._headers, header, function(a, b) {
-            return b.date - a.date;
-          });
-        folderStorage._headers.splice(idx, 0, header);
-        slice.onHeaderAdded(header);
+        storage.addMessageHeader(header);
+        storage.addMessageBody(header, added.bodies[header.suid]);
       }
-      for (let [k, v] in Iterator(added.bodies))
-        folderStorage._bodiesBySuid[k] = v;
 
-      folderStorage.account.saveAccountState();
+      for (let [,header] in Iterator(changed.headers)) {
+        // XXX: TODO
+      }
+
+      for (let [,header] in Iterator(deleted)) {
+        // XXX: TODO
+      }
+
+      storage.folderMeta.totalMessages += added.headers.length /*-
+        deleted.headers.length*/;
+
+      storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
+      doneCallback(null, added.headers.length);
     });
   },
 };
