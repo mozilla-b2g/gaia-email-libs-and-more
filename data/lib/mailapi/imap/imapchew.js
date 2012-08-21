@@ -4,8 +4,8 @@
 
 define(
   [
-    './quotechew',
-    './htmlchew',
+    '../quotechew',
+    '../htmlchew',
     'exports'
   ],
   function(

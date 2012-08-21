@@ -4,8 +4,8 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     'mimelib',
-    './quotechew',
-    './util',
+    '../quotechew',
+    '../util',
     'exports'
   ],
   function(
@@ -151,7 +151,7 @@ ActiveSyncFolderStorage.prototype = {
     let account = this.account;
 
     if (!account.conn.connected) {
-      account.conn.autodiscover(function(config) {
+      account.conn.autodiscover(function(status, config) {
         // TODO: handle errors
         folderStorage._syncFolder(callback, deferred);
       });
@@ -163,7 +163,9 @@ ActiveSyncFolderStorage.prototype = {
     }
 
     const as = $ascp.AirSync.Tags;
+    const asEnum = $ascp.AirSync.Enums;
     const asb = $ascp.AirSyncBase.Tags;
+    const asbEnum = $ascp.AirSyncBase.Enums;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -180,11 +182,11 @@ ActiveSyncFolderStorage.prototype = {
 
     if (account.conn.currentVersionInt >= $activesync.VersionInt('12.0'))
             w.stag(asb.BodyPreference)
-               .tag(asb.Type, '1')
+               .tag(asb.Type, asbEnum.Type.PlainText)
              .etag();
 
-            w.tag(as.MIMESupport, '2')
-             .tag(as.MIMETruncation, '7')
+            w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
+             .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
            .etag()
          .etag()
        .etag()
@@ -254,10 +256,10 @@ ActiveSyncFolderStorage.prototype = {
 
       e.run(aResponse);
 
-      if (status === '1') { // Success
+      if (status === asEnum.Status.Success) {
         callback(added, changed, deleted);
       }
-      else if (status === '3') { // Bad sync key
+      else if (status === asEnum.Status.InvalidSyncKey) {
         console.log('ActiveSync had a bad sync key');
         // This should already be set to 0, but let's just be safe.
         folderStorage.folderMeta.syncKey = '0';
@@ -504,17 +506,21 @@ ActiveSyncFolderStorage.prototype = {
 
       // Handle messages that have been added
       if (added.headers.length) {
-        added.headers.sort(function(a, b) b.date - a.date);
+        added.headers.sort(function(a, b) { return b.date - a.date; });
         let addedBlocks = {};
         for (let [,header] in Iterator(added.headers)) {
-          let idx = $util.bsearchForInsert(folderStorage._headers, header,
-                                           function(a, b) b.date - a.date);
+          let idx = $util.bsearchForInsert(
+            folderStorage._headers, header, function(a, b) {
+              return b.date - a.date;
+            });
           if (!(idx in addedBlocks))
             addedBlocks[idx] = [];
           addedBlocks[idx].push(header);
         }
 
-        let keys = Object.keys(addedBlocks).sort(function(a, b) b - a);
+        let keys = Object.keys(addedBlocks).sort(function(a, b) {
+          return b - a;
+        });
         let hdrs = folderStorage._headers;
         for (let [,key] in Iterator(keys)) {
           // XXX: I feel like this is probably slower than it needs to be...

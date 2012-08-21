@@ -201,7 +201,7 @@ require({
 
     "rdplat": "data/lib/rdplat",
     "rdcommon": "data/lib/rdcommon",
-    "rdimap": "data/lib/rdimap",
+    "mailapi": "data/lib/mailapi",
 
     "buffer": "data/lib/node-buffer",
     "crypto": "data/lib/node-crypto",

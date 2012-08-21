@@ -54,9 +54,9 @@ define(
   [
     'rdcommon/log',
     'mailparser/mailparser',
-    './a64',
-    './allback',
-    './util',
+    '../a64',
+    '../allback',
+    '../util',
     './imapchew',
     'module',
     'exports'

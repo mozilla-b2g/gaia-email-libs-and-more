@@ -26,7 +26,7 @@
 
     "rdplat": "data/lib/rdplat",
     "rdcommon": "data/lib/rdcommon",
-    "rdimap": "data/lib/rdimap",
+    "mailapi": "data/lib/mailapi",
 
     "buffer": "data/lib/node-buffer",
     "crypto": "data/lib/node-crypto",
@@ -49,7 +49,7 @@
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
-  include: ["event-queue", "deps/stringencoding/encoding-indexes.js", "deps/stringencoding/encoding.js", "rdimap/imapclient/same-frame-setup"],
+  include: ["event-queue", "deps/stringencoding/encoding-indexes.js", "deps/stringencoding/encoding.js", "mailapi/same-frame-setup"],
   name: "almond",
   out: "../gaia-email-opt.js",
   wrap: {
@@ -57,33 +57,25 @@
     endFile: "optEnd.frag"
   },
   onBuildRead: function (id, path, contents) {
-    // Remove destructuring, minimal functions, and yields so parsing works.
+    // Remove destructuring and yields so parsing works.
     // Do this until esprima has a fix for this, among other things:
     // http://code.google.com/p/esprima/issues/detail?id=241
 
     var destructRe  = /((?:var|let|const)\s*)(\{[^\}]+\})(\s*(?:=|in\b))/g;
     var destructRe2 = /((?:var|let|const)\s*)(\[[^\]]+\])(\s*(?:=|in\b))/g;
     var destructRe3 = /\n(\s*)(\[[^\]]+\])(\s*(?:=|in\b))/g;
-    var getterRe    = /get\s+\w+\s*\(\).*,/g;
-    var minifuncRe  = /(function\s*\(.*?\))(?=\s*\w)/g;
     var yieldRe     = /\byield\b/g;
     return contents.replace(destructRe,  '$1/*DESTRUCT$2DESTRUCT*/_$3')
                    .replace(destructRe2, '$1/*DESTRUCT$2DESTRUCT*/_$3')
                    .replace(destructRe3, '$1/*DESTRUCT$2DESTRUCT*/_$3')
-                   .replace(getterRe,    '/*GETTER$&GETTER*/')
-                   .replace(minifuncRe,  '/*MINIFUNC$1MINIFUNC*/')
                    .replace(yieldRe,     'return YIELD+');
   },
   onBuildWrite: function (id, path, contents) {
-    // Restore destructuring, minimal functions, and yields.
+    // Restore destructuring and yields.
 
     var restructRe = /\/\*DESTRUCT(.*?)DESTRUCT\*\/_/g;
-    var getterRe   = /\/\*GETTER(.*?)GETTER\*\//g;
-    var minifuncRe = /\/\*MINIFUNC(.*?)MINIFUNC\*\//g;
     var yieldRe    = /return YIELD\+/g;
     return contents.replace(restructRe, '$1')
-                   .replace(getterRe,   '$1')
-                   .replace(minifuncRe, '$1')
                    .replace(yieldRe,    'yield');
   }
 })

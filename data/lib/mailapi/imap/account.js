@@ -6,11 +6,11 @@ define(
   [
     'imap',
     'rdcommon/log',
-    './a64',
+    '../a64',
     './imapdb',
-    './imapslice',
-    './imapjobs',
-    './util',
+    './slice',
+    './jobs',
+    '../util',
     'module',
     'exports'
   ],
