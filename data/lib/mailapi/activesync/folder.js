@@ -68,8 +68,10 @@ ActiveSyncFolderConn.prototype = {
      .etag();
 
     account.conn.doCommand(w, function(aError, aResponse) {
-      if (aError)
+      if (aError) {
+        console.error(aError);
         return;
+      }
 
       let e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
@@ -97,9 +99,11 @@ ActiveSyncFolderConn.prototype = {
     let account = this._account;
 
     if (!account.conn.connected) {
-      account.conn.autodiscover(function(status, config) {
-        // TODO: handle errors
-        folderConn._enumerateFolderChanges(callback, deferred);
+      account.conn.connect(function(error, config) {
+        if (error)
+          console.error(error);
+        else
+          folderConn._enumerateFolderChanges(callback, deferred);
       });
       return;
     }
@@ -144,8 +148,10 @@ ActiveSyncFolderConn.prototype = {
       let deleted = [];
       let status;
 
-      if (aError)
+      if (aError) {
+        console.error(aError);
         return;
+      }
       if (!aResponse) {
         callback(added, changed, deleted);
         return;
@@ -410,12 +416,16 @@ ActiveSyncFolderConn.prototype = {
         storage.addMessageBody(header, added.bodies[header.suid]);
       }
 
-      for (let [,header] in Iterator(changed.headers)) {
-        // XXX: TODO
+      for (let [,newHeader] in Iterator(changed.headers)) {
+        storage.updateMessageHeaderByUid(newHeader.id, true, function(oldHeader) {
+          newHeader.mergeInto(oldHeader);
+          return true;
+        });
+        // XXX: update bodies
       }
 
       for (let [,header] in Iterator(deleted)) {
-        storage.deleteMessageByGuid(header);
+        storage.deleteMessageByUid(header);
       }
 
       storage.folderMeta.totalMessages += added.headers.length -

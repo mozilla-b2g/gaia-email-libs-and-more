@@ -2802,6 +2802,23 @@ console.log("folder message count", folderMessageCount,
       doUpdateHeader(this._headerBlocks[info.blockId]);
   },
 
+  updateMessageHeaderByUid: function(uid, partOfSync, headerOrMutationFunc) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.updateMessageHeaderByUid.bind(
+        this, uid, partOfSync, headerOrMutationFunc));
+      return;
+    }
+
+    // XXX: this needs reworked and maybe merged with the function above
+    for (var i in this._headerBlocks) {
+      var block = this._headerBlocks[i];
+      var idx = block.uids.indexOf(uid);
+      if (idx !== -1)
+        return this.updateMessageHeader(block.headers[idx].date, uid,
+                                        partOfSync, headerOrMutationFunc);
+    }
+  },
+
   /**
    * A notification that an existing header is still up-to-date.
    */

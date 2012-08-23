@@ -119,10 +119,11 @@ ActiveSyncJobDriver.prototype = {
     let jobDriver = this;
 
     if (!this.account.conn.connected) {
-      let self = this;
-      this.account.conn.autodiscover(function(config) {
-        // TODO: handle errors
-        jobDriver.do_modtags(op, callback);
+      this.account.conn.connect(function(error, config) {
+        if (error)
+          console.error(error);
+        else
+          jobDriver.do_modtags(op, callback);
       });
       return;
     }
