@@ -178,7 +178,7 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        msg.header.guid = guid;
+        msg.header.guid = msg.header.id = guid;
         msg.header.suid = folderConn._storage.folderId + '/' + guid;
 
         let collection = node.tag === as.Add ? added : changed;
@@ -208,7 +208,6 @@ ActiveSyncFolderConn.prototype = {
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.log('ActiveSync had a bad sync key');
         // This should already be set to 0, but let's just be safe.
-        throw new Error('not supported yet');
         folderConn.syncKey = '0';
         folderConn._needsPurge = true;
         folderConn._enumerateFolderChanges(callback);
@@ -400,8 +399,12 @@ ActiveSyncFolderConn.prototype = {
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
                                              useBisectLimit, doneCallback) {
     let storage = this._storage;
-    let self = this;
+    let folderConn = this;
     this._enumerateFolderChanges(function(added, changed, deleted) {
+      if (folderConn._needsPurge) {
+        throw new Error('not supported yet');
+      }
+
       for (let [,header] in Iterator(added.headers)) {
         storage.addMessageHeader(header);
         storage.addMessageBody(header, added.bodies[header.suid]);
@@ -412,11 +415,11 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,header] in Iterator(deleted)) {
-        // XXX: TODO
+        storage.deleteMessageByGuid(header);
       }
 
-      storage.folderMeta.totalMessages += added.headers.length /*-
-        deleted.headers.length*/;
+      storage.folderMeta.totalMessages += added.headers.length -
+        deleted.length;
 
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
       doneCallback(null, added.headers.length);

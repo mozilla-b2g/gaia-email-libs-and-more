@@ -74,6 +74,7 @@ const bsearchForInsert = $util.bsearchForInsert,
       ON_OR_BEFORE = $date.ON_OR_BEFORE,
       SINCE = $date.SINCE,
       STRICTLY_AFTER = $date.STRICTLY_AFTER,
+      IN_BS_DATE_RANGE = $date.IN_BS_DATE_RANGE,
       HOUR_MILLIS = $date.HOUR_MILLIS,
       DAY_MILLIS = $date.DAY_MILLIS,
       NOW = $date.NOW,
@@ -2842,6 +2843,22 @@ console.log("folder message count", folderMessageCount,
 
     this._deleteFromBlock('header', header.date, header.id, null);
     this._deleteFromBlock('body', header.date, header.id, null);
+  },
+
+  deleteMessageByUid: function(uid) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.deleteMessageByUid.bind(this, uid));
+      return;
+    }
+
+    for (var i in this._headerBlocks) {
+      var block = this._headerBlocks[i];
+      var idx = block.uids.indexOf(uid);
+      if (idx !== -1)
+        return this.deleteMessageHeaderAndBody(block.headers[idx]);
+    }
+
+    // XXX: handle the case when this message isn't in an active block
   },
 
   /**
