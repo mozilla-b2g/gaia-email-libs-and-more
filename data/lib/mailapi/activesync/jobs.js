@@ -26,10 +26,13 @@ ActiveSyncJobDriver.prototype = {
       return this.local_do_delete(op, callback);
 
     for (let [,message] in Iterator(op.messages)) {
-      let folderId = message.suid.substring(0, message.suid.lastIndexOf('/'));
+      let lslash = message.suid.lastIndexOf('/')
+      let folderId = message.suid.substring(0, lslash);
+      let messageId = message.suid.substring(lslash + 1);
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
 
-      folderStorage.updateMessageHeader(message.suid, function(header) {
+      folderStorage.updateMessageHeader(message.date, messageId, false,
+                                        function(header) {
         let modified = false;
 
         for (let [,tag] in Iterator(op.addTags || [])) {
@@ -94,10 +97,12 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_delete: function(op, callback) {
     for (let [,message] in Iterator(op.messages)) {
-      let folderId = message.suid.substring(0, message.suid.lastIndexOf('/'));
+      let lslash = message.suid.lastIndexOf('/')
+      let folderId = message.suid.substring(0, lslash);
+      let messageId = message.suid.substring(lslash + 1);
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
 
-      folderStorage.deleteMessage(message.suid);
+      folderStorage.deleteMessageByUid(messageId);
     }
 
     this.account.saveAccountState();
@@ -148,8 +153,8 @@ ActiveSyncJobDriver.prototype = {
       if (this.account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
         w.tag(as.Class, 'Email');
 
-        w.tag(as.SyncKey, folderStorage.syncKey)
-         .tag(as.CollectionId, folderStorage.serverId)
+        w.tag(as.SyncKey, folderStorage.folderMeta.syncKey)
+         .tag(as.CollectionId, folderStorage.folderMeta.serverId)
          .stag(as.Commands);
 
       for (let [,message] in Iterator(part.messages)) {
@@ -191,13 +196,13 @@ ActiveSyncJobDriver.prototype = {
 
       let allGood = statuses.reduce(function(good, status) {
         return good && status === '1';
-      });
+      }, true);
 
       if (allGood) {
         for (let i = 0; i < collectionIds.length; i++) {
           let folderStorage = jobDriver.account.getFolderStorageForServerId(
             collectionIds[i]);
-          folderStorage.syncKey = syncKeys[i];
+          folderStorage.folderMeta.syncKey = syncKeys[i];
         }
 
         if (callback)
