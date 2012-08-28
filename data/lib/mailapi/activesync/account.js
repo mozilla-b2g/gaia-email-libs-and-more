@@ -60,6 +60,10 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this._serverIdToFolderId = {};
   this._deadFolderIds = null;
 
+  this._syncsInProgress = 0;
+  this._lastSyncKey = null;
+  this._lastSyncResponseWasEmpty = false;
+
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
 

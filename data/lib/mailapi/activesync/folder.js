@@ -119,7 +119,11 @@ ActiveSyncFolderConn.prototype = {
 
     let w;
 
-    if (this.lastSyncResponseWasEmpty) {
+    // If the last sync was ours and we got an empty response back, we can send
+    // an empty request to repeat our request. This saves a little bandwidth.
+    if (this._account._syncsInProgress++ === 0 &&
+        this._account._lastSyncKey === this.syncKey &&
+        this._account._lastSyncResponseWasEmpty) {
       w = as.Sync;
     }
     else {
@@ -159,13 +163,17 @@ ActiveSyncFolderConn.prototype = {
         console.error(aError);
         return;
       }
+
+      folderConn._account._lastSyncKey = folderConn.syncKey;
+      folderConn._account._syncsInProgress--;
+
       if (!aResponse) {
-        folderConn.lastSyncResponseWasEmpty = true;
+        folderConn._account._lastSyncResponseWasEmpty = true;
         callback(added, changed, deleted);
         return;
       }
 
-      folderConn.lastSyncResponseWasEmpty = false;
+      folderConn._account._lastSyncResponseWasEmpty = false;
       let e = new $wbxml.EventParser();
       const base = [as.Sync, as.Collections, as.Collection];
 
@@ -441,7 +449,7 @@ ActiveSyncFolderConn.prototype = {
         deleted.length;
 
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
-      doneCallback(null, added.headers.length);
+      doneCallback(null, added.length);
     });
   },
 };
