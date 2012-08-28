@@ -150,8 +150,8 @@ ActiveSyncFolderConn.prototype = {
     }
 
     account.conn.doCommand(w, function(aError, aResponse) {
-      let added   = { headers: [], bodies: {} };
-      let changed = { headers: [], bodies: {} };
+      let added   = [];
+      let changed = [];
       let deleted = [];
       let status;
 
@@ -197,8 +197,7 @@ ActiveSyncFolderConn.prototype = {
         msg.header.suid = folderConn._storage.folderId + '/' + guid;
 
         let collection = node.tag === as.Add ? added : changed;
-        collection.headers.push(msg.header);
-        collection.bodies[msg.header.suid] = msg.body;
+        collection.push(msg);
       });
 
       e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
@@ -420,24 +419,25 @@ ActiveSyncFolderConn.prototype = {
         throw new Error('not supported yet');
       }
 
-      for (let [,header] in Iterator(added.headers)) {
-        storage.addMessageHeader(header);
-        storage.addMessageBody(header, added.bodies[header.suid]);
+      for (let [,message] in Iterator(added)) {
+        storage.addMessageHeader(message.header);
+        storage.addMessageBody(message.header, message.body);
       }
 
-      for (let [,newHeader] in Iterator(changed.headers)) {
-        storage.updateMessageHeaderByUid(newHeader.id, true, function(oldHeader) {
-          newHeader.mergeInto(oldHeader);
+      for (let [,message] in Iterator(changed)) {
+        storage.updateMessageHeaderByUid(message.header.id, true,
+                                         function(oldHeader) {
+          message.header.mergeInto(oldHeader);
           return true;
         });
         // XXX: update bodies
       }
 
-      for (let [,header] in Iterator(deleted)) {
-        storage.deleteMessageByUid(header);
+      for (let [,messageGuid] in Iterator(deleted)) {
+        storage.deleteMessageByUid(messageGuid);
       }
 
-      storage.folderMeta.totalMessages += added.headers.length -
+      storage.folderMeta.totalMessages += added.length -
         deleted.length;
 
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
