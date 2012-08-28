@@ -48,7 +48,7 @@ ActiveSyncFolderConn.prototype = {
    *
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getSyncKey: function asfs__getSyncKey(callback) {
+  _getSyncKey: function asfc__getSyncKey(callback) {
     let folderConn = this;
     let account = this._account;
     const as = $ascp.AirSync.Tags;
@@ -93,7 +93,7 @@ ActiveSyncFolderConn.prototype = {
    * @param {boolean} deferred True if this operation was already deferred once
    *   to get the initial sync key
    */
-  _enumerateFolderChanges: function asfs__enumerateFolderChanges(callback,
+  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
                                                                  deferred) {
     let folderConn = this;
     let account = this._account;
@@ -251,7 +251,7 @@ ActiveSyncFolderConn.prototype = {
    *   changed one
    * @return {object} An object containing the header and body for the message
    */
-  _parseMessage: function asfs__parseMessage(node, isAdded) {
+  _parseMessage: function asfc__parseMessage(node, isAdded) {
     const asb = $ascp.AirSyncBase.Tags;
     const em = $ascp.Email.Tags;
     let header, body, flagHeader;
