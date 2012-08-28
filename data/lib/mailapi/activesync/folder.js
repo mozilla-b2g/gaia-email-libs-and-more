@@ -58,7 +58,7 @@ ActiveSyncFolderConn.prototype = {
        .stag(as.Collections)
          .stag(as.Collection)
 
-    if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
+    if (account.conn.currentVersion.lt('12.1'))
           w.tag(as.Class, 'Email');
 
           w.tag(as.SyncKey, '0')
@@ -117,30 +117,37 @@ ActiveSyncFolderConn.prototype = {
     const asb = $ascp.AirSyncBase.Tags;
     const asbEnum = $ascp.AirSyncBase.Enums;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(as.Sync)
-       .stag(as.Collections)
-         .stag(as.Collection);
+    let w;
 
-    if (account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
-          w.tag(as.Class, 'Email');
+    if (this.lastSyncResponseWasEmpty) {
+      w = as.Sync;
+    }
+    else {
+      w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(as.Sync)
+         .stag(as.Collections)
+           .stag(as.Collection);
 
-          w.tag(as.SyncKey, this.syncKey)
-           .tag(as.CollectionId, this.serverId)
-           .tag(as.GetChanges)
-           .stag(as.Options)
+      if (account.conn.currentVersion.lt('12.1'))
+            w.tag(as.Class, 'Email');
 
-    if (account.conn.currentVersionInt >= $activesync.VersionInt('12.0'))
-            w.stag(asb.BodyPreference)
-               .tag(asb.Type, asbEnum.Type.PlainText)
-             .etag();
+            w.tag(as.SyncKey, this.syncKey)
+             .tag(as.CollectionId, this.serverId)
+             .tag(as.GetChanges)
+             .stag(as.Options)
 
-            w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
-             .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
+      if (account.conn.currentVersion.gte('12.0'))
+              w.stag(asb.BodyPreference)
+                 .tag(asb.Type, asbEnum.Type.PlainText)
+               .etag();
+
+              w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
+               .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
+             .etag()
            .etag()
          .etag()
-       .etag()
-     .etag();
+       .etag();
+    }
 
     account.conn.doCommand(w, function(aError, aResponse) {
       let added   = { headers: [], bodies: {} };
@@ -153,10 +160,12 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
       if (!aResponse) {
+        folderConn.lastSyncResponseWasEmpty = true;
         callback(added, changed, deleted);
         return;
       }
 
+      folderConn.lastSyncResponseWasEmpty = false;
       let e = new $wbxml.EventParser();
       const base = [as.Sync, as.Collections, as.Collection];
 

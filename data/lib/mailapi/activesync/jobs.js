@@ -150,7 +150,7 @@ ActiveSyncJobDriver.prototype = {
 
       w.stag(as.Collection);
 
-      if (this.account.conn.currentVersionInt < $activesync.VersionInt('12.1'))
+      if (this.account.conn.currentVersion.lt('12.1'))
         w.tag(as.Class, 'Email');
 
         w.tag(as.SyncKey, folderStorage.folderMeta.syncKey)
