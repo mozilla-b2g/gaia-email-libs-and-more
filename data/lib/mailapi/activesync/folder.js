@@ -159,13 +159,14 @@ ActiveSyncFolderConn.prototype = {
       let deleted = [];
       let status;
 
+      folderConn._account._syncsInProgress--;
+
       if (aError) {
         console.error(aError);
         return;
       }
 
       folderConn._account._lastSyncKey = folderConn.syncKey;
-      folderConn._account._syncsInProgress--;
 
       if (!aResponse) {
         folderConn._account._lastSyncResponseWasEmpty = true;
@@ -302,8 +303,9 @@ ActiveSyncFolderConn.prototype = {
           }
 
           // Merge everything else
+          const skip = ['mergeInto', 'suid', 'guid', 'id', 'flags'];
           for (let [key, value] in Iterator(this)) {
-            if (['mergeInto', 'suid', 'guid', 'flags'].indexOf(key) !== -1)
+            if (skip.indexOf(key) !== -1)
               continue;
 
             o[key] = value;
