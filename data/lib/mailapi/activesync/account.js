@@ -167,12 +167,10 @@ ActiveSyncAccount.prototype = {
 
   sliceFolderMessages: function asa_sliceFolderMessages(folderId,
                                                         bridgeHandle) {
-    try {
     let storage = this._folderStorages[folderId],
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
-    } catch(e) { dump(e+"\n"+e.stack); }
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
