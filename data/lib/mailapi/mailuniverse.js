@@ -713,7 +713,8 @@ function MailUniverse(callAfterBigBang) {
             function() {
               if (--waitingCount === 0)
                 callAfterBigBang();
-            });
+            },
+            self._LOG);
           }
         // do not let callAfterBigBang get called.
         return;
