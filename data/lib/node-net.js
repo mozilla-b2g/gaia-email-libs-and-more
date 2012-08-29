@@ -27,7 +27,7 @@ var util = require('util'),
 function NetSocket(port, host, crypto) {
   this._host = host;
   this._port = port;
-  this._actualSock = navigator.MozTCPSocket.open(
+  this._actualSock = navigator.mozTCPSocket.open(
     host, port, { useSSL: crypto, binaryType: 'arraybuffer' });
   EventEmitter.call(this);
 

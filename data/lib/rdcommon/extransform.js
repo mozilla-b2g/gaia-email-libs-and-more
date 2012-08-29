@@ -152,7 +152,6 @@ var SM_STACK_FORMAT = /^(.*)@(.+):(\d+)$/;
  *
  */
 exports.transformException = function transformException(e) {
-console.warn("extransform:", e, "\n", e.stack);
   // it's conceivable someone
   if (!(e instanceof Error) &&
       // under jetpack, we are losing hard, probably because of the sandbox
@@ -181,15 +180,25 @@ console.warn("extransform:", e, "\n", e.stack);
     m: e.message,
     f: [],
   };
-  var sframes = stack.split("\n"), frames = o.f, match;
-  for (var i = 0; i < sframes.length; i++) {
-    if ((match = SM_STACK_FORMAT.exec(sframes[i]))) {
-      frames.push({
-        filename: simplifyFilename(match[2]),
-        lineNo: match[3],
-        funcName: match[1],
-      });
+  if (stack) {
+    var sframes = stack.split("\n"), frames = o.f, match;
+    for (var i = 0; i < sframes.length; i++) {
+      if ((match = SM_STACK_FORMAT.exec(sframes[i]))) {
+        frames.push({
+          filename: simplifyFilename(match[2]),
+          lineNo: match[3],
+          funcName: match[1],
+        });
+      }
     }
+  }
+  // otherwise this is probably an XPConnect exception...
+  else if (e.filename) {
+    o.f.push({
+      filename: e.filename,
+      lineNo: e.lineNumber,
+      funcName: '',
+    });
   }
   return o;
 };
