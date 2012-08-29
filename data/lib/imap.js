@@ -25,7 +25,7 @@ const CHARCODE_RBRACE = ('}').charCodeAt(0),
 
 /**
  * A buffer for us to assemble buffers so the back-end doesn't fragment them.
- * This is safe for MozTCPSocket's buffer usage because the buffer is always
+ * This is safe for mozTCPSocket's buffer usage because the buffer is always
  * consumed synchronously.  This is not necessarily safe under other semantics.
  */
 var gSendBuf = new Uint8Array(2000);
@@ -207,10 +207,10 @@ ImapConnection.prototype.connect = function(loginCb) {
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';
 
-  this._state.conn = navigator.MozTCPSocket.open(
+  this._state.conn = navigator.mozTCPSocket.open(
     this._options.host, this._options.port, socketOptions);
 
-  // XXX rely on MozTCPSocket for this?
+  // XXX rely on mozTCPSocket for this?
   this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
                                    this._options.connTimeout, loginCb);
 
