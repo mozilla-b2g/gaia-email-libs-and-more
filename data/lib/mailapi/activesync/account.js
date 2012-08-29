@@ -82,12 +82,13 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   // TODO: we should probably be smarter about sorting.
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
 
-  if (this.meta.syncKey != '0') {
-    // TODO: this is a really hacky way of syncing folders after the first
-    // time.
-    var account = this;
-    setTimeout(function() { account.syncFolderList(function() {}) }, 1000);
-  }
+  if (this.accountDef.connInfo)
+    this.conn.setConfig(this.accountDef.connInfo);
+  this.conn.connect();
+
+  // TODO: this is a really hacky way of syncing folders after the first time.
+  if (this.meta.syncKey != '0')
+    setTimeout(this.syncFolderList.bind(this), 1000);
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {

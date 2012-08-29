@@ -265,6 +265,9 @@ var autoconfigByDomain = {
   'hotmail.com': {
     type: 'activesync',
   },
+  'gmail.com': {
+    type: 'activesync',
+  },
 };
 
 var Configurators = {};
@@ -433,11 +436,7 @@ Configurators['activesync'] = {
       type: 'activesync',
 
       credentials: credentials,
-      connInfo: {
-        hostname: 'm.hotmail.com',
-        port: 1337,
-        crypto: true,
-      },
+      connInfo: null,
 
       identities: [
         {
@@ -461,7 +460,12 @@ Configurators['activesync'] = {
     };
     var account = universe._loadAccount(accountDef, folderInfo, null);
     account.syncFolderList(function() {
-      accountDef.identities[0].name = account.conn.config.user.name;
+      if (!accountDef.identities[0].name)
+        accountDef.identities[0].name = account.conn.config.user.name;
+      accountDef.connInfo = {
+        user: account.conn.config.user,
+        server: account.conn.config.server
+      };
       universe.saveAccountDef(accountDef, folderInfo);
       callback(true, account);
     });
