@@ -36,16 +36,16 @@ SmtpProber.prototype = {
   onIdle: function() {
     console.log('onIdle!');
     if (this.onresult) {
-      console.log("PROBE:SMTP happy");
+      console.log('PROBE:SMTP happy');
       this.onresult(true);
       this.onresult = null;
     }
     this._conn.close();
   },
 
-  onBadness: function() {
+  onBadness: function(err) {
     if (this.onresult) {
-      console.warn("PROBE:SMTP sad");
+      console.warn('PROBE:SMTP sad. error: |' + err + '|');
       this.onresult(false);
       this.onresult = null;
     }
