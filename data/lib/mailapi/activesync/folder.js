@@ -80,7 +80,10 @@ ActiveSyncFolderConn.prototype = {
       });
       e.run(aResponse);
 
-      callback();
+      if (folderConn.syncKey === '0')
+        console.log('Unable to get sync key for folder');
+      else
+        callback();
     });
   },
 
@@ -90,11 +93,8 @@ ActiveSyncFolderConn.prototype = {
    *
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
-   * @param {boolean} deferred True if this operation was already deferred once
-   *   to get the initial sync key
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
-                                                                 deferred) {
+  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
     let folderConn = this;
     let account = this._account;
 
@@ -103,12 +103,12 @@ ActiveSyncFolderConn.prototype = {
         if (error)
           console.error(error);
         else
-          folderConn._enumerateFolderChanges(callback, deferred);
+          folderConn._enumerateFolderChanges(callback);
       });
       return;
     }
-    if (this.syncKey === '0' && !deferred) {
-      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback, true));
+    if (this.syncKey === '0') {
+      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback));
       return;
     }
 

@@ -281,6 +281,7 @@ ActiveSyncAccount.prototype = {
         path: path,
         type: this._folderTypes[typeNum],
         depth: depth,
+        syncKey: '0',
       },
       $impl: {
         nextHeaderBlock: 0,
