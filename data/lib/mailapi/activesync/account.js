@@ -133,7 +133,7 @@ ActiveSyncAccount.prototype = {
     return 0;
   },
 
-  saveAccountState: function asa_saveAccountState(reuseTrans) {
+  saveAccountState: function asa_saveAccountState(reuseTrans, callback) {
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
       let folderStuff = this._folderStorages[folder.id]
@@ -144,8 +144,10 @@ ActiveSyncAccount.prototype = {
 
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
-      function stateSaved() {},
-      reuseTrans);
+      function stateSaved() {
+        if (callback)
+         callback();
+      }, reuseTrans);
     this._deadFolderIds = null;
     return trans;
   },
@@ -330,6 +332,33 @@ ActiveSyncAccount.prototype = {
     this._deadFolderIds.push(folderId);
 
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
+  },
+
+  _recreateFolder: function asa__recreateFolder(folderId, callback) {
+    let folderInfo = this._folderInfos[folderId];
+    folderInfo.accuracy = [];
+    folderInfo.headerBlocks = [];
+    folderInfo.bodyBlocks = [];
+
+    if (this._deadFolderIds === null)
+      this._deadFolderIds = [];
+    this._deadFolderIds.push(folderId);
+
+    let self = this;
+    this.saveAccountState(null, function() {
+      let newStorage =
+        new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
+                                     $asfolder.ActiveSyncFolderConn, self._LOG);
+      for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
+        slice._storage = newStorage;
+        slice._resetHeadersBecauseOfRefreshExplosion(true);
+        newStorage.sliceOpenFromNow(slice);
+      }
+      self._folderStorages[folderId]._slices = [];
+      self._folderStorages[folderId] = newStorage;
+
+      callback(newStorage);
+    });
   },
 
   sendMessage: function asa_sendMessage(composedMessage, callback) {

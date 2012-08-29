@@ -229,7 +229,7 @@ ActiveSyncFolderConn.prototype = {
         callback(null, added, changed, deleted);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
-        console.log('ActiveSync had a bad sync key');
+        console.error('ActiveSync had a bad sync key');
         callback('badkey');
       }
       else {
@@ -382,7 +382,7 @@ ActiveSyncFolderConn.prototype = {
         for (let [,attachmentNode] in Iterator(child.children)) {
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
-            continue; // XXX: throw an error here??
+            continue;
 
           let attachment = { name: null, type: null, part: null,
                              sizeEstimate: null };
@@ -423,9 +423,10 @@ ActiveSyncFolderConn.prototype = {
     let folderConn = this;
     this._enumerateFolderChanges(function (error, added, changed, deleted) {
       if (error === 'badkey') {
-        storage.purgeStorage(folderConn.syncDateRange.bind(
-          folderConn, startTS, endTS, accuracyStamp, useBisectLimit,
-          doneCallback));
+        folderConn._account._recreateFolder(storage.folderId, function(s) {
+          folderConn.storage = s;
+        });
+        storage.folderMeta.totalMessages = 0;
         return;
       }
 
