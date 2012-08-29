@@ -397,6 +397,29 @@ MailDB.prototype = {
   },
 
   /**
+   * Empty the contents of a given folder.
+   */
+  emptyFolder: function(folderId, callback, reuseTrans) {
+    var trans = reuseTrans ||
+      this._db.transaction([TBL_HEADER_BLOCKS, TBL_BODY_BLOCKS],
+                           'readwrite');
+    trans.onerror = this._fatalError;
+
+    var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
+        bodyStore = trans.objectStore(TBL_BODY_BLOCKS),
+        range = IDBKeyRange.bound(folderId + ':', folderId + ':\ufff0',
+                                  false, false);
+
+    headerStore.delete(range);
+    bodyStore.delete(range);
+
+    if (callback)
+      trans.addEventListener('complete', callback);
+
+    return trans;
+  },
+
+  /**
    * Delete all traces of an account from the database.
    */
   deleteAccount: function(accountId, reuseTrans) {

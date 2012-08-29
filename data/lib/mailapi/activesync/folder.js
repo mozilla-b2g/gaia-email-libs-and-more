@@ -170,7 +170,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (!aResponse) {
         folderConn._account._lastSyncResponseWasEmpty = true;
-        callback(added, changed, deleted);
+        callback(null, added, changed, deleted);
         return;
       }
 
@@ -226,14 +226,11 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (status === asEnum.Status.Success) {
-        callback(added, changed, deleted);
+        callback(null, added, changed, deleted);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.log('ActiveSync had a bad sync key');
-        // This should already be set to 0, but let's just be safe.
-        folderConn.syncKey = '0';
-        folderConn._needsPurge = true;
-        folderConn._enumerateFolderChanges(callback);
+        callback('badkey');
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
@@ -424,9 +421,12 @@ ActiveSyncFolderConn.prototype = {
                                              useBisectLimit, doneCallback) {
     let storage = this._storage;
     let folderConn = this;
-    this._enumerateFolderChanges(function(added, changed, deleted) {
-      if (folderConn._needsPurge) {
-        throw new Error('not supported yet');
+    this._enumerateFolderChanges(function (error, added, changed, deleted) {
+      if (error === 'badkey') {
+        storage.purgeStorage(folderConn.syncDateRange.bind(
+          folderConn, startTS, endTS, accuracyStamp, useBisectLimit,
+          doneCallback));
+        return;
       }
 
       for (let [,message] in Iterator(added)) {

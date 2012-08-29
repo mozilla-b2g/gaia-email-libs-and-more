@@ -343,18 +343,27 @@ MailSlice.prototype = {
   /**
    * Clear out any known headers because a refresh went wrong and so we are
    * converting our refresh into a sync.
+   *
+   * @args[
+   *   @param[resetRanges Boolean]{
+   *     True if the start/end timestamps/UIDs should also be reset
+   *   }
+   * ]
    */
-  _resetHeadersBecauseOfRefreshExplosion: function() {
+  _resetHeadersBecauseOfRefreshExplosion: function(resetRanges) {
     if (this.headers.length) {
       // If we're accumulating, we were starting from zero to begin with, so
       // there is no need to send a nuking splice.
       if (!this._accumulating)
         this._bridgeHandle.sendSplice(0, this.headers.length, [], false, true);
       this.headers.splice(0, this.headers.length);
-      this.startTS = null;
-      this.startUID = null;
-      this.endTS = null;
-      this.endUID = null;
+
+      if (resetRanges) {
+        this.startTS = null;
+        this.startUID = null;
+        this.endTS = null;
+        this.endUID = null;
+      }
     }
   },
 
@@ -2005,7 +2014,7 @@ console.log("ACCUMULATE MODE ON");
             self.sliceOpenFromNow(slice, null, true);
            }
           else {
-            slice._resetHeadersBecauseOfRefreshExplosion();
+            slice._resetHeadersBecauseOfRefreshExplosion(true);
           }
           return 'abort';
         }
@@ -2936,6 +2945,22 @@ console.log("folder message count", folderMessageCount,
     block.bodies[uid] = bodyInfo;
     this._dirty = true;
     this._dirtyBodyBlocks[bodyBlockInfo.blockId] = block;
+  },
+
+  /**
+   * Wipe out all of the data in the FolderStorage and start fresh.
+   */
+  purgeStorage: function(callback) {
+    this._accuracyRanges = [];
+    this._headerBlockInfos = [];
+    this._bodyBlockInfos = [];
+    this._headerBlocks = {};
+    this._bodyBlocks = {};
+
+    for (var i = 0; i < this._slices.length; i++)
+      this._slices[i]._resetHeadersBecauseOfRefreshExplosion();
+
+    this._imapDb.emptyFolder(this.folderId, callback);
   },
 
   shutdown: function() {
