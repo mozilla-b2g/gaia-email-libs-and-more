@@ -95,6 +95,13 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(''),
       bpartStraightASCII =
         new SyntheticPartLeaf('I am text! Woo!'),
+      longBodyStr =
+        'This is a very long message that wants to be snippeted to a ' +
+        'reasonable length that is reasonable and not unreasonable.  It is ' +
+        'neither too long nor too short.  Not too octogonal nor hexagonal. ' +
+        'It is just right.',
+      bpartLongBodyText =
+        new SyntheticPartLeaf(longBodyStr),
       bpartUtf8Name =
         new SyntheticPartLeaf(
           utf8UnicodeName,
@@ -130,6 +137,14 @@ TD.commonCase('MIME hierarchies', function(T) {
       bpartLimitedHtml =
         new SyntheticPartLeaf(
           bstrLimitedHtml, { contentType: 'text/html' }),
+      bstrLongTextHtml =
+        '<p>This is a very long message that wants to be snippeted to a ' +
+        'reasonable length that is reasonable and not unreasonable.  It is ' +
+        'neither too long nor too short.  Not too octogonal nor hexagonal. ' +
+        'It is just right.</p>',
+      bpartLongTextHtml =
+        new SyntheticPartLeaf(
+          bstrLongTextHtml, { contentType: 'text/html' }),
       bstrStyleHtml =
         '<style type="text/css">' +
         'p { color: red; background-color: blue;' +
@@ -176,6 +191,16 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: bpartEmptyText,
       checkBody: '',
     },
+    // Check snippet logic is hooked up correctly; we already run this test in
+    // isolation, but I swear I saw bad snippets in my db once...
+    {
+      name: 'text/plain snippet processing',
+      bodyPart: bpartLongBodyText,
+      checkBody: longBodyStr,
+      checkSnippet:
+        'This is a very long message that wants to be snippeted to a ' +
+        'reasonable length that is reasonable and',
+    },
     // - straight up verification we don't do mime-word decoding on bodies
     {
       name: 'simple text/plain with mimeword in the body',
@@ -209,6 +234,14 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'text/html limited (sanitization leaves some behind)',
       bodyPart: bpartLimitedHtml,
       checkBody: bstrSanitizedLimitedHtml,
+    },
+    {
+      name: 'text/html long string for quoting',
+      bodyPart: bpartLongTextHtml,
+      checkBody: bstrLongTextHtml,
+      checkSnippet:
+        'This is a very long message that wants to be snippeted to a ' +
+        'reasonable length that is reasonable and',
     },
     {
       name: 'text/html w/style tag',
