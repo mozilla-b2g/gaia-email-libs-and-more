@@ -22,25 +22,27 @@ define(
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
-  this.serverId = storage.folderMeta.serverId;
+
+  this.folderMeta = storage.folderMeta;
+  this.serverId = this.folderMeta.serverId;
 
   if (!this.syncKey)
     this.syncKey = '0';
-  if (!storage.folderMeta.totalMessages)
-    storage.folderMeta.totalMessages = 0;
+  if (!this.folderMeta.totalMessages)
+    this.folderMeta.totalMessages = 0;
 }
 exports.ActiveSyncFolderConn = ActiveSyncFolderConn;
 ActiveSyncFolderConn.prototype = {
   get syncKey() {
-    return this._storage.folderMeta.syncKey;
+    return this.folderMeta.syncKey;
   },
 
   set syncKey(value) {
-    return this._storage.folderMeta.syncKey = value;
+    return this.folderMeta.syncKey = value;
   },
 
   get totalMessages() {
-    return this._storage.folderMeta.totalMessages;
+    return this.folderMeta.totalMessages;
   },
 
   /**
@@ -426,7 +428,7 @@ ActiveSyncFolderConn.prototype = {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
           folderConn.storage = s;
         });
-        storage.folderMeta.totalMessages = 0;
+        folderConn.folderMeta.totalMessages = 0;
         return;
       }
 
@@ -448,7 +450,7 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByUid(messageGuid);
       }
 
-      storage.folderMeta.totalMessages += added.length -
+      folderConn.folderMeta.totalMessages += added.length -
         deleted.length;
 
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
