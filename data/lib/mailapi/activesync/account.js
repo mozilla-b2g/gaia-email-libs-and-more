@@ -79,7 +79,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
     this.folders.push(folderInfo.$meta);
   }
-  // TODO: we should probably be smarter about sorting.
+
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
 
   if (this.accountDef.connInfo)
@@ -92,6 +92,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
+  type: 'activesync',
   toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
   },
