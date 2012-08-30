@@ -231,7 +231,8 @@ ActiveSyncAccount.prototype = {
       }
 
       account.saveAccountState();
-      callback();
+      if (callback)
+        callback();
     });
   },
 
