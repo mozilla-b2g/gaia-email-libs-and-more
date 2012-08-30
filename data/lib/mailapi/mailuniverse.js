@@ -8,12 +8,13 @@ define(
     'rdcommon/logreaper',
     './a64',
     './allback',
-    './imap/imapdb',
+    './maildb',
     './imap/probe',
     './imap/account',
     './smtp/probe',
     './smtp/account',
     './fake/account',
+    'activesync/protocol',
     './activesync/account',
     'module',
     'exports'
@@ -23,13 +24,14 @@ define(
     $logreaper,
     $a64,
     $allback,
-    $imapdb,
+    $maildb,
     $imapprobe,
     $imapacct,
     $smtpprobe,
     $smtpacct,
     $fakeacct,
     $activesync,
+    $asacct,
     $module,
     exports
   ) {
@@ -202,7 +204,7 @@ CompositeAccount.prototype = {
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
   'imap+smtp': CompositeAccount,
   'fake': $fakeacct.FakeAccount,
-  'activesync': $activesync.ActiveSyncAccount,
+  'activesync': $asacct.ActiveSyncAccount,
 };
 
 
@@ -263,6 +265,9 @@ var autoconfigByDomain = {
     type: 'fake',
   },
   'hotmail.com': {
+    type: 'activesync',
+  },
+  'gmail.com': {
     type: 'activesync',
   },
 };
@@ -433,11 +438,7 @@ Configurators['activesync'] = {
       type: 'activesync',
 
       credentials: credentials,
-      connInfo: {
-        hostname: 'm.hotmail.com',
-        port: 1337,
-        crypto: true,
-      },
+      connInfo: null,
 
       identities: [
         {
@@ -459,11 +460,22 @@ Configurators['activesync'] = {
       },
       $mutations: [],
     };
-    var account = universe._loadAccount(accountDef, folderInfo, null);
-    account.syncFolderList(function() {
-      accountDef.identities[0].name = account.conn.config.user.name;
+
+    var conn = new $activesync.Connection(credentials.username,
+                                          credentials.password);
+    conn.connect(function(error, config) {
+      if (error) {
+        callback(false, null);
+        return;
+      }
+
+      var account = universe._loadAccount(accountDef, folderInfo, conn);
+      if (!accountDef.identities[0].name)
+        accountDef.identities[0].name = config.user.name;
       universe.saveAccountDef(accountDef, folderInfo);
-      callback(true, account);
+      account.syncFolderList(function() {
+        callback(true, account);
+      });
     });
   },
 };
@@ -643,7 +655,7 @@ function MailUniverse(callAfterBigBang) {
   this._logBacklog = null;
 
   this._LOG = null;
-  this._db = new $imapdb.ImapDB();
+  this._db = new $maildb.MailDB();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
