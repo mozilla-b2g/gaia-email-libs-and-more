@@ -211,8 +211,8 @@ ImapConnection.prototype.connect = function(loginCb) {
     this._options.host, this._options.port, socketOptions);
 
   // XXX rely on mozTCPSocket for this?
-  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
-                                   this._options.connTimeout, loginCb);
+  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this, loginCb),
+                                   this._options.connTimeout);
 
   this._state.conn.onopen = function(evt) {
     if (self._LOG) self._LOG.connected();
