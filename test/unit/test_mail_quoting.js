@@ -14,7 +14,17 @@ function j() {
   return Array.prototype.join.call(arguments, '\n');
 }
 
+const DESIRED_SNIPPET_LENGTH = 100;
+
 TD.commonCase('Quoting', function(T) {
+  var longBodyStr =
+    'This is a very long message that wants to be snippeted to a ' +
+    'reasonable length that is reasonable and not unreasonable.  It is ' +
+    'neither too long nor too short.  Not too octogonal nor hexagonal. ' +
+    'It is just right.';
+  var noWhitespaceLongString =
+    '0123456789012345678901234567890123456789012345678901234567890123456789' +
+    '0123456789012345678901234567890123456789012345678901234567890123456789';
   var quoteTests = [
     // - base/pathological cases
     {
@@ -40,6 +50,27 @@ TD.commonCase('Quoting', function(T) {
       body: '\n\xa0\n\n\xa0\n',
       chunks: ['content', ''],
       snippet: '',
+    },
+    {
+      name: 'long body, snippet truncates exactly',
+      body: longBodyStr,
+      chunks: ['content', longBodyStr],
+      snippet: 'This is a very long message that wants to be snippeted to a ' +
+               'reasonable length that is reasonable and',
+    },
+    {
+      name: 'long body, snippet truncates with word shrink',
+      body: longBodyStr.replace('and', 'andy'),
+      chunks: ['content', longBodyStr.replace('and', 'andy')],
+      snippet: 'This is a very long message that wants to be snippeted to a ' +
+               'reasonable length that is reasonable',
+    },
+    {
+      name: 'long body, no whitespace, snippet truncates exactly',
+      body: noWhitespaceLongString,
+      chunks: ['content', noWhitespaceLongString],
+      snippet: '012345678901234567890123456789012345678901234567890123456789' +
+               '0123456789012345678901234567890123456789',
     },
     // - quoting fundamentals
     {
@@ -394,7 +425,7 @@ TD.commonCase('Quoting', function(T) {
           return x;
         return x.toString(16);
       }));
-      var snippetText = $_quotechew.generateSnippet(rep);
+      var snippetText = $_quotechew.generateSnippet(rep, DESIRED_SNIPPET_LENGTH);
       eCheck.namedValue('snippet', JSON.stringify(snippetText));
       if (roundtrip) {
         var forwardText = $_quotechew.generateForwardBodyText(rep);

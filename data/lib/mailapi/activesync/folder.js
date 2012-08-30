@@ -23,6 +23,8 @@ define(
   ) {
 'use strict';
 
+const DESIRED_SNIPPET_LENGTH = 100;
+
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
@@ -374,7 +376,8 @@ ActiveSyncFolderConn.prototype = {
               $quotechew.quoteProcessTextBody(
                 grandchild.children[0].textContent)
             ];
-            header.snippet = $quotechew.generateSnippet(body.bodyReps[1]);
+            header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
+                                                        DESIRED_SNIPPET_LENGTH);
           }
         }
         break;
@@ -383,7 +386,8 @@ ActiveSyncFolderConn.prototype = {
           'plain',
           $quotechew.quoteProcessTextBody(childText)
         ];
-        header.snippet = $quotechew.generateSnippet(body.bodyReps[1]);
+        header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
+                                                    DESIRED_SNIPPET_LENGTH);
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
