@@ -444,7 +444,8 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       generatedQuoteBlock = false,
       atePreLines = 0, ateQuoteLines = 0;
   for (idxLineStart = 0,
-         idxLineEnd = fullBodyText.indexOf('\n', idxLineStart);
+         idxLineEnd = indexOfDefault(fullBodyText, '\n', idxLineStart,
+                                     fullBodyText.length);
        idxLineStart < bodyLength;
        idxLineStart = idxLineEnd + 1,
          idxLineEnd = indexOfDefault(fullBodyText, '\n', idxLineStart,
