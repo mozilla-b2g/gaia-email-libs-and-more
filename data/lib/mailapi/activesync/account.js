@@ -336,6 +336,14 @@ ActiveSyncAccount.prototype = {
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
   },
 
+  /**
+   * Recreate the folder storage for a particular folder; useful when we end up
+   * desyncing with the server and need to start fresh.
+   *
+   * @param {string} folderId the local ID of the folder
+   * @param {function} callback a function to be called when the operation is
+   *   complete, taking the new folder storage
+   */
   _recreateFolder: function asa__recreateFolder(folderId, callback) {
     let folderInfo = this._folderInfos[folderId];
     folderInfo.accuracy = [];
