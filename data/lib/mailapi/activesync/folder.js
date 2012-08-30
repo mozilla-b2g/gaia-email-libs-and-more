@@ -464,6 +464,9 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByUid(messageGuid);
       }
 
+      // XXX: this is a lie; the total number of messages is probably not the
+      // same as the number we've gotten already. We should just check for
+      // <AirSync:MoreAvailable/> and let the folder storage know.
       folderConn.folderMeta.totalMessages += added.length - deleted.length;
 
       folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);

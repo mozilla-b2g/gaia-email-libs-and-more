@@ -1897,7 +1897,10 @@ console.log("ACCUMULATE MODE ON");
           }
 
           // If we're offline, just use what we've got and be done with it.
-          if (!this._account.universe.online) {
+          // XXX: ActiveSync is different, and trying to sync more doesn't work
+          // with it. Just assume we've got all we need for now.
+          if (!this._account.universe.online ||
+              this._account.type === 'activesync') {
             // (Yes this logic is the same as cases below, but I allege the
             // 'if' statement might be simpler this way.)
             if (batchHeaders.length) {
