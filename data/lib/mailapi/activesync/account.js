@@ -146,14 +146,6 @@ ActiveSyncAccount.prototype = {
   shutdown: function asa_shutdown() {
   },
 
-  createFolder: function asa_createFolder() {
-    throw new Error('XXX not implemented');
-  },
-
-  deleteFolder: function asa_deleteFolder() {
-    throw new Error('XXX not implemented');
-  },
-
   sliceFolderMessages: function asa_sliceFolderMessages(folderId,
                                                         bridgeHandle) {
     this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
@@ -165,7 +157,7 @@ ActiveSyncAccount.prototype = {
     const fh = $ascp.FolderHierarchy.Tags;
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
-       .tag(fh.SyncKey, account.meta.syncKey)
+       .tag(fh.SyncKey, this.meta.syncKey)
      .etag();
 
     this.conn.doCommand(w, function(aError, aResponse) {
@@ -235,8 +227,9 @@ ActiveSyncAccount.prototype = {
    * @param {string} displayName The display name for the new folder
    * @param {string} typeNum A numeric value representing the new folder's type,
    *   corresponding to the mapping in _folderTypes above
-   * @return {boolean} true if we added the folder, false if we need to wait
-   *   until later (e.g. if we haven't added the folder's parent yet)
+   * @return {object} the folderMeta if we added the folder, true if we don't
+   *   care about this kind of folder, or null if we need to wait until later
+   *   (e.g. if we haven't added the folder's parent yet)
    */
   _addedFolder: function asa__addedFolder(serverId, parentId, displayName,
                                           typeNum) {
@@ -248,12 +241,13 @@ ActiveSyncAccount.prototype = {
     if (parentId !== '0') {
       let parentFolderId = this._serverIdToFolderId[parentId];
       if (parentFolderId === undefined)
-        return false;
+        return null;
       let parent = this._folderInfos[parentFolderId];
       path = parent.$meta.path + '/' + path;
       depth = parent.$meta.depth + 1;
     }
 
+    console.log('Added folder ' + displayName + ' (' + folderId + ')');
     let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     let folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -274,15 +268,15 @@ ActiveSyncAccount.prototype = {
       this, folderInfo, this._db);
     this._serverIdToFolderId[serverId] = folderId;
 
-    var account = this;
-    var idx = bsearchForInsert(this.folders, folderInfo.$meta, function(a, b) {
+    let folderMeta = folderInfo.$meta;
+    let idx = bsearchForInsert(this.folders, folderMeta, function(a, b) {
       return a.path.localeCompare(b.path);
     });
-    this.folders.splice(idx, 0, folderInfo.$meta);
+    this.folders.splice(idx, 0, folderMeta);
 
-    this.universe.__notifyAddedFolder(this.id, folderInfo.$meta);
+    this.universe.__notifyAddedFolder(this.id, folderMeta);
 
-    return true;
+    return folderMeta;
   },
 
   /**
@@ -295,6 +289,8 @@ ActiveSyncAccount.prototype = {
     let folderId = this._serverIdToFolderId[serverId],
         folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
+
+    console.log('Deleted folder ' + folderMeta.name + ' (' + folderId + ')');
     delete this._serverIdToFolderId[serverId];
     delete this._folderInfos[folderId];
     delete this._folderStorages[folderId];
@@ -307,6 +303,132 @@ ActiveSyncAccount.prototype = {
     this._deadFolderIds.push(folderId);
 
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
+  },
+
+  /**
+   * Create a folder that is the child/descendant of the given parent folder.
+   * If no parent folder id is provided, we attempt to create a root folder.
+   *
+   * @args[
+   *   @param[parentFolderId String]
+   *   @param[folderName]
+   *   @param[containOnlyOtherFolders Boolean]{
+   *     Should this folder only contain other folders (and no messages)?
+   *     On some servers/backends, mail-bearing folders may not be able to
+   *     create sub-folders, in which case one would have to pass this.
+   *   }
+   *   @param[callback @func[
+   *     @args[
+   *       @param[error @oneof[
+   *         @case[null]{
+   *           No error, the folder got created and everything is awesome.
+   *         }
+   *         @case['offline']{
+   *           We are offline and can't create the folder.
+   *         }
+   *         @case['already-exists']{
+   *           The folder appears to already exist.
+   *         }
+   *         @case['unknown']{
+   *           It didn't work and we don't have a better reason.
+   *         }
+   *       ]]
+   *       @param[folderMeta ImapFolderMeta]{
+   *         The meta-information for the folder.
+   *       }
+   *     ]
+   *   ]]{
+   *   }
+   * ]
+   */
+  createFolder: function asa_createFolder(parentFolderId, folderName,
+                                          containOnlyOtherFolders, callback) {
+    let account = this;
+    let parentFolderServerId = parentFolderId ?
+      this._folderInfos[parentFolderId] : '0';
+
+    const fh = $ascp.FolderHierarchy.Tags;
+    const fhStatus = $ascp.FolderHierarchy.Enums.Status;
+    const folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(fh.FolderCreate)
+       .tag(fh.SyncKey, this.meta.syncKey)
+       .tag(fh.ParentId, parentFolderServerId)
+       .tag(fh.DisplayName, folderName)
+       .tag(fh.Type, folderType)
+     .etag();
+
+    this.conn.doCommand(w, function(aError, aResponse) {
+      let e = new $wbxml.EventParser();
+      let status, serverId;
+
+      e.addEventListener([fh.FolderCreate, fh.Status], function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener([fh.FolderCreate, fh.SyncKey], function(node) {
+        account.meta.syncKey = node.children[0].textContent;
+      });
+      e.addEventListener([fh.FolderCreate, fh.ServerId], function(node) {
+        serverId = node.children[0].textContent;
+      });
+
+      e.run(aResponse);
+
+      if (status === fhStatus.Success) {
+        let folderMeta = account._addedFolder(serverId, parentFolderServerId,
+                                              folderName, folderType);
+        callback(null, folderMeta);
+      }
+      else if (status === fhStatus.FolderExists) {
+        callback('already-exists');
+      }
+      else {
+        callback('unknown');
+      }
+    });
+  },
+
+  /**
+   * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
+   * does not desire this, but the unit tests do.
+   *
+   * Callback is like the createFolder one, why not.
+   */
+  deleteFolder: function asa_deleteFolder(folderId, callback) {
+    let account = this;
+    let folderMeta = this._folderInfos[folderId].$meta;
+
+    const fh = $ascp.FolderHierarchy.Tags;
+    const fhStatus = $ascp.FolderHierarchy.Enums.Status;
+    const folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(fh.FolderDelete)
+       .tag(fh.SyncKey, this.meta.syncKey)
+       .tag(fh.ServerId, folderMeta.serverId)
+     .etag();
+
+    this.conn.doCommand(w, function(aError, aResponse) {
+      let e = new $wbxml.EventParser();
+      let status;
+
+      e.addEventListener([fh.FolderDelete, fh.Status], function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener([fh.FolderDelete, fh.SyncKey], function(node) {
+        account.meta.syncKey = node.children[0].textContent;
+      });
+
+      e.run(aResponse);
+      if (status === fhStatus.Success) {
+        account._deletedFolder(folderMeta.serverId);
+        callback(null, folderMeta);
+      }
+      else {
+        callback('unknown');
+      }
+    });
   },
 
   sendMessage: function asa_sendMessage(composedMessage, callback) {
