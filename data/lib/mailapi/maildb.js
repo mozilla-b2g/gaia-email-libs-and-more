@@ -132,7 +132,7 @@ const TBL_BODY_BLOCKS = 'bodyBlocks';
  * compressible binary data that is at least 64k.
  *
  */
-function ImapDB() {
+function MailDB() {
   this._db = null;
   this._onDB = [];
 
@@ -205,8 +205,8 @@ function ImapDB() {
   };
   openRequest.onerror = this._fatalError;
 }
-exports.ImapDB = ImapDB;
-ImapDB.prototype = {
+exports.MailDB = MailDB;
+MailDB.prototype = {
   /**
    * Reset the contents of the database.
    */

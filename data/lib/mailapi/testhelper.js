@@ -3,6 +3,7 @@ define(function(require, exports, $module) {
 var $log = require('rdcommon/log'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
+    $date = require('mailapi/date'),
     $imapacct = require('mailapi/imap/account'),
     $fakeacct = require('mailapi/fake/account'),
     $imapslice = require('mailapi/imap/slice'),
@@ -48,7 +49,7 @@ var TestUniverseMixins = {
     if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       self._useDate.setHours(12, 0, 0, 0);
-      $imapslice.TEST_LetsDoTheTimewarpAgain(self._useDate);
+      $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
       // These are all the default values that tests code against by default.
       // If a test wants to use different values,
@@ -145,7 +146,7 @@ var TestUniverseMixins = {
       for (var i = 0; i < self.__testAccounts.length; i++) {
         self.__testAccounts[i]._useDate = useAsNowTS;
       }
-      $imapslice.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
+      $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });
   },
 

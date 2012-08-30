@@ -7,7 +7,7 @@ define(
     'imap',
     'rdcommon/log',
     '../a64',
-    './imapdb',
+    '../mailslice',
     './slice',
     './jobs',
     '../util',
@@ -18,7 +18,7 @@ define(
     $imap,
     $log,
     $a64,
-    $imapdb,
+    $mailslice,
     $imapslice,
     $imapjobs,
     $imaputil,
@@ -121,8 +121,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
     var folderInfo = folderInfos[folderId];
 
     folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
-                                       this._LOG);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $imapslice.ImapFolderConn, this._LOG);
     folderPubs.push(folderInfo.$meta);
   }
   this.folders.sort(function(a, b) {
@@ -159,8 +159,8 @@ ImapAccount.prototype = {
       bodyBlocks: [],
     };
     this._folderStorages[folderId] =
-      new $imapslice.ImapFolderStorage(this, folderId, folderInfo, this._db,
-                                       this._LOG);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $imapslice.ImapFolderConn, this._LOG);
 
     var folderMeta = folderInfo.$meta;
     var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);
@@ -410,7 +410,7 @@ ImapAccount.prototype = {
    */
   sliceFolderMessages: function(folderId, bridgeHandle) {
     var storage = this._folderStorages[folderId],
-        slice = new $imapslice.ImapSlice(bridgeHandle, storage, this._LOG);
+        slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
   },
