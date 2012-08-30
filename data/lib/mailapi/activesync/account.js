@@ -36,13 +36,22 @@ define(
 const bsearchForInsert = $util.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
-                           receiveProtoConn, _parentLog) {
+                           receiveProtoConn, _parentLog, existingConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
-  this.conn = new $activesync.Connection(accountDef.credentials.username,
-                                         accountDef.credentials.password);
+  if (existingConn) {
+    this.conn = existingConn;
+  }
+  else {
+    this.conn = new $activesync.Connection(accountDef.credentials.username,
+                                           accountDef.credentials.password);
+    if (this.accountDef.connInfo)
+      this.conn.setConfig(this.accountDef.connInfo);
+    this.conn.connect();
+  }
+
   this._db = dbConn;
 
   this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
@@ -81,10 +90,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   }
 
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
-
-  if (this.accountDef.connInfo)
-    this.conn.setConfig(this.accountDef.connInfo);
-  this.conn.connect();
 
   // TODO: this is a really hacky way of syncing folders after the first time.
   if (this.meta.syncKey != '0')
@@ -274,7 +279,6 @@ ActiveSyncAccount.prototype = {
       depth = parent.$meta.depth + 1;
     }
 
-    console.log('Added folder ' + displayName + ' (' + folderId + ')');
     let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     let folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -295,6 +299,7 @@ ActiveSyncAccount.prototype = {
       bodyBlocks: [],
     };
 
+    console.log('Added folder ' + displayName + ' (' + folderId + ')');
     this._folderStorages[folderId] =
       new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
                                    $asfolder.ActiveSyncFolderConn, this._LOG);

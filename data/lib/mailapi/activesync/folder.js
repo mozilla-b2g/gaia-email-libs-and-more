@@ -464,8 +464,7 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByUid(messageGuid);
       }
 
-      folderConn.folderMeta.totalMessages += added.length -
-        deleted.length;
+      folderConn.folderMeta.totalMessages += added.length - deleted.length;
 
       folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);

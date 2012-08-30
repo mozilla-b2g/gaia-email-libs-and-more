@@ -14,6 +14,7 @@ define(
     './smtp/probe',
     './smtp/account',
     './fake/account',
+    'activesync/protocol',
     './activesync/account',
     'module',
     'exports'
@@ -30,6 +31,7 @@ define(
     $smtpacct,
     $fakeacct,
     $activesync,
+    $asacct,
     $module,
     exports
   ) {
@@ -202,7 +204,7 @@ CompositeAccount.prototype = {
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
   'imap+smtp': CompositeAccount,
   'fake': $fakeacct.FakeAccount,
-  'activesync': $activesync.ActiveSyncAccount,
+  'activesync': $asacct.ActiveSyncAccount,
 };
 
 
@@ -458,16 +460,22 @@ Configurators['activesync'] = {
       },
       $mutations: [],
     };
-    var account = universe._loadAccount(accountDef, folderInfo, null);
-    account.syncFolderList(function() {
+
+    var conn = new $activesync.Connection(credentials.username,
+                                          credentials.password);
+    conn.connect(function(error, config) {
+      if (error) {
+        callback(false, null);
+        return;
+      }
+
+      var account = universe._loadAccount(accountDef, folderInfo, conn);
       if (!accountDef.identities[0].name)
-        accountDef.identities[0].name = account.conn.config.user.name;
-      accountDef.connInfo = {
-        user: account.conn.config.user,
-        server: account.conn.config.server
-      };
+        accountDef.identities[0].name = config.user.name;
       universe.saveAccountDef(accountDef, folderInfo);
-      callback(true, account);
+      account.syncFolderList(function() {
+        callback(true, account);
+      });
     });
   },
 };
