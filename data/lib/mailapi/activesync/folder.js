@@ -239,7 +239,7 @@ ActiveSyncFolderConn.prototype = {
         callback(null, added, changed, deleted);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
-        console.warning('ActiveSync had a bad sync key');
+        console.warn('ActiveSync had a bad sync key');
         callback('badkey');
       }
       else {
