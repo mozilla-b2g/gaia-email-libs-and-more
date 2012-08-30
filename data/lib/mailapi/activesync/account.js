@@ -36,13 +36,13 @@ define(
 const bsearchForInsert = $util.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
-                           receiveProtoConn, _parentLog, existingConn) {
+                           receiveProtoConn, _parentLog) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
-  if (existingConn) {
-    this.conn = existingConn;
+  if (receiveProtoConn) {
+    this.conn = receiveProtoConn;
   }
   else {
     this.conn = new $activesync.Connection(accountDef.credentials.username,
