@@ -4,25 +4,31 @@
 
 define(
   [
+    'rdcommon/log',
     'mailcomposer',
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
     '../a64',
+    '../mailslice',
     './folder',
     './jobs',
     '../util',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $mailcomposer,
     $wbxml,
     $ascp,
     $activesync,
     $a64,
+    $mailslice,
     $asfolder,
     $asjobs,
     $util,
+    $module,
     exports
   ) {
 'use strict';
@@ -30,14 +36,25 @@ define(
 const bsearchForInsert = $util.bsearchForInsert;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
-                           receiveProtoConn, _LOG) {
+                           receiveProtoConn, _parentLog, existingConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
-  this.conn = new $activesync.Connection(accountDef.credentials.username,
-                                         accountDef.credentials.password);
+  if (existingConn) {
+    this.conn = existingConn;
+  }
+  else {
+    this.conn = new $activesync.Connection(accountDef.credentials.username,
+                                           accountDef.credentials.password);
+    if (this.accountDef.connInfo)
+      this.conn.setConfig(this.accountDef.connInfo);
+    this.conn.connect();
+  }
+
   this._db = dbConn;
+
+  this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
 
   this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
 
@@ -46,17 +63,15 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.identities = accountDef.identities;
 
-  var ourIdentity = accountDef.identities[0];
-  var ourNameAndAddress = {
-    name: ourIdentity.name,
-    address: ourIdentity.address,
-  };
-
   this.folders = [];
   this._folderStorages = {};
   this._folderInfos = folderInfos;
   this._serverIdToFolderId = {};
   this._deadFolderIds = null;
+
+  this._syncsInProgress = 0;
+  this._lastSyncKey = null;
+  this._lastSyncResponseWasEmpty = false;
 
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
@@ -68,22 +83,21 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     var folderInfo = folderInfos[folderId];
 
     this._folderStorages[folderId] =
-      new $asfolder.ActiveSyncFolderStorage(this, folderInfo, this._db);
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $asfolder.ActiveSyncFolderConn, this._LOG);
     this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
     this.folders.push(folderInfo.$meta);
   }
-  // TODO: we should probably be smarter about sorting.
+
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
 
-  if (this.meta.syncKey != '0') {
-    // TODO: this is a really hacky way of syncing folders after the first
-    // time.
-    var account = this;
-    setTimeout(function() { account.syncFolderList(function() {}) }, 1000);
-  }
+  // TODO: this is a really hacky way of syncing folders after the first time.
+  if (this.meta.syncKey != '0')
+    setTimeout(this.syncFolderList.bind(this), 1000);
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
+  type: 'activesync',
   toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
   },
@@ -126,7 +140,8 @@ ActiveSyncAccount.prototype = {
     return 0;
   },
 
-  saveAccountState: function asa_saveAccountState(reuseTrans) {
+  saveAccountState: function asa_saveAccountState(reuseTrans, callback) {
+    let account = this;
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
       let folderStuff = this._folderStorages[folder.id]
@@ -135,12 +150,24 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
+    this._LOG.saveAccountState_begin();
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
-      function stateSaved() {},
-      reuseTrans);
+      function stateSaved() {
+        account._LOG.saveAccountState_end();
+        if (callback)
+         callback();
+      }, reuseTrans);
     this._deadFolderIds = null;
     return trans;
+  },
+
+  /**
+   * We are being told that a synchronization pass completed, and that we may
+   * want to consider persisting our state.
+   */
+  __checkpointSyncCompleted: function() {
+    this.saveAccountState();
   },
 
   shutdown: function asa_shutdown() {
@@ -148,7 +175,10 @@ ActiveSyncAccount.prototype = {
 
   sliceFolderMessages: function asa_sliceFolderMessages(folderId,
                                                         bridgeHandle) {
-    this._folderStorages[folderId]._sliceFolderMessages(bridgeHandle);
+    let storage = this._folderStorages[folderId],
+        slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
+
+    storage.sliceOpenFromNow(slice);
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
@@ -201,8 +231,10 @@ ActiveSyncAccount.prototype = {
         deferredAddedFolders = moreDeferredAddedFolders;
       }
 
+      console.log('Synced folder list');
       account.saveAccountState();
-      callback();
+      if (callback)
+        callback();
     });
   },
 
@@ -247,7 +279,6 @@ ActiveSyncAccount.prototype = {
       depth = parent.$meta.depth + 1;
     }
 
-    console.log('Added folder ' + displayName + ' (' + folderId + ')');
     let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     let folderInfo = this._folderInfos[folderId] = {
       $meta: {
@@ -257,15 +288,21 @@ ActiveSyncAccount.prototype = {
         path: path,
         type: this._folderTypes[typeNum],
         depth: depth,
+        syncKey: '0',
       },
       $impl: {
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
+      accuracy: [],
+      headerBlocks: [],
+      bodyBlocks: [],
     };
 
-    this._folderStorages[folderId] = new $asfolder.ActiveSyncFolderStorage(
-      this, folderInfo, this._db);
+    console.log('Added folder ' + displayName + ' (' + folderId + ')');
+    this._folderStorages[folderId] =
+      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
+                                   $asfolder.ActiveSyncFolderConn, this._LOG);
     this._serverIdToFolderId[serverId] = folderId;
 
     let folderMeta = folderInfo.$meta;
@@ -303,6 +340,41 @@ ActiveSyncAccount.prototype = {
     this._deadFolderIds.push(folderId);
 
     this.universe.__notifyRemovedFolder(this.id, folderMeta);
+  },
+
+  /**
+   * Recreate the folder storage for a particular folder; useful when we end up
+   * desyncing with the server and need to start fresh.
+   *
+   * @param {string} folderId the local ID of the folder
+   * @param {function} callback a function to be called when the operation is
+   *   complete, taking the new folder storage
+   */
+  _recreateFolder: function asa__recreateFolder(folderId, callback) {
+    let folderInfo = this._folderInfos[folderId];
+    folderInfo.accuracy = [];
+    folderInfo.headerBlocks = [];
+    folderInfo.bodyBlocks = [];
+
+    if (this._deadFolderIds === null)
+      this._deadFolderIds = [];
+    this._deadFolderIds.push(folderId);
+
+    let self = this;
+    this.saveAccountState(null, function() {
+      let newStorage =
+        new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
+                                     $asfolder.ActiveSyncFolderConn, self._LOG);
+      for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
+        slice._storage = newStorage;
+        slice._resetHeadersBecauseOfRefreshExplosion(true);
+        newStorage.sliceOpenFromNow(slice);
+      }
+      self._folderStorages[folderId]._slices = [];
+      self._folderStorages[folderId] = newStorage;
+
+      callback(newStorage);
+    });
   },
 
   /**
@@ -450,8 +522,8 @@ ActiveSyncAccount.prototype = {
       if (aResponse === null)
         callback(null);
       else {
-        dump('Error sending message. XML dump follows:\n' + aResponse.dump() +
-             '\n');
+        console.log('Error sending message. XML dump follows:\n' +
+                    aResponse.dump());
       }
     });
   },
@@ -467,7 +539,7 @@ ActiveSyncAccount.prototype = {
   },
 
   runOp: function asa_runOp(op, mode, callback) {
-    dump('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')\n');
+    console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
 
     let methodName = mode + '_' + op.type;
     let isLocal = /^local_/.test(mode);
@@ -492,5 +564,19 @@ ActiveSyncAccount.prototype = {
     }
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ActiveSyncAccount: {
+    type: $log.ACCOUNT,
+    events: {
+      createFolder: {},
+      deleteFolder: {},
+    },
+    asyncJobs: {
+      runOp: { mode: true, type: true, error: false, op: false },
+      saveAccountState: {},
+    },
+  },
+});
 
 }); // end define
