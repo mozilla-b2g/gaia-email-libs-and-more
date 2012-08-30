@@ -1,20 +1,24 @@
 define(
   [
+    'rdcommon/log',
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
     'mimelib',
     '../quotechew',
     '../util',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $wbxml,
     $ascp,
     $activesync,
     $mimelib,
     $quotechew,
     $util,
+    $module,
     exports
   ) {
 'use strict';
@@ -22,6 +26,7 @@ define(
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
+  this._LOG = LOGFAB.ActiveSyncFolderConn(this, _parentLog, storage.folderId);
 
   this.folderMeta = storage.folderMeta;
   this.serverId = this.folderMeta.serverId;
@@ -83,7 +88,7 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (folderConn.syncKey === '0')
-        console.log('Unable to get sync key for folder');
+        console.error('Unable to get sync key for folder');
       else
         callback();
     });
@@ -103,7 +108,7 @@ ActiveSyncFolderConn.prototype = {
     if (!account.conn.connected) {
       account.conn.connect(function(error, config) {
         if (error)
-          console.error(error);
+          console.error('Error connecting to ActiveSync:', error);
         else
           folderConn._enumerateFolderChanges(callback);
       });
@@ -164,13 +169,14 @@ ActiveSyncFolderConn.prototype = {
       folderConn._account._syncsInProgress--;
 
       if (aError) {
-        console.error(aError);
+        console.error('Error syncing folder:', aError);
         return;
       }
 
       folderConn._account._lastSyncKey = folderConn.syncKey;
 
       if (!aResponse) {
+        console.log('Sync completed with empty response');
         folderConn._account._lastSyncResponseWasEmpty = true;
         callback(null, added, changed, deleted);
         return;
@@ -228,10 +234,12 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (status === asEnum.Status.Success) {
+        console.log('Sync completed: added ' + added.length + ', changed ' +
+                    changed.length + ', deleted ' + deleted.length);
         callback(null, added, changed, deleted);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
-        console.error('ActiveSync had a bad sync key');
+        console.warning('ActiveSync had a bad sync key');
         callback('badkey');
       }
       else {
@@ -423,6 +431,8 @@ ActiveSyncFolderConn.prototype = {
                                              useBisectLimit, doneCallback) {
     let storage = this._storage;
     let folderConn = this;
+
+    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._enumerateFolderChanges(function (error, added, changed, deleted) {
       if (error === 'badkey') {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
@@ -453,10 +463,26 @@ ActiveSyncFolderConn.prototype = {
       folderConn.folderMeta.totalMessages += added.length -
         deleted.length;
 
+      folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
       doneCallback(null, added.length);
     });
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ActiveSyncFolderConn: {
+    type: $log.CONNECTION,
+    subtype: $log.CLIENT,
+    events: {
+    },
+    asyncJobs: {
+      syncDateRange: {
+        newMessages: true, existingMessages: true, deletedMessages: true,
+        start: false, end: false,
+      },
+    },
+  },
+});
 
 }); // end define

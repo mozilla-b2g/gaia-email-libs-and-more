@@ -135,6 +135,7 @@ ActiveSyncAccount.prototype = {
   },
 
   saveAccountState: function asa_saveAccountState(reuseTrans, callback) {
+    let account = this;
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
       let folderStuff = this._folderStorages[folder.id]
@@ -143,9 +144,11 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
+    this._LOG.saveAccountState_begin();
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
+        account._LOG.saveAccountState_end();
         if (callback)
          callback();
       }, reuseTrans);
@@ -230,6 +233,7 @@ ActiveSyncAccount.prototype = {
         deferredAddedFolders = moreDeferredAddedFolders;
       }
 
+      console.log('Synced folder list');
       account.saveAccountState();
       if (callback)
         callback();
@@ -390,8 +394,8 @@ ActiveSyncAccount.prototype = {
       if (aResponse === null)
         callback(null);
       else {
-        dump('Error sending message. XML dump follows:\n' + aResponse.dump() +
-             '\n');
+        console.log('Error sending message. XML dump follows:\n' +
+                    aResponse.dump());
       }
     });
   },
@@ -407,7 +411,7 @@ ActiveSyncAccount.prototype = {
   },
 
   runOp: function asa_runOp(op, mode, callback) {
-    dump('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')\n');
+    console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
 
     let methodName = mode + '_' + op.type;
     let isLocal = /^local_/.test(mode);
