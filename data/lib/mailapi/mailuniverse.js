@@ -264,6 +264,18 @@ var autoconfigByDomain = {
   'example.com': {
     type: 'fake',
   },
+  // Mapping for a nonexistent domain for testing a bad domain without it being
+  // detected ahead of time by the autoconfiguration logic or otherwise.
+  'nonesuch.nonesuch': {
+    type: 'imap+smtp',
+    imapHost: 'nonesuch.nonesuch',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'nonesuch.nonesuch',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: false,
+  },
   'hotmail.com': {
     type: 'activesync',
   },

@@ -695,6 +695,12 @@ ImapConnection.prototype.connect = function(loginCb) {
   this._state.conn.onerror = function(evt) {
     try {
       var err = evt.data;
+      // (only do error probing on things we can safely use 'in' on)
+      if (err && typeof(err) === 'object') {
+        // detect an nsISSLStatus instance by an unusual property.
+        if ('isNotValidAtThisTime' in err)
+          err = 'bad-security';
+      }
       clearTimeout(self._state.tmrConn);
       if (self._state.status === STATES.NOCONNECT)
         loginCb(new Error('Unable to connect. Reason: ' + err));
