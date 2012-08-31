@@ -973,7 +973,7 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._curSyncDoNotGrowWindowBefore = null;
 
-  this.folderConn = new FolderConn(account, this, this._LOG);
+  this.folderConn = FolderConn && new FolderConn(account, this, this._LOG);
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {

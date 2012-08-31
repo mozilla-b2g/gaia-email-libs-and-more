@@ -153,7 +153,7 @@ var TestUniverseMixins = {
 
   do_adjustSyncValues: function(useSyncValues) {
     this.T.convenienceSetup('adjust sync values for test', function() {
-      $imapslice.TEST_adjustSyncValues(useSyncValues);
+      $mailslice.TEST_adjustSyncValues(useSyncValues);
     });
   },
 
