@@ -1764,9 +1764,12 @@ console.log("type", this.folderMeta.type, "ainfo", JSON.stringify(ainfo));
 
       // We can do the refresh thing if we have updated more recently than
       // the cutoff threshold.
+      // XXX: we also refresh for ActiveSync for now, since it works a bit
+      // differently.
 console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
-      if (ainfo.fullSync &&
-          SINCE(ainfo.fullSync.updated, now - refreshThresh)) {
+      if ((ainfo.fullSync &&
+           SINCE(ainfo.fullSync.updated, now - refreshThresh)) ||
+          this._account.type === 'activesync') {
         existingDataGood = true;
       }
       // Look into using an adjusted date range.
