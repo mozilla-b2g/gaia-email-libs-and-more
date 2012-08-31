@@ -6,6 +6,7 @@ var $log = require('rdcommon/log'),
     $date = require('mailapi/date'),
     $imapacct = require('mailapi/imap/account'),
     $fakeacct = require('mailapi/fake/account'),
+    $mailslice = require('mailapi/mailslice'),
     $imapslice = require('mailapi/imap/slice'),
     $imaputil = require('mailapi/util'),
     $imapjs = require('imap'),
@@ -53,7 +54,7 @@ var TestUniverseMixins = {
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
       // These are all the default values that tests code against by default.
       // If a test wants to use different values,
-      $imapslice.TEST_adjustSyncValues({
+      $mailslice.TEST_adjustSyncValues({
         fillSize: 15,
         days: 7,
         scaleFactor: 1.6,
@@ -83,7 +84,7 @@ var TestUniverseMixins = {
       self.RT.captureAllLoggersByType(
         'ImapFolderConn', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
-        'ImapFolderStorage', self.__folderStorageLoggerSoup);
+        'FolderStorage', self.__folderStorageLoggerSoup);
 
       for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
         var testAccount = self.__restoredAccounts[iAcct];
@@ -344,7 +345,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
 
     testFolder.id = null;
     testFolder.mailFolder = null;
@@ -409,7 +410,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
     var self = this,
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('ImapFolderStorage', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.messages = null;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup('find test folder', testFolder, function() {
@@ -940,6 +941,7 @@ exports.TESTHELPER = {
   LOGFAB_DEPS: [
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
+    $mailslice.LOGFAB,
     $imapacct.LOGFAB, $imapslice.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,
