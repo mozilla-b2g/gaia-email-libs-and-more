@@ -1,5 +1,5 @@
 /**
- * Test ImapFolderStorage's logic focusing on dealing with the impact of async
+ * Test FolderStorage's logic focusing on dealing with the impact of async
  * I/O, range edge-cases, block splitting and merging, and forgetting data as
  * needed.
  **/
@@ -8,8 +8,6 @@ load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_folder_storage' }, null, [$th_imap.TESTHELPER], ['app']);
-
-var $imapslice = require('mailapi/imap/slice');
 
 function MockDB() {
 }
@@ -22,14 +20,14 @@ MockAccount.prototype = {
 };
 
 /**
- * Create the ImapFolderStorage instance for a test run plus the required mocks.
+ * Create the FolderStorage instance for a test run plus the required mocks.
  */
 function makeTestContext() {
   var db = new MockDB(),
       account = new MockAccount();
 
   var folderId = 'A/1';
-  var storage = new $imapslice.ImapFolderStorage(
+  var storage = new $_mailslice.FolderStorage(
     account, folderId,
     {
       $meta: {
@@ -824,7 +822,7 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split to [B's, A's]
   var olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_imapslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.push(olderBlockInfo);
 
   ctx.insertHeader(dC, uidC1);
@@ -834,7 +832,7 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split [C's and B's, A's] to [C's, B's, A's]
   olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_imapslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.splice(1, 0, olderBlockInfo);
 
   console.log(JSON.stringify(ctx.storage._headerBlockInfos));
