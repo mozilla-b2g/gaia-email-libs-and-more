@@ -1788,7 +1788,8 @@ console.log("ACCUMULATE MODE ON");
           // If we're offline, just use what we've got and be done with it.
           if (this._account.universe.online) {
             growingSync = this.folderSyncer.growSync(slice.startTS,
-                                                     batchHeaders);
+                                                     batchHeaders,
+                                                     userRequestsGrowth);
           }
 
           // XXXsquib: maybe this needs to be a callback to growSync so that
@@ -2825,7 +2826,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
   // Returns null if we don't need to sync, or an array of the sync type and
   // the number of batchHeaders to append to the slice.
-  growSync: function(endTS, batchHeaders) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth) {
     // XXX: ActiveSync is different, and trying to sync more doesn't work
     // with it. Just assume we've got all we need for now.
     if (this._account.type === 'activesync')
