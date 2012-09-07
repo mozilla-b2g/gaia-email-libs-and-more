@@ -8,8 +8,11 @@
  * We test these things elsewhere:
  * -
  *
- * We want tests for the following:
- * - A failure to
+ * We want tests for the following (somewhere):
+ * - Sync connect failure: Can't talk to the server at all.
+ * - Sync login failure: The server does not like our credentials.
+ * - Sync connection losses:
+ *
  * - Failures in the (auto)configuration process (covering all the enumerated
  *   failure values we define.)
  **/
