@@ -383,6 +383,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    *     e-mail address (sans wrapping greater-than/less-than).
    */
   _formatMailFromNameAndAddress: function(aNameAndAddress) {
+    if (!aNameAndAddress[0])
+      return aNameAndAddress[1];
     // if the name is encoded, do not put it in quotes!
     return (aNameAndAddress[0][0] == "=" ?
               (aNameAndAddress[0] + " ") :

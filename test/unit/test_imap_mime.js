@@ -126,6 +126,11 @@ TD.commonCase('MIME hierarchies', function(T) {
           bstrQpWin1252,
           { charset: 'windows-1252', format: null,
             encoding: 'quoted-printable' }),
+      bpartQpWin1252ShortenedCharset =
+        new SyntheticPartLeaf(
+          bstrQpWin1252,
+          { charset: 'win-1252', format: null,
+            encoding: 'quoted-printable' }),
   // - bodies: text/enriched (ignored!)
   // This exists just to test the alternatives logic.
       bpartIgnoredEnriched =
@@ -227,6 +232,19 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: bpartQpWin1252,
       checkBody: rawQpWin1252,
     },
+    {
+      name: 'text/plain qp win-1252 (incorrectly shortened from windows-1252)',
+      bodyPart: bpartQpWin1252ShortenedCharset,
+      checkBody: rawQpWin1252,
+    },
+    // - text/plain checking things not related to bodies...
+    {
+      name: 'text/plain with sender without display name',
+      bodyPart: bpartEmptyText,
+      from: [null, 'nodisplayname@example.com'],
+      to: [[null, 'nodisplayname2@example.com']],
+      checkBody: '',
+    },
     // - straight up verification we don't do mime-word decoding on bodies
     {
       name: 'simple text/plain with mimeword in the body',
@@ -288,6 +306,25 @@ TD.commonCase('MIME hierarchies', function(T) {
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
+
+
+  var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+  testUniverse.do_adjustSyncValues({
+    // only fillSize and days are adjusted; we want to synchronize everything
+    // in one go.
+    fillSize: testMessages.length,
+    days: testMessages.length,
+    // the rest are defaults here...
+    scaleFactor: 1.6,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
+    refreshInbox: DISABLE_THRESH_USING_FUTURE,
+    oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
+    refreshOld: DISABLE_THRESH_USING_FUTURE,
+    useRangeNonInbox: DISABLE_THRESH_USING_FUTURE,
+    useRangeInbox: DISABLE_THRESH_USING_FUTURE
+  });
 
   // -- create the folder, append the messages
   var fullSyncFolder = testAccount.do_createTestFolder(
