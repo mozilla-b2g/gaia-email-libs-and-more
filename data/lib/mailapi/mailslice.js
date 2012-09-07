@@ -1788,7 +1788,8 @@ console.log("ACCUMULATE MODE ON");
           // If we're offline, just use what we've got and be done with it.
           if (this._account.universe.online) {
             growingSync = this.folderSyncer.growSync(slice.startTS,
-                                                     batchHeaders);
+                                                     batchHeaders,
+                                                     userRequestsGrowth);
           }
 
           // XXXsquib: maybe this needs to be a callback to growSync so that
@@ -1902,68 +1903,6 @@ console.log("ACCUMULATE MODE ON");
 
     if (this._slices.length === 0 && this._pendingMutationCount === 0)
       this.folderSyncer.relinquishConn();
-  },
-
-  onSyncCompleted: function(folderMessageCount) {
-    // If it now appears we know about all the messages in the folder, then we
-    // are done syncing and can mark the entire folder as synchronized.  This
-    // requires that the number of messages we know about is the same as the
-    // number the server most recently told us are in the folder, plus that the
-    // slice's oldest know message is the oldest message known to the db,
-    // implying that we have fully synchronized the folder during this session.
-    //
-    // NB: If there are any deleted messages, this logic will not save us
-    // because we ignored those messages.  This is made less horrible by issuing
-    // a time-date that expands as we go further back in time.
-    //
-    // (I have considered asking to see deleted messages too and ignoring them;
-    // that might be suitable.  We could also just be a jerk and force an
-    // expunge.)
-    var dbCount = this.getKnownMessageCount();
-console.log("folder message count", folderMessageCount, "dbCount", dbCount,
-            "oldest known", this.headerIsOldestKnown(
-              this._curSyncSlice.startTS, this._curSyncSlice.startUID));
-    if (folderMessageCount === dbCount &&
-        this.headerIsOldestKnown(this._curSyncSlice.startTS,
-                                 this._curSyncSlice.startUID)) {
-      // (do not desire more headers)
-      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-      // expand the accuracy range to cover everybody
-      this.markSyncedEntireFolder();
-    }
-    // If our slice has now gone to the dawn of time, we can decide we have
-    // enough headers.
-    else if (this._curSyncSlice.startTS &&
-             ON_OR_BEFORE(this._curSyncSlice.startTS, OLDEST_SYNC_DATE)) {
-      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-    }
-
-    // - Done if we don't want any more headers.
-    if (this._curSyncSlice.headers.length >=
-          this._curSyncSlice.desiredHeaders ||
-        // (limited syncs aren't allowed to expand themselves)
-        (this._curSyncSlice.waitingOnData === 'limsync')) {
-      console.log("SYNCDONE Enough headers retrieved.",
-                  "have", this._curSyncSlice.headers.length,
-                  "want", this._curSyncSlice.desiredHeaders,
-                  "conn knows about", folderMessageCount,
-                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
-      // If we are accumulating, we don't want to adjust our count upwards;
-      // the release will slice the excess off for us.
-      if (!this._curSyncSlice._accumulating) {
-        this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-      }
-      this._curSyncSlice.waitingOnData = false;
-      this._curSyncSlice.setStatus('synced', true, false, true);
-      this._curSyncSlice = null;
-
-      this._account.__checkpointSyncCompleted();
-      return false;
-    }
-    else if (this._curSyncSlice._accumulating) {
-      this._curSyncSlice.setStatus('synchronizing', true, true, true);
-      return true;
-    }
   },
 
   /**
@@ -2887,7 +2826,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
   // Returns null if we don't need to sync, or an array of the sync type and
   // the number of batchHeaders to append to the slice.
-  growSync: function(endTS, batchHeaders) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth) {
     // XXX: ActiveSync is different, and trying to sync more doesn't work
     // with it. Just assume we've got all we need for now.
     if (this._account.type === 'activesync')
@@ -2962,10 +2901,74 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
     console.log("Sync Completed!", this._curSyncDayStep, "days",
                 messagesSeen, "messages synced");
 
-    var folderMessageCount = this.folderConn && this.folderConn.totalMessages;
-    var syncMore = this.folderStorage.onSyncCompleted(folderMessageCount);
-    if (!syncMore)
+    // If it now appears we know about all the messages in the folder, then we
+    // are done syncing and can mark the entire folder as synchronized.  This
+    // requires that the number of messages we know about is the same as the
+    // number the server most recently told us are in the folder, plus that the
+    // slice's oldest know message is the oldest message known to the db,
+    // implying that we have fully synchronized the folder during this session.
+    //
+    // NB: If there are any deleted messages, this logic will not save us
+    // because we ignored those messages.  This is made less horrible by issuing
+    // a time-date that expands as we go further back in time.
+    //
+    // (I have considered asking to see deleted messages too and ignoring them;
+    // that might be suitable.  We could also just be a jerk and force an
+    // expunge.)
+    var folderMessageCount = this.folderConn && this.folderConn.totalMessages,
+        dbCount = this.folderStorage.getKnownMessageCount();
+console.log("folder message count", folderMessageCount,
+            "dbCount", dbCount,
+            "oldest known", this.folderStorage.headerIsOldestKnown(
+              this.folderStorage._curSyncSlice.startTS,
+              this.folderStorage._curSyncSlice.startUID));
+    if (folderMessageCount === dbCount &&
+        this.folderStorage.headerIsOldestKnown(
+          this.folderStorage._curSyncSlice.startTS,
+          this.folderStorage._curSyncSlice.startUID)) {
+      // (do not desire more headers)
+      this.folderStorage._curSyncSlice.desiredHeaders =
+        this.folderStorage._curSyncSlice.headers.length;
+      // expand the accuracy range to cover everybody
+      this.folderStorage.markSyncedEntireFolder();
+    }
+    // If our slice has now gone to the dawn of time, we can decide we have
+    // enough headers.
+    else if (this.folderStorage._curSyncSlice.startTS &&
+             ON_OR_BEFORE(this.folderStorage._curSyncSlice.startTS,
+                          OLDEST_SYNC_DATE)) {
+      this.folderStorage._curSyncSlice.desiredHeaders =
+        this.folderStorage._curSyncSlice.headers.length;
+    }
+
+    // - Done if we don't want any more headers.
+    if (this.folderStorage._curSyncSlice.headers.length >=
+          this.folderStorage._curSyncSlice.desiredHeaders ||
+        // (limited syncs aren't allowed to expand themselves)
+        (this.folderStorage._curSyncSlice.waitingOnData === 'limsync')) {
+      console.log("SYNCDONE Enough headers retrieved.",
+                  "have", this.folderStorage._curSyncSlice.headers.length,
+                  "want", this.folderStorage._curSyncSlice.desiredHeaders,
+                  "conn knows about", this.folderConn.totalMessages,
+                  "sync date", this._curSyncStartTS,
+                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
+      // If we are accumulating, we don't want to adjust our count upwards;
+      // the release will slice the excess off for us.
+      if (!this.folderStorage._curSyncSlice._accumulating) {
+        this.folderStorage._curSyncSlice.desiredHeaders =
+          this.folderStorage._curSyncSlice.headers.length;
+      }
+      this.folderStorage._curSyncSlice.waitingOnData = false;
+      this.folderStorage._curSyncSlice.setStatus('synced', true, false, true);
+      this.folderStorage._curSyncSlice = null;
+
+      this._account.__checkpointSyncCompleted();
       return;
+    }
+    else if (this.folderStorage._curSyncSlice._accumulating) {
+      this.folderStorage._curSyncSlice.setStatus('synchronizing', true, true,
+                                                 true);
+    }
 
     // - Increase our search window size if we aren't finding anything
     // Our goal is that if we are going backwards in time and aren't finding
