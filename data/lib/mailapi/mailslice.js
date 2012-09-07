@@ -2740,7 +2740,8 @@ function FolderSyncer(account, folderStorage, FolderConn, _parentLog) {
    */
   this._curSyncDoNotGrowWindowBefore = null;
 
-  this.folderConn = new FolderConn(account, folderStorage, this._LOG);
+  this.folderConn = FolderConn && new FolderConn(account, folderStorage,
+                                                 this._LOG);
 }
 exports.FolderSyncer = FolderSyncer;
 FolderSyncer.prototype = {
