@@ -25,3 +25,6 @@
 [submodule "deps/bleach.js"]
 	path = deps/bleach.js
 	url = git://github.com/asutherland/bleach.js.git
+[submodule "node-deps/addressparser"]
+	path = node-deps/addressparser
+	url = git://github.com/andris9/addressparser.git

@@ -18,7 +18,7 @@ exports.Iconv = function Iconv(sourceEnc, destEnc) {
   // - decoding
   if (/^UTF-8/.test(destEnc)) {
     this.decode = true;
-    this.coder = new TextDecoder('utf-8', ENCODER_OPTIONS);
+    this.coder = new TextDecoder(sourceEnc, ENCODER_OPTIONS);
   }
   // - encoding
   else {
@@ -37,7 +37,7 @@ exports.Iconv.prototype = {
    */
   convert: function(inbuf) {
     if (this.decode) {
-      return Buffer(this.coder.decode(inbuf));
+      return this.coder.decode(inbuf);
     }
     else {
       return Buffer(this.coder.encode(inbuf));
