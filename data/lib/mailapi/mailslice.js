@@ -852,6 +852,9 @@ MailSlice.prototype = {
  */
 function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
                        FolderConn, _parentLog) {
+  // XXX: eventually we will pass in a FolderSyncer constructor instead of a
+  // FolderConn constructor...
+
   /** Our owning account. */
   this._account = account;
   this._imapDb = dbConn;
@@ -949,31 +952,8 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * about all header modifications/notes as they occur.
    */
   this._curSyncSlice = null;
-  /**
-   * The timestamp to use for `markSyncRange` for all syncs in this higher
-   * level sync.  Accuracy time-info does not need high precision, so this
-   * results in fewer accuracy structures and simplifies our decision logic
-   * in `sliceOpenFromNow`.
-   */
-  this._curSyncAccuracyStamp = null;
-  /**
-   * The start range of the (backward-moving) sync time range.
-   */
-  this._curSyncStartTS = null;
-  /**
-   * The number of days we are looking into the past in the current sync step.
-   */
-  this._curSyncDayStep = null;
-  /**
-   * If non-null, then we must reach a sync start date of the provided date
-   * before we begin increasing _curSyncDayStep.  This helps us avoid
-   * oscillation where we make the window too large, shrink it, but then find
-   * find nothing.  Since we know that there are going to be a lot of messages
-   * before we hit this date, it makes sense to keep taking smaller sync steps.
-   */
-  this._curSyncDoNotGrowWindowBefore = null;
 
-  this.folderConn = new FolderConn(account, this, this._LOG);
+  this.folderSyncer = new FolderSyncer(account, this, FolderConn, this._LOG);
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
@@ -1730,113 +1710,7 @@ FolderStorage.prototype = {
     // by definition, we must be at the top
     slice.atTop = true;
 
-    // -- Check if we have sufficiently useful data on hand.
-    // For checking accuracy ranges, the first accuracy range is authoritative
-    // for at least all of what `sliceOpenFromNow` returned last time, so we can
-    // just check against it.  (It may have been bisected by subsequent scrolled
-    // refreshes, but they will be more recent and thus won't affect the least
-    // accurate data, which is what we care about.)
-    var now = NOW(),
-        futureNow = FUTURE(),
-        pastDate = makeDaysAgo(daysDesired),
-        iAcc, iHeadBlock, ainfo,
-        // What is the startTS fullSync data we have for the time range?
-        worstGoodData = 0,
-        existingDataGood = false;
-
-console.log("accuracy ranges length:", this._accuracyRanges.length);
-    // If we're offline, there's nothing to look into; use the DB.
-    if (!this._account.universe.online) {
-      existingDataGood = true;
-    }
-    else if (this._accuracyRanges.length && !forceDeepening) {
-      ainfo = this._accuracyRanges[0];
-console.log("type", this.folderMeta.type, "ainfo", JSON.stringify(ainfo));
-      var newestMessage = this.getYoungestMessageTimestamp();
-      var refreshThresh;
-      if (this.folderMeta.type === 'inbox')
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
-      else if (ON_OR_BEFORE(newestMessage,
-                            now - SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD;
-      else
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
-
-      // We can do the refresh thing if we have updated more recently than
-      // the cutoff threshold.
-      // XXX: we also refresh for ActiveSync for now, since it works a bit
-      // differently.
-console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
-      if ((ainfo.fullSync &&
-           SINCE(ainfo.fullSync.updated, now - refreshThresh)) ||
-          this._account.type === 'activesync') {
-        existingDataGood = true;
-      }
-      // Look into using an adjusted date range.
-      else {
-        var rangeThresh;
-        if (this.folderMeta.type === 'inbox')
-          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
-        else
-          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
-
-console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
-        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, now - rangeThresh)){
-          // METHOD #2
-          // We need to iterate over the headers to figure out the right
-          // date to use.  We can't just use the accuracy range because it may
-          // have been bisected by the user scrolling into the past and
-          // triggering a refresh.
-          this.getMessagesBeforeMessage(
-            null, null, INITIAL_FILL_SIZE - 1,
-            function(headers, moreExpected) {
-              if (moreExpected)
-                return;
-              var header = headers[headers.length - 1];
-              pastDate = quantizeDate(header.date);
-              this._startSync(slice, pastDate, futureNow, 'sync', true);
-            }.bind(this));
-          return;
-        }
-      }
-    }
-
-    // -- Good existing data, fill the slice from the DB
-    if (existingDataGood) {
-      // We can adjust our start time to the dawn of time since we have a
-      // limit in effect.
-      slice.waitingOnData = 'db';
-      // METHOD #1
-      this.getMessagesInImapDateRange(
-        0, futureNow, INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
-        // trigger a refresh if we are online
-        this.onFetchDBHeaders.bind(this, slice, this._account.universe.online));
-      return;
-    }
-
-    // -- Bad existing data, issue a sync and have the slice
-    // METHOD #3
-    this._startSync(slice, pastDate, futureNow, 'sync', false);
-  },
-
-  _startSync: function ifs__startSync(slice, startTS, endTS, syncMode,
-                                      accumulateMode) {
-    if (startTS === null)
-      startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
-    slice.setStatus('synchronizing', false, true);
-    slice.waitingOnData = syncMode;
-console.log("accumulate request", accumulateMode);
-    if (accumulateMode && slice.headers.length === 0) {
-console.log("ACCUMULATE MODE ON");
-      slice._accumulating = true;
-    }
-    this._curSyncSlice = slice;
-    this._curSyncAccuracyStamp = NOW();
-    this._curSyncStartTS = startTS;
-    this._curSyncDayStep = INITIAL_SYNC_DAYS;
-    this._curSyncDoNotGrowWindowBefore = null;
-    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  null, this.onSyncCompleted.bind(this));
+    this.folderSyncer.syncFromNow(slice, daysDesired, forceDeepening);
   },
 
   /**
@@ -1932,7 +1806,7 @@ console.log("ACCUMULATE MODE ON");
             slice.desiredHeaders += desiredCount;
             // Perform a limited synchronization; do not issue additional
             // syncs!
-            this._startSync(slice, syncStartTS, syncEndTS, 'limsync');
+            this.folderSyncer._startSync(slice, syncStartTS, syncEndTS, 'limsync');
           }
           // If there is no sync range (left), but there were messsages, report
           // the messages.
@@ -1944,7 +1818,7 @@ console.log("ACCUMULATE MODE ON");
           // covers as far back as we go, issue a (potentially expanding) sync.
           else if (userRequestsGrowth) {
             slice.desiredHeaders += desiredCount;
-            this._startSync(slice, null, slice.startTS, 'sync');
+            this.folderSyncer._startSync(slice, null, slice.startTS, 'sync');
           }
           // We are at the 'bottom', as it were.  Send an empty set.
           else {
@@ -1974,13 +1848,19 @@ console.log("ACCUMULATE MODE ON");
    * full date bounds.
    */
   refreshSlice: function ifs_refreshSlice(slice, useBisectLimit) {
-    var startTS = slice.startTS, endTS = slice.endTS, self = this;
+    // XXX use mutex scheduling to avoid this possibly happening...
+    if (this._curSyncSlice)
+      throw new Error("Can't refresh a slice when there is an existing sync");
+
+    slice.waitingOnData = 'refresh';
+
+    var startTS = slice.startTS, endTS = slice.endTS;
 
     // - Grow endTS
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
-    if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
+    if (this.folderStorage.headerIsYoungestKnown(endTS, slice.endUID)) {
       endTS = FUTURE();
     }
     else {
@@ -1993,43 +1873,38 @@ console.log("ACCUMULATE MODE ON");
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.
-    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
-      var syncStartTS = this.getOldestFullSyncDate(startTS);
+    if (this.folderStorage.headerIsOldestKnown(startTS, slice.startUID)) {
+      var syncStartTS = this.folderStorage.getOldestFullSyncDate(startTS);
       startTS = syncStartTS;
     }
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);
 
-    // XXX use mutex scheduling to avoid this possibly happening...
-    if (this._curSyncSlice)
-      throw new Error("Can't refresh a slice when there is an existing sync");
-    slice.waitingOnData = 'refresh';
-    this._curSyncAccuracyStamp = NOW();
-    this.folderConn.syncDateRange(
-      startTS, endTS, this._curSyncAccuracyStamp, useBisectLimit,
-      function(bisectInfo, numMessages) {
-        // If a bisection occurred then this can no longer be a refresh and
-        // instead we need to retract all known messages and instead convert
-        // this into a synchronization.
-        if (bisectInfo) {
-          if (bisectInfo === 'aborted') {
-            self._slices.splice(self._slices.indexOf(slice), 1);
-            self.sliceOpenFromNow(slice, null, true);
-           }
-          else {
-            slice._resetHeadersBecauseOfRefreshExplosion();
-          }
-          return 'abort';
+    var self = this;
+    this.folderSyncer.refreshSlice(startTS, endTS, useBisectLimit,
+                                   function(bisectInfo, numMessages) {
+      // If a bisection occurred then this can no longer be a refresh and
+      // instead we need to retract all known messages and instead convert
+      // this into a synchronization.
+      if (bisectInfo) {
+        if (bisectInfo === 'aborted') {
+          self._slices.splice(self._slices.indexOf(slice), 1);
+          self.sliceOpenFromNow(slice, null, true);
         }
+        else {
+          slice._resetHeadersBecauseOfRefreshExplosion();
+        }
+        return 'abort';
+      }
 
-        slice.waitingOnData = false;
-        if (self._curSyncSlice === slice)
-          self._curSyncSlice = null;
-        self._account.__checkpointSyncCompleted();
-        slice.setStatus('synced', true, false);
-        return undefined;
-      });
+      slice.waitingOnData = false;
+      if (self._curSyncSlice === slice)
+        self._curSyncSlice = null;
+      self._account.__checkpointSyncCompleted();
+      slice.setStatus('synced', true, false);
+      return undefined;
+    });
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2038,142 +1913,6 @@ console.log("ACCUMULATE MODE ON");
 
     if (this._slices.length === 0 && this._pendingMutationCount === 0)
       this.folderConn.relinquishConn();
-  },
-
-  /**
-   * Whatever synchronization we last triggered has now completed; we should
-   * either trigger another sync if we still want more data, or close out the
-   * current sync.
-   */
-  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
-    // In the event the time range had to be bisected, update our info so if
-    // we need to take another step we do the right thing.
-    if (bisectInfo) {
-      this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
-      this._curSyncDayStep = bisectInfo.dayStep;
-      this._curSyncStartTS = bisectInfo.newStartTS;
-      return;
-    }
-
-    console.log("Sync Completed!", this._curSyncDayStep, "days",
-                messagesSeen, "messages synced");
-
-    // If it now appears we know about all the messages in the folder, then we
-    // are done syncing and can mark the entire folder as synchronized.  This
-    // requires that the number of messages we know about is the same as the
-    // number the server most recently told us are in the folder, plus that the
-    // slice's oldest know message is the oldest message known to the db,
-    // implying that we have fully synchronized the folder during this session.
-    //
-    // NB: If there are any deleted messages, this logic will not save us
-    // because we ignored those messages.  This is made less horrible by issuing
-    // a time-date that expands as we go further back in time.
-    //
-    // (I have considered asking to see deleted messages too and ignoring them;
-    // that might be suitable.  We could also just be a jerk and force an
-    // expunge.)
-    var folderMessageCount = this.folderConn && this.folderConn.totalMessages,
-        dbCount = this.getKnownMessageCount();
-console.log("folder message count", folderMessageCount,
-            "dbCount", dbCount,
-            "oldest known", this.headerIsOldestKnown(this._curSyncSlice.startTS,
-                                 this._curSyncSlice.startUID));
-    if (folderMessageCount === dbCount &&
-        this.headerIsOldestKnown(this._curSyncSlice.startTS,
-                                 this._curSyncSlice.startUID)) {
-      // (do not desire more headers)
-      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-      // expand the accuracy range to cover everybody
-      this.markSyncedEntireFolder();
-    }
-    // If our slice has now gone to the dawn of time, we can decide we have
-    // enough headers.
-    else if (this._curSyncSlice.startTS &&
-             ON_OR_BEFORE(this._curSyncSlice.startTS, OLDEST_SYNC_DATE)) {
-      this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-    }
-
-    // - Done if we don't want any more headers.
-    if (this._curSyncSlice.headers.length >=
-          this._curSyncSlice.desiredHeaders ||
-        // (limited syncs aren't allowed to expand themselves)
-        (this._curSyncSlice.waitingOnData === 'limsync')) {
-      console.log("SYNCDONE Enough headers retrieved.",
-                  "have", this._curSyncSlice.headers.length,
-                  "want", this._curSyncSlice.desiredHeaders,
-                  "conn knows about", this.folderConn.totalMessages,
-                  "sync date", this._curSyncStartTS,
-                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
-      // If we are accumulating, we don't want to adjust our count upwards;
-      // the release will slice the excess off for us.
-      if (!this._curSyncSlice._accumulating)
-        this._curSyncSlice.desiredHeaders = this._curSyncSlice.headers.length;
-      this._curSyncSlice.waitingOnData = false;
-      this._curSyncSlice.setStatus('synced', true, false, true);
-      this._curSyncSlice = null;
-
-      this._account.__checkpointSyncCompleted();
-      return;
-    }
-    else if (this._curSyncSlice._accumulating) {
-      this._curSyncSlice.setStatus('synchronizing', true, true, true);
-    }
-
-    // - Increase our search window size if we aren't finding anything
-    // Our goal is that if we are going backwards in time and aren't finding
-    // anything, we want to keep expanding our window
-    var daysToSearch, lastSyncDaysInPast;
-    // If we saw messages, there is no need to increase the window size.  We
-    // also should not increase the size if we explicitly shrank the window and
-    // left a do-not-expand-until marker.
-    if (messagesSeen ||
-        (this._curSyncDoNotGrowWindowBefore !== null &&
-         SINCE(this._curSyncStartTS, this._curSyncDoNotGrowWindowBefore))) {
-      daysToSearch = this._curSyncDayStep;
-    }
-    else {
-      // This may be a fractional value because of DST
-      lastSyncDaysInPast = ((quantizeDate(NOW())) -
-                            this._curSyncStartTS) / DAY_MILLIS;
-      daysToSearch = Math.ceil(this._curSyncDayStep *
-                               TIME_SCALE_FACTOR_ON_NO_MESSAGES);
-
-      if (lastSyncDaysInPast < 180) {
-        if (daysToSearch > 14)
-          daysToSearch = 14;
-      }
-      else if (lastSyncDaysInPast < 365) {
-        if (daysToSearch > 30)
-          daysToSearch = 30;
-      }
-      else if (lastSyncDaysInPast < 730) {
-        if (daysToSearch > 60)
-          daysToSearch = 60;
-      }
-      else if (lastSyncDaysInPast < 1095) {
-        if (daysToSearch > 90)
-          daysToSearch = 90;
-      }
-      else if (lastSyncDaysInPast < 1825) { // 5 years
-        if (daysToSearch > 120)
-          daysToSearch = 120;
-      }
-      else if (lastSyncDaysInPast < 3650) {
-        if (daysToSearch > 365)
-          daysToSearch = 365;
-      }
-      else if (daysToSearch > 730) {
-        daysToSearch = 730;
-      }
-      this._curSyncDayStep = daysToSearch;
-    }
-
-    // - Move the time range back in time more.
-    var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
-        endTS = this._curSyncStartTS;
-    this._curSyncStartTS = startTS;
-    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  null, this.onSyncCompleted.bind(this));
   },
 
   /**
@@ -2971,6 +2710,305 @@ console.log("folder message count", folderMessageCount,
   },
 };
 
+function FolderSyncer(account, folderStorage, FolderConn, _parentLog) {
+  this._account = account;
+  this.folderStorage = folderStorage;
+
+  this._LOG = LOGFAB.FolderSyncer(this, _parentLog, folderStorage.folderId);
+
+  /**
+   * The timestamp to use for `markSyncRange` for all syncs in this higher
+   * level sync.  Accuracy time-info does not need high precision, so this
+   * results in fewer accuracy structures and simplifies our decision logic
+   * in `sliceOpenFromNow`.
+   */
+  this._curSyncAccuracyStamp = null;
+  /**
+   * The start range of the (backward-moving) sync time range.
+   */
+  this._curSyncStartTS = null;
+  /**
+   * The number of days we are looking into the past in the current sync step.
+   */
+  this._curSyncDayStep = null;
+  /**
+   * If non-null, then we must reach a sync start date of the provided date
+   * before we begin increasing _curSyncDayStep.  This helps us avoid
+   * oscillation where we make the window too large, shrink it, but then find
+   * find nothing.  Since we know that there are going to be a lot of messages
+   * before we hit this date, it makes sense to keep taking smaller sync steps.
+   */
+  this._curSyncDoNotGrowWindowBefore = null;
+
+  this.folderConn = new FolderConn(account, folderStorage, this._LOG);
+}
+exports.FolderSyncer = FolderSyncer;
+FolderSyncer.prototype = {
+  syncFromNow: function(slice, daysDesired, forceDeepening) {
+    // -- Check if we have sufficiently useful data on hand.
+    // For checking accuracy ranges, the first accuracy range is authoritative
+    // for at least all of what `sliceOpenFromNow` returned last time, so we can
+    // just check against it.  (It may have been bisected by subsequent scrolled
+    // refreshes, but they will be more recent and thus won't affect the least
+    // accurate data, which is what we care about.)
+    var now = NOW(),
+        futureNow = FUTURE(),
+        pastDate = makeDaysAgo(daysDesired),
+        iAcc, iHeadBlock, ainfo,
+        // What is the startTS fullSync data we have for the time range?
+        worstGoodData = 0,
+        existingDataGood = false;
+
+console.log("accuracy ranges length:", this.folderStorage._accuracyRanges.length);
+    // If we're offline, there's nothing to look into; use the DB.
+    if (!this._account.universe.online) {
+      existingDataGood = true;
+    }
+    else if (this.folderStorage._accuracyRanges.length && !forceDeepening) {
+      ainfo = this.folderStorage._accuracyRanges[0];
+console.log("type", this.folderStorage.folderMeta.type, "ainfo", JSON.stringify(ainfo));
+      var newestMessage = this.getYoungestMessageTimestamp();
+      var refreshThresh;
+      if (this.folderStorage.folderMeta.type === 'inbox')
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
+      else if (ON_OR_BEFORE(newestMessage,
+                            now - SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD;
+      else
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
+
+      // We can do the refresh thing if we have updated more recently than
+      // the cutoff threshold.
+      // XXX: we also refresh for ActiveSync for now, since it works a bit
+      // differently.
+console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
+      if ((ainfo.fullSync &&
+           SINCE(ainfo.fullSync.updated, now - refreshThresh)) ||
+          this._account.type === 'activesync') {
+        existingDataGood = true;
+      }
+      // Look into using an adjusted date range.
+      else {
+        var rangeThresh;
+        if (this.folderStorage.folderMeta.type === 'inbox')
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
+        else
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
+
+console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
+        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, now - rangeThresh)){
+          // METHOD #2
+          // We need to iterate over the headers to figure out the right
+          // date to use.  We can't just use the accuracy range because it may
+          // have been bisected by the user scrolling into the past and
+          // triggering a refresh.
+          this.folderStorage.getMessagesBeforeMessage(
+            null, null, INITIAL_FILL_SIZE - 1,
+            function(headers, moreExpected) {
+              if (moreExpected)
+                return;
+              var header = headers[headers.length - 1];
+              pastDate = quantizeDate(header.date);
+              this._startSync(slice, pastDate, futureNow, 'sync', true);
+            }.bind(this));
+          return;
+        }
+      }
+    }
+
+    // -- Good existing data, fill the slice from the DB
+    if (existingDataGood) {
+      // We can adjust our start time to the dawn of time since we have a
+      // limit in effect.
+      slice.waitingOnData = 'db';
+      // METHOD #1
+      this.folderStorage.getMessagesInImapDateRange(
+        0, futureNow, INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+        // trigger a refresh if we are online
+        this.folderStorage.onFetchDBHeaders.bind(
+          this.folderStorage, slice, this._account.universe.online));
+      return;
+    }
+
+    // -- Bad existing data, issue a sync and have the slice
+    // METHOD #3
+    this._startSync(slice, pastDate, futureNow, 'sync', false);
+  },
+
+  refreshSlice: function(startTS, endTS, useBisectLimit, callback) {
+    this._curSyncAccuracyStamp = NOW();
+    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
+                                  useBisectLimit, callback);
+  },
+
+  growSlice: function() {
+  },
+
+  _startSync: function ifs__startSync(slice, startTS, endTS, syncMode,
+                                      accumulateMode) {
+    if (startTS === null)
+      startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
+    slice.setStatus('synchronizing', false, true);
+    slice.waitingOnData = syncMode;
+console.log("accumulate request", accumulateMode);
+    if (accumulateMode && slice.headers.length === 0) {
+console.log("ACCUMULATE MODE ON");
+      slice._accumulating = true;
+    }
+    this.folderStorage._curSyncSlice = slice;
+    this._curSyncAccuracyStamp = NOW();
+    this._curSyncStartTS = startTS;
+    this._curSyncDayStep = INITIAL_SYNC_DAYS;
+    this._curSyncDoNotGrowWindowBefore = null;
+
+    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
+                                  null, this.onSyncCompleted.bind(this));
+  },
+
+  /**
+   * Whatever synchronization we last triggered has now completed; we should
+   * either trigger another sync if we still want more data, or close out the
+   * current sync.
+   */
+  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+    // In the event the time range had to be bisected, update our info so if
+    // we need to take another step we do the right thing.
+    if (bisectInfo) {
+      this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
+      this._curSyncDayStep = bisectInfo.dayStep;
+      this._curSyncStartTS = bisectInfo.newStartTS;
+      return;
+    }
+
+    console.log("Sync Completed!", this._curSyncDayStep, "days",
+                messagesSeen, "messages synced");
+
+    // If it now appears we know about all the messages in the folder, then we
+    // are done syncing and can mark the entire folder as synchronized.  This
+    // requires that the number of messages we know about is the same as the
+    // number the server most recently told us are in the folder, plus that the
+    // slice's oldest know message is the oldest message known to the db,
+    // implying that we have fully synchronized the folder during this session.
+    //
+    // NB: If there are any deleted messages, this logic will not save us
+    // because we ignored those messages.  This is made less horrible by issuing
+    // a time-date that expands as we go further back in time.
+    //
+    // (I have considered asking to see deleted messages too and ignoring them;
+    // that might be suitable.  We could also just be a jerk and force an
+    // expunge.)
+    var folderMessageCount = this.folderConn && this.folderConn.totalMessages,
+        dbCount = this.folderStorage.getKnownMessageCount();
+console.log("folder message count", folderMessageCount,
+            "dbCount", dbCount,
+            "oldest known", this.folderStorage.headerIsOldestKnown(
+              this.folderStorage._curSyncSlice.startTS,
+              this.folderStorage._curSyncSlice.startUID));
+    if (folderMessageCount === dbCount &&
+        this.folderStorage.headerIsOldestKnown(
+          this.folderStorage._curSyncSlice.startTS,
+          this.folderStorage._curSyncSlice.startUID)) {
+      // (do not desire more headers)
+      this.folderStorage._curSyncSlice.desiredHeaders =
+        this.folderStorage._curSyncSlice.headers.length;
+      // expand the accuracy range to cover everybody
+      this.folderStorage.markSyncedEntireFolder();
+    }
+    // If our slice has now gone to the dawn of time, we can decide we have
+    // enough headers.
+    else if (this.folderStorage._curSyncSlice.startTS &&
+             ON_OR_BEFORE(this.folderStorage._curSyncSlice.startTS,
+                          OLDEST_SYNC_DATE)) {
+      this.folderStorage._curSyncSlice.desiredHeaders =
+        this.folderStorage._curSyncSlice.headers.length;
+    }
+
+    // - Done if we don't want any more headers.
+    if (this.folderStorage._curSyncSlice.headers.length >=
+          this.folderStorage._curSyncSlice.desiredHeaders ||
+        // (limited syncs aren't allowed to expand themselves)
+        (this.folderStorage._curSyncSlice.waitingOnData === 'limsync')) {
+      console.log("SYNCDONE Enough headers retrieved.",
+                  "have", this.folderStorage._curSyncSlice.headers.length,
+                  "want", this.folderStorage._curSyncSlice.desiredHeaders,
+                  "conn knows about", this.folderConn.totalMessages,
+                  "sync date", this._curSyncStartTS,
+                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
+      // If we are accumulating, we don't want to adjust our count upwards;
+      // the release will slice the excess off for us.
+      if (!this.folderStorage._curSyncSlice._accumulating) {
+        this.folderStorage._curSyncSlice.desiredHeaders =
+          this.folderStorage._curSyncSlice.headers.length;
+      }
+      this.folderStorage._curSyncSlice.waitingOnData = false;
+      this.folderStorage._curSyncSlice.setStatus('synced', true, false, true);
+      this.folderStorage._curSyncSlice = null;
+
+      this._account.__checkpointSyncCompleted();
+      return;
+    }
+    else if (this.folderStorage._curSyncSlice._accumulating) {
+      this.folderStorage._curSyncSlice.setStatus('synchronizing', true, true,
+                                                 true);
+    }
+
+    // - Increase our search window size if we aren't finding anything
+    // Our goal is that if we are going backwards in time and aren't finding
+    // anything, we want to keep expanding our window
+    var daysToSearch, lastSyncDaysInPast;
+    // If we saw messages, there is no need to increase the window size.  We
+    // also should not increase the size if we explicitly shrank the window and
+    // left a do-not-expand-until marker.
+    if (messagesSeen || (this._curSyncDoNotGrowWindowBefore !== null &&
+         SINCE(this._curSyncStartTS, this._curSyncDoNotGrowWindowBefore))) {
+      daysToSearch = this._curSyncDayStep;
+    }
+    else {
+      // This may be a fractional value because of DST
+      lastSyncDaysInPast = ((quantizeDate(NOW())) - this._curSyncStartTS) /
+                           DAY_MILLIS;
+      daysToSearch = Math.ceil(this._curSyncDayStep *
+                               TIME_SCALE_FACTOR_ON_NO_MESSAGES);
+
+      if (lastSyncDaysInPast < 180) {
+        if (daysToSearch > 14)
+          daysToSearch = 14;
+      }
+      else if (lastSyncDaysInPast < 365) {
+        if (daysToSearch > 30)
+          daysToSearch = 30;
+      }
+      else if (lastSyncDaysInPast < 730) {
+        if (daysToSearch > 60)
+          daysToSearch = 60;
+      }
+      else if (lastSyncDaysInPast < 1095) {
+        if (daysToSearch > 90)
+          daysToSearch = 90;
+      }
+      else if (lastSyncDaysInPast < 1825) { // 5 years
+        if (daysToSearch > 120)
+          daysToSearch = 120;
+      }
+      else if (lastSyncDaysInPast < 3650) {
+        if (daysToSearch > 365)
+          daysToSearch = 365;
+      }
+      else if (daysToSearch > 730) {
+        daysToSearch = 730;
+      }
+      this._curSyncDayStep = daysToSearch;
+    }
+
+    // - Move the time range back in time more.
+    var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
+        endTS = this._curSyncStartTS;
+    this._curSyncStartTS = startTS;
+    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
+                                  null, this.onSyncCompleted.bind(this));
+  },
+};
+
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   MailSlice: {
     type: $log.QUERY,
@@ -3019,6 +3057,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badIterationStart: { date: false, uid: false },
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
+    }
+  },
+  FolderSyncer: {
+    type: $log.DATABASE,
+    events: {
     }
   },
 }); // end LOGFAB
