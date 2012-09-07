@@ -1710,8 +1710,7 @@ FolderStorage.prototype = {
     // by definition, we must be at the top
     slice.atTop = true;
 
-    var syncing = this.folderSyncer.syncFromNow(slice, daysDesired,
-                                                forceDeepening);
+    var syncing = this.folderSyncer.syncFromNow(daysDesired, forceDeepening);
 
     // XXXsquib: maybe this needs to be a callback to syncFromNow so that
     // the stuff in _startSync happens in the right order?
@@ -1727,6 +1726,16 @@ console.log("ACCUMULATE MODE ON");
         slice._accumulating = true;
       }
       this._curSyncSlice = slice;
+    }
+    else {
+      // We can adjust our start time to the dawn of time since we have a
+      // limit in effect.
+      slice.waitingOnData = 'db';
+      this.getMessagesInImapDateRange(
+        0, FUTURE(), INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+        // trigger a refresh if we are online
+        this.onFetchDBHeaders.bind(this, slice, this._account.universe.online)
+      );
     }
   },
 
@@ -2788,7 +2797,7 @@ function FolderSyncer(account, folderStorage, FolderConn, _parentLog) {
 exports.FolderSyncer = FolderSyncer;
 FolderSyncer.prototype = {
   // Returns an array of the sync type and accumulate mode if we need to sync
-  syncFromNow: function(slice, daysDesired, forceDeepening) {
+  syncFromNow: function(daysDesired, forceDeepening) {
     // -- Check if we have sufficiently useful data on hand.
     // For checking accuracy ranges, the first accuracy range is authoritative
     // for at least all of what `sliceOpenFromNow` returned last time, so we can
@@ -2861,18 +2870,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
     }
 
     // -- Good existing data, fill the slice from the DB
-    if (existingDataGood) {
-      // We can adjust our start time to the dawn of time since we have a
-      // limit in effect.
-      slice.waitingOnData = 'db';
-      // METHOD #1
-      this.folderStorage.getMessagesInImapDateRange(
-        0, futureNow, INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
-        // trigger a refresh if we are online
-        this.folderStorage.onFetchDBHeaders.bind(
-          this.folderStorage, slice, this._account.universe.online));
-      return;
-    }
+    if (existingDataGood)
+      return null;
 
     // -- Bad existing data, issue a sync and have the slice
     // METHOD #3
