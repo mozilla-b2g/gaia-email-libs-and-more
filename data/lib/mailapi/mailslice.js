@@ -1860,7 +1860,7 @@ FolderStorage.prototype = {
     // If the endTS lines up with the most recent know message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
-    if (this.folderStorage.headerIsYoungestKnown(endTS, slice.endUID)) {
+    if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
       endTS = FUTURE();
     }
     else {
@@ -1873,8 +1873,8 @@ FolderStorage.prototype = {
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.
-    if (this.folderStorage.headerIsOldestKnown(startTS, slice.startUID)) {
-      var syncStartTS = this.folderStorage.getOldestFullSyncDate(startTS);
+    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
+      var syncStartTS = this.getOldestFullSyncDate(startTS);
       startTS = syncStartTS;
     }
     // quantize the start date
@@ -1912,7 +1912,7 @@ FolderStorage.prototype = {
     this._slices.splice(idx, 1);
 
     if (this._slices.length === 0 && this._pendingMutationCount === 0)
-      this.folderConn.relinquishConn();
+      this.folderSyncer.relinquishConn();
   },
 
   /**
@@ -2695,7 +2695,7 @@ FolderStorage.prototype = {
     for (var i = this._slices.length - 1; i >= 0; i--) {
       this._slices[i].die();
     }
-    this.folderConn.shutdown();
+    this.folderSyncer.shutdown();
     this._LOG.__die();
   },
 
@@ -2768,7 +2768,7 @@ console.log("accuracy ranges length:", this.folderStorage._accuracyRanges.length
     else if (this.folderStorage._accuracyRanges.length && !forceDeepening) {
       ainfo = this.folderStorage._accuracyRanges[0];
 console.log("type", this.folderStorage.folderMeta.type, "ainfo", JSON.stringify(ainfo));
-      var newestMessage = this.getYoungestMessageTimestamp();
+      var newestMessage = this.folderStorage.getYoungestMessageTimestamp();
       var refreshThresh;
       if (this.folderStorage.folderMeta.type === 'inbox')
         refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
@@ -3007,6 +3007,15 @@ console.log("folder message count", folderMessageCount,
     this._curSyncStartTS = startTS;
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   null, this.onSyncCompleted.bind(this));
+  },
+
+  relinquishConn: function() {
+    this.folderConn.relinquishConn();
+  },
+
+  shutdown: function() {
+    this.folderConn.shutdown();
+    this._LOG.__die();
   },
 };
 
