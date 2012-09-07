@@ -470,6 +470,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     let lines = [headerKey + ": " + this._formatHeaderValues(headerValues)
                  for each ([headerKey, headerValues] in Iterator(this.headers))];
 
+
     var msgString = this.bodyPart.toMessageString();
 
     return lines.join("\r\n") + "\r\n\r\n" + msgString +
@@ -643,6 +644,9 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     set: function(aBodyPart) {
       this._bodyPart = aBodyPart;
       this.headers["Content-Type"] = this._bodyPart.contentTypeHeaderValue;
+      if (aBodyPart.hasTransferEncoding)
+        this.headers["Content-Transfer-Encoding"] =
+          aBodyPart.contentTransferEncodingHeaderValue;
     },
   },
 });

@@ -90,8 +90,9 @@ TD.commonCase('message encodings', function(T) {
  */
 TD.commonCase('MIME hierarchies', function(T) {
   // -- pieces
+  var
   // - bodies: text/plain
-  var bpartEmptyText =
+      bpartEmptyText =
         new SyntheticPartLeaf(''),
       bpartStraightASCII =
         new SyntheticPartLeaf('I am text! Woo!'),
@@ -106,6 +107,7 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           utf8UnicodeName,
           { charset: 'utf-8', format: null, encoding: '8bit' }),
+      // quoted-printable encoding utf-8
       bpartQpUtf8Name =
         new SyntheticPartLeaf(
           qpUtf8UnicodeName,
@@ -115,6 +117,15 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           mwqSammySnake,
           { charset: 'utf-8', format: null, encoding: null }),
+      bstrQpWin1252 =
+        'Ellipsis: "=85", apostrophe "=92", accented i "=ED"',
+      rawQpWin1252 =
+        'Ellipsis: "\u2026", apostrophe "\u2019", accented i "\u00ed"',
+      bpartQpWin1252 =
+        new SyntheticPartLeaf(
+          bstrQpWin1252,
+          { charset: 'windows-1252', format: null,
+            encoding: 'quoted-printable' }),
   // - bodies: text/enriched (ignored!)
   // This exists just to test the alternatives logic.
       bpartIgnoredEnriched =
@@ -200,6 +211,21 @@ TD.commonCase('MIME hierarchies', function(T) {
       checkSnippet:
         'This is a very long message that wants to be snippeted to a ' +
         'reasonable length that is reasonable and',
+    },
+    {
+      name: 'text/plain utf8',
+      bodyPart: bpartUtf8Name,
+      checkBody: rawUnicodeName,
+    },
+    {
+      name: 'text/plain qp utf8',
+      bodyPart: bpartQpUtf8Name,
+      checkBody: rawUnicodeName,
+    },
+    {
+      name: 'text/plain qp windows-1252',
+      bodyPart: bpartQpWin1252,
+      checkBody: rawQpWin1252,
     },
     // - straight up verification we don't do mime-word decoding on bodies
     {

@@ -227,6 +227,8 @@ ImapConnection.prototype.connect = function(loginCb) {
     }
     catch (ex) {
       console.error('Explosion while processing data', ex);
+      if ('stack' in ex)
+        console.error('Stack:', ex.stack);
       throw ex;
     }
   };

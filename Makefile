@@ -7,7 +7,7 @@ VOLO=./scripts/volo
 
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.
-NODE_PKGS := mailparser mailcomposer mimelib simplesmtp browserify-builtins
+NODE_PKGS := addressparser mailparser mailcomposer mimelib simplesmtp browserify-builtins
 
 SED_TRANSFORMS_mailcomposer = s/mimelib-noiconv/mimelib/g
 
