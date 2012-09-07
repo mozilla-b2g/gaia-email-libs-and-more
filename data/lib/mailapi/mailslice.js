@@ -1710,7 +1710,24 @@ FolderStorage.prototype = {
     // by definition, we must be at the top
     slice.atTop = true;
 
-    this.folderSyncer.syncFromNow(slice, daysDesired, forceDeepening);
+    var syncing = this.folderSyncer.syncFromNow(slice, daysDesired,
+                                                forceDeepening);
+
+    // XXXsquib: maybe this needs to be a callback to syncFromNow so that
+    // the stuff in _startSync happens in the right order?
+    if (syncing) {
+      var syncMode = syncing[0];
+      var accumulateMode = syncing[1];
+
+      slice.setStatus('synchronizing', false, true);
+      slice.waitingOnData = syncMode;
+console.log("accumulate request", accumulateMode);
+      if (accumulateMode && slice.headers.length === 0) {
+console.log("ACCUMULATE MODE ON");
+        slice._accumulating = true;
+      }
+      this._curSyncSlice = slice;
+    }
   },
 
   /**
@@ -1752,34 +1769,33 @@ FolderStorage.prototype = {
       dir = 1;
       desiredCount = dirMagnitude;
 
-      // The sync wants to be BEFORE the earliest day (which we are assuming
-      // is fully synced based on our day granularity).
-      var syncEndTS = quantizeDate(slice.startTS);
-
       var batchHeaders = [];
       // Process the oldest traversed message
       var gotMessages = function gotMessages(headers, moreExpected) {
         batchHeaders = batchHeaders.concat(headers);
         if (!moreExpected) {
-          var syncStartTS = null;
-          if (batchHeaders.length)
-            syncStartTS = batchHeaders[batchHeaders.length - 1].date;
-
-          if (syncStartTS) {
-            // We are computing a SINCE value, so quantize (to midnight)
-            syncStartTS = quantizeDate(syncStartTS);
-            // If we're not syncing at least one day, flag to give up.
-            if (syncStartTS === syncEndTS)
-              syncStartTS = null;
-          }
+          var growingSync = false;
 
           // If we're offline, just use what we've got and be done with it.
-          // XXX: ActiveSync is different, and trying to sync more doesn't work
-          // with it. Just assume we've got all we need for now.
-          if (!this._account.universe.online ||
-              this._account.type === 'activesync') {
-            // (Yes this logic is the same as cases below, but I allege the
-            // 'if' statement might be simpler this way.)
+          if (this._account.universe.online) {
+            growingSync = this.folderSyncer.growSync(slice.startTS,
+                                                     batchHeaders);
+          }
+
+          // XXXsquib: maybe this needs to be a callback to growSync so that
+          // the stuff in _startSync happens in the right order?
+          if (growingSync) {
+            var syncMode = growingSync[0];
+            var firstNotToSend = growingSync[1];
+            if (firstNotToSend)
+              slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
+                                       -1, true);
+            slice.desiredHeaders += desiredCount;
+            slice.setStatus('synchronizing', false, true);
+            slice.waitingOnData = syncMode;
+            this._curSyncSlice = slice;
+          }
+          else {
             if (batchHeaders.length) {
               slice.batchAppendHeaders(batchHeaders, -1, false);
               slice.desiredHeaders = slice.headers.length;
@@ -1787,42 +1803,6 @@ FolderStorage.prototype = {
             else {
               slice.sendEmptyCompletion();
             }
-          }
-          // Perform the sync if there is a range.
-          else if (syncStartTS) {
-            // We intentionally quantized syncEndTS to avoid re-synchronizing
-            // messages that got us to our last sync.  So we want to send those
-            // excluded headers in a batch since the sync will not report them
-            // for us.
-            var iFirstNotToSend = 0;
-            for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
-              if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
-                break;
-            }
-            if (iFirstNotToSend)
-              slice.batchAppendHeaders(batchHeaders.slice(0, iFirstNotToSend),
-                                       -1, true);
-
-            slice.desiredHeaders += desiredCount;
-            // Perform a limited synchronization; do not issue additional
-            // syncs!
-            this.folderSyncer._startSync(slice, syncStartTS, syncEndTS, 'limsync');
-          }
-          // If there is no sync range (left), but there were messsages, report
-          // the messages.
-          else if (batchHeaders.length) {
-            slice.batchAppendHeaders(batchHeaders, -1, false);
-            slice.desiredHeaders = slice.headers.length;
-          }
-          // If growth was requested/is allowed or our accuracy range already
-          // covers as far back as we go, issue a (potentially expanding) sync.
-          else if (userRequestsGrowth) {
-            slice.desiredHeaders += desiredCount;
-            this.folderSyncer._startSync(slice, null, slice.startTS, 'sync');
-          }
-          // We are at the 'bottom', as it were.  Send an empty set.
-          else {
-            slice.sendEmptyCompletion();
           }
         }
       };
@@ -1882,8 +1862,8 @@ FolderStorage.prototype = {
       startTS = quantizeDate(startTS);
 
     var self = this;
-    this.folderSyncer.refreshSlice(startTS, endTS, useBisectLimit,
-                                   function(bisectInfo, numMessages) {
+    this.folderSyncer.refreshSync(startTS, endTS, useBisectLimit,
+                                  function(bisectInfo, numMessages) {
       // If a bisection occurred then this can no longer be a refresh and
       // instead we need to retract all known messages and instead convert
       // this into a synchronization.
@@ -2745,6 +2725,7 @@ function FolderSyncer(account, folderStorage, FolderConn, _parentLog) {
 }
 exports.FolderSyncer = FolderSyncer;
 FolderSyncer.prototype = {
+  // Returns an array of the sync type and accumulate mode if we need to sync
   syncFromNow: function(slice, daysDesired, forceDeepening) {
     // -- Check if we have sufficiently useful data on hand.
     // For checking accuracy ranges, the first accuracy range is authoritative
@@ -2810,9 +2791,9 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
                 return;
               var header = headers[headers.length - 1];
               pastDate = quantizeDate(header.date);
-              this._startSync(slice, pastDate, futureNow, 'sync', true);
+              this._startSync(pastDate, futureNow);
             }.bind(this));
-          return;
+          return ['sync', true];
         }
       }
     }
@@ -2833,30 +2814,66 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
 
     // -- Bad existing data, issue a sync and have the slice
     // METHOD #3
-    this._startSync(slice, pastDate, futureNow, 'sync', false);
+    this._startSync(pastDate, futureNow);
+    return ['sync', false];
   },
 
-  refreshSlice: function(startTS, endTS, useBisectLimit, callback) {
+  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
     this._curSyncAccuracyStamp = NOW();
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   useBisectLimit, callback);
   },
 
-  growSlice: function() {
+  // Returns null if we don't need to sync, or an array of the sync type and
+  // the number of batchHeaders to append to the slice.
+  growSync: function(endTS, batchHeaders) {
+    // XXX: ActiveSync is different, and trying to sync more doesn't work
+    // with it. Just assume we've got all we need for now.
+    if (this._account.type === 'activesync')
+      return null;
+
+    // The sync wants to be BEFORE the earliest day (which we are assuming
+    // is fully synced based on our day granularity).
+    var syncEndTS = quantizeDate(endTS);
+    var syncStartTS = null;
+    if (batchHeaders.length)
+      syncStartTS = batchHeaders[batchHeaders.length - 1].date;
+
+    if (syncStartTS) {
+      // We are computing a SINCE value, so quantize (to midnight)
+      syncStartTS = quantizeDate(syncStartTS);
+      // If we're not syncing at least one day, flag to give up.
+      if (syncStartTS === syncEndTS)
+        syncStartTS = null;
+    }
+
+    // Perform the sync if there is a range.
+    if (syncStartTS) {
+      // We intentionally quantized syncEndTS to avoid re-synchronizing messages
+      // that got us to our last sync.  So we want to send those excluded
+      // headers in a batch since the sync will not report them for us.
+      var iFirstNotToSend = 0;
+      for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
+        if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
+          break;
+      }
+
+      // Perform a limited synchronization; do not issue additional syncs!
+      this._startSync(syncStartTS, syncEndTS);
+      return ['limsync', iFirstNotToSend];
+    }
+    // If growth was requested/is allowed or our accuracy range already covers
+    // as far back as we go, issue a (potentially expanding) sync.
+    else if (batchHeaders.length === 0 && userRequestsGrowth) {
+      this._startSync(null, endTS);
+      return ['sync', 0];
+    }
+    return null;
   },
 
-  _startSync: function ifs__startSync(slice, startTS, endTS, syncMode,
-                                      accumulateMode) {
+  _startSync: function ifs__startSync(startTS, endTS) {
     if (startTS === null)
       startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
-    slice.setStatus('synchronizing', false, true);
-    slice.waitingOnData = syncMode;
-console.log("accumulate request", accumulateMode);
-    if (accumulateMode && slice.headers.length === 0) {
-console.log("ACCUMULATE MODE ON");
-      slice._accumulating = true;
-    }
-    this.folderStorage._curSyncSlice = slice;
     this._curSyncAccuracyStamp = NOW();
     this._curSyncStartTS = startTS;
     this._curSyncDayStep = INITIAL_SYNC_DAYS;
