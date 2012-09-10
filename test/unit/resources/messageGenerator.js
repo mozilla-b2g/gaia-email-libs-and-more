@@ -383,6 +383,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    *     e-mail address (sans wrapping greater-than/less-than).
    */
   _formatMailFromNameAndAddress: function(aNameAndAddress) {
+    if (!aNameAndAddress[0])
+      return aNameAndAddress[1];
     // if the name is encoded, do not put it in quotes!
     return (aNameAndAddress[0][0] == "=" ?
               (aNameAndAddress[0] + " ") :
@@ -469,6 +471,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   toMessageString: function() {
     let lines = [headerKey + ": " + this._formatHeaderValues(headerValues)
                  for each ([headerKey, headerValues] in Iterator(this.headers))];
+
 
     var msgString = this.bodyPart.toMessageString();
 
@@ -643,6 +646,9 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     set: function(aBodyPart) {
       this._bodyPart = aBodyPart;
       this.headers["Content-Type"] = this._bodyPart.contentTypeHeaderValue;
+      if (aBodyPart.hasTransferEncoding)
+        this.headers["Content-Transfer-Encoding"] =
+          aBodyPart.contentTransferEncodingHeaderValue;
     },
   },
 });

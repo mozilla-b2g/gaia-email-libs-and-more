@@ -36,6 +36,7 @@
 
     "iconv": "data/lib/js-shims/faux-iconv",
     "iconv-lite": "data/libs/js-shims/faux-iconx",
+    "encoding": "data/lib/js-shims/faux-encoding",
 
     "assert": "data/deps/browserify-builtins/assert",
     "events": "data/deps/browserify-builtins/events",
@@ -44,6 +45,7 @@
 
     // These used to be packages but we have AMD shims for their mains where
     // appropriate, so we can just use paths.
+    "addressparser": "data/deps/addressparser",
     "mimelib": "data/deps/mimelib",
     "mailparser": "data/deps/mailparser/lib",
     "simplesmtp": "data/deps/simplesmtp",

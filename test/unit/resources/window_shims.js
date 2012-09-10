@@ -32,16 +32,6 @@ function clearTimeout(handle) {
 var moduleGlobalsHack = {};
 Components.utils.import("resource://test/resources/globalshack.jsm",
                         moduleGlobalsHack);
-var document = {
-  implementation: {
-    createHTMLDocument: function createHTMLDocument(str) {
-      var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
-                     .createInstance(Ci.nsIDOMParser);
-      parser.init();
-      return parser.parseFromString(str, 'text/html');
-    }
-  }
-};
 
 /**
  * A function that can be clobbered to generate events when blob-related
@@ -50,7 +40,7 @@ var document = {
 var __blobLogFunc = function() {
 };
 
-var window = {
+var _window_mixin = {
   // - indexed db
   indexedDB: indexedDB,
   DOMException: DOMException,
@@ -129,12 +119,28 @@ var window = {
       throw new Error("atob of '" + data + "' failed.");
     }
   },
-  document: document
+  document: {
+    implementation: {
+      createHTMLDocument: function createHTMLDocument(str) {
+        var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
+              .createInstance(Ci.nsIDOMParser);
+        parser.init();
+        return parser.parseFromString(str, 'text/html');
+      }
+    }
+  }
 };
+
+// mix all the window stuff into the global scope for things like the string
+// encoding polyfill that really want 'this' and window to be the same.
+var window = this, self = this;
+(function(win) {
+  for (var key in _window_mixin) {
+    win[key] = _window_mixin[key];
+  }
+}(this));
 // during the RequireJS bootstrap, have navigator be undefined.
-var navigator = undefined;
-// new to me, but apparently it's a thing...
-var self = window.self = window;
+navigator = undefined;
 
 function Blob(parts, properties) {
   this.parts = parts;
