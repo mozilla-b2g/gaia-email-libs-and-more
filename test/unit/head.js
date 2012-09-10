@@ -211,6 +211,7 @@ require({
     "timers": "data/lib/node-timers",
 
     "iconv": "data/lib/js-shims/faux-iconv",
+    "encoding": "data/lib/js-shims/faux-encoding",
 
     "assert": "data/deps/browserify-builtins/assert",
     "events": "data/deps/browserify-builtins/events",
@@ -219,6 +220,7 @@ require({
 
     // These used to be packages but we have AMD shims for their mains where
     // appropriate, so we can just use paths.
+    "addressparser": "data/deps/addressparser",
     "mimelib": "data/deps/mimelib",
     "mailparser": "data/deps/mailparser/lib",
     "simplesmtp": "data/deps/simplesmtp",
@@ -241,7 +243,7 @@ var process = window.process = {
 };
 
 // now that RequireJS has bootstrapped, we can setup navigator.
-navigator = window.navigator;
+navigator = _window_mixin.navigator;
 
 // -- Pull relevant test environment variables out of the environment.
 // The goal is to allow our unit tests to be run against varying server

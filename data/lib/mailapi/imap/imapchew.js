@@ -360,7 +360,8 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     for (var i = 0; i < addrs.length; i++) {
       var addrPair = addrs[i];
       sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
-                   addrPair.name.length + addrPair.address.length;
+                   (addrPair.name ? addrPair.name.length : 0) +
+                   (addrPair.address ? addrPair.address.length : 0);
     }
     return addrs;
   }

@@ -128,20 +128,22 @@ ImapJobDriver.prototype = {
     var storage = this.account.getFolderStorageForFolderId(folderId);
     // XXX have folder storage be in charge of this / don't violate privacy
     storage._pendingMutationCount++;
-    if (!storage.folderConn._conn) {
-      storage.folderConn.acquireConn(callback);
+    var syncer = storage.folderSyncer;
+    if (!syncer.folderConn._conn) {
+      syncer.folderConn.acquireConn(callback);
     }
     else {
-      callback(storage.folderConn, storage);
+      callback(syncer.folderConn, storage);
     }
   },
 
   _doneMutatingFolder: function(folderId, folderConn) {
-    var storage = this.account.getFolderStorageForFolderId(folderId);
+    var storage = this.account.getFolderStorageForFolderId(folderId),
+        syncer = storage.folderSyncer;
     // XXX have folder storage be in charge of this / don't violate privacy
     storage._pendingMutationCount--;
     if (!storage._slices.length && !storage._pendingMutationCount)
-      storage.folderConn.relinquishConn();
+      syncer.folderConn.relinquishConn();
   },
 
   //////////////////////////////////////////////////////////////////////////////

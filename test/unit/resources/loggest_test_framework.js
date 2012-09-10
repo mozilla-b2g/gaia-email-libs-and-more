@@ -23,9 +23,16 @@ var MailAPI = null, MailBridge = null, MailUniverse = null;
 var gAllAccountsSlice = null, gAllFoldersSlice = null;
 
 var gDumpedLogs = false, gRunner;
+function dumpAsUtf8WithNewline(s) {
+  var converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
+                    .createInstance(Ci.nsIScriptableUnicodeConverter);
+  converter.charset = "UTF-8";
+  var u8s = converter.ConvertFromUnicode(s);
+  print(u8s);
+}
 function dumpLogs() {
   if (!gDumpedLogs) {
-    gRunner.dumpLogResultsToConsole(print);
+    gRunner.dumpLogResultsToConsole(dumpAsUtf8WithNewline);
     gDumpedLogs = true;
   }
 }
