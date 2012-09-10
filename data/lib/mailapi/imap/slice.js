@@ -112,6 +112,12 @@ var SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
  * `ImapFolderConn`, even if the actual mutation logic is being driven by code
  * living in the account.
  *
+ * == Error Handling / Connection Maintenance
+ *
+ * One-off transient connection failures are dealt with by reconnecting and
+ * restarting whatever we were doing.  Because it's possible to be in a
+ * situation where the network is bad, we use a backoff strategy
+ *
  * == IDLE
  *
  * We plan to IDLE in folders that we have active slices in.  We are assuming
