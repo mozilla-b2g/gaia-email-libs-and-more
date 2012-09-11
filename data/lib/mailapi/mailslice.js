@@ -1710,14 +1710,21 @@ FolderStorage.prototype = {
     // by definition, we must be at the top
     slice.atTop = true;
 
-    var syncing = this.folderSyncer.syncFromNow(daysDesired, forceDeepening);
+    // -- Check if we have sufficiently useful data on hand.
+    // For checking accuracy ranges, the first accuracy range is authoritative
+    // for at least all of what `sliceOpenFromNow` returned last time, so we can
+    // just check against it.  (It may have been bisected by subsequent scrolled
+    // refreshes, but they will be more recent and thus won't affect the least
+    // accurate data, which is what we care about.)
+    var now = NOW(),
+        futureNow = FUTURE(),
+        pastDate = makeDaysAgo(daysDesired),
+        iAcc, iHeadBlock, ainfo,
+        // What is the startTS fullSync data we have for the time range?
+        worstGoodData = 0,
+        existingDataGood = false;
 
-    // XXXsquib: maybe this needs to be a callback to syncFromNow so that
-    // the stuff in _startSync happens in the right order?
-    if (syncing) {
-      var syncMode = syncing[0];
-      var accumulateMode = syncing[1];
-
+    var syncCallback = (function syncCallback(syncMode, accumulateMode) {
       slice.setStatus('synchronizing', false, true);
       slice.waitingOnData = syncMode;
 console.log("accumulate request", accumulateMode);
@@ -1726,8 +1733,50 @@ console.log("ACCUMULATE MODE ON");
         slice._accumulating = true;
       }
       this._curSyncSlice = slice;
+    }).bind(this);
+
+console.log("accuracy ranges length:", this._accuracyRanges.length);
+    // If we're offline, there's nothing to look into; use the DB.
+    if (!this._account.universe.online) {
+      existingDataGood = true;
     }
-    else {
+    else if (this._accuracyRanges.length && !forceDeepening) {
+      ainfo = this._accuracyRanges[0];
+console.log("type", this.folderMeta.type, "ainfo", JSON.stringify(ainfo));
+      var newestMessage = this.getYoungestMessageTimestamp();
+      var refreshThresh;
+      if (this.folderMeta.type === 'inbox')
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
+      else if (ON_OR_BEFORE(newestMessage,
+                            now - SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD;
+      else
+        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
+
+      // We can do the refresh thing if we have updated more recently than
+      // the cutoff threshold.
+console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
+      if (ainfo.fullSync &&
+          SINCE(ainfo.fullSync.updated, now - refreshThresh)) {
+        existingDataGood = true;
+      }
+      // Look into using an adjusted date range.
+      else {
+        var rangeThresh;
+        if (this.folderMeta.type === 'inbox')
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
+        else
+          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
+
+        if (this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
+                                                    now - rangeThresh, ainfo,
+                                                    syncCallback))
+          existingDataGood = true;
+      }
+    }
+
+    // -- Good existing data, fill the slice from the DB
+    if (existingDataGood) {
       // We can adjust our start time to the dawn of time since we have a
       // limit in effect.
       slice.waitingOnData = 'db';
@@ -1736,7 +1785,11 @@ console.log("ACCUMULATE MODE ON");
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(this, slice, this._account.universe.online)
       );
+      return;
     }
+
+    // -- Bad existing data, issue a sync and have the slice
+    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback);
   },
 
   /**
@@ -1782,21 +1835,13 @@ console.log("ACCUMULATE MODE ON");
       // Process the oldest traversed message
       var gotMessages = function gotMessages(headers, moreExpected) {
         batchHeaders = batchHeaders.concat(headers);
-        if (!moreExpected) {
-          var growingSync = false;
+        if (moreExpected)
+          return;
 
-          // If we're offline, just use what we've got and be done with it.
-          if (this._account.universe.online) {
-            growingSync = this.folderSyncer.growSync(slice.startTS,
-                                                     batchHeaders,
-                                                     userRequestsGrowth);
-          }
+        var growingSync = false;
 
-          // XXXsquib: maybe this needs to be a callback to growSync so that
-          // the stuff in _startSync happens in the right order?
-          if (growingSync) {
-            var syncMode = growingSync[0];
-            var firstNotToSend = growingSync[1];
+        var syncCallback = (function syncCallback(syncMode, firstNotToSend) {
+          if (syncMode) {
             if (firstNotToSend)
               slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
                                        -1, true);
@@ -1805,14 +1850,21 @@ console.log("ACCUMULATE MODE ON");
             slice.waitingOnData = syncMode;
             this._curSyncSlice = slice;
           }
+        }).bind(this);
+
+        // If we're offline, just use what we've got and be done with it.
+        if (this._account.universe.online) {
+          growingSync = this.folderSyncer.growSync(
+            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback);
+        }
+
+        if (!growingSync) {
+          if (batchHeaders.length) {
+            slice.batchAppendHeaders(batchHeaders, -1, false);
+            slice.desiredHeaders = slice.headers.length;
+          }
           else {
-            if (batchHeaders.length) {
-              slice.batchAppendHeaders(batchHeaders, -1, false);
-              slice.desiredHeaders = slice.headers.length;
-            }
-            else {
-              slice.sendEmptyCompletion();
-            }
+            slice.sendEmptyCompletion();
           }
         }
       };
@@ -2735,87 +2787,35 @@ function FolderSyncer(account, folderStorage, FolderConn, _parentLog) {
 }
 exports.FolderSyncer = FolderSyncer;
 FolderSyncer.prototype = {
-  // Returns an array of the sync type and accumulate mode if we need to sync
-  syncFromNow: function(daysDesired, forceDeepening) {
-    // -- Check if we have sufficiently useful data on hand.
-    // For checking accuracy ranges, the first accuracy range is authoritative
-    // for at least all of what `sliceOpenFromNow` returned last time, so we can
-    // just check against it.  (It may have been bisected by subsequent scrolled
-    // refreshes, but they will be more recent and thus won't affect the least
-    // accurate data, which is what we care about.)
-    var now = NOW(),
-        futureNow = FUTURE(),
-        pastDate = makeDaysAgo(daysDesired),
-        iAcc, iHeadBlock, ainfo,
-        // What is the startTS fullSync data we have for the time range?
-        worstGoodData = 0,
-        existingDataGood = false;
+  syncDateRange: function(startTS, endTS, callback) {
+    callback('sync', false);
+    this._startSync(startTS, endTS);
+  },
 
-console.log("accuracy ranges length:", this.folderStorage._accuracyRanges.length);
-    // If we're offline, there's nothing to look into; use the DB.
-    if (!this._account.universe.online) {
-      existingDataGood = true;
+  // Returns true if the existing data is good.
+  syncAdjustedDateRange: function(startTS, endTS, updateThresh, ainfo,
+                                  syncCallback) {
+    // XXX: we assume ActiveSync's existing data is good for now, since it
+    // works a bit differently.
+    if (this._account.type === 'activesync')
+      return true;
+
+    if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
+      // We need to iterate over the headers to figure out the right
+      // date to use.  We can't just use the accuracy range because it may
+      // have been bisected by the user scrolling into the past and
+      // triggering a refresh.
+      this.folderStorage.getMessagesBeforeMessage(
+        null, null, INITIAL_FILL_SIZE - 1,
+        function(headers, moreExpected) {
+          if (moreExpected)
+            return;
+          var header = headers[headers.length - 1];
+          pastDate = quantizeDate(header.date);
+          syncCallback('sync', true);
+          this._startSync(startTS, endTS);
+        }.bind(this));
     }
-    else if (this.folderStorage._accuracyRanges.length && !forceDeepening) {
-      ainfo = this.folderStorage._accuracyRanges[0];
-console.log("type", this.folderStorage.folderMeta.type, "ainfo", JSON.stringify(ainfo));
-      var newestMessage = this.folderStorage.getYoungestMessageTimestamp();
-      var refreshThresh;
-      if (this.folderStorage.folderMeta.type === 'inbox')
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
-      else if (ON_OR_BEFORE(newestMessage,
-                            now - SYNC_REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_OLD;
-      else
-        refreshThresh = SYNC_REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
-
-      // We can do the refresh thing if we have updated more recently than
-      // the cutoff threshold.
-      // XXX: we also refresh for ActiveSync for now, since it works a bit
-      // differently.
-console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh);
-      if ((ainfo.fullSync &&
-           SINCE(ainfo.fullSync.updated, now - refreshThresh)) ||
-          this._account.type === 'activesync') {
-        existingDataGood = true;
-      }
-      // Look into using an adjusted date range.
-      else {
-        var rangeThresh;
-        if (this.folderStorage.folderMeta.type === 'inbox')
-          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
-        else
-          rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
-
-console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
-        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, now - rangeThresh)){
-          // METHOD #2
-          // We need to iterate over the headers to figure out the right
-          // date to use.  We can't just use the accuracy range because it may
-          // have been bisected by the user scrolling into the past and
-          // triggering a refresh.
-          this.folderStorage.getMessagesBeforeMessage(
-            null, null, INITIAL_FILL_SIZE - 1,
-            function(headers, moreExpected) {
-              if (moreExpected)
-                return;
-              var header = headers[headers.length - 1];
-              pastDate = quantizeDate(header.date);
-              this._startSync(pastDate, futureNow);
-            }.bind(this));
-          return ['sync', true];
-        }
-      }
-    }
-
-    // -- Good existing data, fill the slice from the DB
-    if (existingDataGood)
-      return null;
-
-    // -- Bad existing data, issue a sync and have the slice
-    // METHOD #3
-    this._startSync(pastDate, futureNow);
-    return ['sync', false];
   },
 
   refreshSync: function(startTS, endTS, useBisectLimit, callback) {
@@ -2824,13 +2824,12 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
                                   useBisectLimit, callback);
   },
 
-  // Returns null if we don't need to sync, or an array of the sync type and
-  // the number of batchHeaders to append to the slice.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth) {
+  // Returns false if no sync is necessary.
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
     // XXX: ActiveSync is different, and trying to sync more doesn't work
     // with it. Just assume we've got all we need for now.
     if (this._account.type === 'activesync')
-      return null;
+      return false;
 
     // The sync wants to be BEFORE the earliest day (which we are assuming
     // is fully synced based on our day granularity).
@@ -2859,16 +2858,19 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.update, now - rangeThresh);
       }
 
       // Perform a limited synchronization; do not issue additional syncs!
+      syncCallback('limsync', iFirstNotToSend);
       this._startSync(syncStartTS, syncEndTS);
-      return ['limsync', iFirstNotToSend];
+      return true;
     }
     // If growth was requested/is allowed or our accuracy range already covers
     // as far back as we go, issue a (potentially expanding) sync.
     else if (batchHeaders.length === 0 && userRequestsGrowth) {
+      syncCallback('sync', 0);
       this._startSync(null, endTS);
-      return ['sync', 0];
+      return true;
     }
-    return null;
+
+    return false;
   },
 
   _startSync: function ifs__startSync(startTS, endTS) {
