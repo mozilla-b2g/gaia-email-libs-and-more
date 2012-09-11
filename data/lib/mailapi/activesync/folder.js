@@ -6,6 +6,7 @@ define(
     'activesync/protocol',
     'mimelib',
     '../quotechew',
+    '../date',
     '../util',
     'module',
     'exports'
@@ -17,6 +18,7 @@ define(
     $activesync,
     $mimelib,
     $quotechew,
+    $date,
     $util,
     $module,
     exports
@@ -38,7 +40,6 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
   if (!this.folderMeta.totalMessages)
     this.folderMeta.totalMessages = 0;
 }
-exports.ActiveSyncFolderConn = ActiveSyncFolderConn;
 ActiveSyncFolderConn.prototype = {
   get syncKey() {
     return this.folderMeta.syncKey;
@@ -46,10 +47,6 @@ ActiveSyncFolderConn.prototype = {
 
   set syncKey(value) {
     return this.folderMeta.syncKey = value;
-  },
-
-  get totalMessages() {
-    return this.folderMeta.totalMessages;
   },
 
   /**
@@ -432,7 +429,7 @@ ActiveSyncFolderConn.prototype = {
   },
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             useBisectLimit, doneCallback) {
+                                             doneCallback) {
     let storage = this._storage;
     let folderConn = this;
 
@@ -442,7 +439,6 @@ ActiveSyncFolderConn.prototype = {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
           folderConn.storage = s;
         });
-        folderConn.folderMeta.totalMessages = 0;
         return;
       }
 
@@ -464,15 +460,88 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByUid(messageGuid);
       }
 
-      // XXX: this is a lie; the total number of messages is probably not the
-      // same as the number we've gotten already. We should just check for
-      // <AirSync:MoreAvailable/> and let the folder storage know.
-      folderConn.folderMeta.totalMessages += added.length - deleted.length;
+      // XXX: We should check for <AirSync:MoreAvailable/> and let the folder
+      // storage know, or more likely, just keep grabbing headers.
 
       folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
       storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
       doneCallback(null, added.length);
     });
+  },
+};
+
+function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
+  this._account = account;
+  this.folderStorage = folderStorage;
+
+  this._LOG = LOGFAB.ActiveSyncFolderSyncer(this, _parentLog,
+                                            folderStorage.folderId);
+
+  this.folderConn = new ActiveSyncFolderConn(account, folderStorage, this._LOG);
+}
+exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
+ActiveSyncFolderSyncer.prototype = {
+  syncDateRange: function(startTS, endTS, callback) {
+    callback('sync', false);
+    this._startSync(startTS, endTS);
+  },
+
+  // Returns true if the existing data is good.
+  syncAdjustedDateRange: function(startTS, endTS, updateThresh, ainfo,
+                                  syncCallback) {
+    // XXX: we assume ActiveSync's existing data is good for now, since it
+    // works a bit differently.
+    return true;
+  },
+
+  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(), callback);
+  },
+
+  // Returns false if no sync is necessary.
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
+    // ActiveSync is different, and trying to sync more doesn't work with it.
+    // Just assume we've got all we need.
+    return false;
+  },
+
+  _startSync: function ifs__startSync(startTS, endTS) {
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
+                                  this.onSyncCompleted.bind(this));
+  },
+
+  /**
+   * Whatever synchronization we last triggered has now completed; we should
+   * either trigger another sync if we still want more data, or close out the
+   * current sync.
+   */
+  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+    console.log("Sync Completed!", this._curSyncDayStep, "days",
+                messagesSeen, "messages synced");
+
+    // ActiveSync always gets all the headers because the server *really* wants
+    // us to, so flag ourselves as not desiring more headers.
+    this.folderStorage._curSyncSlice.desiredHeaders =
+      this.folderStorage._curSyncSlice.headers.length;
+    // expand the accuracy range to cover everybody
+    this.folderStorage.markSyncedEntireFolder();
+
+    console.log("SYNCDONE Enough headers retrieved.",
+                "have", this.folderStorage._curSyncSlice.headers.length);
+    this.folderStorage._curSyncSlice.waitingOnData = false;
+    this.folderStorage._curSyncSlice.setStatus('synced', true, false, true);
+    this.folderStorage._curSyncSlice = null;
+
+    this._account.__checkpointSyncCompleted();
+  },
+
+  relinquishConn: function() {
+    this.folderConn.relinquishConn();
+  },
+
+  shutdown: function() {
+    this.folderConn.shutdown();
+    this._LOG.__die();
   },
 };
 
@@ -488,6 +557,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
         start: false, end: false,
       },
     },
+  },
+  ActiveSyncFolderSyncer: {
+    type: $log.DATABASE,
+    events: {
+    }
   },
 });
 
