@@ -7,8 +7,8 @@ var $log = require('rdcommon/log'),
     $imapacct = require('mailapi/imap/account'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
-    $imapslice = require('mailapi/imap/slice'),
-    $imaputil = require('mailapi/util'),
+    $imapfolder = require('mailapi/imap/folder'),
+    $util = require('mailapi/util'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account');
 
@@ -458,7 +458,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       // messages already in there, need to insert them appropriately
       else {
         for (var i = 0; i < messageBodies.length; i++) {
-          var idx = $imaputil.bsearchForInsert(
+          var idx = $util.bsearchForInsert(
             testFolder.messages, messageBodies[i],
             function (a, b) {
               // we only compare based on date because we require distinct dates
@@ -942,7 +942,7 @@ exports.TESTHELPER = {
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB,
-    $imapacct.LOGFAB, $imapslice.LOGFAB,
+    $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,
   ],

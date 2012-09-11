@@ -1,7 +1,7 @@
 /**
  * Test our processing of MIME messages.  Because we leave most of this up to
  * the IMAP server, this ends up being a test of `imapchew.js`, the sync logic
- * in `imapslice.js`'s ability to cram things into mailparser, and the
+ * in `mailslice.js`'s ability to cram things into mailparser, and the
  * mailparser lib itself.
  **/
 
