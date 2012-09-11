@@ -64,6 +64,7 @@ install-gaia-email-opt: gaia-email-opt.js gaia-symlink
 PYTHON=python
 B2GSD=b2g-srcdir-symlink
 B2GBD=b2g-builddir-symlink
+ARBPLD=arbpl-dir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 xpcshell-tests:
 	-rm test/unit/all.log test/unit/*.js.log
@@ -77,6 +78,12 @@ check-one:
 
 check-interactive:
 	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+
+post-check-one: check-one
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+
+post-xpcshell-tests: xpcshell-tests
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all.log
 
 
 clean:
