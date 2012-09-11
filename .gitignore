@@ -5,4 +5,5 @@ gaia-email-opt.js
 gaia-symlink
 b2g-builddir-symlink
 b2g-srcdir-symlink
+arbpl-dir-symlink
 *~
