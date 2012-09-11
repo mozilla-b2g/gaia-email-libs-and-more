@@ -196,6 +196,18 @@ Alternatively, you can create a symlink "arbpl-dir-symlink", and then use the
 Makefile targets "post-check-one" or "post-xpcshell-tests" to automatically
 run ./logalchew on the result.
 
+To make this more obvious that this is an option for those skimming the page,
+this means:
+```
+make post-check-one SOLO_FILE=test_imap_general.js
+```
+
+or
+
+```
+make post-xpcshell-tests
+```
+
 
 ### Adding Tests ###
 
