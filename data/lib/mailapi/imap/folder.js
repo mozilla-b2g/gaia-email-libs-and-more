@@ -660,32 +660,27 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
 }
 exports.ImapFolderSyncer = ImapFolderSyncer;
 ImapFolderSyncer.prototype = {
-  syncDateRange: function(startTS, endTS, callback) {
-    callback('sync', false);
+  syncDateRange: function(startTS, endTS, syncCallback) {
+    syncCallback('sync', false);
     this._startSync(startTS, endTS);
   },
 
-  // Returns true if the existing data is good.
-  syncAdjustedDateRange: function(startTS, endTS, updateThresh, ainfo,
-                                  syncCallback) {
-    // XXX: this conditional should go in the calling function, but ActiveSync
-    // doesn't work right with it just yet...
-    if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
-      // We need to iterate over the headers to figure out the right
-      // date to use.  We can't just use the accuracy range because it may
-      // have been bisected by the user scrolling into the past and
-      // triggering a refresh.
-      this.folderStorage.getMessagesBeforeMessage(
-        null, null, INITIAL_FILL_SIZE - 1,
-        function(headers, moreExpected) {
-          if (moreExpected)
-            return;
-          var header = headers[headers.length - 1];
-          pastDate = quantizeDate(header.date);
-          syncCallback('sync', true);
-          this._startSync(startTS, endTS);
-        }.bind(this));
-    }
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+    // We need to iterate over the headers to figure out the right
+    // date to use.  We can't just use the accuracy range because it may
+    // have been bisected by the user scrolling into the past and
+    // triggering a refresh.
+    this.folderStorage.getMessagesBeforeMessage(
+      null, null, INITIAL_FILL_SIZE - 1,
+      function(headers, moreExpected) {
+        if (moreExpected)
+          return;
+        var header = headers[headers.length - 1];
+        pastDate = quantizeDate(header.date);
+        syncCallback('sync', true);
+        this._startSync(pastDate, endTS);
+      }.bind(this)
+    );
   },
 
   refreshSync: function(startTS, endTS, useBisectLimit, callback) {

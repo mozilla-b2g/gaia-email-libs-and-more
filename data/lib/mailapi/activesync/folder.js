@@ -481,17 +481,17 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 }
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
-  syncDateRange: function(startTS, endTS, callback) {
-    callback('sync', false);
-    this._startSync(startTS, endTS);
+  syncDateRange: function(startTS, endTS, syncCallback) {
+    // XXX: we need to have some sort of logic for adding existing headers to
+    // the current sync slice here...
+    syncCallback('sync', false);
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
+                                  this.onSyncCompleted.bind(this));
   },
 
-  // Returns true if the existing data is good.
-  syncAdjustedDateRange: function(startTS, endTS, updateThresh, ainfo,
-                                  syncCallback) {
-    // XXX: we assume ActiveSync's existing data is good for now, since it
-    // works a bit differently.
-    return true;
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+    // ActiveSync doesn't adjust date ranges. Just do a normal sync.
+    this.syncDateRange(startTS, endTS, syncCallback);
   },
 
   refreshSync: function(startTS, endTS, useBisectLimit, callback) {
@@ -503,11 +503,6 @@ ActiveSyncFolderSyncer.prototype = {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
     return false;
-  },
-
-  _startSync: function ifs__startSync(startTS, endTS) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  this.onSyncCompleted.bind(this));
   },
 
   /**

@@ -1766,10 +1766,13 @@ console.log("FSC", ainfo.fullSync && ainfo.fullSync.updated, now - refreshThresh
         else
           rangeThresh = SYNC_USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
 
-        if (this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
-                                                    now - rangeThresh, ainfo,
-                                                    syncCallback))
-          existingDataGood = true;
+        var updateThresh = now - rangeThresh;
+console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
+        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
+          this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
+                                                  syncCallback);
+          return;
+        }
       }
     }
 
