@@ -317,7 +317,7 @@ Configurators['imap+smtp'] = {
           // clean up the imap connection if it was okay but smtp failed
           if (results.imap[0])
             results.imap[1].close();
-          callback('failure-generic', null);
+          callback('unknown', null);
           return;
         }
       });
@@ -465,13 +465,13 @@ Configurators['activesync'] = {
                                           credentials.password);
     conn.connect(function(error, config) {
       if (error) {
-        var failureType = 'failure-generic';
+        var failureType = 'unknown';
 
         if (error instanceof $activesync.HttpError) {
           if (error.status === 401)
-            failureType = 'failure-credentials';
+            failureType = 'bad-user-or-pass';
           else if (error.status === 403)
-            failureType = 'failure-not-authorized';
+            failureType = 'not-authorized';
         }
         callback(failureType, null);
         return;
