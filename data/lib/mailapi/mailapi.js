@@ -1311,6 +1311,10 @@ MailAPI.prototype = {
    *     The username and password didn't check out.  We don't know which one
    *     is wrong, just that one of them is wrong.
    *   }
+   *   @case['not-authorized']{
+   *     The username and password are correct, but the user isn't allowed to
+   *     access the mail server.
+   *   }
    *   @case['unknown']{
    *     We don't know what happened; count this as our bug for not knowing.
    *   }
