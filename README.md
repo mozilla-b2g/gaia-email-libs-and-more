@@ -3,7 +3,7 @@ get r.js optimized into a single JS file that gets loaded into the Gaia email
 client.  The library can also potentially be used for other clients too, as
 long as you are cool with our design decisions.
 
-== Design Decisions
+## Design Decisions ##
 
 We are targeting B2G phone devices where resources are relatively precious.
 We:
@@ -27,21 +27,30 @@ We:
   does not support IDLE and GMail barely supports it.  Neither support CONDSTORE
   or QRESYNC, etc.
 
-== What Works
 
-- Bare-bones account creation.  We eventually want to support autoconfiguration
-  derived from Thunderbird's implementation, but right now we just try the
-  exact settings we are given and things either work or they don't.
-- Provide the list of folders, including identification of folder types.
-- Initial IMAP folder 'sync' of the most recent messages in a folder.  State
-  is not persisted and refreshing is not possible.  (Although much of the logic
-  is in place; it's just disabled.)
+## What Works / Will Work ##
 
-== What Will Eventually Work
+We have working IMAP and ActiveSync implementations.  There are some current
+limitations that we are working to resolve, such as message moves and
+auto-configuration.
 
-See: https://wiki.mozilla.org/Gaia/Email
+Specific project progress tracking happens (a lot of which is tied up with the
+gaia email UI) in a few places:
 
-== New Code
+issues on this repo:
+https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues?state=open
+
+"email" issues on the gaia project:
+https://github.com/mozilla-b2g/gaia/issues?labels=email&state=open
+
+This google doc spreadsheet that tries to break out the UX specs:
+https://docs.google.com/spreadsheet/ccc?key=0AsBxAH-jrP_GdERrWUxrd2lyZW5qMHprYl91VEdMNHc#gid=0
+
+Find more links from the wiki page at:
+https://wiki.mozilla.org/Gaia/Email
+
+
+## New Code ##
 
 This repo provides:
 
@@ -56,7 +65,7 @@ not round-tripping the data through JSON because it would needlessly create
 garbage and slow things down.  But the idea is that the client daemon can
 live in a background page or a (sufficiently powerful) worker, etc.
 
-== Code Reuse
+## Code Reuse ##
 
 We are aggressively attempting to use existing JS libraries.  Currently, these
 are mainly node libraries.  We use a combination of slightly-forked versions,
@@ -67,8 +76,14 @@ code from the following projects or converted projects:
    which is frequently modified node.js source code.
 - MIME parsing/rfc822 logic from: https://github.com/andris9/mailparser
 - MIME composition from: https://github.com/andris9/mailcomposer
-- MIME types, helper functions from: https://github.com/andris9/mimelib
-- String encoding/character set conversion from http://code.google.com/p/stringencoding/
+- SMTP library from: https://github.com/andris9/simplesmtp
+- MIME helper functions from: https://github.com/andris9/mimelib
+- address parser library from: https://github.com/andris9/addressparser
+- String encoding/character set conversion from
+  http://code.google.com/p/stringencoding/.  This will removed once the
+  TextEncoder/TextDecoder enhancement bug for Gecko lands:
+  https://bugzilla.mozilla.org/show_bug.cgi?id=764234
+- HTML sanitization from: https://github.com/asutherland/bleach.js
 
 We shim the following ourselves to the minimum required:
 - node's Buffer implementation
@@ -76,16 +91,160 @@ We shim the following ourselves to the minimum required:
    hash.digest("hex").
 
 We fork the following:
-- node-imap from https://github.com/mscdex/node-imap because the goal is to
-   have an example that uses the TCP WebAPI directly rather than going
-   through node shims.  If you want to do node.js network stuff from inside
-   Firefox, check out https://github.com/Gozala/jetpack-net
+- node-imap from https://github.com/mscdex/node-imap.  This was done because we
+   were trying to avoid shimming the node network API in favor of using our
+   TCP WebAPI.  Changes were also required because of the differences between
+   node's Buffers and our Buffer-shim based on typed arrays.  Our fork is
+   currently intended to be a bit of a dead-end.  Since node is abandoning
+   Buffers in favor of typed arrays/data-views, we will likely migrate to a
+   new upstream revision of this library or an entirely different library in the
+   future.  (Our current major concern for IMAP is on pipelining requests, so
+   whatever library best offers that is likely what we will end up using.  If
+   no other library offers it and node-imap is willing to accept patches for
+   doing so, we will likely stick with node-imap.)
 
-== The "And More" bit
+## The "And More" bit ##
 
-This repo started out life as a restartless Jetpack extensionf or Firefox to
+This repo started out life as a restartless Jetpack extension for Firefox to
 provide a restartless version of the TCP WebAPI with permissions.  There was
 also an intent to provide a more desktop friendly development UI.  Code for
 this stuff is still in here in various states of workingness, but is not a
-priority or goal.
+priority or goal and a lot of it has now been removed.  That which remains
+is planned to be deleted or moved to a separate repository.
 
+## Unit Tests ##
+
+Unit tests are intended to be run in an xpcshell instance that was built as part
+of a b2g-desktop build, but a Firefox or Thunderbird xpcshell build should work
+equally well.  The Makefile has the standard xpcshell-tests, check-one, and
+check-interactive targets.  They depend on your having "b2g-srcdir-symlink" and
+"b2g-builddir-symlink" files in the root of your gaia-email-libs-and-more
+checkout so it can build the path properly.
+
+The IMAP tests like to run against real servers.  asuth uses dovecot installed
+on Ubuntu hooked up to postfix on localhost, but the unit tests can run against
+any server anywhere.  For example, a somewhat recent dovecot on a remote server
+works just as well as localhost, it's just harder to use on a airplane.  Some
+servers, such as Yahoo's IMAP at the current time, are too broken to use the
+unit tests.  For example, Yahoo's APPEND command ignores the specified
+INTERNALDATE value, which makes it useless for many synchronization unit tests.
+
+### Setup ###
+
+Create the symlinks described above for xpcshell:
+```
+ln -s /path/to/moilla-src-dir b2g-srcdir-symlink
+ln -s /path/to/mozilla-obj-dir b2g-builddir-symlink
+```
+
+### Running the Tests ###
+
+To run a single test, in this case, test_imap_general.js which is located at
+test/unit/test_imap_general.js in the repo:
+```
+make check-one SOLO_FILE=test_imap_general.js
+```
+This will produce a log file of the run at
+test/unit/test_imap_general.js.log
+
+To run all of the unit tests:
+```
+make xpcshell-tests
+```
+This will remove all existing log files prior to the run.  Afterwards, all log
+files should be updated/exist, and a log that is the concatenation of all of
+the test logs should exist at test/unit/all.log
+
+### Viewing the Test Results ###
+
+The logs generated by the unit tests are in JSON, but that doesn't help you much
+on its own.  Happily, there is an HTML UI for viewing the logs, that can be
+found here and dubbed ArbPL which was born as a hybrid of a log viewing UI and a
+competitor to tinderbox pushlog that involved a server component for speed:
+
+https://github.com/asutherland/arbitrarypushlog
+
+The easiest and most fun way to use ArbPL is to run the server.  This is because
+the UI is able to use Socket.IO to update as new test runs come in.  To be
+able to do this, the setup process looks generally like this:
+
+```
+sudo apt-get install graphviz
+git clone --recursive git://github.com/asutherland/arbitrarypushlog.git
+cd arbitrarypushlog/server
+npm install
+```
+
+Things are now installed.
+
+You can run the server by typing the following in the root of arbitrarypushlog.
+```
+./webserve
+```
+
+The server is now running on port 8008.  You can browse to
+http://localhost:8008/?tree=Logal and you will see the list of results.  At
+the start of time, the database is empty, and the UI doesn't really like that,
+so you will need to hit refresh after you get some data in there.
+
+To get data in, the command is:
+```
+./logalchew /path/to/test_blah_blah.js.log
+```
+
+Alternatively, you can create a symlink "arbpl-dir-symlink", and then use the
+Makefile targets "post-check-one" or "post-xpcshell-tests" to automatically
+run ./logalchew on the result.
+
+To make this more obvious that this is an option for those skimming the page,
+this means:
+```
+make post-check-one SOLO_FILE=test_imap_general.js
+```
+
+or
+
+```
+make post-xpcshell-tests
+```
+
+
+### Adding Tests ###
+
+Because we are using xpcshell and xpcshell requires manifests to be used, if you
+add a new test, then you need to add it to test/unit/xpcshell.ini if you
+actually want it to be run.
+
+## Legal Disclaimers, Notes, Etc. ##
+
+We are including ActiveSync support because it's the only sane option for
+Hotmail.  (It also is potentially a better protocol to speak for various other
+e-mail services such as GMail where enabling IMAP requires user interaction
+and/or the IMAP mapping potentially requires special handling.)
+
+Microsoft asserts that they have some patents on the ActiveSync protocol.  If
+you want to use/ship/distribute this library, you are either going to want to
+strip out ActiveSync-touching logic or make sure that you are okay with whatever
+those patents are.  Microsoft has some Open Source friendly words relating to
+some protocols, including their e-mail protocols, which may make things fine for
+you if you are not distributing things commercially.
+
+Specifically, the "Interoperability Principles" program has a patent pledge:
+http://www.microsoft.com/openspecifications/en/us/programs/other/interoperability-principles-patent-pledges/default.aspx
+
+The pledge defines that it relates to the protocols listed at:
+http://msdn.microsoft.com/en-us/library/dd208104%28v=PROT.10%29.aspx
+
+From the "Open Protocols" page, if you click on the following links in
+succession, you will reach the ActiveSync documentation:
+
+- "Protocols" http://msdn.microsoft.com/en-us/library/gg685446.aspx
+- "Exchange Server Protocols" http://msdn.microsoft.com/en-us/library/cc307725%28v=EXCHG.80%29.aspx
+- "Exchange Server Protocol Documents" http://msdn.microsoft.com/en-us/library/cc425499%28v=exchg.80%29.aspx
+
+There is also a commercial licensing program known to exist:
+http://www.microsoft.com/about/legal/en/us/intellectualproperty/iplicensing/programs/exchangeactivesyncprotocol.aspx
+
+I am not a lawyer, I am not qualified to tell you what any of the above actually
+mean.  The above links will hopefully save you time when you or your lawyer
+do your research.  None of this is legal advice.

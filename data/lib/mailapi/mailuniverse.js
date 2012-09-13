@@ -308,7 +308,7 @@ Configurators['imap+smtp'] = {
             userDetails, credentials,
             imapConnInfo, smtpConnInfo, results.imap[1]);
           account.syncFolderList(function() {
-            callback(true, account);
+            callback(null, account);
           });
 
         }
@@ -317,7 +317,7 @@ Configurators['imap+smtp'] = {
           // clean up the imap connection if it was okay but smtp failed
           if (results.imap[0])
             results.imap[1].close();
-          callback(false, null);
+          callback('unknown', null);
           return;
         }
       });
@@ -420,7 +420,7 @@ Configurators['fake'] = {
     };
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
-    callback(true, account);
+    callback(null, account);
   },
 };
 Configurators['activesync'] = {
@@ -465,7 +465,15 @@ Configurators['activesync'] = {
                                           credentials.password);
     conn.connect(function(error, config) {
       if (error) {
-        callback(false, null);
+        var failureType = 'unknown';
+
+        if (error instanceof $activesync.HttpError) {
+          if (error.status === 401)
+            failureType = 'bad-user-or-pass';
+          else if (error.status === 403)
+            failureType = 'not-authorized';
+        }
+        callback(failureType, null);
         return;
       }
 
@@ -474,7 +482,7 @@ Configurators['activesync'] = {
         accountDef.identities[0].name = config.user.name;
       universe.saveAccountDef(accountDef, folderInfo);
       account.syncFolderList(function() {
-        callback(true, account);
+        callback(null, account);
       });
     });
   },
