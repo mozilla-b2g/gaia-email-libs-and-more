@@ -7,6 +7,7 @@ define(
     'imap',
     'rdcommon/log',
     '../a64',
+    '../errbackoff',
     '../mailslice',
     './slice',
     './jobs',
@@ -18,6 +19,7 @@ define(
     $imap,
     $log,
     $a64,
+    $errbackoff,
     $mailslice,
     $imapslice,
     $imapjobs,
@@ -47,12 +49,14 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.compositeAccount = compositeAccount;
   this.id = accountId;
 
+  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+
   this._credentials = credentials;
   this._connInfo = connInfo;
   this._db = dbConn;
 
   this._ownedConns = [];
-  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this);
 
   this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
@@ -423,6 +427,8 @@ ImapAccount.prototype = {
       folderStorage.shutdown();
     }
 
+    this._backoffEndpoint.shutdown();
+
     // - close all connections
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
@@ -431,6 +437,22 @@ ImapAccount.prototype = {
 
     this._LOG.__die();
   },
+
+  checkAccount: function(callback) {
+    var self = this;
+    this._makeConnection(
+      ':check',
+      function success(conn) {
+        self.__folderDoneWithConnection(null, conn);
+        callback(null);
+      },
+      function badness(err) {
+        callback(err);
+      });
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Connection Pool-ish stuff
 
   get numActiveConns() {
     return this._ownedConns.length;
@@ -484,19 +506,6 @@ ImapAccount.prototype = {
     this._makeConnection(folderId, callback);
   },
 
-  checkAccount: function(callback) {
-    var self = this;
-    this._makeConnection(
-      ':check',
-      function success(conn) {
-        self.__folderDoneWithConnection(null, conn);
-        callback(null);
-      },
-      function badness(err) {
-        callback(err);
-      });
-  },
-
   _makeConnection: function(folderId, callback, errback) {
     this._LOG.createConnection(folderId);
     var opts = {
@@ -518,13 +527,17 @@ ImapAccount.prototype = {
     conn.connect(function(err) {
       if (err) {
         var errName;
+        // We want to produce error-codes as defined in `MailApi.js` for
+        // tryToCreateAccount.  We have also tried to make imap.js produce
+        // error codes of the right type already, but
         switch (err.type) {
-          // error-codes as defined in `MailApi.js` for tryToCreateAccount
           case 'NO':
           case 'no':
             errName = 'bad-user-or-pass';
             this.universe.__reportAccountProblem(this.compositeAccount,
                                                  errName);
+            break;
+          case 'server-maintenance':
             break;
           case 'timeout':
             errName = 'unresponsive-server';
@@ -593,6 +606,9 @@ ImapAccount.prototype = {
     }
     this._LOG.connectionMismatch(folderId);
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Folder synchronization
 
   syncFolderList: function(callback) {
     var self = this;
@@ -747,6 +763,8 @@ ImapAccount.prototype = {
     this.saveAccountState();
     callback();
   },
+
+  //////////////////////////////////////////////////////////////////////////////
 
   /**
    * @args[

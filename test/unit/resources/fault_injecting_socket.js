@@ -5,9 +5,10 @@
  * some data in the incoming or outgoing stream.
  *
  * Actions currently supported:
- * - instant-close: Emit a close event locally in the next turn of the event loop,
- *   and detach the real socket so that we don't generate any more events from it.
- *   We will optionally generate an error event with the provided string.
+ * - instant-close: Emit a close event locally in the next turn of the event
+ *   loop, and detach the real socket so that we don't generate any more events
+ *   from it.  We will optionally generate an error event with the provided
+ *   string.
  *
  * Actions that it would be sweet to support:
  * - alter-data: Change the contents of the buffer that matched.
@@ -91,11 +92,14 @@ FawltySocket.prototpe = {
   _onerror: function(event) {
     if (this._sock && this.onerror)
       this.onerror(event);
+    // all errors are a death sentence; it's okay to remove slightly early.
+    FawltySocketFactory.__deadSocket(this);
   },
 
   _onclose: function(event) {
     if (this._sock && this.onclose)
       this.onclose(event);
+    FawltySocketFactory.__deadSocket(this);
   },
 
   doOnSendText: function(match, actions) {
@@ -151,6 +155,7 @@ FawltySocket.prototpe = {
 };
 
 var FawltySocketFactory = {
+  _liveSockets: [],
   _precommands: {},
 
   open: function(host, port, options) {
@@ -159,7 +164,9 @@ var FawltySocketFactory = {
       precmd = this._precommands[key];
       delete this._precommands[key];
     }
-    return new FawltySocket(host, port, options, precmd);
+    var sock = new FawltySocket(host, port, options, precmd);
+    this._liveSockets.push(sock);
+    return sock;
   },
 
   /**
@@ -172,6 +179,18 @@ var FawltySocketFactory = {
    */
   precommand: function(host, port, command) {
     this._precommands[host + port] = command;
+  },
+
+  __deadSocket: function(sock) {
+    var idx = this._liveSockets.indexOf(sock);
+    if (idx !== -1)
+      this._liveSockets.splice(idx, 1);
+  },
+
+  getMostRecentLiveSocket: function() {
+    if (!this._liveSockets.length)
+      throw new Error("No live sockets!");
+    return this._liveSockets[this._liveSockets.length - 1];
   },
 };
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;

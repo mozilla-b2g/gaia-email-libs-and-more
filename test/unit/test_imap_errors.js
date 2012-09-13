@@ -30,4 +30,80 @@
  *   failure values we define.)
  **/
 
+// Use the faulty socket implementation.
 load('resources/fault_injecting_socket.js');
+
+var TD = $tc.defineTestsFor(
+  { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
+
+
+/**
+ * Attempt to connect to a server with immediate failures each time (that we
+ * have already established an account for).  Verify that we do the backoff
+ * logic and eventually give up, waiting for a manual retrigger.
+ */
+TD.commonCase('failure to connect, backoff check', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: false }),
+      eSync = T.lazyLogger('sync');
+
+
+
+});
+
+/**
+ * Change our password to the wrong password, then try to open a new connection
+ * and make sure we notice and the bad password event fires.
+ */
+TD.commonCase('bad password login failure', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+
+TD.commonCase('general/unknown login failure', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+
+/**
+ * Sometimes a server doesn't want to let us into a folder.  For example,
+ * Yahoo will do this.
+ */
+TD.commonCase('IMAP server forbids SELECT', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+
+
+TD.commonCase('IMAP connection loss on SELECT', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+
+TD.commonCase('IMAP connection loss on FETCH', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+

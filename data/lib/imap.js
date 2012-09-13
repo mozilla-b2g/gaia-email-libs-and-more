@@ -618,12 +618,14 @@ ImapConnection.prototype.connect = function(loginCb) {
           if (cmd.indexOf('APPEND') !== 0) {
             err = new Error('Unexpected continuation');
             err.type = 'continuation';
+            err.serverResponse = '';
             err.request = cmd;
           } else
             return self._state.requests[0].callback();
         } else if (data[1] !== 'OK') {
           err = new Error('Error while executing request: ' + data[2]);
           err.type = data[1];
+          err.serverResponse = data[2];
           err.request = cmd;
         } else if (self._state.status === STATES.BOXSELECTED) {
           if (sendBox) // SELECT, EXAMINE, RENAME
@@ -704,8 +706,12 @@ ImapConnection.prototype.connect = function(loginCb) {
           err = 'bad-security';
       }
       clearTimeout(self._state.tmrConn);
-      if (self._state.status === STATES.NOCONNECT)
-        loginCb(new Error('Unable to connect. Reason: ' + err));
+      if (self._state.status === STATES.NOCONNECT) {
+        var connErr = new Error('Unable to connect. Reason: ' + err);
+        connErr.type = 'unknown';
+        connErr.serverResponse = '';
+        loginCb(connErr);
+      }
       self.emit('error', err);
       if (this._LOG) this._LOG.connError(err);
     }
@@ -1163,7 +1169,7 @@ ImapConnection.prototype._fnTmrConn = function(loginCb) {
   err.type = 'timeout';
   loginCb(err);
   this._state.conn.close();
-}
+};
 
 ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
   if (this._state.status !== STATES.BOXSELECTED)
@@ -1225,8 +1231,12 @@ ImapConnection.prototype._login = function(cb) {
         cb(err);
       };
   if (this._state.status === STATES.NOAUTH) {
+    var connErr;
     if (this.capabilities.indexOf('LOGINDISABLED') > -1) {
-      cb(new Error('Logging in is disabled on this server'));
+      connErr = new Error('Logging in is disabled on this server');
+      connErr.type = 'server-maintenance';
+      connErr.serverResponse = 'LOGINDISABLED';
+      cb(connErr);
       return;
     }
 
@@ -1238,8 +1248,12 @@ ImapConnection.prototype._login = function(cb) {
       this._send('LOGIN', ' "' + escape(this._options.username) + '" "'
                  + escape(this._options.password) + '"', fnReturn);
     } else {
-      return cb(new Error('Unsupported authentication mechanism(s) detected. '
-                          + 'Unable to login.'));
+      connErr = new Error('Unsupported authentication mechanism(s) detected. '
+                          + 'Unable to login.');
+      connErr.type = 'sucky-imap-server';
+      connErr.serverResponse = 'CAPABILITIES: ' + this.capabilities.join(' ');
+      cb(connErr);
+      return;
     }
   }
 };

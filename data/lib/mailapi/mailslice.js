@@ -944,6 +944,22 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._pendingMutationCount = 0;
 
   /**
+   * @listof[@dict[
+   *   @key[name String]{
+   *     A string describing the operation to be performed for debugging
+   *     purposes.  This string must not include any user data.
+   *   }
+   *   @key[func @func[@args[callWhenDone]]]{
+   *     The function to be invoked.
+   *   }
+   * ]]{
+   *   The list of mutexed call operations queued.  The first entry is the
+   *   currently executing entry.
+   * }
+   */
+  this._mutexQueue = [];
+
+  /**
    * Active view slices on this folder.
    */
   this._slices = [];
@@ -969,6 +985,67 @@ FolderStorage.prototype = {
     this._dirtyBodyBlocks = {};
     this._dirty = false;
     return pinfo;
+  },
+
+  _invokeNextMutexedCall: function() {
+    var callInfo = this._mutexQueue[0], self = this, done = false;
+    this._mutexedCallInProgress = true;
+    this._LOG.mutexedCall_begin(callInfo.name);
+
+    callInfo.func(function mutexedOpDone() {
+      if (done) {
+        self._LOG.tooManyCallbacks(callInfo.name);
+        return;
+      }
+      self._LOG.mutexedCall_end(callInfo.name);
+      done = true;
+      if (self._mutexQueue[0] !== callInfo) {
+        self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
+        return;
+      }
+      self._mutexQueue.shift();
+      // Although everything should be async, avoid stack explosions by
+      // deferring the execution to a future turn of th eevent loop.
+      if (self._mutexQueue.length)
+        window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+    });
+  },
+
+  /**
+   * If you want to modify the state of things in the FolderStorage, or be able
+   * to view the state of the FolderStorage without worrying about some other
+   * logic mutating its state, then use this to schedule your function to run
+   * with (notional) exclusive write access.  Because everything is generally
+   * asynchronous, it's assumed your function is still doing work until it calls
+   * the passed-in function to indicate it is done.
+   *
+   * Keep in mind that there is nothing actually stopping other code from trying
+   * to manipulate the database.
+   *
+   * It's okay to issue reads against the FolderStorage if the value is
+   * immutable or there are other protective mechanisms in place.  For example,
+   * fetching a message body should always be safe even if a block load needs
+   * to occur.  But if you wanted to fetch a header, mutate it, and write it
+   * back, then you would want to do all of that with the mutex held; reading
+   * the header before holding the mutex could result in a race.
+   *
+   * @args[
+   *   @param[name String]{
+   *     A short name to identify what operation this is for debugging purposes.
+   *     No private user data or sensitive data should be included in the name.
+   *   }
+   *   @param[func @func[@args[@param[callWhenDone Function]]]]{
+   *     The function to run with (notional) exclusive access to the
+   *     FolderStorage.
+   *   }
+   * ]
+   */
+  runMutexed: function(name, func) {
+    var doRun = this._mutexQueue.length === 0;
+    this._mutexQueue.push({ name: name, func: func });
+
+    if (doRun)
+      this._invokeNextMutexedCall();
   },
 
   /**
@@ -3074,6 +3151,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       loadBlock: { type: false, blockId: false },
+      mutexedCall: { name: true },
     },
     TEST_ONLY_asyncJobs: {
       loadBlock: { block: false },
@@ -3086,6 +3164,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badIterationStart: { date: false, uid: false },
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
+
+      tooManyCallbacks: { name: false },
+      mutexInvariantFail: { fireName: false, curName: false },
     }
   },
   FolderSyncer: {
