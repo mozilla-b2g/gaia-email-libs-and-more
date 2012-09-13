@@ -514,8 +514,6 @@ ActiveSyncFolderSyncer.prototype = {
     let storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");
-    console.log("SYNCDONE Enough headers retrieved.",
-                "have", storage._curSyncSlice.headers.length);
 
     // Expand the accuracy range to cover everybody.
     storage.markSyncedEntireFolder();
