@@ -5,6 +5,7 @@ define(
     '../a64',
     '../allback',
     '../date',
+    '../syncbase',
     '../util',
     './imapchew',
     'module',
@@ -16,6 +17,7 @@ define(
     $a64,
     $allback,
     $date,
+    $sync,
     $util,
     $imapchew,
     $module,
@@ -33,13 +35,6 @@ const allbackMaker = $allback.allbackMaker,
       SINCE = $date.SINCE,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
-
-// XXX: deduplicate these from mailslice.js
-var SYNC_BISECT_DATE_AT_N_MESSAGES = 50;
-var INITIAL_FILL_SIZE = 15;
-var INITIAL_SYNC_DAYS = 3;
-var TIME_SCALE_FACTOR_ON_NO_MESSAGES = 1.6;
-const OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -232,7 +227,7 @@ console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
     if (!useBisectLimit)
-      useBisectLimit = SYNC_BISECT_DATE_AT_N_MESSAGES;
+      useBisectLimit = $sync.BISECT_DATE_AT_N_MESSAGES;
     if (startTS)
       searchOptions.push(['SINCE', startTS]);
     if (endTS)
@@ -263,7 +258,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             // - Interpolate better time bounds.
             // Assume a linear distribution of messages, but overestimated by
             // a factor of two so we undershoot.
-            var shrinkScale = SYNC_BISECT_DATE_AT_N_MESSAGES /
+            var shrinkScale = $sync.BISECT_DATE_AT_N_MESSAGES /
                                 (serverUIDs.length * 2),
                 backDays = Math.max(1,
                                     Math.ceil(shrinkScale * curDaysDelta));
@@ -671,7 +666,7 @@ ImapFolderSyncer.prototype = {
     // have been bisected by the user scrolling into the past and
     // triggering a refresh.
     this.folderStorage.getMessagesBeforeMessage(
-      null, null, INITIAL_FILL_SIZE - 1,
+      null, null, $sync.INITIAL_FILL_SIZE - 1,
       function(headers, moreExpected) {
         if (moreExpected)
           return;
@@ -735,10 +730,10 @@ ImapFolderSyncer.prototype = {
 
   _startSync: function ifs__startSync(startTS, endTS) {
     if (startTS === null)
-      startTS = endTS - (INITIAL_SYNC_DAYS * DAY_MILLIS);
+      startTS = endTS - ($sync.INITIAL_SYNC_DAYS * DAY_MILLIS);
     this._curSyncAccuracyStamp = NOW();
     this._curSyncStartTS = startTS;
-    this._curSyncDayStep = INITIAL_SYNC_DAYS;
+    this._curSyncDayStep = $sync.INITIAL_SYNC_DAYS;
     this._curSyncDoNotGrowWindowBefore = null;
 
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
@@ -799,7 +794,7 @@ console.log("folder message count", folderMessageCount,
     // enough headers.
     else if (this.folderStorage._curSyncSlice.startTS &&
              ON_OR_BEFORE(this.folderStorage._curSyncSlice.startTS,
-                          OLDEST_SYNC_DATE)) {
+                          $sync.OLDEST_SYNC_DATE)) {
       this.folderStorage._curSyncSlice.desiredHeaders =
         this.folderStorage._curSyncSlice.headers.length;
     }
@@ -814,7 +809,7 @@ console.log("folder message count", folderMessageCount,
                   "want", this.folderStorage._curSyncSlice.desiredHeaders,
                   "conn knows about", this.folderConn.totalMessages,
                   "sync date", this._curSyncStartTS,
-                  "[oldest defined as", OLDEST_SYNC_DATE, "]");
+                  "[oldest defined as", $sync.OLDEST_SYNC_DATE, "]");
       // If we are accumulating, we don't want to adjust our count upwards;
       // the release will slice the excess off for us.
       if (!this.folderStorage._curSyncSlice._accumulating) {
@@ -849,7 +844,7 @@ console.log("folder message count", folderMessageCount,
       lastSyncDaysInPast = ((quantizeDate(NOW())) - this._curSyncStartTS) /
                            DAY_MILLIS;
       daysToSearch = Math.ceil(this._curSyncDayStep *
-                               TIME_SCALE_FACTOR_ON_NO_MESSAGES);
+                               $sync.TIME_SCALE_FACTOR_ON_NO_MESSAGES);
 
       if (lastSyncDaysInPast < 180) {
         if (daysToSearch > 14)

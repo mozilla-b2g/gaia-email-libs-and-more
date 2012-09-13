@@ -7,6 +7,7 @@ define(
     'mimelib',
     '../quotechew',
     '../date',
+    '../syncbase',
     '../util',
     'module',
     'exports'
@@ -19,6 +20,7 @@ define(
     $mimelib,
     $quotechew,
     $date,
+    $sync,
     $util,
     $module,
     exports
@@ -26,9 +28,6 @@ define(
 'use strict';
 
 const DESIRED_SNIPPET_LENGTH = 100;
-
-// XXX: deduplicate this from mailslice.js
-var INITIAL_FILL_SIZE = 15;
 
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
@@ -525,7 +524,7 @@ ActiveSyncFolderSyncer.prototype = {
     storage._curSyncSlice.waitingOnData = 'db';
 
     storage.getMessagesInImapDateRange(
-      0, $date.FUTURE(), INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+      0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
       // Don't trigger a refresh; we just synced.
       storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false)
     );

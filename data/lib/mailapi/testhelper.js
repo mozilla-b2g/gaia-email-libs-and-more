@@ -7,6 +7,7 @@ var $log = require('rdcommon/log'),
     $imapacct = require('mailapi/imap/account'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
+    $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
     $util = require('mailapi/util'),
     $imapjs = require('imap'),
@@ -54,7 +55,7 @@ var TestUniverseMixins = {
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
       // These are all the default values that tests code against by default.
       // If a test wants to use different values,
-      $mailslice.TEST_adjustSyncValues({
+      $sync.TEST_adjustSyncValues({
         fillSize: 15,
         days: 7,
         scaleFactor: 1.6,
@@ -153,7 +154,7 @@ var TestUniverseMixins = {
 
   do_adjustSyncValues: function(useSyncValues) {
     this.T.convenienceSetup('adjust sync values for test', function() {
-      $mailslice.TEST_adjustSyncValues(useSyncValues);
+      $sync.TEST_adjustSyncValues(useSyncValues);
     });
   },
 
