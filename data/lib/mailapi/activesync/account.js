@@ -84,7 +84,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
     this._folderStorages[folderId] =
       new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   $asfolder.ActiveSyncFolderConn, this._LOG);
+                                   $asfolder.ActiveSyncFolderSyncer, this._LOG);
     this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
     this.folders.push(folderInfo.$meta);
   }
@@ -302,7 +302,7 @@ ActiveSyncAccount.prototype = {
     console.log('Added folder ' + displayName + ' (' + folderId + ')');
     this._folderStorages[folderId] =
       new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   $asfolder.ActiveSyncFolderConn, this._LOG);
+                                   $asfolder.ActiveSyncFolderSyncer, this._LOG);
     this._serverIdToFolderId[serverId] = folderId;
 
     let folderMeta = folderInfo.$meta;
@@ -364,7 +364,8 @@ ActiveSyncAccount.prototype = {
     this.saveAccountState(null, function() {
       let newStorage =
         new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
-                                     $asfolder.ActiveSyncFolderConn, self._LOG);
+                                     $asfolder.ActiveSyncFolderSyner,
+                                     self._LOG);
       for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
         slice._storage = newStorage;
         slice._resetHeadersBecauseOfRefreshExplosion(true);
