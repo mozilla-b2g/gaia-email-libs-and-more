@@ -27,6 +27,9 @@ define(
 
 const DESIRED_SNIPPET_LENGTH = 100;
 
+// XXX: deduplicate this from mailslice.js
+var INITIAL_FILL_SIZE = 15;
+
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
@@ -482,9 +485,7 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
   syncDateRange: function(startTS, endTS, syncCallback) {
-    // XXX: we need to have some sort of logic for adding existing headers to
-    // the current sync slice here...
-    syncCallback('sync', false);
+    syncCallback('sync', false, true);
     this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
                                   this.onSyncCompleted.bind(this));
   },
@@ -511,22 +512,25 @@ ActiveSyncFolderSyncer.prototype = {
    * current sync.
    */
   onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
-    console.log("Sync Completed!", this._curSyncDayStep, "days",
-                messagesSeen, "messages synced");
+    let storage = this.folderStorage;
 
-    // ActiveSync always gets all the headers because the server *really* wants
-    // us to, so flag ourselves as not desiring more headers.
-    this.folderStorage._curSyncSlice.desiredHeaders =
-      this.folderStorage._curSyncSlice.headers.length;
-    // expand the accuracy range to cover everybody
-    this.folderStorage.markSyncedEntireFolder();
-
+    console.log("Sync Completed!", messagesSeen, "messages synced");
     console.log("SYNCDONE Enough headers retrieved.",
-                "have", this.folderStorage._curSyncSlice.headers.length);
-    this.folderStorage._curSyncSlice.waitingOnData = false;
-    this.folderStorage._curSyncSlice.setStatus('synced', true, false, true);
-    this.folderStorage._curSyncSlice = null;
+                "have", storage._curSyncSlice.headers.length);
 
+    // Expand the accuracy range to cover everybody.
+    storage.markSyncedEntireFolder();
+
+    storage._curSyncSlice.ignoreHeaders = false;
+    storage._curSyncSlice.waitingOnData = 'db';
+
+    storage.getMessagesInImapDateRange(
+      0, $date.FUTURE(), INITIAL_FILL_SIZE, INITIAL_FILL_SIZE,
+      // Don't trigger a refresh; we just synced.
+      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false)
+    );
+
+    storage._curSyncSlice = null;
     this._account.__checkpointSyncCompleted();
   },
 

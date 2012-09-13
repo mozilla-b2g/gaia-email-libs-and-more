@@ -1722,13 +1722,18 @@ FolderStorage.prototype = {
         worstGoodData = 0,
         existingDataGood = false;
 
-    var syncCallback = (function syncCallback(syncMode, accumulateMode) {
+    var syncCallback = (function syncCallback(syncMode, accumulateMode,
+                                              ignoreHeaders) {
       slice.setStatus('synchronizing', false, true);
       slice.waitingOnData = syncMode;
 console.log("accumulate request", accumulateMode);
       if (accumulateMode && slice.headers.length === 0) {
 console.log("ACCUMULATE MODE ON");
         slice._accumulating = true;
+      }
+      if (ignoreHeaders) {
+console.log("IGNORING HEADER NOTIFICATIONS");
+        slice.ignoreHeaders = true;
       }
       this._curSyncSlice = slice;
     }).bind(this);
@@ -2490,7 +2495,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       return;
     }
 
-    if (this._curSyncSlice)
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
       this._curSyncSlice.onHeaderAdded(header, true);
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
@@ -2572,7 +2577,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       self._dirty = true;
       self._dirtyHeaderBlocks[info.blockId] = block;
 
-      if (partOfSync && self._curSyncSlice)
+      if (partOfSync && self._curSyncSlice && !self._curSyncSlice.ignoreHeaders)
         self._curSyncSlice.onHeaderAdded(header, false);
       if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
         for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
@@ -2623,7 +2628,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       return;
     }
     // (no block update required)
-    if (this._curSyncSlice)
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
       this._curSyncSlice.onHeaderAdded(header, true);
   },
 
@@ -2634,7 +2639,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       return;
     }
 
-    if (this._curSyncSlice)
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
       this._curSyncSlice.onHeaderRemoved(header);
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
