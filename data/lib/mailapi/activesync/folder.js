@@ -39,8 +39,6 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
 
   if (!this.syncKey)
     this.syncKey = '0';
-  if (!this.folderMeta.totalMessages)
-    this.folderMeta.totalMessages = 0;
 }
 ActiveSyncFolderConn.prototype = {
   get syncKey() {
