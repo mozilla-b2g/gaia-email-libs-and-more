@@ -39,6 +39,9 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
 
   if (!this.syncKey)
     this.syncKey = '0';
+  // Eventually, we should allow the user to modify this, and perhaps
+  // automatically choose a good value.
+  this.filterType = $ascp.AirSync.Enums.FilterType.OneWeekBack;
 }
 ActiveSyncFolderConn.prototype = {
   get syncKey() {
@@ -69,6 +72,9 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, '0')
            .tag(as.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.FilterType, this.filterType)
+           .etag()
          .etag()
        .etag()
      .etag();
@@ -145,6 +151,7 @@ ActiveSyncFolderConn.prototype = {
              .tag(as.CollectionId, this.serverId)
              .tag(as.GetChanges)
              .stag(as.Options)
+               .tag(as.FilterType, this.filterType)
 
       if (account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
@@ -216,7 +223,8 @@ ActiveSyncFolderConn.prototype = {
         collection.push(msg);
       });
 
-      e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
+      e.addEventListener(base.concat(as.Commands, [as.Delete, as.SoftDelete]),
+                         function(node) {
         let guid;
 
         for (let [,child] in Iterator(node.children)) {
