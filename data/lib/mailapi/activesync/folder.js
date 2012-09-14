@@ -39,8 +39,9 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
 
   if (!this.syncKey)
     this.syncKey = '0';
-  if (!this.folderMeta.totalMessages)
-    this.folderMeta.totalMessages = 0;
+  // Eventually, we should allow the user to modify this, and perhaps
+  // automatically choose a good value.
+  this.filterType = $ascp.AirSync.Enums.FilterType.OneWeekBack;
 }
 ActiveSyncFolderConn.prototype = {
   get syncKey() {
@@ -71,6 +72,9 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, '0')
            .tag(as.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.FilterType, this.filterType)
+           .etag()
          .etag()
        .etag()
      .etag();
@@ -147,6 +151,7 @@ ActiveSyncFolderConn.prototype = {
              .tag(as.CollectionId, this.serverId)
              .tag(as.GetChanges)
              .stag(as.Options)
+               .tag(as.FilterType, this.filterType)
 
       if (account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
@@ -166,6 +171,7 @@ ActiveSyncFolderConn.prototype = {
       let changed = [];
       let deleted = [];
       let status;
+      let moreAvailable = false;
 
       folderConn._account._syncsInProgress--;
 
@@ -187,12 +193,16 @@ ActiveSyncFolderConn.prototype = {
       let e = new $wbxml.EventParser();
       const base = [as.Sync, as.Collections, as.Collection];
 
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        folderConn.syncKey = node.children[0].textContent;
+      });
+
       e.addEventListener(base.concat(as.Status), function(node) {
         status = node.children[0].textContent;
       });
 
-      e.addEventListener(base.concat(as.SyncKey), function(node) {
-        folderConn.syncKey = node.children[0].textContent;
+      e.addEventListener(base.concat(as.MoreAvailable), function(node) {
+        moreAvailable = true;
       });
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
@@ -218,7 +228,8 @@ ActiveSyncFolderConn.prototype = {
         collection.push(msg);
       });
 
-      e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
+      e.addEventListener(base.concat(as.Commands, [as.Delete, as.SoftDelete]),
+                         function(node) {
         let guid;
 
         for (let [,child] in Iterator(node.children)) {
@@ -237,7 +248,9 @@ ActiveSyncFolderConn.prototype = {
       if (status === asEnum.Status.Success) {
         console.log('Sync completed: added ' + added.length + ', changed ' +
                     changed.length + ', deleted ' + deleted.length);
-        callback(null, added, changed, deleted);
+        callback(null, added, changed, deleted, moreAvailable);
+        if (moreAvailable)
+          folderConn._enumerateFolderChanges(callback);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.warn('ActiveSync had a bad sync key');
@@ -434,9 +447,11 @@ ActiveSyncFolderConn.prototype = {
                                              doneCallback) {
     let storage = this._storage;
     let folderConn = this;
+    let messagesSeen = 0;
 
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
-    this._enumerateFolderChanges(function (error, added, changed, deleted) {
+    this._enumerateFolderChanges(function (error, added, changed, deleted,
+                                           moreAvailable) {
       if (error === 'badkey') {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
           folderConn.storage = s;
@@ -462,12 +477,13 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByUid(messageGuid);
       }
 
-      // XXX: We should check for <AirSync:MoreAvailable/> and let the folder
-      // storage know, or more likely, just keep grabbing headers.
+      messagesSeen += added.length + changed.length + deleted.length;
 
-      folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
-      storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
-      doneCallback(null, added.length);
+      if (!moreAvailable) {
+        folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+        storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
+        doneCallback(null, messagesSeen);
+      }
     });
   },
 };
