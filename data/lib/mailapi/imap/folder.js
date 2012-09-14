@@ -807,7 +807,7 @@ console.log("folder message count", folderMessageCount,
       console.log("SYNCDONE Enough headers retrieved.",
                   "have", this.folderStorage._curSyncSlice.headers.length,
                   "want", this.folderStorage._curSyncSlice.desiredHeaders,
-                  "conn knows about", this.folderConn.totalMessages,
+                  "conn knows about", this.folderConn.box.messages.total,
                   "sync date", this._curSyncStartTS,
                   "[oldest defined as", $sync.OLDEST_SYNC_DATE, "]");
       // If we are accumulating, we don't want to adjust our count upwards;
