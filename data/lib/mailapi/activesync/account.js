@@ -75,6 +75,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
+  this.deferredMutations = folderInfos.$deferredMutations;
 
   // Sync existing folders
   for (var folderId in folderInfos) {

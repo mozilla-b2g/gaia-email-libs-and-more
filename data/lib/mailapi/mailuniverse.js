@@ -8,6 +8,7 @@ define(
     'rdcommon/logreaper',
     './a64',
     './allback',
+    './syncbase',
     './maildb',
     './imap/probe',
     './imap/account',
@@ -24,6 +25,7 @@ define(
     $logreaper,
     $a64,
     $allback,
+    $syncbase,
     $maildb,
     $imapprobe,
     $imapacct,
@@ -105,6 +107,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
+  this.deferredMutations = this._receivePiece.deferredMutations;
 }
 CompositeAccount.prototype = {
   toString: function() {
@@ -386,6 +389,7 @@ Configurators['imap+smtp'] = {
         rootDelim: imapProtoConn.delim,
       },
       $mutations: [],
+      $deferredMutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
@@ -429,6 +433,7 @@ Configurators['fake'] = {
         nextMutationNum: 0,
       },
       $mutations: [],
+      $deferredMutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
@@ -471,6 +476,7 @@ Configurators['activesync'] = {
         syncKey: '0',
       },
       $mutations: [],
+      $deferredMutations: [],
     };
 
     var conn = new $activesync.Connection(credentials.username,
@@ -505,19 +511,6 @@ Configurators['activesync'] = {
  * we keep?
  */
 const MAX_LOG_BACKLOG = 30;
-
-/**
- * What is the maximum number of tries we should give an operation before
- * giving up on the operation as hopeless?  Note that in some suspicious
- * error cases, the try cont will be incremented by more than 1.
- */
-const MAX_OP_TRY_COUNT = 10;
-
-/**
- * The value to increment the operation tryCount by if we receive an
- * unexpected error.
- */
-const OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT = 5;
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,
@@ -726,6 +719,12 @@ function MailUniverse(callAfterBigBang) {
    * }
    */
   this._pendingMutationsByAcct = {};
+  /**
+   * A setTimeout handle for when we next dump deferred operations back onto
+   * their operation queues.
+   */
+  this._deferredOpTimeout = null;
+  this._boundQueueDeferredOps = this._queueDeferredOps.bind(this);
 
   this.config = null;
   this._logReaper = null;
@@ -1043,6 +1042,10 @@ MailUniverse.prototype = {
         this._queueAccountOp(account, op);
       }
     }
+    // - propagate deferred mutations to the actual mutations list
+    // (we can't use concat; we need to mutate in-place)
+    while (account.deferredMutations.length)
+      account.mutations.push(account.deferredMutations.shift());
 
     return account;
   },
@@ -1222,6 +1225,31 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Put an operation in the deferred mutations queue and ensure the deferred
+   * operation timer is active.
+   */
+  _deferOp: function(account, op) {
+    account.deferredMutations.push(op);
+    if (this._deferredOpTimeout !== null)
+      this._deferredOpTimeout = window.setTimeout(
+        this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
+  },
+
+  /**
+   * Transfer all deferred ops onto their op queue; invoked by the setTimeout
+   * scheduled by `_deferOp`.
+   */
+  _queueDeferredOps: function() {
+    this._deferredOpTimeout = null;
+    for (var iAccount = 0; iAccount < this.accounts.length; iAccount++) {
+      var account = this.accounts[iAccount];
+      // we need to mutate in-place, so concat is not an option
+      while (account.deferredMutations.length)
+        account.mutations.push(account.deferredMutations.shift());
+    }
+  },
+
+  /**
    * @args[
    *   @param[account[
    *   @param[op]{
@@ -1233,12 +1261,15 @@ MailUniverse.prototype = {
    *     }
    *     @case['defer']{
    *       The resource was unavailable, but might be available again in the
-   *       future.  Defer the operation to be run in the future by reordering
-   *       it to the back of the list.  This does not imply that a check
-   *       operation needs to be run.  This reordering violates our general
-   *       ordering guarantee; we could be better if we made sure to defer
-   *       all other operations that can touch the same resource, but that's
-   *       pretty complex.
+   *       future.  Defer the operation to be run in the future by putting it on
+   *       a deferred list that will get re-added after an arbitrary timeout.
+   *       This does not imply that a check operation needs to be run.  This
+   *       reordering violates our general ordering guarantee; we could be
+   *       better if we made sure to defer all other operations that can touch
+   *       the same resource, but that's pretty complex.
+   *
+   *       Deferrals do boost the tryCount; our goal with implementing this is
+   *       to support very limited
    *     }
    *     @case['aborted-retry']{
    *       The operation was started, but we lost the connection before we
@@ -1275,9 +1306,16 @@ MailUniverse.prototype = {
    * ]
    */
   _opCompleted: function(account, op, err, resultIfAny, accountSaveSuggested) {
+    var queue = this._opsByAccount[account.id];
+    if (queue[0] !== op)
+      this._LOG.opInvariantFailure();
+
     if (err) {
       switch (err) {
         case 'defer':
+          this._LOG.opDeferred(op.type, op.id);
+          queue.shift();
+          queue.push(
           break;
         case 'aborted-retry':
           break;
@@ -1310,7 +1348,6 @@ MailUniverse.prototype = {
     }
 
     // shift the running op off.
-    var queue = this._opsByAccount[account.id];
     queue.shift();
 
     if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
@@ -1520,6 +1557,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       configLoaded: {},
       createAccount: { type: true, id: false },
+      opDeferred: { type: true, id: false },
+      opTryLimitReached: { type: true, id: false },
     },
     TEST_ONLY_events: {
       configLoaded: { config: false, accounts: false },
@@ -1528,6 +1567,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     errors: {
       badAccountType: { type: true },
       opCallbackErr: { type: false },
+      opInvariantFailure: {},
     },
   },
 });

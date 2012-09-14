@@ -155,6 +155,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * }
    */
   this.mutations = this._folderInfos.$mutations;
+  this.deferredMutations = this._folderInfos.$deferredMutations;
   for (var folderId in folderInfos) {
     if (folderId[0] === '$')
       continue;
