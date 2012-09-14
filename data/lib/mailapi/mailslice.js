@@ -1019,6 +1019,11 @@ FolderStorage.prototype = {
    * asynchronous, it's assumed your function is still doing work until it calls
    * the passed-in function to indicate it is done.
    *
+   * This mutex should not be held longer than required.  Specifically, if error
+   * handling determines that we should wait a few seconds to retry a network
+   * operation, then the function should mark itself completed and issue a call
+   * to runMutexed again in the future once the timeout has elapsed.
+   *
    * Keep in mind that there is nothing actually stopping other code from trying
    * to manipulate the database.
    *

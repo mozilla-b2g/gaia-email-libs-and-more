@@ -47,7 +47,7 @@
  * them without saving the account state first.  This is a trade-off between the
  * cost of checking and the cost of issuing commits to the database frequently
  * based on the expected likelihood of a crash on our part.  Per comments above,
- * de expect crashes to be rare and not particularly correlated with operations,
+ * we expect crashes to be rare and not particularly correlated with operations,
  * so it's better for the device (both flash and performance) if we don't
  * continually checkpoint our state.
  *

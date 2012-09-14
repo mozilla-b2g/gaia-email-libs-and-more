@@ -147,18 +147,16 @@ ImapFolderConn.prototype = {
 
   /**
    * Acquire a connection and invoke the callback once we have it and we have
-   * entered the folder.
-   *
-   * XXX This is inherently dangerous in the face of concurrent attempts to
-   * call this method or check whether it has completed.  We need to move to
-   * our queue of operations on the folder, or ensure that a higher level layer
-   * is enforcing this.  To be done with proper mutation logic impl.
+   * entered the folder.  This method should only be called when running
+   * inside `runMutexed`.
    */
-  acquireConn: function(callback) {
-    var self = this;
+  acquireConn: function(callback, deathback) {
+
+    
+    var self = this, handedOff = false;
     this._account.__folderDemandsConnection(
       this._storage.folderId,
-      function(conn) {
+      function gotconn(conn) {
         self._conn = conn;
         // Now we have a connection, but it's not in the folder.
         // (If we were doing fancier sync like QRESYNC, we would not enter
@@ -168,11 +166,21 @@ ImapFolderConn.prototype = {
             if (err) {
               console.error('Problem entering folder',
                             self._storage.folderMeta.path);
+              self._conn = null;
+              // hand the connection back, noting a resource problem
+              self._account.__folderDoneWithConnection(
+                self._conn, false, true);
+              deathback();
               return;
             }
             self.box = box;
+            handedOff = true;
             callback(self);
           });
+      },
+      function deadconn() {
+        if (handedOff && deathback)
+          deathback();
       });
   },
 
@@ -180,8 +188,7 @@ ImapFolderConn.prototype = {
     if (!this._conn)
       return;
 
-    this._account.__folderDoneWithConnection(this._storage.folderId,
-                                             this._conn);
+    this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
   },
 

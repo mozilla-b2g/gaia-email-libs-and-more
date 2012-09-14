@@ -55,8 +55,44 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this._connInfo = connInfo;
   this._db = dbConn;
 
+  /**
+   * The maximum number of connections we are allowed to have alive at once.  We
+   * want to limit this both because we generally aren't sophisticated enough
+   * to need to use many connections at once (unless we have bugs), and because
+   * servers may enforce a per-account connection limit which can affect both
+   * us and other clients on other devices.
+   *
+   * Thunderbird's default for this is 5.
+   *
+   * gmail currently claims to have a limit of 10 connections per account:
+   * http://support.google.com/mail/bin/answer.py?hl=en&answer=97150
+   *
+   * I am picking 3 right now because it should cover the "I just sent a
+   * messages from the folder I was in and then switched to another folder",
+   * where we could have stuff to do in the old folder, new folder, and sent
+   * mail folder.  I have also seem claims of connection limits of 3 for some
+   * accounts out there, so this avoids us needing logic to infer a need to
+   * lower our connection limit.
+   */
+  this._maxConnsAllowed = 3;
+  /**
+   * The `ImapConnection` we are attempting to open, if any.  We only try to
+   * open one connection at a time.
+   */
+  this._pendingConn = null;
   this._ownedConns = [];
-  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this);
+  /**
+   * @listof[@dict[
+   *   @key[folderId]
+   *   @key[callback]
+   * ]]{
+   *   The list of requested connections that have not yet been serviced.  An
+   * }
+   */
+  this._demandedConns = [];
+  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
+                                                     this._LOG);
+  this._boundMakeConnection = this._makeConnection.bind(this);
 
   this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
@@ -341,7 +377,7 @@ ImapAccount.prototype = {
     }
     function done(errString, folderMeta) {
       if (rawConn) {
-        self.__folderDoneWithConnection(null, rawConn);
+        self.__folderDoneWithConnection(rawConn);
         rawConn = null;
       }
       if (!errString)
@@ -349,7 +385,7 @@ ImapAccount.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this.__folderDemandsConnection(':createFolder', gotConn);
+    this.__folderDemandsConnection(null, ':createFolder', gotConn);
   },
 
   /**
@@ -382,7 +418,7 @@ ImapAccount.prototype = {
     }
     function done(errString) {
       if (rawConn) {
-        self.__folderDoneWithConnection(null, rawConn);
+        self.__folderDoneWithConnection(rawConn);
         rawConn = null;
       }
       if (!errString) {
@@ -392,7 +428,7 @@ ImapAccount.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this.__folderDemandsConnection(':deleteFolder', gotConn);
+    this.__folderDemandsConnection(null, ':deleteFolder', gotConn);
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -438,17 +474,9 @@ ImapAccount.prototype = {
     this._LOG.__die();
   },
 
-  checkAccount: function(callback) {
+  checkAccount: function(listener) {
     var self = this;
-    this._makeConnection(
-      ':check',
-      function success(conn) {
-        self.__folderDoneWithConnection(null, conn);
-        callback(null);
-      },
-      function badness(err) {
-        callback(err);
-      });
+    this._makeConnection(listener);
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -476,38 +504,71 @@ ImapAccount.prototype = {
    *     it's not a folder but some task, then pass a string prefixed with
    *     a colon and a human readable string to explain the task.
    *   }
-   *   @param[callback]{
+   *   @param[callback @func[@args[@param[conn]]]]{
    *     The callback to invoke once the connection has been established.  If
    *     there is a connection present in the reuse pool, this may be invoked
    *     immediately.
    *   }
+   *   @param[deathback Function]{
+   *     A callback to invoke if the connection dies or we feel compelled to
+   *     reclaim it.
+   *   }
    * ]
    */
-  __folderDemandsConnection: function(folderId, callback) {
+  __folderDemandsConnection: function(folderId, label, callback, deathback) {
+    this._demandedConns.push({
+      folderId: folderId,
+      label: label,
+      callback: callback,
+      deathback: deathback
+    });
+
+    // No line-cutting; bail if there was someone ahead of us.
+    if (this._demandedConns.length > 1)
+      return;
+
+    // - try and reuse an existing connection
+    if (this._allocateExistingConnection())
+      return;
+
+    // - we need to wait for a new conn or one to free up
+    this._makeConnectionIfPossible();
+  },
+
+  _allocateExistingConnection: function() {
+    var demandInfo = this._demandedConns[0];
+
     var reusableConnInfo = null;
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
-      if (!connInfo.inUse)
-        reusableConnInfo = connInfo;
       // It's concerning if the folder already has a connection...
-      if (folderId && connInfo.folderId === folderId) {
-        this._LOG.folderAlreadyHasConn(folderId);
-      }
+      if (demandInfo.folderId && connInfo.folderId === demandInfo.folderId)
+        this._LOG.folderAlreadyHasConn(demandInfo.folderId);
+
+      if (connInfo.inUseBy)
+        continue;
+
+      connInfo.inUseBy = demandInfo;
+      this._demandedConns.shift();
+      this._LOG.reuseConnection(demandInfo.folderId);
+      demandInfo.callback(connInfo.conn);
+      return true;
     }
 
-    if (reusableConnInfo) {
-      reusableConnInfo.inUse = true;
-      reusableConnInfo.folderId = folderId;
-      this._LOG.reuseConnection(folderId);
-      callback(reusableConnInfo.conn);
-      return;
-    }
-
-    this._makeConnection(folderId, callback);
+    return false;
   },
 
-  _makeConnection: function(folderId, callback, errback) {
-    this._LOG.createConnection(folderId);
+  _makeConnectionIfPossible: function() {
+    if ((this._ownedConns.length >= this._maxConnsAllowed) ||
+        this._pendingConn)
+      return;
+
+    this._pendingConn = true;
+    this._backoffEndpoint.scheduleConnectAttempt(this._boundMakeConnection);
+  },
+
+  _makeConnection: function(listener) {
+    this._LOG.createConnection();
     var opts = {
       host: this._connInfo.hostname,
       port: this._connInfo.port,
@@ -517,16 +578,12 @@ ImapAccount.prototype = {
       password: this._credentials.password,
     };
     if (this._LOG) opts._logParent = this._LOG;
-    var conn = new $imap.ImapConnection(opts);
-    this._ownedConns.push({
-        conn: conn,
-        inUse: true,
-        folderId: folderId,
-      });
+    var conn = this._pendingConn = new $imap.ImapConnection(opts);
     this._bindConnectionDeathHandlers(conn);
     conn.connect(function(err) {
+      this._pendingConn = null;
       if (err) {
-        var errName;
+        var errName, reachable = false;
         // We want to produce error-codes as defined in `MailApi.js` for
         // tryToCreateAccount.  We have also tried to make imap.js produce
         // error codes of the right type already, but
@@ -534,10 +591,14 @@ ImapAccount.prototype = {
           case 'NO':
           case 'no':
             errName = 'bad-user-or-pass';
+            reachable = true;
             this.universe.__reportAccountProblem(this.compositeAccount,
                                                  errName);
             break;
+          // errors we can pass through directly:
           case 'server-maintenance':
+            errName = err.type;
+            reachable = true;
             break;
           case 'timeout':
             errName = 'unresponsive-server';
@@ -548,24 +609,40 @@ ImapAccount.prototype = {
         }
         console.error('Connect error:', errName, 'formal:', err, 'on',
                       this._connInfo.hostname, this._connInfo.port);
-        if (errback)
-          errback(errName);
+        if (listener)
+          listener(errName);
         conn.die();
+
+        // track this failure for backoff purposes
+        if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
+          this._makeConnectionIfPossible();
       }
       else {
-        callback(conn);
+        this._ownedConns.push({
+          conn: conn,
+          inUseBy: null,
+        });
+        this._allocateExistingConnection();
+        if (listener)
+          listener(null);
+        // Keep opening connections if there is more work to do (and possible).
+        if (this._demandedConns.length)
+          this._makeConnectionIfPossible();
       }
     }.bind(this));
   },
 
+  /**
+   * Treat a connection that came from the IMAP prober as a connection we
+   * created ourselves.
+   */
   _reuseConnection: function(existingProtoConn) {
     // We don't want the probe being kept alive and we certainly don't need its
     // listeners.
     existingProtoConn.removeAllListeners();
     this._ownedConns.push({
         conn: existingProtoConn,
-        inUse: false,
-        folderId: null,
+        inUseBy: null,
       });
     this._bindConnectionDeathHandlers(existingProtoConn);
   },
@@ -576,7 +653,10 @@ ImapAccount.prototype = {
       for (var i = 0; i < this._ownedConns.length; i++) {
         var connInfo = this._ownedConns[i];
         if (connInfo.conn === conn) {
-          this._LOG.deadConnection(connInfo.folderId);
+          this._LOG.deadConnection(connInfo.inUseBy.folderId);
+          if (connInfo.inUseBy.deathback)
+            connInfo.inUseBy.deathback(conn);
+          connInfo.inUseBy = null;
           this._ownedConns.splice(i, 1);
           return;
         }
@@ -589,17 +669,17 @@ ImapAccount.prototype = {
     }.bind(this));
   },
 
-  __folderDoneWithConnection: function(folderId, conn) {
-    // XXX detect if the connection is actually dead and in that case don't
-    // reinsert it.
+  __folderDoneWithConnection: function(conn, closeFolder, resourceProblem) {
+    if (resourceProblem)
+      this._backoffEndpoint(folderId);
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       if (connInfo.conn === conn) {
-        connInfo.inUse = false;
+        connInfo.inUseBy = null;
         connInfo.folderId = null;
         this._LOG.releaseConnection(folderId);
-        // XXX this will trigger an expunge if not read-only...
-        if (folderId)
+        // (this will trigger an expunge if not read-only...)
+        if (folderId && !resourceProblem)
           conn.closeBox(function() {});
         return;
       }
@@ -612,7 +692,7 @@ ImapAccount.prototype = {
 
   syncFolderList: function(callback) {
     var self = this;
-    this.__folderDemandsConnection(null, function(conn) {
+    this.__folderDemandsConnection(null, 'syncFolderList', function(conn) {
       conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
     });
   },
@@ -710,7 +790,7 @@ ImapAccount.prototype = {
     var self = this;
     if (err) {
       // XXX need to deal with transient failure states
-      this.__folderDoneWithConnection(null, conn);
+      this.__folderDoneWithConnection(conn);
       callback();
       return;
     }
@@ -758,7 +838,7 @@ ImapAccount.prototype = {
       this._forgetFolder(folderPub.id);
     }
 
-    this.__folderDoneWithConnection(null, conn);
+    this.__folderDoneWithConnection(conn);
     // be sure to save our state now that we are up-to-date on this.
     this.saveAccountState();
     callback();
@@ -811,16 +891,12 @@ ImapAccount.prototype = {
       this._jobDriver[methodName](op, function(error, resultIfAny,
                                                accountSaveSuggested) {
         self._LOG.runOp_end(mode, op.type, error);
-        if (!isLocal)
-          op.status = mode + 'ne';
         callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
       this._LOG.runOp_begin(mode, op.type, null);
       var rval = this._jobDriver[methodName](op);
-      if (!isLocal)
-        op.status = mode + 'ne';
       this._LOG.runOp_end(mode, op.type, rval);
     }
   },

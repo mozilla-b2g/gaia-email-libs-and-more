@@ -47,9 +47,15 @@
 
 define(
   [
+    './date',
+    'rdcommon/log',
+    'module',
     'exports'
   ],
   function(
+    $date,
+    $log,
+    $module,
     exports
   ) {
 
@@ -59,7 +65,13 @@ var BACKOFF_DURATIONS = exports.BACKOFF_DURATIONS = [
   { fixedMS: 4500, randomMS: 1000 },
 ];
 
-function BackoffEndpoint(name, listener) {
+var BAD_RESOURCE_RETRY_DELAYS_MS = [
+  1000,
+  60 * 1000,
+  2 * 60 * 1000,
+];
+
+function BackoffEndpoint(name, listener, _parentLog) {
   /** @oneof[
    *    @case['healthy']
    *    @case['unreachable']
@@ -71,14 +83,86 @@ function BackoffEndpoint(name, listener) {
    *  ]
    */
   this.state = 'healthy';
+  this._iNextBackoff = 0;
+
+  this._LOG = LOGFAB.BackoffEndpoint(this, _parentLog, name);
 
   this._badResources = {};
 
   this.listener = listener;
 }
 BackoffEndpoint.prototype = {
+  noteConnectSuccess: function() {
+    this.state = 'healthy';
+    this._iNextBackoff = 0;
+    this._LOG.state(this.state);
+  },
+
+  /**
+   * Logs a connection failure and returns true if a retry attempt should be
+   * made.
+   *
+   * @args[
+   *   @param[reachable Boolean]{
+   *     If true, we were able to connect to the endpoint, but failed to login
+   *     for some reason.
+   *   }
+   * ]
+   */
+  noteConnectFailureMaybeRetry: function(reachable) {
+    if (this.state === 'shutdown')
+      return false;
+
+    if (reachable) {
+      this.state = 'broken';
+      this._LOG.state(this.state);
+      return false;
+    }
+
+    if (this._iNextBackoff > 0)
+      this.state = 'unreachable';
+    this._LOG.state(this.state);
+    // (Once this saturates, we never perform retries until the connection is
+    // healthy again.  We do attempt re-connections when triggered by user
+    // activity or synchronization logic; they just won't get retries.)
+    if (this._iNextBackoff >= BACKOFF_DURATIONS.length)
+      return false;
+
+    return true;
+  },
+
+  scheduleConnectAttempt: function(connectFunc) {
+    if (this.state === 'shutdown')
+      return;
+
+    var backoff = BACKOFF_DURATIONS[this._iNextBackoff++],
+        delay = backoff.fixedMS +
+                Math.floor(Math.random() * backoff.randomMS);
+    window.setTimeout(connectFunc, delay);
+  },
+
+  noteBadResource: function(resourceId) {
+    var now = $date.NOW();
+    if (!this._badResources.hasOwnProperty(resourceId)) {
+      this._badResources[resourceId] = { count: 1, last: now };
+    }
+    else {
+      var info = this._badResources[resourceId];
+      info.count++;
+      info.last = now;
+    }
+  },
+
+  resourceIsOkayToUse: function(resourceId) {
+    if (!this._badResources.hasOwnProperty(resourceId))
+      return true;
+    var info = this._badResources[resourceId], now = $date.NOW();
+
+  },
 
   shutdown: function() {
+    this.state = 'shutdown';
+    this._LOG.state(this.state);
   },
 };
 
@@ -87,5 +171,14 @@ var BackoffManager = exports.BackoffManager = {
     return new BackoffEndpoint(name, listener);
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  BackoffEndpoint: {
+    type: $log.TASK,
+    stateVars: {
+      state: false,
+    }
+  },
+});
 
 }); // end define

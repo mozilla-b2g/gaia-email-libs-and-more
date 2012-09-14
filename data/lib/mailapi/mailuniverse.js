@@ -499,6 +499,19 @@ Configurators['activesync'] = {
 const MAX_LOG_BACKLOG = 30;
 
 /**
+ * What is the maximum number of tries we should give an operation before
+ * giving up on the operation as hopeless?  Note that in some suspicious
+ * error cases, the try cont will be incremented by more than 1.
+ */
+const MAX_OP_TRY_COUNT = 10;
+
+/**
+ * The value to increment the operation tryCount by if we receive an
+ * unexpected error.
+ */
+const OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT = 5;
+
+/**
  * The MailUniverse is the keeper of the database, the root logging instance,
  * and the mail accounts.  It loads the accounts from the database on startup
  * asynchronously, so whoever creates it needs to pass a callback for it to
@@ -606,7 +619,8 @@ const MAX_LOG_BACKLOG = 30;
  *     }
  *     @case['copy']{
  *       NOT YET IMPLEMENTED (no gaia UI requirement).  But will be:
- *       Copy message(s) within the same account.  For IMAP, atomic and idempotent
+ *       Copy message(s) within the same account.  For IMAP, atomic and
+ *       idempotent.
  *     }
  *   ]]{
  *     The implementation opcode used to determine what functions to call.
@@ -620,6 +634,10 @@ const MAX_LOG_BACKLOG = 30;
  *       'local_do' has been invoked, but the action has not been run against
  *       the server.  Invoking `undoMutation` will invoke 'local_undo' and mark
  *       this as 'undone'.
+ *     }
+ *     @case['check']{
+ *       We don't know what has or hasn't happened on the server so we need to
+ *       run a check operation before doing anything.
  *     }
  *     @case['doing']{
  *       'local_do' has been run, and 'do' is currently running.  Invoking
@@ -638,9 +656,15 @@ const MAX_LOG_BACKLOG = 30;
  *       the null case becase null has run 'local_do'.
  *     }
  *     @case['moot']{
- *       The job
+ *       The job is no longer relevant; the messages it operates on don't exist
+ *       or the target folder doesn't exist, etc.
  *     }
  *   ]]{
+ *   }
+ *   @key[tryCount Number]{
+ *     How many times have we attempted to run this operation.  If we retry an
+ *     operation too many times, we eventually will discard it with the
+ *     assumption that it's never going to succeed.
  *   }
  *   @key[desire @oneof['do' 'undo']]{
  *     Allows us to indicate that we want to undo an operation even while its
@@ -1002,8 +1026,14 @@ MailUniverse.prototype = {
     // - check for mutations that still need to be processed
     for (var i = 0; i < account.mutations.length; i++) {
       var op = account.mutations[i];
-      if (op.desire)
+      if (op.desire) {
+        // Per operation strategy documentation, we treat all depersisted
+        // operations as potentially-run, so we change the status to check.
+        // The check will be run before we decide to actually do what the
+        // operation wants.
+        op.status = 'check';
         this._queueAccountOp(account, op);
+      }
     }
 
     return account;
@@ -1183,16 +1213,96 @@ MailUniverse.prototype = {
     return results;
   },
 
+  /**
+   * @args[
+   *   @param[account[
+   *   @param[op]{
+   *     The operation.
+   *   }
+   *   @param[err @oneof[
+   *     @case[null]{
+   *       Success!
+   *     }
+   *     @case['defer']{
+   *       The resource was unavailable, but might be available again in the
+   *       future.  Defer the operation to be run in the future by reordering
+   *       it to the back of the list.  This does not imply that a check
+   *       operation needs to be run.  This reordering violates our general
+   *       ordering guarantee; we could be better if we made sure to defer
+   *       all other operations that can touch the same resource, but that's
+   *       pretty complex.
+   *     }
+   *     @case['aborted-retry']{
+   *       The operation was started, but we lost the connection before we
+   *       managed to accomplish our goal.  Run a check operation then run the
+   *       operation again depending on what 'check' says.
+   *
+   *       'defer' should be used instead if it's known that no mutations could
+   *       have been perceived by the server, etc.
+   *     }
+   *     @case['failure-give-up']{
+   *       Something is broken in a way we don't really understand and it's
+   *       unlikely that retrying is actually going to accomplish anything.
+   *       Although we mark the status 'moot', this is a more sinister failure
+   *       that should generate debugging/support data when appropriate.
+   *     }
+   *     @case['moot']{
+   *       The operation no longer makes any sense.
+   *     }
+   *     @default{
+   *       Some other type of error occurred.  This gets treated the same as
+   *       aborted-retry
+   *     }
+   *   ]]
+   *   @param[resultIfAny]{
+   *     A result to be relayed to the listening callback for the operation, if
+   *     there is one.  This is intended to be used for things like triggering
+   *     attachment downloads where it would be silly to make the callback
+   *     re-get the changed data itself.
+   *   }
+   *   @param[accountSaveSuggested #:optional Boolean]{
+   *     Used to indicate that this has changed the state of the system and a
+   *     save should be performed at some point in the future.
+   *   }
+   * ]
+   */
   _opCompleted: function(account, op, err, resultIfAny, accountSaveSuggested) {
-    // Clear the desire if it is satisfied.  It's possible the desire is now
-    // to undo it, in which case we don't want to clobber the undo desire with
-    // the completion of the do desire.
-    if (op.status === 'done' && op.desire === 'do')
-      op.desire = null;
-    else if (op.status === 'undone' && op.desire === 'undo')
-      op.desire = null;
-    var queue = this._opsByAccount[account.id];
+    if (err) {
+      switch (err) {
+        case 'defer':
+          break;
+        case 'aborted-retry':
+          break;
+        default:
+          break;
+        case 'failure-give-up':
+          break;
+        case 'moot':
+          break;
+      }
+    }
+    else {
+      switch (op.status) {
+        case 'checking':
+
+          break;
+        case 'doing':
+          op.status = 'done';
+          // clear the desire if it hasn't changed to undo
+          if (op.desire === 'do')
+            op.desire = null;
+          break;
+        case 'undoing':
+          op.status = 'undone';
+          // clear the desire if it hasn't changed back to 'do'
+          if (op.desire === 'undo')
+            op.desire = null;
+          break;
+      }
+    }
+
     // shift the running op off.
+    var queue = this._opsByAccount[account.id];
     queue.shift();
 
     if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
@@ -1294,6 +1404,7 @@ MailUniverse.prototype = {
         type: 'download',
         longtermId: null,
         status: null,
+        tryCount: 0,
         desire: 'do',
         humanOp: 'download',
         messageSuid: messageSuid,
@@ -1313,6 +1424,7 @@ MailUniverse.prototype = {
           type: 'modtags',
           longtermId: null,
           status: null,
+          tryCount: 0,
           desire: 'do',
           humanOp: humanOp,
           messages: x.messages,
@@ -1337,6 +1449,7 @@ MailUniverse.prototype = {
         type: 'append',
         longtermId: null,
         status: null,
+        tryCount: 0,
         desire: 'do',
         humanOp: 'append',
         messages: messages,
