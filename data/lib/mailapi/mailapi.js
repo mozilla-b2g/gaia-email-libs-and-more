@@ -1311,6 +1311,10 @@ MailAPI.prototype = {
    *     The username and password didn't check out.  We don't know which one
    *     is wrong, just that one of them is wrong.
    *   }
+   *   @case['not-authorized']{
+   *     The username and password are correct, but the user isn't allowed to
+   *     access the mail server.
+   *   }
    *   @case['server-maintenance']{
    *     The server appears to be undergoing maintenance, at least for this
    *     account.  We infer this if the server is telling us that login is
