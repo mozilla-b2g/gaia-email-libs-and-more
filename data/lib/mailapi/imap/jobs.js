@@ -77,34 +77,34 @@ define(
 /**
  * The evidence suggests the job has not yet been performed.
  */
-const CHECKED_NOTYET = 1;
+const CHECKED_NOTYET = 'checked-notyet';
 /**
  * The operation is idempotent and atomic, just perform the operation again.
  * No checking performed.
  */
-const UNCHECKED_IDEMPOTENT = 2;
+const UNCHECKED_IDEMPOTENT = 'idempotent';
 /**
  * The evidence suggests that the job has already happened.
  */
-const CHECKED_HAPPENED = 3;
+const CHECKED_HAPPENED = 'happened';
 /**
  * The job is no longer relevant because some other sequence of events
  * have mooted it.  For example, we can't change tags on a deleted message
  * or move a message between two folders if it's in neither folder.
  */
-const CHECKED_MOOT = 4;
+const CHECKED_MOOT = 'moot';
 /**
  * A transient error (from the checker's perspective) made it impossible to
  * check.
  */
-const UNCHECKED_BAILED = 5;
+const UNCHECKED_BAILED = 'bailed';
 /**
  * The job has not yet been performed, and the evidence is that the job was
  * not marked finished because our database commits are coherent.  This is
  * appropriate for retrieval of information, like the downloading of
  * attachments.
  */
-const UNCHECKED_COHERENT_NOTYET = 6;
+const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
 
 function ImapJobDriver(account) {
   this.account = account;

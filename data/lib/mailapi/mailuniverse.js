@@ -657,8 +657,10 @@ const MAX_LOG_BACKLOG = 30;
  *       the null case becase null has run 'local_do'.
  *     }
  *     @case['moot']{
- *       The job is no longer relevant; the messages it operates on don't exist
- *       or the target folder doesn't exist, etc.
+ *       The job is no longer relevant; the messages it operates on don't exist,
+ *       the target folder doesn't exist, or we failed so many times that we
+ *       assume something is fundamentally wrong and the request simply cannot
+ *       be executed.
  *     }
  *   ]]{
  *   }
@@ -1039,13 +1041,15 @@ MailUniverse.prototype = {
         // The check will be run before we decide to actually do what the
         // operation wants.
         op.status = 'check';
-        this._queueAccountOp(account, op);
+        this._queueAccountOp(account, op, null, true);
       }
     }
     // - propagate deferred mutations to the actual mutations list
-    // (we can't use concat; we need to mutate in-place)
+    // (These were deferred because a resource was not available; since we
+    // must have been asleep awhile, the resource is probably fine now.)
     while (account.deferredMutations.length)
-      account.mutations.push(account.deferredMutations.shift());
+      this._queueAccountOp(account, account.deferredMutations.shift(),
+                           null, true);
 
     return account;
   },
@@ -1226,7 +1230,8 @@ MailUniverse.prototype = {
 
   /**
    * Put an operation in the deferred mutations queue and ensure the deferred
-   * operation timer is active.
+   * operation timer is active.  The deferred queue is persisted to disk too
+   * and transferred across to the non-deferred queue at account-load time.
    */
   _deferOp: function(account, op) {
     account.deferredMutations.push(op);
@@ -1237,7 +1242,10 @@ MailUniverse.prototype = {
 
   /**
    * Transfer all deferred ops onto their op queue; invoked by the setTimeout
-   * scheduled by `_deferOp`.
+   * scheduled by `_deferOp`.  We use a single timeout across all accounts, so
+   * the duration of the defer delay can vary a bit, but our goal is just to
+   * avoid deferrals turning into a tight loop that pounds the server, nothing
+   * fancier.
    */
   _queueDeferredOps: function() {
     this._deferredOpTimeout = null;
@@ -1310,27 +1318,79 @@ MailUniverse.prototype = {
     if (queue[0] !== op)
       this._LOG.opInvariantFailure();
 
+    // Pop the event off the queue? (avoid bugs versus multiple calls)
+    var consumeOp = true,
+    // Generate completion notifications for the op?
+        completeOp = true;
     if (err) {
+      var maybeRetry = false;
       switch (err) {
         case 'defer':
-          this._LOG.opDeferred(op.type, op.id);
-          queue.shift();
-          queue.push(
+          this._LOG.opDeferred(op.type, op.longtermId);
+          this._deferOp(op);
+          // remove the op from the queue, but don't mark it completed
+          completeOp = false;
           break;
         case 'aborted-retry':
+          op.tryCount++;
+          maybeRetry = true;
           break;
-        default:
+        default: // (unknown case)
+          op.tryCount += $syncbase.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT;
+          maybeRetry = true;
           break;
         case 'failure-give-up':
+          this._LOG.opGaveUp(op.type, op.longtermId);
+          // we complete the op, but the error flag is propagated
+          op.status = 'moot';
           break;
         case 'moot':
+          this._LOG.opMooted(op.type, op.longtermId);
+          // we complete the op, but the error flag is propagated
+          op.status = 'moot';
           break;
+      }
+
+      if (maybeRetry) {
+        if (op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
+          // We're still good to try again, but we will need to check the status
+          // first.
+          op.status = 'check';
+          consumeOp = false;
+        }
+        else {
+          this._LOG.opTryLimitReached(op.type, op.longtermId);
+          // we complete the op, but the error flag is propagated
+          op.status = 'moot';
+        }
       }
     }
     else {
       switch (op.status) {
         case 'checking':
-
+          // Update the status, and figure out if there is any work to do based
+          // on our desire.
+          switch (resultIfAny) {
+            case 'checked-notyet':
+            case 'coherent-notyet':
+              op.status = null;
+              break;
+            case 'idempotent':
+              if (op.desire === 'do')
+                op.status = null;
+              else
+                op.status = 'done';
+              break;
+            case 'happened':
+              op.status = 'done';
+              break;
+            case 'moot':
+              op.status = 'moot';
+              break;
+            // this is the same thing as defer.
+            case 'bailed':
+              op.status
+          }
           break;
         case 'doing':
           op.status = 'done';
@@ -1347,24 +1407,26 @@ MailUniverse.prototype = {
       }
     }
 
-    // shift the running op off.
-    queue.shift();
+    if (consumeOp)
+      queue.shift();
 
-    if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
-      var callback = this._opCallbacks[op.longtermId];
-      delete this._opCallbacks[op.longtermId];
-      try {
-        callback(err, resultIfAny, account, op);
+    if (completeOp) {
+      if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
+        var callback = this._opCallbacks[op.longtermId];
+        delete this._opCallbacks[op.longtermId];
+        try {
+          callback(err, resultIfAny, account, op);
+        }
+        catch(ex) {
+          this._LOG.opCallbackErr(op.type);
+        }
       }
-      catch(ex) {
-        this._LOG.opCallbackErr(op.type);
-      }
+
+      // This is a suggestion; in the event of high-throughput on operations,
+      // we probably don't want to save the account every tick, etc.
+      if (accountSaveSuggested)
+        account.saveAccountState();
     }
-
-    // This is a suggestion; in the event of high-throughput on operations,
-    // we probably don't want to save the account every tick, etc.
-    if (accountSaveSuggested)
-      account.saveAccountState();
 
     if (queue.length && this.online && account.enabled) {
       op = queue[0];
@@ -1393,9 +1455,13 @@ MailUniverse.prototype = {
    *     A callback to invoke when the operation completes.  Callbacks are
    *     obviously not capable of being persisted and are merely best effort.
    *   }
+   *   @param[justRequeue #:optional Boolean]{
+   *     If true, we are just re-enqueueing the operation and have no desire
+   *     or need to run the local operations.
+   *   }
    * ]
    */
-  _queueAccountOp: function(account, op, optionalCallback) {
+  _queueAccountOp: function(account, op, optionalCallback, justRequeue) {
     var queue = this._opsByAccount[account.id];
     queue.push(op);
 
@@ -1412,8 +1478,16 @@ MailUniverse.prototype = {
       this._opCallbacks[op.longtermId] = optionalCallback;
 
     // - run the local manipulation immediately
-    if (!this._testModeDisablingLocalOps)
-      account.runOp(op, op.desire === 'do' ? 'local_do' : 'local_undo');
+    if (!this._testModeDisablingLocalOps && !justRequeue) {
+      switch (op.desire) {
+        case 'do':
+          account.runOp(op, 'local_do');
+          break;
+        case 'undo':
+          account.runOp(op, 'local_undo');
+          break;
+      }
+    }
 
     // - initiate async execution if this is the first op
     if (this.online && account.enabled && queue.length === 1)
@@ -1559,6 +1633,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createAccount: { type: true, id: false },
       opDeferred: { type: true, id: false },
       opTryLimitReached: { type: true, id: false },
+      opGaveUp: { type: true, id: false },
+      opMooted: { type: true, id: false },
     },
     TEST_ONLY_events: {
       configLoaded: { config: false, accounts: false },
