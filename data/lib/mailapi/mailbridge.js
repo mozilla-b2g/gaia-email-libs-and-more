@@ -135,6 +135,10 @@ MailBridge.prototype = {
     }
   },
 
+  _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
+    $mailchew.setLocalizedStrings(msg.strings);
+  },
+
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
     this.universe.tryToCreateAccount(msg.details, function(error, account) {
@@ -610,32 +614,6 @@ MailBridge.prototype = {
     });
   },
 
-  /**
-   * mailcomposer wants from/to/cc/bcc delivered basically like it will show
-   * up in the e-mail, except it is fine with unicode.  So we convert our
-   * (possibly) structured representation into a flattened representation.
-   *
-   * (mailcomposer will handle punycode and mime-word encoding as needed.)
-   */
-  _formatAddresses: function(nameAddrPairs) {
-    var addrstrings = [];
-    for (var i = 0; i < nameAddrPairs.length; i++) {
-      var pair = nameAddrPairs[i];
-      // support lazy people providing only an e-mail... or very careful
-      // people who are sure they formatted things correctly.
-      if (typeof(pair) === 'string') {
-        addrstrings.push(pair);
-      }
-      else {
-        addrstrings.push(
-          '"' + pair.name.replace(/["']/g, '') + '" <' +
-            pair.address + '>');
-      }
-    }
-
-    return addrstrings.join(', ');
-  },
-
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
     if (msg.command === 'delete') {
       // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
@@ -653,7 +631,7 @@ MailBridge.prototype = {
     var body = wireRep.body;
 
     var messageOpts = {
-      from: this._formatAddresses([identity]),
+      from: $imaputil.formatAddresses([identity]),
       subject: wireRep.subject,
     };
     if (body.html) {
@@ -666,11 +644,11 @@ MailBridge.prototype = {
     if (identity.replyTo)
       messageOpts.replyTo = identity.replyTo;
     if (wireRep.to && wireRep.to.length)
-      messageOpts.to = this._formatAddresses(wireRep.to);
+      messageOpts.to = $imaputil.formatAddresses(wireRep.to);
     if (wireRep.cc && wireRep.cc.length)
-      messageOpts.cc = this._formatAddresses(wireRep.cc);
+      messageOpts.cc = $imaputil.formatAddresses(wireRep.cc);
     if (wireRep.bcc && wireRep.bcc.length)
-      messageOpts.bcc = this._formatAddresses(wireRep.bcc);
+      messageOpts.bcc = $imaputil.formatAddresses(wireRep.bcc);
     composer.setMessageOption(messageOpts);
 
     if (wireRep.customHeaders) {
@@ -680,7 +658,8 @@ MailBridge.prototype = {
       }
     }
     composer.addHeader('User-Agent', 'Mozilla Gaia Email Client 0.1alpha');
-    composer.addHeader('Date', new Date().toUTCString());
+    var sentDate = new Date();
+    composer.addHeader('Date', sentDate.toUTCString());
     // we're copying nodemailer here; we might want to include some more...
     var messageId =
       '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
@@ -698,6 +677,7 @@ MailBridge.prototype = {
           err: err,
           badAddresses: badAddresses,
           messageId: messageId,
+          sentDate: sentDate.valueOf(),
         });
       });
     }

@@ -7,6 +7,8 @@ load('resources/loggest_test_framework.js');
 // currently the verbatim thunderbird message generator dude
 load('resources/messageGenerator.js');
 
+var $util = require('mailapi/util');
+
 var TD = $tc.defineTestsFor(
   { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
 
@@ -24,7 +26,7 @@ function makeRandomSubject() {
  * we think it was sent, verify that we received it (which is also a good test
  * of refresh).
  */
-TD.commonCase('compose, reply (text/plain)', function(T, RT) {
+TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 
@@ -94,11 +96,16 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
     },
   });
   // - complete and send the reply
+  var replySentDate;
   T.action('reply', eLazy, function() {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyComposer.finishCompositionSendMessage(function(err, badAddrs) {
+    replyTo = replyComposer.to;
+    replyCc = replyComposer.cc;
+    replyComposer.finishCompositionSendMessage(function(err, badAddrs,
+                                                        sentDate) {
+      replySentDate = new Date(sentDate);
       if (err)
         eLazy.error(err);
       else
@@ -112,11 +119,19 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
+      var formattedMail = $util.formatAddresses(
+                            [{ name: TEST_PARAMS.name,
+                               address: TEST_PARAMS.emailAddress }]);
       expectedForwardBody = {
         text: [
           '', '',
           '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
+          'Subject: Re: ' + uniqueSubject,
+          'Date: ' + replySentDate,
+          'From: ' + formattedMail,
+          'To: ' + formattedMail,
+          '',
           expectedReplyBody.text
         ].join('\n'),
         html: null
