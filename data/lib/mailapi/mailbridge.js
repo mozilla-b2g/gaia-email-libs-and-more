@@ -65,6 +65,8 @@ function strcmp(a, b) {
 }
 
 function checkIfAddressListContainsAddress(list, addrPair) {
+  if (!list)
+    return false;
   var checkAddress = addrPair.address;
   for (var i = 0; i < list.length; i++) {
     if (list[i].address === checkAddress)
@@ -541,7 +543,10 @@ MailBridge.prototype = {
                 }
                 // add the author as the first 'to' person
                 else {
-                  rTo = [effectiveAuthor].concat(bodyInfo.to);
+                  if (bodyInfo.to && bodyInfo.to.length)
+                    rTo = [effectiveAuthor].concat(bodyInfo.to);
+                  else
+                    rTo = [effectiveAuthor];
                 }
                 rCc = bodyInfo.cc;
                 rBcc = bodyInfo.bcc;
