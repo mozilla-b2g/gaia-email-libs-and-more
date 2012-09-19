@@ -131,7 +131,7 @@ BackoffEndpoint.prototype = {
     }
 
     if (this._iNextBackoff > 0)
-      this.state = 'unreachable';
+      this.state = reachable ? 'broken' : 'unreachable';
     this._LOG.state(this.state);
     // (Once this saturates, we never perform retries until the connection is
     // healthy again.  We do attempt re-connections when triggered by user
@@ -140,6 +140,22 @@ BackoffEndpoint.prototype = {
       return false;
 
     return true;
+  },
+
+  /**
+   * Logs a connection problem where we can talk to the server but we are
+   * confident there is no reason retrying.  In some cases, like bad
+   * credentials, this is part of what you want to do, but you will still also
+   * want to put the kibosh on additional requests at a higher level since
+   * servers can lock people out if they make repeated bad authentication
+   * requests.
+   */
+  noteBrokenConnection: function() {
+    this._LOG.connectFailure(true);
+    this.state = 'broken';
+    this._LOG.state(this.state);
+
+    this._iNextBackoff = BACKOFF_DURATIONS.length;
   },
 
   scheduleConnectAttempt: function(connectFunc) {

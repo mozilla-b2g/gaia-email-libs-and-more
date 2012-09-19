@@ -221,14 +221,101 @@ TD.commonCase('general reconnect logic', function(T) {
 /**
  * Change our password to the wrong password, then try to open a new connection
  * and make sure we notice and the bad password event fires.
+ *
+ * We don't use failure injection for this test, but
+ * XXX we should strongly consider just using failure injection to fake the
+ * password failure since the server forces a delay that is annoying (if
+ * realistic.)
  */
-TD.DISABLED_commonCase('bad password login failure', function(T) {
+TD.commonCase('bad password login failure', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
+      eCheck = T.lazyLogger('check');
 
+  // NB: because we restored the account, we do not have a pre-existing
+  // connection, so there is no connection to kill.
+
+  T.group('change to the wrong password');
+  T.action('change pw', eCheck, function() {
+    eCheck.expect_event('roundtrip');
+    var acct = testUniverse.allAccountsSlice.items[0];
+    acct.modifyAccount({ password: 'NOTTHERIGHTPASSWORD' });
+    // we don't need to wait for correctness; just to keep any errors in the
+    // right test step rather than letting them smear into the next one.
+    testUniverse.MailAPI.ping(function() {
+      eCheck.event('roundtrip');
+    });
+  });
+
+  T.group('use bad password');
+  T.action('create connection, should fail, generate MailAPI event', eCheck,
+           testAccount.eBackoff, function() {
+    testAccount.eBackoff.expect_connectFailure(true);
+    eCheck.expect_namedValue('accountCheck:err', true);
+    eCheck.expect_namedValue('account:enabled', false);
+    eCheck.expect_namedValue('account:problems', ['bad-user-or-pass']);
+    eCheck.expect_event('badlogin');
+    // no reconnect should be attempted, but we should transition directly to
+    // broken.
+    testAccount.eBackoff.expect_state('broken');
+
+    testUniverse.MailAPI.onbadlogin = function(acct) {
+      eCheck.event('badlogin');
+    };
+    // Use checkAccount to trigger the connection creation, which helps verify
+    // that checkConnection provides immediate feedback rather than getting
+    // confused and trying to wait for error handling to kick in.
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+      eCheck.namedValue('account:enabled',
+                        testAccount.compositeAccount.enabled);
+      eCheck.namedValue('account:problems',
+                        testAccount.compositeAccount.problems);
+    });
+    // we want to test resumption of ops too...
+    testAccount.imapAccount.__folderDemandsConnection(null, 'test',
+      function(conn) {
+        eCheck.event('connection demand fulfilled');
+        testAccount.imapAccount.__folderDoneWithConnection(conn, false, false);
+      },
+      function() {
+        eCheck.event('conn deathback!');
+      });
+  }).timeoutMS = 5000; // servers like explicit delays...
+
+  T.group('use good password');
+  T.action('put good password back', eCheck, function() {
+    eCheck.expect_event('roundtrip');
+    var acct = testUniverse.allAccountsSlice.items[0];
+    acct.modifyAccount({ password: TEST_PARAMS.password });
+    // we don't need to wait for correctness; just to keep any errors in the
+    // right test step rather than letting them smear into the next one.
+    testUniverse.MailAPI.ping(function() {
+      eCheck.event('roundtrip');
+    });
+  });
+  T.action('healthy connect!', eCheck, testAccount.eBackoff,
+           testAccount.eImapAccount,
+           function() {
+    eCheck.expect_event('connection demand fulfilled');
+    eCheck.expect_namedValue('accountCheck:err', false);
+    eCheck.expect_namedValue('account:enabled', true);
+    testAccount.eBackoff.expect_state('healthy');
+    testAccount.eImapAccount.expect_createConnection();
+    testAccount.eImapAccount.expect_reuseConnection();
+    testAccount.eImapAccount.expect_releaseConnection();
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+      // trigger the clear; in this case we are approximating the behaviour
+      // of MailAPI's MailAccount.clearProblems() on the bridge side rather
+      // than directly using it, but it's very simple, so this is fine.
+      testUniverse.universe.clearAccountProblems(testAccount.compositeAccount);
+      eCheck.namedValue('account:enabled',
+                        testAccount.compositeAccount.enabled);
+    });
+  }).timeoutMS = 5000;
 });
 
 TD.DISABLED_commonCase('general/unknown login failure', function(T) {

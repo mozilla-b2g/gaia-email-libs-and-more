@@ -284,6 +284,7 @@ var TestImapAccountMixins = {
   _expect_restore: function() {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(this.eSmtpAccount);
+    this.RT.reportActiveActorThisStep(this.eBackoff);
   },
 
   _do_issueRestoredAccountQueries: function() {
@@ -293,8 +294,13 @@ var TestImapAccountMixins = {
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
-      self.accountId = self.universe.accounts[
-                         self.testUniverse.__testAccounts.indexOf(self)].id;
+
+      self.compositeAccount =
+             self.universe.accounts[
+               self.testUniverse.__testAccounts.indexOf(self)];
+      self.imapAccount = self.compositeAccount._receivePiece;
+      self.smtpAccount = self.compositeAccount._sendPiece;
+      self.accountId = self.compositeAccount.id;
     });
   },
 
@@ -337,9 +343,10 @@ var TestImapAccountMixins = {
                      ': ' + error);
           self._logger.accountCreated();
           var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-          self.imapAccount = self.universe.accounts[idxAccount]._receivePiece;
-          self.smtpAccount = self.universe.accounts[idxAccount]._sendPiece;
-          self.accountId = self.universe.accounts[idxAccount].id;
+          self.compositeAccount = self.universe.accounts[idxAccount];
+          self.imapAccount = self.compositeAccount._receivePiece;
+          self.smtpAccount = self.compositeAccount._sendPiece;
+          self.accountId = self.compositeAccount.id;
         });
     }).timeoutMS = 5000; // there can be slow startups...
   },

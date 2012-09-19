@@ -616,15 +616,27 @@ ImapAccount.prototype = {
       connectCallbackTriggered = true;
       this._pendingConn = null;
       if (err) {
-        var errName, reachable = false;
+        var errName, reachable = false, maybeRetry = true;
         // We want to produce error-codes as defined in `MailApi.js` for
         // tryToCreateAccount.  We have also tried to make imap.js produce
-        // error codes of the right type already, but
+        // error codes of the right type already, but for various generic paths
+        // (like saying 'NO'), there isn't currently a good spot for that.
         switch (err.type) {
+          // dovecot says after a delay and does not terminate the connection:
+          //   NO [AUTHENTICATIONFAILED] Authentication failed.
+          // zimbra 7.2.x says after a delay and DOES terminate the connection:
+          //   NO LOGIN failed
+          //   * BYE Zimbra IMAP server terminating connection
+          // yahoo says after a delay and does not terminate the connection:
+          //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
           case 'NO':
           case 'no':
             errName = 'bad-user-or-pass';
             reachable = true;
+            // go directly to the broken state; no retries
+            maybeRetry = false;
+            // tell the higher level to disable our account until we fix our
+            // credentials problem and ideally generate a UI prompt.
             this.universe.__reportAccountProblem(this.compositeAccount,
                                                  errName);
             break;
@@ -647,8 +659,13 @@ ImapAccount.prototype = {
         conn.die();
 
         // track this failure for backoff purposes
-        if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
-          this._makeConnectionIfPossible();
+        if (maybeRetry) {
+          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
+            this._makeConnectionIfPossible();
+        }
+        else {
+          this._backoffEndpoint.noteBrokenConnection();
+        }
       }
       else {
         this._bindConnectionDeathHandlers(conn);
