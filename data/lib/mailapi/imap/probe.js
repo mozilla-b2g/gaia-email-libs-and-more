@@ -61,6 +61,12 @@ ImapProber.prototype = {
   onError: function ImapProber_onError(err) {
     console.warn('PROBE:IMAP sad', err);
     this.accountGood = false;
+    // we really want to make sure we clean up after this dude.
+    try {
+      this._conn.die();
+    }
+    catch (ex) {
+    }
     this._conn = null;
 
     if (this.onresult)

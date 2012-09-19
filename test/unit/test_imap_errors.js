@@ -8,6 +8,9 @@
  *    exception, or our code triggering a server error that we don't know how to
  *    handle.
  *
+ * We handle testing backoff logic by replacing the use of setTimeout by a
+ * helper function.
+ *
  * We test the following here:
  * -
  *
@@ -30,26 +33,188 @@
  *   failure values we define.)
  **/
 
+load('resources/loggest_test_framework.js');
 // Use the faulty socket implementation.
 load('resources/fault_injecting_socket.js');
+
+var $_errbackoff = require('mailapi/errbackoff');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
 
 
+function thunkErrbackoffTimer(lazyLogger) {
+  var backlog = [];
+  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+    backlog.push(func);
+    lazyLogger.namedValue('errbackoff:schedule', delay);
+  });
+  return function releaser() {
+    for (var i = 0; i < backlog.length; i++) {
+      backlog[i]();
+    }
+    backlog = [];
+  };
+}
+
 /**
  * Attempt to connect to a server with immediate failures each time (that we
  * have already established an account for).  Verify that we do the backoff
- * logic and eventually give up, waiting for a manual retrigger.
+ * logic and eventually give up, waiting for a manual retrigger.  Then retrigger
+ * and make sure we don't retry since we're already in a known degraded state.
+ * Then reconnect in a healthy state, verifying that a job we scheduled earlier
+ * finally gets the connection.  Let the job complete correctly (error cases
+ * when jobs hold the connection are a different test case).  Then close
+ * all connections, and try to connect again with errors, making sure we do
+ * the retry connects again since we had returned to a healthy state.
  */
-TD.commonCase('failure to connect, backoff check', function(T) {
+TD.commonCase('general reconnect logic', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse, restored: false }),
-      eSync = T.lazyLogger('sync');
+      eCheck = T.lazyLogger('check');
 
+  var errbackReleaser = thunkErrbackoffTimer(eCheck);
 
+  // (The account is now setup, so we can start meddling.  It does have an
+  // outstanding connection which we will need to kill.)
+
+  // we would ideally extract this in case we are running against other servers
+  var testHost = 'localhost', testPort = 143;
+
+  T.action('kill the existing connection of', testAccount.eImapAccount,
+           function() {
+    FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
+    testAccount._hasConnection = false;
+    testAccount.eImapAccount.expect_deadConnection();
+  });
+
+  T.group('retries, give-up');
+  T.action('initiate connection, fail', eCheck, testAccount.eBackoff,
+           function() {
+    // Queue up all the failures ahead of time: first connect, then 3 retries
+    // before giving up.
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    // Then 1 more failure on the next attempt.
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+
+    testAccount.eBackoff.expect_connectFailure(false);
+    eCheck.expect_namedValue('accountCheck:err', true);
+    eCheck.expect_namedValue('errbackoff:schedule', 0);
+    // Use checkAccount to trigger the connection creation, which helps verify
+    // that checkConnection provides immediate feedback rather than getting
+    // confused and trying to wait for error handling to kick in.
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+    });
+
+    // let's also demand the connection so we can verify that this does not
+    // try to create an additional connection as well as have something that
+    // gets fulfilled when we finally have a real connection.
+
+    testAccount.imapAccount.__folderDemandsConnection(null, 'test',
+      function(conn) {
+        eCheck.event('connection demand fulfilled');
+        testAccount.imapAccount.__folderDoneWithConnection(conn, false, false);
+      },
+      function() {
+        eCheck.event('conn deathback!');
+      });
+
+  });
+  T.action('pretend timeout fired #1', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    testAccount.eBackoff.expect_state('unreachable');
+    eCheck.expect_namedValue('errbackoff:schedule', 800);
+    errbackReleaser();
+  });
+  T.action('pretend timeout fired #2', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    eCheck.expect_namedValue('errbackoff:schedule', 4500);
+    errbackReleaser();
+  });
+  T.action('pretend timeout fired #3', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    errbackReleaser();
+  });
+
+  T.group('next retry only tries once');
+  T.action('initiate connection, fail, no retry', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    eCheck.expect_namedValue('accountCheck:err', true);
+    // Use checkAccount to trigger the connection creation, which helps verify
+    // that checkConnection provides immediate feedback rather than getting
+    // confused and trying to wait for error handling to kick in.
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+    });
+  });
+
+  T.group('recover');
+  T.action('healthy connect!', eCheck, testAccount.eBackoff,
+           testAccount.eImapAccount,
+           function() {
+    // the connection demand we placed above will now reuse and release the
+    // conn.
+    eCheck.expect_event('connection demand fulfilled');
+    eCheck.expect_namedValue('accountCheck:err', false);
+    testAccount.eBackoff.expect_state('healthy');
+    testAccount.eImapAccount.expect_createConnection();
+    testAccount.eImapAccount.expect_reuseConnection();
+    testAccount.eImapAccount.expect_releaseConnection();
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+    });
+  });
+  T.action('close unused connections of', testAccount.eImapAccount,
+           function() {
+    testAccount.eImapAccount.expect_deadConnection();
+    testAccount.imapAccount.closeUnusedConnections();
+  });
+
+  T.group('fail to connect, full retries again');
+  T.action('initiate connection, fail', eCheck, testAccount.eBackoff,
+           function() {
+    // Queue up all the failures ahead of time: first connect, then 3 retries
+    // before giving up.
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+
+    testAccount.eBackoff.expect_connectFailure(false);
+    eCheck.expect_namedValue('accountCheck:err', true);
+    eCheck.expect_namedValue('errbackoff:schedule', 0);
+    testAccount.imapAccount.checkAccount(function(err) {
+      eCheck.namedValue('accountCheck:err', !!err);
+    });
+  });
+  T.action('pretend timeout fired #1', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    testAccount.eBackoff.expect_state('unreachable');
+    eCheck.expect_namedValue('errbackoff:schedule', 800);
+    errbackReleaser();
+  });
+  T.action('pretend timeout fired #2', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    eCheck.expect_namedValue('errbackoff:schedule', 4500);
+    errbackReleaser();
+  });
+  T.action('pretend timeout fired #3', eCheck, testAccount.eBackoff,
+           function() {
+    testAccount.eBackoff.expect_connectFailure(false);
+    errbackReleaser();
+  });
 
 });
 
@@ -57,7 +222,7 @@ TD.commonCase('failure to connect, backoff check', function(T) {
  * Change our password to the wrong password, then try to open a new connection
  * and make sure we notice and the bad password event fires.
  */
-TD.commonCase('bad password login failure', function(T) {
+TD.DISABLED_commonCase('bad password login failure', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
@@ -66,7 +231,7 @@ TD.commonCase('bad password login failure', function(T) {
 
 });
 
-TD.commonCase('general/unknown login failure', function(T) {
+TD.DISABLED_commonCase('general/unknown login failure', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
@@ -79,7 +244,7 @@ TD.commonCase('general/unknown login failure', function(T) {
  * Sometimes a server doesn't want to let us into a folder.  For example,
  * Yahoo will do this.
  */
-TD.commonCase('IMAP server forbids SELECT', function(T) {
+TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
@@ -89,7 +254,7 @@ TD.commonCase('IMAP server forbids SELECT', function(T) {
 });
 
 
-TD.commonCase('IMAP connection loss on SELECT', function(T) {
+TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
@@ -98,7 +263,7 @@ TD.commonCase('IMAP connection loss on SELECT', function(T) {
 
 });
 
-TD.commonCase('IMAP connection loss on FETCH', function(T) {
+TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
@@ -107,3 +272,6 @@ TD.commonCase('IMAP connection loss on FETCH', function(T) {
 
 });
 
+function run_test() {
+  runMyTests(15);
+}

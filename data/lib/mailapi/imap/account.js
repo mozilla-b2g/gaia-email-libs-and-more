@@ -378,7 +378,7 @@ ImapAccount.prototype = {
     }
     function done(errString, folderMeta) {
       if (rawConn) {
-        self.__folderDoneWithConnection(rawConn);
+        self.__folderDoneWithConnection(rawConn, false, false);
         rawConn = null;
       }
       if (!errString)
@@ -419,7 +419,7 @@ ImapAccount.prototype = {
     }
     function done(errString) {
       if (rawConn) {
-        self.__folderDoneWithConnection(rawConn);
+        self.__folderDoneWithConnection(rawConn, false, false);
         rawConn = null;
       }
       if (!errString) {
@@ -502,8 +502,11 @@ ImapAccount.prototype = {
    * @args[
    *   @param[folderId #:optional FolderId]{
    *     The folder id of the folder that will be using the connection.  If
-   *     it's not a folder but some task, then pass a string prefixed with
-   *     a colon and a human readable string to explain the task.
+   *     it's not a folder but some task, then pass null (and ideally provide
+   *     a useful `label`).
+   *   }
+   *   @param[label #:optional String]{
+   *     A human readable explanation of the activity for debugging purposes.
    *   }
    *   @param[callback @func[@args[@param[conn]]]]{
    *     The callback to invoke once the connection has been established.  If
@@ -537,6 +540,8 @@ ImapAccount.prototype = {
   },
 
   _allocateExistingConnection: function() {
+    if (!this._demandedConns.length)
+      return false;
     var demandInfo = this._demandedConns[0];
 
     var reusableConnInfo = null;
@@ -557,6 +562,21 @@ ImapAccount.prototype = {
     }
 
     return false;
+  },
+
+  /**
+   * Close all connections that aren't currently in use.
+   */
+  closeUnusedConnections: function() {
+    for (var i = this._ownedConns.length - 1; i >= 0; i--) {
+      var connInfo = this._ownedConns[i];
+      if (connInfo.inUseBy)
+        continue;
+      // this eats all future notifications, so we need to splice...
+      connInfo.conn.die();
+      this._ownedConns.splice(i, 1);
+      this._LOG.deadConnection();
+    }
   },
 
   _makeConnectionIfPossible: function() {
@@ -580,8 +600,20 @@ ImapAccount.prototype = {
     };
     if (this._LOG) opts._logParent = this._LOG;
     var conn = this._pendingConn = new $imap.ImapConnection(opts);
-    this._bindConnectionDeathHandlers(conn);
-    conn.connect(function(err) {
+    var connectCallbackTriggered = false;
+    // The login callback should get invoked in all cases, but a recent code
+    // inspection for the prober suggested that there may be some cases where
+    // things might fall-through, so let's just convert them.  We need some
+    // type of handler since imap.js currently calls the login callback and
+    // then the 'error' handler, generating an error if there is no error
+    // handler.
+    conn.on('error', function(err) {
+      if (!connectCallbackTriggered)
+        loginCb(err);
+    });
+    var loginCb;
+    conn.connect(loginCb = function(err) {
+      connectCallbackTriggered = true;
       this._pendingConn = null;
       if (err) {
         var errName, reachable = false;
@@ -619,6 +651,8 @@ ImapAccount.prototype = {
           this._makeConnectionIfPossible();
       }
       else {
+        this._bindConnectionDeathHandlers(conn);
+        this._backoffEndpoint.noteConnectSuccess();
         this._ownedConns.push({
           conn: conn,
           inUseBy: null,
@@ -654,14 +688,16 @@ ImapAccount.prototype = {
       for (var i = 0; i < this._ownedConns.length; i++) {
         var connInfo = this._ownedConns[i];
         if (connInfo.conn === conn) {
-          this._LOG.deadConnection(connInfo.inUseBy.folderId);
-          if (connInfo.inUseBy.deathback)
+          this._LOG.deadConnection(connInfo.inUseBy &&
+                                   connInfo.inUseBy.folderId);
+          if (connInfo.inUseBy && connInfo.inUseBy.deathback)
             connInfo.inUseBy.deathback(conn);
           connInfo.inUseBy = null;
           this._ownedConns.splice(i, 1);
           return;
         }
       }
+      this._LOG.unknownDeadConnection();
     }.bind(this));
     conn.on('error', function(err) {
       // this hears about connection errors too
@@ -671,21 +707,20 @@ ImapAccount.prototype = {
   },
 
   __folderDoneWithConnection: function(conn, closeFolder, resourceProblem) {
-    if (resourceProblem)
-      this._backoffEndpoint(folderId);
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       if (connInfo.conn === conn) {
+        if (resourceProblem)
+          this._backoffEndpoint(connInfo.inUseBy.folderId);
+        this._LOG.releaseConnection(connInfo.inUseBy.folderId);
         connInfo.inUseBy = null;
-        connInfo.folderId = null;
-        this._LOG.releaseConnection(folderId);
         // (this will trigger an expunge if not read-only...)
-        if (folderId && !resourceProblem)
+        if (closeFolder && !resourceProblem)
           conn.closeBox(function() {});
         return;
       }
     }
-    this._LOG.connectionMismatch(folderId);
+    this._LOG.connectionMismatch();
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -791,7 +826,7 @@ ImapAccount.prototype = {
     var self = this;
     if (err) {
       // XXX need to deal with transient failure states
-      this.__folderDoneWithConnection(conn);
+      this.__folderDoneWithConnection(conn, false, false);
       callback();
       return;
     }
@@ -839,7 +874,7 @@ ImapAccount.prototype = {
       this._forgetFolder(folderPub.id);
     }
 
-    this.__folderDoneWithConnection(conn);
+    this.__folderDoneWithConnection(conn, false, false);
     // be sure to save our state now that we are up-to-date on this.
     this.saveAccountState();
     callback();
@@ -938,9 +973,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       reuseConnection: { folderId: false },
       releaseConnection: { folderId: false },
       deadConnection: { folderId: false },
-      connectionMismatch: { folderId: false },
+      connectionMismatch: {},
     },
     errors: {
+      unknownDeadConnection: {},
       folderAlreadyHasConn: { folderId: false },
     },
     asyncJobs: {

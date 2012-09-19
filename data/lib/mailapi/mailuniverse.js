@@ -924,6 +924,19 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Helper function to wrap calls to account.runOp since it now gets more
+   * complex with 'check' mode.
+   */
+  _dispatchOpForAccount: function(account, op) {
+    var mode = op.desire;
+    if (op.status === 'check')
+      mode = 'check';
+    account.runOp(
+      op, mode,
+      this._opCompleted.bind(this, account, op));
+  },
+
+  /**
    * Start processing ops for an account if it's able and has ops to run.
    */
   _resumeOpProcessingForAccount: function(account) {
@@ -934,9 +947,7 @@ MailUniverse.prototype = {
         // (it's possible there is still an active job right now)
         (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
       var op = queue[0];
-      account.runOp(
-        op, op.desire,
-        this._opCompleted.bind(this, account, op));
+      this._dispatchOpForAccount(account, op);
     }
   },
 
@@ -1318,12 +1329,13 @@ MailUniverse.prototype = {
     if (queue[0] !== op)
       this._LOG.opInvariantFailure();
 
+    // Should we attempt to retry (but fail if tryCount is reached)?
+    var maybeRetry = false;
     // Pop the event off the queue? (avoid bugs versus multiple calls)
-    var consumeOp = true,
+    var consumeOp = true;
     // Generate completion notifications for the op?
-        completeOp = true;
+    var completeOp = true;
     if (err) {
-      var maybeRetry = false;
       switch (err) {
         case 'defer':
           this._LOG.opDeferred(op.type, op.longtermId);
@@ -1350,20 +1362,6 @@ MailUniverse.prototype = {
           op.status = 'moot';
           break;
       }
-
-      if (maybeRetry) {
-        if (op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
-          // We're still good to try again, but we will need to check the status
-          // first.
-          op.status = 'check';
-          consumeOp = false;
-        }
-        else {
-          this._LOG.opTryLimitReached(op.type, op.longtermId);
-          // we complete the op, but the error flag is propagated
-          op.status = 'moot';
-        }
-      }
     }
     else {
       switch (op.status) {
@@ -1389,7 +1387,7 @@ MailUniverse.prototype = {
               break;
             // this is the same thing as defer.
             case 'bailed':
-              op.status
+
           }
           break;
         case 'doing':
@@ -1404,6 +1402,20 @@ MailUniverse.prototype = {
           if (op.desire === 'undo')
             op.desire = null;
           break;
+      }
+    }
+
+    if (maybeRetry) {
+      if (op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
+        // We're still good to try again, but we will need to check the status
+        // first.
+        op.status = 'check';
+        consumeOp = false;
+      }
+      else {
+        this._LOG.opTryLimitReached(op.type, op.longtermId);
+        // we complete the op, but the error flag is propagated
+        op.status = 'moot';
       }
     }
 

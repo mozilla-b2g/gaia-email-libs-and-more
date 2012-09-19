@@ -71,6 +71,15 @@ var BAD_RESOURCE_RETRY_DELAYS_MS = [
   2 * 60 * 1000,
 ];
 
+var setTimeoutFunc = window.setTimeout.bind(window);
+
+exports.TEST_useTimeoutFunc = function(func) {
+  setTimeoutFunc = func;
+  for (var i = 0; i < BACKOFF_DURATIONS.length; i++) {
+    BACKOFF_DURATIONS[i].randomMS = 0;
+  }
+};
+
 function BackoffEndpoint(name, listener, _parentLog) {
   /** @oneof[
    *    @case['healthy']
@@ -86,6 +95,7 @@ function BackoffEndpoint(name, listener, _parentLog) {
   this._iNextBackoff = 0;
 
   this._LOG = LOGFAB.BackoffEndpoint(this, _parentLog, name);
+  this._LOG.state(this.state);
 
   this._badResources = {};
 
@@ -110,6 +120,7 @@ BackoffEndpoint.prototype = {
    * ]
    */
   noteConnectFailureMaybeRetry: function(reachable) {
+    this._LOG.connectFailure(reachable);
     if (this.state === 'shutdown')
       return false;
 
@@ -138,7 +149,7 @@ BackoffEndpoint.prototype = {
     var backoff = BACKOFF_DURATIONS[this._iNextBackoff++],
         delay = backoff.fixedMS +
                 Math.floor(Math.random() * backoff.randomMS);
-    window.setTimeout(connectFunc, delay);
+    setTimeoutFunc(connectFunc, delay);
   },
 
   noteBadResource: function(resourceId) {
@@ -166,10 +177,8 @@ BackoffEndpoint.prototype = {
   },
 };
 
-var BackoffManager = exports.BackoffManager = {
-  createEndpoint: function(name, listener) {
-    return new BackoffEndpoint(name, listener);
-  },
+exports.createEndpoint = function(name, listener) {
+  return new BackoffEndpoint(name, listener);
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
@@ -177,6 +186,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     type: $log.TASK,
     stateVars: {
       state: false,
+    },
+    events: {
+      connectFailure: { reachable: true },
+    },
+    errors: {
     }
   },
 });

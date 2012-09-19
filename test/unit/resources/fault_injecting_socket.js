@@ -26,7 +26,7 @@ function FawltySocket(host, port, options, precmd) {
 
   this._receiveWatches = [];
   this._sendWatches = [];
-
+console.log('PRECMD', precmd);
   switch (precmd) {
     case 'no-dns-entry':
       // This currently manifests as a Connection refused error.  Test by using
@@ -59,7 +59,7 @@ function FawltySocket(host, port, options, precmd) {
   this._sock.onerror = this._onerror.bind(this);
   this._sock.onclose = this._onclose.bind(this);
 }
-FawltySocket.prototpe = {
+FawltySocket.prototype = {
   get readyState() {
     return this._sock.readyState;
   },
@@ -115,10 +115,14 @@ FawltySocket.prototpe = {
     window.setZeroTimeout(function() {
       if (self[type])
         self[type](event);
+      else
+        console.warn('FawltySocket: event "' + type + '" not handled!');
     });
   },
 
   doNow: function(actions, payload) {
+    if (!Array.isArray(actions))
+      actions = [actions];
     for (var i = 0; i < actions.length; i++) {
       var action = actions[i];
       if (typeof(action) === 'string')
@@ -127,12 +131,15 @@ FawltySocket.prototpe = {
         case 'instant-close':
           this._queueEvent('onclose', '');
           this._sock.close();
+          this._sock = null;
           break;
       }
     }
   },
 
   close: function() {
+    if (!this._sock)
+      return;
     if (this._sock.readyState !== 'closed')
       this._sock.close();
     this._sock = null;
@@ -161,8 +168,10 @@ var FawltySocketFactory = {
   open: function(host, port, options) {
     var key = host + port, precmd = null;
     if (this._precommands.hasOwnProperty(key)) {
-      precmd = this._precommands[key];
-      delete this._precommands[key];
+      var precmds = this._precommands[key];
+      precmd = precmds.shift();
+      if (!precmds.length)
+        delete this._precommands[key];
     }
     var sock = new FawltySocket(host, port, options, precmd);
     this._liveSockets.push(sock);
@@ -178,7 +187,11 @@ var FawltySocketFactory = {
    *
    */
   precommand: function(host, port, command) {
-    this._precommands[host + port] = command;
+    var key = host + port;
+    if (this._precommands.hasOwnProperty(key))
+      this._precommands[key].push(command);
+    else
+      this._precommands[key] = [command];
   },
 
   __deadSocket: function(sock) {

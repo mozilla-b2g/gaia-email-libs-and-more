@@ -149,8 +149,8 @@ function ImapConnection (options) {
     }
   };
   this._options = extend(true, this._options, options);
-
   this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, null) : null);
+  if (this._LOG) this._LOG.created();
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
@@ -207,6 +207,7 @@ ImapConnection.prototype.connect = function(loginCb) {
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';
 
+  if (this._LOG) this._LOG.connect(this._options.host, this._options.port);
   this._state.conn = navigator.mozTCPSocket.open(
     this._options.host, this._options.port, socketOptions);
 
@@ -2111,6 +2112,8 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
     type: $log.CONNECTION,
     subtype: $log.CLIENNT,
     events: {
+      created: {},
+      connect: {},
       connected: {},
       closed: {},
       sendData: { length: false },
@@ -2118,6 +2121,7 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
       data: { length: false },
     },
     TEST_ONLY_events: {
+      connect: { host: false, port: false },
       sendData: { data: false },
       // This may be a Buffer and therefore need to be coerced
       data: { data: $log.TOSTRING },

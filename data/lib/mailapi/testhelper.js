@@ -10,6 +10,7 @@ var $log = require('rdcommon/log'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
     $util = require('mailapi/util'),
+    $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account');
 
@@ -233,6 +234,7 @@ var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
+    self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
     if (!opts.universe)
       throw new Error("Universe not specified!");
@@ -308,10 +310,12 @@ var TestImapAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
+      self.RT.reportActiveActorThisStep(self.eBackoff);
       self.expect_accountCreated();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
+      self.rawAccount = null;
 
       // we expect the connection to be reused and release to sync the folders
       self._hasConnection = true;
@@ -332,9 +336,10 @@ var TestImapAccountMixins = {
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
                      ': ' + error);
           self._logger.accountCreated();
-          self.accountId = self.universe.accounts[
-                             self.testUniverse.__testAccounts.indexOf(self)].id;
-console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(self));
+          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
+          self.imapAccount = self.universe.accounts[idxAccount]._receivePiece;
+          self.smtpAccount = self.universe.accounts[idxAccount]._sendPiece;
+          self.accountId = self.universe.accounts[idxAccount].id;
         });
     }).timeoutMS = 5000; // there can be slow startups...
   },
@@ -943,6 +948,7 @@ exports.TESTHELPER = {
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB,
+    $errbackoff.LOGFAB,
     $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,
