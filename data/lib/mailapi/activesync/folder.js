@@ -432,6 +432,10 @@ ActiveSyncFolderConn.prototype = {
             case em.AttSize:
               attachment.sizeEstimate = attachData.children[0].textContent;
               break;
+            case asb.FileReference:
+            case em.Att0Id:
+              attachment.part = attachData.children[0].textContent;
+              break;
             }
           }
           body.attachments.push(attachment);

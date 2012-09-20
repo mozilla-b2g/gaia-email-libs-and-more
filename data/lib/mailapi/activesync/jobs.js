@@ -120,6 +120,77 @@ ActiveSyncJobDriver.prototype = {
     });
   },
 
+  local_do_download: function(op, ignoredCallback) {
+    // Downloads are inherently online operations.
+    return null;
+  },
+
+  do_download: function(op, callback) {
+    let jobDriver = this;
+    let lslash = message.suid.lastIndexOf('/')
+    let folderId = message.suid.substring(0, lslash);
+    let messageId = message.suid.substring(lslash + 1);
+    let folderStorage = this.account.getFolderStorageForFolderId(folderId);
+
+    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+    // Now that we have the body, we can know the part numbers and eliminate /
+    // filter out any redundant download requests.  Issue all the fetches at
+    // once.
+    let partsToDownload = [], bodyInfo;
+    function gotBody(_bodyInfo) {
+      bodyInfo = _bodyInfo;
+      for (let [,index] in Iterator(op.relPartIndices)) {
+        let partInfo = bodyInfo.relatedParts[index];
+        if (!partInfo.file)
+          partsToDownload.push(partInfo);
+      }
+      for (let [,index] in Iterator(op.attachmentIndices)) {
+        let partInfo = bodyInfo.attachments[index];
+        if (!partInfo.file)
+          partsToDownload.push(partInfo);
+      }
+
+      jobDriver._downloadAttachments(messageId, partsToDownload, gotParts);
+    };
+
+    function gotParts(err, bodyBuffers) {
+      if (bodyBuffers.length !== partsToDownload.length) {
+        callback(err, null, false);
+        return;
+      }
+      for (let i = 0; i < partsToDownload.length; i++) {
+        // Because we should be under a mutex, this part should still be the
+        // live representation and we can mutate it.
+        let partInfo = partsToDownload[i],
+            buffer = bodyBuffers[i];
+
+        partInfo.sizeEstimate = buffer.length;
+        partInfo.file = new Blob([buffer],
+                                 { contentType: partInfo.type });
+      }
+      folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
+      callback(err, bodyInfo, true);
+    };
+  },
+
+  _downloadAttachments: function(messageId, partsToDownload, callback) {
+    const io = $ascp.ItemOperations.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(io.ItemOperations)
+       .stag(io.Fetch)
+         .tag(io.Store, 'Mailbox')
+         .tag(asb.FileReference, partsToDownload[0].part)
+       .etag()
+     .etag();
+
+    this.account.conn.doCommand(w, function(aError, aResult) {
+      console.log(aResult.dump());
+      callback('badness', []);
+    });
+  },
+
   _do_crossFolderOp: function(op, callback, command) {
     let jobDriver = this;
 
