@@ -12,14 +12,13 @@
  * helper function.
  *
  * We test the following here:
- * -
+ * - Sync connect failure: Can't talk to the server at all.
+ * - Sync login failure: The server does not like our credentials.
  *
  * We test these things elsewhere:
  * -
  *
  * We want tests for the following (somewhere):
- * - Sync connect failure: Can't talk to the server at all.
- * - Sync login failure: The server does not like our credentials.
  * - Sync connection loss on SELECT. (This is during the opening of the folder
  *    connection and therefore strictly before actual synchronization logic is
  *    under way.)
@@ -234,6 +233,9 @@ TD.commonCase('bad password login failure', function(T) {
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
+  // we would ideally extract this in case we are running against other servers
+  var testHost = 'localhost', testPort = 143;
+
   // NB: because we restored the account, we do not have a pre-existing
   // connection, so there is no connection to kill.
 
@@ -252,6 +254,19 @@ TD.commonCase('bad password login failure', function(T) {
   T.group('use bad password');
   T.action('create connection, should fail, generate MailAPI event', eCheck,
            testAccount.eBackoff, function() {
+    FawltySocketFactory.precommand(
+      testHost, testPort, null,
+      {
+        match: 'LOGIN',
+        actions: [
+          'detach',
+          {
+            cmd: 'fake-receive',
+            data: 'A2 NO [AUTHENTICATIONFAILED] Authentication failed.\n',
+          }
+        ]
+      });
+
     testAccount.eBackoff.expect_connectFailure(true);
     eCheck.expect_namedValue('accountCheck:err', true);
     eCheck.expect_namedValue('account:enabled', false);
@@ -316,15 +331,6 @@ TD.commonCase('bad password login failure', function(T) {
                         testAccount.compositeAccount.enabled);
     });
   }).timeoutMS = 5000;
-});
-
-TD.DISABLED_commonCase('general/unknown login failure', function(T) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
-                            { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
-
 });
 
 /**

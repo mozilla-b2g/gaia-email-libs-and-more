@@ -16,7 +16,7 @@
  * - fake-receive: Pretend that we received some data via an ondata event in a
  *   future turn of the event loop.
  */
-function FawltySocket(host, port, options, precmd) {
+function FawltySocket(host, port, options, cmdDict) {
   this._sock = null;
 
   this.onopen = null;
@@ -26,32 +26,39 @@ function FawltySocket(host, port, options, precmd) {
 
   this._receiveWatches = [];
   this._sendWatches = [];
-console.log('PRECMD', precmd);
-  switch (precmd) {
-    case 'no-dns-entry':
-      // This currently manifests as a Connection refused error.  Test by using
-      // the nonesuch@nonesuch.nonesuch domain mapping...
-      this._queueEvent('onerror', 'Connection refused');
-      return;
+  if (cmdDict) {
+    var precmd = cmdDict.pre;
+    switch (precmd) {
+      case 'no-dns-entry':
+        // This currently manifests as a Connection refused error.  Test by using
+        // the nonesuch@nonesuch.nonesuch domain mapping...
+        this._queueEvent('onerror', 'Connection refused');
+        return;
 
-    case 'unresponsive-server':
-      // we won't generate any event for this whatsoever.  It's on a higher
-      // level to alter the IMAP timeout to be very short.  Necko may be
-      // capable of generating the timeout itself, but TCPSocket doesn't use it
-      // or at least allow changing the defaults right now.
-      return;
+      case 'unresponsive-server':
+        // we won't generate any event for this whatsoever.  It's on a higher
+        // level to alter the IMAP timeout to be very short.  Necko may be
+        // capable of generating the timeout itself, but TCPSocket doesn't use it
+        // or at least allow changing the defaults right now.
+        return;
 
-    case 'port-not-listening':
-      this._queueEvent('onerror', 'Connection refused');
-      return;
-    case 'bad-security':
-      // This comes through as a Connection refused.
-      this._queueEvent('onerror', 'Connection refused');
-      return;
+      case 'port-not-listening':
+        this._queueEvent('onerror', 'Connection refused');
+        return;
+      case 'bad-security':
+        // This comes through as a Connection refused.
+        this._queueEvent('onerror', 'Connection refused');
+        return;
 
-    default:
-      break;
+      default:
+        break;
+    }
+    if (cmdDict.onSend)
+      this.doOnSendText(cmdDict.onSend);
   }
+
+  // anything we send over the wire will be utf-8
+  this._utf8Decoder = new TextDecoder('UTF-8');
 
   this._sock = window.navigator.realMozTCPSocket.open(host, port, options);
   this._sock.onopen = this._onopen.bind(this);
@@ -102,7 +109,8 @@ FawltySocket.prototype = {
     FawltySocketFactory.__deadSocket(this);
   },
 
-  doOnSendText: function(match, actions) {
+  doOnSendText: function(desc) {
+    this._sendWatches.push(desc);
   },
 
   doOnReceiveText: function(match, actions) {
@@ -133,6 +141,17 @@ FawltySocket.prototype = {
           this._sock.close();
           this._sock = null;
           break;
+        // stop being connected to the real socket
+        case 'detach':
+          var sock = this._sock;
+          this._sock = null;
+          sock.close();
+          break;
+        case 'fake-receive':
+          var encoder = new TextEncoder(action.encoding || 'ASCII');
+          this._queueEvent('ondata', encoder.encode(action.data));
+          break;
+
       }
     }
   },
@@ -147,6 +166,9 @@ FawltySocket.prototype = {
   send: function(data) {
     if (!this._sock)
       return null;
+
+
+
     return this._sock.send(data);
   },
   suspend: function() {
@@ -186,12 +208,13 @@ var FawltySocketFactory = {
    * port-not-listening, and bad-security.
    *
    */
-  precommand: function(host, port, command) {
+  precommand: function(host, port, command, onSend) {
+    var cmdDict = { pre: command, onSend: onSend };
     var key = host + port;
     if (this._precommands.hasOwnProperty(key))
-      this._precommands[key].push(command);
+      this._precommands[key].push(cmdDict);
     else
-      this._precommands[key] = [command];
+      this._precommands[key] = [cmdDict];
   },
 
   __deadSocket: function(sock) {
