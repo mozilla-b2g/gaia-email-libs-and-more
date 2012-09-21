@@ -463,7 +463,7 @@ Configurators['activesync'] = {
 
     var conn = new $activesync.Connection(credentials.username,
                                           credentials.password);
-    conn.connect(function(error, config) {
+    conn.connect(function(error, config, options) {
       if (error) {
         var failureType = 'unknown';
 
@@ -477,10 +477,12 @@ Configurators['activesync'] = {
         return;
       }
 
-      var account = universe._loadAccount(accountDef, folderInfo, conn);
+      accountDef.connInfo = { server: config.selectedServer.url };
       if (!accountDef.identities[0].name)
         accountDef.identities[0].name = config.user.name;
       universe.saveAccountDef(accountDef, folderInfo);
+
+      var account = universe._loadAccount(accountDef, folderInfo, conn);
       account.syncFolderList(function() {
         callback(null, account);
       });
