@@ -112,6 +112,9 @@ exports.formatAddresses = function(nameAddrPairs) {
     if (typeof(pair) === 'string') {
       addrstrings.push(pair);
     }
+    else if (!pair.name) {
+      addrstrings.push(pair.address);
+    }
     else {
       addrstrings.push(
         '"' + pair.name.replace(/["']/g, '') + '" <' +
