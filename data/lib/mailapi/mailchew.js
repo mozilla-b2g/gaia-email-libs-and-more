@@ -15,11 +15,13 @@
 define(
   [
     'exports',
+    './util',
     './quotechew',
     './htmlchew'
   ],
   function(
     exports,
+    $util,
     $quotechew,
     $htmlchew
   ) {
@@ -54,7 +56,7 @@ exports.generateReplySubject = function generateReplySubject(origSubject) {
   return 'Re: ' + origSubject;
 };
 
-var l10n_wroteString = '{{name}} wrote',
+var l10n_wroteString = '{name} wrote',
     l10n_originalMessageString = 'Original Message';
 
 /*
@@ -82,6 +84,8 @@ var l10n_forward_header_labels = {
 exports.setLocalizedStrings = function(strings) {
   l10n_wroteString = strings.wrote;
   l10n_originalMessageString = strings.originalMessage;
+
+  l10n_forward_header_labels = strings.forwardHeaderLabels;
 };
 
 /**
@@ -97,7 +101,7 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
   var useName = authorPair.name || authorPair.address;
 
   var textMsg = '\n\n' +
-                l10n_wroteString.replace('{{name}}', useName) + ':\n',
+                l10n_wroteString.replace('{name}', useName) + ':\n',
       htmlMsg = null;
 
   for (var i = 0; i < reps.length; i += 2) {
@@ -170,6 +174,7 @@ exports.generateForwardMessage = function generateForwardMessage(
   // localized.)
 
   // : subject
+  textMsg += l10n_forward_header_labels['subject'] + ': ' + subject + '\n';
 
   // We do not track or remotely care about the 'resent' headers
   // : resent-comments
@@ -178,15 +183,29 @@ exports.generateForwardMessage = function generateForwardMessage(
   // : resent-to
   // : resent-cc
   // : date
+  textMsg += l10n_forward_header_labels['date'] + ': ' + new Date(date) + '\n';
   // : from
+  textMsg += l10n_forward_header_labels['from'] + ': ' +
+               $util.formatAddresses([author]) + '\n';
   // : reply-to
+  if (bodyInfo.replyTo)
+    textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
+                 $util.formatAddresses([bodyInfo.replyTo]) + '\n';
   // : organization
   // : to
+  if (bodyInfo.to)
+    textMsg += l10n_forward_header_labels['to'] + ': ' +
+                 $util.formatAddresses(bodyInfo.to) + '\n';
   // : cc
+  if (bodyInfo.cc)
+    textMsg += l10n_forward_header_labels['cc'] + ': ' +
+                 $util.formatAddresses(bodyInfo.cc) + '\n';
   // (bcc should never be forwarded)
   // : newsgroups
   // : followup-to
   // : references (only for newsgroups)
+
+  textMsg += '\n';
 
   var reps = bodyInfo.bodyReps;
   for (var i = 0; i < reps.length; i += 2) {
