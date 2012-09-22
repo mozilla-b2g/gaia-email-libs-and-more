@@ -1666,6 +1666,8 @@ MailAPI.prototype = {
       msg.submode = options.forwardMode;
       msg.refSuid = options.forwardOf.id;
       msg.refDate = options.forwardOf.date.valueOf();
+      msg.refGuid = options.forwardOf.guid;
+      msg.refAuthor = options.forwardOf.author;
       msg.refSubject = options.forwardOf.subject;
     }
     else {
@@ -1754,7 +1756,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
     if (req.callback) {
-      req.callback.call(null, msg.err, msg.badAddresses);
+      req.callback.call(null, msg.err, msg.badAddresses, msg.sentDate);
       req.callback = null;
     }
   },
@@ -1771,8 +1773,19 @@ MailAPI.prototype = {
    * - wrote: "{{name}} wrote".  Used for the lead-in to the quoted message.
    * - originalMessage: "Original Message".  Gets put between a bunch of dashes
    *    when forwarding a message inline.
+   * - forwardHeaderLabels:
+   *   - subject
+   *   - date
+   *   - from
+   *   - replyTo (for the "reply-to" header)
+   *   - to
+   *   - cc
    */
   useLocalizedStrings: function(strings) {
+    this.__bridgeSend({
+      type: 'localizedStrings',
+      strings: strings
+    });
   },
 
   //////////////////////////////////////////////////////////////////////////////

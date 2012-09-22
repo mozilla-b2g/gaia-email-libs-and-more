@@ -365,7 +365,7 @@ ActiveSyncAccount.prototype = {
     this.saveAccountState(null, function() {
       let newStorage =
         new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
-                                     $asfolder.ActiveSyncFolderSyner,
+                                     $asfolder.ActiveSyncFolderSyncer,
                                      self._LOG);
       for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
         slice._storage = newStorage;

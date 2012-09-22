@@ -103,4 +103,26 @@ exports.partitionMessagesByFolderId =
   return results;
 };
 
+exports.formatAddresses = function(nameAddrPairs) {
+  var addrstrings = [];
+  for (var i = 0; i < nameAddrPairs.length; i++) {
+    var pair = nameAddrPairs[i];
+    // support lazy people providing only an e-mail... or very careful
+    // people who are sure they formatted things correctly.
+    if (typeof(pair) === 'string') {
+      addrstrings.push(pair);
+    }
+    else if (!pair.name) {
+      addrstrings.push(pair.address);
+    }
+    else {
+      addrstrings.push(
+        '"' + pair.name.replace(/["']/g, '') + '" <' +
+          pair.address + '>');
+    }
+  }
+
+  return addrstrings.join(', ');
+};
+
 }); // end define
