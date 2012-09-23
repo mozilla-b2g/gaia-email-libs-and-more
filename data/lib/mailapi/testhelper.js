@@ -271,14 +271,12 @@ var TestImapAccountMixins = {
     this.eImapAccount.expect_saveAccountState_end();
   },
 
-  _expect_connection: function() {
+  expect_connection: function() {
     if (!this._hasConnection) {
       this.eImapAccount.expect_createConnection();
       this._hasConnection = true;
     }
-    else {
-      this.eImapAccount.expect_reuseConnection();
-    }
+    this.eImapAccount.expect_reuseConnection();
   },
 
   _expect_restore: function() {
@@ -325,7 +323,7 @@ var TestImapAccountMixins = {
 
       // we expect the connection to be reused and release to sync the folders
       self._hasConnection = true;
-      self._expect_connection();
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState_begin();
@@ -371,7 +369,7 @@ var TestImapAccountMixins = {
         return;
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self);
-      self._expect_connection();
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_deleteFolder();
       self.expect_deletionNotified(1);
@@ -388,7 +386,7 @@ var TestImapAccountMixins = {
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
-      self._expect_connection();
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_createFolder();
       self.expect_creationNotified(1);
@@ -450,7 +448,7 @@ var TestImapAccountMixins = {
       // the append will need to check out and check back-in a connection
       self.eImapAccount.expect_runOp_begin('do', 'append');
       if (testFolder._liveSliceThings.length === 0) {
-        self._expect_connection();
+        self.expect_connection();
         self.eImapAccount.expect_releaseConnection();
       }
       self.eImapAccount.expect_runOp_end('do', 'append');
@@ -515,7 +513,7 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self._expect_connection();
+        self.expect_connection();
         self.expect_saveState();
       }
       self.eImapAccount.asyncEventsAreComingDoNotResolve();
@@ -620,7 +618,7 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self._expect_connection();
+        self.expect_connection();
         if (!_saveToThing)
           self.eImapAccount.expect_releaseConnection();
       }

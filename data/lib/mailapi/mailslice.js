@@ -790,15 +790,6 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._deferredCalls = [];
 
   /**
-   * The number of pending mutation requests on the folder; currently because
-   * of how mutation operations are scheduled, this will either be 0 or 1.
-   * This will probably still remain true in the future, but we will adopt a
-   * connection reclaimation strategy so we don't keep jumping into and out of
-   * the same folder.
-   */
-  this._pendingMutationCount = 0;
-
-  /**
    * @listof[@dict[
    *   @key[name String]{
    *     A string describing the operation to be performed for debugging
@@ -864,6 +855,8 @@ FolderStorage.prototype = {
       // deferring the execution to a future turn of th eevent loop.
       if (self._mutexQueue.length)
         window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+      else if (self._slices.length === 0)
+        self.folderSyncer.allConsumersDead();
     });
   },
 
@@ -1899,8 +1892,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
 
-    if (this._slices.length === 0 && this._pendingMutationCount === 0)
-      this.folderSyncer.relinquishConn();
+    if (this._slices.length === 0 && this._mutexQueue.length === 0)
+      this.folderSyncer.allConsumersDead();
   },
 
   /**

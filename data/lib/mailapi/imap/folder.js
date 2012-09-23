@@ -147,12 +147,10 @@ ImapFolderConn.prototype = {
    * entered the folder.  This method should only be called when running
    * inside `runMutexed`.
    */
-  acquireConn: function(callback, deathback) {
-
-    
+  acquireConn: function(callback, deathback, label) {
     var self = this, handedOff = false;
     this._account.__folderDemandsConnection(
-      this._storage.folderId,
+      this._storage.folderId, label,
       function gotconn(conn) {
         self._conn = conn;
         // Now we have a connection, but it's not in the folder.
@@ -201,7 +199,8 @@ ImapFolderConn.prototype = {
   _reliaSearch: function(searchOptions, callback) {
     // If we don't have a connection, get one, then re-call.
     if (!this._conn) {
-      this.acquireConn(this._reliaSearch.bind(this, searchOptions, callback));
+      this.acquireConn(this._reliaSearch.bind(this, searchOptions, callback),
+                       /* XXX NULL deathback */ null, 'sync');
       return;
     }
 
@@ -897,7 +896,11 @@ console.log("folder message count", folderMessageCount,
                                   null, this.onSyncCompleted.bind(this));
   },
 
-  relinquishConn: function() {
+  /**
+   * Invoked when there are no longer any live slices on the folder and no more
+   * active/enqueued mutex ops.
+   */
+  allConsumersDead: function() {
     this.folderConn.relinquishConn();
   },
 

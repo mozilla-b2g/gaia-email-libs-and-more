@@ -477,7 +477,7 @@ ImapAccount.prototype = {
 
   checkAccount: function(listener) {
     var self = this;
-    this._makeConnection(listener);
+    this._makeConnection(listener, null, 'check');
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -556,7 +556,7 @@ ImapAccount.prototype = {
 
       connInfo.inUseBy = demandInfo;
       this._demandedConns.shift();
-      this._LOG.reuseConnection(demandInfo.folderId);
+      this._LOG.reuseConnection(demandInfo.folderId, demandInfo.label);
       demandInfo.callback(connInfo.conn);
       return true;
     }
@@ -588,8 +588,8 @@ ImapAccount.prototype = {
     this._backoffEndpoint.scheduleConnectAttempt(this._boundMakeConnection);
   },
 
-  _makeConnection: function(listener) {
-    this._LOG.createConnection();
+  _makeConnection: function(listener, whyFolderId, whyLabel) {
+    this._LOG.createConnection(whyFolderId, whyLabel);
     var opts = {
       host: this._connInfo.hostname,
       port: this._connInfo.port,
@@ -717,6 +717,7 @@ ImapAccount.prototype = {
       this._LOG.unknownDeadConnection();
     }.bind(this));
     conn.on('error', function(err) {
+      this._LOG.connectionError(err);
       // this hears about connection errors too
       console.warn('Conn steady error:', err, 'on',
                    this._connInfo.hostname, this._connInfo.port);
@@ -729,7 +730,8 @@ ImapAccount.prototype = {
       if (connInfo.conn === conn) {
         if (resourceProblem)
           this._backoffEndpoint(connInfo.inUseBy.folderId);
-        this._LOG.releaseConnection(connInfo.inUseBy.folderId);
+        this._LOG.releaseConnection(connInfo.inUseBy.folderId,
+                                    connInfo.inUseBy.label);
         connInfo.inUseBy = null;
         // (this will trigger an expunge if not read-only...)
         if (closeFolder && !resourceProblem)
@@ -940,17 +942,19 @@ ImapAccount.prototype = {
       op.status = mode + 'ing';
 
     if (callback) {
-      this._LOG.runOp_begin(mode, op.type, null);
+      this._LOG.runOp_begin(mode, op.type, null, op);
       this._jobDriver[methodName](op, function(error, resultIfAny,
                                                accountSaveSuggested) {
-        self._LOG.runOp_end(mode, op.type, error);
+        self._jobDriver.postJobCleanup();
+        self._LOG.runOp_end(mode, op.type, error, op);
         callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
-      this._LOG.runOp_begin(mode, op.type, null);
+      this._LOG.runOp_begin(mode, op.type, null, null);
       var rval = this._jobDriver[methodName](op);
-      this._LOG.runOp_end(mode, op.type, rval);
+      this._jobDriver.postJobCleanup();
+      this._LOG.runOp_end(mode, op.type, rval, op);
     }
   },
 
@@ -986,14 +990,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: { path: false },
       deleteFolder: { path: false },
 
-      createConnection: { folderId: false },
-      reuseConnection: { folderId: false },
-      releaseConnection: { folderId: false },
+      createConnection: { folderId: false, label: false },
+      reuseConnection: { folderId: false, label: false },
+      releaseConnection: { folderId: false, label: false },
       deadConnection: { folderId: false },
       connectionMismatch: {},
     },
     errors: {
       unknownDeadConnection: {},
+      connectionError: {},
       folderAlreadyHasConn: { folderId: false },
     },
     asyncJobs: {

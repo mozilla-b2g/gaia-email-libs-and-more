@@ -1392,7 +1392,10 @@ MailUniverse.prototype = {
               break;
             // this is the same thing as defer.
             case 'bailed':
-
+              this._LOG.opDeferred(op.type, op.longtermId);
+              this._deferOp(op);
+              completeOp = false;
+              break;
           }
           break;
         case 'doing':
@@ -1408,6 +1411,9 @@ MailUniverse.prototype = {
             op.desire = null;
           break;
       }
+      // If we still want to do something, then don't consume the op.
+      if (op.desire)
+        consumeOp = false;
     }
 
     if (maybeRetry) {
@@ -1447,9 +1453,7 @@ MailUniverse.prototype = {
 
     if (queue.length && this.online && account.enabled) {
       op = queue[0];
-      account.runOp(
-        op, op.desire,
-        this._opCompleted.bind(this, account, op));
+      this._dispatchOpForAccount(account, op);
     }
     else if (this._opCompletionListenersByAccount[account.id]) {
       this._opCompletionListenersByAccount[account.id](account);
@@ -1508,9 +1512,7 @@ MailUniverse.prototype = {
 
     // - initiate async execution if this is the first op
     if (this.online && account.enabled && queue.length === 1)
-      account.runOp(
-        op, op.desire,
-        this._opCompleted.bind(this, account, op));
+      this._dispatchOpForAccount(account, op);
     return op.longtermId;
   },
 

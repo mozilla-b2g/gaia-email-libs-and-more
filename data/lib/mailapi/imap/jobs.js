@@ -108,42 +108,44 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
 
 function ImapJobDriver(account) {
   this.account = account;
+  this._heldMutexReleasers = [];
 }
 exports.ImapJobDriver = ImapJobDriver;
 ImapJobDriver.prototype = {
   /**
    * Request access to an IMAP folder to perform a mutation on it.  This
-   * compels the ImapFolderConn in question to acquire an IMAP connection
-   * if it does not already have one.  It will also XXX EVENTUALLY provide
-   * mututal exclusion guarantees that there are no other active requests
-   * in the folder.
+   * acquires a write mutex on the FolderStorage and compels the ImapFolderConn
+   * in question to acquire an IMAP connection if it does not already have one.
    *
    * The callback will be invoked with the folder and raw connections once
    * they are available.  The raw connection will be actively in the folder.
    *
+   * There is no need to explicitly release the connection when done; it will
+   * be automatically released when the mutex is released if desirable.
+   *
    * This will ideally be migrated to whatever mechanism we end up using for
    * mailjobs.
    */
-  _accessFolderForMutation: function(folderId, callback) {
-    var storage = this.account.getFolderStorageForFolderId(folderId);
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount++;
-    var syncer = storage.folderSyncer;
-    if (!syncer.folderConn._conn) {
-      syncer.folderConn.acquireConn(callback);
-    }
-    else {
-      callback(syncer.folderConn, storage);
-    }
+  _accessFolderForMutation: function(folderId, callback, label) {
+    var storage = this.account.getFolderStorageForFolderId(folderId),
+        self = this;
+    storage.runMutexed(label, function(releaseMutex) {
+      self._heldMutexReleasers.push(releaseMutex);
+      var syncer = storage.folderSyncer;
+      if (!syncer.folderConn._conn) {
+        syncer.folderConn.acquireConn(callback, label);
+      }
+      else {
+        callback(syncer.folderConn, storage);
+      }
+    });
   },
 
-  _doneMutatingFolder: function(folderId, folderConn) {
-    var storage = this.account.getFolderStorageForFolderId(folderId),
-        syncer = storage.folderSyncer;
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount--;
-    if (!storage._slices.length && !storage._pendingMutationCount)
-      syncer.folderConn.relinquishConn();
+  postJobCleanup: function() {
+    for (var i = 0; i < this._heldMutexReleasers.length; i++) {
+      this._heldMutexReleasers[i]();
+    }
+    this._heldMutexReleasers = [];
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -209,13 +211,13 @@ ImapJobDriver.prototype = {
       callback(err, bodyInfo, true);
     };
 
-    self._accessFolderForMutation(folderId, gotConn);
+    self._accessFolderForMutation(folderId, gotConn, 'download');
   },
 
   check_download: function(op, callback) {
     // If we had download the file and persisted it successfully, this job would
     // be marked done because of the atomicity guarantee on our commits.
-    return UNCHECKED_COHERENT_NOTYET;
+    callback(null, UNCHECKED_COHERENT_NOTYET);
   },
 
   local_undo_download: function(op, ignoredCallback) {
@@ -307,12 +309,10 @@ ImapJobDriver.prototype = {
       curPartition = partitions[iNextPartition++];
       messages = curPartition.messages;
       if (curPartition.folderId !== folderId) {
-        if (folderConn) {
-          self._doneMutatingFolder(folderId, folderConn);
+        if (folderConn)
           folderConn = null;
-        }
         folderId = curPartition.folderId;
-        self._accessFolderForMutation(folderId, gotFolderConn);
+        self._accessFolderForMutation(folderId, gotFolderConn, 'modtags');
       }
     }
     function gotFolderConn(_folderConn) {
@@ -338,17 +338,15 @@ ImapJobDriver.prototype = {
         openNextFolder();
     }
     function done(errString) {
-      if (folderConn) {
-        self._doneMutatingFolder(folderId, folderConn);
+      if (folderConn)
         folderConn = null;
-      }
       callback(errString);
     }
     openNextFolder();
   },
 
-  check_modtags: function() {
-    return UNCHECKED_IDEMPOTENT;
+  check_modtags: function(op, callback) {
+    callback(null, UNCHECKED_IDEMPOTENT);
   },
 
   local_undo_modtags: function(op, callback) {
@@ -372,9 +370,9 @@ ImapJobDriver.prototype = {
     // set the deleted flag on the message
   },
 
-  check_delete: function() {
+  check_delete: function(op, callback) {
     // deleting on IMAP is effectively idempotent
-    return UNCHECKED_IDEMPOTENT;
+    callback(null, UNCHECKED_IDEMPOTENT);
   },
 
   undo_delete: function() {
@@ -461,7 +459,7 @@ ImapJobDriver.prototype = {
    * to leverage the persistence of the
    *
    */
-  check_move: function() {
+  check_move: function(op, callback) {
     // get a connection in the target folder
     // do a search on message-id's to check if the messages got copied across.
   },
@@ -484,7 +482,7 @@ ImapJobDriver.prototype = {
   do_copy: function() {
   },
 
-  check_copy: function() {
+  check_copy: function(op, callback) {
     // get a connection in the target folder
     // do a search to check if the message got copied across
   },
@@ -543,20 +541,19 @@ ImapJobDriver.prototype = {
         done(null);
     }
     function done(errString) {
-      if (folderConn) {
-        self._doneMutatingFolder(op.folderId, folderConn);
+      if (folderConn)
         folderConn = null;
-      }
       callback(errString);
     }
 
-    this._accessFolderForMutation(op.folderId, gotFolderConn);
+    this._accessFolderForMutation(op.folderId, gotFolderConn, 'append');
   },
 
   /**
    * Check if the message ended up in the folder.
    */
-  check_append: function() {
+  check_append: function(op, callback) {
+    // XXX search on the message-id in the folder to verify its presence.
   },
 
   undo_append: function() {
