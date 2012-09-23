@@ -68,7 +68,7 @@ ARBPLD=arbpl-dir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 xpcshell-tests:
 	-rm test/unit/all.log test/unit/*.js.log
-	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json $(B2GBD)/dist/bin/xpcshell test/unit
+	-$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json $(B2GBD)/dist/bin/xpcshell test/unit
 	cat test/unit/*.js.log > test/unit/all.log
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
