@@ -141,6 +141,10 @@ ImapJobDriver.prototype = {
     });
   },
 
+  _acquireConnWithoutFolder: function(label) {
+    
+  },
+
   postJobCleanup: function() {
     for (var i = 0; i < this._heldMutexReleasers.length; i++) {
       this._heldMutexReleasers[i]();
@@ -556,8 +560,94 @@ ImapJobDriver.prototype = {
     // XXX search on the message-id in the folder to verify its presence.
   },
 
-  undo_append: function() {
-  },
+  //////////////////////////////////////////////////////////////////////////////
+  // createFolder: Create a folder
+
+  do_createFolder: function(op, callback) {
+    var path, delim;
+    if (op.parentFolderId) {
+      if (!this.account._folderInfos.hasOwnProperty(op.parentFolderId))
+        throw new Error("No such folder: " + op.parentFolderId);
+      var parentFolder = this._folderInfos[op.parentFolderId];
+      delim = parentFolder.path;
+      path = parentFolder.path + delim;
+    }
+    else {
+      path = '';
+      delim = this.meta.rootDelim;
+    }
+    if (typeof(op.folderName) === 'string')
+      path += op.folderName;
+    else
+      path += op.folderName.join(delim);
+    if (op.containOnlyOtherFolders)
+      path += delim;
+
+    if (!this.universe.online) {
+      callback('offline');
+      return;
+    }
+
+    var rawConn = null, self = this;
+    function gotConn(conn) {
+      // create the box
+      rawConn = conn;
+      rawConn.addBox(path, addBoxCallback);
+    }
+    function addBoxCallback(err) {
+      if (err) {
+        console.error('Error creating box:', err);
+        // XXX implement the already-exists check...
+        done('unknown');
+        return;
+      }
+      // Do a list on the folder so that we get the right attributes and any
+      // magical case normalization performed by the server gets observed by
+      // us.
+      rawConn.getBoxes('', path, gotBoxes);
+    }
+    function gotBoxes(err, boxesRoot) {
+      if (err) {
+        console.error('Error looking up box:', err);
+        done('unknown');
+        return;
+      }
+      // We need to re-derive the path.  The hierarchy will only be that
+      // required for our new folder, so we traverse all children and create
+      // the leaf-node when we see it.
+      var folderMeta = null;
+      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
+        for (var boxName in boxLevel) {
+          var box = boxLevel[boxName],
+              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
+          if (box.children) {
+            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
+          }
+          else {
+            var type = self._determineFolderType(box, boxPath);
+            folderMeta = self._learnAboutFolder(boxName, boxPath, type,
+                                                box.delim, pathDepth);
+          }
+        }
+      }
+      walkBoxes(boxesRoot, '', 0);
+      if (folderMeta)
+        done(null, folderMeta);
+      else
+        done('unknown');
+    }
+    function done(errString, folderMeta) {
+      if (rawConn) {
+        self.__folderDoneWithConnection(rawConn, false, false);
+        rawConn = null;
+      }
+      if (!errString)
+        self._LOG.createFolder(path);
+      if (callback)
+        callback(errString, folderMeta);
+    }
+    this.__folderDemandsConnection(null, 'createFolder', gotConn);
+  }
 
   //////////////////////////////////////////////////////////////////////////////
 };

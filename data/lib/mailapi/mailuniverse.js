@@ -1596,6 +1596,66 @@ MailUniverse.prototype = {
     return [longtermId];
   },
 
+  /**
+   * Create a folder that is the child/descendant of the given parent folder.
+   * If no parent folder id is provided, we attempt to create a root folder.
+   *
+   * This is not implemented as a job 'operation' because our UX spec does not
+   * call for this to be an undoable operation, nor do we particularly want the
+   * potential permutations of having offline folders that the server does not
+   * know about.
+   *
+   * @args[
+   *   @param[parentFolderId String]
+   *   @param[folderName]
+   *   @param[containOnlyOtherFolders Boolean]{
+   *     Should this folder only contain other folders (and no messages)?
+   *     On some servers/backends, mail-bearing folders may not be able to
+   *     create sub-folders, in which case one would have to pass this.
+   *   }
+   *   @param[callback @func[
+   *     @args[
+   *       @param[error @oneof[
+   *         @case[null]{
+   *           No error, the folder got created and everything is awesome.
+   *         }
+   *         @case['offline']{
+   *           We are offline and can't create the folder.
+   *         }
+   *         @case['already-exists']{
+   *           The folder appears to already exist.
+   *         }
+   *         @case['unknown']{
+   *           It didn't work and we don't have a better reason.
+   *         }
+   *       ]]
+   *       @param[folderMeta ImapFolderMeta]{
+   *         The meta-information for the folder.
+   *       }
+   *     ]
+   *   ]]{
+   *   }
+   * ]
+   */
+  createFolder: function(accountId, parentFolderId, folderName,
+                         containOnlyOtherFolders) {
+    var account = this.getAccountForAccountId(accountId);
+    var longtermId = this._queueAccountOp(
+      account,
+      {
+        type: 'createFolder',
+        longtermId: null,
+        status: null,
+        tryCount: 0,
+        desire: 'do',
+        humanOp: 'createFolder',
+        parentFolderId: parentFolderId,
+        folderName: folderName,
+        containOnlyOtherFolders: containOnlyOtherFolders
+      });
+    return [longtermId];
+  },
+
   undoMutation: function(longtermIds) {
     for (var i = 0; i < longtermIds.length; i++) {
       var longtermId = longtermIds[i],

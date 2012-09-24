@@ -267,129 +267,6 @@ ImapAccount.prototype = {
   },
 
   /**
-   * Create a folder that is the child/descendant of the given parent folder.
-   * If no parent folder id is provided, we attempt to create a root folder.
-   *
-   * @args[
-   *   @param[parentFolderId String]
-   *   @param[folderName]
-   *   @param[containOnlyOtherFolders Boolean]{
-   *     Should this folder only contain other folders (and no messages)?
-   *     On some servers/backends, mail-bearing folders may not be able to
-   *     create sub-folders, in which case one would have to pass this.
-   *   }
-   *   @param[callback @func[
-   *     @args[
-   *       @param[error @oneof[
-   *         @case[null]{
-   *           No error, the folder got created and everything is awesome.
-   *         }
-   *         @case['offline']{
-   *           We are offline and can't create the folder.
-   *         }
-   *         @case['already-exists']{
-   *           The folder appears to already exist.
-   *         }
-   *         @case['unknown']{
-   *           It didn't work and we don't have a better reason.
-   *         }
-   *       ]]
-   *       @param[folderMeta ImapFolderMeta]{
-   *         The meta-information for the folder.
-   *       }
-   *     ]
-   *   ]]{
-   *   }
-   * ]
-   */
-  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
-                         callback) {
-    var path, delim;
-    if (parentFolderId) {
-      if (!this._folderInfos.hasOwnProperty(parentFolderId))
-        throw new Error("No such folder: " + parentFolderId);
-      var parentFolder = this._folderInfos[parentFolderId];
-      delim = parentFolder.path;
-      path = parentFolder.path + delim;
-    }
-    else {
-      path = '';
-      delim = this.meta.rootDelim;
-    }
-    if (typeof(folderName) === 'string')
-      path += folderName;
-    else
-      path += folderName.join(delim);
-    if (containOnlyOtherFolders)
-      path += delim;
-
-    if (!this.universe.online) {
-      callback('offline');
-      return;
-    }
-
-    var rawConn = null, self = this;
-    function gotConn(conn) {
-      // create the box
-      rawConn = conn;
-      rawConn.addBox(path, addBoxCallback);
-    }
-    function addBoxCallback(err) {
-      if (err) {
-        console.error('Error creating box:', err);
-        // XXX implement the already-exists check...
-        done('unknown');
-        return;
-      }
-      // Do a list on the folder so that we get the right attributes and any
-      // magical case normalization performed by the server gets observed by
-      // us.
-      rawConn.getBoxes('', path, gotBoxes);
-    }
-    function gotBoxes(err, boxesRoot) {
-      if (err) {
-        console.error('Error looking up box:', err);
-        done('unknown');
-        return;
-      }
-      // We need to re-derive the path.  The hierarchy will only be that
-      // required for our new folder, so we traverse all children and create
-      // the leaf-node when we see it.
-      var folderMeta = null;
-      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
-        for (var boxName in boxLevel) {
-          var box = boxLevel[boxName],
-              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
-          if (box.children) {
-            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
-          }
-          else {
-            var type = self._determineFolderType(box, boxPath);
-            folderMeta = self._learnAboutFolder(boxName, boxPath, type,
-                                                box.delim, pathDepth);
-          }
-        }
-      }
-      walkBoxes(boxesRoot, '', 0);
-      if (folderMeta)
-        done(null, folderMeta);
-      else
-        done('unknown');
-    }
-    function done(errString, folderMeta) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(rawConn, false, false);
-        rawConn = null;
-      }
-      if (!errString)
-        self._LOG.createFolder(path);
-      if (callback)
-        callback(errString, folderMeta);
-    }
-    this.__folderDemandsConnection(null, ':createFolder', gotConn);
-  },
-
-  /**
    * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
    * does not desire this, but the unit tests do.
    *
@@ -429,7 +306,7 @@ ImapAccount.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this.__folderDemandsConnection(null, ':deleteFolder', gotConn);
+    this.__folderDemandsConnection(null, 'deleteFolder', gotConn);
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -580,8 +457,11 @@ ImapAccount.prototype = {
   },
 
   _makeConnectionIfPossible: function() {
-    if ((this._ownedConns.length >= this._maxConnsAllowed) ||
-        this._pendingConn)
+    if (this._ownedConns.length >= this._maxConnsAllowed) {
+      this._LOG.maximumConnsNoNew();
+      return;
+    }
+    if (this._pendingConn)
       return;
 
     this._pendingConn = true;
@@ -985,6 +865,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       releaseConnection: {},
       deadConnection: {},
       connectionMismatch: {},
+
+      /**
+       * The maximum connection limit has been reached, we are intentionally
+       * not creating an additional one.
+       */
+      maximumConnsNoNew: {},
     },
     TEST_ONLY_events: {
       createFolder: { path: false },

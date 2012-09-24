@@ -1571,6 +1571,15 @@ MailAPI.prototype = {
     return undoableOp;
   },
 
+  createFolder: function(account, parentFolder, containOnlyOtherFolders) {
+    this.__bridgeSend({
+      type: 'createFolder',
+      accountId: account.id,
+      parentFolderId: parentFolder ? parentFolder.id : null,
+      containOnlyOtherFolders: containOnlyOtherFolders
+    });
+  },
+
   _recv_mutationConfirmed: function(msg) {
     var req = this._pendingRequests[msg.handle];
     if (!req) {

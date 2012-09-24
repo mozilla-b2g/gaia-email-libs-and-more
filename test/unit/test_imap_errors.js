@@ -346,16 +346,45 @@ TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
 
 });
 
-
-TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
+/**
+ * Verify that we handle connection loss when entering a folder.  Do this by
+ * opening a slice to display the contents of a folder and verifying that the
+ * slice still opens after the connection loss.
+ */
+TD.commonCase('IMAP connection loss on SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
+  // we would ideally extract this in case we are running against other servers
+  var testHost = 'localhost', testPort = 143;
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_err_select_loss',
+    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+
+  T.group('SELECT time');
+  T.action('queue up SELECT to result in conncetion loss', function() {
+    FawltySocketFactory.precommand(
+      testHost, testPort, null,
+      {
+        match: 'SELECT',
+        actions: [
+          'instant-close',
+        ]
+      });
+  });
+  testAccount.do_viewFolder('syncs', testFolder,
+                            { count: 4, full: 4, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
 });
 
+/**
+ * Verify that a folder still synchronizes correctly even though we lose the
+ * connection in th middle of the synchronization.
+ */
 TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
@@ -364,6 +393,21 @@ TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
       eSync = T.lazyLogger('sync');
 
 });
+
+/**
+ * Synchronize a folder so growth is possible, have the connection drop, then
+ * issue a growth request and make sure we sync the additional messages as
+ * expected.
+ */
+TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+});
+
 
 function run_test() {
   runMyTests(15);
