@@ -478,7 +478,7 @@ Configurators['activesync'] = {
       }
 
       accountDef.connInfo = { server: config.selectedServer.url };
-      if (!accountDef.identities[0].name)
+      if (!accountDef.identities[0].name && config.user)
         accountDef.identities[0].name = config.user.name;
       universe.saveAccountDef(accountDef, folderInfo);
 
