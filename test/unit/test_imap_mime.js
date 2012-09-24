@@ -49,6 +49,9 @@ TD.commonCase('message encodings', function(T) {
   var fullSyncFolder = testAccount.do_createTestFolder(
     'test_mime_encodings',
     { count: 2, age: { days: 0 }, age_incr: { days: 1 },
+      from: { name: mwqSammySnake, address: 'sammy@snake.nul' },
+      to: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }],
+      cc: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }],
       // replace the actual encoding with these values...
       replaceHeaders: [
         { 'Content-Transfer-Encoding': 'quoted-printable' },
@@ -63,13 +66,19 @@ TD.commonCase('message encodings', function(T) {
     'syncs', fullSyncFolder,
     { count: 2, full: 2, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
-  T.check('check message', eBodies, function() {
+  T.check('check messages', eBodies, function() {
+    eBodies.expect_namedValue('from name', rawSammySnake);
+    eBodies.expect_namedValue('to[0] name', rawSammySnake);
+    eBodies.expect_namedValue('cc[0] name', rawSammySnake);
     eBodies.expect_namedValue('qp', rawTruthBeauty);
     eBodies.expect_namedValue('b64', rawTruthBeauty);
 
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
+    eBodies.namedValue('from name', qpHeader.author.name);
     qpHeader.getBody(function(qpBody) {
+    eBodies.namedValue('to[0] name', qpBody.to[0].name);
+    eBodies.namedValue('cc[0] name', qpBody.cc[0].name);
       eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
       qpBody.die();
     });
