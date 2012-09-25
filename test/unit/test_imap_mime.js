@@ -140,6 +140,19 @@ TD.commonCase('MIME hierarchies', function(T) {
           bstrQpWin1252,
           { charset: 'win-1252', format: null,
             encoding: 'quoted-printable' }),
+      rawFlowed = 'Foo Bar Baz',
+      bstrFlowed = 'Foo \nBar \nBaz',
+      bstrQpFlowed = 'Foo =\n\nBar =\n\nBaz',
+      bpartFlowed =
+        new SyntheticPartLeaf(
+          bstrFlowed,
+          { charset: 'iso-8859-1', format: 'flowed', encoding: '7-bit' }),
+      bpartQpFlowed =
+        new SyntheticPartLeaf(
+          bstrQpFlowed,
+          { charset: 'iso-8859-1', format: 'flowed',
+            encoding: 'quoted-printable' }),
+
   // - bodies: text/enriched (ignored!)
   // This exists just to test the alternatives logic.
       bpartIgnoredEnriched =
@@ -245,6 +258,16 @@ TD.commonCase('MIME hierarchies', function(T) {
       name: 'text/plain qp win-1252 (incorrectly shortened from windows-1252)',
       bodyPart: bpartQpWin1252ShortenedCharset,
       checkBody: rawQpWin1252,
+    },
+    {
+      name: 'format=flowed, 7-bit encoding',
+      bodyPart: bpartFlowed,
+      checkBody: rawFlowed,
+    },
+    {
+      name: 'format=flowed, quoted-printable encoding',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
     },
     // - text/plain checking things not related to bodies...
     {
