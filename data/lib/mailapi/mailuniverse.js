@@ -213,53 +213,73 @@ var autoconfigByDomain = {
   // this is for testing, and won't work because of bad certs.
   'asutherland.org': {
     type: 'imap+smtp',
-    imapHost: 'mail.asutherland.org',
-    imapPort: 993,
-    imapCrypto: true,
-    smtpHost: 'mail.asutherland.org',
-    smtpPort: 465,
-    smtpCrypto: true,
-    usernameIsFullEmail: true,
+    username: '%EMAILADDRESS%',
+    incoming: {
+      hostname: 'mail.asutherland.org',
+      port: 993,
+      socketType: 'SSL',
+    },
+    outgoing: {
+      hostname: 'mail.asutherland.org',
+      port: 465,
+      sockectType: 'SSL',
+    },
   },
   'mozilla.com': {
     type: 'imap+smtp',
-    imapHost: 'mail.mozilla.com',
-    imapPort: 993,
-    imapCrypto: true,
-    smtpHost: 'smtp.mozilla.org',
-    smtpPort: 465,
-    smtpCrypto: true,
-    usernameIsFullEmail: true,
+    username: '%EMAILADDRESS%',
+    incoming: {
+      hostname: 'mail.mozilla.com',
+      port: 993,
+      socketType: 'SSL',
+    },
+    outgoing: {
+      hostname: 'smtp.mozilla.org',
+      port: 465,
+      socketType: 'SSL',
+    },
   },
   'yahoo.com': {
     type: 'imap+smtp',
-    imapHost: 'imap.mail.yahoo.com',
-    imapPort: 993,
-    imapCrypto: true,
-    smtpHost: 'smtp.mail.yahoo.com',
-    smtpPort: 465,
-    smtpCrypto: true,
-    usernameIsFullEmail: true,
+    username: '%EMAILADDRESS%',
+    incoming: {
+      hostname: 'imap.mail.yahoo.com',
+      port: 993,
+      socketType: 'SSL',
+    },
+    outgoing: {
+      hostname: 'smtp.mail.yahoo.com',
+      port: 465,
+      socketType: 'SSL',
+    },
   },
   'localhost': {
     type: 'imap+smtp',
-    imapHost: 'localhost',
-    imapPort: 143,
-    imapCrypto: false,
-    smtpHost: 'localhost',
-    smtpPort: 25,
-    smtpCrypto: false,
-    usernameIsFullEmail: false,
+    username: '%EMAILLOCALPART%',
+    incoming: {
+      hostname: 'localhost',
+      port: 143,
+      socketType: 'plain',
+    },
+    outgoing: {
+      hostname: 'localhost',
+      port: 25,
+      socketType: 'plain',
+    },
   },
   'slocalhost': {
     type: 'imap+smtp',
-    imapHost: 'localhost',
-    imapPort: 993,
-    imapCrypto: true,
-    smtpHost: 'localhost',
-    smtpPort: 465,
-    smtpCrypto: true,
-    usernameIsFullEmail: false,
+    username: '%EMAILLOCALPART%',
+    incoming: {
+      hostname: 'localhost',
+      port: 993,
+      socketType: 'SSL',
+    },
+    outgoing: {
+      hostname: 'localhost',
+      port: 465,
+      socketType: 'SSL',
+    },
   },
   'example.com': {
     type: 'fake',
@@ -278,24 +298,30 @@ Configurators['imap+smtp'] = {
                                            callback, _LOG) {
     var credentials, imapConnInfo, smtpConnInfo;
     if (domainInfo) {
-      var username = domainInfo.usernameIsFullEmail ? userDetails.emailAddress
-        : userDetails.emailAddress.substring(
-            0, userDetails.emailAddress.indexOf('@'));
+      var emailLocalPart = userDetails.emailAddress.substring(
+        0, userDetails.emailAddress.indexOf('@'));
+      var username = domainInfo.incoming.username
+        .replace('%EMAILADDRESS%', userDetails.emailAddress)
+        .replace('%EMAILLOCALPART%', emailLocalPart);
+
       credentials = {
         username: username,
         password: userDetails.password,
       };
       imapConnInfo = {
-        hostname: domainInfo.imapHost,
-        port: domainInfo.imapPort,
-        crypto: domainInfo.imapCrypto,
+        hostname: domainInfo.incoming.hostname,
+        port: domainInfo.incoming.port,
+        crypto: domainInfo.incoming.socketType === 'SSL',
       };
       smtpConnInfo = {
-        hostname: domainInfo.smtpHost,
-        port: domainInfo.smtpPort,
-        crypto: domainInfo.smtpCrypto,
+        hostname: domainInfo.outgoing.hostname,
+        port: domainInfo.outgoing.port,
+        crypto: domainInfo.outgoing.socketType === 'SSL',
       };
     }
+    console.log(JSON.stringify(credentials, null, 2));
+    console.log(JSON.stringify(imapConnInfo, null, 2));
+    console.log(JSON.stringify(smtpConnInfo, null, 2));
 
     var self = this;
     var callbacks = allbackMaker(
@@ -888,20 +914,15 @@ MailUniverse.prototype = {
   },
 
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
-    var domain = userDetails.emailAddress.substring(
-                   userDetails.emailAddress.indexOf('@') + 1),
-        domainInfo = null;
-
-    if (autoconfigByDomain.hasOwnProperty(domain))
-      domainInfo = autoconfigByDomain[domain];
-
-    if (!domainInfo) {
-      throw new Error("Don't know how to configure domain: " + domain);
+    if (!this.online) {
+      callback('offline');
+      return;
     }
 
-    var configurator = Configurators[domainInfo.type];
-    return configurator.tryToCreateAccount(this, userDetails, domainInfo,
-                                           callback, this._LOG);
+    // XXX: store configurator on this object so we can abort the connections
+    // if necessary.
+    var configurator = new Autoconfigurator(this._LOG);
+    configurator.tryToCreateAccount(this, userDetails, callback);
   },
 
   /**
@@ -1361,6 +1382,119 @@ MailUniverse.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+};
+
+function Autoconfigurator(_LOG) {
+  this._LOG = _LOG;
+}
+exports.Autoconfigurator = Autoconfigurator;
+Autoconfigurator.prototype = {
+  _getXmlConfig: function getXmlConfig(url, callback) {
+    let xhr = new XMLHttpRequest({mozSystem: true});
+    xhr.open('GET', url, true);
+    xhr.onload = function() {
+      let doc = new DOMParser().parseFromString(xhr.responseText, 'text/xml');
+      function getNode(xpath, rel) {
+        return doc.evaluate(xpath, rel || doc, null,
+                            XPathResult.FIRST_ORDERED_NODE_TYPE, null)
+          .singleNodeValue;
+      }
+
+      let provider = getNode('/clientConfig/emailProvider');
+      let incoming = getNode('incomingServer[@type="imap"]', provider);
+      let outgoing = getNode('outgoingServer[@type="smtp"]', provider);
+
+      if (incoming && outgoing) {
+        let config = { type: 'imap+smtp', incoming: {}, outgoing: {} };
+
+        for (let [,child] in Iterator(incoming.children))
+          config.incoming[child.tagName] = child.textContent;
+        for (let [,child] in Iterator(outgoing.children))
+          config.outgoing[child.tagName] = child.textContent;
+
+        callback(null, config);
+      }
+      else {
+        callback('no-usable-config');
+      }
+    };
+    xhr.onerror = function() { callback('no-config'); }
+
+    xhr.send();
+  },
+
+  _getConfigFromDomain: function getConfigFromDomain(email, domain, callback) {
+    let suffix = '/mail/config-v1.1.xml?emailaddress=' +
+                 encodeURIComponent(email);
+    let url = 'http://autoconfig.' + domain + suffix;
+    let self = this;
+    this._getXmlConfig(url, function(error) {
+      if (!error)
+        return callback.apply(null, arguments);
+
+      // See <http://tools.ietf.org/html/draft-nottingham-site-meta-04>.
+      let url = 'http://' + domain + '/.well-known/autoconfig' + suffix;
+      self._getXmlConfig(url, callback)
+    });
+  },
+
+  _getConfigFromDB: function getConfigFromDB(domain, callback) {
+    this._getXmlConfig('https://live.mozillamessaging.com/autoconfig/v1.1/' +
+                       encodeURIComponent(domain), callback);
+  },
+
+  _getMX: function getMX(domain, callback) {
+    let xhr = new XMLHttpRequest({mozSystem: true});
+    xhr.open('GET', 'https://live.mozillamessaging.com/dns/mx/' +
+             encodeURIComponent(domain), true);
+    xhr.onload = function() {
+      if (xhr.status === 200)
+        callback(null, xhr.responseText.split('\n')[0]);
+      else
+        callback('no-mx');
+    };
+    xhr.onerror = function() { callback('no-mx'); }
+
+    xhr.send();
+  },
+
+  getConfig: function getConfig(email, callback) {
+    let domain = email.split('@')[1].toLowerCase();
+
+    if (autoconfigByDomain.hasOwnProperty(domain)) {
+      callback(null, autoconfigByDomain[domain]);
+      return;
+    }
+
+    let self = this;
+    this._getConfigFromDomain(email, domain, function(error, config) {
+      if (!error)
+        return callback(error, config);
+
+      self._getConfigFromDB(domain, function(error, config) {
+        if (!error)
+          return callback(error, config);
+
+        self._getMX(domain, function(error, mxDomain) {
+          if (error)
+            return callback(error);
+          if (domain === mxDomain)
+            return callback('mx-matches-domain');
+
+          self._getConfigFromDB(mxDomain, callback);
+        });
+      });
+    });
+  },
+
+  tryToCreateAccount: function(universe, userDetails, callback) {
+    let self = this;
+    this.getConfig(userDetails.emailAddress, function(error, config) {
+      var configurator = Configurators[config.type];
+      configurator.tryToCreateAccount(universe, userDetails, config,
+                                      callback, self._LOG);
+    });
+  },
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
