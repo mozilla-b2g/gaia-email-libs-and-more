@@ -141,8 +141,24 @@ ImapJobDriver.prototype = {
     });
   },
 
-  _acquireConnWithoutFolder: function(label) {
-    
+  /**
+   * Request access to a connection for some type of IMAP manipulation that does
+   * not involve a folder known to the system (which should then be accessed via
+   * _accessfolderForMutation).
+   *
+   * The connection will be automatically released when the operation completes,
+   * there is no need to release it directly.
+   */
+  _acquireConnWithoutFolder: function(label, callback) {
+    const self = this;
+    this.account.__folderDemandsConnection(
+      null, label,
+      function(conn) {
+        self._heldMutexReleasers.push(function() {
+          self.account.__folderDoneWithConnection(conn, false, false);
+        });
+        callback(conn);
+      });
   },
 
   postJobCleanup: function() {
@@ -563,6 +579,10 @@ ImapJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // createFolder: Create a folder
 
+  local_do_createFolder: function(op) {
+    // we never locally perform this operation.
+  },
+
   do_createFolder: function(op, callback) {
     var path, delim;
     if (op.parentFolderId) {
@@ -574,7 +594,7 @@ ImapJobDriver.prototype = {
     }
     else {
       path = '';
-      delim = this.meta.rootDelim;
+      delim = this.account.meta.rootDelim;
     }
     if (typeof(op.folderName) === 'string')
       path += op.folderName;
@@ -582,11 +602,6 @@ ImapJobDriver.prototype = {
       path += op.folderName.join(delim);
     if (op.containOnlyOtherFolders)
       path += delim;
-
-    if (!this.universe.online) {
-      callback('offline');
-      return;
-    }
 
     var rawConn = null, self = this;
     function gotConn(conn) {
@@ -624,9 +639,9 @@ ImapJobDriver.prototype = {
             walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
           }
           else {
-            var type = self._determineFolderType(box, boxPath);
-            folderMeta = self._learnAboutFolder(boxName, boxPath, type,
-                                                box.delim, pathDepth);
+            var type = self.account._determineFolderType(box, boxPath);
+            folderMeta = self.account._learnAboutFolder(boxName, boxPath, type,
+                                                        box.delim, pathDepth);
           }
         }
       }
@@ -637,16 +652,12 @@ ImapJobDriver.prototype = {
         done('unknown');
     }
     function done(errString, folderMeta) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(rawConn, false, false);
+      if (rawConn)
         rawConn = null;
-      }
-      if (!errString)
-        self._LOG.createFolder(path);
       if (callback)
         callback(errString, folderMeta);
     }
-    this.__folderDemandsConnection(null, 'createFolder', gotConn);
+    this._acquireConnWithoutFolder('createFolder', gotConn);
   }
 
   //////////////////////////////////////////////////////////////////////////////

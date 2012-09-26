@@ -873,7 +873,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       maximumConnsNoNew: {},
     },
     TEST_ONLY_events: {
-      createFolder: { path: false },
       deleteFolder: { path: false },
 
       createConnection: { folderId: false, label: false },

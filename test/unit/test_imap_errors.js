@@ -350,8 +350,10 @@ TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
  * Verify that we handle connection loss when entering a folder.  Do this by
  * opening a slice to display the contents of a folder and verifying that the
  * slice still opens after the connection loss.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
-TD.commonCase('IMAP connection loss on SELECT', function(T) {
+TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',

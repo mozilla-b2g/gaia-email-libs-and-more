@@ -386,9 +386,12 @@ var TestImapAccountMixins = {
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
+      self.eImapAccount.expect_runOp_begin('local_do', 'createFolder');
+      self.eImapAccount.expect_runOp_end('local_do', 'createFolder');
+      self.eImapAccount.expect_runOp_begin('do', 'createFolder');
       self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
-      self.eImapAccount.expect_createFolder();
+      self.eImapAccount.expect_runOp_end('do', 'createFolder');
       self.expect_creationNotified(1);
 
       gAllFoldersSlice.onsplice = function(index, howMany, added,
@@ -397,7 +400,7 @@ var TestImapAccountMixins = {
         self._logger.creationNotified(added.length);
         testFolder.mailFolder = added[0];
       };
-      MailUniverse.accounts[0].createFolder(null, folderName, false,
+      MailUniverse.createFolder(self.accountId, null, folderName, false,
         function createdFolder(err, folderMeta) {
         if (err) {
           self._logger.folderCreationError(err);

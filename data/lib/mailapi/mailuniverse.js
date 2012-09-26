@@ -173,12 +173,6 @@ CompositeAccount.prototype = {
     this._receivePiece.shutdown();
   },
 
-  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
-                         callback) {
-    return this._receivePiece.createFolder(
-      parentFolderId, folderName, containOnlyOtherFolders, callback);
-  },
-
   deleteFolder: function(folderId, callback) {
     return this._receivePiece.deleteFolder(folderId, callback);
   },
@@ -1608,7 +1602,11 @@ MailUniverse.prototype = {
    * know about.
    *
    * @args[
-   *   @param[parentFolderId String]
+   *   @param[accountId]
+   *   @param[parentFolderId @oneof[null String]]{
+   *     If null, place the folder at the top-level, otherwise place it under
+   *     the given folder.
+   *   }
    *   @param[folderName]
    *   @param[containOnlyOtherFolders Boolean]{
    *     Should this folder only contain other folders (and no messages)?
@@ -1621,10 +1619,7 @@ MailUniverse.prototype = {
    *         @case[null]{
    *           No error, the folder got created and everything is awesome.
    *         }
-   *         @case['offline']{
-   *           We are offline and can't create the folder.
-   *         }
-   *         @case['already-exists']{
+   *         @case['moot']{
    *           The folder appears to already exist.
    *         }
    *         @case['unknown']{
@@ -1640,7 +1635,7 @@ MailUniverse.prototype = {
    * ]
    */
   createFolder: function(accountId, parentFolderId, folderName,
-                         containOnlyOtherFolders) {
+                         containOnlyOtherFolders, callback) {
     var account = this.getAccountForAccountId(accountId);
     var longtermId = this._queueAccountOp(
       account,
@@ -1654,7 +1649,8 @@ MailUniverse.prototype = {
         parentFolderId: parentFolderId,
         folderName: folderName,
         containOnlyOtherFolders: containOnlyOtherFolders
-      });
+      },
+      callback);
     return [longtermId];
   },
 
