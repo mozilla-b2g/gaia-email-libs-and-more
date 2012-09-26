@@ -198,52 +198,6 @@ exports.accountTypeToClass = accountTypeToClass;
 
 // Simple hard-coded autoconfiguration by domain...
 var autoconfigByDomain = {
-  // this is for testing, and won't work because of bad certs.
-  'asutherland.org': {
-    type: 'imap+smtp',
-    incoming: {
-      hostname: 'mail.asutherland.org',
-      port: 993,
-      socketType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-    outgoing: {
-      hostname: 'mail.asutherland.org',
-      port: 465,
-      sockectType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-  },
-  'mozilla.com': {
-    type: 'imap+smtp',
-    incoming: {
-      hostname: 'mail.mozilla.com',
-      port: 993,
-      socketType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-    outgoing: {
-      hostname: 'smtp.mozilla.org',
-      port: 465,
-      socketType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-  },
-  'yahoo.com': {
-    type: 'imap+smtp',
-    incoming: {
-      hostname: 'imap.mail.yahoo.com',
-      port: 993,
-      socketType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-    outgoing: {
-      hostname: 'smtp.mail.yahoo.com',
-      port: 465,
-      socketType: 'SSL',
-      username: '%EMAILADDRESS%',
-    },
-  },
   'localhost': {
     type: 'imap+smtp',
     incoming: {
@@ -277,10 +231,9 @@ var autoconfigByDomain = {
   'example.com': {
     type: 'fake',
   },
+  // XXX: Remove this once the Autoconfigurator supports ActiveSync
+  // Autodiscovery.
   'hotmail.com': {
-    type: 'activesync',
-  },
-  'gmail.com': {
     type: 'activesync',
   },
 };
@@ -479,6 +432,9 @@ Configurators['activesync'] = {
 
     var conn = new $asproto.Connection(credentials.username,
                                        credentials.password);
+    if (domainInfo.incoming && domainInfo.incoming.server)
+      conn.setServer(domainInfo.incoming.server);
+
     conn.connect(function(error, config, options) {
       if (error) {
         var failureType = 'unknown';
@@ -519,30 +475,43 @@ Autoconfigurator.prototype = {
       function getNode(xpath, rel) {
         return doc.evaluate(xpath, rel || doc, null,
                             XPathResult.FIRST_ORDERED_NODE_TYPE, null)
-          .singleNodeValue;
+                  .singleNodeValue;
       }
 
       let provider = getNode('/clientConfig/emailProvider');
-      let incoming = getNode('incomingServer[@type="imap"]', provider);
+      // Get the first incomingServer we can use (we assume first == best).
+      let incoming = getNode('incomingServer[@type="imap"] | ' +
+                             'incomingServer[@type="activesync"]', provider);
       let outgoing = getNode('outgoingServer[@type="smtp"]', provider);
 
-      if (incoming && outgoing) {
-        let config = { type: 'imap+smtp', incoming: {}, outgoing: {} };
-
+      if (incoming) {
+        let config = { type: null, incoming: {}, outgoing: {} };
         for (let [,child] in Iterator(incoming.children))
           config.incoming[child.tagName] = child.textContent;
-        for (let [,child] in Iterator(outgoing.children))
-          config.outgoing[child.tagName] = child.textContent;
 
-        callback(null, config);
+        if (incoming.getAttribute('type') === 'activesync') {
+          config.type = 'activesync';
+          callback(null, config);
+          return;
+        }
+        else if (outgoing) {
+          config.type = 'imap+smtp';
+          for (let [,child] in Iterator(outgoing.children))
+            config.outgoing[child.tagName] = child.textContent;
+          callback(null, config);
+          return;
+        }
       }
-      else {
-        callback('no-usable-config');
-      }
+
+      callback('no-usable-config');
     };
     xhr.onerror = function() { callback('no-config'); }
 
     xhr.send();
+  },
+
+  _getConfigFromLocalFile: function getConfigFromDB(domain, callback) {
+    this._getXmlConfig('/autoconfig/' + encodeURIComponent(domain), callback);
   },
 
   _getConfigFromDomain: function getConfigFromDomain(email, domain, callback) {
@@ -581,29 +550,54 @@ Autoconfigurator.prototype = {
   },
 
   getConfig: function getConfig(email, callback) {
+    console.log('Attempting to get autoconfiguration...');
     let domain = email.split('@')[1].toLowerCase();
 
     if (autoconfigByDomain.hasOwnProperty(domain)) {
+      console.log('Found autoconfig data in GELAM');
       callback(null, autoconfigByDomain[domain]);
       return;
     }
 
     let self = this;
-    this._getConfigFromDomain(email, domain, function(error, config) {
-      if (!error)
+    this._getConfigFromLocalFile(domain, function(error, config) {
+      if (!error) {
+        console.log('Found autoconfig data in local file store');
         return callback(error, config);
+      }
 
-      self._getConfigFromDB(domain, function(error, config) {
-        if (!error)
+      self._getConfigFromDomain(email, domain, function(error, config) {
+        if (!error) {
+          console.log('Found autoconfig data at domain');
           return callback(error, config);
+        }
 
-        self._getMX(domain, function(error, mxDomain) {
-          if (error)
-            return callback(error);
-          if (domain === mxDomain)
-            return callback('mx-matches-domain');
+        self._getConfigFromDB(domain, function(error, config) {
+          if (!error) {
+            console.log("Found autoconfig data in Mozilla's ISPDB");
+            return callback(error, config);
+          }
 
-          self._getConfigFromDB(mxDomain, callback);
+          self._getMX(domain, function(error, mxDomain) {
+            if (error) {
+              console.log("Couldn't find MX domain, stopping autoconfig");
+              return callback(error);
+            }
+            if (domain === mxDomain) {
+              console.log('MX domain matches original domain, stopping ' +
+                          'autoconfig');
+              return callback('mx-matches-domain');
+            }
+
+            self._getConfigFromDB(mxDomain, function(error, config) {
+              if (error)
+                console.log("Couldn't find autoconfig data");
+              else
+                console.log('Found autoconfig data from MX lookup');
+
+              callback(error, config);
+            });
+          });
         });
       });
     });
@@ -612,6 +606,11 @@ Autoconfigurator.prototype = {
   tryToCreateAccount: function(universe, userDetails, callback) {
     let self = this;
     this.getConfig(userDetails.emailAddress, function(error, config) {
+      if (error) {
+        callback(error);
+        return;
+      }
+
       var configurator = Configurators[config.type];
       configurator.tryToCreateAccount(universe, userDetails, config,
                                       callback, self._LOG);
