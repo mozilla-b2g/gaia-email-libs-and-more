@@ -154,7 +154,8 @@ ActiveSyncAccount.prototype = {
     return 0;
   },
 
-  saveAccountState: function asa_saveAccountState(reuseTrans, callback) {
+  saveAccountState: function asa_saveAccountState(reuseTrans, callback,
+                                                  reason) {
     let account = this;
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
@@ -164,11 +165,11 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin();
+    this._LOG.saveAccountState_begin(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end();
+        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -181,7 +182,7 @@ ActiveSyncAccount.prototype = {
    * want to consider persisting our state.
    */
   __checkpointSyncCompleted: function() {
-    this.saveAccountState();
+    this.saveAccountState(null, null, 'checkpointSync');
   },
 
   shutdown: function asa_shutdown() {
@@ -246,7 +247,7 @@ ActiveSyncAccount.prototype = {
       }
 
       console.log('Synced folder list');
-      account.saveAccountState();
+      account.saveAccountState(null, null, 'folderList');
       if (callback)
         callback();
     });
@@ -389,7 +390,7 @@ ActiveSyncAccount.prototype = {
       self._folderStorages[folderId] = newStorage;
 
       callback(newStorage);
-    });
+    }, 'recreateFolder');
   },
 
   /**
@@ -556,26 +557,29 @@ ActiveSyncAccount.prototype = {
   runOp: function asa_runOp(op, mode, callback) {
     console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
 
-    let methodName = mode + '_' + op.type;
-    let isLocal = /^local_/.test(mode);
-
-    if (!isLocal)
-      op.status = mode + 'ing';
+    var methodName = mode + '_' + op.type, self = this,
+        isLocal = (mode === 'local_do' || mode === 'local_undo');
 
     if (!(methodName in this._jobDriver))
       throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
 
+    if (!isLocal)
+      op.status = mode + 'ing';
+
     if (callback) {
-      this._jobDriver[methodName](op, function(error) {
-        if (!isLocal)
-          op.status = mode + 'ne';
-        callback(error);
+      this._LOG.runOp_begin(mode, op.type, null, op);
+      this._jobDriver[methodName](op, function(error, resultIfAny,
+                                               accountSaveSuggested) {
+        self._jobDriver.postJobCleanup();
+        self._LOG.runOp_end(mode, op.type, error, op);
+        callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
-      this._jobDriver[methodName](op);
-      if (!isLocal)
-        op.status = mode + 'ne';
+      this._LOG.runOp_begin(mode, op.type, null, null);
+      var rval = this._jobDriver[methodName](op);
+      this._jobDriver.postJobCleanup();
+      this._LOG.runOp_end(mode, op.type, rval, op);
     }
   },
 };
@@ -589,7 +593,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: {},
+      saveAccountState: { reason: false },
     },
   },
 });
