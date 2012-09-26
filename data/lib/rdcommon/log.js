@@ -584,6 +584,11 @@ var TestActorProtoBase = {
     if (this._expectNothing &&
         (this._expectations.length || this._iExpectation))
       return false;
+    // Fail immediately if a synchronous check already failed.  (It would
+    // have tried to generate a rejection, but there was no deferral at the
+    // time.)
+    if (!this._expectationsMetSoFar)
+      return false;
     if ((this._iExpectation >= this._expectations.length) &&
         (this._expectDeath ? (this._logger && this._logger._died) : true)) {
       this._resolved = true;
