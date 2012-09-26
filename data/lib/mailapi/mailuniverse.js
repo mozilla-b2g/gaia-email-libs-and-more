@@ -10,9 +10,8 @@ define(
     './allback',
     './maildb',
     './imap/probe',
-    './imap/account',
     './smtp/probe',
-    './smtp/account',
+    './compositeaccount',
     './fake/account',
     'activesync/protocol',
     './activesync/account',
@@ -26,9 +25,8 @@ define(
     $allback,
     $maildb,
     $imapprobe,
-    $imapacct,
     $smtpprobe,
-    $smtpacct,
+    $compacct,
     $fakeacct,
     $activesync,
     $asacct,
@@ -48,161 +46,13 @@ const allbackMaker = $allback.allbackMaker;
  */
 const MAX_MUTATIONS_FOR_UNDO = 10;
 
-const PIECE_ACCOUNT_TYPE_TO_CLASS = {
-  'imap': $imapacct.ImapAccount,
-  'smtp': $smtpacct.SmtpAccount,
-  //'gmail-imap': GmailAccount,
-};
-
 // A boring signature that conveys the person was probably typing on a touch
 // screen, helping to explain typos and short replies.
 const DEFAULT_SIGNATURE = exports.DEFAULT_SIGNATURE =
   'Sent from my Firefox OS device.';
 
-/**
- * Composite account type to expose account piece types with individual
- * implementations (ex: imap, smtp) together as a single account.  This is
- * intended to be a very thin layer that shields consuming code from the
- * fact that IMAP and SMTP are not actually bundled tightly together.
- */
-function CompositeAccount(universe, accountDef, folderInfo, dbConn,
-                          receiveProtoConn,
-                          _LOG) {
-  this.universe = universe;
-  this.id = accountDef.id;
-  this.accountDef = accountDef;
-
-  // Currently we don't persist the disabled state of an account because it's
-  // easier for the UI to be edge-triggered right now and ensure that the
-  // triggering occurs once each session.
-  this.enabled = true;
-  this.problems = [];
-
-  // XXX for now we are stealing the universe's logger
-  this._LOG = _LOG;
-
-  this.identities = accountDef.identities;
-
-  if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.receiveType)) {
-    this._LOG.badAccountType(accountDef.receiveType);
-  }
-  if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.sendType)) {
-    this._LOG.badAccountType(accountDef.sendType);
-  }
-
-  this._receivePiece =
-    new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
-      universe, this,
-      accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderInfo, dbConn, this._LOG, receiveProtoConn);
-  this._sendPiece =
-    new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
-      universe, this,
-      accountDef.id, accountDef.credentials,
-      accountDef.sendConnInfo, dbConn, this._LOG);
-
-  // expose public lists that are always manipulated in place.
-  this.folders = this._receivePiece.folders;
-  this.meta = this._receivePiece.meta;
-  this.mutations = this._receivePiece.mutations;
-}
-CompositeAccount.prototype = {
-  toString: function() {
-    return '[CompositeAccount: ' + this.id + ']';
-  },
-  toBridgeWire: function() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      type: this.accountDef.type,
-
-      enabled: this.enabled,
-      problems: this.problems,
-
-      identities: this.identities,
-
-      credentials: {
-        username: this.accountDef.credentials.username,
-        // no need to send the password to the UI.
-      },
-
-      servers: [
-        {
-          type: this.accountDef.receiveType,
-          connInfo: this.accountDef.receiveConnInfo,
-          activeConns: this._receivePiece.numActiveConns,
-        },
-        {
-          type: this.accountDef.sendType,
-          connInfo: this.accountDef.sendConnInfo,
-          activeConns: this._sendPiece.numActiveConns,
-        }
-      ],
-    };
-  },
-  toBridgeFolder: function() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      path: this.accountDef.name,
-      type: 'account',
-    };
-  },
-
-  saveAccountState: function(reuseTrans) {
-    return this._receivePiece.saveAccountState(reuseTrans);
-  },
-
-  /**
-   * Check that the account is healthy in that we can login at all.
-   */
-  checkAccount: function(callback) {
-    // Since we use the same credential for both cases, we can just have the
-    // IMAP account attempt to establish a connection and forget about SMTP.
-    this._receivePiece.checkAccount(callback);
-  },
-
-  /**
-   * Shutdown the account; see `MailUniverse.shutdown` for semantics.
-   */
-  shutdown: function() {
-    this._sendPiece.shutdown();
-    this._receivePiece.shutdown();
-  },
-
-  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
-                         callback) {
-    return this._receivePiece.createFolder(
-      parentFolderId, folderName, containOnlyOtherFolders, callback);
-  },
-
-  deleteFolder: function(folderId, callback) {
-    return this._receivePiece.deleteFolder(folderId, callback);
-  },
-
-  sliceFolderMessages: function(folderId, bridgeProxy) {
-    return this._receivePiece.sliceFolderMessages(folderId, bridgeProxy);
-  },
-
-  syncFolderList: function(callback) {
-    return this._receivePiece.syncFolderList(callback);
-  },
-
-  sendMessage: function(composedMessage, callback) {
-    return this._sendPiece.sendMessage(composedMessage, callback);
-  },
-
-  getFolderStorageForFolderId: function(folderId) {
-    return this._receivePiece.getFolderStorageForFolderId(folderId);
-  },
-
-  runOp: function(op, mode, callback) {
-    return this._receivePiece.runOp(op, mode, callback);
-  },
-};
-
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
-  'imap+smtp': CompositeAccount,
+  'imap+smtp': $compacct.CompositeAccount,
   'fake': $fakeacct.FakeAccount,
   'activesync': $asacct.ActiveSyncAccount,
 };
@@ -213,72 +63,77 @@ var autoconfigByDomain = {
   // this is for testing, and won't work because of bad certs.
   'asutherland.org': {
     type: 'imap+smtp',
-    username: '%EMAILADDRESS%',
     incoming: {
       hostname: 'mail.asutherland.org',
       port: 993,
       socketType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
     outgoing: {
       hostname: 'mail.asutherland.org',
       port: 465,
       sockectType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
   },
   'mozilla.com': {
     type: 'imap+smtp',
-    username: '%EMAILADDRESS%',
     incoming: {
       hostname: 'mail.mozilla.com',
       port: 993,
       socketType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
     outgoing: {
       hostname: 'smtp.mozilla.org',
       port: 465,
       socketType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
   },
   'yahoo.com': {
     type: 'imap+smtp',
-    username: '%EMAILADDRESS%',
     incoming: {
       hostname: 'imap.mail.yahoo.com',
       port: 993,
       socketType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
     outgoing: {
       hostname: 'smtp.mail.yahoo.com',
       port: 465,
       socketType: 'SSL',
+      username: '%EMAILADDRESS%',
     },
   },
   'localhost': {
     type: 'imap+smtp',
-    username: '%EMAILLOCALPART%',
     incoming: {
       hostname: 'localhost',
       port: 143,
       socketType: 'plain',
+      username: '%EMAILLOCALPART%',
     },
     outgoing: {
       hostname: 'localhost',
       port: 25,
       socketType: 'plain',
+      username: '%EMAILLOCALPART%',
     },
   },
   'slocalhost': {
     type: 'imap+smtp',
-    username: '%EMAILLOCALPART%',
     incoming: {
       hostname: 'localhost',
       port: 993,
       socketType: 'SSL',
+      username: '%EMAILLOCALPART%',
     },
     outgoing: {
       hostname: 'localhost',
       port: 465,
       socketType: 'SSL',
+      username: '%EMAILLOCALPART%',
     },
   },
   'example.com': {
@@ -647,7 +502,7 @@ const MAX_LOG_BACKLOG = 30;
  * ]]
  */
 function MailUniverse(callAfterBigBang) {
-  /** @listof[CompositeAccount] */
+  /** @listof[Account] */
   this.accounts = [];
   this._accountsById = {};
 
