@@ -319,9 +319,6 @@ Configurators['imap+smtp'] = {
         crypto: domainInfo.outgoing.socketType === 'SSL',
       };
     }
-    console.log(JSON.stringify(credentials, null, 2));
-    console.log(JSON.stringify(imapConnInfo, null, 2));
-    console.log(JSON.stringify(smtpConnInfo, null, 2));
 
     var self = this;
     var callbacks = allbackMaker(
