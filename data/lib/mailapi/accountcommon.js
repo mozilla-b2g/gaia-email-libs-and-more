@@ -430,6 +430,8 @@ Configurators['activesync'] = {
     conn.setServer(domainInfo.incoming.server);
 
     conn.connect(function(error, config, options) {
+      // XXX: Think about what to do with this error handling, since it's
+      // replicated in the autoconfig code.
       if (error) {
         var failureType = 'unknown';
 
@@ -461,6 +463,15 @@ function Autoconfigurator(_LOG) {
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
+  _fatalErrors: ['bad-user-or-pass', 'not-authorized'],
+
+  _isSuccessOrFatal: function(error) {
+    return !error || this._fatalErrors.indexOf(error) !== -1;
+  },
+
+  // XXX: Go through these functions and make sure the callbacks provide
+  // sufficiently useful error strings.
+
   _getXmlConfig: function getXmlConfig(url, callback) {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
@@ -501,9 +512,9 @@ Autoconfigurator.prototype = {
         }
       }
 
-      callback('no-usable-config');
+      callback('unknown');
     };
-    xhr.onerror = function() { callback('no-config'); }
+    xhr.onerror = function() { callback('unknown'); }
 
     xhr.send();
   },
@@ -523,24 +534,35 @@ Autoconfigurator.prototype = {
     let conn = new $asproto.Connection(userDetails.emailAddress,
                                        userDetails.password);
     conn.autodiscover(function(error, config) {
-      if (!error) {
-        // Try to find a MobileSync server from Autodiscovery.
-        for (let [,server] in Iterator(config.servers)) {
-          if (server.type === 'MobileSync') {
-            let autoconfig = {
-              type: 'activesync',
-              displayName: config.user.name,
-              incoming: {
-                server: server.url,
-              },
-            };
+      if (error) {
+        var failureType = 'unknown';
 
-            return callback(null, autoconfig);
-          }
+        if (error instanceof $asproto.HttpError) {
+          if (error.status === 401)
+            failureType = 'bad-user-or-pass';
+          else if (error.status === 403)
+            failureType = 'not-authorized';
+        }
+        callback(failureType);
+        return;
+      }
+
+      // Try to find a MobileSync server from Autodiscovery.
+      for (let [,server] in Iterator(config.servers)) {
+        if (server.type === 'MobileSync') {
+          let autoconfig = {
+            type: 'activesync',
+            displayName: config.user.name,
+            incoming: {
+              server: server.url,
+            },
+          };
+
+          return callback(null, autoconfig);
         }
       }
 
-      return callbcak('no-autodiscover');
+      return callback('unknown');
     });
   },
 
@@ -550,15 +572,16 @@ Autoconfigurator.prototype = {
                  encodeURIComponent(userDetails.emailAddress);
     let url = 'http://autoconfig.' + domain + suffix;
     let self = this;
-    this._getXmlConfig(url, function(error) {
-      if (!error)
-        return callback.apply(null, arguments);
+
+    this._getXmlConfig(url, function(error, config) {
+      if (self._isSuccessOrFatal(error))
+        return callback(error, config);
 
       // See <http://tools.ietf.org/html/draft-nottingham-site-meta-04>.
       let url = 'http://' + domain + '/.well-known/autoconfig' + suffix;
-      self._getXmlConfig(url, function(error) {
-        if (!error)
-          return callback.apply(null, arguments);
+      self._getXmlConfig(url, function(error, config) {
+        if (self._isSuccessOrFatal(error))
+          return callback(error, config);
 
         self._getConfigFromAutodiscover(userDetails, callback);
       });
@@ -578,66 +601,61 @@ Autoconfigurator.prototype = {
       if (xhr.status === 200)
         callback(null, xhr.responseText.split('\n')[0]);
       else
-        callback('no-mx');
+        callback('unknown');
     };
-    xhr.onerror = function() { callback('no-mx'); }
+    xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
+  },
+
+  _getConfigFromMX: function getConfigFromMX(domain, callback) {
+    let self = this;
+    this._getMX(domain, function(error, mxDomain) {
+      if (error)
+        return callback(error);
+
+      // XXX: We need to normalize the domain here to get the base domain,
+      // but that's complicated because people like putting dots in TLDs.
+      if (domain === mxDomain)
+        return callback('unknown');
+
+      self._getConfigFromDB(mxDomain, callback);
+    });
   },
 
   getConfig: function getConfig(userDetails, callback) {
     console.log('Attempting to get autoconfiguration...');
     let domain = userDetails.emailAddress.split('@')[1].toLowerCase();
 
+    function callbackWrapper(error) {
+      console.log(error ? 'FAILURE' : 'SUCCESS');
+      callback.apply(null, arguments);
+    }
+
+    console.log('  Looking in GELAM');
     if (autoconfigByDomain.hasOwnProperty(domain)) {
-      console.log('Found autoconfig data in GELAM');
-      callback(null, autoconfigByDomain[domain]);
+      callbackWrapper(null, autoconfigByDomain[domain]);
       return;
     }
 
     let self = this;
+    console.log('  Looking in local file store');
     this._getConfigFromLocalFile(domain, function(error, config) {
-      if (!error) {
-        console.log('Found autoconfig data in local file store');
-        return callback(error, config);
-      }
+      if (self._isSuccessOrFatal(error))
+        return callbackWrapper(error, config);
 
+      console.log('  Looking at domain');
       self._getConfigFromDomain(userDetails, domain, function(error, config) {
-        if (!error) {
-          console.log('Found autoconfig data at domain');
-          return callback(error, config);
-        }
+        if (self._isSuccessOrFatal(error))
+          return callbackWrapper(error, config);
 
+        console.log('  Looking in the Mozilla ISPDB');
         self._getConfigFromDB(domain, function(error, config) {
-          if (!error) {
-            console.log("Found autoconfig data in Mozilla's ISPDB");
-            return callback(error, config);
-          }
+          if (self._isSuccessOrFatal(error))
+            return callbackWrapper(error, config);
 
-          self._getMX(domain, function(error, mxDomain) {
-            if (error) {
-              console.log("Couldn't find MX domain, stopping autoconfig");
-              return callback(error);
-            }
-
-            // XXX: We need to normalize the domain here to get the base domain,
-            // but that's complicated because people like putting dots in TLDs.
-
-            if (domain === mxDomain) {
-              console.log('MX domain matches original domain, stopping ' +
-                          'autoconfig');
-              return callback('mx-matches-domain');
-            }
-
-            self._getConfigFromDB(mxDomain, function(error, config) {
-              if (error)
-                console.log("Couldn't find autoconfig data");
-              else
-                console.log('Found autoconfig data from MX lookup');
-
-              callback(error, config);
-            });
-          });
+          console.log('  Looking up MX');
+          self._getConfigFromMX(domain, callbackWrapper);
         });
       });
     });
@@ -646,10 +664,8 @@ Autoconfigurator.prototype = {
   tryToCreateAccount: function(universe, userDetails, callback) {
     let self = this;
     this.getConfig(userDetails, function(error, config) {
-      if (error) {
-        callback(error);
-        return;
-      }
+      if (error)
+        return callback(error);
 
       var configurator = Configurators[config.type];
       configurator.tryToCreateAccount(universe, userDetails, config,
