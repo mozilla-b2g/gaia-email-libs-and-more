@@ -10,6 +10,7 @@ define(
     './allback',
     './syncbase',
     './maildb',
+    './cronsync',
     './imap/probe',
     './imap/account',
     './smtp/probe',
@@ -27,6 +28,7 @@ define(
     $allback,
     $syncbase,
     $maildb,
+    $cronsync,
     $imapprobe,
     $imapacct,
     $smtpprobe,
@@ -730,6 +732,7 @@ function MailUniverse(callAfterBigBang) {
 
   this._LOG = null;
   this._db = new $maildb.MailDB();
+  this._cronSyncer = new $cronsync.CronSyncer();
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
@@ -775,6 +778,7 @@ function MailUniverse(callAfterBigBang) {
         nextAccountNum: 0,
         nextIdentityNum: 0,
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false,
+        syncCheckIntervalEnum: $syncbase.DEFAULT_CHECK_INTERVAL_ENUM,
       };
       setupLogging();
       self._LOG = LOGFAB.MailUniverse(self, null, null);
@@ -797,8 +801,10 @@ function MailUniverse(callAfterBigBang) {
             // We don't care how they turn out, just that they get a chance
             // to run to completion before we call our bootstrap complete.
             function() {
-              if (--waitingCount === 0)
+              if (--waitingCount === 0) {
+                self._initFromConfig();
                 callAfterBigBang();
+              }
             },
             self._LOG);
           }
@@ -806,6 +812,7 @@ function MailUniverse(callAfterBigBang) {
         return;
       }
     }
+    this._initFromConfig();
     callAfterBigBang();
   });
 }
@@ -874,12 +881,20 @@ MailUniverse.prototype = {
   // Config / Settings
 
   /**
+   * Perform initial initialization based on our configuration.
+   */
+  _initFromConfig: function() {
+
+  },
+
+  /**
    * Return the subset of our configuration that the client can know about.
    */
   exposeConfigForClient: function() {
     // eventually, iterate over a whitelist, but for now, it's easy...
     return {
       debugLogging: this.config.debugLogging,
+      syncCheckIntervalEnum: this.config.syncCheckIntervalEnum,
     };
   },
 
@@ -1153,6 +1168,7 @@ MailUniverse.prototype = {
       var account = this.accounts[iAcct];
       account.shutdown();
     }
+    this._cronSyncer.shutdown();
     this._db.close();
     this._LOG.__die();
   },

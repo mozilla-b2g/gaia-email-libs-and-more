@@ -121,6 +121,16 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
+    for (var key in msg.mods) {
+      var val = msg.mods[key];
+
+      switch (key) {
+        case 'syncCheckIntervalEnum':
+      }
+    }
+  },
+
   _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
     switch (msg.cmd) {
       case 'setLogging':

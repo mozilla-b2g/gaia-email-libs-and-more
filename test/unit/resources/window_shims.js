@@ -72,6 +72,15 @@ var _window_mixin = {
           this._listener({});
       }
     },
+    mozAlarms: {
+      add: function() {},
+      get: function() {},
+      getAll: function() {},
+    },
+    mozSetMessageHandler: function() {},
+    mozHasPendingMessage: function() {
+      return false;
+    },
   },
 
   URL: {

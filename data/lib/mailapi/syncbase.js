@@ -122,6 +122,8 @@ exports.BISECT_DATE_AT_N_MESSAGES = 50;
  */
 exports.TOO_MANY_MESSAGES = 2000;
 
+////////////////////////////////////////////////////////////////////////////////
+// Error / Retry Constants
 
 /**
  * What is the maximum number of tries we should give an operation before
@@ -149,6 +151,31 @@ exports.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT = 5;
  */
 exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
 
+////////////////////////////////////////////////////////////////////////////////
+// General defaults
+
+/**
+ * We use an enumerated set of sync values for UI localization reasons; time
+ * is complex and we don't have/use a helper library for this.
+ */
+exports.CHECK_INTERVALS_ENUMS_TO_MS = [
+  null,           // 0: manual!
+  3 * 60 * 1000,  // 1: 3 minutes
+  5 * 60 * 1000,  // 2: 5 minutes
+  10 * 60 * 1000, // 3: 10 minutes
+  15 * 60 * 1000, // 4: 15 minutes
+  ];
+
+/**
+ * Default to not automatically checking for e-mail for reasons to avoid
+ * degrading the phone experience until we are more confident about our resource
+ * usage, etc.
+ */
+exports.DEFAULT_CHECK_INTERVAL_ENUM = 0;
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Unit test support
 
 /**
  * Testing support to adjust the value we use for the number of initial sync
