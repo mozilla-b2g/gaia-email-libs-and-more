@@ -10,6 +10,7 @@ var $log = require('rdcommon/log'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
     $util = require('mailapi/util'),
+    $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account');
 
@@ -233,6 +234,7 @@ var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
+    self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
     if (!opts.universe)
       throw new Error("Universe not specified!");
@@ -269,19 +271,18 @@ var TestImapAccountMixins = {
     this.eImapAccount.expect_saveAccountState_end();
   },
 
-  _expect_connection: function() {
+  expect_connection: function() {
     if (!this._hasConnection) {
       this.eImapAccount.expect_createConnection();
       this._hasConnection = true;
     }
-    else {
-      this.eImapAccount.expect_reuseConnection();
-    }
+    this.eImapAccount.expect_reuseConnection();
   },
 
   _expect_restore: function() {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(this.eSmtpAccount);
+    this.RT.reportActiveActorThisStep(this.eBackoff);
   },
 
   _do_issueRestoredAccountQueries: function() {
@@ -291,8 +292,13 @@ var TestImapAccountMixins = {
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
-      self.accountId = self.universe.accounts[
-                         self.testUniverse.__testAccounts.indexOf(self)].id;
+
+      self.compositeAccount =
+             self.universe.accounts[
+               self.testUniverse.__testAccounts.indexOf(self)];
+      self.imapAccount = self.compositeAccount._receivePiece;
+      self.smtpAccount = self.compositeAccount._sendPiece;
+      self.accountId = self.compositeAccount.id;
     });
   },
 
@@ -308,14 +314,16 @@ var TestImapAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
+      self.RT.reportActiveActorThisStep(self.eBackoff);
       self.expect_accountCreated();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
+      self.rawAccount = null;
 
       // we expect the connection to be reused and release to sync the folders
       self._hasConnection = true;
-      self._expect_connection();
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState_begin();
@@ -332,9 +340,11 @@ var TestImapAccountMixins = {
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
                      ': ' + error);
           self._logger.accountCreated();
-          self.accountId = self.universe.accounts[
-                             self.testUniverse.__testAccounts.indexOf(self)].id;
-console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(self));
+          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
+          self.compositeAccount = self.universe.accounts[idxAccount];
+          self.imapAccount = self.compositeAccount._receivePiece;
+          self.smtpAccount = self.compositeAccount._sendPiece;
+          self.accountId = self.compositeAccount.id;
         });
     }).timeoutMS = 5000; // there can be slow startups...
   },
@@ -359,7 +369,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         return;
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self);
-      self._expect_connection();
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_deleteFolder();
       self.expect_deletionNotified(1);
@@ -376,9 +386,12 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
-      self._expect_connection();
+      self.eImapAccount.expect_runOp_begin('local_do', 'createFolder');
+      self.eImapAccount.expect_runOp_end('local_do', 'createFolder');
+      self.eImapAccount.expect_runOp_begin('do', 'createFolder');
+      self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
-      self.eImapAccount.expect_createFolder();
+      self.eImapAccount.expect_runOp_end('do', 'createFolder');
       self.expect_creationNotified(1);
 
       gAllFoldersSlice.onsplice = function(index, howMany, added,
@@ -387,7 +400,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         self._logger.creationNotified(added.length);
         testFolder.mailFolder = added[0];
       };
-      MailUniverse.accounts[0].createFolder(null, folderName, false,
+      MailUniverse.createFolder(self.accountId, null, folderName, false,
         function createdFolder(err, folderMeta) {
         if (err) {
           self._logger.folderCreationError(err);
@@ -438,7 +451,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
       // the append will need to check out and check back-in a connection
       self.eImapAccount.expect_runOp_begin('do', 'append');
       if (testFolder._liveSliceThings.length === 0) {
-        self._expect_connection();
+        self.expect_connection();
         self.eImapAccount.expect_releaseConnection();
       }
       self.eImapAccount.expect_runOp_end('do', 'append');
@@ -503,7 +516,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self._expect_connection();
+        self.expect_connection();
         self.expect_saveState();
       }
       self.eImapAccount.asyncEventsAreComingDoNotResolve();
@@ -608,7 +621,7 @@ console.log('ACREATE', self.accountId, self.testUniverse.__testAccounts.indexOf(
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self._expect_connection();
+        self.expect_connection();
         if (!_saveToThing)
           self.eImapAccount.expect_releaseConnection();
       }
@@ -943,6 +956,7 @@ exports.TESTHELPER = {
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB,
+    $errbackoff.LOGFAB,
     $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,

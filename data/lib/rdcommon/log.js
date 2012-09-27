@@ -584,6 +584,11 @@ var TestActorProtoBase = {
     if (this._expectNothing &&
         (this._expectations.length || this._iExpectation))
       return false;
+    // Fail immediately if a synchronous check already failed.  (It would
+    // have tried to generate a rejection, but there was no deferral at the
+    // time.)
+    if (!this._expectationsMetSoFar)
+      return false;
     if ((this._iExpectation >= this._expectations.length) &&
         (this._expectDeath ? (this._logger && this._logger._died) : true)) {
       this._resolved = true;
@@ -961,7 +966,13 @@ LoggestClassMaker.prototype = {
 
     this.dummyProto[name] = NOP;
 
+    var stateStashName = ':' + name;
     this.logProto[name] = function(val) {
+      var oldVal = this[stateStashName];
+      // only log the transition if it's an actual transition
+      if (oldVal === val)
+        return;
+      this[stateStashName] = val;
       this._entries.push([name, val, $microtime.now(), gSeq++]);
     };
 

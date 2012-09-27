@@ -255,9 +255,15 @@ TD.commonCase('mutate flags', function(T) {
            eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount2.eImapAccount.expect_runOp_begin('check', 'modtags');
+      testAccount2.eImapAccount.expect_runOp_end('check', 'modtags');
       testAccount2.eImapAccount.expect_runOp_begin('do', 'modtags');
+      // We will acquire a connection for the first operation because the slice
+      // was created when we were offline and so did not acquire a conncetion.
+      // The connection will not be released once the operations complete
+      // because the slice is still open.
       if (!created) {
-        testAccount2.eImapAccount.expect_createConnection();
+        testAccount2.expect_connection();
         created = true;
       }
       testAccount2.eImapAccount.expect_runOp_end('do', 'modtags');
@@ -308,9 +314,11 @@ TD.commonCase('mutate flags', function(T) {
            eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount3.eImapAccount.expect_runOp_begin('check', 'modtags');
+      testAccount3.eImapAccount.expect_runOp_end('check', 'modtags');
       testAccount3.eImapAccount.expect_runOp_begin('undo', 'modtags');
       if (!created) {
-        testAccount3.eImapAccount.expect_createConnection();
+        testAccount3.expect_connection();
         created = true;
       }
       testAccount3.eImapAccount.expect_runOp_end('undo', 'modtags');
@@ -406,5 +414,5 @@ TD.commonCase('mutate flags', function(T) {
 });
 
 function run_test() {
-  runMyTests(5);
+  runMyTests(10);
 }

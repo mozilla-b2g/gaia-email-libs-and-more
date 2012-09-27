@@ -228,6 +228,18 @@ var autoconfigByDomain = {
       username: '%EMAILLOCALPART%',
     },
   },
+  // Mapping for a nonexistent domain for testing a bad domain without it being
+  // detected ahead of time by the autoconfiguration logic or otherwise.
+  'nonesuch.nonesuch': {
+    type: 'imap+smtp',
+    imapHost: 'nonesuch.nonesuch',
+    imapPort: 993,
+    imapCrypto: true,
+    smtpHost: 'nonesuch.nonesuch',
+    smtpPort: 465,
+    smtpCrypto: true,
+    usernameIsFullEmail: false,
+  },
   'example.com': {
     type: 'fake',
   },
@@ -338,6 +350,7 @@ Configurators['imap+smtp'] = {
         rootDelim: imapProtoConn.delim,
       },
       $mutations: [],
+      $deferredMutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
@@ -381,6 +394,7 @@ Configurators['fake'] = {
         nextMutationNum: 0,
       },
       $mutations: [],
+      $deferredMutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
     var account = universe._loadAccount(accountDef, folderInfo, null);
@@ -423,6 +437,7 @@ Configurators['activesync'] = {
         syncKey: '0',
       },
       $mutations: [],
+      $deferredMutations: [],
     };
 
     var conn = new $asproto.Connection(credentials.username,

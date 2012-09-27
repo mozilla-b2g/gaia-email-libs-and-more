@@ -20,13 +20,16 @@ function ActiveSyncJobDriver(account) {
 }
 exports.ActiveSyncJobDriver = ActiveSyncJobDriver;
 ActiveSyncJobDriver.prototype = {
+  postJobCleanup: function() {
+  },
+
   local_do_modtags: function(op, callback) {
     // XXX: we'll probably remove this once deleting stops being a modtag op
     if (op.addTags && op.addTags.indexOf('\\Deleted') !== -1)
       return this.local_do_delete(op, callback);
 
     for (let [,message] in Iterator(op.messages)) {
-      let lslash = message.suid.lastIndexOf('/')
+      let lslash = message.suid.lastIndexOf('/');
       let folderId = message.suid.substring(0, lslash);
       let messageId = message.suid.substring(lslash + 1);
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
@@ -95,9 +98,13 @@ ActiveSyncJobDriver.prototype = {
     });
   },
 
+  check_modtags: function(op, callback) {
+    callback(null, 'idempotent');
+  },
+
   local_do_delete: function(op, callback) {
     for (let [,message] in Iterator(op.messages)) {
-      let lslash = message.suid.lastIndexOf('/')
+      let lslash = message.suid.lastIndexOf('/');
       let folderId = message.suid.substring(0, lslash);
       let messageId = message.suid.substring(lslash + 1);
       let folderStorage = this.account.getFolderStorageForFolderId(folderId);
@@ -118,6 +125,10 @@ ActiveSyncJobDriver.prototype = {
          .tag(as.ServerId, messageGuid)
        .etag();
     });
+  },
+
+  check_delete: function(op, callback) {
+    callback(null, 'idempotent');
   },
 
   _do_crossFolderOp: function(op, callback, command) {

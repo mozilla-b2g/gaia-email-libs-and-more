@@ -547,8 +547,7 @@ ActiveSyncFolderSyncer.prototype = {
     this._account.__checkpointSyncCompleted();
   },
 
-  relinquishConn: function() {
-    this.folderConn.relinquishConn();
+  allConsumersDead: function() {
   },
 
   shutdown: function() {
