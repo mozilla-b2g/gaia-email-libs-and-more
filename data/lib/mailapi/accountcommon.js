@@ -719,8 +719,11 @@ Autoconfigurator.prototype = {
       if (error)
         return callback(error);
 
-      // XXX: We need to normalize the domain here to get the base domain,
-      // but that's complicated because people like putting dots in TLDs.
+      // XXX: We need to normalize the domain here to get the base domain, but
+      // that's complicated because people like putting dots in TLDs. For now,
+      // let's just pretend no one would do such a horrible thing.
+      mxDomain = mxDomain.split('.').slice(-2).join('.');
+
       if (domain === mxDomain)
         return callback('unknown');
 
