@@ -966,7 +966,13 @@ LoggestClassMaker.prototype = {
 
     this.dummyProto[name] = NOP;
 
+    var stateStashName = ':' + name;
     this.logProto[name] = function(val) {
+      var oldVal = this[stateStashName];
+      // only log the transition if it's an actual transition
+      if (oldVal === val)
+        return;
+      this[stateStashName] = val;
       this._entries.push([name, val, $microtime.now(), gSeq++]);
     };
 

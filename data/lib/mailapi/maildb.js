@@ -31,9 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 8 because our attachment representation has changed from v7.
+ * Bumping to 9 because database operations now have a deferred queue.
  */
-const CUR_VERSION = 8;
+const CUR_VERSION = 9;
 
 /**
  * What is the lowest database version that we are capable of performing a

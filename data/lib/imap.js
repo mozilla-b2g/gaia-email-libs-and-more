@@ -149,8 +149,8 @@ function ImapConnection (options) {
     }
   };
   this._options = extend(true, this._options, options);
-
   this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, null) : null);
+  if (this._LOG) this._LOG.created();
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
@@ -207,12 +207,13 @@ ImapConnection.prototype.connect = function(loginCb) {
   if (this._options.crypto === 'starttls')
     socketOptions.useSSL = 'starttls';
 
+  if (this._LOG) this._LOG.connect(this._options.host, this._options.port);
   this._state.conn = navigator.mozTCPSocket.open(
     this._options.host, this._options.port, socketOptions);
 
   // XXX rely on mozTCPSocket for this?
-  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this),
-                                   this._options.connTimeout, loginCb);
+  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this, loginCb),
+                                   this._options.connTimeout);
 
   this._state.conn.onopen = function(evt) {
     if (self._LOG) self._LOG.connected();
@@ -618,12 +619,14 @@ ImapConnection.prototype.connect = function(loginCb) {
           if (cmd.indexOf('APPEND') !== 0) {
             err = new Error('Unexpected continuation');
             err.type = 'continuation';
+            err.serverResponse = '';
             err.request = cmd;
           } else
             return self._state.requests[0].callback();
         } else if (data[1] !== 'OK') {
           err = new Error('Error while executing request: ' + data[2]);
           err.type = data[1];
+          err.serverResponse = data[2];
           err.request = cmd;
         } else if (self._state.status === STATES.BOXSELECTED) {
           if (sendBox) // SELECT, EXAMINE, RENAME
@@ -697,9 +700,19 @@ ImapConnection.prototype.connect = function(loginCb) {
   this._state.conn.onerror = function(evt) {
     try {
       var err = evt.data;
+      // (only do error probing on things we can safely use 'in' on)
+      if (err && typeof(err) === 'object') {
+        // detect an nsISSLStatus instance by an unusual property.
+        if ('isNotValidAtThisTime' in err)
+          err = 'bad-security';
+      }
       clearTimeout(self._state.tmrConn);
-      if (self._state.status === STATES.NOCONNECT)
-        loginCb(new Error('Unable to connect. Reason: ' + err));
+      if (self._state.status === STATES.NOCONNECT) {
+        var connErr = new Error('Unable to connect. Reason: ' + err);
+        connErr.type = 'unknown';
+        connErr.serverResponse = '';
+        loginCb(connErr);
+      }
       self.emit('error', err);
       if (this._LOG) this._LOG.connError(err);
     }
@@ -1157,7 +1170,7 @@ ImapConnection.prototype._fnTmrConn = function(loginCb) {
   err.type = 'timeout';
   loginCb(err);
   this._state.conn.close();
-}
+};
 
 ImapConnection.prototype._store = function(which, uids, flags, isAdding, cb) {
   if (this._state.status !== STATES.BOXSELECTED)
@@ -1219,8 +1232,12 @@ ImapConnection.prototype._login = function(cb) {
         cb(err);
       };
   if (this._state.status === STATES.NOAUTH) {
+    var connErr;
     if (this.capabilities.indexOf('LOGINDISABLED') > -1) {
-      cb(new Error('Logging in is disabled on this server'));
+      connErr = new Error('Logging in is disabled on this server');
+      connErr.type = 'server-maintenance';
+      connErr.serverResponse = 'LOGINDISABLED';
+      cb(connErr);
       return;
     }
 
@@ -1232,8 +1249,12 @@ ImapConnection.prototype._login = function(cb) {
       this._send('LOGIN', ' "' + escape(this._options.username) + '" "'
                  + escape(this._options.password) + '"', fnReturn);
     } else {
-      return cb(new Error('Unsupported authentication mechanism(s) detected. '
-                          + 'Unable to login.'));
+      connErr = new Error('Unsupported authentication mechanism(s) detected. '
+                          + 'Unable to login.');
+      connErr.type = 'sucky-imap-server';
+      connErr.serverResponse = 'CAPABILITIES: ' + this.capabilities.join(' ');
+      cb(connErr);
+      return;
     }
   }
 };
@@ -2091,6 +2112,8 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
     type: $log.CONNECTION,
     subtype: $log.CLIENNT,
     events: {
+      created: {},
+      connect: {},
       connected: {},
       closed: {},
       sendData: { length: false },
@@ -2098,6 +2121,7 @@ var LOGFAB = exports.LOGFAB = $log.register(module, {
       data: { length: false },
     },
     TEST_ONLY_events: {
+      connect: { host: false, port: false },
       sendData: { data: false },
       // This may be a Buffer and therefore need to be coerced
       data: { data: $log.TOSTRING },
