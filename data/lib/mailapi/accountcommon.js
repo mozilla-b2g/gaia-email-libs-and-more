@@ -499,6 +499,35 @@ Configurators['activesync'] = {
  *     `https://live.mozillamessaging.com/autoconfig/v1.1/<domain>`
  *  7) Perform an MX lookup on the domain, and, if we get a different domain,
  *     check the Mozilla ISPDB for that domain too.
+ *
+ * If the process is successful, we pass back a JSON object that looks like
+ * this for IMAP/SMTP:
+ *
+ * {
+ *   type: 'imap+smtp',
+ *   incoming: {
+ *     hostname: <imap hostname>,
+ *     port: <imap port number>,
+ *     socketType: <one of 'plain', 'SSL', 'STARTTLS'>,
+ *     username: <imap username>,
+ *   },
+ *   outgoing: {
+ *     hostname: <smtp hostname>,
+ *     port: <smtp port>,
+ *     socketType: <one of 'plain', 'SSL', 'STARTTLS'>,
+ *     username: <smtp username>,
+ *   },
+ * }
+ *
+ * And like this for ActiveSync:
+ *
+ * {
+ *   type: 'activesync',
+ *   displayName: <display name>, (optional)
+ *   incoming: {
+ *     server: 'https://<activesync hostname>'
+ *   },
+ * }
  */
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
