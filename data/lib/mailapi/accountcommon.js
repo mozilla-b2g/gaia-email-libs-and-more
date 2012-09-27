@@ -86,6 +86,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
+  this.deferredMutations = this._receivePiece.deferredMutations;
 }
 exports.CompositeAccount = CompositeAccount;
 CompositeAccount.prototype = {
@@ -150,12 +151,6 @@ CompositeAccount.prototype = {
   shutdown: function() {
     this._sendPiece.shutdown();
     this._receivePiece.shutdown();
-  },
-
-  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
-                         callback) {
-    return this._receivePiece.createFolder(
-      parentFolderId, folderName, containOnlyOtherFolders, callback);
   },
 
   deleteFolder: function(folderId, callback) {
