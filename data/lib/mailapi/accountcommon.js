@@ -473,6 +473,33 @@ Configurators['activesync'] = {
   },
 };
 
+/**
+ * The Autoconfigurator tries to automatically determine account settings, in
+ * large part by taking advantage of Thunderbird's prior work on autoconfig:
+ * <https://developer.mozilla.org/en-US/docs/Thunderbird/Autoconfiguration>.
+ * There are some important differences, however, since we support ActiveSync
+ * whereas Thunderbird does not.
+ *
+ * The process is as follows:
+ *
+ *  1) Get the domain from the user's email address
+ *  2) Check hardcoded-into-GELAM account settings for the domain (useful for
+ *     unit tests)
+ *  3) Check locally stored XML config files in Gaia for the domain at
+ *     `/autoconfig/<domain>`
+ *  4) Look on the domain for an XML config file at
+ *     `http://autoconfig.<domain>/mail/config-v1.1.xml` and
+ *     `http://<domain>/.well-known/autoconfig/mail/config-v1.1.xml`, passing
+ *     the user's email address in the query string (as `emailaddress`)
+ *  5) Query the domain for ActiveSync Autodiscover at
+ *     `https://<domain>/autodiscover/autodiscover.xml` and
+ *     `https://autodiscover.<domain>/autodiscover/autodiscover.xml`
+ *     (TODO: perform a DNS SRV lookup on the server)
+ *  6) Check the Mozilla ISPDB for an XML config file for the domain at
+ *     `https://live.mozillamessaging.com/autoconfig/v1.1/<domain>`
+ *  7) Perform an MX lookup on the domain, and, if we get a different domain,
+ *     check the Mozilla ISPDB for that domain too.
+ */
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
 }
@@ -480,6 +507,13 @@ exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
   _fatalErrors: ['bad-user-or-pass', 'not-authorized'],
 
+  /**
+   * Check the supplied error and return true if it's really a "success" or if
+   * it's a fatal error we can't recover from.
+   *
+   * @param error the error code
+   * @return true if the error is a "success" or if it's a fatal error
+   */
   _isSuccessOrFatal: function(error) {
     return !error || this._fatalErrors.indexOf(error) !== -1;
   },
@@ -487,6 +521,14 @@ Autoconfigurator.prototype = {
   // XXX: Go through these functions and make sure the callbacks provide
   // sufficiently useful error strings.
 
+  /**
+   * Get an XML config file from the supplied url. The format is defined at
+   * <https://wiki.mozilla.org/Thunderbird:Autoconfiguration:ConfigFileFormat>.
+   *
+   * @param url the URL to fetch the config file from
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getXmlConfig: function getXmlConfig(url, callback) {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
@@ -534,10 +576,25 @@ Autoconfigurator.prototype = {
     xhr.send();
   },
 
+  /**
+   * Attempt to get an XML config file locally.
+   *
+   * @param domain the domain part of the user's email address
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getConfigFromLocalFile: function getConfigFromDB(domain, callback) {
     this._getXmlConfig('/autoconfig/' + encodeURIComponent(domain), callback);
   },
 
+  /**
+   * Attempt ActiveSync Autodiscovery for this email address
+   *
+   * @param userDetails an object containing `emailAddress` and `password`
+   *        attributes
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getConfigFromAutodiscover: function getConfigFromAutodiscover(userDetails,
                                                                  callback) {
     // XXX: We should think about how this function is implemented:
@@ -581,6 +638,16 @@ Autoconfigurator.prototype = {
     });
   },
 
+  /**
+   * Attempt to get an XML config file from the domain associated with the
+   * user's email address. If that fails, attempt ActiveSync Autodiscovery.
+   *
+   * @param userDetails an object containing `emailAddress` and `password`
+   *        attributes
+   * @param domain the domain part of the user's email address
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getConfigFromDomain: function getConfigFromDomain(userDetails, domain,
                                                      callback) {
     let suffix = '/mail/config-v1.1.xml?emailaddress=' +
@@ -603,11 +670,26 @@ Autoconfigurator.prototype = {
     });
   },
 
+  /**
+   * Attempt to get an XML config file from the Mozilla ISPDB.
+   *
+   * @param domain the domain part of the user's email address
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getConfigFromDB: function getConfigFromDB(domain, callback) {
     this._getXmlConfig('https://live.mozillamessaging.com/autoconfig/v1.1/' +
                        encodeURIComponent(domain), callback);
   },
 
+  /**
+   * Look up the DNS MX record for a domain. This currently uses a web service
+   * instead of querying it directly.
+   *
+   * @param domain the domain part of the user's email address
+   * @param callback a callback taking an error string (if any) and the MX
+   *        domain
+   */
   _getMX: function getMX(domain, callback) {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', 'https://live.mozillamessaging.com/dns/mx/' +
@@ -623,6 +705,14 @@ Autoconfigurator.prototype = {
     xhr.send();
   },
 
+  /**
+   * Attempt to get an XML config file by checking the DNS MX record and
+   * querying the Mozilla ISPDB.
+   *
+   * @param domain the domain part of the user's email address
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   _getConfigFromMX: function getConfigFromMX(domain, callback) {
     let self = this;
     this._getMX(domain, function(error, mxDomain) {
@@ -638,6 +728,15 @@ Autoconfigurator.prototype = {
     });
   },
 
+  /**
+   * Attempt to get the configuration details for an email account by any means
+   * necessary.
+   *
+   * @param userDetails an object containing `emailAddress` and `password`
+   *        attributes
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   getConfig: function getConfig(userDetails, callback) {
     console.log('Attempting to get autoconfiguration...');
     let domain = userDetails.emailAddress.split('@')[1].toLowerCase();
@@ -676,6 +775,17 @@ Autoconfigurator.prototype = {
     });
   },
 
+  /**
+   * Try to create an account for the user's email address by running through
+   * autoconfigure and, if successful, delegating to the appropriate account
+   * type.
+   *
+   * @param universe the MailUniverse object
+   * @param userDetails an object containing `emailAddress` and `password`
+   *        attributes
+   * @param callback a callback taking an error string (if any) and the config
+   *        info, formatted as JSON
+   */
   tryToCreateAccount: function(universe, userDetails, callback) {
     let self = this;
     this.getConfig(userDetails, function(error, config) {
