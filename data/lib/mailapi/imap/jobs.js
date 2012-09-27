@@ -12,19 +12,23 @@
  * been able to talk to the server), we also need to be able to reflect these
  * changes locally independent of telling the server.
  *
- * In the case of moves/copies, we issue temporary UIDs like Thunderbird.  We
- * use negative values since IMAP servers can never use them so collisions are
- * impossible and it's a simple check.  This differs from Thunderbird's attempt
- * to guess the next UID; we don't try to do that because the chances are good
- * that our information is out-of-date and it would just make debugging more
- * confusing.
+ * In the case of moves/copies, we issue a(n always locally created) id for the
+ * message immediately and just set the server UID (srvid) to 0 to be populated
+ * by the sync process.
  *
  * == Data Integrity ==
  *
- * Our strategy is always to avoid data-loss, so data-destruction actions
+ * Our strategy is always to avoid server data-loss, so data-destruction actions
  * must always take place after successful confirmation of persistence actions.
  * (Just keeping the data in-memory is not acceptable because we could crash,
  * etc.)
+ *
+ * This is in contrast to our concern about losing simple, frequently performed
+ * idempotent user actions in a crash.  We assume that A) crashes will be
+ * rare, B) the user will not be surprised or heart-broken if a message they
+ * marked read a second before a crash needs to manually be marked read after
+ * restarting the app/device, and C) there are performance/system costs to
+ * saving the state which makes this a reasonable trade-off.
  *
  * It is also our strategy to avoid cluttering up the place as a side-effect
  * of half-done things.  For example, if we are trying to move N messages,
@@ -32,7 +36,32 @@
  * don't naively retry and then copy those first N/2 messages a second time.
  * This means that we track sub-steps explicitly, and that operations that we
  * have issued and may or may not have been performed by the server will be
- * checked before they are re-attempted.
+ * checked before they are re-attempted.  (Although IMAP batch operations
+ * are atomic, and our IndexedDB commits are atomic, they are atomic independent
+ * of each other and so we could have been notified that the copy completed
+ * but not persisted the fact to our database.)
+ *
+ * In the event we restore operations from disk that were enqueued but
+ * apparently not run, we compel them to run a check operation before they are
+ * performed because it's possible (depending on the case) for us to have run
+ * them without saving the account state first.  This is a trade-off between the
+ * cost of checking and the cost of issuing commits to the database frequently
+ * based on the expected likelihood of a crash on our part.  Per comments above,
+ * we expect crashes to be rare and not particularly correlated with operations,
+ * so it's better for the device (both flash and performance) if we don't
+ * continually checkpoint our state.
+ *
+ * All non-idempotent operations / operations that could result in data loss or
+ * duplication require that we save our account state listing the operation and
+ * that it is 'doing'.  In the event of a crash, this allows us to know that we
+ * have to check the state of the operation for completeness before attempting
+ * to run it again and allowing us to finish half-done things.  For particular
+ * example, because moves consist of a copy followed by flagging a message
+ * deleted, it is of the utmost importance that we don't get in a situation
+ * where we have copied the messages but not deleted them and we crash.  In
+ * that case, if we failed to persist our plans, we will have duplicated the
+ * message (and the IMAP server would have no reason to believe that was not
+ * our intent.)
  **/
 
 define(
@@ -48,73 +77,95 @@ define(
 /**
  * The evidence suggests the job has not yet been performed.
  */
-const CHECKED_NOTYET = 1;
+const CHECKED_NOTYET = 'checked-notyet';
 /**
  * The operation is idempotent and atomic, just perform the operation again.
  * No checking performed.
  */
-const UNCHECKED_IDEMPOTENT = 2;
+const UNCHECKED_IDEMPOTENT = 'idempotent';
 /**
  * The evidence suggests that the job has already happened.
  */
-const CHECKED_HAPPENED = 3;
+const CHECKED_HAPPENED = 'happened';
 /**
  * The job is no longer relevant because some other sequence of events
  * have mooted it.  For example, we can't change tags on a deleted message
  * or move a message between two folders if it's in neither folder.
  */
-const CHECKED_MOOT = 4;
+const CHECKED_MOOT = 'moot';
 /**
  * A transient error (from the checker's perspective) made it impossible to
  * check.
  */
-const UNCHECKED_BAILED = 5;
+const UNCHECKED_BAILED = 'bailed';
 /**
  * The job has not yet been performed, and the evidence is that the job was
  * not marked finished because our database commits are coherent.  This is
  * appropriate for retrieval of information, like the downloading of
  * attachments.
  */
-const UNCHECKED_COHERENT_NOTYET = 6;
+const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
 
 function ImapJobDriver(account) {
   this.account = account;
+  this._heldMutexReleasers = [];
 }
 exports.ImapJobDriver = ImapJobDriver;
 ImapJobDriver.prototype = {
   /**
    * Request access to an IMAP folder to perform a mutation on it.  This
-   * compels the ImapFolderConn in question to acquire an IMAP connection
-   * if it does not already have one.  It will also XXX EVENTUALLY provide
-   * mututal exclusion guarantees that there are no other active requests
-   * in the folder.
+   * acquires a write mutex on the FolderStorage and compels the ImapFolderConn
+   * in question to acquire an IMAP connection if it does not already have one.
    *
    * The callback will be invoked with the folder and raw connections once
    * they are available.  The raw connection will be actively in the folder.
    *
+   * There is no need to explicitly release the connection when done; it will
+   * be automatically released when the mutex is released if desirable.
+   *
    * This will ideally be migrated to whatever mechanism we end up using for
    * mailjobs.
    */
-  _accessFolderForMutation: function(folderId, callback) {
-    var storage = this.account.getFolderStorageForFolderId(folderId);
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount++;
-    var syncer = storage.folderSyncer;
-    if (!syncer.folderConn._conn) {
-      syncer.folderConn.acquireConn(callback);
-    }
-    else {
-      callback(syncer.folderConn, storage);
-    }
+  _accessFolderForMutation: function(folderId, callback, label) {
+    var storage = this.account.getFolderStorageForFolderId(folderId),
+        self = this;
+    storage.runMutexed(label, function(releaseMutex) {
+      self._heldMutexReleasers.push(releaseMutex);
+      var syncer = storage.folderSyncer;
+      if (!syncer.folderConn._conn) {
+        syncer.folderConn.acquireConn(callback, label);
+      }
+      else {
+        callback(syncer.folderConn, storage);
+      }
+    });
   },
 
-  _doneMutatingFolder: function(folderId, folderConn) {
-    var storage = this.account.getFolderStorageForFolderId(folderId),
-        syncer = storage.folderSyncer;
-    // XXX have folder storage be in charge of this / don't violate privacy
-    storage._pendingMutationCount--;
-    if (!storage._slices.length && !storage._pendingMutationCount)
-      syncer.folderConn.relinquishConn();
+  /**
+   * Request access to a connection for some type of IMAP manipulation that does
+   * not involve a folder known to the system (which should then be accessed via
+   * _accessfolderForMutation).
+   *
+   * The connection will be automatically released when the operation completes,
+   * there is no need to release it directly.
+   */
+  _acquireConnWithoutFolder: function(label, callback) {
+    const self = this;
+    this.account.__folderDemandsConnection(
+      null, label,
+      function(conn) {
+        self._heldMutexReleasers.push(function() {
+          self.account.__folderDoneWithConnection(conn, false, false);
+        });
+        callback(conn);
+      });
+  },
+
+  postJobCleanup: function() {
+    for (var i = 0; i < this._heldMutexReleasers.length; i++) {
+      this._heldMutexReleasers[i]();
+    }
+    this._heldMutexReleasers = [];
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -180,13 +231,13 @@ ImapJobDriver.prototype = {
       callback(err, bodyInfo, true);
     };
 
-    self._accessFolderForMutation(folderId, gotConn);
+    self._accessFolderForMutation(folderId, gotConn, 'download');
   },
 
   check_download: function(op, callback) {
     // If we had download the file and persisted it successfully, this job would
     // be marked done because of the atomicity guarantee on our commits.
-    return UNCHECKED_COHERENT_NOTYET;
+    callback(null, UNCHECKED_COHERENT_NOTYET);
   },
 
   local_undo_download: function(op, ignoredCallback) {
@@ -278,12 +329,10 @@ ImapJobDriver.prototype = {
       curPartition = partitions[iNextPartition++];
       messages = curPartition.messages;
       if (curPartition.folderId !== folderId) {
-        if (folderConn) {
-          self._doneMutatingFolder(folderId, folderConn);
+        if (folderConn)
           folderConn = null;
-        }
         folderId = curPartition.folderId;
-        self._accessFolderForMutation(folderId, gotFolderConn);
+        self._accessFolderForMutation(folderId, gotFolderConn, 'modtags');
       }
     }
     function gotFolderConn(_folderConn) {
@@ -309,17 +358,15 @@ ImapJobDriver.prototype = {
         openNextFolder();
     }
     function done(errString) {
-      if (folderConn) {
-        self._doneMutatingFolder(folderId, folderConn);
+      if (folderConn)
         folderConn = null;
-      }
       callback(errString);
     }
     openNextFolder();
   },
 
-  check_modtags: function() {
-    return UNCHECKED_IDEMPOTENT;
+  check_modtags: function(op, callback) {
+    callback(null, UNCHECKED_IDEMPOTENT);
   },
 
   local_undo_modtags: function(op, callback) {
@@ -343,9 +390,9 @@ ImapJobDriver.prototype = {
     // set the deleted flag on the message
   },
 
-  check_delete: function() {
+  check_delete: function(op, callback) {
     // deleting on IMAP is effectively idempotent
-    return UNCHECKED_IDEMPOTENT;
+    callback(null, UNCHECKED_IDEMPOTENT);
   },
 
   undo_delete: function() {
@@ -353,6 +400,71 @@ ImapJobDriver.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
   // move: Move messages between folders (in a single account)
+  //
+  // ## General Strategy ##
+  //
+  // Local Do:
+  //
+  // - Move the header to the target folder's storage.
+  //
+  //   This requires acquiring a write mutex to the target folder while also
+  //   holding one on the source folder.  We are assured there is no deadlock
+  //   because only operations are allowed to manipulate multiple folders at
+  //   once, and only one operation is in-flight per an account at a time.
+  //   (And cross-account moves are not handled by this operation.)
+  //
+  //   Insertion is done using the INTERNALDATE (which must be maintained by the
+  //   COPY operation) and a freshly allocated speculative UID.  The UID is
+  //
+  // ## Possible Problems and their Solutions ##
+  //
+  // Moves are fairly complicated in terms of moving parts, so let's enumate the
+  // way things could go wrong so we can make sure we address them and describe
+  // how we address them.  Note that it's a given that we will have run our
+  // local modifications prior to trying to talk to the server, which reduces
+  // the potential badness.
+  //
+  // #1: We attempt to resynchronize the source folder for a move prior to
+  //     running the operation against the server, resulting in us synchronizing
+  //     a duplicate header into existence that will not be detected until the
+  //     next resync of the time range (which will be strictly after when we
+  //     actually run the mutation.
+  //
+  // #2: Operations scheduled against speculative headers.  It is quite possible
+  //     for the user to perform actions against one of the locally /
+  //     speculatively moved headers while we are offline/have not yet played
+  //     the operation/are racing the UI while playing the operation.  We
+  //     obviously want these changes to succeed.
+  //
+  // Our solutions:
+  //
+  // #1: Prior to resynchronizing a folder, we check if there are any operations
+  //     that block synchronization.  An un-run move with a source of that
+  //     folder counts as such an operation.  We can determine this by either
+  //     having sufficient knowledge to inspect an operation or have operations
+  //     directly modify book-keeping structures in the folders as part of their
+  //     actions.  (Add blocker on local_(un)do, remove on (un)do.)  We choose
+  //     to implement the inspection operation by having all operations
+  //     implement a simple helper to tell us if the operation blocks entry.
+  //     The theory is this will be less prone to bugs since it will be clear
+  //     that operations need to implement the method, whereas it would be less
+  //     clear that operations need to do call the folder-state mutating
+  //     options.
+  //
+  // #2: Operations against speculative headers are a concern only from a naming
+  //     perspective for operations.  Operations are strictly run in the order
+  //     they are enqueued, so we know that the header will have been moved and
+  //     be in the right folder.  Additionally, because both the UI and
+  //     operations name messages using an id we issue rather than the server
+  //     UID, there is no potential for naming inconsistencies.  The UID will be
+  //     resolved at operation run-time which only requires that the move was
+  //     UIDPLUS so we already know the UID, something else already triggered a
+  //     synchronization that covers the messages being moved, or that we
+  //     trigger a synchronization.
+
+
+  local_do_move: function() {
+  },
 
   do_move: function() {
     // get a connection in the source folder, uid validity is asserted
@@ -361,9 +473,15 @@ ImapJobDriver.prototype = {
     // mark the source messages deleted
   },
 
-  check_move: function() {
-    // get a connection in the target/source folder
-    // do a search to check if the messages got copied across.
+  /**
+   * Verify the move results.  This is most easily/efficiently done, from our
+   * perspective, by checking based on message-id's.  Another approach would be
+   * to leverage the persistence of the
+   *
+   */
+  check_move: function(op, callback) {
+    // get a connection in the target folder
+    // do a search on message-id's to check if the messages got copied across.
   },
 
   /**
@@ -384,7 +502,7 @@ ImapJobDriver.prototype = {
   do_copy: function() {
   },
 
-  check_copy: function() {
+  check_copy: function(op, callback) {
     // get a connection in the target folder
     // do a search to check if the message got copied across
   },
@@ -443,24 +561,104 @@ ImapJobDriver.prototype = {
         done(null);
     }
     function done(errString) {
-      if (folderConn) {
-        self._doneMutatingFolder(op.folderId, folderConn);
+      if (folderConn)
         folderConn = null;
-      }
       callback(errString);
     }
 
-    this._accessFolderForMutation(op.folderId, gotFolderConn);
+    this._accessFolderForMutation(op.folderId, gotFolderConn, 'append');
   },
 
   /**
    * Check if the message ended up in the folder.
    */
-  check_append: function() {
+  check_append: function(op, callback) {
+    // XXX search on the message-id in the folder to verify its presence.
   },
 
-  undo_append: function() {
+  //////////////////////////////////////////////////////////////////////////////
+  // createFolder: Create a folder
+
+  local_do_createFolder: function(op) {
+    // we never locally perform this operation.
   },
+
+  do_createFolder: function(op, callback) {
+    var path, delim;
+    if (op.parentFolderId) {
+      if (!this.account._folderInfos.hasOwnProperty(op.parentFolderId))
+        throw new Error("No such folder: " + op.parentFolderId);
+      var parentFolder = this._folderInfos[op.parentFolderId];
+      delim = parentFolder.path;
+      path = parentFolder.path + delim;
+    }
+    else {
+      path = '';
+      delim = this.account.meta.rootDelim;
+    }
+    if (typeof(op.folderName) === 'string')
+      path += op.folderName;
+    else
+      path += op.folderName.join(delim);
+    if (op.containOnlyOtherFolders)
+      path += delim;
+
+    var rawConn = null, self = this;
+    function gotConn(conn) {
+      // create the box
+      rawConn = conn;
+      rawConn.addBox(path, addBoxCallback);
+    }
+    function addBoxCallback(err) {
+      if (err) {
+        console.error('Error creating box:', err);
+        // XXX implement the already-exists check...
+        done('unknown');
+        return;
+      }
+      // Do a list on the folder so that we get the right attributes and any
+      // magical case normalization performed by the server gets observed by
+      // us.
+      rawConn.getBoxes('', path, gotBoxes);
+    }
+    function gotBoxes(err, boxesRoot) {
+      if (err) {
+        console.error('Error looking up box:', err);
+        done('unknown');
+        return;
+      }
+      // We need to re-derive the path.  The hierarchy will only be that
+      // required for our new folder, so we traverse all children and create
+      // the leaf-node when we see it.
+      var folderMeta = null;
+      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
+        for (var boxName in boxLevel) {
+          var box = boxLevel[boxName],
+              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
+          if (box.children) {
+            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
+          }
+          else {
+            var type = self.account._determineFolderType(box, boxPath);
+            folderMeta = self.account._learnAboutFolder(boxName, boxPath, type,
+                                                        box.delim, pathDepth);
+          }
+        }
+      }
+      walkBoxes(boxesRoot, '', 0);
+      if (folderMeta)
+        done(null, folderMeta);
+      else
+        done('unknown');
+    }
+    function done(errString, folderMeta) {
+      if (rawConn)
+        rawConn = null;
+      if (callback)
+        callback(errString, folderMeta);
+    }
+    this._acquireConnWithoutFolder('createFolder', gotConn);
+  }
 
   //////////////////////////////////////////////////////////////////////////////
 };
