@@ -619,6 +619,10 @@ Autoconfigurator.prototype = {
               console.log("Couldn't find MX domain, stopping autoconfig");
               return callback(error);
             }
+
+            // XXX: We need to normalize the domain here to get the base domain,
+            // but that's complicated because people like putting dots in TLDs.
+
             if (domain === mxDomain) {
               console.log('MX domain matches original domain, stopping ' +
                           'autoconfig');
