@@ -231,11 +231,6 @@ var autoconfigByDomain = {
   'example.com': {
     type: 'fake',
   },
-  // XXX: Remove this once the Autoconfigurator supports ActiveSync
-  // Autodiscovery.
-  'hotmail.com': {
-    type: 'activesync',
-  },
 };
 
 var Configurators = {};
@@ -413,7 +408,7 @@ Configurators['activesync'] = {
         {
           id: accountId + '/' +
                 $a64.encodeInt(universe.config.nextIdentityNum++),
-          name: null,
+          name: userDetails.displayName || domainInfo.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
           signature: DEFAULT_SIGNATURE
@@ -432,8 +427,7 @@ Configurators['activesync'] = {
 
     var conn = new $asproto.Connection(credentials.username,
                                        credentials.password);
-    if (domainInfo.incoming && domainInfo.incoming.server)
-      conn.setServer(domainInfo.incoming.server);
+    conn.setServer(domainInfo.incoming.server);
 
     conn.connect(function(error, config, options) {
       if (error) {
@@ -514,9 +508,42 @@ Autoconfigurator.prototype = {
     this._getXmlConfig('/autoconfig/' + encodeURIComponent(domain), callback);
   },
 
-  _getConfigFromDomain: function getConfigFromDomain(email, domain, callback) {
+  _getConfigFromAutodiscover: function getConfigFromAutodiscover(userDetails,
+                                                                 callback) {
+    // XXX: We should think about how this function is implemented:
+    // 1) Should we really create a Connection here? Maybe we want
+    //    autodiscover() to be a free function.
+    // 2) We're reimplementing jsas's "find the MobileSync server" code. Maybe
+    //    that belongs in autodiscover() somehow.
+
+    let conn = new $asproto.Connection(userDetails.emailAddress,
+                                       userDetails.password);
+    conn.autodiscover(function(error, config) {
+      if (!error) {
+        // Try to find a MobileSync server from Autodiscovery.
+        for (let [,server] in Iterator(config.servers)) {
+          if (server.type === 'MobileSync') {
+            let autoconfig = {
+              type: 'activesync',
+              displayName: config.user.name,
+              incoming: {
+                server: server.url,
+              },
+            };
+
+            return callback(null, autoconfig);
+          }
+        }
+      }
+
+      return callbcak('no-autodiscover');
+    });
+  },
+
+  _getConfigFromDomain: function getConfigFromDomain(userDetails, domain,
+                                                     callback) {
     let suffix = '/mail/config-v1.1.xml?emailaddress=' +
-                 encodeURIComponent(email);
+                 encodeURIComponent(userDetails.emailAddress);
     let url = 'http://autoconfig.' + domain + suffix;
     let self = this;
     this._getXmlConfig(url, function(error) {
@@ -525,7 +552,12 @@ Autoconfigurator.prototype = {
 
       // See <http://tools.ietf.org/html/draft-nottingham-site-meta-04>.
       let url = 'http://' + domain + '/.well-known/autoconfig' + suffix;
-      self._getXmlConfig(url, callback)
+      self._getXmlConfig(url, function(error) {
+        if (!error)
+          return callback.apply(null, arguments);
+
+        self._getConfigFromAutodiscover(userDetails, callback);
+      });
     });
   },
 
@@ -549,9 +581,9 @@ Autoconfigurator.prototype = {
     xhr.send();
   },
 
-  getConfig: function getConfig(email, callback) {
+  getConfig: function getConfig(userDetails, callback) {
     console.log('Attempting to get autoconfiguration...');
-    let domain = email.split('@')[1].toLowerCase();
+    let domain = userDetails.emailAddress.split('@')[1].toLowerCase();
 
     if (autoconfigByDomain.hasOwnProperty(domain)) {
       console.log('Found autoconfig data in GELAM');
@@ -566,7 +598,7 @@ Autoconfigurator.prototype = {
         return callback(error, config);
       }
 
-      self._getConfigFromDomain(email, domain, function(error, config) {
+      self._getConfigFromDomain(userDetails, domain, function(error, config) {
         if (!error) {
           console.log('Found autoconfig data at domain');
           return callback(error, config);
@@ -605,7 +637,7 @@ Autoconfigurator.prototype = {
 
   tryToCreateAccount: function(universe, userDetails, callback) {
     let self = this;
-    this.getConfig(userDetails.emailAddress, function(error, config) {
+    this.getConfig(userDetails, function(error, config) {
       if (error) {
         callback(error);
         return;
