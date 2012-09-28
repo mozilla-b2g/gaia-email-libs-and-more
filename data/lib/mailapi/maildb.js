@@ -31,9 +31,10 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 9 because database operations now have a deferred queue.
+ * Bumping to 10 because accounts now have a synchronization range for messages
+ * (corresponding to ActiveSync's FilterType).
  */
-const CUR_VERSION = 9;
+const CUR_VERSION = 10;
 
 /**
  * What is the lowest database version that we are capable of performing a

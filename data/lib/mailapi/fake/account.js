@@ -672,6 +672,8 @@ FakeAccount.prototype = {
       enabled: this.enabled,
       problems: this.problems,
 
+      syncRange: this.accountDef.syncRange,
+
       identities: this.identities,
 
       credentials: {
