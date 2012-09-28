@@ -127,6 +127,8 @@ MailBridge.prototype = {
 
       switch (key) {
         case 'syncCheckIntervalEnum':
+          this._cronSyncer
+          break;
       }
     }
   },

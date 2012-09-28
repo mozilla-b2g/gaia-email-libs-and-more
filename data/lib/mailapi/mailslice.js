@@ -362,7 +362,7 @@ MailSlice.prototype = {
    * called when the header is in the time-range of interest and a refresh,
    * cron-triggered sync, or IDLE/push tells us to do so.
    */
-  onHeaderAdded: function(header, syncDriven) {
+  onHeaderAdded: function(header, syncDriven, messageIsNew) {
     if (!this._bridgeHandle)
       return;
 
@@ -820,6 +820,15 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
+  /**
+   * Return true if there is another sync happening in this folder right now.
+   * This allows the `CronSyncer` to avoid starting a sync that will immediately
+   * fail because there is a sync-in-progress.  See its logic for more details.
+   */
+  get syncInProgress() {
+    return this._curSyncSlice !== null;
+  },
+
   generatePersistenceInfo: function() {
     if (!this._dirty)
       return null;
@@ -2429,7 +2438,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     }
 
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
-      this._curSyncSlice.onHeaderAdded(header, true);
+      this._curSyncSlice.onHeaderAdded(header, true, true);
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       var date = header.date, uid = header.id;
@@ -2455,7 +2464,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
                   uid > slice.endUID)) {
           continue;
         }
-        slice.onHeaderAdded(header, false);
+        slice.onHeaderAdded(header, false, true);
       }
     }
 
@@ -2511,7 +2520,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       self._dirtyHeaderBlocks[info.blockId] = block;
 
       if (partOfSync && self._curSyncSlice && !self._curSyncSlice.ignoreHeaders)
-        self._curSyncSlice.onHeaderAdded(header, false);
+        self._curSyncSlice.onHeaderAdded(header, false, false);
       if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
         for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
           var slice = self._slices[iSlice];
@@ -2562,7 +2571,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     }
     // (no block update required)
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
-      this._curSyncSlice.onHeaderAdded(header, true);
+      this._curSyncSlice.onHeaderAdded(header, true, false);
   },
 
   deleteMessageHeaderAndBody: function(header) {

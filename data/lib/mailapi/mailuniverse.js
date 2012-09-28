@@ -265,7 +265,7 @@ function MailUniverse(callAfterBigBang) {
 
   this._LOG = null;
   this._db = new $maildb.MailDB();
-  this._cronSyncer = new $cronsync.CronSyncer();
+  this._cronSyncer = new $cronsync.CronSyncer(this);
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
@@ -417,7 +417,8 @@ MailUniverse.prototype = {
    * Perform initial initialization based on our configuration.
    */
   _initFromConfig: function() {
-
+    this._cronSyncer.setSyncIntervalMS(
+      $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[this.config.syncCheckIntervalEnum]);
   },
 
   /**

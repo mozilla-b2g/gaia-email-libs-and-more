@@ -159,7 +159,7 @@ exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
  * is complex and we don't have/use a helper library for this.
  */
 exports.CHECK_INTERVALS_ENUMS_TO_MS = [
-  null,           // 0: manual!
+  0,              // 0: manual === disabled
   3 * 60 * 1000,  // 1: 3 minutes
   5 * 60 * 1000,  // 2: 5 minutes
   10 * 60 * 1000, // 3: 10 minutes
