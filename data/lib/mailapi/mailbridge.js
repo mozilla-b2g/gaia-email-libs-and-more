@@ -122,15 +122,16 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
-    for (var key in msg.mods) {
-      var val = msg.mods[key];
+console.log('received modifyConfig');
+    this.universe.modifyConfig(msg.mods);
+console.log('done proc modifyConfig');
+  },
 
-      switch (key) {
-        case 'syncCheckIntervalEnum':
-          this._cronSyncer
-          break;
-      }
-    }
+  notifyConfig: function(config) {
+    this.__sendMessage({
+      type: 'config',
+      config: config,
+    });
   },
 
   _cmd_debugSupport: function mb__cmd_debugSupport(msg) {

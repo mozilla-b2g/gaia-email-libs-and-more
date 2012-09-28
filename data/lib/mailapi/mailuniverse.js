@@ -345,7 +345,7 @@ function MailUniverse(callAfterBigBang) {
         return;
       }
     }
-    this._initFromConfig();
+    self._initFromConfig();
     callAfterBigBang();
   });
 }
@@ -434,9 +434,32 @@ MailUniverse.prototype = {
 
   modifyConfig: function(changes) {
     for (var key in changes) {
-      this.config[key] = changes[key];
+      var val = changes[key];
+      switch (key) {
+        case 'syncCheckIntervalEnum':
+          val = parseInt(val);
+          if (val >= $syncbase.CHECK_INTERVALS_ENUMS_TO_MS)
+            continue;
+          this._cronSyncer.setSyncIntervalMS(
+            $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[val]);
+          break;
+        case 'debugLogging':
+          break;
+        default:
+          continue;
+      }
+      this.config[key] = val;
     }
     this._db.saveConfig(this.config);
+    this.__notifyConfig();
+  },
+
+  __notifyConfig: function() {
+    var config = this.exposeConfigForClient();
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyConfig(config);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////

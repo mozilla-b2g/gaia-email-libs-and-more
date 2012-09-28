@@ -1818,6 +1818,7 @@ MailAPI.prototype = {
    * to chang per-account settings.
    */
   modifyConfig: function(mods) {
+console.log('calling modifyConfig'); // HACK
     for (var key in mods) {
       if (LEGAL_CONFIG_KEYS.indexOf(key) === -1)
         throw new Error(key + ' is not a legal config key!');
@@ -1826,6 +1827,11 @@ MailAPI.prototype = {
       type: 'modifyConfig',
       mods: mods
     });
+  },
+
+  _recv_config: function(msg) {
+    this.config = msg.config;
+console.log('updated config to:', JSON.stringify(this.config));//HACK
   },
 
   //////////////////////////////////////////////////////////////////////////////

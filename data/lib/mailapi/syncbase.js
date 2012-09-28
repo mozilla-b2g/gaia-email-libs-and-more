@@ -160,7 +160,8 @@ exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
  */
 exports.CHECK_INTERVALS_ENUMS_TO_MS = [
   0,              // 0: manual === disabled
-  3 * 60 * 1000,  // 1: 3 minutes
+  30 * 1000, // XXX for testing, 30 seconds...
+  //3 * 60 * 1000,  // 1: 3 minutes
   5 * 60 * 1000,  // 2: 5 minutes
   10 * 60 * 1000, // 3: 10 minutes
   15 * 60 * 1000, // 4: 15 minutes

@@ -22,11 +22,15 @@
 
 define(
   [
+    'rdcommon/log',
     './allback',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $allback,
+    $module,
     exports
   ) {
 
@@ -34,7 +38,13 @@ define(
 /**
  * Sanity demands we do not check more frequently than once a minute.
  */
-const MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
+const MINIMUM_SYNC_INTERVAL_MS = 30 * 1000; //HACK: put back to 60 for landing
+
+/**
+ * How long should we let a synchronization run before we give up on it and
+ * potentially try and kill it (if we can)?
+ */
+const MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
 
 /**
  * Caps the number of notifications we generate per account.  It would be
@@ -52,7 +62,7 @@ const MAX_MESSAGE_TO_REPORT_PER_ACCOUNT = 5;
  * another client.  We don't care about that right now because we lack the
  * ability to revoke notifications via the mozNotifications API.
  */
-function CronSlice(storage, callback) {
+function CronSlice(storage, desiredNew, callback) {
   this._storage = storage;
   this._callback = callback;
 
@@ -63,6 +73,10 @@ function CronSlice(storage, callback) {
   this.waitingOnData = false;
   this._accumulating = false;
 
+  // Maintain the list of all headers for the IMAP sync logic's benefit for now.
+  // However, we don't bother sorting it; we just care about the length.
+  this.headers = [];
+  this._desiredNew = desiredNew;
   this._newHeaders = [];
   // XXX for now, assume that the 30 most recent headers
   this.desiredHeaders = 30;
@@ -89,18 +103,22 @@ CronSlice.prototype = {
   },
 
   setStatus: function(status, requested, moreExpected, flushAccumulated) {
-    if (requested && !moreExpected) {
+    if (requested && !moreExpected && this._callback) {
+console.log('sync done!');
       this._callback(this._newHeaders);
+      this._callback = null;
       this.die();
     }
   },
 
   batchAppendHeaders: function(headers, insertAt, moreComing) {
+    this.headers = this.headers.concat(headers);
     // Do nothing, batch-appended headers are always coming from the database
     // and so are not 'new' from our perspective.
   },
 
   onHeaderAdded: function(header, syncDriven, messageIsNew) {
+    this.headers.push(header);
     // we don't care if it's not new or was read (on another client)
     if (!messageIsNew || header.flags.indexOf('\\Seen') !== -1)
       return;
@@ -109,6 +127,9 @@ CronSlice.prototype = {
     // (We could also try and decide which messages are most important, but
     // since this behaviour is not really based on any UX-provided guidance, it
     // would be silly to do that without said guidance.)
+    if (this._newHeaders.length >= this._desiredNew)
+      return;
+    this._newHeaders.push(header);
   },
 
   onHeaderModified: function(header) {
@@ -116,6 +137,7 @@ CronSlice.prototype = {
   },
 
   onHeaderRemoved: function(header) {
+    this.headers.pop();
     // Do nothing, this would be silly.
   },
 
@@ -125,69 +147,137 @@ CronSlice.prototype = {
 };
 
 function generateNotificationForMessage(header, onClick, onClose) {
-  navigator.mozNotification.createNotification(
+console.log('generating notification for:', header.suid, header.subject);
+  var notif = navigator.mozNotification.createNotification(
     header.author.name || header.author.address,
     header.subject,
     // XXX it makes no sense that the back-end knows the path of the icon,
     // but this specific function may need to vary based on host environment
     // anyways...
     'style/icons/Email.png');
+  notif.onclick = onClick.bind(null, header);
+  notif.onclose = onClose.bind(null, header);
+  notif.show();
+  return notif;
+}
+
+var gApp;
+navigator.mozApps.getSelf().onsuccess = function(event) {
+  gApp = event.target.result;
+};
+/**
+ * Try and bring up the given header in the front-end.
+ *
+ * XXX currently, we just cause the app to display, but we don't do anything
+ * to cause the actual message to be displayed.  Right now, since the back-end
+ * and the front-end are in the same app, we can easily tell ourselves to do
+ * things, but in the separated future, we might want to use a webactivity,
+ * and as such we should consider using that initially too.
+ */
+function displayHeaderInFrontend(header) {
+  gApp.launch();
 }
 
 /**
  * Creates the synchronizer.  It is does not do anything until the first call
  * to setSyncInterval.
  */
-function CronSyncer(universe) {
+function CronSyncer(universe, _logParent) {
   this._universe = universe;
   this._syncIntervalMS = 0;
+
+  this._LOG = LOGFAB.CronSyncer(this, null, _logParent);
 
   /**
    * @dictof[
    *   @key[accountId String]
-   *   @value[@listof[]]
+   *   @value[@dict[
+   *     @key[clickHandler Function]
+   *     @key[closeHandler Function]
+   *     @key[notes Array]
+   *   ]]
    * ]{
    *   Terminology-wise, 'notes' is less awkward than 'notifs'...
    * }
    */
   this._outstandingNotesPerAccount = {};
+  /**
+   * Null if there is no active sync, or the timestamp of when we started the
+   * sync.
+   */
+  this._inProgressSince = null;
 
   this._initialized = false;
+  this._hackTimeout = null;
 }
+exports.CronSyncer = CronSyncer;
 CronSyncer.prototype = {
   /**
    * Remove any/all scheduled alarms.
    */
   _clearAlarms: function() {
-    var req = navigator.mozAlarms.getall();
+    // mozalarms doesn't work on desktop; comment out and use setTimeout.
+    if (this._hackTimeout !== null) {
+      window.clearTimeout(this._hackTimeout);
+      this._hackTimeout = null;
+    }
+/*
+    var req = navigator.mozAlarms.getAll();
     req.onsuccess = function(event) {
       var alarms = event.target.result;
       for (var i = 0; i < alarms.length; i++) {
-        console.log("The contents of an actual alarm:", JSON.stringify(alarms[i]));
         navigator.mozAlarms.remove(alarms[i].id);
       }
     }.bind(this);
+*/
   },
 
   _scheduleNextSync: function() {
     if (!this._syncIntervalMS)
       return;
-
-    navigator.mozAlarms.add(Date.now() + this._syncIntervalMS,
-                            'ignoreTimezone');
+console.log("scheduling sync for " + (this._syncIntervalMS / 1000) + " seconds in the future.");
+    this._hackTimeout = window.setTimeout(this.onAlarm.bind(this),
+                                          this._syncIntervalMS);
+/*
+    try {
+      console.log('mpozAlarms', navigator.mozAlarms);
+      var req = navigator.mozAlarms.add(
+        new Date(Date.now() + this._syncIntervalMS),
+        'ignoreTimezone', {});
+      console.log('req:', req);
+      req.onsuccess = function() {
+        console.log('scheduled!');
+      };
+      req.onerror = function(event) {
+        console.warn('alarm scheduling problem!');
+        console.warn(' err:',
+                     event.target && event.target.error &&
+                     event.target.error.name);
+      };
+    }
+    catch (ex) {
+      console.error('problem initiating request:', ex);
+    }
+*/
   },
 
   setSyncIntervalMS: function(syncIntervalMS) {
+console.log('setSyncIntervalMS:', syncIntervalMS);
     var pendingAlarm = false;
     if (!this._initialized) {
       this._initialized = true;
+      // mozAlarms doesn't work on b2g-desktop
+      /*
       pendingAlarm = navigator.mozHasPendingMessage('alarm');
       navigator.mozSetMessageHandler('alarm', this.onAlarm.bind(this));
+     */
     }
 
     // leave zero intact, otherwise round up to the minimum.
     if (syncIntervalMS && syncIntervalMS < MINIMUM_SYNC_INTERVAL_MS)
       syncIntervalMS = MINIMUM_SYNC_INTERVAL_MS;
+
+    this._syncIntervalMS = syncIntervalMS;
 
     // If we have a pending alarm, then our app was loaded to service the
     // alarm, so we should just let the alarm fire which will also take
@@ -215,7 +305,7 @@ CronSyncer.prototype = {
    */
   syncAccount: function(account, doneCallback) {
     // - Skip syncing if we are offline or the account is disabled
-    if (!this.universe.online || !account.enabled) {
+    if (!this._universe.online || !account.enabled) {
       doneCallback([]);
       return;
     }
@@ -244,25 +334,64 @@ CronSyncer.prototype = {
     }
 
     // - Figure out how many additional notifications we can generate
-    var outstandingNotes;
-    if (this._outstandingNotesPerAccount.hasOwnProperty(account.id))
-      outstandingNotes = this._outstandingNotesPerAccount[account.id];
-    else
-      outstandingNotes = this._outstandingNotesPerAccount[account.id] = [];
+    var outstandingInfo;
+    if (this._outstandingNotesPerAccount.hasOwnProperty(account.id)) {
+      outstandingInfo = this._outstandingNotesPerAccount[account.id];
+    }
+    else {
+      outstandingInfo = this._outstandingNotesPerAccount[account.id] = {
+        clickHandler: function(header, event) {
+          var idx = outstandingInfo.notes.indexOf(event.target);
+          if (idx === -1)
+            console.warn('bad note index!');
+          outstandingInfo.notes.splice(idx);
+          // trigger the display of the app!
+          displayHeaderInFrontend(header);
+        },
+        closeHandler: function(header, event) {
+          var idx = outstandingInfo.notes.indexOf(event.target);
+          if (idx === -1)
+            console.warn('bad note index!');
+          outstandingInfo.notes.splice(idx);
+        },
+        notes: [],
+      };
+    }
+
+    var desiredNew = MAX_MESSAGE_TO_REPORT_PER_ACCOUNT -
+                       outstandingInfo.notes.length;
 
     // - Initiate a sync of the folder covering the desired time range.
-    var slice = new CronSlice(storage, doneCallback);
+    this._LOG.syncAccount_begin(account.id);
+    var slice = new CronSlice(storage, desiredNew, function(newHeaders) {
+      this._LOG.syncAccount_end(account.id);
+      for (var i = 0; i < newHeaders.length; i++) {
+        var header = newHeaders[i];
+        outstandingInfo.notes.push(
+          generateNotificationForMessage(header,
+                                         outstandingInfo.clickHandler,
+                                         outstandingInfo.closeHandler));
+      }
+    }.bind(this));
     // use forceDeepening to ensure that a synchronization happens.
     storage.sliceOpenFromNow(slice, 3, true);
 
   },
 
   onAlarm: function() {
+console.log('alarm fired!');
+    this._LOG.alarmFired();
     // It would probably be better if we only added the new alarm after we
     // complete our sync, but we could have a problem if
     this._scheduleNextSync();
 
+    var now = Date.now();
+    if (this._inProgressSince) {
+    }
+    this._inProgressSince = now;
+
     var doneOrGaveUp = function doneOrGaveUp(results) {
+
     }.bind(this);
 
     var accounts = this._universe.accounts, accountIds = [], account, i;
@@ -273,12 +402,33 @@ CronSyncer.prototype = {
     var callbacks = $allback.allbackMaker(accountIds, doneOrGaveUp);
     for (i = 0; i < accounts.length; i++) {
       account = accounts[i];
-
+      this.syncAccount(account, callbacks[account.id]);
     }
   },
 
   shutdown: function() {
+    // no actual shutdown is required; we want our alarm to stick around.
   }
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  CronSyncer: {
+    type: $log.DAEMON,
+    events: {
+      alarmFired: {},
+    },
+    TEST_ONLY_events: {
+    },
+    asyncJobs: {
+      syncAccount: { id: false },
+    },
+    errors: {
+    },
+    calls: {
+    },
+    TEST_ONLY_calls: {
+    },
+  },
+});
 
 }); // end define
