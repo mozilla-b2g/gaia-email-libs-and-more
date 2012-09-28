@@ -102,6 +102,8 @@ CompositeAccount.prototype = {
       enabled: this.enabled,
       problems: this.problems,
 
+      syncRange: this.accountDef.syncRange,
+
       identities: this.identities,
 
       credentials: {
@@ -321,6 +323,8 @@ Configurators['imap+smtp'] = {
       receiveType: 'imap',
       sendType: 'smtp',
 
+      syncRange: '3d',
+
       credentials: credentials,
       receiveConnInfo: imapConnInfo,
       sendConnInfo: smtpConnInfo,
@@ -364,6 +368,7 @@ Configurators['fake'] = {
       name: userDetails.emailAddress,
 
       type: 'fake',
+      syncRange: '3d',
 
       credentials: credentials,
       connInfo: {
@@ -409,6 +414,7 @@ Configurators['activesync'] = {
       name: userDetails.emailAddress,
 
       type: 'activesync',
+      syncRange: '3d',
 
       credentials: credentials,
       connInfo: null,
