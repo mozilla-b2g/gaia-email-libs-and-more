@@ -214,6 +214,10 @@ MailBridge.prototype = {
           // we expect a list of server mutation objects; namely, the type names
           // the server and the rest are attributes to change
           break;
+
+        case 'syncRange':
+          accountDef.syncRange = val;
+          break;
       }
     }
     this.universe.saveAccountDef(accountDef, null);

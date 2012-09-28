@@ -18,6 +18,7 @@ function MailAccount(api, wireRep) {
   this.id = wireRep.id;
   this.type = wireRep.type;
   this.name = wireRep.name;
+  this.syncRange = wireRep.syncRange;
 
   /**
    * Is the account currently enabled, as in will we talk to the server?
