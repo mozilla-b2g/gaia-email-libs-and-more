@@ -320,7 +320,8 @@ Configurators['imap+smtp'] = {
     smtpProber.onresult = callbacks.smtp;
   },
 
-  recreateAccount: function cfg_is_ra(universe, oldAccountInfo, callback) {
+  recreateAccount: function cfg_is_ra(universe, oldVersion, oldAccountInfo,
+                                      callback) {
     var oldAccountDef = oldAccountInfo.def;
 
     var credentials = {
@@ -464,7 +465,8 @@ Configurators['fake'] = {
     callback(null, account);
   },
 
-  recreateAccount: function cfg_fake_ra(universe, oldAccountInfo, callback) {
+  recreateAccount: function cfg_fake_ra(universe, oldVersion, oldAccountInfo,
+                                        callback) {
     var oldAccountDef = oldAccountInfo.def;
     var credentials = {
       username: oldAccountDef.credentials.username,
@@ -570,7 +572,8 @@ Configurators['activesync'] = {
     });
   },
 
-  recreateAccount: function cfg_as_ra(universe, oldAccountInfo, callback) {
+  recreateAccount: function cfg_as_ra(universe, oldVersion, oldAccountInfo,
+                                      callback) {
     var oldAccountDef = oldAccountInfo.def;
     var credentials = {
       username: oldAccountDef.credentials.username,
@@ -1013,14 +1016,15 @@ Autoconfigurator.prototype = {
  * Recreate an existing account, e.g. after a database upgrade.
  *
  * @param universe the MailUniverse
+ * @param oldVersion the old database version, to help with migration
  * @param accountInfo the old account info
  * @param callback a callback to fire when we've completed recreating the
  *        account
  */
-function recreateAccount(universe, accountInfo, callback) {
+function recreateAccount(universe, oldVersion, accountInfo, callback) {
   console.log("recreating acct");
   var configurator = Configurators[accountInfo.def.type];
-  configurator.recreateAccount(universe, accountInfo, callback);
+  configurator.recreateAccount(universe, oldVersion, accountInfo, callback);
 }
 exports.recreateAccount = recreateAccount;
 

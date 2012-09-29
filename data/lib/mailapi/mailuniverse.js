@@ -318,10 +318,12 @@ function MailUniverse(callAfterBigBang) {
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover && self.online) {
         var waitingCount = 0;
+        var oldVersion = lazyCarryover.oldVersion;
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
           waitingCount++;
           var accountInfo = lazyCarryover.accountInfos[i];
-          $acctcommon.recreateAccount(self, accountInfo, function() {
+          $acctcommon.recreateAccount(self, oldVersion, accountInfo,
+                                      function() {
             // We don't care how they turn out, just that they get a chance
             // to run to completion before we call our bootstrap complete.
             if (--waitingCount === 0)
