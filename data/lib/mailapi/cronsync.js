@@ -78,8 +78,10 @@ function CronSlice(storage, desiredNew, callback) {
   this.headers = [];
   this._desiredNew = desiredNew;
   this._newHeaders = [];
-  // XXX for now, assume that the 30 most recent headers
-  this.desiredHeaders = 30;
+  // XXX for now, assume that the 10 most recent headers will cover us.  Being
+  // less than (or the same as) the initial fill sync of 15 is advantageous in
+  // that it avoids us triggering a deepening sync on IMAP.
+  this.desiredHeaders = 10;
   this.ignoreHeaders = false;
 }
 CronSlice.prototype = {
@@ -147,6 +149,8 @@ console.log('sync done!');
 };
 
 function generateNotificationForMessage(header, onClick, onClose) {
+  // NB: We don't need to use NotificationHelper because we end up doing
+  // something similar ourselves.
 console.log('generating notification for:', header.suid, header.subject);
   var notif = navigator.mozNotification.createNotification(
     header.author.name || header.author.address,
@@ -154,16 +158,17 @@ console.log('generating notification for:', header.suid, header.subject);
     // XXX it makes no sense that the back-end knows the path of the icon,
     // but this specific function may need to vary based on host environment
     // anyways...
-    'style/icons/Email.png');
-  notif.onclick = onClick.bind(null, header);
-  notif.onclose = onClose.bind(null, header);
+    gIconUrl);
+  notif.onclick = onClick.bind(null, header, notif);
+  notif.onclose = onClose.bind(null, header, notif);
   notif.show();
   return notif;
 }
 
-var gApp;
+var gApp, gIconUrl;
 navigator.mozApps.getSelf().onsuccess = function(event) {
   gApp = event.target.result;
+  gIconUrl = gApp.installOrigin + '/style/icons/Email.png';
 };
 /**
  * Try and bring up the given header in the front-end.
@@ -340,16 +345,16 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
     }
     else {
       outstandingInfo = this._outstandingNotesPerAccount[account.id] = {
-        clickHandler: function(header, event) {
-          var idx = outstandingInfo.notes.indexOf(event.target);
+        clickHandler: function(header, note, event) {
+          var idx = outstandingInfo.notes.indexOf(note);
           if (idx === -1)
             console.warn('bad note index!');
           outstandingInfo.notes.splice(idx);
           // trigger the display of the app!
           displayHeaderInFrontend(header);
         },
-        closeHandler: function(header, event) {
-          var idx = outstandingInfo.notes.indexOf(event.target);
+        closeHandler: function(header, note, event) {
+          var idx = outstandingInfo.notes.indexOf(note);
           if (idx === -1)
             console.warn('bad note index!');
           outstandingInfo.notes.splice(idx);

@@ -1863,10 +1863,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.
-    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
-      var syncStartTS = this.getOldestFullSyncDate(startTS);
-      startTS = syncStartTS;
-    }
+    if (this.headerIsOldestKnown(startTS, slice.startUID))
+      startTS = this.getOldestFullSyncDate(startTS);
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);

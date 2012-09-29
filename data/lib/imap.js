@@ -1473,9 +1473,11 @@ function buildSearchQuery(options, extensions, isOrChild) {
               throw new Error('Search option argument must be a Date object'
                               + ' or a parseable date string');
           }
-          searchargs += modifier + criteria + ' ' + args[0].getDate() + '-'
-                        + MONTHS[args[0].getMonth()] + '-'
-                        + args[0].getFullYear();
+          // XXX/NB: We are currently providing UTC-quantized date values, so
+          // we don't want time-zones to skew this and screw us over.
+          searchargs += modifier + criteria + ' ' + args[0].getUTCDate() + '-'
+                        + MONTHS[args[0].getUTCMonth()] + '-'
+                        + args[0].getUTCFullYear();
         break;
         case 'KEYWORD':
         case 'UNKEYWORD':
