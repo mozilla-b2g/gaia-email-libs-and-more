@@ -270,14 +270,8 @@ Configurators['imap+smtp'] = {
                                            callback, _LOG) {
     var credentials, imapConnInfo, smtpConnInfo;
     if (domainInfo) {
-      var emailLocalPart = userDetails.emailAddress.substring(
-        0, userDetails.emailAddress.indexOf('@'));
-      var username = domainInfo.incoming.username
-        .replace('%EMAILADDRESS%', userDetails.emailAddress)
-        .replace('%EMAILLOCALPART%', emailLocalPart);
-
       credentials = {
-        username: username,
+        username: domainInfo.incoming.username,
         password: userDetails.password,
       };
       imapConnInfo = {
@@ -739,19 +733,21 @@ Autoconfigurator.prototype = {
 
         if (incoming.getAttribute('type') === 'activesync') {
           config.type = 'activesync';
-          callback(null, config);
-          return;
         }
         else if (outgoing) {
           config.type = 'imap+smtp';
           for (let [,child] in Iterator(outgoing.children))
             config.outgoing[child.tagName] = child.textContent;
-          callback(null, config);
-          return;
         }
-      }
+        else {
+          callback('unknown');
+        }
 
-      callback('unknown');
+        callback(null, config);
+      }
+      else {
+        callback('unknown');
+      }
     };
     xhr.onerror = function() { callback('unknown'); }
 
@@ -924,16 +920,45 @@ Autoconfigurator.prototype = {
    */
   getConfig: function getConfig(userDetails, callback) {
     console.log('Attempting to get autoconfiguration...');
-    let domain = userDetails.emailAddress.split('@')[1].toLowerCase();
 
-    function callbackWrapper(error) {
+    let [emailLocalPart, emailDomainPart] = userDetails.emailAddress.split('@');
+    let domain = emailDomainPart.toLowerCase();
+
+    const placeholderFields = {
+      incoming: ['username', 'hostname', 'server'],
+      outgoing: ['username', 'hostname'],
+    };
+
+    function fillPlaceholder(value) {
+      return value.replace('%EMAILADDRESS%', userDetails.emailAddress)
+                  .replace('%EMAILLOCALPART%', emailLocalPart)
+                  .replace('%EMAILDOMAIN%', emailDomainPart)
+                  .replace('%REALNAME%', userDetails.displayName);
+    }
+
+    function onComplete(error, config) {
       console.log(error ? 'FAILURE' : 'SUCCESS');
-      callback.apply(null, arguments);
+
+      // Fill any placeholder strings in the configuration object we retrieved.
+      if (config) {
+        for (let [serverType, fields] in Iterator(placeholderFields)) {
+          if (!config.hasOwnProperty(serverType))
+            continue;
+
+          let server = config[serverType];
+          for (let [,field] in Iterator(fields)) {
+            if (server.hasOwnProperty(field))
+              server[field] = fillPlaceholder(server[field]);
+          }
+        }
+      }
+
+      callback(error, config);
     }
 
     console.log('  Looking in GELAM');
     if (autoconfigByDomain.hasOwnProperty(domain)) {
-      callbackWrapper(null, autoconfigByDomain[domain]);
+      onComplete(null, autoconfigByDomain[domain]);
       return;
     }
 
@@ -941,20 +966,20 @@ Autoconfigurator.prototype = {
     console.log('  Looking in local file store');
     this._getConfigFromLocalFile(domain, function(error, config) {
       if (self._isSuccessOrFatal(error))
-        return callbackWrapper(error, config);
+        return onComplete(error, config);
 
       console.log('  Looking at domain');
       self._getConfigFromDomain(userDetails, domain, function(error, config) {
         if (self._isSuccessOrFatal(error))
-          return callbackWrapper(error, config);
+          return onComplete(error, config);
 
         console.log('  Looking in the Mozilla ISPDB');
         self._getConfigFromDB(domain, function(error, config) {
           if (self._isSuccessOrFatal(error))
-            return callbackWrapper(error, config);
+            return onComplete(error, config);
 
           console.log('  Looking up MX');
-          self._getConfigFromMX(domain, callbackWrapper);
+          self._getConfigFromMX(domain, onComplete);
         });
       });
     });
