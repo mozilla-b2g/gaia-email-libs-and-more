@@ -387,7 +387,7 @@ console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
       var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
       newFetcher.on('message', function onNewMessage(msg) {
           msg.on('end', function onNewMsgEnd() {
-console.log('  new fetched, header processing');
+console.log('  new fetched, header processing, INTERNALDATE: ', msg.rawDate);
             newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
 console.log('   header processed');
           });

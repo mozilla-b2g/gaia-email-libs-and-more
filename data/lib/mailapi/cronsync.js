@@ -50,7 +50,7 @@ const MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
  * Caps the number of notifications we generate per account.  It would be
  * sitcom funny to let this grow without bound, but would end badly in reality.
  */
-const MAX_MESSAGE_TO_REPORT_PER_ACCOUNT = 5;
+const MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
 
 /**
  * Implements the interface of `MailSlice` as presented to `FolderStorage`, but
@@ -358,7 +358,7 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
       };
     }
 
-    var desiredNew = MAX_MESSAGE_TO_REPORT_PER_ACCOUNT -
+    var desiredNew = MAX_MESSAGES_TO_REPORT_PER_ACCOUNT -
                        outstandingInfo.notes.length;
 
     // - Initiate a sync of the folder covering the desired time range.
