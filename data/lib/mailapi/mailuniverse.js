@@ -315,7 +315,7 @@ function MailUniverse(callAfterBigBang) {
         self._enableCircularLogging();
       self._db.saveConfig(self.config);
 
-      // - Try to re-create any accounts using old accounts.
+      // - Try to re-create any accounts using old account infos.
       if (lazyCarryover && self.online) {
         var waitingCount = 0;
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
