@@ -1646,6 +1646,7 @@ FolderStorage.prototype = {
     if (this._curSyncSlice) {
       console.error("Trying to open a slice and initiate a sync when there",
                     "is already an active sync slice!");
+      return;
     }
     // by definition, we must be at the top
     slice.atTop = true;
