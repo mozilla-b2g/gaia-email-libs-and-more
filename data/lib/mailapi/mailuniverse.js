@@ -315,27 +315,20 @@ function MailUniverse(callAfterBigBang) {
         self._enableCircularLogging();
       self._db.saveConfig(self.config);
 
-      // - Try to re-create any accounts just using auth info.
+      // - Try to re-create any accounts using old accounts.
       if (lazyCarryover && self.online) {
         var waitingCount = 0;
-        for (i = 0; i < lazyCarryover.accountInfos.length; i++){
+        for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
           waitingCount++;
-          var accountDef = lazyCarryover.accountInfos[i].def;
-          self.tryToCreateAccount(
-            {
-              displayName: accountDef.identities[0].name,
-              emailAddress: accountDef.name,
-              password: accountDef.credentials.password
-            },
+          var accountInfo = lazyCarryover.accountInfos[i];
+          $acctcommon.recreateAccount(self, accountInfo, function() {
             // We don't care how they turn out, just that they get a chance
             // to run to completion before we call our bootstrap complete.
-            function() {
-              if (--waitingCount === 0)
-                callAfterBigBang();
-            },
-            self._LOG);
-          }
-        // do not let callAfterBigBang get called.
+            if (--waitingCount === 0)
+              callAfterBigBang();
+          });
+        }
+        // Do not let callAfterBigBang get called.
         return;
       }
     }

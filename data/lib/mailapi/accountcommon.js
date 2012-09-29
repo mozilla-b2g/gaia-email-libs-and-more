@@ -242,6 +242,28 @@ var autoconfigByDomain = {
   },
 };
 
+/**
+ * Recreate the array of identities for a given account.
+ *
+ * @param universe the MailUniverse
+ * @param accountId the ID for this account
+ * @param oldIdentities an array of the old identities
+ * @return the new identities
+ */
+function recreateIdentities(universe, accountId, oldIdentities) {
+  let identities = [];
+  for (let [,oldIdentity] in Iterator(oldIdentities)) {
+    identities.push({
+      id: accountId + '/' + $a64.encodeInt(universe.config.nextIdentityNum++),
+      name: oldIdentity.name,
+      address: oldIdentity.address,
+      replyTo: oldIdentity.replyTo,
+      signature: oldIdentity.signature,
+    });
+  }
+  return identities;
+}
+
 var Configurators = {};
 Configurators['imap+smtp'] = {
   tryToCreateAccount: function cfg_is_ttca(universe, userDetails, domainInfo,
@@ -304,6 +326,47 @@ Configurators['imap+smtp'] = {
     smtpProber.onresult = callbacks.smtp;
   },
 
+  recreateAccount: function cfg_is_ra(universe, oldAccountInfo, callback) {
+    var oldAccountDef = oldAccountInfo.def;
+
+    var credentials = {
+      username: oldAccountDef.credentials.username,
+      password: oldAccountDef.credentials.password,
+    };
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: oldAccountDef.name,
+
+      type: 'imap+smtp',
+      receiveType: 'imap',
+      sendType: 'smtp',
+
+      syncRange: oldAccountDef.syncRange,
+
+      credentials: credentials,
+      receiveConnInfo: {
+        hostname: oldAccountDef.receiveConnInfo.hostname,
+        port: oldAccountDef.receiveConnInfo.port,
+        crypto: oldAccountDef.receiveConnInfo.crypto,
+      },
+      sendConnInfo: {
+        hostname: oldAccountDef.sendConnInfo.hostname,
+        port: oldAccountDef.sendConnInfo.port,
+        crypto: oldAccountDef.sendConnInfo.crypto,
+      },
+
+      identities: recreateIdentities(universe, accountId,
+                                     oldAccountDef.identities)
+    };
+
+    var account = this._loadAccount(universe, accountDef,
+                                    oldAccountInfo.folderInfo);
+    account.syncFolderList(function() {
+      callback(null, account);
+    });
+  },
+
   /**
    * Define an account now that we have verified the credentials are good and
    * the server meets our minimal functionality standards.  We are also
@@ -340,13 +403,27 @@ Configurators['imap+smtp'] = {
         },
       ]
     };
+
+    return this._loadAccount(universe, accountDef, null, imapProtoConn);
+  },
+
+  /**
+   * Save the account def and folder info for our new (or recreated) account and
+   * then load it.
+   */
+  _loadAccount: function cfg_is__loadAccount(universe, accountDef,
+                                             oldFolderInfo, imapProtoConn) {
+    // XXX: Just reload the old folders when applicable instead of syncing the
+    // folder list again, which is slow.
     var folderInfo = {
       $meta: {
         nextFolderNum: 0,
         nextMutationNum: 0,
         lastFullFolderProbeAt: 0,
-        capability: imapProtoConn.capabilities,
-        rootDelim: imapProtoConn.delim,
+        capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
+                    imapProtoConn.capabilities,
+        rootDelim: (oldFolderInfo && oldFolderInfo.$meta.rootDelim) ||
+                   imapProtoConn.delim,
       },
       $mutations: [],
       $deferredMutations: [],
@@ -356,8 +433,8 @@ Configurators['imap+smtp'] = {
   },
 };
 Configurators['fake'] = {
-  tryToCreateAccount: function cfg_fake(universe, userDetails, domainInfo,
-                                        callback, _LOG) {
+  tryToCreateAccount: function cfg_fake_ttca(universe, userDetails, domainInfo,
+                                             callback, _LOG) {
     var credentials = {
       username: userDetails.emailAddress,
       password: userDetails.password,
@@ -389,6 +466,44 @@ Configurators['fake'] = {
       ]
     };
 
+    var account = this._loadAccount(universe, accountDef);
+    callback(null, account);
+  },
+
+  recreateAccount: function cfg_fake_ra(universe, oldAccountInfo, callback) {
+    var oldAccountDef = oldAccountInfo.def;
+    var credentials = {
+      username: oldAccountDef.credentials.username,
+      password: oldAccountDef.credentials.password,
+    };
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: oldAccountDef.name,
+
+      type: 'fake',
+      syncRange: oldAccountDef.syncRange,
+
+      credentials: credentials,
+      connInfo: {
+        hostname: 'magic.example.com',
+        port: 1337,
+        crypto: true,
+      },
+
+      identities: recreateIdentities(universe, accountId,
+                                     oldAccountDef.identities)
+    };
+
+    var account = this._loadAccount(universe, accountDef);
+    callback(null, account);
+  },
+
+  /**
+   * Save the account def and folder info for our new (or recreated) account and
+   * then load it.
+   */
+  _loadAccount: function cfg_fake__loadAccount(universe, accountDef) {
     var folderInfo = {
       $meta: {
         nextMutationNum: 0,
@@ -397,50 +512,18 @@ Configurators['fake'] = {
       $deferredMutations: [],
     };
     universe.saveAccountDef(accountDef, folderInfo);
-    var account = universe._loadAccount(accountDef, folderInfo, null);
-    callback(null, account);
+    return universe._loadAccount(accountDef, folderInfo, null);
   },
 };
 Configurators['activesync'] = {
-  tryToCreateAccount: function cfg_activesync(universe, userDetails, domainInfo,
-                                              callback, _LOG) {
+  tryToCreateAccount: function cfg_as_ttca(universe, userDetails, domainInfo,
+                                           callback, _LOG) {
     var credentials = {
       username: userDetails.emailAddress,
       password: userDetails.password,
     };
-    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
-    var accountDef = {
-      id: accountId,
-      name: userDetails.emailAddress,
 
-      type: 'activesync',
-      syncRange: '3d',
-
-      credentials: credentials,
-      connInfo: null,
-
-      identities: [
-        {
-          id: accountId + '/' +
-                $a64.encodeInt(universe.config.nextIdentityNum++),
-          name: userDetails.displayName || domainInfo.displayName,
-          address: userDetails.emailAddress,
-          replyTo: null,
-          signature: DEFAULT_SIGNATURE
-        },
-      ]
-    };
-
-    var folderInfo = {
-      $meta: {
-        nextFolderNum: 0,
-        nextMutationNum: 0,
-        syncKey: '0',
-      },
-      $mutations: [],
-      $deferredMutations: [],
-    };
-
+    var self = this;
     var conn = new $asproto.Connection(credentials.username,
                                        credentials.password);
     conn.setServer(domainInfo.incoming.server);
@@ -461,16 +544,85 @@ Configurators['activesync'] = {
         return;
       }
 
-      accountDef.connInfo = { server: config.selectedServer.url };
-      if (!accountDef.identities[0].name && config.user)
-        accountDef.identities[0].name = config.user.name;
-      universe.saveAccountDef(accountDef, folderInfo);
+      var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+      var accountDef = {
+        id: accountId,
+        name: userDetails.emailAddress,
 
-      var account = universe._loadAccount(accountDef, folderInfo, conn);
+        type: 'activesync',
+        syncRange: '3d',
+
+        credentials: credentials,
+        connInfo: {
+          server: config.selectedServer.url
+        },
+
+        identities: [
+          {
+            id: accountId + '/' +
+                $a64.encodeInt(universe.config.nextIdentityNum++),
+            name: userDetails.displayName || domainInfo.displayName,
+            address: userDetails.emailAddress,
+            replyTo: null,
+            signature: DEFAULT_SIGNATURE
+          },
+        ]
+      };
+
+      var account = self._loadAccount(universe, accountDef, conn);
       account.syncFolderList(function() {
         callback(null, account);
       });
     });
+  },
+
+  recreateAccount: function cfg_as_ra(universe, oldAccountInfo, callback) {
+    var oldAccountDef = oldAccountInfo.def;
+    var credentials = {
+      username: oldAccountDef.credentials.username,
+      password: oldAccountDef.credentials.password,
+    };
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: oldAccountDef.name,
+
+      type: 'activesync',
+      syncRange: oldAccountDef.syncRange,
+
+      credentials: credentials,
+      connInfo: {
+        server: oldAccountDef.connInfo.server
+      },
+
+      identities: recreateIdentities(universe, accountId,
+                                     oldAccountDef.identities)
+    };
+
+    var account = this._loadAccount(universe, accountDef, null);
+    account.syncFolderList(function() {
+      callback(null, account);
+    });
+  },
+
+  /**
+   * Save the account def and folder info for our new (or recreated) account and
+   * then load it.
+   */
+  _loadAccount: function cfg_as__loadAccount(universe, accountDef, protoConn) {
+    // XXX: Just reload the old folders when applicable instead of syncing the
+    // folder list again, which is slow.
+    var folderInfo = {
+      $meta: {
+        nextFolderNum: 0,
+        nextMutationNum: 0,
+        syncKey: '0',
+      },
+      $mutations: [],
+      $deferredMutations: [],
+    };
+    universe.saveAccountDef(accountDef, folderInfo);
+    return universe._loadAccount(accountDef, folderInfo, protoConn);
   },
 };
 
@@ -831,5 +983,20 @@ Autoconfigurator.prototype = {
     });
   },
 };
+
+/**
+ * Recreate an existing account, e.g. after a database upgrade.
+ *
+ * @param universe the MailUniverse
+ * @param accountInfo the old account info
+ * @param callback a callback to fire when we've completed recreating the
+ *        account
+ */
+function recreateAccount(universe, accountInfo, callback) {
+  console.log("recreating acct");
+  var configurator = Configurators[accountInfo.def.type];
+  configurator.recreateAccount(universe, accountInfo, callback);
+}
+exports.recreateAccount = recreateAccount;
 
 }); // end define
