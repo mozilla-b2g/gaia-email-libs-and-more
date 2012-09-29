@@ -437,8 +437,7 @@ MailUniverse.prototype = {
       var val = changes[key];
       switch (key) {
         case 'syncCheckIntervalEnum':
-          val = parseInt(val);
-          if (val >= $syncbase.CHECK_INTERVALS_ENUMS_TO_MS)
+          if (!$syncbase.CHECK_INTERVALS_ENUMS_TO_MS.hasOwnProperty(val))
             continue;
           this._cronSyncer.setSyncIntervalMS(
             $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[val]);

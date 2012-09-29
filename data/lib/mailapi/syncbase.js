@@ -158,21 +158,23 @@ exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
  * We use an enumerated set of sync values for UI localization reasons; time
  * is complex and we don't have/use a helper library for this.
  */
-exports.CHECK_INTERVALS_ENUMS_TO_MS = [
-  0,              // 0: manual === disabled
-  30 * 1000, // XXX for testing, 30 seconds...
-  //3 * 60 * 1000,  // 1: 3 minutes
-  5 * 60 * 1000,  // 2: 5 minutes
-  10 * 60 * 1000, // 3: 10 minutes
-  15 * 60 * 1000, // 4: 15 minutes
-  ];
+exports.CHECK_INTERVALS_ENUMS_TO_MS = {
+  'manual': 0, // 0 disables; no infinite checking!
+  '3min': 30 * 1000, // XXX for testing, 30 seconds...
+  //'3min': 3 * 60 * 1000,
+  '5min': 5 * 60 * 1000,
+  '10min': 10 * 60 * 1000,
+  '15min': 15 * 60 * 1000,
+  '30min': 30 * 60 * 1000,
+  '60min': 60 * 60 * 1000,
+};
 
 /**
  * Default to not automatically checking for e-mail for reasons to avoid
  * degrading the phone experience until we are more confident about our resource
  * usage, etc.
  */
-exports.DEFAULT_CHECK_INTERVAL_ENUM = 0;
+exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 
 
 ////////////////////////////////////////////////////////////////////////////////

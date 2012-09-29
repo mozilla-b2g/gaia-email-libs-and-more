@@ -206,14 +206,11 @@ function CronSyncer(universe, _logParent) {
    * }
    */
   this._outstandingNotesPerAccount = {};
-  /**
-   * Null if there is no active sync, or the timestamp of when we started the
-   * sync.
-   */
-  this._inProgressSince = null;
 
   this._initialized = false;
   this._hackTimeout = null;
+
+  this._activeSlices = [];
 }
 exports.CronSyncer = CronSyncer;
 CronSyncer.prototype = {
@@ -240,7 +237,8 @@ CronSyncer.prototype = {
   _scheduleNextSync: function() {
     if (!this._syncIntervalMS)
       return;
-console.log("scheduling sync for " + (this._syncIntervalMS / 1000) + " seconds in the future.");
+    console.log("scheduling sync for " + (this._syncIntervalMS / 1000) +
+                " seconds in the future.");
     this._hackTimeout = window.setTimeout(this.onAlarm.bind(this),
                                           this._syncIntervalMS);
 /*
@@ -267,7 +265,7 @@ console.log("scheduling sync for " + (this._syncIntervalMS / 1000) + " seconds i
   },
 
   setSyncIntervalMS: function(syncIntervalMS) {
-console.log('setSyncIntervalMS:', syncIntervalMS);
+    console.log('setSyncIntervalMS:', syncIntervalMS);
     var pendingAlarm = false;
     if (!this._initialized) {
       this._initialized = true;
@@ -311,7 +309,7 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
   syncAccount: function(account, doneCallback) {
     // - Skip syncing if we are offline or the account is disabled
     if (!this._universe.online || !account.enabled) {
-      doneCallback([]);
+      doneCallback(null);
       return;
     }
 
@@ -334,7 +332,7 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
     // process of synchronizing a window far back in time but would want to hear
     // about new messages in the folder.
     if (storage.syncInProgress) {
-      doneCallback([]);
+      doneCallback(null);
       return;
     }
 
@@ -370,6 +368,8 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
     this._LOG.syncAccount_begin(account.id);
     var slice = new CronSlice(storage, desiredNew, function(newHeaders) {
       this._LOG.syncAccount_end(account.id);
+      doneCallback(null);
+      this._activeSlices.splice(this._activeSlices.indexOf(slice), 1);
       for (var i = 0; i < newHeaders.length; i++) {
         var header = newHeaders[i];
         outstandingInfo.notes.push(
@@ -378,25 +378,28 @@ console.log('setSyncIntervalMS:', syncIntervalMS);
                                          outstandingInfo.closeHandler));
       }
     }.bind(this));
+    this._activeSlices.push(slice);
     // use forceDeepening to ensure that a synchronization happens.
     storage.sliceOpenFromNow(slice, 3, true);
 
   },
 
   onAlarm: function() {
-console.log('alarm fired!');
     this._LOG.alarmFired();
     // It would probably be better if we only added the new alarm after we
-    // complete our sync, but we could have a problem if
+    // complete our sync, but we could have a problem if our sync progress
+    // triggered our death, so we don't do that.
     this._scheduleNextSync();
 
-    var now = Date.now();
-    if (this._inProgressSince) {
+    // Kill off any slices that still exist from the last sync.
+    for (var iSlice = 0; iSlice < this._activeSlices.length; iSlice++) {
+      this._activeSlices[iSlice].die();
     }
-    this._inProgressSince = now;
 
     var doneOrGaveUp = function doneOrGaveUp(results) {
-
+      // XXX add any life-cycle stuff here, like amending the schedule for the
+      // next firing based on how long it took us.  Or if we need to compute
+      // smarter sync notifications across all accounts, do it here.
     }.bind(this);
 
     var accounts = this._universe.accounts, accountIds = [], account, i;
