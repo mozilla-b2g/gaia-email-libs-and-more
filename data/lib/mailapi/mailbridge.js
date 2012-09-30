@@ -391,6 +391,15 @@ MailBridge.prototype = {
     account.sliceFolderMessages(msg.folderId, proxy);
   },
 
+  _cmd_searchFolderMessages: function mb__cmd_searchFolderMessages(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, 'headers', msg.handle);
+    this._slicesByType['headers'].push(proxy);
+
+    var account = this.universe.getAccountForFolderId(msg.folderId);
+    account.searchFolderMessages(msg.folderId, proxy);
+  },
+
   _cmd_refreshHeaders: function mb__cmd_refreshHeaders(msg) {
     var proxy = this._slices[msg.handle];
     if (!proxy) {

@@ -77,9 +77,17 @@
 
 define(
   [
+    'rdcommon/log',
+    './syncbase',
+    './date',
+    'module',
     'exports'
   ],
   function(
+    $log,
+    $syncbase,
+    $date,
+    $module,
     exports
   ) {
 
@@ -93,6 +101,7 @@ define(
 function AuthorFilter(phrase) {
   this.phrase = phrase;
 }
+exports.AuthorFilter = AuthorFilter;
 AuthorFilter.prototype = {
   needsBody: false,
 
@@ -140,6 +149,7 @@ function RecipientFilter(phrase, stopAfterNMatches,
   this.checkCc = checkCc;
   this.checkBcc = checkBcc;
 }
+exports.RecipientFilter = RecipientFilter;
 RecipientFilter.prototype = {
   needsBody: true,
 
@@ -203,10 +213,20 @@ RecipientFilter.prototype = {
  * whatsoever, we will leave partial words.  This is also important for us not
  * being rude to CJK languages (although the number used for contextBefore may
  * be too high for CJK, we may want to have them 'cost' more.)
+ *
+ * We don't pursue any whitespace normalization here because we want our offsets
+ * to line up properly with the real data, but also because we can depend on
+ * HTML to help us out and normalize everything anyways.
  */
 function snippetMatchHelper(str, start, length, contextBefore, contextAfter,
                             path) {
-  var snippet;
+  var offset = str.lastIndexOf(' ', start - 1);
+  if (offset < start - contextBefore)
+    offset = start - contextBefore;
+  var endIdx = str.indexOf(' ', start + length);
+  if (endIdx === -1 || endIdx > start + length + contextAfter)
+    endIdx = start + length + contextAfter;
+  var snippet = str.substring(offset, endIdx);
 
   return {
     text: snippet,
@@ -231,6 +251,7 @@ function SubjectFilter(phrase, stopAfterNMatches, contextBefore, contextAfter) {
   this.contextBefore = contextBefore;
   this.contextAfter = contextAfter;
 }
+exports.Subjectfilter = SubjectFilter;
 SubjectFilter.prototype = {
   needsBody: false,
   testMessage: function(header, body, match) {
@@ -241,7 +262,7 @@ SubjectFilter.prototype = {
           matches = [];
     var idx = 0;
 
-    while (idx < slen) {
+    while (idx < slen && matches.length < stopAfter) {
       idx = subject.indexOf(phrase, idx);
       if (idx === -1)
         break;
@@ -262,6 +283,11 @@ SubjectFilter.prototype = {
   },
 };
 
+// stable value from quotechew.js; full export regime not currently required.
+const CT_AUTHORED_CONTENT = 0x1;
+// HTML DOM constants
+const ELEMENT_NODE = 1, TEXT_NODE = 3;
+
 /**
  * Searches the body of the message, it can ignore quoted stuff or not.
  * Provides snippeting functionality.  Multiple matches are supported, but
@@ -271,12 +297,130 @@ SubjectFilter.prototype = {
  *
  * For details on snippet generation, see `snippetMatchHelper`.
  */
-function BodyFilter(phrase, stopAfterNMatches, contextBefore, contextAfter) {
+function BodyFilter(phrase, matchQuotes, stopAfterNMatches,
+                    contextBefore, contextAfter) {
+  this.phrase = phrase;
+  this.stopAfter = stopAfterNMatches;
+  this.contextBefore = contextBefore;
+  this.contextAfter = contextAfter;
+  this.matchQuotes = matchQuotes;
 }
+exports.BodyFilter = BodyFilter;
 BodyFilter.prototype = {
   needsBody: true,
   testMessage: function(header, body, match) {
-    const phrase = this.phrase, stopAfter = this.stopAfter;
+    const phrase = this.phrase, phrlen = phrase.length,
+          subject = header.subject, slen = subject.length,
+          stopAfter = this.stopAfter,
+          contextBefore = this.contextBefore, contextAfter = this.contextAfter,
+          matches = [],
+          matchQuotes = this.matchQuotes;
+    var idx;
+
+    for (var iBodyRep = 0; iBodyRep < body.bodyReps.length; iBodyRep += 2) {
+      var bodyType = body.bodyReps[iBodyRep],
+          bodyRep = body.bodyReps[iBodyRep + 1];
+
+      if (bodyType === 'plain') {
+        for (var iRep = 0; iRep < bodyRep.length && matches.length < stopAfter;
+             iRep += 2) {
+          var etype = bodyRep[iRep]&0xf, block = bodyRep[iRep + 1],
+              repPath = null;
+
+          // Ignore blocks that are not message-author authored unless we are
+          // told to match quotes.
+          if (!matchQuotes && etype !== CT_AUTHORED_CONTENT)
+            continue;
+
+          for (idx = 0; idx < block.length && matches.length < stopAfter;) {
+            idx = block.indexOf(phrase, idx);
+            if (idx === -1)
+              break;
+            if (repPath === null)
+              repPath = [iBodyRep, iRep];
+            matches.push(snippetMatchHelper(subject, idx, phrlen,
+                                            contextBefore, contextAfter,
+                                            repPath));
+            idx += phrlen;
+          }
+        }
+      }
+      else if (bodyType === 'html') {
+        // NB: this code is derived from htmlchew.js' generateSnippet
+        // functionality.
+
+        // - convert the HMTL into a DOM tree
+        // We don't want our indexOf to run afoul of presentation logic.
+        var htmlPath = [iBodyRep, 0];
+        var htmlDoc = document.implementation.createHTMLDocument(''),
+            rootNode = htmlDoc.createElement('div');
+        rootNode.innerHTML = bodyRep;
+
+        var node = rootNode.firstChild, done = false;
+        while (!done) {
+          if (node.nodeType === ELEMENT_NODE) {
+            switch (node.tagName.toLowerCase()) {
+              // - Things that can't contain useful text.
+              // The style does not belong in the snippet!
+              case 'style':
+                break;
+
+              case 'blockquote':
+                // fall-through if matchQuotes
+                if (!matchQuotes)
+                  break;
+              default:
+                if (node.firstChild) {
+                  node = node.firstChild;
+                  htmlPath.push(0);
+                  continue;
+                }
+                break;
+            }
+          }
+          else if (node.nodeType === TEXT_NODE) {
+            // XXX the snippet generator normalizes whitespace here to avoid
+            // being overwhelmed by ridiculous whitespace.  This is not quite
+            // as much a problem for us, but it would be useful if the
+            // sanitizer layer normalized whitespace so neither of us has to
+            // worry about it.
+            var nodeText = node.data;
+
+            idx = nodeText.indexOf(phrase);
+            if (idx !== -1) {
+              matches.push(
+                snippetMatchHelper(nodeText, idx, phrlen,
+                                   contextBefore, contextAfter,
+                                   htmlPath.concat()));
+              if (matches.length >= stopAfter)
+                break;
+            }
+          }
+
+          while (!node.nextSibling) {
+            node = node.parentNode;
+            htmlPath.pop();
+            if (node === rootNode) {
+              done = true;
+              break;
+            }
+          }
+          if (!done) {
+            node = node.nextSibling;
+            htmlPath[htmlPath.length - 1]++;
+          }
+        }
+      }
+    }
+
+    if (matches.length) {
+      match.subject = matches;
+      return true;
+    }
+    else {
+      match.subject = null;
+      return false;
+    }
   },
 };
 
@@ -294,6 +438,7 @@ function MessageFilterer(filters) {
       this.bodiesNeeded = true;
   }
 }
+exports.MessageFilterer = MessageFilterer;
 MessageFilterer.prototype = {
   /**
    * Check if the message matches the filter.  If it does not, false is
@@ -314,5 +459,115 @@ MessageFilterer.prototype = {
       return false;
   },
 };
+
+const CONTEXT_CHARS_BEFORE = 16;
+const CONTEXT_CHARS_AFTER = 40;
+
+/**
+ *
+ */
+function SearchSlice(bridgeHandle, storage, phrase, whatToSearch, _parentLog) {
+  this._bridgeHandle = bridgeHandle;
+  bridgeHandle.__listener = this;
+  // this mechanism never allows triggering synchronization.
+  bridgeHandle.userCanGrowDownwards = false;
+
+  this._storage = storage;
+  this._LOG = LOGFAB.SearchSlice(this, _parentLog, bridgeHandle._handle);
+
+  // These correspond to the range of headers that we have searched to generate
+  // the current set of matched headers.  Our matches will always be fully
+  // contained by this range.
+  this.searchStartTS = null;
+  this.searchStartUID = null;
+  this.searchEndTS = null;
+  this.searchEndUID = null;
+
+  var filters = [];
+  if (whatToSearch.author)
+    filters.push(new AuthorFilter(phrase));
+  if (whatToSearch.recipients)
+    filters.push(new RecipientFilter(phrase, 1, true, true, true));
+  if (whatToSearch.subject)
+    filters.push(new SubjectFilter(
+                   phrase, 1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
+  if (whatToSearch.body)
+    filters.push(new BodyFilter(
+                   phrase, whatToSearch.body === 'yes-quotes',
+                   1, CONTEXT_CHARS_BEFORE, CONTEXT_CHARS_AFTER));
+
+  this.filterer = new MessageFilterer(filters);
+
+  this._bound_gotOlderMessages = this._gotMessages.bind(this, 1);
+  this._bound_gotNewerMessages = this._gotMessages.bind(this, -1);
+
+  this.headers = [];
+  this.desiredHeaders = $syncbase.INITIAL_FILL_SIZE;
+  // Fetch as many headers as we want in our results; we probably will have
+  // less than a 100% hit-rate, but there isn't much savings from getting the
+  // extra headers now, so punt on those.
+  this.getMessagesInImapDateRange(0, $date.FUTURE(),
+                                  this.desiredHeaders,
+                                  this.desiredHeaders);
+}
+exports.SearchSlice = SearchSlice;
+SearchSlice.prototype = {
+  set atTop(val) {
+    this._bridgeHandle.atTop = val;
+  },
+  set atBottom(val) {
+    this._bridgeHandle.atBottom = val;
+  },
+
+  _getMoreMessages: function(dir, howMany) {
+  },
+
+  _gotMessages: function(dir, headers, moreMessagesComing) {
+    // update the range of what we have seen and searched
+    if (dir === -1) {
+      this.searchEndTS = headers[0].date;
+      this.searchEndUID = headers[0].id;
+    }
+    else {
+      var lastHeader = headers[headers.length - 1];
+      this.searchStartTS = lastHeader.date;
+      this.searchStartUID = lastHeader.id;
+    }
+  },
+
+  refresh: function() {
+  },
+
+  reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {
+    // when shrinking our range, we could try and be clever and use the values
+    // of the first thing we are updating to adjust our range, but it's safest/
+    // easiest right now to just use what we are left with.
+
+  },
+
+  reqGrow: function(dirMagnitude, userRequestsGrowth) {
+    if (dirMagnitude === -1)
+      dirMagnitude = -$syncbase.INITIAL_FILL_SIZE;
+    else if (dirMagnitude === 1)
+      dirMagnitude = $syncbase.INITIAL_FILL_SIZE;
+    this._storage.growSlice(this, dirMagnitude, userRequestsGrowth);
+  },
+
+  die: function() {
+    this._bridgeHandle = null;
+    this._LOG.__die();
+  },
+};
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  SearchSlice: {
+    type: $log.QUERY,
+    events: {
+    },
+    TEST_ONLY_events: {
+    },
+  },
+}); // end LOGFAB
+
 
 }); // end define
