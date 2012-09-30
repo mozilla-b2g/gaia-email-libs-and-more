@@ -121,6 +121,19 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
+console.log('received modifyConfig');
+    this.universe.modifyConfig(msg.mods);
+console.log('done proc modifyConfig');
+  },
+
+  notifyConfig: function(config) {
+    this.__sendMessage({
+      type: 'config',
+      config: config,
+    });
+  },
+
   _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
     switch (msg.cmd) {
       case 'setLogging':
@@ -143,7 +156,8 @@ MailBridge.prototype = {
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
-    this.universe.tryToCreateAccount(msg.details, function(error, account) {
+    this.universe.tryToCreateAccount(msg.details, msg.domainInfo,
+                                     function(error, account) {
         self.__sendMessage({
             type: 'tryToCreateAccountResults',
             handle: msg.handle,

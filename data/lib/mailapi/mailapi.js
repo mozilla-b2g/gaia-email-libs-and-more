@@ -984,6 +984,8 @@ MessageComposition.prototype = {
 };
 
 
+const LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
+
 /**
  * Error reporting helper; we will probably eventually want different behaviours
  * under development, under unit test, when in use by QA, advanced users, and
@@ -1015,7 +1017,17 @@ function MailAPI() {
   this._pendingRequests = {};
 
   /**
-   * Various, unsupported config data.
+   * @dict[
+   *   @key[debugLogging]
+   *   @key[checkInterval]
+   * ]{
+   *   Configuration data.  This is currently populated by data from
+   *   `MailUniverse.exposeConfigForClient` by the code that constructs us.  In
+   *   the future, we will probably want to ask for this from the `MailUniverse`
+   *   directly over the wire.
+   *
+   *   This should be treated as read-only.
+   * }
    */
   this.config = {};
 
@@ -1374,17 +1386,20 @@ MailAPI.prototype = {
    *   ]
    * ]
    */
-  tryToCreateAccount: function ma_tryToCreateAccount(details, callback) {
+  tryToCreateAccount: function ma_tryToCreateAccount(details, domainInfo,
+                                                     callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'tryToCreateAccount',
       details: details,
+      domainInfo: domainInfo,
       callback: callback
     };
     this.__bridgeSend({
       type: 'tryToCreateAccount',
       handle: handle,
-      details: details
+      details: details,
+      domainInfo: domainInfo
     });
   },
 
@@ -1850,6 +1865,28 @@ MailAPI.prototype = {
       type: 'localizedStrings',
       strings: strings
     });
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Configuration
+
+  /**
+   * Change one-or-more backend-wide settings; use `MailAccount.modifyAccount`
+   * to chang per-account settings.
+   */
+  modifyConfig: function(mods) {
+    for (var key in mods) {
+      if (LEGAL_CONFIG_KEYS.indexOf(key) === -1)
+        throw new Error(key + ' is not a legal config key!');
+    }
+    this.__bridgeSend({
+      type: 'modifyConfig',
+      mods: mods
+    });
+  },
+
+  _recv_config: function(msg) {
+    this.config = msg.config;
   },
 
   //////////////////////////////////////////////////////////////////////////////

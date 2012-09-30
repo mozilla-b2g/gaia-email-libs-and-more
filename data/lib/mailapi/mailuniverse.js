@@ -9,6 +9,7 @@ define(
     './a64',
     './syncbase',
     './maildb',
+    './cronsync',
     './accountcommon',
     'module',
     'exports'
@@ -19,6 +20,7 @@ define(
     $a64,
     $syncbase,
     $maildb,
+    $cronsync,
     $acctcommon,
     $module,
     exports
@@ -263,6 +265,7 @@ function MailUniverse(callAfterBigBang) {
 
   this._LOG = null;
   this._db = new $maildb.MailDB();
+  this._cronSyncer = new $cronsync.CronSyncer(this);
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
@@ -308,6 +311,7 @@ function MailUniverse(callAfterBigBang) {
         nextAccountNum: 0,
         nextIdentityNum: 0,
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false,
+        syncCheckIntervalEnum: $syncbase.DEFAULT_CHECK_INTERVAL_ENUM,
       };
       setupLogging();
       self._LOG = LOGFAB.MailUniverse(self, null, null);
@@ -315,30 +319,28 @@ function MailUniverse(callAfterBigBang) {
         self._enableCircularLogging();
       self._db.saveConfig(self.config);
 
-      // - Try to re-create any accounts just using auth info.
+      // - Try to re-create any accounts using old account infos.
       if (lazyCarryover && self.online) {
         var waitingCount = 0;
-        for (i = 0; i < lazyCarryover.accountInfos.length; i++){
+        var oldVersion = lazyCarryover.oldVersion;
+        for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
           waitingCount++;
-          var accountDef = lazyCarryover.accountInfos[i].def;
-          self.tryToCreateAccount(
-            {
-              displayName: accountDef.identities[0].name,
-              emailAddress: accountDef.name,
-              password: accountDef.credentials.password
-            },
+          var accountInfo = lazyCarryover.accountInfos[i];
+          $acctcommon.recreateAccount(self, oldVersion, accountInfo,
+                                      function() {
             // We don't care how they turn out, just that they get a chance
             // to run to completion before we call our bootstrap complete.
-            function() {
-              if (--waitingCount === 0)
-                callAfterBigBang();
-            },
-            self._LOG);
-          }
-        // do not let callAfterBigBang get called.
+            if (--waitingCount === 0) {
+              self._initFromConfig();
+              callAfterBigBang();
+            }
+          });
+        }
+        // Do not let callAfterBigBang get called.
         return;
       }
     }
+    self._initFromConfig();
     callAfterBigBang();
   });
 }
@@ -407,20 +409,51 @@ MailUniverse.prototype = {
   // Config / Settings
 
   /**
+   * Perform initial initialization based on our configuration.
+   */
+  _initFromConfig: function() {
+    this._cronSyncer.setSyncIntervalMS(
+      $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[this.config.syncCheckIntervalEnum]);
+  },
+
+  /**
    * Return the subset of our configuration that the client can know about.
    */
   exposeConfigForClient: function() {
     // eventually, iterate over a whitelist, but for now, it's easy...
     return {
       debugLogging: this.config.debugLogging,
+      syncCheckIntervalEnum: this.config.syncCheckIntervalEnum,
     };
   },
 
   modifyConfig: function(changes) {
     for (var key in changes) {
-      this.config[key] = changes[key];
+      var val = changes[key];
+      switch (key) {
+        case 'syncCheckIntervalEnum':
+          if (!$syncbase.CHECK_INTERVALS_ENUMS_TO_MS.hasOwnProperty(val))
+            continue;
+          this._cronSyncer.setSyncIntervalMS(
+            $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[val]);
+          break;
+        case 'debugLogging':
+          break;
+        default:
+          continue;
+      }
+      this.config[key] = val;
     }
     this._db.saveConfig(this.config);
+    this.__notifyConfig();
+  },
+
+  __notifyConfig: function() {
+    var config = this.exposeConfigForClient();
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyConfig(config);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -495,16 +528,23 @@ MailUniverse.prototype = {
       this._bridges.splice(idx, 1);
   },
 
-  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
+  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, domainInfo,
+                                                     callback) {
     if (!this.online) {
       callback('offline');
       return;
     }
 
-    // XXX: store configurator on this object so we can abort the connections
-    // if necessary.
-    var configurator = new $acctcommon.Autoconfigurator(this._LOG);
-    configurator.tryToCreateAccount(this, userDetails, callback);
+    if (domainInfo) {
+      $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
+                                             callback, this._LOG);
+    }
+    else {
+      // XXX: store configurator on this object so we can abort the connections
+      // if necessary.
+      var configurator = new $acctcommon.Autoconfigurator(this._LOG);
+      configurator.tryToCreateAccount(this, userDetails, callback);
+    }
   },
 
   /**
@@ -681,6 +721,7 @@ MailUniverse.prototype = {
       var account = this.accounts[iAcct];
       account.shutdown();
     }
+    this._cronSyncer.shutdown();
     this._db.close();
     this._LOG.__die();
   },
