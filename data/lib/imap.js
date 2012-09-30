@@ -1473,9 +1473,11 @@ function buildSearchQuery(options, extensions, isOrChild) {
               throw new Error('Search option argument must be a Date object'
                               + ' or a parseable date string');
           }
-          searchargs += modifier + criteria + ' ' + args[0].getDate() + '-'
-                        + MONTHS[args[0].getMonth()] + '-'
-                        + args[0].getFullYear();
+          // XXX/NB: We are currently providing UTC-quantized date values, so
+          // we don't want time-zones to skew this and screw us over.
+          searchargs += modifier + criteria + ' ' + args[0].getUTCDate() + '-'
+                        + MONTHS[args[0].getUTCMonth()] + '-'
+                        + args[0].getUTCFullYear();
         break;
         case 'KEYWORD':
         case 'UNKEYWORD':
@@ -1547,6 +1549,7 @@ function buildSearchQuery(options, extensions, isOrChild) {
     if (isOrChild)
       break;
   }
+  console.log('searchargs:', searchargs);
   return searchargs;
 }
 
@@ -1649,8 +1652,10 @@ function parseFetch(str, literalData, fetchData) {
   for (var i=0,len=result.length; i<len; i+=2) {
     if (result[i] === 'UID')
       fetchData.id = parseInt(result[i+1], 10);
-    else if (result[i] === 'INTERNALDATE')
+    else if (result[i] === 'INTERNALDATE') {
+      fetchData.rawDate = result[i+1];
       fetchData.date = parseImapDateTime(result[i+1]);
+    }
     else if (result[i] === 'FLAGS') {
       fetchData.flags = result[i+1].filter(isNotEmpty);
       // simplify comparison for downstream logic by sorting.

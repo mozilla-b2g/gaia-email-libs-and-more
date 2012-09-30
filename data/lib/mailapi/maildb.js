@@ -31,10 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 10 because accounts now have a synchronization range for messages
- * (corresponding to ActiveSync's FilterType).
+ * Bumping to 11 because of the introduction of the sync check interval.
  */
-const CUR_VERSION = 10;
+const CUR_VERSION = 11;
 
 /**
  * What is the lowest database version that we are capable of performing a
