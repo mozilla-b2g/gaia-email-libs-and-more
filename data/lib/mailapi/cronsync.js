@@ -38,7 +38,7 @@ define(
 /**
  * Sanity demands we do not check more frequently than once a minute.
  */
-const MINIMUM_SYNC_INTERVAL_MS = 30 * 1000; //HACK: put back to 60 for landing
+const MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
 
 /**
  * How long should we let a synchronization run before we give up on it and
