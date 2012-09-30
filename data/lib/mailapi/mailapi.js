@@ -1359,17 +1359,20 @@ MailAPI.prototype = {
    *   ]
    * ]
    */
-  tryToCreateAccount: function ma_tryToCreateAccount(details, callback) {
+  tryToCreateAccount: function ma_tryToCreateAccount(details, domainInfo,
+                                                     callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'tryToCreateAccount',
       details: details,
+      domainInfo: domainInfo,
       callback: callback
     };
     this.__bridgeSend({
       type: 'tryToCreateAccount',
       handle: handle,
-      details: details
+      details: details,
+      domainInfo: domainInfo
     });
   },
 

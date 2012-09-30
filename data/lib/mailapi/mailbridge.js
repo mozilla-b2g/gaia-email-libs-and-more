@@ -156,7 +156,8 @@ console.log('done proc modifyConfig');
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
-    this.universe.tryToCreateAccount(msg.details, function(error, account) {
+    this.universe.tryToCreateAccount(msg.details, msg.domainInfo,
+                                     function(error, account) {
         self.__sendMessage({
             type: 'tryToCreateAccountResults',
             handle: msg.handle,

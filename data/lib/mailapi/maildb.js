@@ -192,6 +192,7 @@ function MailDB() {
       self.getConfig(function(configObj, accountInfos) {
         if (configObj)
           self._lazyConfigCarryover = {
+            oldVersion: event.oldVersion,
             config: configObj,
             accountInfos: accountInfos
           };
