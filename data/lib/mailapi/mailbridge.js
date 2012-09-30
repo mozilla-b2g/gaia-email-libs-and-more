@@ -121,6 +121,19 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
+console.log('received modifyConfig');
+    this.universe.modifyConfig(msg.mods);
+console.log('done proc modifyConfig');
+  },
+
+  notifyConfig: function(config) {
+    this.__sendMessage({
+      type: 'config',
+      config: config,
+    });
+  },
+
   _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
     switch (msg.cmd) {
       case 'setLogging':

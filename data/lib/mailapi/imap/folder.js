@@ -329,9 +329,27 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           });
       });
 
+    // - Adjust DB time range for server skew on INTERNALDATE
+    // See https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues/12
+    // for more in-depth details.  The nutshell is that the server will secretly
+    // apply a timezone to the question we ask it and will not actually tell us
+    // dates lined up with UTC.  Accordingly, we don't want our DB query to
+    // be lined up with UTC but instead the time zone.
+    // XXX STOPGAP HACK for now: just assume the server is in GMT-7 since
+    // yahoo.com appears to be in GMT-7.  We handle this by adding 7 hours
+    // because the search is run using an effective GMT-7, which means that
+    // if it 11:59pm on the day, it would be 6:59am in UTC land.
+    const HACK_TZ_OFFSET = 7 * 60 * 60 * 1000;
+    var skewedStartTS = startTS + HACK_TZ_OFFSET,
+        skewedEndTS = endTS ? endTS + HACK_TZ_OFFSET : null;
+    console.log('Skewed DB lookup. Start: ',
+                skewedStartTS, new Date(skewedStartTS).toUTCString(),
+                'End: ', skewedEndTS,
+                skewedEndTS ? new Date(skewedEndTS).toUTCString() : null);
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._reliaSearch(searchOptions, callbacks.search);
-    this._storage.getAllMessagesInImapDateRange(startTS, endTS, callbacks.db);
+    this._storage.getAllMessagesInImapDateRange(skewedStartTS, skewedEndTS,
+                                                callbacks.db);
   },
 
   searchDateRange: function(endTS, startTS, searchParams,
@@ -387,7 +405,7 @@ console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
       var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
       newFetcher.on('message', function onNewMessage(msg) {
           msg.on('end', function onNewMsgEnd() {
-console.log('  new fetched, header processing');
+console.log('  new fetched, header processing, INTERNALDATE: ', msg.rawDate);
             newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
 console.log('   header processed');
           });
