@@ -490,16 +490,23 @@ MailUniverse.prototype = {
       this._bridges.splice(idx, 1);
   },
 
-  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, callback) {
+  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, domainInfo,
+                                                     callback) {
     if (!this.online) {
       callback('offline');
       return;
     }
 
-    // XXX: store configurator on this object so we can abort the connections
-    // if necessary.
-    var configurator = new $acctcommon.Autoconfigurator(this._LOG);
-    configurator.tryToCreateAccount(this, userDetails, callback);
+    if (domainInfo) {
+      $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
+                                             callback, this._LOG);
+    }
+    else {
+      // XXX: store configurator on this object so we can abort the connections
+      // if necessary.
+      var configurator = new $acctcommon.Autoconfigurator(this._LOG);
+      configurator.tryToCreateAccount(this, userDetails, callback);
+    }
   },
 
   /**

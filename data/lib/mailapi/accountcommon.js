@@ -1022,10 +1022,17 @@ Autoconfigurator.prototype = {
  *        account
  */
 function recreateAccount(universe, oldVersion, accountInfo, callback) {
-  console.log("recreating acct");
   var configurator = Configurators[accountInfo.def.type];
   configurator.recreateAccount(universe, oldVersion, accountInfo, callback);
 }
 exports.recreateAccount = recreateAccount;
+
+function tryToManuallyCreateAccount(universe, userDetails, domainInfo, callback,
+                                    _LOG) {
+  var configurator = Configurators[domainInfo.type];
+  configurator.tryToCreateAccount(universe, userDetails, domainInfo, callback,
+                                  _LOG);
+}
+exports.tryToManuallyCreateAccount = tryToManuallyCreateAccount;
 
 }); // end define
