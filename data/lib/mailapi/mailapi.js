@@ -383,6 +383,9 @@ MailHeader.prototype = {
 function MailMatchedHeader(slice, wireRep) {
   this.header = new MailHeader(slice, wireRep.header);
   this.matches = wireRep.matches;
+
+  this.element = null;
+  this.data = null;
 }
 MailMatchedHeader.prototype = {
   toString: function() {
@@ -1554,7 +1557,7 @@ MailAPI.prototype = {
    * ]
    */
   searchFolderMessages:
-      function ma_quicksearchFolderMessages(folder, text, whatToSearch) {
+      function ma_searchFolderMessages(folder, text, whatToSearch) {
     var handle = this._nextHandle++,
         slice = new BridgedViewSlice(this, 'matchedHeaders', handle);
     // the initial population counts as a request.

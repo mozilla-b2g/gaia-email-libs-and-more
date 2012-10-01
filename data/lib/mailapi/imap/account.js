@@ -9,6 +9,7 @@ define(
     '../a64',
     '../errbackoff',
     '../mailslice',
+    '../searchfilter',
     '../util',
     './folder',
     './jobs',
@@ -21,6 +22,7 @@ define(
     $a64,
     $errbackoff,
     $mailslice,
+    $searchfilter,
     $util,
     $imapfolder,
     $imapjobs,
@@ -331,6 +333,13 @@ ImapAccount.prototype = {
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
+  },
+
+  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
+    var storage = this._folderStorages[folderId],
+        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
+                                              whatToSearch, this._LOG);
+    // the slice is self-starting, we don't need to call anything on storage
   },
 
   shutdown: function() {

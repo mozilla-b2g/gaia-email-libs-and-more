@@ -73,6 +73,9 @@
  * - Recipients
  * - Subject
  * - Body, allows ignoring quoted bits
+ *
+ * XXX currently all string searching uses indexOf; we at the very least should
+ * build a regexp that is configured to ignore case.
  **/
 
 define(
@@ -220,11 +223,13 @@ RecipientFilter.prototype = {
  */
 function snippetMatchHelper(str, start, length, contextBefore, contextAfter,
                             path) {
-  var offset = str.lastIndexOf(' ', start - 1);
-  if (offset < start - contextBefore)
+  if (contextBefore > start)
+    contextBefore = start;
+  var offset = str.indexOf(' ', start - contextBefore);
+  if (offset >= start)
     offset = start - contextBefore;
-  var endIdx = str.indexOf(' ', start + length);
-  if (endIdx === -1 || endIdx > start + length + contextAfter)
+  var endIdx = str.lastIndexOf(' ', start + length + contextAfter);
+  if (endIdx <= start + length)
     endIdx = start + length + contextAfter;
   var snippet = str.substring(offset, endIdx);
 
@@ -310,7 +315,6 @@ BodyFilter.prototype = {
   needsBody: true,
   testMessage: function(header, body, match) {
     const phrase = this.phrase, phrlen = phrase.length,
-          subject = header.subject, slen = subject.length,
           stopAfter = this.stopAfter,
           contextBefore = this.contextBefore, contextAfter = this.contextAfter,
           matches = [],
@@ -338,7 +342,7 @@ BodyFilter.prototype = {
               break;
             if (repPath === null)
               repPath = [iBodyRep, iRep];
-            matches.push(snippetMatchHelper(subject, idx, phrlen,
+            matches.push(snippetMatchHelper(block, idx, phrlen,
                                             contextBefore, contextAfter,
                                             repPath));
             idx += phrlen;
@@ -414,11 +418,11 @@ BodyFilter.prototype = {
     }
 
     if (matches.length) {
-      match.subject = matches;
+      match.body = matches;
       return true;
     }
     else {
-      match.subject = null;
+      match.body = null;
       return false;
     }
   },
@@ -437,6 +441,7 @@ function MessageFilterer(filters) {
     if (filter.needsBody)
       this.bodiesNeeded = true;
   }
+console.log('sf: filterer: bodiesNeeded:', this.bodiesNeeded);
 }
 exports.MessageFilterer = MessageFilterer;
 MessageFilterer.prototype = {
@@ -446,13 +451,16 @@ MessageFilterer.prototype = {
    * are defined by the filterers in use.
    */
   testMessage: function(header, body) {
+console.log('sf: testMessage(', header.suid, header.author.address,
+            header.subject, 'body?', !!body, ')');
     var matched = false, matchObj = {};
     const filters = this.filters;
     for (var i = 0; i < filters.length; i++) {
       var filter = filters[i];
-      if (filter.testMessage(header, body))
+      if (filter.testMessage(header, body, matchObj))
         matched = true;
     }
+console.log('   =>', matched, JSON.stringify(matchObj));
     if (matched)
       return matchObj;
     else
@@ -467,6 +475,7 @@ const CONTEXT_CHARS_AFTER = 40;
  *
  */
 function SearchSlice(bridgeHandle, storage, phrase, whatToSearch, _parentLog) {
+console.log('sf: creating SearchSlice:', phrase);
   this._bridgeHandle = bridgeHandle;
   bridgeHandle.__listener = this;
   // this mechanism never allows triggering synchronization.
@@ -478,10 +487,10 @@ function SearchSlice(bridgeHandle, storage, phrase, whatToSearch, _parentLog) {
   // These correspond to the range of headers that we have searched to generate
   // the current set of matched headers.  Our matches will always be fully
   // contained by this range.
-  this.searchStartTS = null;
-  this.searchStartUID = null;
-  this.searchEndTS = null;
-  this.searchEndUID = null;
+  this.startTS = null;
+  this.startUID = null;
+  this.endTS = null;
+  this.endUID = null;
 
   var filters = [];
   if (whatToSearch.author)
@@ -506,9 +515,9 @@ function SearchSlice(bridgeHandle, storage, phrase, whatToSearch, _parentLog) {
   // Fetch as many headers as we want in our results; we probably will have
   // less than a 100% hit-rate, but there isn't much savings from getting the
   // extra headers now, so punt on those.
-  this.getMessagesInImapDateRange(0, $date.FUTURE(),
-                                  this.desiredHeaders,
-                                  this.desiredHeaders);
+  this._storage.getMessagesInImapDateRange(
+    0, $date.FUTURE(), this.desiredHeaders, this.desiredHeaders,
+    this._gotMessages.bind(this, 1));
 }
 exports.SearchSlice = SearchSlice;
 SearchSlice.prototype = {
@@ -519,23 +528,95 @@ SearchSlice.prototype = {
     this._bridgeHandle.atBottom = val;
   },
 
-  _getMoreMessages: function(dir, howMany) {
-  },
-
   _gotMessages: function(dir, headers, moreMessagesComing) {
+console.log('sf: gotMessages', headers.length);
     // update the range of what we have seen and searched
-    if (dir === -1) {
-      this.searchEndTS = headers[0].date;
-      this.searchEndUID = headers[0].id;
+    if (headers.length) {
+      if (dir === -1) { // (more recent)
+        this.endTS = headers[0].date;
+        this.endUID = headers[0].id;
+      }
+      else { // (older)
+        var lastHeader = headers[headers.length - 1];
+        this.startTS = lastHeader.date;
+        this.startUID = lastHeader.id;
+        if (this.endTS === null) {
+          this.endTS = headers[0].date;
+          this.endUID = headers[0].id;
+        }
+      }
+    }
+
+    var checkHandle = function checkHandle(headers, bodies) {
+      // run a filter on these
+      var matchPairs = [];
+      for (i = 0; i < headers.length; i++) {
+        var header = headers[i],
+            body = bodies ? bodies[i] : null;
+        var matchObj = this.filterer.testMessage(header, body);
+        if (matchObj)
+          matchPairs.push({ header: header, matches: matchObj });
+      }
+
+      var atTop = this.atTop = this._storage.headerIsYoungestKnown(
+                    this.endTS, this.endUID);
+      var atBottom = this.atBottom = this._storage.headerIsOldestKnown(
+                       this.startTS, this.startUID);
+      var canGetMore = (dir === -1) ? !atTop : !atBottom;
+      if (matchPairs.length) {
+        var willHave = this.headers.length + matchPairs.length,
+            wantMore = !moreMessagesComing &&
+                       (willHave < this.desiredHeaders) &&
+                       canGetMore;
+console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', wantMore);
+        var insertAt = dir === -1 ? 0 : this.headers.length;
+        this._bridgeHandle.sendSplice(
+          insertAt, 0, matchPairs, true,
+          moreMessagesComing || wantMore);
+        this.headers.splice.apply(this.headers,
+                                  [insertAt, 0].concat(matchPairs));
+        if (wantMore)
+          this.reqGrow(dir, false);
+      }
+      else if (!moreMessagesComing) {
+        // If there aren't more messages coming, we either need to get more
+        // messages (if there are any left in the folder that we haven't seen)
+        // or signal completion.  We can use our growth function directly since
+        // there are no state invariants that will get confused.
+        if (canGetMore)
+          this.reqGrow(dir, false);
+        else
+          this._bridgeHandle.sendStatus('synced', true, false);
+      }
+      // (otherwise we need to wait for the additional messages to show before
+      //  doing anything conclusive)
+    }.bind(this);
+
+    if (this.filterer.bodiesNeeded) {
+      // To batch our updates to the UI, just get all the bodies then advance
+      // to the next stage of processing.  It would be nice
+      var bodies = [];
+      var gotBody = function(body) {
+        if (!body)
+          console.log('failed to get a body for: ',
+                      headers[bodies.length].suid,
+                      headers[bodies.length].subject);
+        bodies.push(body);
+        if (bodies.length === headers.length)
+          checkHandle(headers, bodies);
+      };
+      for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        this._storage.getMessageBody(header.suid, header.date, gotBody);
+      }
     }
     else {
-      var lastHeader = headers[headers.length - 1];
-      this.searchStartTS = lastHeader.date;
-      this.searchStartUID = lastHeader.id;
+      checkHandle(headers, null);
     }
   },
 
   refresh: function() {
+    // no one should actually call this.
   },
 
   reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {
@@ -543,14 +624,70 @@ SearchSlice.prototype = {
     // of the first thing we are updating to adjust our range, but it's safest/
     // easiest right now to just use what we are left with.
 
+    // THIS CODE IS COPIED FROM `MailSlice`'s reqNoteRanges implementation
+
+    var i;
+    // - Fixup indices if required
+    if (firstIndex >= this.headers.length ||
+        this.headers[firstIndex].suid !== firstSuid) {
+      firstIndex = 0; // default to not splicing if it's gone
+      for (i = 0; i < this.headers.length; i++) {
+        if (this.headers[i].suid === firstSuid) {
+          firstIndex = i;
+          break;
+        }
+      }
+    }
+    if (lastIndex >= this.headers.length ||
+        this.headers[lastIndex].suid !== lastSuid) {
+      for (i = this.headers.length - 1; i >= 0; i--) {
+        if (this.headers[i].suid === lastSuid) {
+          lastIndex = i;
+          break;
+        }
+      }
+    }
+
+    // - Perform splices as required
+    // (high before low to avoid index changes)
+    if (lastIndex + 1 < this.headers.length) {
+      this.atBottom = false;
+      this.userCanGrowDownwards = false;
+      var delCount = this.headers.length - lastIndex  - 1;
+      this.desiredHeaders -= delCount;
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(
+          lastIndex + 1, delCount, [],
+          // This is expected; more coming if there's a low-end splice
+          true, firstIndex > 0);
+      this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
+      var lastHeader = this.headers[lastIndex];
+      this.startTS = lastHeader.date;
+      this.startUID = lastHeader.id;
+    }
+    if (firstIndex > 0) {
+      this.atTop = false;
+      this.desiredHeaders -= firstIndex;
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
+      this.headers.splice(0, firstIndex);
+      var firstHeader = this.headers[0];
+      this.endTS = firstHeader.date;
+      this.endUID = firstHeader.id;
+    }
   },
 
   reqGrow: function(dirMagnitude, userRequestsGrowth) {
-    if (dirMagnitude === -1)
-      dirMagnitude = -$syncbase.INITIAL_FILL_SIZE;
-    else if (dirMagnitude === 1)
-      dirMagnitude = $syncbase.INITIAL_FILL_SIZE;
-    this._storage.growSlice(this, dirMagnitude, userRequestsGrowth);
+    if (dirMagnitude === -1) {
+      this._storage.getMessagesAfterMessage(this.endTS, this.endUID,
+                                            $syncbase.INITIAL_FILL_SIZE,
+                                            this._gotMessages.bind(this, -1));
+    }
+    else if (dirMagnitude === 1) {
+      this._storage.getMessagesBeforeMessage(this.startTS, this.startUID,
+                                             $syncbase.INITIAL_FILL_SIZE,
+                                             this._gotMessages.bind(this, 1));
+    }
   },
 
   die: function() {
