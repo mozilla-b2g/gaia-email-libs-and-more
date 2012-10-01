@@ -11,6 +11,7 @@ define(
     'activesync/protocol',
     '../a64',
     '../mailslice',
+    '../searchfilter',
     './folder',
     './jobs',
     '../util',
@@ -25,6 +26,7 @@ define(
     $activesync,
     $a64,
     $mailslice,
+    $searchfilter,
     $asfolder,
     $asjobs,
     $util,
@@ -196,6 +198,13 @@ ActiveSyncAccount.prototype = {
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
+  },
+
+  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
+    var storage = this._folderStorages[folderId],
+        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
+                                              whatToSearch, this._LOG);
+    // the slice is self-starting, we don't need to call anything on storage
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
