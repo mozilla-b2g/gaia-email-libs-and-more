@@ -93,6 +93,7 @@ function MailBridge(universe) {
     identities: [],
     folders: [],
     headers: [],
+    matchedHeaders: [],
   };
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
@@ -403,6 +404,15 @@ console.log('done proc modifyConfig');
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
     account.sliceFolderMessages(msg.folderId, proxy);
+  },
+
+  _cmd_searchFolderMessages: function mb__cmd_searchFolderMessages(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, 'matchedHeaders', msg.handle);
+    this._slicesByType['matchedHeaders'].push(proxy);
+    var account = this.universe.getAccountForFolderId(msg.folderId);
+    account.searchFolderMessages(
+      msg.folderId, proxy, msg.phrase, msg.whatToSearch);
   },
 
   _cmd_refreshHeaders: function mb__cmd_refreshHeaders(msg) {

@@ -377,6 +377,29 @@ MailHeader.prototype = {
 };
 
 /**
+ * Represents a mail message that matched some search criteria by providing
+ * both the header and information about the matches that occurred.
+ */
+function MailMatchedHeader(slice, wireRep) {
+  this.header = new MailHeader(slice, wireRep.header);
+  this.matches = wireRep.matches;
+
+  this.element = null;
+  this.data = null;
+}
+MailMatchedHeader.prototype = {
+  toString: function() {
+    return '[MailMatchedHeader: ' + this.header.id + ']';
+  },
+  toJSON: function() {
+    return {
+      type: 'MailMatchedHeader',
+      id: this.header.id
+    };
+  },
+};
+
+/**
  * Lists the attachments in a message as well as providing a way to display the
  * body while (eventually) also accounting for message quoting.
  *
@@ -1102,6 +1125,13 @@ MailAPI.prototype = {
         }
         break;
 
+      case 'matchedHeaders':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailMatchedHeader(slice, addItems[i]));
+        }
+        break;
+
+
       default:
         console.error('Slice notification for unknown type:', slice._ns);
         break;
@@ -1510,12 +1540,39 @@ MailAPI.prototype = {
    * recipients, or subject fields, as well as (optionally), the body with a
    * default time constraint so we don't entirely kill the server or us.
    *
-   * Expected UX: run the search once without body, then the user can ask for
-   * the body search too if the first match doesn't meet their expectations.
+   * @args[
+   *   @param[folder]{
+   *     The folder whose messages we should search.
+   *   }
+   *   @param[text]{
+   *     The phrase to search for.  We don't split this up into words or
+   *     anything like that.  We just do straight-up indexOf on the whole thing.
+   *   }
+   *   @param[whatToSearch @dict[
+   *     @key[author #:optional Boolean]
+   *     @key[recipients #:optional Boolean]
+   *     @key[subject #:optional Boolean]
+   *     @key[body #:optional @oneof[false 'no-quotes' 'yes-quotes']]
+   *   ]]
+   * ]
    */
-  quicksearchFolderMessages:
-      function ma_quicksearchFolderMessages(folder, text, searchBodyToo) {
-    throw new Error("NOT YET IMPLEMENTED");
+  searchFolderMessages:
+      function ma_searchFolderMessages(folder, text, whatToSearch) {
+    var handle = this._nextHandle++,
+        slice = new BridgedViewSlice(this, 'matchedHeaders', handle);
+    // the initial population counts as a request.
+    slice.pendingRequestCount++;
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'searchFolderMessages',
+      folderId: folder.id,
+      handle: handle,
+      phrase: text,
+      whatToSearch: whatToSearch,
+    });
+
+    return slice;
   },
 
   //////////////////////////////////////////////////////////////////////////////

@@ -163,6 +163,11 @@ CompositeAccount.prototype = {
     return this._receivePiece.sliceFolderMessages(folderId, bridgeProxy);
   },
 
+  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
+    return this._receivePiece.searchFolderMessages(
+      folderId, bridgeHandle, phrase, whatToSearch);
+  },
+
   syncFolderList: function(callback) {
     return this._receivePiece.syncFolderList(callback);
   },
