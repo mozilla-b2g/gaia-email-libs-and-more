@@ -182,7 +182,7 @@ ActiveSyncJobDriver.prototype = {
       w.etag(as.Collections)
      .etag(as.Sync);
 
-    this.account.conn.doCommand(w, function(aError, aResponse) {
+    this.account.conn.postCommand(w, function(aError, aResponse) {
       if (aError)
         return;
 
