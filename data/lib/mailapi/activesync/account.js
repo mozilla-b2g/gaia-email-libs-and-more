@@ -566,7 +566,7 @@ ActiveSyncAccount.prototype = {
         }
       });
     }
-    else {
+    else { // ActiveSync 12.x and lower
       this.conn.postData('SendMail', 'message/rfc822',
                          composedMessage._outputBuffer,
                          function(aError, aResponse) {
