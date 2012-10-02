@@ -576,7 +576,7 @@ ActiveSyncAccount.prototype = {
 
         console.log('Sent message successfully!');
         callback(null);
-      });
+      }, { SaveInSent: 'T' });
     }
   },
 
