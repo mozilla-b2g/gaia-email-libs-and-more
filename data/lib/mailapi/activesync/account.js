@@ -535,6 +535,8 @@ ActiveSyncAccount.prototype = {
     composedMessage._cacheOutput = true;
     composedMessage._composeMessage();
 
+    // ActiveSync 14.0 has a completely different API for sending email. Make
+    // sure we format things the right way.
     if (this.conn.currentVersion.gte('14.0')) {
       const cm = $ascp.ComposeMail.Tags;
       let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
