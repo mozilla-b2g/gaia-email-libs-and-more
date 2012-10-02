@@ -103,7 +103,7 @@ ActiveSyncFolderConn.prototype = {
        .etag()
      .etag();
 
-    account.conn.doCommand(w, function(aError, aResponse) {
+    account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
         return;
@@ -190,7 +190,7 @@ ActiveSyncFolderConn.prototype = {
        .etag();
     }
 
-    account.conn.doCommand(w, function(aError, aResponse) {
+    account.conn.postCommand(w, function(aError, aResponse) {
       let added   = [];
       let changed = [];
       let deleted = [];
