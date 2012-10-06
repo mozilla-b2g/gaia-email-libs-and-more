@@ -52,16 +52,15 @@
  * continually checkpoint our state.
  *
  * All non-idempotent operations / operations that could result in data loss or
- * duplication require that we save our account state listing the operation and
- * that it is 'doing'.  In the event of a crash, this allows us to know that we
- * have to check the state of the operation for completeness before attempting
- * to run it again and allowing us to finish half-done things.  For particular
- * example, because moves consist of a copy followed by flagging a message
- * deleted, it is of the utmost importance that we don't get in a situation
- * where we have copied the messages but not deleted them and we crash.  In
- * that case, if we failed to persist our plans, we will have duplicated the
- * message (and the IMAP server would have no reason to believe that was not
- * our intent.)
+ * duplication require that we save our account state listing the operation.  In
+ * the event of a crash, this allows us to know that we have to check the state
+ * of the operation for completeness before attempting to run it again and
+ * allowing us to finish half-done things.  For particular example, because
+ * moves consist of a copy followed by flagging a message deleted, it is of the
+ * utmost importance that we don't get in a situation where we have copied the
+ * messages but not deleted them and we crash.  In that case, if we failed to
+ * persist our plans, we will have duplicated the message (and the IMAP server
+ * would have no reason to believe that was not our intent.)
  **/
 
 define(
@@ -179,8 +178,7 @@ ImapJobDriver.prototype = {
   do_download: function(op, callback) {
     var self = this;
     var idxLastSlash = op.messageSuid.lastIndexOf('/'),
-        folderId = op.messageSuid.substring(0, idxLastSlash),
-        uid = op.messageSuid.substring(idxLastSlash + 1);
+        folderId = op.messageSuid.substring(0, idxLastSlash);
 
     var folderConn, folderStorage;
     // Once we have the connection, get the current state of the body rep.
@@ -188,12 +186,17 @@ ImapJobDriver.prototype = {
       folderConn = _folderConn;
       folderStorage = _folderStorage;
 
-      folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+      folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
     };
     // Now that we have the body, we can know the part numbers and eliminate /
     // filter out any redundant download requests.  Issue all the fetches at
     // once.
-    var partsToDownload = [], bodyInfo;
+    var partsToDownload = [], header, bodyInfo, uid;
+    var gotHeader = function gotHeader(_headerInfo) {
+      header = _headerInfo;
+      uid = header.srvid;
+      folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+    };
     var gotBody = function gotBody(_bodyInfo) {
       bodyInfo = _bodyInfo;
       var i, partInfo;

@@ -136,12 +136,12 @@ const MAX_LOG_BACKLOG = 30;
  * @typedef[SerializedMutation @dict[
  *   @key[type @oneof[
  *     @case['modtags']{
- *       Modify tags by adding and/or removing them.  Idempotent and atomic under
- *       all implementations;  no explicit account saving required.
+ *       Modify tags by adding and/or removing them.  Idempotent and atomic
+ *       under all implementations; no explicit account saving required.
  *     }
  *     @case['delete']{
- *       Delete a message under the "move to trash" model.  For IMAP, this is the
- *       same as a move operation.
+ *       Delete a message under the "move to trash" model.  For IMAP, this is
+ *       the same as a move operation.
  *     }
  *     @case['move']{
  *       Move message(s) within the same account.  For IMAP, this is neither

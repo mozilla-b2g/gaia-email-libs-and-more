@@ -335,6 +335,7 @@ var TestImapAccountMixins = {
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
         },
+        null,
         function accountMaybeCreated(error) {
           if (error)
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +

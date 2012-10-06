@@ -299,7 +299,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
         // rather than splicing lists and causing shifts, we null out values.
         for (var iMsg = 0; iMsg < headers.length; iMsg++) {
           var header = headers[iMsg];
-          var idxUid = serverUIDs.indexOf(header.id);
+          var idxUid = serverUIDs.indexOf(header.srvid);
           // deleted!
           if (idxUid === -1) {
             storage.deleteMessageHeaderAndBody(header);
@@ -311,7 +311,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           // new messages to us.
           serverUIDs[idxUid] = null;
           // but save the UID so we can do a flag-check.
-          knownUIDs.push(header.id);
+          knownUIDs.push(header.srvid);
         }
 
         var newUIDs = compactArray(serverUIDs); // (re-labeling, same array)
@@ -478,7 +478,8 @@ console.log('   header processed');
             // If there are no parts to process, consume it now.
             if (chewRep.bodyParts.length === 0) {
               if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                          storage.folderId)) {
+                                          storage.folderId,
+                                          storage._issueNewHeaderId())) {
                 storage.addMessageHeader(chewRep.header);
                 storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
               }
@@ -513,7 +514,8 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
                     if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                                storage.folderId)) {
+                                                storage.folderId,
+                                                storage._issueNewHeaderId())) {
                       storage.addMessageHeader(chewRep.header);
                       storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                     }
@@ -548,7 +550,7 @@ console.log('  pending fetches', pendingFetches);
             var i = numFetched++;
             // RFC 3501 doesn't seem to require that we get results in the order
             // we request them, so use indexOf if things don't line up.
-            if (knownHeaders[i].id !== msg.id) {
+            if (knownHeaders[i].srvid !== msg.id) {
               i = knownUIDs.indexOf(msg.id);
               // If it's telling us about a message we don't know about, run away.
               if (i === -1) {

@@ -589,10 +589,19 @@ MailSlice.prototype = {
  * ]]
  * @typedef[HeaderInfo @dict[
  *   @key[id]{
- *     Either the UID or a more globally unique identifier (Gmail).
+ *     An id allocated by the back-end that names the message within the folder.
+ *     We use this instead of the server-issued UID because if we used the UID
+ *     for this purpose then we would still need to issue our own temporary
+ *     speculative id's for offline operations and would need to implement
+ *     renaming and it all gets complicated.
+ *   }
+ *   @key[srvid]{
+ *     The server-issued UID for the folder, or 0 if the folder is an offline
+ *     header.
  *   }
  *   @key[suid]{
- *     The id prefixed with the folder id and a dash.
+ *     Basically "account id/folder id/message id", although technically the
+ *     folder id includes the account id.
  *   }
  *   @key[author NameAddressPair]
  *   @key[date DateMS]
@@ -602,15 +611,16 @@ MailSlice.prototype = {
  *   @key[snippet String]
  * ]]
  * @typedef[HeaderBlock @dict[
- *   @key[uids @listof[UID]]{
- *     The UIDs of the headers in the same order.  This is intended as a fast
- *     parallel search mechanism.  It can be discarded if it doesn't prove
- *     useful.
+ *   @key[uids @listof[ID]]{
+ *     The issued-by-us-id's of the headers in the same order (not the IMAP
+ *     UID).  This is intended as a fast parallel search mechanism.  It can be
+ *     discarded if it doesn't prove useful.
  *   }
  *   @key[headers @listof[HeaderInfo]]{
- *     Headers in numerically decreasing time and UID order.  The header at
- *     index 0 should correspond to the 'end' characteristics of the blockInfo
- *     and the header at n-1 should correspond to the start characteristics.
+ *     Headers in numerically decreasing time and issued-by-us-ID order.  The
+ *     header at index 0 should correspond to the 'end' characteristics of the
+ *     blockInfo and the header at n-1 should correspond to the start
+ *     characteristics.
  *   }
  * ]]
  * @typedef[AttachmentInfo @dict[
@@ -701,7 +711,10 @@ MailSlice.prototype = {
  *   but our driving UI doesn't need it right now.
  * }
  * @typedef[BodyBlock @dict[
- *   @key[uids @listof[UID]]
+ *   @key[uids @listof[ID]]}
+ *     The issued-by-us id's of the messages; the order is parallel to the order
+ *     of `bodies.`
+ *   }
  *   @key[bodies @dictof[
  *     @key["unique identifier" UID]
  *     @value[BodyInfo]
@@ -909,6 +922,10 @@ FolderStorage.prototype = {
 
     if (doRun)
       this._invokeNextMutexedCall();
+  },
+
+  _issueNewHeaderId: function() {
+    return this._folderImpl.nextId++;
   },
 
   /**
@@ -2428,6 +2445,36 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
   },
 
   /**
+   * Retrieve a message header by its SUID and date; you would do this if you
+   * only had the SUID and date, like in a 'job'.
+   */
+  getMessageHeader: function ifs_getMessageHeader(suid, date, callback) {
+    var id = suid.substring(suid.lastIndexOf('/') + 1),
+        posInfo = this._findRangeObjIndexForDateAndUID(this._headerBlockInfos,
+                                                       date, id);
+    if (posInfo[1] === null) {
+      this._LOG.headerNotFound();
+      callback(null);
+      return;
+    }
+    var headerBlockInfo = posInfo[1], self = this;
+    if (!(this._headerBlocks.hasOwnProperty(headerBlockInfo.blockId))) {
+      this._loadBlock('header', headerBlockInfo.blockId, function(headerBlock) {
+          var headerInfo = headerBlock.bodies[id] || null;
+          if (!headerInfo)
+            self._LOG.headerNotFound();
+          callback(headerInfo);
+        });
+      return;
+    }
+    var block = this._headerBlocks[headerBlockInfo.blockId],
+        headerInfo = block.bodies[id] || null;
+    if (!headerInfo)
+      this._LOG.headerNotFound();
+    callback(headerInfo);
+  },
+
+  /**
    * Add a new message to the database, generating slice notifications.
    */
   addMessageHeader: function ifs_addMessageHeader(header) {
@@ -2485,13 +2532,13 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
    * This function can either be used to replace the header or to look it up
    * and then call a function to manipulate the header.
    */
-  updateMessageHeader: function ifs_updateMessageHeader(date, uid, partOfSync,
+  updateMessageHeader: function ifs_updateMessageHeader(date, id, partOfSync,
                                                         headerOrMutationFunc) {
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeader.bind(
-                                 this, date, uid, partOfSync,
+                                 this, date, id, partOfSync,
                                  headerOrMutationFunc));
       return;
     }
@@ -2500,12 +2547,12 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     // from memory thanks to the potential asynchrony due to pending loads or
     // on the part of the caller.
     var infoTuple = this._findRangeObjIndexForDateAndUID(
-                      this._headerBlockInfos, date, uid),
+                      this._headerBlockInfos, date, id),
         iInfo = infoTuple[0], info = infoTuple[1], self = this;
     function doUpdateHeader(block) {
-      var idx = block.uids.indexOf(uid), header;
+      var idx = block.uids.indexOf(id), header;
       if (idx === -1)
-        throw new Error("Failed to find UID " + uid + "!");
+        throw new Error("Failed to find ID " + id + "!");
       if (headerOrMutationFunc instanceof Function) {
         // If it returns false it means that the header did not change and so
         // there is no need to mark anything dirty and we can leave without
@@ -2529,9 +2576,9 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
               STRICTLY_AFTER(date, slice.endTS))
             continue;
           if ((date === slice.startTS &&
-               uid < slice.startUID) ||
+               id < slice.startUID) ||
               (date === slice.endTS &&
-               uid > slice.endUID))
+               id > slice.endUID))
             continue;
           slice.onHeaderModified(header);
         }
@@ -2543,19 +2590,19 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       doUpdateHeader(this._headerBlocks[info.blockId]);
   },
 
-  updateMessageHeaderByUid: function(uid, partOfSync, headerOrMutationFunc) {
+  updateMessageHeaderByUid: function(id, partOfSync, headerOrMutationFunc) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeaderByUid.bind(
-        this, uid, partOfSync, headerOrMutationFunc));
+        this, id, partOfSync, headerOrMutationFunc));
       return;
     }
 
     // XXX: this needs reworked and maybe merged with the function above
     for (var i in this._headerBlocks) {
       var block = this._headerBlocks[i];
-      var idx = block.uids.indexOf(uid);
+      var idx = block.uids.indexOf(id);
       if (idx !== -1)
-        return this.updateMessageHeader(block.headers[idx].date, uid,
+        return this.updateMessageHeader(block.headers[idx].date, id,
                                         partOfSync, headerOrMutationFunc);
     }
   },
@@ -2635,9 +2682,9 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
-    var uid = suid.substring(suid.lastIndexOf('/') + 1),
+    var id = suid.substring(suid.lastIndexOf('/') + 1),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
-                                                       date, uid);
+                                                       date, id);
     if (posInfo[1] === null) {
       this._LOG.bodyNotFound();
       callback(null);
@@ -2646,7 +2693,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     var bodyBlockInfo = posInfo[1], self = this;
     if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.blockId))) {
       this._loadBlock('body', bodyBlockInfo.blockId, function(bodyBlock) {
-          var bodyInfo = bodyBlock.bodies[uid] || null;
+          var bodyInfo = bodyBlock.bodies[id] || null;
           if (!bodyInfo)
             self._LOG.bodyNotFound();
           callback(bodyInfo);
@@ -2654,7 +2701,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       return;
     }
     var block = this._bodyBlocks[bodyBlockInfo.blockId],
-        bodyInfo = block.bodies[uid] || null;
+        bodyInfo = block.bodies[id] || null;
     if (!bodyInfo)
       this._LOG.bodyNotFound();
     callback(bodyInfo);
@@ -2669,12 +2716,12 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
    * be around in memory.
    */
   updateMessageBody: function(suid, date, bodyInfo) {
-    var uid = suid.substring(suid.lastIndexOf('/') + 1),
+    var id = suid.substring(suid.lastIndexOf('/') + 1),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
-                                                       date, uid);
+                                                       date, id);
     var bodyBlockInfo = posInfo[1],
         block = this._bodyBlocks[bodyBlockInfo.blockId];
-    block.bodies[uid] = bodyInfo;
+    block.bodies[id] = bodyInfo;
     this._dirty = true;
     this._dirtyBodyBlocks[bodyBlockInfo.blockId] = block;
   },
@@ -2729,6 +2776,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // This was an error but the test results viewer UI is not quite smart
       // enough to understand the difference between expected errors and
       // unexpected errors, so this is getting downgraded for now.
+      headerNotFound: {},
       bodyNotFound: {},
     },
     TEST_ONLY_events: {

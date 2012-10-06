@@ -31,9 +31,10 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 11 because of the introduction of the sync check interval.
+ * Bumping to 12 because IMAP is changing to issue its own suid's and store the
+ * server suid separately.
  */
-const CUR_VERSION = 11;
+const CUR_VERSION = 12;
 
 /**
  * What is the lowest database version that we are capable of performing a

@@ -194,6 +194,7 @@ ImapAccount.prototype = {
         depth: depth
       },
       $impl: {
+        nextId: 0,
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },

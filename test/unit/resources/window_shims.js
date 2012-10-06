@@ -72,6 +72,21 @@ var _window_mixin = {
           this._listener({});
       }
     },
+    mozApps: {
+      getSelf: function() {
+        var req = { onsuccess: null, onerror: null },
+            app = { installOrigin: '' };
+        window.setZeroTimeout(function() {
+          if (req.onsuccess)
+            req.onsuccess({
+              target: {
+                result: app,
+              }
+            });
+        });
+        return req;
+      },
+    },
     // By default we start up disabled, so it's not really a biggie either way.
     mozAlarms: {
       add: function() {},
