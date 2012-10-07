@@ -317,6 +317,7 @@ ActiveSyncAccount.prototype = {
         syncKey: '0',
       },
       $impl: {
+        nextId: 0,
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },

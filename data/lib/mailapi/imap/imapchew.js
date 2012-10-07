@@ -337,6 +337,7 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     // IMAP-server-issued UID so we can do speculative offline operations like
     // moves).
     id: newMsgId,
+    srvid: rep.msg.id,
     // The sufficiently unique id is a concatenation of the UID onto the
     // folder id.
     suid: folderId + '/' + newMsgId,
@@ -350,7 +351,6 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
     hasAttachments: rep.attachments.length > 0,
     subject: rep.msg.msg.subject,
     snippet: snippet,
-    srvid: rep.msg.id,
   };
 
 

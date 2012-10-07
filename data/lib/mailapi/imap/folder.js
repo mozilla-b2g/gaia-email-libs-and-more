@@ -146,6 +146,21 @@ ImapFolderConn.prototype = {
    * Acquire a connection and invoke the callback once we have it and we have
    * entered the folder.  This method should only be called when running
    * inside `runMutexed`.
+   *
+   * @args[
+   *   @param[callback @func[
+   *     @args[
+   *       @param[folderConn ImapFolderConn]
+   *       @param[storage FolderStorage]
+   *     ]
+   *   ]]
+   *   @param[deathback Function]{
+   *     Invoked if the connection dies.
+   *   }
+   *   @param[label String]{
+   *     A debugging label to name the purpose of the connection.
+   *   }
+   * ]
    */
   acquireConn: function(callback, deathback, label) {
     var self = this, handedOff = false;
@@ -170,10 +185,11 @@ ImapFolderConn.prototype = {
             }
             self.box = box;
             handedOff = true;
-            callback(self);
+            callback(self, self._storage);
           });
       },
       function deadconn() {
+        self._conn = null;
         if (handedOff && deathback)
           deathback();
       });
@@ -548,8 +564,11 @@ console.log('  pending fetches', pendingFetches);
           // msg right now, but let's wait on an optimization pass.)
           msg.on('end', function onKnownMsgEnd() {
             var i = numFetched++;
-            // RFC 3501 doesn't seem to require that we get results in the order
-            // we request them, so use indexOf if things don't line up.
+console.log('FETCHED', i, 'known id', knownHeaders[i].id,
+            'known srvid', knownHeaders[i].srvid, 'actual id', msg.id);
+            // RFC 3501 doesn't require that we get results in the order we
+            // request them, so use indexOf if things don't line up.  (In fact,
+            // dovecot sorts them, so we might just want to sort ours too.)
             if (knownHeaders[i].srvid !== msg.id) {
               i = knownUIDs.indexOf(msg.id);
               // If it's telling us about a message we don't know about, run away.
@@ -561,6 +580,8 @@ console.log('  pending fetches', pendingFetches);
             var header = knownHeaders[i];
             // (msg.flags comes sorted and we maintain that invariant)
             if (header.flags.toString() !== msg.flags.toString()) {
+console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
+             msg.flags.toString() + '"');
               header.flags = msg.flags;
               storage.updateMessageHeader(header.date, header.id, true, header);
             }

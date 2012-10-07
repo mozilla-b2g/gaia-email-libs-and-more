@@ -738,6 +738,10 @@ var TestImapAccountMixins = {
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
       var changeEntries = changeMap[item.subject];
+      if (!changeEntries) {
+        self._logger.unexpectedChange(item.subject);
+        return;
+      }
       changeEntries.forEach(function(changeEntry) {
         if (item[changeEntry.field] !== changeEntry.value)
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
@@ -947,6 +951,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     errors: {
       folderCreationError: { err: false },
+      unexpectedChange: { subject: false },
       changeMismatch: { field: false, expectedValue: false },
     },
   },

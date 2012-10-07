@@ -603,6 +603,9 @@ MailSlice.prototype = {
  *     Basically "account id/folder id/message id", although technically the
  *     folder id includes the account id.
  *   }
+ *   @key[guid String]{
+ *     This is the message-id header value of the message.
+ *   }
  *   @key[author NameAddressPair]
  *   @key[date DateMS]
  *   @key[flags @listof[String]]
@@ -758,6 +761,8 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._bodyBlockInfos = persistedFolderInfo.bodyBlocks;
 
+  this._serverIdMapping = persistedFolderInfo.serverIdMapping;
+
   /** @dictof[@key[BlockId] @value[HeaderBlock]] */
   this._headerBlocks = {};
   /** @dictof[@key[BlockId] @value[BodyBlock]] */
@@ -874,7 +879,7 @@ FolderStorage.prototype = {
       }
       self._mutexQueue.shift();
       // Although everything should be async, avoid stack explosions by
-      // deferring the execution to a future turn of th eevent loop.
+      // deferring the execution to a future turn of the event loop.
       if (self._mutexQueue.length)
         window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
       else if (self._slices.length === 0)
@@ -2460,7 +2465,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     var headerBlockInfo = posInfo[1], self = this;
     if (!(this._headerBlocks.hasOwnProperty(headerBlockInfo.blockId))) {
       this._loadBlock('header', headerBlockInfo.blockId, function(headerBlock) {
-          var headerInfo = headerBlock.bodies[id] || null;
+          var idx = headerBlock.uids.indexOf(id);
+          var headerInfo = headerBlock.headers[idx] || null;
           if (!headerInfo)
             self._LOG.headerNotFound();
           callback(headerInfo);
@@ -2468,10 +2474,29 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       return;
     }
     var block = this._headerBlocks[headerBlockInfo.blockId],
-        headerInfo = block.bodies[id] || null;
+        idx = block.uids.indexOf(id),
+        headerInfo = block.headers[id] || null;
     if (!headerInfo)
       this._LOG.headerNotFound();
     callback(headerInfo);
+  },
+
+  /**
+   * Retrieve multiple message headers.
+   */
+  getMessageHeaders: function ifs_getMessageHeaders(namers, callback) {
+    var headers = [];
+    var gotHeader = function gotHeader(header) {
+      headers.push(header);
+console.log('GOT', header.id, header.suid, header.date);
+      if (headers.length === namers.length)
+        callback(headers);
+    };
+    for (var i = 0; i < namers.length; i++) {
+      var namer = namers[i];
+console.log('ASKING FOR', namer.suid, namer.date);
+      this.getMessageHeader(namer.suid, namer.date, gotHeader);
+    }
   },
 
   /**
@@ -2650,14 +2675,24 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     this._deleteFromBlock('body', header.date, header.id, null);
   },
 
-  deleteMessageByUid: function(uid) {
+  /**
+   * Delete a message header and its body using only the server id for the
+   * message.  This requires that `serverIdMapping` was enabled.  Currently,
+   * the mapping is a naive, always-in-memory (at least as long as the
+   * FolderStorage is in memory) map.
+   */
+  deleteMessageByServerId: function(srvid) {
+    if (!this._serverIdMapping)
+      throw new Error('Server ID mapping not supported for this storage!');
+
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.deleteMessageByUid.bind(this, uid));
+      this._deferredCalls.push(this.deleteMessageByServerId.bind(this, srvid));
       return;
     }
 
     for (var i in this._headerBlocks) {
       var block = this._headerBlocks[i];
+
       var idx = block.uids.indexOf(uid);
       if (idx !== -1)
         return this.deleteMessageHeaderAndBody(block.headers[idx]);

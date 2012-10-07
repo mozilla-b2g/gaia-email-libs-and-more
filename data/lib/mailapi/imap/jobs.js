@@ -124,20 +124,105 @@ ImapJobDriver.prototype = {
    *
    * This will ideally be migrated to whatever mechanism we end up using for
    * mailjobs.
+   *
+   * @args[
+   *   @param[folderId]
+   *   @param[callback @func[
+   *     @args[
+   *       @param[folderConn ImapFolderConn]
+   *       @param[folderStorage FolderStorage]
+   *     ]
+   *   ]]
+   *   @param[deathback Function]
+   *   @param[label String]{
+   *     The label to identify this usage for debugging purposes.
+   *   }
+   * ]
    */
-  _accessFolderForMutation: function(folderId, callback, label) {
+  _accessFolderForMutation: function(folderId, callback, deathback, label) {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
     storage.runMutexed(label, function(releaseMutex) {
       self._heldMutexReleasers.push(releaseMutex);
       var syncer = storage.folderSyncer;
       if (!syncer.folderConn._conn) {
-        syncer.folderConn.acquireConn(callback, label);
+        syncer.folderConn.acquireConn(callback, deathback, label);
       }
       else {
         callback(syncer.folderConn, storage);
       }
     });
+  },
+
+  /**
+   * Partition messages identified by namers by folder, then invoke the callback
+   * once per folder, passing in the loaded message header objects for each
+   * folder.
+   *
+   * @args[
+   *   @param[messageNamers @listof[MessageNamer]]
+   *   @param[callInFolder @func[
+   *     @args[
+   *       @param[folderConn ImapFolderConn]
+   *       @param[folderStorage FolderStorage]
+   *       @param[headers @listof[HeaderInfo]]
+   *       @param[callWhenDoneWithFolder Function]
+   *     ]
+   *   ]]
+   *   @param[callWhenDone Function]
+   *   @param[reverse #:optional Boolean]{
+   *     Should we walk the partitions in reverse order?
+   *   }
+   *   @param[label String]{
+   *     The label to use to name the usage of the folder connection.
+   *   }
+   * ]
+   */
+  _partitionAndAccessFoldersSequentually: function(messageNamers,
+                                                   callInFolder,
+                                                   callWhenDone,
+                                                   callOnConnLoss,
+                                                   reverse,
+                                                   label) {
+    var partitions = $imaputil.partitionMessagesByFolderId(messageNamers, true);
+    var folderConn, storage, self = this,
+        folderId = null, messageIds = null,
+        iNextPartition = 0, curPartition = null, modsToGo = 0;
+
+    if (reverse)
+      partitions.reverse();
+
+    var openNextFolder = function openNextFolder() {
+      if (iNextPartition >= partitions.length) {
+        callWhenDone(null);
+        return;
+      }
+      if (iNextPartition) {
+        folderConn = null;
+        // release the mutex on the folder we were in
+        var releaser = self._heldMutexReleasers.pop();
+        if (releaser)
+          releaser();
+        folderConn = null;
+      }
+
+      curPartition = partitions[iNextPartition++];
+      messageIds = curPartition.messages;
+      if (curPartition.folderId !== folderId) {
+        folderId = curPartition.folderId;
+        self._accessFolderForMutation(folderId, gotFolderConn, callOnConnLoss,
+                                      label);
+      }
+    };
+    var gotFolderConn = function gotFolderConn(_folderConn, _storage) {
+      folderConn = _folderConn;
+      storage = _storage;
+      storage.getMessageHeaders(curPartition.messages, gotHeaders);
+    };
+    var gotHeaders = function gotHeaders(headers) {
+      callInFolder(folderConn, storage, headers, openNextFolder);
+    };
+    openNextFolder();
   },
 
   /**
@@ -148,7 +233,7 @@ ImapJobDriver.prototype = {
    * The connection will be automatically released when the operation completes,
    * there is no need to release it directly.
    */
-  _acquireConnWithoutFolder: function(label, callback) {
+  _acquireConnWithoutFolder: function(label, callback, deathback) {
     const self = this;
     this.account.__folderDemandsConnection(
       null, label,
@@ -157,7 +242,9 @@ ImapJobDriver.prototype = {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
         callback(conn);
-      });
+      },
+      deathback
+    );
   },
 
   postJobCleanup: function() {
@@ -187,6 +274,9 @@ ImapJobDriver.prototype = {
       folderStorage = _folderStorage;
 
       folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
+    };
+    var deadConn = function deadConn() {
+      callback('aborted-retry');
     };
     // Now that we have the body, we can know the part numbers and eliminate /
     // filter out any redundant download requests.  Issue all the fetches at
@@ -234,7 +324,7 @@ ImapJobDriver.prototype = {
       callback(err, bodyInfo, true);
     };
 
-    self._accessFolderForMutation(folderId, gotConn, 'download');
+    self._accessFolderForMutation(folderId, gotConn, deadConn, 'download');
   },
 
   check_download: function(op, callback) {
@@ -292,8 +382,8 @@ ImapJobDriver.prototype = {
           lslash = msgNamer.suid.lastIndexOf('/'),
           // folder id's are strings!
           folderId = msgNamer.suid.substring(0, lslash),
-          // uid's are not strings!
-          uid = parseInt(msgNamer.suid.substring(lslash + 1)),
+          // id's are not strings (for IMAP)!
+          id = parseInt(msgNamer.suid.substring(lslash + 1)),
           storage;
       if (folderId === lastFolderId) {
         storage = lastStorage;
@@ -303,69 +393,57 @@ ImapJobDriver.prototype = {
           this.account.getFolderStorageForFolderId(folderId);
         lastFolderId = folderId;
       }
-      storage.updateMessageHeader(msgNamer.date, uid, false, modifyHeader);
+      storage.updateMessageHeader(msgNamer.date, id, false, modifyHeader);
     }
 
     return null;
   },
 
-  do_modtags: function(op, callback, undo) {
-    var partitions = $imaputil.partitionMessagesByFolderId(op.messages, true);
-    var folderConn, self = this,
-        folderId = null, messages = null,
-        iNextPartition = 0, curPartition = null, modsToGo = 0;
-
+  do_modtags: function(op, jobDoneCallback, undo) {
     var addTags = undo ? op.removeTags : op.addTags,
         removeTags = undo ? op.addTags : op.removeTags;
 
-    // Perform the 'undo' in the opposite order of the 'do' so that our progress
-    // count is always relative to the normal order.
-    if (undo)
-      partitions.reverse();
+    var aggrErr = null;
 
-    function openNextFolder() {
-      if (iNextPartition >= partitions.length) {
-        done(null);
-        return;
-      }
-
-      curPartition = partitions[iNextPartition++];
-      messages = curPartition.messages;
-      if (curPartition.folderId !== folderId) {
-        if (folderConn)
-          folderConn = null;
-        folderId = curPartition.folderId;
-        self._accessFolderForMutation(folderId, gotFolderConn, 'modtags');
-      }
-    }
-    function gotFolderConn(_folderConn) {
-      folderConn = _folderConn;
-      if (addTags) {
-        modsToGo++;
-        folderConn._conn.addFlags(messages, addTags, tagsModded);
-      }
-      if (removeTags) {
-        modsToGo++;
-        folderConn._conn.delFlags(messages, removeTags, tagsModded);
-      }
-    }
-    function tagsModded(err) {
-      if (err) {
-        console.error('failure modifying tags', err);
-        done('unknown');
-        return;
-      }
-      op.progress += (undo ? -curPartition.messages.length
-                           : curPartition.messages.length);
-      if (--modsToGo === 0)
-        openNextFolder();
-    }
-    function done(errString) {
-      if (folderConn)
-        folderConn = null;
-      callback(errString);
-    }
-    openNextFolder();
+    this._partitionAndAccessFoldersSequentually(
+      op.messages,
+      function perFolder(folderConn, storage, headers, callWhenDone) {
+        var modsToGo = 0;
+        function tagsModded(err) {
+          if (err) {
+            console.error('failure modifying tags', err);
+            aggrErr = 'unknown';
+            return;
+          }
+          op.progress += (undo ? -headers.length : headers.length);
+          if (--modsToGo === 0)
+            callWhenDone();
+        }
+        var uids = [];
+        for (var i = 0; i < headers.length; i++) {
+console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
+          var uid = headers[i].srvid;
+          // If the header is somehow an offline header, it will be zero and
+          // there is nothing we can really do for it.
+          if (uid)
+            uids.push(uid);
+        }
+        if (addTags) {
+          modsToGo++;
+          folderConn._conn.addFlags(uids, addTags, tagsModded);
+        }
+        if (removeTags) {
+          modsToGo++;
+          folderConn._conn.delFlags(uids, removeTags, tagsModded);
+        }
+      },
+      function allDone() {
+        jobDoneCallback(aggrErr);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      undo, 'modtags');
   },
 
   check_modtags: function(op, callback) {
@@ -530,7 +608,7 @@ ImapJobDriver.prototype = {
         folderMeta = storage.folderMeta,
         iNextMessage = 0;
 
-    function gotFolderConn(_folderConn) {
+    var gotFolderConn = function gotFolderConn(_folderConn) {
       if (!_folderConn) {
         done('unknown');
         return;
@@ -540,19 +618,22 @@ ImapJobDriver.prototype = {
         multiappend();
       else
         append();
-    }
-    function multiappend() {
+    };
+    var deadConn = function deadConn() {
+      callback('aborted-retry');
+    };
+    var multiappend = function multiappend() {
       iNextMessage = op.messages.length;
       folderConn._conn.multiappend(op.messages, appended);
-    }
-    function append() {
+    };
+    var append = function append() {
       var message = op.messages[iNextMessage++];
       folderConn._conn.append(
         message.messageText,
         message, // (it will ignore messageText)
         appended);
-    }
-    function appended(err) {
+    };
+    var appended = function appended(err) {
       if (err) {
         console.error('failure appending message', err);
         done('unknown');
@@ -562,14 +643,15 @@ ImapJobDriver.prototype = {
         append();
       else
         done(null);
-    }
-    function done(errString) {
+    };
+    var done = function done(errString) {
       if (folderConn)
         folderConn = null;
       callback(errString);
-    }
+    };
 
-    this._accessFolderForMutation(op.folderId, gotFolderConn, 'append');
+    this._accessFolderForMutation(op.folderId, gotFolderConn, deadConn,
+                                  'append');
   },
 
   /**

@@ -38,12 +38,14 @@ function makeTestContext() {
         depth: 0
       },
       $impl: {
+        nextId: 0,
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
       accuracy: [],
       headerBlocks: [],
-      bodyBlocks: []
+      bodyBlocks: [],
+      serverIdMapping: {},
     },
     db,
     null);
@@ -116,6 +118,7 @@ function makeTestContext() {
       var headerInfo = {
         date: date,
         id: uid,
+        srvid: uid,
         suid: folderId + '/' + uid,
         guid: uid,
       };

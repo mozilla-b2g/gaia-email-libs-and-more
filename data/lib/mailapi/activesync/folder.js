@@ -131,7 +131,7 @@ ActiveSyncFolderConn.prototype = {
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
    */
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
-    let folderConn = this;
+    let folderConn = this, storage = this._storage;
     let account = this._account;
 
     if (!account.conn.connected) {
@@ -231,6 +231,7 @@ ActiveSyncFolderConn.prototype = {
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
                          function(node) {
+        let id;
         let guid;
         let msg;
 
@@ -245,8 +246,11 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        msg.header.guid = msg.header.id = guid;
-        msg.header.suid = folderConn._storage.folderId + '/' + guid;
+        msg.header.id = id = storage._issueNewHeaderId();
+        msg.header.srvid = guid;
+        msg.header.suid = folderConn._storage.folderId + '/' + id;
+        // XXX need to get the message's message-id header value!
+        msg.header.guid = '';
 
         let collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
@@ -304,6 +308,7 @@ ActiveSyncFolderConn.prototype = {
     if (isAdded) {
       header = {
         id: null,
+        srvid: null,
         suid: null,
         guid: null,
         author: null,
@@ -348,7 +353,7 @@ ActiveSyncFolderConn.prototype = {
           }
 
           // Merge everything else
-          const skip = ['mergeInto', 'suid', 'guid', 'id', 'flags'];
+          const skip = ['mergeInto', 'suid', 'srvid', 'guid', 'id', 'flags'];
           for (let [key, value] in Iterator(this)) {
             if (skip.indexOf(key) !== -1)
               continue;
@@ -498,7 +503,7 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,messageGuid] in Iterator(deleted)) {
-        storage.deleteMessageByUid(messageGuid);
+        storage.deleteMessageByServerId(messageGuid);
       }
 
       messagesSeen += added.length + changed.length + deleted.length;

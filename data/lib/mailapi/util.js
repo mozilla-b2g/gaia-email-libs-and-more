@@ -77,16 +77,28 @@ var bsearchMaybeExists = exports.bsearchMaybeExists =
   return null;
 };
 
+/**
+ * Partition a list of messages (identified by message namers, aka the suid and
+ * date of the message) by the folder they belong to.
+ *
+ * @args[
+ *   @param[messageNamers @listof[MessageNamer]]
+ *   @param[keepNamers Boolean]{
+ *     If true, we return the message namer intact, if false, we unpack it to
+ *     only return the suid.  The purpose of this field has changed; right
+ *     now the deal is that IMAP passes true and ActiveSync passes false.
+ *   }
+ * ]
+ */
 exports.partitionMessagesByFolderId =
-    function partitionMessagesByFolderId(messageNamers, onlyKeepMsgId) {
+    function partitionMessagesByFolderId(messageNamers, keepNamers) {
   var results = [], foldersToMsgs = {};
   for (var i = 0; i < messageNamers.length; i++) {
     var messageSuid = messageNamers[i].suid,
         idxLastSlash = messageSuid.lastIndexOf('/'),
         folderId = messageSuid.substring(0, idxLastSlash),
         // if we only want the UID, do so, but make sure to parse it as a #!
-        useId = onlyKeepMsgId ? parseInt(messageSuid.substring(idxLastSlash+1))
-                              : messageSuid;
+        useId = keepNamers ? messageNamers[i] : messageSuid;
 
     if (!foldersToMsgs.hasOwnProperty(folderId)) {
       var messages = [useId];
