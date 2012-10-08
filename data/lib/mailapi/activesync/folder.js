@@ -246,11 +246,13 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        msg.header.id = id = storage._issueNewHeaderId();
+        if (node.tag === as.Add) {
+          msg.header.id = id = storage._issueNewHeaderId();
+          msg.header.suid = folderConn._storage.folderId + '/' + id;
+          msg.header.guid = '';
+        }
         msg.header.srvid = guid;
-        msg.header.suid = folderConn._storage.folderId + '/' + id;
         // XXX need to get the message's message-id header value!
-        msg.header.guid = '';
 
         let collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
@@ -494,8 +496,8 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,message] in Iterator(changed)) {
-        storage.updateMessageHeaderByUid(message.header.id, true,
-                                         function(oldHeader) {
+        storage.updateMessageHeaderByServerId(message.header.srvid, true,
+                                              function(oldHeader) {
           message.header.mergeInto(oldHeader);
           return true;
         });

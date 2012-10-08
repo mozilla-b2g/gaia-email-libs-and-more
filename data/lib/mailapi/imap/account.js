@@ -158,6 +158,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    */
   this.mutations = this._folderInfos.$mutations;
   this.deferredMutations = this._folderInfos.$deferredMutations;
+  this.tzOffset = compositeAccount.accountDef.tzOffset;
   for (var folderId in folderInfos) {
     if (folderId[0] === '$')
       continue;
@@ -201,6 +202,7 @@ ImapAccount.prototype = {
       accuracy: [],
       headerBlocks: [],
       bodyBlocks: [],
+      serverIdHeaderBlockMapping: null, // IMAP does not need the mapping
     };
     this._folderStorages[folderId] =
       new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,

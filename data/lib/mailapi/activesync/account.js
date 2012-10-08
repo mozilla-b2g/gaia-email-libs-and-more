@@ -324,6 +324,7 @@ ActiveSyncAccount.prototype = {
       accuracy: [],
       headerBlocks: [],
       bodyBlocks: [],
+      serverIdHeaderBlockMapping: {},
     };
 
     console.log('Added folder ' + displayName + ' (' + folderId + ')');

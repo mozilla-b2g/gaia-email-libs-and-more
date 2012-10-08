@@ -351,13 +351,9 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     // apply a timezone to the question we ask it and will not actually tell us
     // dates lined up with UTC.  Accordingly, we don't want our DB query to
     // be lined up with UTC but instead the time zone.
-    // XXX STOPGAP HACK for now: just assume the server is in GMT-7 since
-    // yahoo.com appears to be in GMT-7.  We handle this by adding 7 hours
-    // because the search is run using an effective GMT-7, which means that
-    // if it 11:59pm on the day, it would be 6:59am in UTC land.
     const HACK_TZ_OFFSET = 7 * 60 * 60 * 1000;
-    var skewedStartTS = startTS + HACK_TZ_OFFSET,
-        skewedEndTS = endTS ? endTS + HACK_TZ_OFFSET : null;
+    var skewedStartTS = startTS - this._account.tzOffset,
+        skewedEndTS = endTS ? endTS - this._account.tzOffset : null;
     console.log('Skewed DB lookup. Start: ',
                 skewedStartTS, new Date(skewedStartTS).toUTCString(),
                 'End: ', skewedEndTS,

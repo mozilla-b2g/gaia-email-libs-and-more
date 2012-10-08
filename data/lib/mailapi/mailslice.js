@@ -618,6 +618,9 @@ MailSlice.prototype = {
  *     The issued-by-us-id's of the headers in the same order (not the IMAP
  *     UID).  This is intended as a fast parallel search mechanism.  It can be
  *     discarded if it doesn't prove useful.
+ *
+ *     XXX We want to rename this to be "ids" in a refactoring pass in the
+ *     future.
  *   }
  *   @key[headers @listof[HeaderInfo]]{
  *     Headers in numerically decreasing time and issued-by-us-ID order.  The
@@ -761,7 +764,18 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._bodyBlockInfos = persistedFolderInfo.bodyBlocks;
 
-  this._serverIdMapping = persistedFolderInfo.serverIdMapping;
+  /**
+   * @oneof[null @dictof[
+   *   @key[ServerID]{
+   *     The "srvid" value of a header entry.
+   *   }
+   *   @value[BlockID]{
+   *     The block the header is stored in.
+   *   }
+   * ]]
+   */
+  this._serverIdHeaderBlockMapping =
+    persistedFolderInfo.serverIdHeaderBlockMapping;
 
   /** @dictof[@key[BlockId] @value[HeaderBlock]] */
   this._headerBlocks = {};
@@ -957,6 +971,17 @@ FolderStorage.prototype = {
     this._dirty = true;
     this._headerBlocks[blockId] = block;
     this._dirtyHeaderBlocks[blockId] = block;
+
+    // Update the server id mapping if we are maintaining one.
+    if (this._serverIdHeaderBlockMapping && headers) {
+      var srvMapping = this._serverIdHeaderBlockMapping;
+      for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (header.srvid)
+          srvMapping[header.srvid] = blockId;
+      }
+    }
+
     return blockInfo;
   },
 
@@ -1012,6 +1037,7 @@ FolderStorage.prototype = {
 
     var olderNumHeaders = splock.headers.length - numHeaders,
         olderEndHeader = splock.headers[numHeaders],
+        // (This will update the server id mappings for the headers too)
         olderInfo = this._makeHeaderBlock(
                       // Take the start info from the block, because it may have
                       // been extended beyond the header (for an insertion if
@@ -1216,12 +1242,12 @@ FolderStorage.prototype = {
         return [i, null];
       // therefore BEFORE(date, info.endTS) ||
       //           (date === info.endTS && uid <= info.endUID)
-
       if (STRICTLY_AFTER(date, info.startTS) ||
           (date === info.startTS && uid >= info.startUID))
         return [i, info];
       // (Older than the startTS, keep going.)
     }
+
     return [i, null];
   },
 
@@ -1377,11 +1403,13 @@ FolderStorage.prototype = {
    * ]
    */
   _insertIntoBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
-      type, date, uid, estSizeCost, thing, blockPickedCallback) {
-    var blockInfoList, blockMap, makeBlock, insertInBlock, splitBlock;
+      type, date, uid, srvid, estSizeCost, thing, blockPickedCallback) {
+    var blockInfoList, blockMap, makeBlock, insertInBlock, splitBlock,
+        serverIdBlockMapping;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
       blockMap = this._headerBlocks;
+      serverIdBlockMapping = this._serverIdHeaderBlockMapping;
       makeBlock = this._bound_makeHeaderBlock;
       insertInBlock = this._bound_insertHeaderInBlock;
       splitBlock = this._bound_splitHeaderBlock;
@@ -1389,6 +1417,7 @@ FolderStorage.prototype = {
     else {
       blockInfoList = this._bodyBlockInfos;
       blockMap = this._bodyBlocks;
+      serverIdBlockMapping = null; // only headers have the mapping
       makeBlock = this._bound_makeBodyBlock;
       insertInBlock = this._bound_insertBodyInBlock;
       splitBlock = this._bound_splitBodyBlock;
@@ -1510,6 +1539,8 @@ FolderStorage.prototype = {
         }
       }
       // otherwise, no split necessary, just use it
+      if (serverIdBlockMapping)
+        serverIdBlockMapping[srvid] = info.blockId;
 
       if (blockPickedCallback)
         blockPickedCallback(info, block);
@@ -2454,7 +2485,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
    * only had the SUID and date, like in a 'job'.
    */
   getMessageHeader: function ifs_getMessageHeader(suid, date, callback) {
-    var id = suid.substring(suid.lastIndexOf('/') + 1),
+    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndUID(this._headerBlockInfos,
                                                        date, id);
     if (posInfo[1] === null) {
@@ -2475,7 +2506,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     }
     var block = this._headerBlocks[headerBlockInfo.blockId],
         idx = block.uids.indexOf(id),
-        headerInfo = block.headers[id] || null;
+        headerInfo = block.headers[idx] || null;
     if (!headerInfo)
       this._LOG.headerNotFound();
     callback(headerInfo);
@@ -2541,7 +2572,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
 
 
     this._insertIntoBlockUsingDateAndUID(
-      'header', header.date, header.id, HEADER_EST_SIZE_IN_BYTES,
+      'header', header.date, header.id, header.srvid, HEADER_EST_SIZE_IN_BYTES,
       header, null);
   },
 
@@ -2615,21 +2646,41 @@ console.log('ASKING FOR', namer.suid, namer.date);
       doUpdateHeader(this._headerBlocks[info.blockId]);
   },
 
-  updateMessageHeaderByUid: function(id, partOfSync, headerOrMutationFunc) {
+  /**
+   * Retrieve and update a header by locating it
+   */
+  updateMessageHeaderByServerId: function(srvid, partOfSync,
+                                          headerOrMutationFunc) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeaderByUid.bind(
-        this, id, partOfSync, headerOrMutationFunc));
+        this, srvid, partOfSync, headerOrMutationFunc));
       return;
     }
 
-    // XXX: this needs reworked and maybe merged with the function above
-    for (var i in this._headerBlocks) {
-      var block = this._headerBlocks[i];
-      var idx = block.uids.indexOf(id);
-      if (idx !== -1)
-        return this.updateMessageHeader(block.headers[idx].date, id,
-                                        partOfSync, headerOrMutationFunc);
+    var blockId = this._serverIdHeaderBlockMapping[srvid];
+    if (srvid === undefined) {
+      this._LOG.serverIdMappingMissing(srvid);
+      return;
     }
+
+    var findInBlock = function findInBlock(headerBlock) {
+      var headers = headerBlock.headers;
+      for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (header.srvid === srvid) {
+          // future work: this method will duplicate some work to re-locate
+          // the header; we could try and avoid doing that.
+          this.updateMessageHeader(
+            header.date, header.id, partOfSync, headerOrMutationFunc);
+          return;
+        }
+      }
+    }.bind(this);
+
+    if (this._headerBlocks.hasOwnProperty(blockId))
+      findInBlock(this._headerBlocks(blockId));
+    else
+      this._loadBlock('header', blockId, findInBlock);
   },
 
   /**
@@ -2671,18 +2722,20 @@ console.log('ASKING FOR', namer.suid, namer.date);
       }
     }
 
+    if (this._serverIdHeaderBlockMapping && header.srvid)
+      delete this._serverIdHeaderBlockMapping[header.srvid];
     this._deleteFromBlock('header', header.date, header.id, null);
     this._deleteFromBlock('body', header.date, header.id, null);
   },
 
   /**
    * Delete a message header and its body using only the server id for the
-   * message.  This requires that `serverIdMapping` was enabled.  Currently,
-   * the mapping is a naive, always-in-memory (at least as long as the
-   * FolderStorage is in memory) map.
+   * message.  This requires that `serverIdHeaderBlockMapping` was enabled.
+   * Currently, the mapping is a naive, always-in-memory (at least as long as
+   * the FolderStorage is in memory) map.
    */
   deleteMessageByServerId: function(srvid) {
-    if (!this._serverIdMapping)
+    if (!this._serverIdHeaderBlockMapping)
       throw new Error('Server ID mapping not supported for this storage!');
 
     if (this._pendingLoads.length) {
@@ -2690,15 +2743,27 @@ console.log('ASKING FOR', namer.suid, namer.date);
       return;
     }
 
-    for (var i in this._headerBlocks) {
-      var block = this._headerBlocks[i];
-
-      var idx = block.uids.indexOf(uid);
-      if (idx !== -1)
-        return this.deleteMessageHeaderAndBody(block.headers[idx]);
+    var blockId = this._serverIdHeaderBlockMapping[srvid];
+    if (srvid === undefined) {
+      this._LOG.serverIdMappingMissing(srvid);
+      return;
     }
 
-    // XXX: handle the case when this message isn't in an active block
+    var findInBlock = function findInBlock(headerBlock) {
+      var headers = headerBlock.headers;
+      for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (header.srvid === srvid) {
+          this.deleteMessageHeaderAndBody(header);
+          return;
+        }
+      }
+    }.bind(this);
+
+    if (this._headerBlocks.hasOwnProperty(blockId))
+      findInBlock(this._headerBlocks(blockId));
+    else
+      this._loadBlock('header', blockId, findInBlock);
   },
 
   /**
@@ -2713,11 +2778,12 @@ console.log('ASKING FOR', namer.suid, namer.date);
     }
 
     this._insertIntoBlockUsingDateAndUID(
-      'body', header.date, header.id, bodyInfo.size, bodyInfo, null);
+      'body', header.date, header.id, header.srvid, bodyInfo.size, bodyInfo,
+      null);
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
-    var id = suid.substring(suid.lastIndexOf('/') + 1),
+    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
                                                        date, id);
     if (posInfo[1] === null) {
@@ -2751,7 +2817,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
    * be around in memory.
    */
   updateMessageBody: function(suid, date, bodyInfo) {
-    var id = suid.substring(suid.lastIndexOf('/') + 1),
+    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
                                                        date, id);
     var bodyBlockInfo = posInfo[1],
@@ -2831,6 +2897,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badIterationStart: { date: false, uid: false },
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
+      serverIdMappingMissing: { srvid: false },
 
       tooManyCallbacks: { name: false },
       mutexInvariantFail: { fireName: false, curName: false },

@@ -9,5 +9,5 @@ TD.commonCase('just auth', function(T) {
 });
 
 function run_test() {
-  runMyTests(10); // we do a lot of appending...
+  runMyTests(6);
 }

@@ -54,6 +54,30 @@ var _window_mixin = {
   IDBObjectStore: IDBObjectStore,
   IDBRequest: IDBRequest,
 
+  XMLHttpRequest: function() {
+    var inst = Cc["@mozilla.org/xmlextras/xmlhttprequest;1"]
+                 .createInstance(Ci.nsIXMLHttpRequest);
+    var realOpen = inst.open;
+    inst.open = function(method, url, async) {
+      // We do not like relative URLs because we lack a base URL since we
+      // exist in chrome space, so let's do the minimum required to get a nice
+      // 404.
+      // XXX it would be nice if we had local copies of the same local
+      // autoconfig db used in the gaia repo and could map to them with file
+      // url's in here.
+      if (url[0] === '/')
+        url = 'http://localhost' + url;
+      realOpen.call(inst, method, url, async);
+    };
+    return inst;
+  },
+  DOMParser: function() {
+    var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
+                   .createInstance(Ci.nsIDOMParser);
+    parser.init();
+    return parser;
+  },
+
   navigator: {
     // - connection status
     connection: {

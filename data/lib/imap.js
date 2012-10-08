@@ -434,7 +434,7 @@ ImapConnection.prototype.connect = function(loginCb) {
             if ((result = /^\[UIDVALIDITY (\d+)\]/i.exec(data[2])))
               self._state.box.validity = result[1];
             else if ((result = /^\[UIDNEXT (\d+)\]/i.exec(data[2])))
-              self._state.box._uidnext = result[1];
+              self._state.box._uidnext = parseInt(result[1]);
             // Flags the client can change permanently.  If \* is included, it
             // means we can make up new keywords.
             else if ((result = /^\[PERMANENTFLAGS \((.*)\)\]/i.exec(data[2]))) {

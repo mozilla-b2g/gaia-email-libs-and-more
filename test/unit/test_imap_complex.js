@@ -94,7 +94,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+  var staticNow = Date.UTC(2012, 0, 28, 0, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -122,7 +122,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   var c1Folder = testAccount.do_createTestFolder(
     'test_complex_old1',
     // we will sync 9, leave an extra 1 not to sync so grow is true.
-    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
+    { count: 10, age: { days: 6 * TSYNCI + 1}, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c1Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -158,8 +158,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // are already 6 time intervals in the past, but we want them at 15, so
   // add 9 TSYNCI less 0.5 days.
   staticNow = createdAt +
-              ((9 * TSYNCI) + 0.5) * DAY_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 0.5 days out');
+              ((9 * TSYNCI) - 0.5) * DAY_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '9 TSYNCI - 0.5 days out');
   testAccount.do_viewFolder(
     'syncs', c1Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },

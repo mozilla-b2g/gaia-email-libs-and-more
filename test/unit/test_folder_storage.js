@@ -45,7 +45,7 @@ function makeTestContext() {
       accuracy: [],
       headerBlocks: [],
       bodyBlocks: [],
-      serverIdMapping: {},
+      serverIdHeaderBlockMapping: {},
     },
     db,
     null);
@@ -61,7 +61,8 @@ function makeTestContext() {
         attachments: null, bodyReps: null
       };
       storage._insertIntoBlockUsingDateAndUID(
-        'body', date, uid, size, bodyInfo, function blockPicked(info, block) {
+        'body', date, uid, 'S' + uid, size, bodyInfo,
+        function blockPicked(info, block) {
           // Make sure the insertion happens in the block location we were
           // expecting.
           do_check_eq(storage._bodyBlockInfos.indexOf(info),
@@ -118,7 +119,8 @@ function makeTestContext() {
       var headerInfo = {
         date: date,
         id: uid,
-        srvid: uid,
+        // have the server-id differ
+        srvid: 'S' + uid,
         suid: folderId + '/' + uid,
         guid: uid,
       };
@@ -155,6 +157,9 @@ function DateUTC(y, m, d) {
   return y * 10000 + m * 100 + d;
 }
 
+/**
+ * Helper to check the values of an accuracy range entry.
+ */
 function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
   do_check_eq(arange.startTS, startTS);
   do_check_eq(arange.endTS, endTS);
@@ -415,6 +420,9 @@ const BIG2 = 36 * 1024;
  */
 const BIG3 = 28 * 1024;
 
+/**
+ * Helper to check the values in a block info structure.
+ */
 function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
   do_check_eq(blockInfo.count, count);
   do_check_eq(blockInfo.estSize, size);
