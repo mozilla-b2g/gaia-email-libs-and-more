@@ -1869,7 +1869,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
             slice.sendEmptyCompletion();
           }
         }
-      };
+      }.bind(this);
 
       // Iterate up to 'desiredCount' messages into the past, compute the sync
       // range, subtracting off the already known sync'ed range.
@@ -1910,8 +1910,9 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     else {
       // We want the range to include the day; since it's an exclusive range
       // quantized to midnight, we need to adjust forward a day and then
-      // quantize.
-      endTS = quantizeDate(endTS - DAY_MILLIS);
+      // quantize.  We also need to compensate for the timezone; we want this
+      // time in terms of server time, so we add the timezone offset.
+      endTS = quantizeDate(endTS - DAY_MILLIS + this._account.tzOffset);
     }
 
     // - Grow startTS
@@ -1919,9 +1920,16 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     // coverage date.
     if (this.headerIsOldestKnown(startTS, slice.startUID))
       startTS = this.getOldestFullSyncDate(startTS);
+    // If we didn't grow based on the accuracy range, then apply the time-zone
+    // adjustment so that our day coverage covers the actual INTERNALDATE day
+    // of the start message.
+    else
+      startTS += this._account.tzOffset;
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);
+
+    this._LOG.refreshSlice(startTS, endTS, useBisectLimit);
 
     var self = this;
     this.folderSyncer.refreshSync(startTS, endTS, useBisectLimit,
@@ -2141,6 +2149,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
                             headerBlock.headers,
                             startTS, endTS),
             iFirstHeader = headerTuple[0], header = headerTuple[1];
+console.log('HEADER:', header.date, new Date(header.date).toUTCString(),
+            'id', header.id, 'srvid', header.srvid);
         // aw man, no usable messages?!
         if (!header) {
           messageCallback([], false);
@@ -2152,6 +2162,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
         for (; iHeader < headerBlock.headers.length && maxFill;
              iHeader++, maxFill--) {
           header = headerBlock.headers[iHeader];
+          // (we are done if we have found a header earlier than what we want)
           if (BEFORE(header.date, startTS))
             break;
         }
@@ -2879,6 +2890,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // unexpected errors, so this is getting downgraded for now.
       headerNotFound: {},
       bodyNotFound: {},
+
+      refreshSlice: { startTS: false, endTS: false, useBisectLimit: false },
     },
     TEST_ONLY_events: {
     },

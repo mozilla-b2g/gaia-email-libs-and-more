@@ -154,7 +154,7 @@ function makeDummyHeaders(count) {
  * so let's just encode things so that they make sense to us...
  */
 function DateUTC(y, m, d) {
-  return y * 10000 + m * 100 + d;
+  return y * 100000 + m * 1000 + d * 10;
 }
 
 /**
@@ -899,6 +899,12 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   ctx.storage.getMessagesInImapDateRange(
     dA, dC, null, null,
     chexpect(dB, uidB3, dA, uidA1));
+
+  // Contrained date range bracketing, no limit
+  ctx.storage.getMessagesInImapDateRange(
+    dB - 1, dB + 1, null, null,
+    chexpect(dB, uidB3, dB, uidB1));
+
   // Constrained date ranges, limited
   ctx.storage.getMessagesInImapDateRange(
     dA, dC, 1, 1,

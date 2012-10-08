@@ -248,6 +248,12 @@ ImapFolderConn.prototype = {
    * if the server does not have an index on internaldate, these queries are
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
+   *
+   * @args[
+   *   @param[startTS]
+   *   @param[endTS]
+   *
+   * ]
    */
   syncDateRange: function(startTS, endTS, accuracyStamp, useBisectLimit,
                           doneCallback) {
@@ -351,7 +357,11 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     // apply a timezone to the question we ask it and will not actually tell us
     // dates lined up with UTC.  Accordingly, we don't want our DB query to
     // be lined up with UTC but instead the time zone.
-    const HACK_TZ_OFFSET = 7 * 60 * 60 * 1000;
+    //
+    // So if our timezone offset is UTC-4, that means that we will actually be
+    // getting results in that timezone, whose midnight is actually 4am UTC.
+    // In other words, we care about the time in UTC-0, so we subtract the
+    // offset.
     var skewedStartTS = startTS - this._account.tzOffset,
         skewedEndTS = endTS ? endTS - this._account.tzOffset : null;
     console.log('Skewed DB lookup. Start: ',
@@ -715,12 +725,27 @@ ImapFolderSyncer.prototype = {
     // have been bisected by the user scrolling into the past and
     // triggering a refresh.
     this.folderStorage.getMessagesBeforeMessage(
+      // Use one less than the fill range because this style of request will
+      // start from the 0th element, so we have effectively already traversed
+      // 1 message this way.
       null, null, $sync.INITIAL_FILL_SIZE - 1,
       function(headers, moreExpected) {
         if (moreExpected)
           return;
         var header = headers[headers.length - 1];
-        pastDate = quantizeDate(header.date);
+        // The timezone issues with internaldate get tricky here.  We know the
+        // UTC date of the oldest message here, but that is not necessarily
+        // the INTERNALDATE the message will show up on.  So we need to apply
+        // the timezone offset to find the day we want our search to cover.
+        // (We use UTC dates as our normalized date-without-time representation
+        // for talking to the IMAP layer right now.)  The syncDateRange call
+        // will also do some timezone compensation, but that is just to make
+        // sure it loads the right headers to cover the date we ended up asking
+        // it for.
+        //
+        // We add the timezone offset because we are interested in the date of
+        // the message in its own timezone (as opposed to the date in UTC-0).
+        var pastDate = quantizeDate(header.date + this._account.tzOffset);
         syncCallback('sync', true);
         this._startSync(pastDate, endTS);
       }.bind(this)
@@ -729,6 +754,7 @@ ImapFolderSyncer.prototype = {
 
   refreshSync: function(startTS, endTS, useBisectLimit, callback) {
     this._curSyncAccuracyStamp = NOW();
+    // timezone compensation happens in the caller
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   useBisectLimit, callback);
   },
@@ -743,8 +769,11 @@ ImapFolderSyncer.prototype = {
       syncStartTS = batchHeaders[batchHeaders.length - 1].date;
 
     if (syncStartTS) {
-      // We are computing a SINCE value, so quantize (to midnight)
-      syncStartTS = quantizeDate(syncStartTS);
+      // We are computing a SINCE value, so adjust the date to be the effective
+      // date in the server's timezone and quantize to canonicalize it to be
+      // our date (sans time) rep.  (We add the timezone to be relative to that
+      // timezone.)
+      syncStartTS = quantizeDate(syncStartTS + this._account.tzOffset);
       // If we're not syncing at least one day, flag to give up.
       if (syncStartTS === syncEndTS)
         syncStartTS = null;
@@ -755,9 +784,15 @@ ImapFolderSyncer.prototype = {
       // We intentionally quantized syncEndTS to avoid re-synchronizing messages
       // that got us to our last sync.  So we want to send those excluded
       // headers in a batch since the sync will not report them for us.
-      var iFirstNotToSend = 0;
+      //
+      // We need to subtract off our timezone offset since we are trying to
+      // imitate the database logic here, and this compensation happens using
+      // timestamps in UTC-0.  Also note we are doing this to the end-stamp, not
+      // the start stamp, so there is no interaction with the above.
+      var iFirstNotToSend = 0,
+          localSyncEndTS = syncEndTS - this._account.tzOffset;
       for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
-        if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
+        if (BEFORE(batchHeaders[iFirstNotToSend].date, localSyncEndTS))
           break;
       }
 
@@ -770,7 +805,7 @@ ImapFolderSyncer.prototype = {
     // as far back as we go, issue a (potentially expanding) sync.
     else if (batchHeaders.length === 0 && userRequestsGrowth) {
       syncCallback('sync', 0);
-      this._startSync(null, endTS);
+      this._startSync(null, syncEndTS);
       return true;
     }
 
