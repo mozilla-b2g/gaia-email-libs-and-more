@@ -732,22 +732,25 @@ ImapFolderSyncer.prototype = {
       function(headers, moreExpected) {
         if (moreExpected)
           return;
-        var header = headers[headers.length - 1];
-        // The timezone issues with internaldate get tricky here.  We know the
-        // UTC date of the oldest message here, but that is not necessarily
-        // the INTERNALDATE the message will show up on.  So we need to apply
-        // the timezone offset to find the day we want our search to cover.
-        // (We use UTC dates as our normalized date-without-time representation
-        // for talking to the IMAP layer right now.)  The syncDateRange call
-        // will also do some timezone compensation, but that is just to make
-        // sure it loads the right headers to cover the date we ended up asking
-        // it for.
-        //
-        // We add the timezone offset because we are interested in the date of
-        // the message in its own timezone (as opposed to the date in UTC-0).
-        var pastDate = quantizeDate(header.date + this._account.tzOffset);
+
+        if (headers.length) {
+          var header = headers[headers.length - 1];
+          // The timezone issues with internaldate get tricky here.  We know the
+          // UTC date of the oldest message here, but that is not necessarily
+          // the INTERNALDATE the message will show up on.  So we need to apply
+          // the timezone offset to find the day we want our search to cover.
+          // (We use UTC dates as our normalized date-without-time
+          // representation for talking to the IMAP layer right now.)  The
+          // syncDateRange call will also do some timezone compensation, but
+          // that is just to make sure it loads the right headers to cover the
+          // date we ended up asking it for.
+          //
+          // We add the timezone offset because we are interested in the date of
+          // the message in its own timezone (as opposed to the date in UTC-0).
+          startTS = quantizeDate(header.date + this._account.tzOffset);
+        }
         syncCallback('sync', true);
-        this._startSync(pastDate, endTS);
+        this._startSync(startTS, endTS);
       }.bind(this)
     );
   },

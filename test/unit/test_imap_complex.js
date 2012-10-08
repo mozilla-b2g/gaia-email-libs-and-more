@@ -282,11 +282,9 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 8, full: 8, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
   testAccount.do_growFolderView(
-    // do not request growth; we want to make sure we provide it for free since
-    // we are saying atBottom is false and therefore so is grow.
     f2View, 12, false, 17,
-     [{ count: 12, full: 4, flags: 8, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    [{ count: 13, full: 4, flags: 9, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
 
   testAccount.do_closeFolderView(f2View);
 

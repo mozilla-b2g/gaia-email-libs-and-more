@@ -2149,8 +2149,6 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
                             headerBlock.headers,
                             startTS, endTS),
             iFirstHeader = headerTuple[0], header = headerTuple[1];
-console.log('HEADER:', header.date, new Date(header.date).toUTCString(),
-            'id', header.id, 'srvid', header.srvid);
         // aw man, no usable messages?!
         if (!header) {
           messageCallback([], false);
