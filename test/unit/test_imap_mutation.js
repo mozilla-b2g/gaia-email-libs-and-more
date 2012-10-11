@@ -29,7 +29,7 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
-TD.commonCase('mutate flags', function(T) {
+TD.DISABLED_commonCase('mutate flags', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
@@ -413,6 +413,83 @@ TD.commonCase('mutate flags', function(T) {
   T.group('cleanup');
 });
 
+/**
+ * Create a source folder and a target folder with some messages in the source
+ * folder.
+ */
+TD.commonCase('move/trash messages', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: false /* XXX true*/ }),
+      eSync = T.lazyLogger('sync');
+
+  var sourceFolder = testAccount.do_createTestFolder(
+    'test_move_source',
+    { count: 5, age_incr: { days: 1 } });
+  var targetFolder = testAccount.do_createTestFolder(
+    'test_move_target',
+    { count: 0 });
+
+  var sourceView = testAccount.do_openFolderView(
+    'sourceView', sourceFolder,
+    { count: 5, full: 5, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  var targetView = testAccount.do_openFolderView(
+    'sourceView', targetFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  var trashFolder = testAccount.do_useExistingFolder('Trash', '', null);
+  // open the trash but don't care what's in there, we just care about deltas
+  var trashView = testAccount.do_openFolderView('trashView', trashFolder, null);
+
+  T.group('offline manipulation; released to server');
+
+  var undoMove = null, undoDelete = null;
+
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('move/trash messages',
+           testAccount, testAccount.eImapAccount, function() {
+    // by mentioning testAccount we ensure that we will assert if we see a
+    // reuseConnection from it.
+    var headers = sourceView.slice.items,
+        toMove = headers[1],
+        toDelete = headers[2];
+
+    testAccount.eImapAccount.expect_runOp_begin('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_end('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('local_do', 'delete');
+    testAccount.eImapAccount.expect_runOp_end('local_do', 'delete');
+
+    testAccount.expect_headerChanges(
+      sourceView,
+      { additions: [], changes: [], deletions: [toMove, toDelete] });
+    testAccount.expect_headerChanges(
+      targetView,
+      { additions: [toMove], changes: [], deletions: [] });
+    testAccount.expect_headerChanges(
+      trashView,
+      { additions: [toDelete], changes: [], deletions: [] });
+
+    undoMove = toMove.moveMessage(targetFolder.mailFolder);
+    undoDelete = toDelete.deleteMessage();
+  });
+  T.action('go online, see changes happen for', testAccount.eImapAccount,
+           eSync, function() {
+    testAccount.eImapAccount.expect_runOp_begin('do', 'move');
+    testAccount.eImapAccount.expect_runOp_end('do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('do', 'delete');
+    testAccount.eImapAccount.expect_runOp_end('do', 'delete');
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+});
+
 function run_test() {
-  runMyTests(10);
+  runMyTests(15);
 }

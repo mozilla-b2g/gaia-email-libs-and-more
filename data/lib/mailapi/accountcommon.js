@@ -438,6 +438,7 @@ Configurators['imap+smtp'] = {
       },
       $mutations: [],
       $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
@@ -522,6 +523,7 @@ Configurators['fake'] = {
       },
       $mutations: [],
       $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, null);
@@ -633,6 +635,7 @@ Configurators['activesync'] = {
       },
       $mutations: [],
       $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, protoConn);

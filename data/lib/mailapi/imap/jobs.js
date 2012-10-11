@@ -105,9 +105,69 @@ const UNCHECKED_BAILED = 'bailed';
  */
 const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
 
-function ImapJobDriver(account) {
+/**
+ * @typedef[MutationState @dict[
+ *   @key[suidToServerId @dictof[
+ *     @key[SUID]
+ *     @value[ServerID]
+ *   ]]{
+ *     Tracks the server id (UID on IMAP) for an account as it is currently
+ *     believed to exist on the server.  We persist this because the actual
+ *     header may have been locally moved to another location already, so
+ *     there may not be storage for the information in the folder when
+ *     subsequent non-local operations run (such as another move or adding
+ *     a tag).
+ *
+ *     This table is entirely populated by the actual (non-local) move
+ *     operations.  Entries remain in this table until they are mooted by a
+ *     subsequent move or the table is cleared once all operations for the
+ *     account complete.
+ *   }
+ * ]]
+ *
+ * @typedef[MutationStateDelta @dict[
+ *   @key[serverIdMap @dictof[
+ *     @key[suid SUID]
+ *     @value[srvid @oneof[null ServerID]]
+ *   ]]{
+ *     New values for `MutationState.suidToServerId`; set/updated by by
+ *     non-local operations once the operation has been performed.  A null
+ *     `srvid` is used to convey the header no longer exists at the previous
+ *     name.
+ *   }
+ *   @key[moveMap @dictof[
+ *     @key[oldSuid SUID]
+ *     @value[newSuid SUID]
+ *   ]]{
+ *     Expresses the relationship between moved messages by local-operations.
+ *     This currently serves as debugging information.  It's not needed
+ *     currently because all manipulations are always posed in terms of the
+ *     local header's suid and there is no need to discuss the previous suid. It
+ *     would be required to implement the ability to undo an operation
+ *     out-of-sequence relative to a move or if we wanted to restore the
+ *     original suid's of a message when undoing a move.
+ *   }
+ * ]]{
+ *   A set of attributes that can be set on an operation to cause changes to
+ *   the `MutationState` for the account.  This forms part of the interface
+ *   of the operations.  The operations don't manipulate the table directly
+ *   to reduce code duplication, ease debugging, and simplify unit testing.
+ * }
+ **/
+
+function ImapJobDriver(account, state) {
   this.account = account;
   this._heldMutexReleasers = [];
+  this._state = state;
+  // (we only need to use one as a proxy for initialization)
+  if (!state.hasOwnProperty('suidToServerId')) {
+    state.suidToServerId = {};
+  }
+
+  this._stateDelta = {
+    serverIdMap: null,
+    moveMap: null,
+  };
 }
 exports.ImapJobDriver = ImapJobDriver;
 ImapJobDriver.prototype = {
@@ -127,6 +187,10 @@ ImapJobDriver.prototype = {
    *
    * @args[
    *   @param[folderId]
+   *   @param[needConn Boolean]{
+   *     True if we should try and get a connection from the server.  Local ops
+   *     should pass false.
+   *   }
    *   @param[callback @func[
    *     @args[
    *       @param[folderConn ImapFolderConn]
@@ -139,13 +203,14 @@ ImapJobDriver.prototype = {
    *   }
    * ]
    */
-  _accessFolderForMutation: function(folderId, callback, deathback, label) {
+  _accessFolderForMutation: function(folderId, needConn, callback, deathback,
+                                     label) {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
     storage.runMutexed(label, function(releaseMutex) {
       self._heldMutexReleasers.push(releaseMutex);
       var syncer = storage.folderSyncer;
-      if (!syncer.folderConn._conn) {
+      if (needConn && !syncer.folderConn._conn) {
         syncer.folderConn.acquireConn(callback, deathback, label);
       }
       else {
@@ -161,6 +226,12 @@ ImapJobDriver.prototype = {
    *
    * @args[
    *   @param[messageNamers @listof[MessageNamer]]
+   *   @param[needConn Boolean]{
+   *     True if we should try and get a connection from the server.  Local ops
+   *     should pass false, server ops should pass true.  This additionally
+   *     determines whether we provide headers to the operation (!needConn),
+   *     or server id's for messages (needConn).
+   *   }
    *   @param[callInFolder @func[
    *     @args[
    *       @param[folderConn ImapFolderConn]
@@ -178,7 +249,8 @@ ImapJobDriver.prototype = {
    *   }
    * ]
    */
-  _partitionAndAccessFoldersSequentually: function(messageNamers,
+  _partitionAndAccessFoldersSequentially: function(messageNamers,
+                                                   needConn,
                                                    callInFolder,
                                                    callWhenDone,
                                                    callOnConnLoss,
@@ -210,14 +282,24 @@ ImapJobDriver.prototype = {
       messageIds = curPartition.messages;
       if (curPartition.folderId !== folderId) {
         folderId = curPartition.folderId;
-        self._accessFolderForMutation(folderId, gotFolderConn, callOnConnLoss,
-                                      label);
+        self._accessFolderForMutation(folderId, needConn, gotFolderConn,
+                                      callOnConnLoss, label);
       }
     };
     var gotFolderConn = function gotFolderConn(_folderConn, _storage) {
       folderConn = _folderConn;
       storage = _storage;
-      storage.getMessageHeaders(curPartition.messages, gotHeaders);
+      // - Get headers or resolve current server id from name map
+      if (needConn) {
+        var neededHeaders = [];
+        // XXX server-id/name-lookup stuff
+        for (var i = 0; i < curPartition.messages.length; i++) {
+
+        }
+      }
+      else {
+        storage.getMessageHeaders(curPartition.messages, gotHeaders);
+      }
     };
     var gotHeaders = function gotHeaders(headers) {
       callInFolder(folderConn, storage, headers, openNextFolder);
@@ -252,6 +334,13 @@ ImapJobDriver.prototype = {
       this._heldMutexReleasers[i]();
     }
     this._heldMutexReleasers = [];
+
+    this._stateDelta.serverIdMap = null;
+    this._stateDelta.moveMap = null;
+  },
+
+  allJobsDone: function() {
+    this._state.suidToServerId = {};
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -324,7 +413,8 @@ ImapJobDriver.prototype = {
       callback(err, bodyInfo, true);
     };
 
-    self._accessFolderForMutation(folderId, gotConn, deadConn, 'download');
+    self._accessFolderForMutation(folderId, true, gotConn, deadConn,
+                                  'download');
   },
 
   check_download: function(op, callback) {
@@ -405,9 +495,9 @@ ImapJobDriver.prototype = {
 
     var aggrErr = null;
 
-    this._partitionAndAccessFoldersSequentually(
-      op.messages,
-      function perFolder(folderConn, storage, headers, callWhenDone) {
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, storage, serverIds, callWhenDone) {
         var modsToGo = 0;
         function tagsModded(err) {
           if (err) {
@@ -415,18 +505,17 @@ ImapJobDriver.prototype = {
             aggrErr = 'unknown';
             return;
           }
-          op.progress += (undo ? -headers.length : headers.length);
+          op.progress += (undo ? -serverIds.length : serverIds.length);
           if (--modsToGo === 0)
             callWhenDone();
         }
         var uids = [];
-        for (var i = 0; i < headers.length; i++) {
-console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
-          var uid = headers[i].srvid;
+        for (var i = 0; i < serverIds.length; i++) {
+          var srvid = serverIds[i];
           // If the header is somehow an offline header, it will be zero and
           // there is nothing we can really do for it.
-          if (uid)
-            uids.push(uid);
+          if (srvid)
+            uids.push(srvid);
         }
         if (addTags) {
           modsToGo++;
@@ -486,7 +575,9 @@ console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
   //
   // Local Do:
   //
-  // - Move the header to the target folder's storage.
+  // - Move the header to the target folder's storage, updating the op with the
+  //   message-id header of the message for each message so that the check
+  //   operation has them available.
   //
   //   This requires acquiring a write mutex to the target folder while also
   //   holding one on the source folder.  We are assured there is no deadlock
@@ -495,7 +586,53 @@ console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
   //   (And cross-account moves are not handled by this operation.)
   //
   //   Insertion is done using the INTERNALDATE (which must be maintained by the
-  //   COPY operation) and a freshly allocated speculative UID.  The UID is
+  //   COPY operation) and a freshly allocated id, just like if we had heard
+  //   about the header from the server.
+  //
+  // Do:
+  //
+  // - Acquire a connection to the target folder so that we can know the UIDNEXT
+  //   value prior to performing the copy.  FUTURE: Don't do this if the server
+  //   supports UIDPLUS.
+  //
+  // (Do the following in a loop per-source folder)
+  //
+  // - Copy the messages to the target folder via COPY.
+  //
+  // - Figure out the UIDs of our moved messages.  FUTURE: If the server is
+  //   UIDPLUS, we already know these from the results of the previous command.
+  //   NOW: Issue a fetch on the message-id headers of the messages in the
+  //   range UIDNEXT:*.  Use these results to map the UIDs to the messages we
+  //   copied above.  In the event of duplicate message-id's, ordering doesn't
+  //   matter, we just pick the first one.  Update our UIDNEXT value in case
+  //   there is another pass through the loop.
+  //
+  // - Issue deletes on the messages from the source folder.
+  //
+  // Check: XXX TODO POSTPONED FOR PRELIMINARY LANDING
+  //
+  // NB: Our check implementation actually is a correcting check implemenation;
+  // we will make things end up the way they should be.  We do this because it
+  // is simpler than 
+  //
+  // - Acquire a connection to the target folder.  Issue broad message-id
+  //   header searches to find if the messages appear to be in the folder
+  //   already, note which are already present.  This needs to take the form
+  //   of a SEARCH followed by a FETCH to map UIDs to message-id's.  In theory
+  //   the IMAP copy command should be atomic, but I'm not sure we can trust
+  //   that and we also have the problem where there could already be duplicate
+  //   message-id headers in the target which could confuse us if our check is
+  //   insufficiently thorough.  The FETCH needs to also retrieve the flags
+  //   for the message so we can track deletion state.
+  //
+  // (Do the following in a loop per source folder)
+  //
+  // - Acquire connections for each source folder.  Issue message-id searches
+  //   like we did for the target including header results.  In theory we might
+  //   remember the UIDs for check acceleration purposes, but that would not
+  //   cover if we tried to perform an undo, so we go for thorough.
+  //
+  // -
   //
   // ## Possible Problems and their Solutions ##
   //
@@ -538,20 +675,141 @@ console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
   //     be in the right folder.  Additionally, because both the UI and
   //     operations name messages using an id we issue rather than the server
   //     UID, there is no potential for naming inconsistencies.  The UID will be
-  //     resolved at operation run-time which only requires that the move was
-  //     UIDPLUS so we already know the UID, something else already triggered a
-  //     synchronization that covers the messages being moved, or that we
-  //     trigger a synchronization.
+  //     resolved at operation run-time which only requires that the move
+  //     operation either was UIDPLUS or we manually sussed out the target id
+  //     (which we do for simplicity).
+  //
+  // XXX problem: repeated moves and UIDs.
+  // what we do know:
+  // - in order to know about a message, we must have a current UID of the
+  //   message on the server where it currently lives.
+  // what we could do:
+  // - have successor move operations moot/replace their predecessor.  So a
+  //   move from A to B, and then from B to C will just become a move from A to
+  //   C from the perspective of the online op that will eventually be run.  We
+  //   could potentially build this on top of a renaming strategy.  So if we
+  //   move z-in-A to z-in-B, and then change a tag on z-in-B, and then move
+  //   z-in-B to z-in-C, renaming and consolidatin would make this a move of
+  //   z-in-A to z-in-C followed by a tag change on z-in-C.
+  // - produce micro-IMAP-ops as a byproduct of our local actions that are
+  //   stored on the operation.  So in the A/move to B/tag/move to C case above,
+  //   we would not consolidate anything, just produce a transaction journal.
+  //   The A-move-to-B case would be covered by serializing the information
+  //   for the IMAP COPY and deletion.  In the UIDPLUS case, we have an
+  //   automatic knowledge of the resulting new target UID; in the non-UIDPLUS
+  //   case we can open the target folder and find out the new UID as part of
+  //   the micro-op.  The question here is then how we chain these various
+  //   results together in the multi-move case, or when we write the result to
+  //   the target:
+  //   - maintain an output value map for the operations.  When there is just
+  //     the one move, the output for the UID for each move is the current
+  //     header name of the message, which we will load and write the value
+  //     into.  When there are multiple moves, the output map is adjusted and
+  //     used to indicate that we should stash the UID in quasi-persistent
+  //     storage for a subsequent move operation.  (This could be thought of
+  //     as similar to the renaming logic, but explicit.)
 
 
-  local_do_move: function() {
+  local_do_move: function(op, doneCallback, targetFolderId) {
+    // create a scratch field to store the guid's for check purposes
+    op.guids = {};
+
+    var stateDelta = this._stateDelta;
+    var perSourceFolder = function perSourceFolder(ignoredConn, targetStorage) {
+      this._partitionAndAccessFoldersSequentially(
+        op.messages, false,
+        function perFolder(ignoredConn, sourceStorage, headers, perFolderDone) {
+          // -- get the body for the next header (or be done)
+          function processNext() {
+            if (iNextHeader >= headers.length) {
+              perFolderDone();
+              return;
+            }
+            header = headers[iNextHeader++];
+            sourceStorage.getMessageBody(header.suid, header.date,
+                                         gotBody_nowDelete);
+          }
+          // -- delete the header and body from the source
+          function gotBody_nowDelete(_body) {
+            body = _body;
+            sourceStorage.deleteMessageHeaderAndBody(header, deleted_nowAdd);
+          }
+          // -- add the header/body to the target folder
+          function deleted_nowAdd() {
+            var sourceSuid = header.suid;
+
+            // - update id fields
+            header.id = targetStorage._issueNewHeaderId();
+            header.suid = targetStorage.folderId + '/' + header.id;
+            header.srvid = null;
+
+            stateDelta.moveMap[sourceSuid] = header.suid;
+
+            addWait = 2;
+            targetStorage.addMessageHeader(header, added);
+            targetStorage.addMessageBody(header, body, added);
+          }
+          function added() {
+            if (--addWait !== 0)
+              return;
+            processNext();
+          }
+          var iNextHeader = 0, header = null, body = null, addWait = 0;
+        },
+        doneCallback,
+        null,
+        false,
+        'local move source');
+    }.bind(this);
+    this._accessFolderForMutation(
+      targetFolderId || op.targetFolder, false,
+      perSourceFolder, null, 'local move target');
   },
 
-  do_move: function() {
-    // get a connection in the source folder, uid validity is asserted
-    // issue the (potentially bulk) copy
-    // wait for copy success
-    // mark the source messages deleted
+  do_move: function(op, doneCallback) {
+    var stateDelta = this._stateDelta;
+    // resolve the target folder again
+    this._accessFolderForMutation(
+      op.targetFolder, true,
+      function gotTargetConn(targetConn, targetStorage) {
+        var uidnext = targetConn.box._uidnext;
+
+      this._partitionAndAccessFoldersSequentially(
+        op.messages, true,
+        function perFolder(folderConn, sourceStorage, suids, serverIds,
+                           perFolderDone){
+          // - copies are done, find the UIDs
+          // XXX process UIDPLUS output when present, avoiding this step.
+          /*
+           * Figuring out the new UIDs.  IMAP's semantics make this
+           * reasonably easy for us.
+           *
+           */
+          function copiedMessages_findNewUIDs() {
+
+          }
+          function foundUIDs_deleteOriginals() {
+            folderConn._conn.addFlags(serverIds, ['\\Deleted'], deleted);
+
+            stateDelta.serverIdMap[suid] = newUid;
+          }
+          folderConn._conn.copy(serverIds, targetFolderMeta.path,
+                                copiedMessages_deleteOriginals);
+
+          var iNextHeader = 0, header = null, body = null, addWait = 0;
+        },
+        doneCallback,
+        null,
+        false,
+        'local move source');
+      // get a connection in the source folder, uid validity is asserted
+      // issue the (potentially bulk) copy
+      // wait for copy success
+      // mark the source messages deleted
+    }.bind(this),
+    function targetFolderDead() {
+    },
+    'move target');
   },
 
   /**
@@ -650,7 +908,7 @@ console.log('HEADER id', headers[i].id, 'srvid', headers[i].srvid);
       callback(errString);
     };
 
-    this._accessFolderForMutation(op.folderId, gotFolderConn, deadConn,
+    this._accessFolderForMutation(op.folderId, true, gotFolderConn, deadConn,
                                   'append');
   },
 

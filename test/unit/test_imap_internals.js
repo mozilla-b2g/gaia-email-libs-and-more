@@ -74,7 +74,7 @@ TD.commonCase('account persistence', function(T) {
   var deletedHeader;
   testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
     deletedHeader = slice.items[0];
-    slice.items[0].deleteMessage();
+    MailAPI.modifyMessageTags([deletedHeader], ['\\Deleted'], null, 'delete');
 
     // (this is low-level IMAP Deletion and is just a flag change)
     for (var i = 0; i < 1; i++) {

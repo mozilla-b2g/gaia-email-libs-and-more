@@ -96,7 +96,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
                                                      this._LOG);
   this._boundMakeConnection = this._makeConnection.bind(this);
 
-  this._jobDriver = new $imapjobs.ImapJobDriver(this);
+  this._jobDriver = new $imapjobs.ImapJobDriver(
+                          this, this._folderInfos.$mutationState);
 
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);

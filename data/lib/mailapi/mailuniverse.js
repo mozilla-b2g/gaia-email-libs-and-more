@@ -1142,6 +1142,47 @@ MailUniverse.prototype = {
   },
 
   moveMessages: function(messageSuids, targetFolderId) {
+    var self = this, longtermIds = [],
+        targetFolderAccount = this.getAccountForFolderId(targetFolderId);
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      // TODO: implement cross-account moves and then remove this constraint
+      // and instead schedule the cross-account move.
+      if (x.account !== targetFolderAccount)
+        throw new Error('cross-account moves not currently supported!');
+      var longtermId = self._queueAccountOp(
+        x.account,
+        {
+          type: 'move',
+          longtermId: null,
+          status: null,
+          tryCount: 0,
+          desire: 'do',
+          humanOp: 'move',
+          messages: x.messages,
+          targetFolder: targetFolderId,
+        });
+      longtermIds.push(longtermId);
+    });
+    return longtermIds;
+  },
+
+  deleteMessages: function(messageSuids) {
+    var self = this, longtermIds = [];
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      var longtermId = self._queueAccountOp(
+        x.account,
+        {
+          type: 'delete',
+          longtermId: null,
+          status: null,
+          tryCount: 0,
+          desire: 'do',
+          humanOp: 'delete',
+          messages: x.messages
+        });
+      longtermIds.push(longtermId);
+    });
+    return longtermIds;
   },
 
   appendMessages: function(folderId, messages) {

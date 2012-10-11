@@ -1539,7 +1539,7 @@ FolderStorage.prototype = {
         }
       }
       // otherwise, no split necessary, just use it
-      if (serverIdBlockMapping)
+      if (serverIdBlockMapping && srvid)
         serverIdBlockMapping[srvid] = info.blockId;
 
       if (blockPickedCallback)
@@ -2542,9 +2542,10 @@ console.log('ASKING FOR', namer.suid, namer.date);
   /**
    * Add a new message to the database, generating slice notifications.
    */
-  addMessageHeader: function ifs_addMessageHeader(header) {
+  addMessageHeader: function ifs_addMessageHeader(header, callback) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.addMessageHeader.bind(this, header));
+      this._deferredCalls.push(this.addMessageHeader.bind(
+                                 this, header, callback));
       return;
     }
 
@@ -2582,7 +2583,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
 
     this._insertIntoBlockUsingDateAndUID(
       'header', header.date, header.id, header.srvid, HEADER_EST_SIZE_IN_BYTES,
-      header, null);
+      header, callback);
   },
 
   /**
@@ -2705,10 +2706,10 @@ console.log('ASKING FOR', namer.suid, namer.date);
       this._curSyncSlice.onHeaderAdded(header, true, false);
   },
 
-  deleteMessageHeaderAndBody: function(header) {
+  deleteMessageHeaderAndBody: function(header, callback) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(this,
-                                                                    header));
+      this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(
+                                 this, header, callback));
       return;
     }
 
@@ -2733,8 +2734,16 @@ console.log('ASKING FOR', namer.suid, namer.date);
 
     if (this._serverIdHeaderBlockMapping && header.srvid)
       delete this._serverIdHeaderBlockMapping[header.srvid];
-    this._deleteFromBlock('header', header.date, header.id, null);
-    this._deleteFromBlock('body', header.date, header.id, null);
+    var countCallback = null;
+    if (callback) {
+      var callbacksLeft = 2;
+      countCallback = function() {
+        if (--callbacksLeft === 0)
+          callback();
+      };
+    }
+    this._deleteFromBlock('header', header.date, header.id, countCallback);
+    this._deleteFromBlock('body', header.date, header.id, countCallback);
   },
 
   /**
@@ -2779,16 +2788,16 @@ console.log('ASKING FOR', namer.suid, namer.date);
    * Add a message body to the system; you must provide the header associated
    * with the body.
    */
-  addMessageBody: function ifs_addMessageBody(header, bodyInfo) {
+  addMessageBody: function ifs_addMessageBody(header, bodyInfo, callback) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.addMessageBody.bind(this, header,
-                                                        bodyInfo));
+      this._deferredCalls.push(this.addMessageBody.bind(
+                                 this, header, bodyInfo, callback));
       return;
     }
 
     this._insertIntoBlockUsingDateAndUID(
       'body', header.date, header.id, header.srvid, bodyInfo.size, bodyInfo,
-      null);
+      callback);
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {

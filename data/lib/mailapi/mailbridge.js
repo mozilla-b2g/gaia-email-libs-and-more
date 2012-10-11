@@ -517,6 +517,26 @@ console.log('done proc modifyConfig');
     });
   },
 
+  _cmd_deleteMessages: function mb__cmd_deleteMessages(msg) {
+    var longtermIds = this.universe.deleteMessages(
+      msg.messages);
+    this.__sendMessage({
+      type: 'mutationConfirmed',
+      handle: msg.handle,
+      longtermIds: longtermIds,
+    });
+  },
+
+  _cmd_moveMessages: function mb__cmd_moveMessages(msg) {
+    var longtermIds = this.universe.moveMessages(
+      msg.messages, msg.targetFolder);
+    this.__sendMessage({
+      type: 'mutationConfirmed',
+      handle: msg.handle,
+      longtermIds: longtermIds,
+    });
+  },
+
   _cmd_undo: function mb__cmd_undo(msg) {
     this.universe.undoMutation(msg.longtermIds);
   },
