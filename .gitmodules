@@ -1,6 +1,3 @@
-[submodule "addon-sdk"]
-	path = addon-sdk
-	url = git://github.com/mozilla/addon-sdk.git
 [submodule "deps/wmsy"]
 	path = deps/wmsy
 	url = git://github.com/asutherland/wmsy.git
@@ -10,9 +7,6 @@
 [submodule "node-deps/mimelib"]
 	path = node-deps/mimelib
 	url = git://github.com/andris9/mimelib.git
-[submodule "deps/stringencoding"]
-	path = deps/stringencoding
-	url = git://github.com/asutherland/stringencoding.git
 [submodule "node-deps/mailcomposer"]
 	path = node-deps/mailcomposer
 	url = git://github.com/andris9/mailcomposer.git
