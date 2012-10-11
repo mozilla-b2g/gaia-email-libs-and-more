@@ -11,6 +11,7 @@ define(
     'activesync/protocol',
     '../a64',
     '../mailslice',
+    '../searchfilter',
     './folder',
     './jobs',
     '../util',
@@ -25,6 +26,7 @@ define(
     $activesync,
     $a64,
     $mailslice,
+    $searchfilter,
     $asfolder,
     $asjobs,
     $util,
@@ -47,9 +49,22 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   else {
     this.conn = new $activesync.Connection(accountDef.credentials.username,
                                            accountDef.credentials.password);
-    if (this.accountDef.connInfo)
-      this.conn.setConfig(this.accountDef.connInfo);
-    this.conn.connect();
+
+    // XXX: We should check for errors during connection and alert the user.
+    if (this.accountDef.connInfo) {
+      this.conn.setServer(this.accountDef.connInfo.server);
+      this.conn.connect();
+    }
+    else {
+      // This can happen with an older, broken version of the ActiveSync code.
+      // We can probably remove this eventually.
+      console.warning('ActiveSync connection info not found; ' +
+                      'attempting autodiscovery');
+      this.conn.connect(function (error, config, options) {
+        accountDef.connInfo = { server: config.selectedServer.url };
+        universe.saveAccountDef(accountDef, folderInfos);
+      });
+    }
   }
 
   this._db = dbConn;
@@ -75,6 +90,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
+  this.deferredMutations = folderInfos.$deferredMutations;
 
   // Sync existing folders
   for (var folderId in folderInfos) {
@@ -112,6 +128,8 @@ ActiveSyncAccount.prototype = {
       enabled: this.enabled,
       problems: this.problems,
 
+      syncRange: this.accountDef.syncRange,
+
       identities: this.identities,
 
       credentials: {
@@ -140,7 +158,8 @@ ActiveSyncAccount.prototype = {
     return 0;
   },
 
-  saveAccountState: function asa_saveAccountState(reuseTrans, callback) {
+  saveAccountState: function asa_saveAccountState(reuseTrans, callback,
+                                                  reason) {
     let account = this;
     let perFolderStuff = [];
     for (let [,folder] in Iterator(this.folders)) {
@@ -150,11 +169,11 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin();
+    this._LOG.saveAccountState_begin(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end();
+        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -167,7 +186,7 @@ ActiveSyncAccount.prototype = {
    * want to consider persisting our state.
    */
   __checkpointSyncCompleted: function() {
-    this.saveAccountState();
+    this.saveAccountState(null, null, 'checkpointSync');
   },
 
   shutdown: function asa_shutdown() {
@@ -181,6 +200,13 @@ ActiveSyncAccount.prototype = {
     storage.sliceOpenFromNow(slice);
   },
 
+  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
+    var storage = this._folderStorages[folderId],
+        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
+                                              whatToSearch, this._LOG);
+    // the slice is self-starting, we don't need to call anything on storage
+  },
+
   syncFolderList: function asa_syncFolderList(callback) {
     let account = this;
 
@@ -190,7 +216,7 @@ ActiveSyncAccount.prototype = {
        .tag(fh.SyncKey, this.meta.syncKey)
      .etag();
 
-    this.conn.doCommand(w, function(aError, aResponse) {
+    this.conn.postCommand(w, function(aError, aResponse) {
       let e = new $wbxml.EventParser();
       let deferredAddedFolders = [];
 
@@ -232,7 +258,7 @@ ActiveSyncAccount.prototype = {
       }
 
       console.log('Synced folder list');
-      account.saveAccountState();
+      account.saveAccountState(null, null, 'folderList');
       if (callback)
         callback();
     });
@@ -375,7 +401,7 @@ ActiveSyncAccount.prototype = {
       self._folderStorages[folderId] = newStorage;
 
       callback(newStorage);
-    });
+    }, 'recreateFolder');
   },
 
   /**
@@ -432,7 +458,7 @@ ActiveSyncAccount.prototype = {
        .tag(fh.Type, folderType)
      .etag();
 
-    this.conn.doCommand(w, function(aError, aResponse) {
+    this.conn.postCommand(w, function(aError, aResponse) {
       let e = new $wbxml.EventParser();
       let status, serverId;
 
@@ -482,7 +508,7 @@ ActiveSyncAccount.prototype = {
        .tag(fh.ServerId, folderMeta.serverId)
      .etag();
 
-    this.conn.doCommand(w, function(aError, aResponse) {
+    this.conn.postCommand(w, function(aError, aResponse) {
       let e = new $wbxml.EventParser();
       let status;
 
@@ -509,24 +535,51 @@ ActiveSyncAccount.prototype = {
     composedMessage._cacheOutput = true;
     composedMessage._composeMessage();
 
-    const cm = $ascp.ComposeMail.Tags;
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(cm.SendMail)
-       .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
-       .tag(cm.SaveInSentItems)
-       .stag(cm.Mime)
-         .opaque(composedMessage._outputBuffer)
-       .etag()
-     .etag();
+    // ActiveSync 14.0 has a completely different API for sending email. Make
+    // sure we format things the right way.
+    if (this.conn.currentVersion.gte('14.0')) {
+      const cm = $ascp.ComposeMail.Tags;
+      let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(cm.SendMail)
+         .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
+         .tag(cm.SaveInSentItems)
+         .stag(cm.Mime)
+           .opaque(composedMessage._outputBuffer)
+         .etag()
+       .etag();
 
-    this.conn.doCommand(w, function(aError, aResponse) {
-      if (aResponse === null)
+      this.conn.postCommand(w, function(aError, aResponse) {
+        if (aError) {
+          console.error(aError);
+          callback('unknown');
+          return;
+        }
+
+        if (aResponse === null) {
+          console.log('Sent message successfully!');
+          callback(null);
+        }
+        else {
+          console.error('Error sending message. XML dump follows:\n' +
+                        aResponse.dump());
+          callback('unknown');
+        }
+      });
+    }
+    else { // ActiveSync 12.x and lower
+      this.conn.postData('SendMail', 'message/rfc822',
+                         composedMessage._outputBuffer,
+                         function(aError, aResponse) {
+        if (aError) {
+          console.error(aError);
+          callback('unknown');
+          return;
+        }
+
+        console.log('Sent message successfully!');
         callback(null);
-      else {
-        console.log('Error sending message. XML dump follows:\n' +
-                    aResponse.dump());
-      }
-    });
+      }, { SaveInSent: 'T' });
+    }
   },
 
   getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
@@ -542,26 +595,29 @@ ActiveSyncAccount.prototype = {
   runOp: function asa_runOp(op, mode, callback) {
     console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
 
-    let methodName = mode + '_' + op.type;
-    let isLocal = /^local_/.test(mode);
-
-    if (!isLocal)
-      op.status = mode + 'ing';
+    var methodName = mode + '_' + op.type, self = this,
+        isLocal = (mode === 'local_do' || mode === 'local_undo');
 
     if (!(methodName in this._jobDriver))
       throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
 
+    if (!isLocal)
+      op.status = mode + 'ing';
+
     if (callback) {
-      this._jobDriver[methodName](op, function(error) {
-        if (!isLocal)
-          op.status = mode + 'ne';
-        callback(error);
+      this._LOG.runOp_begin(mode, op.type, null, op);
+      this._jobDriver[methodName](op, function(error, resultIfAny,
+                                               accountSaveSuggested) {
+        self._jobDriver.postJobCleanup();
+        self._LOG.runOp_end(mode, op.type, error, op);
+        callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
-      this._jobDriver[methodName](op);
-      if (!isLocal)
-        op.status = mode + 'ne';
+      this._LOG.runOp_begin(mode, op.type, null, null);
+      var rval = this._jobDriver[methodName](op);
+      this._jobDriver.postJobCleanup();
+      this._LOG.runOp_end(mode, op.type, rval, op);
     }
   },
 };
@@ -575,7 +631,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: {},
+      saveAccountState: { reason: false },
     },
   },
 });

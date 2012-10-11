@@ -7,6 +7,9 @@ load('resources/loggest_test_framework.js');
 // currently the verbatim thunderbird message generator dude
 load('resources/messageGenerator.js');
 
+var $util = require('mailapi/util');
+var $fakeacct = require('mailapi/fake/account');
+
 var TD = $tc.defineTestsFor(
   { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
 
@@ -24,7 +27,7 @@ function makeRandomSubject() {
  * we think it was sent, verify that we received it (which is also a good test
  * of refresh).
  */
-TD.commonCase('compose, reply (text/plain)', function(T, RT) {
+TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
 
@@ -94,11 +97,16 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
     },
   });
   // - complete and send the reply
+  var replySentDate;
   T.action('reply', eLazy, function() {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyComposer.finishCompositionSendMessage(function(err, badAddrs) {
+    replyTo = replyComposer.to;
+    replyCc = replyComposer.cc;
+    replyComposer.finishCompositionSendMessage(function(err, badAddrs,
+                                                        sentDate) {
+      replySentDate = new Date(sentDate);
       if (err)
         eLazy.error(err);
       else
@@ -112,11 +120,19 @@ TD.commonCase('compose, reply (text/plain)', function(T, RT) {
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
+      var formattedMail = $util.formatAddresses(
+                            [{ name: TEST_PARAMS.name,
+                               address: TEST_PARAMS.emailAddress }]);
       expectedForwardBody = {
         text: [
           '', '',
           '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
+          'Subject: Re: ' + uniqueSubject,
+          'Date: ' + replySentDate,
+          'From: ' + formattedMail,
+          'To: ' + formattedMail,
+          '',
           expectedReplyBody.text
         ].join('\n'),
         html: null
@@ -276,6 +292,115 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       });
     }
   });
+});
+
+/**
+ * Test that reply-to-all broadly works (no exception explosions due to its
+ * custom logic) and that it adds the author of the message to the 'to' line
+ * unless they are already present in either the to list or the cc list.  We
+ * generate messages for all 3 cases.
+ *
+ * We also check that if 'to' or 'cc' is empty that we don't experience a
+ * failure.
+ *
+ * We do not actually do any message sending for this because we don't want to
+ * send messages anyplace other than our single test account; we just fabricate
+ * made-up messages and check that the compose logic sets things up correctly.
+ */
+TD.commonCase('reply all', function(T, RT) {
+  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('messageCheck');
+
+
+  var senderPair, toPairs, ccPairs;
+  var msgNotIn, msgInTo, msgInCc, msgNoCc, msgNoTo;
+  var testFolder = testAccount.do_createTestFolder(
+    'test_compose_reply_all',
+    function makeMessages() {
+      // (note: fake account's generator used because it produces names and
+      // addresses that are already aligned with our needs.)
+      var fmsgGen = new $fakeacct.MessageGenerator(testAccount._useDate,
+                                                   'body');
+      senderPair = fmsgGen.makeNameAndAddress();
+      toPairs = fmsgGen.makeNamesAndAddresses(4);
+      ccPairs = fmsgGen.makeNamesAndAddresses(4);
+      var msgs = [];
+      // 0: the sender is not already in the to/cc
+      msgs.push(fmsgGen.makeMessage(msgNotIn = {
+          from: senderPair, to: toPairs, cc: ccPairs, age: { hours: 1 }
+        }));
+      // 1: the sender is in the 'to' list
+      msgs.push(fmsgGen.makeMessage(msgInTo = {
+          from: senderPair, to: toPairs.concat([senderPair]), cc: ccPairs,
+          age: { hours: 2 }
+        }));
+      // 2: the sender is in the 'cc' list
+      msgs.push(fmsgGen.makeMessage(msgInCc = {
+          from: senderPair, to: toPairs, cc: ccPairs.concat([senderPair]),
+          age: { hours: 3 }
+        }));
+      // 3: no 'cc' list at all; sender not in list
+      msgs.push(fmsgGen.makeMessage(msgNoCc = {
+          from: senderPair, to: toPairs, cc: [],
+          age: { hours: 4 }
+        }));
+      // 4: no 'to' list at all; sender not in list
+      msgs.push(fmsgGen.makeMessage(msgNoTo = {
+          from: senderPair, to: [], cc: ccPairs,
+          age: { hours: 5 }
+        }));
+      return msgs;
+    });
+  var testView = testAccount.do_openFolderView('syncs', testFolder,
+    { count: 5, full: 5, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  T.action(eCheck, 'reply composer variants', function() {
+    var slice = testView.slice;
+    var headerNotIn = slice.items[0],
+        headerInTo = slice.items[1],
+        headerInCc = slice.items[2],
+        headerNoCc = slice.items[3],
+        headerNoTo = slice.items[4];
+
+    // The not-in case has the sender added to the front of the 'to' list!
+    eCheck.expect_namedValue('not-in:to', [senderPair].concat(msgNotIn.to));
+    eCheck.expect_namedValue('not-in:cc', msgNotIn.cc);
+    var composerNotIn = headerNotIn.replyToMessage('all', function() {
+      eCheck.namedValue('not-in:to', composerNotIn.to);
+      eCheck.namedValue('not-in:cc', composerNotIn.cc);
+    });
+
+    eCheck.expect_namedValue('in-to:to', msgInTo.to);
+    eCheck.expect_namedValue('in-to:cc', msgInTo.cc);
+    var composerInTo = headerInTo.replyToMessage('all', function() {
+      eCheck.namedValue('in-to:to', composerInTo.to);
+      eCheck.namedValue('in-to:cc', composerInTo.cc);
+    });
+
+    eCheck.expect_namedValue('in-cc:to', msgInCc.to);
+    eCheck.expect_namedValue('in-cc:cc', msgInCc.cc);
+    var composerInCc = headerInCc.replyToMessage('all', function() {
+      eCheck.namedValue('in-cc:to', composerInCc.to);
+      eCheck.namedValue('in-cc:cc', composerInCc.cc);
+    });
+
+    eCheck.expect_namedValue('no-cc:to', [senderPair].concat(msgNoCc.to));
+    eCheck.expect_namedValue('no-cc:cc', null);
+    var composerNoCc = headerNoCc.replyToMessage('all', function() {
+      eCheck.namedValue('no-cc:to', composerNoCc.to);
+      eCheck.namedValue('no-cc:cc', composerNoCc.cc);
+    });
+
+    eCheck.expect_namedValue('no-to:to', [senderPair]);
+    eCheck.expect_namedValue('no-to:cc', msgNoTo.cc);
+    var composerNoTo = headerNoTo.replyToMessage('all', function() {
+      eCheck.namedValue('no-to:to', composerNoTo.to);
+      eCheck.namedValue('no-to:cc', composerNoTo.cc);
+    });
+  });
+  testAccount.do_closeFolderView(testView);
 });
 
 function run_test() {

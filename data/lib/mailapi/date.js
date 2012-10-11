@@ -167,7 +167,7 @@ const quantizeDate = exports.quantizeDate =
       function quantizeDate(date) {
   if (typeof(date) === 'number')
     date = new Date(date);
-  return date.setHours(0, 0, 0, 0).valueOf();
+  return date.setUTCHours(0, 0, 0, 0).valueOf();
 };
 
 }); // end define

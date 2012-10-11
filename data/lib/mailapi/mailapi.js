@@ -18,6 +18,7 @@ function MailAccount(api, wireRep) {
   this.id = wireRep.id;
   this.type = wireRep.type;
   this.name = wireRep.name;
+  this.syncRange = wireRep.syncRange;
 
   /**
    * Is the account currently enabled, as in will we talk to the server?
@@ -372,6 +373,29 @@ MailHeader.prototype = {
   forwardMessage: function(forwardMode, callback) {
     return this._slice._api.beginMessageComposition(
       this, null, { forwardOf: this, forwardMode: forwardMode }, callback);
+  },
+};
+
+/**
+ * Represents a mail message that matched some search criteria by providing
+ * both the header and information about the matches that occurred.
+ */
+function MailMatchedHeader(slice, wireRep) {
+  this.header = new MailHeader(slice, wireRep.header);
+  this.matches = wireRep.matches;
+
+  this.element = null;
+  this.data = null;
+}
+MailMatchedHeader.prototype = {
+  toString: function() {
+    return '[MailMatchedHeader: ' + this.header.id + ']';
+  },
+  toJSON: function() {
+    return {
+      type: 'MailMatchedHeader',
+      id: this.header.id
+    };
   },
 };
 
@@ -963,6 +987,8 @@ MessageComposition.prototype = {
 };
 
 
+const LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
+
 /**
  * Error reporting helper; we will probably eventually want different behaviours
  * under development, under unit test, when in use by QA, advanced users, and
@@ -994,7 +1020,17 @@ function MailAPI() {
   this._pendingRequests = {};
 
   /**
-   * Various, unsupported config data.
+   * @dict[
+   *   @key[debugLogging]
+   *   @key[checkInterval]
+   * ]{
+   *   Configuration data.  This is currently populated by data from
+   *   `MailUniverse.exposeConfigForClient` by the code that constructs us.  In
+   *   the future, we will probably want to ask for this from the `MailUniverse`
+   *   directly over the wire.
+   *
+   *   This should be treated as read-only.
+   * }
    */
   this.config = {};
 
@@ -1088,6 +1124,13 @@ MailAPI.prototype = {
           transformedItems.push(new MailHeader(slice, addItems[i]));
         }
         break;
+
+      case 'matchedHeaders':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailMatchedHeader(slice, addItems[i]));
+        }
+        break;
+
 
       default:
         console.error('Slice notification for unknown type:', slice._ns);
@@ -1315,6 +1358,13 @@ MailAPI.prototype = {
    *     The username and password are correct, but the user isn't allowed to
    *     access the mail server.
    *   }
+   *   @case['server-maintenance']{
+   *     The server appears to be undergoing maintenance, at least for this
+   *     account.  We infer this if the server is telling us that login is
+   *     disabled in general or when we try and login the message provides
+   *     positive indications of some type of maintenance rather than a
+   *     generic error string.
+   *   }
    *   @case['unknown']{
    *     We don't know what happened; count this as our bug for not knowing.
    *   }
@@ -1339,17 +1389,20 @@ MailAPI.prototype = {
    *   ]
    * ]
    */
-  tryToCreateAccount: function ma_tryToCreateAccount(details, callback) {
+  tryToCreateAccount: function ma_tryToCreateAccount(details, domainInfo,
+                                                     callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'tryToCreateAccount',
       details: details,
+      domainInfo: domainInfo,
       callback: callback
     };
     this.__bridgeSend({
       type: 'tryToCreateAccount',
       handle: handle,
-      details: details
+      details: details,
+      domainInfo: domainInfo
     });
   },
 
@@ -1487,12 +1540,39 @@ MailAPI.prototype = {
    * recipients, or subject fields, as well as (optionally), the body with a
    * default time constraint so we don't entirely kill the server or us.
    *
-   * Expected UX: run the search once without body, then the user can ask for
-   * the body search too if the first match doesn't meet their expectations.
+   * @args[
+   *   @param[folder]{
+   *     The folder whose messages we should search.
+   *   }
+   *   @param[text]{
+   *     The phrase to search for.  We don't split this up into words or
+   *     anything like that.  We just do straight-up indexOf on the whole thing.
+   *   }
+   *   @param[whatToSearch @dict[
+   *     @key[author #:optional Boolean]
+   *     @key[recipients #:optional Boolean]
+   *     @key[subject #:optional Boolean]
+   *     @key[body #:optional @oneof[false 'no-quotes' 'yes-quotes']]
+   *   ]]
+   * ]
    */
-  quicksearchFolderMessages:
-      function ma_quicksearchFolderMessages(folder, text, searchBodyToo) {
-    throw new Error("NOT YET IMPLEMENTED");
+  searchFolderMessages:
+      function ma_searchFolderMessages(folder, text, whatToSearch) {
+    var handle = this._nextHandle++,
+        slice = new BridgedViewSlice(this, 'matchedHeaders', handle);
+    // the initial population counts as a request.
+    slice.pendingRequestCount++;
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'searchFolderMessages',
+      folderId: folder.id,
+      handle: handle,
+      phrase: text,
+      whatToSearch: whatToSearch,
+    });
+
+    return slice;
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1562,6 +1642,15 @@ MailAPI.prototype = {
     });
 
     return undoableOp;
+  },
+
+  createFolder: function(account, parentFolder, containOnlyOtherFolders) {
+    this.__bridgeSend({
+      type: 'createFolder',
+      accountId: account.id,
+      parentFolderId: parentFolder ? parentFolder.id : null,
+      containOnlyOtherFolders: containOnlyOtherFolders
+    });
   },
 
   _recv_mutationConfirmed: function(msg) {
@@ -1659,6 +1748,8 @@ MailAPI.prototype = {
       msg.submode = options.forwardMode;
       msg.refSuid = options.forwardOf.id;
       msg.refDate = options.forwardOf.date.valueOf();
+      msg.refGuid = options.forwardOf.guid;
+      msg.refAuthor = options.forwardOf.author;
       msg.refSubject = options.forwardOf.subject;
     }
     else {
@@ -1747,7 +1838,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
     if (req.callback) {
-      req.callback.call(null, msg.err, msg.badAddresses);
+      req.callback.call(null, msg.err, msg.badAddresses, msg.sentDate);
       req.callback = null;
     }
   },
@@ -1764,8 +1855,41 @@ MailAPI.prototype = {
    * - wrote: "{{name}} wrote".  Used for the lead-in to the quoted message.
    * - originalMessage: "Original Message".  Gets put between a bunch of dashes
    *    when forwarding a message inline.
+   * - forwardHeaderLabels:
+   *   - subject
+   *   - date
+   *   - from
+   *   - replyTo (for the "reply-to" header)
+   *   - to
+   *   - cc
    */
   useLocalizedStrings: function(strings) {
+    this.__bridgeSend({
+      type: 'localizedStrings',
+      strings: strings
+    });
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Configuration
+
+  /**
+   * Change one-or-more backend-wide settings; use `MailAccount.modifyAccount`
+   * to chang per-account settings.
+   */
+  modifyConfig: function(mods) {
+    for (var key in mods) {
+      if (LEGAL_CONFIG_KEYS.indexOf(key) === -1)
+        throw new Error(key + ' is not a legal config key!');
+    }
+    this.__bridgeSend({
+      type: 'modifyConfig',
+      mods: mods
+    });
+  },
+
+  _recv_config: function(msg) {
+    this.config = msg.config;
   },
 
   //////////////////////////////////////////////////////////////////////////////

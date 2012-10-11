@@ -65,6 +65,8 @@ function strcmp(a, b) {
 }
 
 function checkIfAddressListContainsAddress(list, addrPair) {
+  if (!list)
+    return false;
   var checkAddress = addrPair.address;
   for (var i = 0; i < list.length; i++) {
     if (list[i].address === checkAddress)
@@ -91,6 +93,7 @@ function MailBridge(universe) {
     identities: [],
     folders: [],
     headers: [],
+    matchedHeaders: [],
   };
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
@@ -119,6 +122,19 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
+console.log('received modifyConfig');
+    this.universe.modifyConfig(msg.mods);
+console.log('done proc modifyConfig');
+  },
+
+  notifyConfig: function(config) {
+    this.__sendMessage({
+      type: 'config',
+      config: config,
+    });
+  },
+
   _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
     switch (msg.cmd) {
       case 'setLogging':
@@ -135,9 +151,14 @@ MailBridge.prototype = {
     }
   },
 
+  _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
+    $mailchew.setLocalizedStrings(msg.strings);
+  },
+
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
-    this.universe.tryToCreateAccount(msg.details, function(error, account) {
+    this.universe.tryToCreateAccount(msg.details, msg.domainInfo,
+                                     function(error, account) {
         self.__sendMessage({
             type: 'tryToCreateAccountResults',
             handle: msg.handle,
@@ -195,6 +216,10 @@ MailBridge.prototype = {
           // TODO: support server mutation
           // we expect a list of server mutation objects; namely, the type names
           // the server and the rest are attributes to change
+          break;
+
+        case 'syncRange':
+          accountDef.syncRange = val;
           break;
       }
     }
@@ -365,6 +390,13 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
+  _cmd_createFolder: function mb__cmd_createFolder(msg) {
+    this.universe.createFolder(
+      msg.accountId,
+      msg.parentFolderId,
+      msg.containOnlyOtherFolders);
+  },
+
   _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {
     var proxy = this._slices[msg.handle] =
           new SliceBridgeProxy(this, 'headers', msg.handle);
@@ -372,6 +404,15 @@ MailBridge.prototype = {
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
     account.sliceFolderMessages(msg.folderId, proxy);
+  },
+
+  _cmd_searchFolderMessages: function mb__cmd_searchFolderMessages(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, 'matchedHeaders', msg.handle);
+    this._slicesByType['matchedHeaders'].push(proxy);
+    var account = this.universe.getAccountForFolderId(msg.folderId);
+    account.searchFolderMessages(
+      msg.folderId, proxy, msg.phrase, msg.whatToSearch);
   },
 
   _cmd_refreshHeaders: function mb__cmd_refreshHeaders(msg) {
@@ -541,7 +582,10 @@ MailBridge.prototype = {
                 }
                 // add the author as the first 'to' person
                 else {
-                  rTo = [effectiveAuthor].concat(bodyInfo.to);
+                  if (bodyInfo.to && bodyInfo.to.length)
+                    rTo = [effectiveAuthor].concat(bodyInfo.to);
+                  else
+                    rTo = [effectiveAuthor];
                 }
                 rCc = bodyInfo.cc;
                 rBcc = bodyInfo.bcc;
@@ -610,32 +654,6 @@ MailBridge.prototype = {
     });
   },
 
-  /**
-   * mailcomposer wants from/to/cc/bcc delivered basically like it will show
-   * up in the e-mail, except it is fine with unicode.  So we convert our
-   * (possibly) structured representation into a flattened representation.
-   *
-   * (mailcomposer will handle punycode and mime-word encoding as needed.)
-   */
-  _formatAddresses: function(nameAddrPairs) {
-    var addrstrings = [];
-    for (var i = 0; i < nameAddrPairs.length; i++) {
-      var pair = nameAddrPairs[i];
-      // support lazy people providing only an e-mail... or very careful
-      // people who are sure they formatted things correctly.
-      if (typeof(pair) === 'string') {
-        addrstrings.push(pair);
-      }
-      else {
-        addrstrings.push(
-          '"' + pair.name.replace(/["']/g, '') + '" <' +
-            pair.address + '>');
-      }
-    }
-
-    return addrstrings.join(', ');
-  },
-
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
     if (msg.command === 'delete') {
       // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
@@ -653,7 +671,7 @@ MailBridge.prototype = {
     var body = wireRep.body;
 
     var messageOpts = {
-      from: this._formatAddresses([identity]),
+      from: $imaputil.formatAddresses([identity]),
       subject: wireRep.subject,
     };
     if (body.html) {
@@ -666,11 +684,11 @@ MailBridge.prototype = {
     if (identity.replyTo)
       messageOpts.replyTo = identity.replyTo;
     if (wireRep.to && wireRep.to.length)
-      messageOpts.to = this._formatAddresses(wireRep.to);
+      messageOpts.to = $imaputil.formatAddresses(wireRep.to);
     if (wireRep.cc && wireRep.cc.length)
-      messageOpts.cc = this._formatAddresses(wireRep.cc);
+      messageOpts.cc = $imaputil.formatAddresses(wireRep.cc);
     if (wireRep.bcc && wireRep.bcc.length)
-      messageOpts.bcc = this._formatAddresses(wireRep.bcc);
+      messageOpts.bcc = $imaputil.formatAddresses(wireRep.bcc);
     composer.setMessageOption(messageOpts);
 
     if (wireRep.customHeaders) {
@@ -680,7 +698,8 @@ MailBridge.prototype = {
       }
     }
     composer.addHeader('User-Agent', 'Mozilla Gaia Email Client 0.1alpha');
-    composer.addHeader('Date', new Date().toUTCString());
+    var sentDate = new Date();
+    composer.addHeader('Date', sentDate.toUTCString());
     // we're copying nodemailer here; we might want to include some more...
     var messageId =
       '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
@@ -698,6 +717,7 @@ MailBridge.prototype = {
           err: err,
           badAddresses: badAddresses,
           messageId: messageId,
+          sentDate: sentDate.valueOf(),
         });
       });
     }

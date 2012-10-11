@@ -72,6 +72,17 @@ var _window_mixin = {
           this._listener({});
       }
     },
+    // By default we start up disabled, so it's not really a biggie either way.
+    mozAlarms: {
+      add: function() {},
+      get: function() {},
+      getAll: function() {},
+      remove: function() {},
+    },
+    mozSetMessageHandler: function() {},
+    mozHasPendingMessage: function() {
+      return false;
+    },
   },
 
   URL: {

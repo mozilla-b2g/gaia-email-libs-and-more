@@ -655,6 +655,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
 
   this.meta = folderInfo.$meta;
   this.mutations = folderInfo.$mutations;
+  this.deferredMutations = folderInfo.$deferredMutations;
 }
 exports.FakeAccount = FakeAccount;
 FakeAccount.prototype = {
@@ -670,6 +671,8 @@ FakeAccount.prototype = {
 
       enabled: this.enabled,
       problems: this.problems,
+
+      syncRange: this.accountDef.syncRange,
 
       identities: this.identities,
 

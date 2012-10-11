@@ -7,7 +7,9 @@ define(
     'imap',
     'rdcommon/log',
     '../a64',
+    '../errbackoff',
     '../mailslice',
+    '../searchfilter',
     '../util',
     './folder',
     './jobs',
@@ -18,7 +20,9 @@ define(
     $imap,
     $log,
     $a64,
+    $errbackoff,
     $mailslice,
+    $searchfilter,
     $util,
     $imapfolder,
     $imapjobs,
@@ -47,12 +51,50 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.compositeAccount = compositeAccount;
   this.id = accountId;
 
+  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+
   this._credentials = credentials;
   this._connInfo = connInfo;
   this._db = dbConn;
 
+  /**
+   * The maximum number of connections we are allowed to have alive at once.  We
+   * want to limit this both because we generally aren't sophisticated enough
+   * to need to use many connections at once (unless we have bugs), and because
+   * servers may enforce a per-account connection limit which can affect both
+   * us and other clients on other devices.
+   *
+   * Thunderbird's default for this is 5.
+   *
+   * gmail currently claims to have a limit of 10 connections per account:
+   * http://support.google.com/mail/bin/answer.py?hl=en&answer=97150
+   *
+   * I am picking 3 right now because it should cover the "I just sent a
+   * messages from the folder I was in and then switched to another folder",
+   * where we could have stuff to do in the old folder, new folder, and sent
+   * mail folder.  I have also seem claims of connection limits of 3 for some
+   * accounts out there, so this avoids us needing logic to infer a need to
+   * lower our connection limit.
+   */
+  this._maxConnsAllowed = 3;
+  /**
+   * The `ImapConnection` we are attempting to open, if any.  We only try to
+   * open one connection at a time.
+   */
+  this._pendingConn = null;
   this._ownedConns = [];
-  this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
+  /**
+   * @listof[@dict[
+   *   @key[folderId]
+   *   @key[callback]
+   * ]]{
+   *   The list of requested connections that have not yet been serviced.  An
+   * }
+   */
+  this._demandedConns = [];
+  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
+                                                     this._LOG);
+  this._boundMakeConnection = this._makeConnection.bind(this);
 
   this._jobDriver = new $imapjobs.ImapJobDriver(this);
 
@@ -115,6 +157,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * }
    */
   this.mutations = this._folderInfos.$mutations;
+  this.deferredMutations = this._folderInfos.$deferredMutations;
   for (var folderId in folderInfos) {
     if (folderId[0] === '$')
       continue;
@@ -226,129 +269,6 @@ ImapAccount.prototype = {
   },
 
   /**
-   * Create a folder that is the child/descendant of the given parent folder.
-   * If no parent folder id is provided, we attempt to create a root folder.
-   *
-   * @args[
-   *   @param[parentFolderId String]
-   *   @param[folderName]
-   *   @param[containOnlyOtherFolders Boolean]{
-   *     Should this folder only contain other folders (and no messages)?
-   *     On some servers/backends, mail-bearing folders may not be able to
-   *     create sub-folders, in which case one would have to pass this.
-   *   }
-   *   @param[callback @func[
-   *     @args[
-   *       @param[error @oneof[
-   *         @case[null]{
-   *           No error, the folder got created and everything is awesome.
-   *         }
-   *         @case['offline']{
-   *           We are offline and can't create the folder.
-   *         }
-   *         @case['already-exists']{
-   *           The folder appears to already exist.
-   *         }
-   *         @case['unknown']{
-   *           It didn't work and we don't have a better reason.
-   *         }
-   *       ]]
-   *       @param[folderMeta ImapFolderMeta]{
-   *         The meta-information for the folder.
-   *       }
-   *     ]
-   *   ]]{
-   *   }
-   * ]
-   */
-  createFolder: function(parentFolderId, folderName, containOnlyOtherFolders,
-                         callback) {
-    var path, delim;
-    if (parentFolderId) {
-      if (!this._folderInfos.hasOwnProperty(parentFolderId))
-        throw new Error("No such folder: " + parentFolderId);
-      var parentFolder = this._folderInfos[parentFolderId];
-      delim = parentFolder.path;
-      path = parentFolder.path + delim;
-    }
-    else {
-      path = '';
-      delim = this.meta.rootDelim;
-    }
-    if (typeof(folderName) === 'string')
-      path += folderName;
-    else
-      path += folderName.join(delim);
-    if (containOnlyOtherFolders)
-      path += delim;
-
-    if (!this.universe.online) {
-      callback('offline');
-      return;
-    }
-
-    var rawConn = null, self = this;
-    function gotConn(conn) {
-      // create the box
-      rawConn = conn;
-      rawConn.addBox(path, addBoxCallback);
-    }
-    function addBoxCallback(err) {
-      if (err) {
-        console.error('Error creating box:', err);
-        // XXX implement the already-exists check...
-        done('unknown');
-        return;
-      }
-      // Do a list on the folder so that we get the right attributes and any
-      // magical case normalization performed by the server gets observed by
-      // us.
-      rawConn.getBoxes('', path, gotBoxes);
-    }
-    function gotBoxes(err, boxesRoot) {
-      if (err) {
-        console.error('Error looking up box:', err);
-        done('unknown');
-        return;
-      }
-      // We need to re-derive the path.  The hierarchy will only be that
-      // required for our new folder, so we traverse all children and create
-      // the leaf-node when we see it.
-      var folderMeta = null;
-      function walkBoxes(boxLevel, pathSoFar, pathDepth) {
-        for (var boxName in boxLevel) {
-          var box = boxLevel[boxName],
-              boxPath = pathSoFar ? (pathSoFar + boxName) : boxName;
-          if (box.children) {
-            walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
-          }
-          else {
-            var type = self._determineFolderType(box, boxPath);
-            folderMeta = self._learnAboutFolder(boxName, boxPath, type,
-                                                box.delim, pathDepth);
-          }
-        }
-      }
-      walkBoxes(boxesRoot, '', 0);
-      if (folderMeta)
-        done(null, folderMeta);
-      else
-        done('unknown');
-    }
-    function done(errString, folderMeta) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(null, rawConn);
-        rawConn = null;
-      }
-      if (!errString)
-        self._LOG.createFolder(path);
-      if (callback)
-        callback(errString, folderMeta);
-    }
-    this.__folderDemandsConnection(':createFolder', gotConn);
-  },
-
-  /**
    * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
    * does not desire this, but the unit tests do.
    *
@@ -378,7 +298,7 @@ ImapAccount.prototype = {
     }
     function done(errString) {
       if (rawConn) {
-        self.__folderDoneWithConnection(null, rawConn);
+        self.__folderDoneWithConnection(rawConn, false, false);
         rawConn = null;
       }
       if (!errString) {
@@ -388,7 +308,7 @@ ImapAccount.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this.__folderDemandsConnection(':deleteFolder', gotConn);
+    this.__folderDemandsConnection(null, 'deleteFolder', gotConn);
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -415,6 +335,13 @@ ImapAccount.prototype = {
     storage.sliceOpenFromNow(slice);
   },
 
+  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
+    var storage = this._folderStorages[folderId],
+        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
+                                              whatToSearch, this._LOG);
+    // the slice is self-starting, we don't need to call anything on storage
+  },
+
   shutdown: function() {
     // - kill all folder storages (for their loggers)
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
@@ -422,6 +349,8 @@ ImapAccount.prototype = {
           folderStorage = this._folderStorages[folderPub.id];
       folderStorage.shutdown();
     }
+
+    this._backoffEndpoint.shutdown();
 
     // - close all connections
     for (var i = 0; i < this._ownedConns.length; i++) {
@@ -431,6 +360,14 @@ ImapAccount.prototype = {
 
     this._LOG.__die();
   },
+
+  checkAccount: function(listener) {
+    var self = this;
+    this._makeConnection(listener, null, 'check');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Connection Pool-ish stuff
 
   get numActiveConns() {
     return this._ownedConns.length;
@@ -451,54 +388,97 @@ ImapAccount.prototype = {
    * @args[
    *   @param[folderId #:optional FolderId]{
    *     The folder id of the folder that will be using the connection.  If
-   *     it's not a folder but some task, then pass a string prefixed with
-   *     a colon and a human readable string to explain the task.
+   *     it's not a folder but some task, then pass null (and ideally provide
+   *     a useful `label`).
    *   }
-   *   @param[callback]{
+   *   @param[label #:optional String]{
+   *     A human readable explanation of the activity for debugging purposes.
+   *   }
+   *   @param[callback @func[@args[@param[conn]]]]{
    *     The callback to invoke once the connection has been established.  If
    *     there is a connection present in the reuse pool, this may be invoked
    *     immediately.
    *   }
+   *   @param[deathback Function]{
+   *     A callback to invoke if the connection dies or we feel compelled to
+   *     reclaim it.
+   *   }
    * ]
    */
-  __folderDemandsConnection: function(folderId, callback) {
+  __folderDemandsConnection: function(folderId, label, callback, deathback) {
+    this._demandedConns.push({
+      folderId: folderId,
+      label: label,
+      callback: callback,
+      deathback: deathback
+    });
+
+    // No line-cutting; bail if there was someone ahead of us.
+    if (this._demandedConns.length > 1)
+      return;
+
+    // - try and reuse an existing connection
+    if (this._allocateExistingConnection())
+      return;
+
+    // - we need to wait for a new conn or one to free up
+    this._makeConnectionIfPossible();
+  },
+
+  _allocateExistingConnection: function() {
+    if (!this._demandedConns.length)
+      return false;
+    var demandInfo = this._demandedConns[0];
+
     var reusableConnInfo = null;
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
-      if (!connInfo.inUse)
-        reusableConnInfo = connInfo;
       // It's concerning if the folder already has a connection...
-      if (folderId && connInfo.folderId === folderId) {
-        this._LOG.folderAlreadyHasConn(folderId);
-      }
+      if (demandInfo.folderId && connInfo.folderId === demandInfo.folderId)
+        this._LOG.folderAlreadyHasConn(demandInfo.folderId);
+
+      if (connInfo.inUseBy)
+        continue;
+
+      connInfo.inUseBy = demandInfo;
+      this._demandedConns.shift();
+      this._LOG.reuseConnection(demandInfo.folderId, demandInfo.label);
+      demandInfo.callback(connInfo.conn);
+      return true;
     }
 
-    if (reusableConnInfo) {
-      reusableConnInfo.inUse = true;
-      reusableConnInfo.folderId = folderId;
-      this._LOG.reuseConnection(folderId);
-      callback(reusableConnInfo.conn);
+    return false;
+  },
+
+  /**
+   * Close all connections that aren't currently in use.
+   */
+  closeUnusedConnections: function() {
+    for (var i = this._ownedConns.length - 1; i >= 0; i--) {
+      var connInfo = this._ownedConns[i];
+      if (connInfo.inUseBy)
+        continue;
+      // this eats all future notifications, so we need to splice...
+      connInfo.conn.die();
+      this._ownedConns.splice(i, 1);
+      this._LOG.deadConnection();
+    }
+  },
+
+  _makeConnectionIfPossible: function() {
+    if (this._ownedConns.length >= this._maxConnsAllowed) {
+      this._LOG.maximumConnsNoNew();
       return;
     }
+    if (this._pendingConn)
+      return;
 
-    this._makeConnection(folderId, callback);
+    this._pendingConn = true;
+    this._backoffEndpoint.scheduleConnectAttempt(this._boundMakeConnection);
   },
 
-  checkAccount: function(callback) {
-    var self = this;
-    this._makeConnection(
-      ':check',
-      function success(conn) {
-        self.__folderDoneWithConnection(null, conn);
-        callback(null);
-      },
-      function badness(err) {
-        callback(err);
-      });
-  },
-
-  _makeConnection: function(folderId, callback, errback) {
-    this._LOG.createConnection(folderId);
+  _makeConnection: function(listener, whyFolderId, whyLabel) {
+    this._LOG.createConnection(whyFolderId, whyLabel);
     var opts = {
       host: this._connInfo.hostname,
       port: this._connInfo.port,
@@ -508,23 +488,51 @@ ImapAccount.prototype = {
       password: this._credentials.password,
     };
     if (this._LOG) opts._logParent = this._LOG;
-    var conn = new $imap.ImapConnection(opts);
-    this._ownedConns.push({
-        conn: conn,
-        inUse: true,
-        folderId: folderId,
-      });
-    this._bindConnectionDeathHandlers(conn);
-    conn.connect(function(err) {
+    var conn = this._pendingConn = new $imap.ImapConnection(opts);
+    var connectCallbackTriggered = false;
+    // The login callback should get invoked in all cases, but a recent code
+    // inspection for the prober suggested that there may be some cases where
+    // things might fall-through, so let's just convert them.  We need some
+    // type of handler since imap.js currently calls the login callback and
+    // then the 'error' handler, generating an error if there is no error
+    // handler.
+    conn.on('error', function(err) {
+      if (!connectCallbackTriggered)
+        loginCb(err);
+    });
+    var loginCb;
+    conn.connect(loginCb = function(err) {
+      connectCallbackTriggered = true;
+      this._pendingConn = null;
       if (err) {
-        var errName;
+        var errName, reachable = false, maybeRetry = true;
+        // We want to produce error-codes as defined in `MailApi.js` for
+        // tryToCreateAccount.  We have also tried to make imap.js produce
+        // error codes of the right type already, but for various generic paths
+        // (like saying 'NO'), there isn't currently a good spot for that.
         switch (err.type) {
-          // error-codes as defined in `MailApi.js` for tryToCreateAccount
+          // dovecot says after a delay and does not terminate the connection:
+          //   NO [AUTHENTICATIONFAILED] Authentication failed.
+          // zimbra 7.2.x says after a delay and DOES terminate the connection:
+          //   NO LOGIN failed
+          //   * BYE Zimbra IMAP server terminating connection
+          // yahoo says after a delay and does not terminate the connection:
+          //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
           case 'NO':
           case 'no':
             errName = 'bad-user-or-pass';
+            reachable = true;
+            // go directly to the broken state; no retries
+            maybeRetry = false;
+            // tell the higher level to disable our account until we fix our
+            // credentials problem and ideally generate a UI prompt.
             this.universe.__reportAccountProblem(this.compositeAccount,
                                                  errName);
+            break;
+          // errors we can pass through directly:
+          case 'server-maintenance':
+            errName = err.type;
+            reachable = true;
             break;
           case 'timeout':
             errName = 'unresponsive-server';
@@ -535,24 +543,47 @@ ImapAccount.prototype = {
         }
         console.error('Connect error:', errName, 'formal:', err, 'on',
                       this._connInfo.hostname, this._connInfo.port);
-        if (errback)
-          errback(errName);
+        if (listener)
+          listener(errName);
         conn.die();
+
+        // track this failure for backoff purposes
+        if (maybeRetry) {
+          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
+            this._makeConnectionIfPossible();
+        }
+        else {
+          this._backoffEndpoint.noteBrokenConnection();
+        }
       }
       else {
-        callback(conn);
+        this._bindConnectionDeathHandlers(conn);
+        this._backoffEndpoint.noteConnectSuccess();
+        this._ownedConns.push({
+          conn: conn,
+          inUseBy: null,
+        });
+        this._allocateExistingConnection();
+        if (listener)
+          listener(null);
+        // Keep opening connections if there is more work to do (and possible).
+        if (this._demandedConns.length)
+          this._makeConnectionIfPossible();
       }
     }.bind(this));
   },
 
+  /**
+   * Treat a connection that came from the IMAP prober as a connection we
+   * created ourselves.
+   */
   _reuseConnection: function(existingProtoConn) {
     // We don't want the probe being kept alive and we certainly don't need its
     // listeners.
     existingProtoConn.removeAllListeners();
     this._ownedConns.push({
         conn: existingProtoConn,
-        inUse: false,
-        folderId: null,
+        inUseBy: null,
       });
     this._bindConnectionDeathHandlers(existingProtoConn);
   },
@@ -563,40 +594,49 @@ ImapAccount.prototype = {
       for (var i = 0; i < this._ownedConns.length; i++) {
         var connInfo = this._ownedConns[i];
         if (connInfo.conn === conn) {
-          this._LOG.deadConnection(connInfo.folderId);
+          this._LOG.deadConnection(connInfo.inUseBy &&
+                                   connInfo.inUseBy.folderId);
+          if (connInfo.inUseBy && connInfo.inUseBy.deathback)
+            connInfo.inUseBy.deathback(conn);
+          connInfo.inUseBy = null;
           this._ownedConns.splice(i, 1);
           return;
         }
       }
+      this._LOG.unknownDeadConnection();
     }.bind(this));
     conn.on('error', function(err) {
+      this._LOG.connectionError(err);
       // this hears about connection errors too
       console.warn('Conn steady error:', err, 'on',
                    this._connInfo.hostname, this._connInfo.port);
     }.bind(this));
   },
 
-  __folderDoneWithConnection: function(folderId, conn) {
-    // XXX detect if the connection is actually dead and in that case don't
-    // reinsert it.
+  __folderDoneWithConnection: function(conn, closeFolder, resourceProblem) {
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       if (connInfo.conn === conn) {
-        connInfo.inUse = false;
-        connInfo.folderId = null;
-        this._LOG.releaseConnection(folderId);
-        // XXX this will trigger an expunge if not read-only...
-        if (folderId)
+        if (resourceProblem)
+          this._backoffEndpoint(connInfo.inUseBy.folderId);
+        this._LOG.releaseConnection(connInfo.inUseBy.folderId,
+                                    connInfo.inUseBy.label);
+        connInfo.inUseBy = null;
+        // (this will trigger an expunge if not read-only...)
+        if (closeFolder && !resourceProblem)
           conn.closeBox(function() {});
         return;
       }
     }
-    this._LOG.connectionMismatch(folderId);
+    this._LOG.connectionMismatch();
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Folder synchronization
 
   syncFolderList: function(callback) {
     var self = this;
-    this.__folderDemandsConnection(null, function(conn) {
+    this.__folderDemandsConnection(null, 'syncFolderList', function(conn) {
       conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
     });
   },
@@ -694,7 +734,7 @@ ImapAccount.prototype = {
     var self = this;
     if (err) {
       // XXX need to deal with transient failure states
-      this.__folderDoneWithConnection(null, conn);
+      this.__folderDoneWithConnection(conn, false, false);
       callback();
       return;
     }
@@ -742,11 +782,13 @@ ImapAccount.prototype = {
       this._forgetFolder(folderPub.id);
     }
 
-    this.__folderDoneWithConnection(null, conn);
+    this.__folderDoneWithConnection(conn, false, false);
     // be sure to save our state now that we are up-to-date on this.
     this.saveAccountState();
     callback();
   },
+
+  //////////////////////////////////////////////////////////////////////////////
 
   /**
    * @args[
@@ -789,21 +831,19 @@ ImapAccount.prototype = {
       op.status = mode + 'ing';
 
     if (callback) {
-      this._LOG.runOp_begin(mode, op.type, null);
+      this._LOG.runOp_begin(mode, op.type, null, op);
       this._jobDriver[methodName](op, function(error, resultIfAny,
                                                accountSaveSuggested) {
-        self._LOG.runOp_end(mode, op.type, error);
-        if (!isLocal)
-          op.status = mode + 'ne';
+        self._jobDriver.postJobCleanup();
+        self._LOG.runOp_end(mode, op.type, error, op);
         callback(error, resultIfAny, accountSaveSuggested);
       });
     }
     else {
-      this._LOG.runOp_begin(mode, op.type, null);
+      this._LOG.runOp_begin(mode, op.type, null, null);
       var rval = this._jobDriver[methodName](op);
-      if (!isLocal)
-        op.status = mode + 'ne';
-      this._LOG.runOp_end(mode, op.type, rval);
+      this._jobDriver.postJobCleanup();
+      this._LOG.runOp_end(mode, op.type, rval, op);
     }
   },
 
@@ -834,18 +874,25 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       releaseConnection: {},
       deadConnection: {},
       connectionMismatch: {},
+
+      /**
+       * The maximum connection limit has been reached, we are intentionally
+       * not creating an additional one.
+       */
+      maximumConnsNoNew: {},
     },
     TEST_ONLY_events: {
-      createFolder: { path: false },
       deleteFolder: { path: false },
 
-      createConnection: { folderId: false },
-      reuseConnection: { folderId: false },
-      releaseConnection: { folderId: false },
+      createConnection: { folderId: false, label: false },
+      reuseConnection: { folderId: false, label: false },
+      releaseConnection: { folderId: false, label: false },
       deadConnection: { folderId: false },
-      connectionMismatch: { folderId: false },
+      connectionMismatch: {},
     },
     errors: {
+      unknownDeadConnection: {},
+      connectionError: {},
       folderAlreadyHasConn: { folderId: false },
     },
     asyncJobs: {

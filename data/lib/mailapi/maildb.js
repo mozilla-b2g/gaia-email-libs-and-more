@@ -31,9 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 8 because our attachment representation has changed from v7.
+ * Bumping to 11 because of the introduction of the sync check interval.
  */
-const CUR_VERSION = 8;
+const CUR_VERSION = 11;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -192,6 +192,7 @@ function MailDB() {
       self.getConfig(function(configObj, accountInfos) {
         if (configObj)
           self._lazyConfigCarryover = {
+            oldVersion: event.oldVersion,
             config: configObj,
             accountInfos: accountInfos
           };

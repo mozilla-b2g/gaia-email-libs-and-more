@@ -36,32 +36,48 @@ function ImapProber(credentials, connInfo, _LOG) {
 
   console.log("PROBE:IMAP attempting to connect to", connInfo.hostname);
   this._conn = new $imap.ImapConnection(opts);
-  this._conn.connect(this.onConnect.bind(this));
-  // The login callback will get the error, but EventEmitter will freak out if
-  // we don't register a handler for the error, so just do that.
-  this._conn.on('error', function() {});
+  this._conn.connect(this.onLoggedIn.bind(this));
+  this._conn.on('error', this.onError.bind(this));
 
   this.onresult = null;
   this.accountGood = null;
 }
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
-  onConnect: function ImapProber_onConnect(err) {
+  onLoggedIn: function ImapProber_onLoggedIn(err) {
     if (err) {
-      console.warn("PROBE:IMAP sad");
-      this.accountGood = false;
-      this._conn = null;
+      this.onError(err);
+      return;
     }
-    else {
-      console.log("PROBE:IMAP happy");
-      this.accountGood = true;
-    }
+    if (!this.onresult)
+      return;
+
+    console.log('PROBE:IMAP happy');
+    this.accountGood = true;
 
     var conn = this._conn;
     this._conn = null;
 
-    if (this.onresult)
-      this.onresult(this.accountGood, conn);
+    this.onresult(this.accountGood, conn);
+    this.onresult = false;
+  },
+
+  onError: function ImapProber_onError(err) {
+    if (!this.onresult)
+      return;
+    console.warn('PROBE:IMAP sad', err);
+    this.accountGood = false;
+    // we really want to make sure we clean up after this dude.
+    try {
+      this._conn.die();
+    }
+    catch (ex) {
+    }
+    this._conn = null;
+
+    this.onresult(this.accountGood, null);
+    // we could potentially see many errors...
+    this.onresult = false;
   },
 };
 

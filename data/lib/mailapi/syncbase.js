@@ -122,6 +122,63 @@ exports.BISECT_DATE_AT_N_MESSAGES = 50;
  */
 exports.TOO_MANY_MESSAGES = 2000;
 
+////////////////////////////////////////////////////////////////////////////////
+// Error / Retry Constants
+
+/**
+ * What is the maximum number of tries we should give an operation before
+ * giving up on the operation as hopeless?  Note that in some suspicious
+ * error cases, the try cont will be incremented by more than 1.
+ *
+ * This value is somewhat generous because we do assume that when we do
+ * encounter a flakey connection, there is a high probability of the connection
+ * being flakey in the short term.  The operations will not be excessively
+ * penalized for this since IMAP connections have to do a lot of legwork to
+ * establish the connection before we start the operation (CAPABILITY, LOGIN,
+ * CAPABILITY).
+ */
+exports.MAX_OP_TRY_COUNT = 10;
+
+/**
+ * The value to increment the operation tryCount by if we receive an
+ * unexpected error.
+ */
+exports.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT = 5;
+
+/**
+ * If we need to defer an operation because the folder/resource was not
+ * available, how long should we defer for?
+ */
+exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
+
+////////////////////////////////////////////////////////////////////////////////
+// General defaults
+
+/**
+ * We use an enumerated set of sync values for UI localization reasons; time
+ * is complex and we don't have/use a helper library for this.
+ */
+exports.CHECK_INTERVALS_ENUMS_TO_MS = {
+  'manual': 0, // 0 disables; no infinite checking!
+  '3min': 3 * 60 * 1000,
+  '5min': 5 * 60 * 1000,
+  '10min': 10 * 60 * 1000,
+  '15min': 15 * 60 * 1000,
+  '30min': 30 * 60 * 1000,
+  '60min': 60 * 60 * 1000,
+};
+
+/**
+ * Default to not automatically checking for e-mail for reasons to avoid
+ * degrading the phone experience until we are more confident about our resource
+ * usage, etc.
+ */
+exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Unit test support
+
 /**
  * Testing support to adjust the value we use for the number of initial sync
  * days.  The tests are written with a value in mind (7), but 7 turns out to
@@ -132,7 +189,7 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
   exports.INITIAL_SYNC_DAYS = syncValues.days;
 
   exports.BISECT_DATE_AT_N_MESSAGES = syncValues.bisectThresh;
-  TOO_MANY_MESSAGES = syncValues.tooMany;
+  exports.TOO_MANY_MESSAGES = syncValues.tooMany;
 
   exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = syncValues.scaleFactor;
 
@@ -145,10 +202,16 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
   exports.REFRESH_USABLE_DATA_TIME_THRESH_OLD =
     syncValues.refreshOld;
 
-  USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
+  exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
     syncValues.useRangeNonInbox;
-  USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
+  exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
     syncValues.useRangeInbox;
+
+  if (syncValues.hasOwnProperty('MAX_OP_TRY_COUNT'))
+    exports.MAX_OP_TRY_COUNT = syncValues.MAX_OP_TRY_COUNT;
+  if (syncValues.hasOwnProperty('OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT'))
+    exports.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT =
+      syncValues.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT;
 };
 
 }); // end define

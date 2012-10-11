@@ -362,7 +362,7 @@ MailSlice.prototype = {
    * called when the header is in the time-range of interest and a refresh,
    * cron-triggered sync, or IDLE/push tells us to do so.
    */
-  onHeaderAdded: function(header, syncDriven) {
+  onHeaderAdded: function(header, syncDriven, messageIsNew) {
     if (!this._bridgeHandle)
       return;
 
@@ -790,13 +790,20 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._deferredCalls = [];
 
   /**
-   * The number of pending mutation requests on the folder; currently because
-   * of how mutation operations are scheduled, this will either be 0 or 1.
-   * This will probably still remain true in the future, but we will adopt a
-   * connection reclaimation strategy so we don't keep jumping into and out of
-   * the same folder.
+   * @listof[@dict[
+   *   @key[name String]{
+   *     A string describing the operation to be performed for debugging
+   *     purposes.  This string must not include any user data.
+   *   }
+   *   @key[func @func[@args[callWhenDone]]]{
+   *     The function to be invoked.
+   *   }
+   * ]]{
+   *   The list of mutexed call operations queued.  The first entry is the
+   *   currently executing entry.
+   * }
    */
-  this._pendingMutationCount = 0;
+  this._mutexQueue = [];
 
   /**
    * Active view slices on this folder.
@@ -813,6 +820,15 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
+  /**
+   * Return true if there is another sync happening in this folder right now.
+   * This allows the `CronSyncer` to avoid starting a sync that will immediately
+   * fail because there is a sync-in-progress.  See its logic for more details.
+   */
+  get syncInProgress() {
+    return this._curSyncSlice !== null;
+  },
+
   generatePersistenceInfo: function() {
     if (!this._dirty)
       return null;
@@ -825,6 +841,74 @@ FolderStorage.prototype = {
     this._dirtyBodyBlocks = {};
     this._dirty = false;
     return pinfo;
+  },
+
+  _invokeNextMutexedCall: function() {
+    var callInfo = this._mutexQueue[0], self = this, done = false;
+    this._mutexedCallInProgress = true;
+    this._LOG.mutexedCall_begin(callInfo.name);
+
+    callInfo.func(function mutexedOpDone() {
+      if (done) {
+        self._LOG.tooManyCallbacks(callInfo.name);
+        return;
+      }
+      self._LOG.mutexedCall_end(callInfo.name);
+      done = true;
+      if (self._mutexQueue[0] !== callInfo) {
+        self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
+        return;
+      }
+      self._mutexQueue.shift();
+      // Although everything should be async, avoid stack explosions by
+      // deferring the execution to a future turn of th eevent loop.
+      if (self._mutexQueue.length)
+        window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+      else if (self._slices.length === 0)
+        self.folderSyncer.allConsumersDead();
+    });
+  },
+
+  /**
+   * If you want to modify the state of things in the FolderStorage, or be able
+   * to view the state of the FolderStorage without worrying about some other
+   * logic mutating its state, then use this to schedule your function to run
+   * with (notional) exclusive write access.  Because everything is generally
+   * asynchronous, it's assumed your function is still doing work until it calls
+   * the passed-in function to indicate it is done.
+   *
+   * This mutex should not be held longer than required.  Specifically, if error
+   * handling determines that we should wait a few seconds to retry a network
+   * operation, then the function should mark itself completed and issue a call
+   * to runMutexed again in the future once the timeout has elapsed.
+   *
+   * Keep in mind that there is nothing actually stopping other code from trying
+   * to manipulate the database.
+   *
+   * It's okay to issue reads against the FolderStorage if the value is
+   * immutable or there are other protective mechanisms in place.  For example,
+   * fetching a message body should always be safe even if a block load needs
+   * to occur.  But if you wanted to fetch a header, mutate it, and write it
+   * back, then you would want to do all of that with the mutex held; reading
+   * the header before holding the mutex could result in a race.
+   *
+   * @args[
+   *   @param[name String]{
+   *     A short name to identify what operation this is for debugging purposes.
+   *     No private user data or sensitive data should be included in the name.
+   *   }
+   *   @param[func @func[@args[@param[callWhenDone Function]]]]{
+   *     The function to run with (notional) exclusive access to the
+   *     FolderStorage.
+   *   }
+   * ]
+   */
+  runMutexed: function(name, func) {
+    var doRun = this._mutexQueue.length === 0;
+    this._mutexQueue.push({ name: name, func: func });
+
+    if (doRun)
+      this._invokeNextMutexedCall();
   },
 
   /**
@@ -1562,6 +1646,7 @@ FolderStorage.prototype = {
     if (this._curSyncSlice) {
       console.error("Trying to open a slice and initiate a sync when there",
                     "is already an active sync slice!");
+      return;
     }
     // by definition, we must be at the top
     slice.atTop = true;
@@ -1779,10 +1864,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.
-    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
-      var syncStartTS = this.getOldestFullSyncDate(startTS);
-      startTS = syncStartTS;
-    }
+    if (this.headerIsOldestKnown(startTS, slice.startUID))
+      startTS = this.getOldestFullSyncDate(startTS);
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);
@@ -1817,8 +1900,8 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
 
-    if (this._slices.length === 0 && this._pendingMutationCount === 0)
-      this.folderSyncer.relinquishConn();
+    if (this._slices.length === 0 && this._mutexQueue.length === 0)
+      this.folderSyncer.allConsumersDead();
   },
 
   /**
@@ -2354,7 +2437,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     }
 
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
-      this._curSyncSlice.onHeaderAdded(header, true);
+      this._curSyncSlice.onHeaderAdded(header, true, true);
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       var date = header.date, uid = header.id;
@@ -2380,7 +2463,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
                   uid > slice.endUID)) {
           continue;
         }
-        slice.onHeaderAdded(header, false);
+        slice.onHeaderAdded(header, false, true);
       }
     }
 
@@ -2436,7 +2519,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
       self._dirtyHeaderBlocks[info.blockId] = block;
 
       if (partOfSync && self._curSyncSlice && !self._curSyncSlice.ignoreHeaders)
-        self._curSyncSlice.onHeaderAdded(header, false);
+        self._curSyncSlice.onHeaderAdded(header, false, false);
       if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
         for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
           var slice = self._slices[iSlice];
@@ -2487,7 +2570,7 @@ console.log("RTC", ainfo.fullSync && ainfo.fullSync.updated, updateThresh);
     }
     // (no block update required)
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
-      this._curSyncSlice.onHeaderAdded(header, true);
+      this._curSyncSlice.onHeaderAdded(header, true, false);
   },
 
   deleteMessageHeaderAndBody: function(header) {
@@ -2652,6 +2735,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       loadBlock: { type: false, blockId: false },
+      mutexedCall: { name: true },
     },
     TEST_ONLY_asyncJobs: {
       loadBlock: { block: false },
@@ -2664,6 +2748,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badIterationStart: { date: false, uid: false },
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
+
+      tooManyCallbacks: { name: false },
+      mutexInvariantFail: { fireName: false, curName: false },
     }
   },
 }); // end LOGFAB
