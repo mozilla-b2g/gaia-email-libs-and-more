@@ -493,7 +493,8 @@ MailBody.prototype = {
       var relPart = this._relatedParts[i];
       // Related parts should all be stored as Blobs-in-IndexedDB
       if (relPart.file && !Array.isArray(relPart.file)) {
-        cidToObjectUrl[relPart.name] = useWin.URL.createObjectURL(relPart.file);
+        cidToObjectUrl[relPart.contentId] = useWin.URL.createObjectURL(
+          relPart.file);
       }
     }
     this._cleanup = function revokeURLs() {

@@ -140,13 +140,10 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
       return s;
     }
 
-    // - Attachments have names and don't have id's for multipart/related
-    if (disposition === 'attachment') {
-      // We probably want to do a MIME mapping here for the extension?
-      if (!filename)
-        filename = 'unnamed-' + (++unnamedPartCounter);
-      attachments.push({
-        name: filename,
+    function makePart(partInfo, filename) {
+      return {
+        name: filename || 'unnamed-' + (++unnamedPartCounter),
+        contentId: partInfo.id ? stripArrows(partInfo.id) : null,
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
         encoding: partInfo.encoding && partInfo.encoding.toLowerCase(),
@@ -158,32 +155,21 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
         textFormat: (partInfo.params && partInfo.params.format &&
                      partInfo.params.format.toLowerCase()) || undefined
          */
-      });
-      return true;
+      };
     }
-    // (must be inline)
 
-    //
-    if (partInfo.type === 'image') {
-      relatedParts.push({
-        name: stripArrows(partInfo.id), // this is the cid
-        type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
-        part: partInfo.partID,
-        encoding: partInfo.encoding && partInfo.encoding.toLowerCase(),
-        sizeEstimate: estimatePartSizeInBytes(partInfo),
-        file: null,
-        /*
-        charset: (partInfo.params && partInfo.params.charset &&
-                  partInfo.params.charset.toLowerCase()) || undefined,
-        textFormat: (partInfo.params && partInfo.params.format &&
-                     partInfo.params.format.toLowerCase()) || undefined
-         */
-      });
+    if (disposition === 'attachment') {
+      attachments.push(makePart(partInfo, filename));
       return true;
     }
 
     // - We must be an inline part or structure
     switch (partInfo.type) {
+      // - related image
+      case 'image':
+        relatedParts.push(makePart(partInfo, filename));
+        return true;
+        break;
       // - content
       case 'text':
         if (partInfo.subtype === 'plain' ||

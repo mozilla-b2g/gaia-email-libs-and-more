@@ -322,6 +322,7 @@ ActiveSyncFolderConn.prototype = {
         bcc: null,
         replyTo: null,
         attachments: [],
+        relatedParts: [],
         references: null,
         bodyReps: null,
       };
@@ -373,8 +374,8 @@ ActiveSyncFolderConn.prototype = {
     }
 
     for (let [,child] in Iterator(node.children)) {
-      let childText = child.children.length &&
-                      child.children[0].textContent;
+      let childText = child.children.length ? child.children[0].textContent :
+                                              null;
 
       switch (child.tag) {
       case em.Subject:
@@ -427,23 +428,31 @@ ActiveSyncFolderConn.prototype = {
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        header.hasAttachments = true;
-        body.attachments = [];
         for (let [,attachmentNode] in Iterator(child.children)) {
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
             continue;
 
-          let attachment = { name: null, type: null, part: null,
-                             sizeEstimate: null };
+          let attachment = {
+            name: null,
+            contentId: null,
+            type: null,
+            part: null,
+            encoding: null,
+            sizeEstimate: null,
+            file: null,
+          };
 
+          let isInline = false;
           for (let [,attachData] in Iterator(attachmentNode.children)) {
             let dot, ext;
+            let attachDataText = attachData.children.length ?
+                                 attachData.children[0].textContent : null;
 
             switch (attachData.tag) {
             case asb.DisplayName:
             case em.DisplayName:
-              attachment.name = attachData.children[0].textContent;
+              attachment.name = attachDataText;
 
               // Get the file's extension to look up a mimetype, but ignore it
               // if the filename is of the form '.bashrc'.
@@ -452,9 +461,19 @@ ActiveSyncFolderConn.prototype = {
               attachment.type = $mimelib.contentTypes[ext] ||
                                 'application/octet-stream';
               break;
+            case asb.FileReference:
+            case em.AttName:
+              attachment.part = attachDataText;
+              break;
             case asb.EstimatedDataSize:
             case em.AttSize:
-              attachment.sizeEstimate = attachData.children[0].textContent;
+              attachment.sizeEstimate = attachDataText;
+              break;
+            case asb.ContentId:
+              attachment.contentId = attachDataText;
+              break;
+            case asb.IsInline:
+              isInline = (attachDataText === '1');
               break;
             case asb.FileReference:
             case em.Att0Id:
@@ -462,8 +481,13 @@ ActiveSyncFolderConn.prototype = {
               break;
             }
           }
-          body.attachments.push(attachment);
+
+          if (isInline)
+            body.relatedParts.push(attachment);
+          else
+            body.attachments.push(attachment);
         }
+        header.hasAttachments = body.attachments.length > 0;
         break;
       }
     }
