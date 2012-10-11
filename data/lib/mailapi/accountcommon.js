@@ -964,7 +964,7 @@ Autoconfigurator.prototype = {
       callback(error, config);
     }
 
-    console.log('  Looking in GELAM');
+    console.log('  Looking in GELAM for', domain);
     if (autoconfigByDomain.hasOwnProperty(domain)) {
       onComplete(null, autoconfigByDomain[domain]);
       return;

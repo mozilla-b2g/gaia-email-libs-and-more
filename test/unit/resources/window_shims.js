@@ -54,6 +54,42 @@ var _window_mixin = {
   IDBObjectStore: IDBObjectStore,
   IDBRequest: IDBRequest,
 
+  XMLHttpRequest: function() {
+    var inst = Cc["@mozilla.org/xmlextras/xmlhttprequest;1"]
+                 .createInstance(Ci.nsIXMLHttpRequest);
+    var realOpen = inst.open;
+    inst.open = function(method, url, async) {
+      // We do not like relative URLs because we lack a base URL since we
+      // exist in chrome space, so let's do the minimum required to get a nice
+      // 404.
+      // XXX it would be nice if we had local copies of the same local
+      // autoconfig db used in the gaia repo and could map to them with file
+      // url's in here.
+      if (url[0] === '/')
+        url = 'http://localhost' + url;
+      realOpen.call(inst, method, url, async);
+    };
+    return inst;
+  },
+  DOMParser: function() {
+    var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
+                   .createInstance(Ci.nsIDOMParser);
+    parser.init();
+    return parser;
+  },
+  XPathResult: {
+    ANY_TYPE: 0,
+    NUMBER_TYPE: 1,
+    STRING_TYPE: 2,
+    BOOLEAN_TYPE: 3,
+    UNORDERED_NODE_ITERATOR_TYPE: 4,
+    ORDERED_NODE_ITERATOR_TYPE: 5,
+    UNORDERED_NODE_SNAPSHOT_TYPE: 6,
+    ORDERED_NODE_SNAPSHOT_TYPE: 7,
+    ANY_UNORDERED_NODE_TYPE: 8,
+    FIRST_ORDERED_NODE_TYPE: 9
+  },
+
   navigator: {
     // - connection status
     connection: {
@@ -71,6 +107,21 @@ var _window_mixin = {
         if (this._listener)
           this._listener({});
       }
+    },
+    mozApps: {
+      getSelf: function() {
+        var req = { onsuccess: null, onerror: null },
+            app = { installOrigin: '' };
+        window.setZeroTimeout(function() {
+          if (req.onsuccess)
+            req.onsuccess({
+              target: {
+                result: app,
+              }
+            });
+        });
+        return req;
+      },
     },
     // By default we start up disabled, so it's not really a biggie either way.
     mozAlarms: {

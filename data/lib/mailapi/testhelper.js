@@ -335,6 +335,7 @@ var TestImapAccountMixins = {
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
         },
+        null,
         function accountMaybeCreated(error) {
           if (error)
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
@@ -679,6 +680,11 @@ var TestImapAccountMixins = {
    * @args[
    *   @param[viewThing]
    *   @param[expected @dict[
+   *     @key[additions #:optional @listof[MailHeader]]{
+   *       List of headers/header-like things we expect to be added.  We will
+   *       only test based on distinct characteristics like the subject, not
+   *       values that can't/shouldn't be known a priori like the UID, etc.
+   *     }
    *     @key[changes @listof[
    *       @list[MailHeader attrName attrValue]{
    *         The header that we expect to change, and the name of the field
@@ -711,7 +717,12 @@ var TestImapAccountMixins = {
 
     var changeMap = {}, self = this;
     // - generate expectations and populate changeMap
-    var i, iExp, expDeletionRep = {}, expChangeRep = {};
+    var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
+    if (expected.hasOwnProperty('additions') && expected.additions) {
+      for (i = 0; i < expected.additions.length; i++) {
+        expAdditionRep[expected.additions[i].subject] = true;
+      }
+    }
     for (i = 0; i < expected.deletions.length; i++) {
       expDeletionRep[expected.deletions[i].subject] = true;
     }
@@ -728,15 +739,23 @@ var TestImapAccountMixins = {
         expChanges.push({ field: change[iExp], value: change[iExp+1] });
       }
     }
-    this.expect_changesReported(expChangeRep, expDeletionRep);
-    this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                           expectedFlags.grow, 'synced');
+    this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
+    if (expectedFlags)
+      this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.grow, 'synced');
 
     // - listen for the changes
-    var changeRep = {}, deletionRep = {};
+    var additionRep = {}, changeRep = {}, deletionRep = {};
+    viewThing.slice.onadd = function(item) {
+      additionRep[item.subject] = true;
+    };
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
       var changeEntries = changeMap[item.subject];
+      if (!changeEntries) {
+        self._logger.unexpectedChange(item.subject);
+        return;
+      }
       changeEntries.forEach(function(changeEntry) {
         if (item[changeEntry.field] !== changeEntry.value)
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
@@ -748,10 +767,11 @@ var TestImapAccountMixins = {
     function completed() {
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
-      self._logger.changesReported(changeRep, deletionRep);
-      self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
-                              viewThing.slice.userCanGrowDownwards,
-                              viewThing.slice.status);
+      self._logger.changesReported(additionRep, changeRep, deletionRep);
+      if (expectedFlags)
+        self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                                viewThing.slice.userCanGrowDownwards,
+                                viewThing.slice.status);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -942,10 +962,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
 
-      changesReported: { changes: true, deletions: true },
+      changesReported: { additions: true, changes: true, deletions: true },
     },
     errors: {
       folderCreationError: { err: false },
+      unexpectedChange: { subject: false },
       changeMismatch: { field: false, expectedValue: false },
     },
   },
