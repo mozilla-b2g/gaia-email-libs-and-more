@@ -15,27 +15,26 @@ define(function(require, exports, module) {
  * @return {String} Character set name
  */
 function checkEncoding(name){
-    name = (name || "").toString().trim().
-        replace(/^latin[\-_]?(\d+)$/i, "ISO-8859-$1").
-        replace(/^win(?:dows)?[\-_]?(\d+)$/i, "WINDOWS-$1").
-        replace(/^utf[\-_]?(\d+)$/i, "UTF-$1").
-        replace(/^ks_c_5601\-1987$/i, "CP949").
-        replace(/^us[\-_]?ascii$/i, "ASCII").
-        toUpperCase();
+    name = (name || "").toString().trim().toLowerCase().
+        replace(/^latin[\-_]?(\d+)$/, "iso-8859-$1").
+        replace(/^win(?:dows)?[\-_]?(\d+)$/, "windows-$1").
+        replace(/^utf[\-_]?(\d+)$/, "utf-$1").
+        replace(/^ks_c_5601\-1987$/, "windows-949"). // maps to euc-kr
+        replace(/^us_?ascii$/, "ascii"); // maps to windows-1252
     return name;
 }
 
 var ENCODER_OPTIONS = { fatal: false };
 
 exports.convert = function(str, destEnc, sourceEnc, ignoredUseLite) {
-  destEnc = checkEncoding(destEnc || 'UTF-8');
-  sourceEnc = checkEncoding(sourceEnc || 'UTF-8');
+  destEnc = checkEncoding(destEnc || 'utf-8');
+  sourceEnc = checkEncoding(sourceEnc || 'utf-8');
 
   if (destEnc === sourceEnc)
-    return new Buffer(str, 'UTF-8');
+    return new Buffer(str, 'utf-8');
 
   // - decoding (Uint8Array => String)
-  else if (/^UTF-8/.test(destEnc)) {
+  else if (/^utf-8$/.test(destEnc)) {
     var decoder = new TextDecoder(sourceEnc, ENCODER_OPTIONS);
     if (typeof(str) === 'string')
       str = new Buffer(str, 'binary');
