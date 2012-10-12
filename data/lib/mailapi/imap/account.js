@@ -96,9 +96,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
                                                      this._LOG);
   this._boundMakeConnection = this._makeConnection.bind(this);
 
-  this._jobDriver = new $imapjobs.ImapJobDriver(
-                          this, this._folderInfos.$mutationState);
-
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);
 
@@ -173,6 +170,9 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.folders.sort(function(a, b) {
     return a.path.localeCompare(b.path);
   });
+
+  this._jobDriver = new $imapjobs.ImapJobDriver(
+                          this, this._folderInfos.$mutationState);
 }
 exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
