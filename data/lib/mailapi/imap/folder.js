@@ -95,6 +95,9 @@ const INITIAL_FETCH_PARAMS = {
  */
 const FLAG_FETCH_PARAMS = {
   request: {
+    struct: false,
+    headers: false,
+    body: false
   },
 };
 
@@ -407,7 +410,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
    * finalized headers and bodies as we go.
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
-    var conn = this._conn, storage = this._storage;
+    var conn = this._conn, storage = this._storage, self = this;
 console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
             knownUIDs.length, 'knownHeaders', knownHeaders.length);
     var callbacks = allbackMaker(
@@ -508,15 +511,21 @@ console.log('   header processed');
             }
 
             chewRep.bodyParts.forEach(function(bodyPart) {
-              var opts = { request: { body: bodyPart.partID } };
+              var opts = {
+                request: {
+                  struct: false,
+                  headers: false,
+                  body: bodyPart.partID
+                }
+              };
               pendingFetches++;
 
-console.log('  fetching for', chewRep.msg.id, bodyPart.partID);
+console.log('  fetching body for', chewRep.msg.id, bodyPart.partID);
               var fetcher;
 try {
               fetcher = conn.fetch(chewRep.msg.id, opts);
 } catch (ex) {
-  console.warn('!failure fetching', ex);
+  console.warn('!failure fetching body', ex);
   return;
 }
               setupBodyParser(bodyPart);
@@ -535,13 +544,24 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
 
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
-                    if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                                storage.folderId,
-                                                storage._issueNewHeaderId())) {
-                      storage.addMessageHeader(chewRep.header);
-                      storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
+                    try {
+                      if ($imapchew.chewBodyParts(
+                            chewRep, partsReceived, storage.folderId,
+                            storage._issueNewHeaderId())) {
+                        storage.addMessageHeader(chewRep.header);
+                        storage.addMessageBody(chewRep.header,
+                                               chewRep.bodyInfo);
+                      }
+                      else {
+                        self._LOG.bodyChewError(false);
+                        console.error('Failed to process body!');
+                      }
                     }
-else { console.warn("failure to parse body!!!"); }
+                    catch (ex) {
+                      self._LOG.bodyChewError(ex);
+                      console.error('Failure processing body:', ex, '\n',
+                                    ex.stack);
+                    }
                   }
                   // If this is the last chew rep, then use its completion
                   // to report our completion.
@@ -551,7 +571,6 @@ else { console.warn("failure to parse body!!!"); }
               });
             });
           });
-console.log('  pending fetches', pendingFetches);
           if (pendingFetches === 0)
             callbacks.newMsgs();
         });
@@ -651,7 +670,13 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
 
     var anyError = null, pendingFetches = 0, bodies = [];
     partInfos.forEach(function(partInfo) {
-      var opts = { request: { body: partInfo.part } };
+      var opts = {
+        request: {
+          struct: false,
+          headers: false,
+          body: partInfo.part
+        }
+      };
       pendingFetches++;
       var fetcher = conn.fetch(uid, opts);
 
@@ -1008,6 +1033,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
     },
     TEST_ONLY_events: {
+    },
+    errors: {
+      bodyChewError: { ex: $log.EXCEPTION },
     },
     asyncJobs: {
       syncDateRange: {
