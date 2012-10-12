@@ -461,6 +461,73 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
   T.group('cleanup');
 });
 
+/**
+ * We keep going back further in time until we think we know about all the
+ * messages or we hit 1990.  We believe we know all the messages when the
+ * number of messages in the folder per EXISTS is the same as the number of
+ * messages in our database and our sync time range covers the oldest message
+ * in the database.
+ */
+TD.commonCase('do not sync earlier than 1990', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  //
+  testUniverse.do_adjustSyncValues({
+    fillSize: 4,
+    // we want to maximize our search ranges so we get to 1990 faster
+    days: 30,
+    scaleFactor: 100,
+    bisectThresh: 2000,
+    tooMany: 2000,
+    // set all the time offsets to really low values so we are sure to not
+    // trigger them after the time-warp.
+    refreshNonInbox: 1,
+    refreshInbox: 1,
+    oldIsSafeForRefresh: 1,
+    refreshOld: 1,
+
+    useRangeNonInbox: 1,
+    useRangeInbox: 1,
+  });
+
+  T.group('make there be 1 unexpunged but deleted message');
+  var staticNow = Date.UTC(2000, 0, 1, 12, 0, 0);
+  testUniverse.do_timewarpNow(staticNow, 'Jan 1, 2000');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_stop_at_1990',
+    { count: 2, age: { hours: 1 }, age_incr: { hours: 12 } });
+  testAccount.do_manipulateFolder(testFolder, 'delete 1', function(slice) {
+    // we don't want to expunge this guy
+    testAccount.imapAccount._TEST_doNotCloseFolder = true;
+    testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
+    testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+
+    MailAPI.modifyMessageTags([slice.items[0]], ['\\Deleted'], null, 'delete');
+    testFolder.messages.splice(0, 1);
+  });
+
+  T.group('time-warp so no refresh happens');
+  staticNow = Date.UTC(2000, 0, 3, 12, 0, 0);
+  testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
+
+  T.group('go to 1990 but no further!');
+  const expectedZeroProbes = 38,
+        expectsTo1990 = [{ count: 1, full: 0, flags: 1, deleted: 1 }];
+  for (var iProbe = 0; iProbe < expectedZeroProbes; iProbe++) {
+    expectsTo1990.push({ count: 0, full: 0, flags: 0, deleted: 0 });
+  }
+
+  testAccount.do_viewFolder('syncs', testFolder,
+    expectsTo1990,
+    { top: true, bottom: true, grow: false });
+
+});
+
 function run_test() {
   runMyTests(20); // we do a lot of appending...
 }

@@ -173,6 +173,12 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
 
   this._jobDriver = new $imapjobs.ImapJobDriver(
                           this, this._folderInfos.$mutationState);
+
+  /**
+   * Flag to allow us to avoid calling closeBox to close a folder.  This avoids
+   * expunging deleted messages.
+   */
+  this._TEST_doNotCloseFolder = false;
 }
 exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
@@ -627,7 +633,7 @@ ImapAccount.prototype = {
                                     connInfo.inUseBy.label);
         connInfo.inUseBy = null;
         // (this will trigger an expunge if not read-only...)
-        if (closeFolder && !resourceProblem)
+        if (closeFolder && !resourceProblem && !this._TEST_doNotCloseFolder)
           conn.closeBox(function() {});
         return;
       }
