@@ -51,7 +51,7 @@
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
-  include: ["event-queue", "deps/stringencoding/encoding-indexes.js", "deps/stringencoding/encoding.js", "mailapi/same-frame-setup"],
+  include: ["event-queue", "mailapi/same-frame-setup"],
   name: "almond",
   out: "../gaia-email-opt.js",
   wrap: {
