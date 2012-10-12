@@ -846,8 +846,8 @@ console.log("folder message count", folderMessageCount,
     }
     // If our slice has now gone to the dawn of time, we can decide we have
     // enough headers.
-    else if (this.folderStorage._curSyncSlice.startTS &&
-             ON_OR_BEFORE(this.folderStorage._curSyncSlice.startTS,
+    else if (this._curSyncStartTS &&
+             ON_OR_BEFORE(this._curSyncStartTS,
                           $sync.OLDEST_SYNC_DATE)) {
       this.folderStorage._curSyncSlice.desiredHeaders =
         this.folderStorage._curSyncSlice.headers.length;
