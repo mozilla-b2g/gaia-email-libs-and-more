@@ -272,8 +272,8 @@ TD.commonCase('sync further back in time on demand', function(T) {
 
   T.group('grow old again');
   testAccount.do_growFolderView(
-    syncView, 21, false, 45,
-    [],
+    syncView, 21, false, 24,
+    { count: 21, full: 0, flags: 21, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');

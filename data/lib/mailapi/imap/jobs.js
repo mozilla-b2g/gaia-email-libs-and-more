@@ -258,7 +258,7 @@ ImapJobDriver.prototype = {
                                                    label) {
     var partitions = $imaputil.partitionMessagesByFolderId(messageNamers, true);
     var folderConn, storage, self = this,
-        folderId = null, messageIds = null,
+        folderId = null, messageIds = null, serverIds = null,
         iNextPartition = 0, curPartition = null, modsToGo = 0;
 
     if (reverse)
@@ -269,9 +269,12 @@ ImapJobDriver.prototype = {
         callWhenDone(null);
         return;
       }
+      // Cleanup the last folder (if there was one)
       if (iNextPartition) {
         folderConn = null;
-        // release the mutex on the folder we were in
+        // The folder's mutex should be last; if the callee acquired any
+        // additional mutexes in the last round, it should have freed it then
+        // too.
         var releaser = self._heldMutexReleasers.pop();
         if (releaser)
           releaser();
@@ -280,6 +283,7 @@ ImapJobDriver.prototype = {
 
       curPartition = partitions[iNextPartition++];
       messageIds = curPartition.messages;
+      serverIds = null;
       if (curPartition.folderId !== folderId) {
         folderId = curPartition.folderId;
         self._accessFolderForMutation(folderId, needConn, gotFolderConn,
@@ -291,15 +295,37 @@ ImapJobDriver.prototype = {
       storage = _storage;
       // - Get headers or resolve current server id from name map
       if (needConn) {
-        var neededHeaders = [];
-        // XXX server-id/name-lookup stuff
+        var neededHeaders = [],
+            suidToServerId = self._state.suidToServerId;
+        serverIds = [];
         for (var i = 0; i < curPartition.messages.length; i++) {
-
+          var namer = curPartition.messages[i];
+          var srvid = suidToServerId[namer.suid];
+          // (we do not try to maintain the ordering of anything; no need)
+          if (srvid)
+            serverIds.push(srvid);
+          else
+            neededHeaders.push(namer);
         }
+
+        if (!neededHeaders.length)
+          callInFolder(folderConn, storage, serverIds, openNextFolder);
+        else
+          storage.getMessageHeaders(neededHeaders, gotNeededHeaders);
       }
       else {
         storage.getMessageHeaders(curPartition.messages, gotHeaders);
       }
+    };
+    var gotNeededHeaders = function gotNeededHeaders(headers) {
+      for (var i = 0; i < headers.length; i++) {
+        var srvid = headers[i].srvid;
+        if (srvid)
+          serverIds.push(srvid);
+        else
+          console.warn('Header', headers[i].suid, 'missing server id in job!');
+      }
+      callInFolder(folderConn, storage, serverIds, openNextFolder);
     };
     var gotHeaders = function gotHeaders(headers) {
       callInFolder(folderConn, storage, headers, openNextFolder);
@@ -329,7 +355,22 @@ ImapJobDriver.prototype = {
     );
   },
 
-  postJobCleanup: function() {
+  postJobCleanup: function(passed) {
+    if (passed) {
+      // - apply updates to the suidToServerId map
+      if (this._stateDelta.serverIdMap) {
+        const deltaMap = this._stateDelta.serverIdMap,
+              fullMap = this._state.suidToServerId;
+        for (var suid in deltaMap) {
+          var srvid = deltaMap[suid];
+          if (srvid === null)
+            delete fullMap[suid];
+          else
+            fullMap[suid] = srvid;
+        }
+      }
+    }
+
     for (var i = 0; i < this._heldMutexReleasers.length; i++) {
       this._heldMutexReleasers[i]();
     }
@@ -532,7 +573,8 @@ ImapJobDriver.prototype = {
       function deadConn() {
         aggrErr = 'aborted-retry';
       },
-      undo, 'modtags');
+      /* reverse if we're undoing */ undo,
+      'modtags');
   },
 
   check_modtags: function(op, callback) {
@@ -613,7 +655,7 @@ ImapJobDriver.prototype = {
   //
   // NB: Our check implementation actually is a correcting check implemenation;
   // we will make things end up the way they should be.  We do this because it
-  // is simpler than 
+  // is simpler than
   //
   // - Acquire a connection to the target folder.  Issue broad message-id
   //   header searches to find if the messages appear to be in the folder

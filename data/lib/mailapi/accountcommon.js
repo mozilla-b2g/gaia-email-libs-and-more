@@ -731,25 +731,11 @@ Autoconfigurator.prototype = {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
     xhr.onload = function() {
-      if (xhr.status !== 200) {
+      if (xhr.status < 200 || xhr.status >= 300) {
         callback('unknown');
         return;
       }
-      // XXX: For reasons which are currently unclear (possibly a platform
-      // issue), trying to use responseXML results in a SecurityError when
-      // running XPath queries. So let's just do an end-run around the
-      // "security".
-      let doc;
-      try {
-        doc = new DOMParser().parseFromString(xhr.responseText, 'text/xml');
-      }
-      catch (ex) {
-        console.log('badly formed XML:', ex);
-        // badly formed XML can cause us to throw, including stuff that is
-        // actually HTML.
-        callback('unknown');
-        return;
-      }
+      let doc = new DOMParser().parseFromString(xhr.responseText, 'text/xml');
       function getNode(xpath, rel) {
         return doc.evaluate(xpath, rel || doc, null,
                             XPathResult.FIRST_ORDERED_NODE_TYPE, null)

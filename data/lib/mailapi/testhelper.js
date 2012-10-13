@@ -720,7 +720,8 @@ var TestImapAccountMixins = {
     var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
     if (expected.hasOwnProperty('additions') && expected.additions) {
       for (i = 0; i < expected.additions.length; i++) {
-        expAdditionRep[expected.additions[i].subject] = true;
+        var msgThing = expected.additions[i], subject;
+        expAdditionRep[msgThing.subject || msgThing.headerInfo.subject] = true;
       }
     }
     for (i = 0; i < expected.deletions.length; i++) {
@@ -796,19 +797,34 @@ var TestImapAccountMixins = {
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
-                              extraFlag) {
+                              extraFlag, willFailFlag) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
-      if (dirMagnitude < 0)
-        viewThing.offset += dirMagnitude;
-
       var totalExpected = self._expect_dateSyncs(
                             viewThing.testFolder, expectedValues,
                             extraFlag) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, { changes: [], deletions: [] },
-                                expectedFlags);
+
+      var expectedMessages;
+      if (dirMagnitude < 0) {
+        viewThing.offset += dirMagnitude;
+        expectedMessages = viewThing.testFolder.messages.slice(
+                             viewThing.offset,
+                             viewThing.offset - dirMagnitude);
+      }
+      else {
+        if (willFailFlag)
+          expectedMessages = [];
+        else
+          expectedMessages = viewThing.testFolder.messages.slice(
+                               viewThing.offset + alreadyExists,
+                               viewThing.offset + totalExpected);
+      }
+      self.expect_headerChanges(
+        viewThing,
+        { additions: expectedMessages, changes: [], deletions: [] },
+        expectedFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
     });
   },

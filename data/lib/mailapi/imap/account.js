@@ -844,7 +844,7 @@ ImapAccount.prototype = {
       this._LOG.runOp_begin(mode, op.type, null, op);
       this._jobDriver[methodName](op, function(error, resultIfAny,
                                                accountSaveSuggested) {
-        self._jobDriver.postJobCleanup();
+        self._jobDriver.postJobCleanup(!error);
         self._LOG.runOp_end(mode, op.type, error, op);
         callback(error, resultIfAny, accountSaveSuggested);
       });
