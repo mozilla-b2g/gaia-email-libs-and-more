@@ -83,25 +83,23 @@ var bsearchMaybeExists = exports.bsearchMaybeExists =
  *
  * @args[
  *   @param[messageNamers @listof[MessageNamer]]
- *   @param[keepNamers Boolean]{
- *     If true, we return the message namer intact, if false, we unpack it to
- *     only return the suid.  The purpose of this field has changed; right
- *     now the deal is that IMAP passes true and ActiveSync passes false.
- *   }
+ * ]
+ * @return[@listof[@dict[
+ *   @key[folderId FolderID]
+ *   @key[messages @listof[MessageNamer]]
  * ]
  */
 exports.partitionMessagesByFolderId =
-    function partitionMessagesByFolderId(messageNamers, keepNamers) {
+    function partitionMessagesByFolderId(messageNamers) {
   var results = [], foldersToMsgs = {};
   for (var i = 0; i < messageNamers.length; i++) {
-    var messageSuid = messageNamers[i].suid,
+    var messageNamer = messageNamers[i],
+        messageSuid = messageNamer.suid,
         idxLastSlash = messageSuid.lastIndexOf('/'),
-        folderId = messageSuid.substring(0, idxLastSlash),
-        // if we only want the UID, do so, but make sure to parse it as a #!
-        useId = keepNamers ? messageNamers[i] : messageSuid;
+        folderId = messageSuid.substring(0, idxLastSlash);
 
     if (!foldersToMsgs.hasOwnProperty(folderId)) {
-      var messages = [useId];
+      var messages = [messageNamer];
       results.push({
         folderId: folderId,
         messages: messages,
@@ -109,7 +107,7 @@ exports.partitionMessagesByFolderId =
       foldersToMsgs[folderId] = messages;
     }
     else {
-      foldersToMsgs[folderId].push(useId);
+      foldersToMsgs[folderId].push(messageNamer);
     }
   }
   return results;

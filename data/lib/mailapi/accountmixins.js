@@ -57,7 +57,10 @@ exports.runOp = function runOp(op, mode, callback) {
                                            accountSaveSuggested) {
     self._jobDriver.postJobCleanup(!error);
     self._LOG.runOp_end(mode, op.type, error, op);
-    callback(error, resultIfAny, accountSaveSuggested);
+    // defer the callback to the next tick to avoid deep recursion
+    window.setZeroTimeout(function() {
+      callback(error, resultIfAny, accountSaveSuggested);
+    });
   });
 };
 

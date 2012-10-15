@@ -73,8 +73,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
 
-  this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
-
   this.enabled = true;
   this.problems = [];
 
@@ -111,6 +109,10 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   }
 
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
+
+  this._jobDriver = new $asjobs.ActiveSyncJobDriver(
+                          this,
+                          this._folderInfos.$mutationState);
 
   // TODO: this is a really hacky way of syncing folders after the first time.
   if (this.meta.syncKey != '0')
@@ -597,6 +599,13 @@ ActiveSyncAccount.prototype = {
   getFolderStorageForServerId: function asa_getFolderStorageForServerId(
                                serverId) {
     return this._folderStorages[this._serverIdToFolderId[serverId]];
+  },
+
+  ensureEssentialFolders: function(callback) {
+    // XXX I am assuming ActiveSync servers are smart enough to already come
+    // with these folders.  If not, we should move IMAP's ensureEssentialFolders
+    // into the mixins class.
+    callback();
   },
 
   runOp: $acctmixins.runOp,

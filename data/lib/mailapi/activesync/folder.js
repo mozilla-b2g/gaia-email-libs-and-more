@@ -517,6 +517,62 @@ ActiveSyncFolderConn.prototype = {
       }
     });
   },
+
+  prepareMutation: function() {
+    const as = $ascp.AirSync.Tags;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(as.Sync)
+       .stag(as.Collections);
+
+    w.stag(as.Collection);
+
+    if (this._account.conn.currentVersion.lt('12.1'))
+      w.tag(as.Class, 'Email');
+
+      w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
+       .tag(as.CollectionId, this._storage.folderMeta.serverId)
+       .stag(as.Commands);
+
+    return w;
+  },
+
+  performMutations: function(w, callback) {
+    const as = $ascp.AirSync.Tags,
+          folderConn = this;
+
+    w.etag(as.Commands)
+     .etag(as.Collection);
+
+    this.account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError)
+        callback('unknown');
+
+      let e = new $wbxml.EventParser();
+      let syncKey, status;
+
+      const base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        syncKey = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+
+      e.run(aResponse);
+
+      if (status === '1') {
+        folderConn.syncKey = syncKey;
+        if (callback)
+          callback(null);
+      }
+      else {
+        console.error('Something went wrong during ActiveSync syncing and we ' +
+                      'got a status of ' + status);
+        callback('status:' + status);
+      }
+    });
+  },
 };
 
 function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
