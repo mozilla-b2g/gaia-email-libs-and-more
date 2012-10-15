@@ -10,6 +10,7 @@ define(
     './imap/probe',
     './smtp/probe',
     'activesync/protocol',
+    './accountmixins',
     './imap/account',
     './smtp/account',
     './fake/account',
@@ -24,6 +25,7 @@ define(
     $imapprobe,
     $smtpprobe,
     $asproto,
+    $acctmixins,
     $imapacct,
     $smtpacct,
     $fakeacct,
@@ -90,7 +92,6 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
-  this.deferredMutations = this._receivePiece.deferredMutations;
   this.tzOffset = accountDef.tzOffset;
 }
 exports.CompositeAccount = CompositeAccount;
@@ -188,6 +189,12 @@ CompositeAccount.prototype = {
   runOp: function(op, mode, callback) {
     return this._receivePiece.runOp(op, mode, callback);
   },
+
+  ensureEssentialFolders: function(callback) {
+    return this._receivePiece.ensureEssentialFolders(callback);
+  },
+
+  getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
 };
 
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
@@ -308,7 +315,9 @@ Configurators['imap+smtp'] = {
             imapConnInfo, smtpConnInfo, results.imap[1],
             results.imap[2]);
           account.syncFolderList(function() {
-            callback(null, account);
+            account.ensureEssentialFolders(function() {
+              callback(null, account);
+            });
           });
 
         }
@@ -437,7 +446,6 @@ Configurators['imap+smtp'] = {
                    imapProtoConn.delim,
       },
       $mutations: [],
-      $deferredMutations: [],
       $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
@@ -522,7 +530,6 @@ Configurators['fake'] = {
         nextMutationNum: 0,
       },
       $mutations: [],
-      $deferredMutations: [],
       $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
@@ -634,7 +641,6 @@ Configurators['activesync'] = {
         syncKey: '0',
       },
       $mutations: [],
-      $deferredMutations: [],
       $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);

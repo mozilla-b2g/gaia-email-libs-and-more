@@ -7,6 +7,8 @@ define(
     'imap',
     'rdcommon/log',
     '../a64',
+    '../allback',
+    '../accountmixins',
     '../errbackoff',
     '../mailslice',
     '../searchfilter',
@@ -20,6 +22,8 @@ define(
     $imap,
     $log,
     $a64,
+    $allback,
+    $acctmixins,
     $errbackoff,
     $mailslice,
     $searchfilter,
@@ -30,6 +34,7 @@ define(
     exports
   ) {
 const bsearchForInsert = $util.bsearchForInsert;
+const allbackMaker = $allback.allbackMaker;
 
 function cmpFolderPubPath(a, b) {
   return a.path.localeCompare(b.path);
@@ -155,7 +160,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * }
    */
   this.mutations = this._folderInfos.$mutations;
-  this.deferredMutations = this._folderInfos.$deferredMutations;
   this.tzOffset = compositeAccount.accountDef.tzOffset;
   for (var folderId in folderInfos) {
     if (folderId[0] === '$')
@@ -798,67 +802,43 @@ ImapAccount.prototype = {
     callback();
   },
 
-  //////////////////////////////////////////////////////////////////////////////
-
   /**
-   * @args[
-   *   @param[op MailOp]
-   *   @param[mode @oneof[
-   *     @case['local_do']{
-   *       Apply the mutation locally to our database rep.
-   *     }
-   *     @case['check']{
-   *       Check if the manipulation has been performed on the server.  There
-   *       is no need to perform a local check because there is no way our
-   *       database can be inconsistent in its view of this.
-   *     }
-   *     @case['do']{
-   *       Perform the manipulation on the server.
-   *     }
-   *     @case['local_undo']{
-   *       Undo the mutation locally.
-   *     }
-   *     @case['undo']{
-   *       Undo the mutation on the server.
-   *     }
-   *   ]]
-   *   @param[callback @func[
-   *     @args[
-   *       @param[error @oneof[String null]]
-   *     ]
-   *   ]]
-   *   }
-   * ]
+   * Create the essential Sent and Trash folders if they do not already exist.
+   *
+   * XXX Our folder type detection logic probably needs to get more multilingual
+   * and us as well.  When we do this, we can steal the localized strings from
+   * Thunderbird to bootstrap.
    */
-  runOp: function(op, mode, callback) {
-    var methodName = mode + '_' + op.type, self = this,
-        isLocal = (mode === 'local_do' || mode === 'local_undo');
+  ensureEssentialFolders: function(callback) {
+    var trashFolder = this.getFirstFolderWithType('trash'),
+        sentFolder = this.getFirstFolderWithType('sent');
 
-    if (!(methodName in this._jobDriver))
-      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
+    if (trashFolder && sentFolder) {
+      callback(null);
+      return;
+    }
 
-    if (!isLocal)
-      op.status = mode + 'ing';
-
-    if (callback) {
-      this._LOG.runOp_begin(mode, op.type, null, op);
-      this._jobDriver[methodName](op, function(error, resultIfAny,
-                                               accountSaveSuggested) {
-        self._jobDriver.postJobCleanup(!error);
-        self._LOG.runOp_end(mode, op.type, error, op);
-        callback(error, resultIfAny, accountSaveSuggested);
+    var callbacks = allbackMaker(
+      ['sent', 'trash'],
+      function foldersCreated(results) {
+        callback(null);
       });
-    }
-    else {
-      this._LOG.runOp_begin(mode, op.type, null, null);
-      var rval = this._jobDriver[methodName](op);
-      this._jobDriver.postJobCleanup();
-      this._LOG.runOp_end(mode, op.type, rval, op);
-    }
+
+    if (!sentFolder)
+      this.universe.createFolder(this.id, null, 'Sent', false);
+    else
+      callbacks.sent(null);
+
+    if (!trashFolder)
+      this.universe.createFolder(this.id, null, 'Trash', false);
+    else
+      callbacks.trash(null);
   },
 
-  // NB: this is not final mutation logic; it needs to be more friendly to
-  // ImapFolderConn's.  See _do_modtags which is being cleaned up...
+  //////////////////////////////////////////////////////////////////////////////
+
+  runOp: $acctmixins.runOp,
+  getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
 };
 
 /**

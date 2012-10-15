@@ -241,6 +241,7 @@ ImapJobDriver.prototype = {
    *     ]
    *   ]]
    *   @param[callWhenDone Function]
+   *   @param[callOnConnLoss Function]
    *   @param[reverse #:optional Boolean]{
    *     Should we walk the partitions in reverse order?
    *   }
@@ -387,9 +388,9 @@ ImapJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message
 
-  local_do_download: function(op, ignoredCallback) {
+  local_do_download: function(op, callback) {
     // Downloads are inherently online operations.
-    return null;
+    callback(null);
   },
 
   do_download: function(op, callback) {
@@ -464,70 +465,64 @@ ImapJobDriver.prototype = {
     callback(null, UNCHECKED_COHERENT_NOTYET);
   },
 
-  local_undo_download: function(op, ignoredCallback) {
-    return null;
+  local_undo_download: function(op, callback) {
+    callback(null);
   },
 
   undo_download: function(op, callback) {
-    callback();
+    callback(null);
   },
 
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
 
-  local_do_modtags: function(op, ignoredCallback, undo) {
+  local_do_modtags: function(op, doneCallback, undo) {
     var addTags = undo ? op.removeTags : op.addTags,
         removeTags = undo ? op.addTags : op.removeTags;
-    function modifyHeader(header) {
-      var iTag, tag, existing, modified = false;
-      if (addTags) {
-        for (iTag = 0; iTag < addTags.length; iTag++) {
-          tag = addTags[iTag];
-          // The list should be small enough that native stuff is better than
-          // JS bsearch.
-          existing = header.flags.indexOf(tag);
-          if (existing !== -1)
-            continue;
-          header.flags.push(tag);
-          header.flags.sort(); // (maintain sorted invariant)
-          modified = true;
+    this._partitionAndAccessFoldersSequentially(
+      op.messages,
+      false,
+      function perFolder(ignoredConn, storage, headers, callWhenDone) {
+        var waitingOn = headers.length;
+        function headerUpdated() {
+          if (--waitingOn === 0)
+            callWhenDone();
         }
-      }
-      if (removeTags) {
-        for (iTag = 0; iTag < removeTags.length; iTag++) {
-          tag = removeTags[iTag];
-          existing = header.flags.indexOf(tag);
-          if (existing === -1)
-            continue;
-          header.flags.splice(existing, 1);
-          modified = true;
+        for (var iHeader = 0; iHeader < headers.length; iHeader++) {
+          var header = headers[iHeader];
+          var iTag, tag, existing, modified = false;
+          if (addTags) {
+            for (iTag = 0; iTag < addTags.length; iTag++) {
+              tag = addTags[iTag];
+              // The list should be small enough that native stuff is better
+              // than JS bsearch.
+              existing = header.flags.indexOf(tag);
+              if (existing !== -1)
+                continue;
+              header.flags.push(tag);
+              header.flags.sort(); // (maintain sorted invariant)
+              modified = true;
+            }
+          }
+          if (removeTags) {
+            for (iTag = 0; iTag < removeTags.length; iTag++) {
+              tag = removeTags[iTag];
+              existing = header.flags.indexOf(tag);
+              if (existing === -1)
+                continue;
+              header.flags.splice(existing, 1);
+              modified = true;
+            }
+          }
+          storage.updateMessageHeader(header.date, header.id, false,
+                                      header, headerUpdated);
         }
-      }
-      return modified;
-    }
-
-    var lastFolderId = null, lastStorage;
-    for (var i = 0; i < op.messages.length; i++) {
-      var msgNamer = op.messages[i],
-          lslash = msgNamer.suid.lastIndexOf('/'),
-          // folder id's are strings!
-          folderId = msgNamer.suid.substring(0, lslash),
-          // id's are not strings (for IMAP)!
-          id = parseInt(msgNamer.suid.substring(lslash + 1)),
-          storage;
-      if (folderId === lastFolderId) {
-        storage = lastStorage;
-      }
-      else {
-        storage = lastStorage =
-          this.account.getFolderStorageForFolderId(folderId);
-        lastFolderId = folderId;
-      }
-      storage.updateMessageHeader(msgNamer.date, id, false, modifyHeader);
-    }
-
-    return null;
+      },
+      doneCallback,
+      null,
+      undo,
+      'modtags');
   },
 
   do_modtags: function(op, jobDoneCallback, undo) {
@@ -594,17 +589,29 @@ ImapJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // delete: Delete messages
 
+
+  local_do_delete: function(op, doneCallback) {
+    var trashFolder = this.account.getFirstFolderWithType('trash');
+    if (!trashFolder) {
+      this.account.ensureEssentialFolders();
+      doneCallback('defer');
+      return;
+    }
+    this.local_do_move(op, doneCallback, trashFolder.id);
+  },
+
   /**
    * Move the message to the trash folder.  In Gmail, there is no move target,
    * we just delete it and gmail will (by default) expunge it immediately.
    */
-  do_delete: function() {
-    // set the deleted flag on the message
+  do_delete: function(op, doneCallback) {
+    var trashFolder = this.account.getFirstFolderWithType('trash');
+    this.do_move(op, doneCallback, trashFolder.id);
   },
 
-  check_delete: function(op, callback) {
-    // deleting on IMAP is effectively idempotent
-    callback(null, UNCHECKED_IDEMPOTENT);
+  check_delete: function(op, doneCallback) {
+    var trashFolder = this.account.getFirstFolderWithType('trash');
+    this.check_move(op, doneCallback, trashFolder.id);
   },
 
   undo_delete: function() {
@@ -808,11 +815,11 @@ ImapJobDriver.prototype = {
       perSourceFolder, null, 'local move target');
   },
 
-  do_move: function(op, doneCallback) {
+  do_move: function(op, doneCallback, targetFolderId) {
     var stateDelta = this._stateDelta;
     // resolve the target folder again
     this._accessFolderForMutation(
-      op.targetFolder, true,
+      targetFoldreId || op.targetFolder, true,
       function gotTargetConn(targetConn, targetStorage) {
         var uidnext = targetConn.box._uidnext;
 
@@ -855,14 +862,14 @@ ImapJobDriver.prototype = {
   },
 
   /**
-   * Verify the move results.  This is most easily/efficiently done, from our
-   * perspective, by checking based on message-id's.  Another approach would be
-   * to leverage the persistence of the
+   * See section block comment for more info.
    *
+   * XXX implement checking logic for move
    */
-  check_move: function(op, callback) {
+  check_move: function(op, doneCallback, targetFolderId) {
     // get a connection in the target folder
     // do a search on message-id's to check if the messages got copied across.
+    doneCallback(null, 'moot');
   },
 
   /**
@@ -873,34 +880,23 @@ ImapJobDriver.prototype = {
    * - If the source message was expunged, copy the message back to the source
    *   folder.
    * - Delete the message from the target folder.
+   *
+   * XXX implement undo functionality for move
    */
-  undo_move: function() {
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // copy: Copy messages between folders (in a single account)
-
-  do_copy: function() {
-  },
-
-  check_copy: function(op, callback) {
-    // get a connection in the target folder
-    // do a search to check if the message got copied across
-  },
-
-  /**
-   * Delete the message from the target folder if it exists.
-   */
-  undo_copy: function() {
+  undo_move: function(op, doneCallback, targetFolderId) {
+    doneCallback('moot');
   },
 
   //////////////////////////////////////////////////////////////////////////////
   // append: Add a message to a folder
 
+
+  local_do_append: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
   /**
    * Append a message to a folder.
-   *
-   * XXX update
    */
   do_append: function(op, callback) {
     var folderConn, self = this,
@@ -956,16 +952,30 @@ ImapJobDriver.prototype = {
 
   /**
    * Check if the message ended up in the folder.
+   *
+   * TODO implement
    */
-  check_append: function(op, callback) {
+  check_append: function(op, doneCallback) {
     // XXX search on the message-id in the folder to verify its presence.
+    doneCallback(null, 'moot');
+  },
+
+  // TODO implement
+  local_undo_append: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  // TODO implement
+  undo_append: function(op, doneCallback) {
+    doneCallback('moot');
   },
 
   //////////////////////////////////////////////////////////////////////////////
   // createFolder: Create a folder
 
-  local_do_createFolder: function(op) {
+  local_do_createFolder: function(op, doneCallback) {
     // we never locally perform this operation.
+    doneCallback(null);
   },
 
   do_createFolder: function(op, callback) {
@@ -1043,7 +1053,19 @@ ImapJobDriver.prototype = {
         callback(errString, folderMeta);
     }
     this._acquireConnWithoutFolder('createFolder', gotConn);
-  }
+  },
+
+  check_createFolder: function(op, doneCallback) {
+  },
+
+  local_undo_createFolder: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  // TODO: port deleteFolder to be an op and invoke it here
+  undo_createFolder: function(op, doneCallback) {
+    doneCallback('moot');
+  },
 
   //////////////////////////////////////////////////////////////////////////////
 };

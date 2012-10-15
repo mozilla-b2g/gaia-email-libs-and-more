@@ -247,7 +247,14 @@ var TestImapAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
     self._useDate = self.testUniverse._useDate;
-    self._hasConnection = false;
+    /**
+     * Very simple/primitive connection book-keeping.  We only alter this in
+     * a test step if the connection will outlive the step, such as when
+     * opening a slice and leaving it open.  A single step that opens
+     * multiple connections is beyond our automated ken and needs to either be
+     * manually handled or update this common logic.
+     */
+    self._unusedConnections = 0;
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
@@ -272,9 +279,12 @@ var TestImapAccountMixins = {
   },
 
   expect_connection: function() {
-    if (!this._hasConnection) {
+    if (!this._unusedConnections) {
       this.eImapAccount.expect_createConnection();
-      this._hasConnection = true;
+      // caller will need to decrement this if they are going to keep the
+      // connection alive; we are expecting it to become available again at
+      // the end of the step...
+      this._unusedConnections++;
     }
     this.eImapAccount.expect_reuseConnection();
   },
@@ -322,7 +332,7 @@ var TestImapAccountMixins = {
       self.rawAccount = null;
 
       // we expect the connection to be reused and release to sync the folders
-      self._hasConnection = true;
+      self._unusedConnections = 1;
       self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       // we expect the account state to be saved after syncing folders
@@ -364,7 +374,8 @@ var TestImapAccountMixins = {
     testFolder.messages = null;
     testFolder._approxMessageCount = messageSetDef.count;
     testFolder._liveSliceThings = [];
-    this.T.convenienceSetup('delete test folder if it exists', function() {
+    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
+                            function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
         return;
@@ -383,7 +394,8 @@ var TestImapAccountMixins = {
       MailUniverse.accounts[0].deleteFolder(existingFolder.id);
     });
 
-    this.T.convenienceSetup(self.eImapAccount, 'create test folder',function(){
+    this.T.convenienceSetup(self.eImapAccount, 'create test folder', testFolder,
+                            function(){
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
@@ -625,6 +637,8 @@ var TestImapAccountMixins = {
         self.expect_connection();
         if (!_saveToThing)
           self.eImapAccount.expect_releaseConnection();
+        else
+          self._unusedConnections--;
       }
 
       // generate expectations for each date sync range
@@ -896,6 +910,8 @@ var TestImapAccountMixins = {
         self._logger.sliceDied(viewThing.slice.handle);
       };
       viewThing.slice.die();
+      // This frees up a connection.
+      self._unusedConnections++;
     });
   },
 

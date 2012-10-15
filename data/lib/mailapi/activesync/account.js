@@ -10,6 +10,7 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     '../a64',
+    '../accountmixins',
     '../mailslice',
     '../searchfilter',
     './folder',
@@ -25,6 +26,7 @@ define(
     $ascp,
     $activesync,
     $a64,
+    $acctmixins,
     $mailslice,
     $searchfilter,
     $asfolder,
@@ -90,7 +92,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
-  this.deferredMutations = folderInfos.$deferredMutations;
 
   // ActiveSync has no need of a timezone offset, but it simplifies things for
   // FolderStorage to be able to rely on this.
@@ -598,34 +599,8 @@ ActiveSyncAccount.prototype = {
     return this._folderStorages[this._serverIdToFolderId[serverId]];
   },
 
-  runOp: function asa_runOp(op, mode, callback) {
-    console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
-
-    var methodName = mode + '_' + op.type, self = this,
-        isLocal = (mode === 'local_do' || mode === 'local_undo');
-
-    if (!(methodName in this._jobDriver))
-      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
-
-    if (!isLocal)
-      op.status = mode + 'ing';
-
-    if (callback) {
-      this._LOG.runOp_begin(mode, op.type, null, op);
-      this._jobDriver[methodName](op, function(error, resultIfAny,
-                                               accountSaveSuggested) {
-        self._jobDriver.postJobCleanup();
-        self._LOG.runOp_end(mode, op.type, error, op);
-        callback(error, resultIfAny, accountSaveSuggested);
-      });
-    }
-    else {
-      this._LOG.runOp_begin(mode, op.type, null, null);
-      var rval = this._jobDriver[methodName](op);
-      this._jobDriver.postJobCleanup();
-      this._LOG.runOp_end(mode, op.type, rval, op);
-    }
-  },
+  runOp: $acctmixins.runOp,
+  getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

@@ -2592,13 +2592,14 @@ console.log('ASKING FOR', namer.suid, namer.date);
    * and then call a function to manipulate the header.
    */
   updateMessageHeader: function ifs_updateMessageHeader(date, id, partOfSync,
-                                                        headerOrMutationFunc) {
+                                                        headerOrMutationFunc,
+                                                        callback) {
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeader.bind(
                                  this, date, id, partOfSync,
-                                 headerOrMutationFunc));
+                                 headerOrMutationFunc, callback));
       return;
     }
 
@@ -2642,6 +2643,8 @@ console.log('ASKING FOR', namer.suid, namer.date);
           slice.onHeaderModified(header);
         }
       }
+      if (callback)
+        callback();
     }
     if (!this._headerBlocks.hasOwnProperty(info.blockId))
       this._loadBlock('header', info.blockId, doUpdateHeader);

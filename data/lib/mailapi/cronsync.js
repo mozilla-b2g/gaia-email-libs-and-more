@@ -313,19 +313,9 @@ CronSyncer.prototype = {
       return;
     }
 
-    // - find the inbox
-    var folders = account.folders, inboxFolder;
-    // (It would be nice to have a helper for this like the client side has,
-    // but we should probably factor it into a mix-in so all account types
-    // can use it.)
-    for (var iFolder = 0; iFolder < folders.length; iFolder++) {
-      if (folders[iFolder].type === 'inbox') {
-        inboxFolder = folders[iFolder];
-        break;
-      }
-    }
-
+    var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
+
     // - Skip syncing this account if there is already a sync in progress.
 
     // XXX for IMAP, there are conceivable edge cases where the user is in the
