@@ -29,23 +29,6 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 	$(RSYNC_JS) node-transformed-deps/$(notdir $@)/ $@/
 
 
-
-xpi: $(DEP_NODE_PKGS)
-	$(RSYNC) deps/wmsy/lib/wmsy data/deps/
-	$(RSYNC) deps/stringencoding/encoding.js deps/stringencoding/encoding-indexes.js data/deps
-	cfx --templatedir=xpi-template $(JSONARG) xpi
-
-# create the XPI and post it to our web browser, assuming we are running with:
-# https://addons.mozilla.org/en-US/firefox/addon/autoinstaller/
-run: xpi
-	wget --post-file=jetpack-tcp-imap-demo.xpi http://localhost:8222/
-
-# Tell the extension to automatically run our sync test logic so we don't need
-# to manually hit a bunch of buttons every time (or have to spawn a new firefox
-# instance.)
-runtest: JSONARG='--static-args={"synctest": true}'
-runtest: run
-
 OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/lib/mailapi/fake/*.js) $(wildcard data/deps/rdcommon/*.js)
 
 gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
@@ -90,5 +73,5 @@ clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
 
-.DEFAULT_GOAL=xpi
+.DEFAULT_GOAL=gaia-email-opt.js
 .PHONY: install-gaia-email-opt
