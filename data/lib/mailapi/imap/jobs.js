@@ -157,6 +157,7 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
 
 function ImapJobDriver(account, state) {
   this.account = account;
+  this.resilientServerIds = false;
   this._heldMutexReleasers = [];
   this._state = state;
   // (we only need to use one as a proxy for initialization)
@@ -364,6 +365,8 @@ ImapJobDriver.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
+
+  local_do_modtags: $jobmixins.local_do_modtags,
 
   do_modtags: function(op, jobDoneCallback, undo) {
     var addTags = undo ? op.removeTags : op.addTags,
