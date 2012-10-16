@@ -787,8 +787,8 @@ var TestImapAccountMixins = {
         completed();
     };
     var completed = function completed() {
-      //if (completeCheckOn !== 'roundtrip')
-      //  self._logger.messagesReported(viewThing.slice.items.length);
+      if (!completeCheckOn)
+        self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(additionRep, changeRep, deletionRep);
       if (expectedFlags)
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,

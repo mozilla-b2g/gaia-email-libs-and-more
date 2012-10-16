@@ -1260,16 +1260,28 @@ MailUniverse.prototype = {
 
     // If there is already something active, don't do anything!
     if (queues.active) {
+console.log('active queue! not running');
     }
     else if (queues.local.length) {
       // Only actually dispatch if there is only the op we just (maybe).
       if (queues.local.length === 1 && queues.local[0] === op)
         this._dispatchLocalOpForAccount(account, op);
+      else
+        console.log('local active! not running!');
       // else: we grabbed control flow to avoid the server queue running
     }
     else if (queues.server.length === 1 && this.online && account.enabled) {
       this._dispatchServerOpForAccount(account, op);
     }
+else {
+  console.log('not running because no!',
+              'lc', op.lifecycle,
+              'ls', op.localStatus,
+              'disabling?', this._testModeDisablingLocalOps,
+              'a', queues.active, 'local', queues.local.length,
+             'servers', queues.server.length, 'online',
+             this.online, 'enabled', account.enabled);
+}
 
     return op.longtermId;
   },
@@ -1480,8 +1492,9 @@ MailUniverse.prototype = {
         if (op.longtermId === longtermId) {
           // There is nothing to do if we have already processed the request or
           // or the op has already been fully undone.
-          if (op.lifecycle === 'undo' || op.lifecycle === 'undone')
+          if (op.lifecycle === 'undo' || op.lifecycle === 'undone') {
             continue;
+          }
 
           // Queue an undo operation if we're already done.
           if (op.lifecycle === 'done') {

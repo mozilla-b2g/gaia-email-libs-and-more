@@ -588,14 +588,20 @@ ImapJobDriver.prototype = {
           // XXX process UIDPLUS output when present, avoiding this step.
           var guidToNamer = {}, waitingOnHeaders = namers.length,
               reportedHeaders = 0, retriesLeft = 3;
-          function copiedMessages_findNewUIDs() {
+
+          function copiedMessages_reselect() {
             // Force a re-select of the folder to try and force the server to
             // perceive the move.  This was necessary for me at least on my
             // dovceot test setup.  Although we had heard that the COPY
             // completed, our FETCH was too fast, although an IDLE did report
             // the new messages after that.
-            targetConn.reselectBox();
 
+            // We need to use a callback here because imap.js's state
+            // checking is immediate, so it's very possible to race the folder
+            // selection and lose.
+            targetConn.reselectBox(copiedMessages_findNewUIDs);
+          }
+          function copiedMessages_findNewUIDs() {
             var fetcher = targetConn._conn.fetch(
               uidnext + ':*',
               {
@@ -676,7 +682,7 @@ ImapJobDriver.prototype = {
           folderConn._conn.copy(
             serverIds,
             targetStorage.folderMeta.path,
-            copiedMessages_findNewUIDs);
+            copiedMessages_reselect);
         },
         function() {
           jobDoneCallback(aggrErr);

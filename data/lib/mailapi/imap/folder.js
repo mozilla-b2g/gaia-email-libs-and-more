@@ -207,8 +207,8 @@ ImapFolderConn.prototype = {
     this._conn = null;
   },
 
-  reselectBox: function() {
-    this._conn.openBox(this._storage.folderMeta.path);
+  reselectBox: function(callback) {
+    this._conn.openBox(this._storage.folderMeta.path, callback);
   },
 
   /**
