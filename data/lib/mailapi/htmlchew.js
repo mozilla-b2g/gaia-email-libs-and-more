@@ -471,6 +471,8 @@ exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
   // If there is no next sibling, we move up the tree until there is a next
   // sibling or we hit the top.
   var node = sanitizedHtmlNode.firstChild, done = false;
+  if (!node)
+    return snippet;
   while (!done) {
     if (node.nodeType === ELEMENT_NODE) {
       switch (node.tagName.toLowerCase()) {
