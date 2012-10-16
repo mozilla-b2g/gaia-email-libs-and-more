@@ -2658,7 +2658,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
   updateMessageHeaderByServerId: function(srvid, partOfSync,
                                           headerOrMutationFunc) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.updateMessageHeaderByUid.bind(
+      this._deferredCalls.push(this.updateMessageHeaderByServerId.bind(
         this, srvid, partOfSync, headerOrMutationFunc));
       return;
     }
@@ -2684,7 +2684,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
     }.bind(this);
 
     if (this._headerBlocks.hasOwnProperty(blockId))
-      findInBlock(this._headerBlocks(blockId));
+      findInBlock(this._headerBlocks[blockId]);
     else
       this._loadBlock('header', blockId, findInBlock);
   },
@@ -2775,7 +2775,7 @@ console.log('ASKING FOR', namer.suid, namer.date);
     }.bind(this);
 
     if (this._headerBlocks.hasOwnProperty(blockId))
-      findInBlock(this._headerBlocks(blockId));
+      findInBlock(this._headerBlocks[blockId]);
     else
       this._loadBlock('header', blockId, findInBlock);
   },

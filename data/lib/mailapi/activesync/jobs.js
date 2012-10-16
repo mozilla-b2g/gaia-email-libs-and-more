@@ -34,8 +34,40 @@ function ActiveSyncJobDriver(account, state) {
 }
 exports.ActiveSyncJobDriver = ActiveSyncJobDriver;
 ActiveSyncJobDriver.prototype = {
-  postJobCleanup: function() {
+  //////////////////////////////////////////////////////////////////////////////
+  // helpers
+
+  postJobCleanup: $jobmixins.postJobCleanup,
+
+  allJobsDone: $jobmixins.allJobsDone,
+
+  _accessFolderForMutation: function(folderId, needConn, callback, deathback,
+                                     label) {
+    var storage = this.account.getFolderStorageForFolderId(folderId),
+        self = this;
+console.log('WANT TO ACCESS', folderId);
+    storage.runMutexed(label, function(releaseMutex) {
+console.log('GOT MUTEX');
+      self._heldMutexReleasers.push(releaseMutex);
+
+      var syncer = storage.folderSyncer;
+console.log('needConn?', needConn, 'connected?', self.account.conn.connected);
+      if (needConn && !self.account.conn.connected) {
+console.log('deferred!');
+        // XXX will this connection automatically retry?
+        self.account.conn.connect(function(err, config) {
+          callback(syncer.folderConn, storage);
+        });
+      }
+      else {
+console.log('IMMEDIATE CALLBACK', syncer.folderConn, storage);
+        callback(syncer.folderConn, storage);
+      }
+    });
   },
+
+  _partitionAndAccessFoldersSequentially:
+    $jobmixins._partitionAndAccessFoldersSequentially,
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags
@@ -66,6 +98,7 @@ ActiveSyncJobDriver.prototype = {
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, callWhenDone) {
+console.log('IN FOLDER');
         var modsToGo = 0;
         function tagsModded(err) {
           if (err) {
@@ -77,6 +110,7 @@ ActiveSyncJobDriver.prototype = {
           if (--modsToGo === 0)
             callWhenDone();
         }
+console.log('PREPARING FOR MUTATION');
         let w = folderConn.prepareMutation();
         for (let i = 0; i < serverIds.length; i++) {
           let srvid = serverIds[i];
@@ -97,10 +131,12 @@ ActiveSyncJobDriver.prototype = {
                .tag(em.Status, markFlagged ? '2' : '0')
              .etag();
 
-            w.etag()
-           .etag();
+            w.etag(as.ApplicationData)
+         .etag(as.Change);
         }
+console.log('PERFORMING MUTATION');
         folderConn.performMutation(w, function(err) {
+console.log('MUTATION DONE');
           if (err)
             aggrErr = err;
           callWhenDone();
@@ -251,32 +287,6 @@ ActiveSyncJobDriver.prototype = {
   undo_delete: function(op, callback) {
     callback('moot');
   },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // helpers
-
-  _accessFolderForMutation: function(folderId, needConn, callback, deathback,
-                                     label) {
-    var storage = this.account.getFolderStorageForFolderId(folderId),
-        self = this;
-    storage.runMutexed(label, function(releaseMutex) {
-      self._heldMutexReleasers.push(releaseMutex);
-
-      var syncer = storage.folderSyncer;
-      if (needConn && !self.account.conn.connected) {
-        // XXX will this connection automatically retry?
-        self.account.conn.connect(function(err, config) {
-          callback(syncer.folderConn, storage);
-        });
-      }
-      else {
-        callback(syncer.folderConn, storage);
-      }
-    });
-  },
-
-  _partitionAndAccessFoldersSequentially:
-    $jobmixins._partitionAndAccessFoldersSequentially,
 
   //////////////////////////////////////////////////////////////////////////////
 };

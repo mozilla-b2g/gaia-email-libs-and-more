@@ -279,6 +279,9 @@ function MailUniverse(callAfterBigBang) {
    * @dictof[
    *   @key[AccountID]
    *   @key[@dict[
+   *     @key[active Boolean]{
+   *       Is there an active operation right now?
+   *     }
    *     @key[local @listof[SerializedMutation]]{
    *       Operations to be run for local changes.  This queue is drained with
    *       preference to the `server` queue.  Operations on this list will also
@@ -561,6 +564,9 @@ MailUniverse.prototype = {
    * only for consistency with `_dispatchServerOpForAccount`.
    */
   _dispatchLocalOpForAccount: function(account, op) {
+    var queues = this._opsByAccount[account.id];
+    queues.active = true;
+
     var mode;
     switch (op.lifecycle) {
       case 'do':
@@ -574,6 +580,7 @@ MailUniverse.prototype = {
       default:
         throw new Error('Illegal lifecycle state for local op');
     }
+
     account.runOp(
       op, mode,
       this._localOpCompleted.bind(this, account, op));
@@ -584,10 +591,14 @@ MailUniverse.prototype = {
    * it now gets more complex with 'check' mode.
    */
   _dispatchServerOpForAccount: function(account, op) {
+    var queues = this._opsByAccount[account.id];
+    queues.active = true;
+
     var mode = op.lifecycle;
     if (op.serverStatus === 'check')
       mode = 'check';
     op.serverStatus = mode + 'ing';
+
     account.runOp(
       op, mode,
       this._serverOpCompleted.bind(this, account, op));
@@ -695,6 +706,7 @@ MailUniverse.prototype = {
     this.accounts.push(account);
     this._accountsById[account.id] = account;
     this._opsByAccount[account.id] = {
+      active: false,
       local: [],
       server: [],
       deferred: []
@@ -944,8 +956,10 @@ MailUniverse.prototype = {
 
   _localOpCompleted: function(account, op, err, resultIfAny,
                               accountSaveSuggested) {
-    var serverQueue = this._opsByAccount[account.id].server,
-        localQueue = this._opsByAccount[account.id].local;
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    queues.active = false;
 
     var removeFromServerQueue = false;
     if (err) {
@@ -1053,8 +1067,11 @@ MailUniverse.prototype = {
    */
   _serverOpCompleted: function(account, op, err, resultIfAny,
                                accountSaveSuggested) {
-    var serverQueue = this._opsByAccount[account.id].server,
-        localQueue = this._opsByAccount[account.id].local;
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    queues.active = false;
+
     if (serverQueue[0] !== op)
       this._LOG.opInvariantFailure();
 
@@ -1241,8 +1258,11 @@ MailUniverse.prototype = {
     // Server processing is always needed
     queues.server.push(op);
 
-    if (queues.local.length) {
-      // Only actually dispatch if there is only the op we just (maybe) added
+    // If there is already something active, don't do anything!
+    if (queues.active) {
+    }
+    else if (queues.local.length) {
+      // Only actually dispatch if there is only the op we just (maybe).
       if (queues.local.length === 1 && queues.local[0] === op)
         this._dispatchLocalOpForAccount(account, op);
       // else: we grabbed control flow to avoid the server queue running

@@ -245,34 +245,9 @@ ImapJobDriver.prototype = {
     );
   },
 
-  postJobCleanup: function(passed) {
-    if (passed) {
-      // - apply updates to the suidToServerId map
-      if (this._stateDelta.serverIdMap) {
-        const deltaMap = this._stateDelta.serverIdMap,
-              fullMap = this._state.suidToServerId;
-        for (var suid in deltaMap) {
-          var srvid = deltaMap[suid];
-          if (srvid === null)
-            delete fullMap[suid];
-          else
-            fullMap[suid] = srvid;
-        }
-      }
-    }
+  postJobCleanup: $jobmixins.postJobCleanup,
 
-    for (var i = 0; i < this._heldMutexReleasers.length; i++) {
-      this._heldMutexReleasers[i]();
-    }
-    this._heldMutexReleasers = [];
-
-    this._stateDelta.serverIdMap = null;
-    this._stateDelta.moveMap = null;
-  },
-
-  allJobsDone: function() {
-    this._state.suidToServerId = {};
-  },
+  allJobsDone: $jobmixins.allJobsDone,
 
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message

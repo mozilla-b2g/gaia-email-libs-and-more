@@ -150,7 +150,34 @@ exports.local_undo_delete = function(op, doneCallback) {
   this.local_undo_move(op, doneCallback, trashFolder.id);
 };
 
+exports.postJobCleanup = function(passed) {
+  if (passed) {
+    // - apply updates to the suidToServerId map
+    if (this._stateDelta.serverIdMap) {
+      const deltaMap = this._stateDelta.serverIdMap,
+            fullMap = this._state.suidToServerId;
+      for (var suid in deltaMap) {
+        var srvid = deltaMap[suid];
+        if (srvid === null)
+          delete fullMap[suid];
+        else
+          fullMap[suid] = srvid;
+      }
+    }
+  }
 
+  for (var i = 0; i < this._heldMutexReleasers.length; i++) {
+    this._heldMutexReleasers[i]();
+  }
+  this._heldMutexReleasers = [];
+
+  this._stateDelta.serverIdMap = null;
+  this._stateDelta.moveMap = null;
+};
+
+exports.allJobsDone =  function() {
+  this._state.suidToServerId = {};
+};
 
 /**
  * Partition messages identified by namers by folder, then invoke the callback

@@ -523,28 +523,29 @@ ActiveSyncFolderConn.prototype = {
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
-       .stag(as.Collections);
-
-    w.stag(as.Collection);
+       .stag(as.Collections)
+         .stag(as.Collection);
 
     if (this._account.conn.currentVersion.lt('12.1'))
-      w.tag(as.Class, 'Email');
+          w.tag(as.Class, 'Email');
 
-      w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
-       .tag(as.CollectionId, this._storage.folderMeta.serverId)
-       .stag(as.Commands);
+          w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
+           .tag(as.CollectionId, this._storage.folderMeta.serverId)
+             .stag(as.Commands);
 
     return w;
   },
 
-  performMutations: function(w, callback) {
+  performMutation: function(w, callback) {
     const as = $ascp.AirSync.Tags,
           folderConn = this;
 
-    w.etag(as.Commands)
-     .etag(as.Collection);
+           w.etag(as.Commands)
+         .etag(as.Collection)
+       .etag(as.Collections)
+     .etag(as.Sync);
 
-    this.account.conn.postCommand(w, function(aError, aResponse) {
+    this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError)
         callback('unknown');
 

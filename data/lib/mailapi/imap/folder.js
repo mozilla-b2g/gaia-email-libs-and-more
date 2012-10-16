@@ -85,7 +85,8 @@ const INITIAL_FETCH_PARAMS = {
   request: {
     headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO', 'MESSAGE-ID',
               'REFERENCES'],
-    struct: true
+    struct: true,
+    body: false
   },
 };
 
