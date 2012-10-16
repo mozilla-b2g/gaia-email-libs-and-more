@@ -207,6 +207,10 @@ ImapFolderConn.prototype = {
     this._conn = null;
   },
 
+  reselectBox: function() {
+    this._conn.openBox(this._storage.folderMeta.path);
+  },
+
   /**
    * Wrap the search command and shirk the errors for now.  I was thinking we
    * might have this do automatic connection re-establishment, etc., but I think

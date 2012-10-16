@@ -211,7 +211,15 @@ function filterOutBuiltinFlags(flags) {
  * Extract the canonical naming attributes out of the MailHeader instance.
  */
 function serializeMessageName(x) {
-  return { date: x.date.valueOf(), suid: x.id };
+  return {
+    date: x.date.valueOf(),
+    suid: x.id,
+    // NB: strictly speaking, this is redundant information.  However, it is
+    // also fairly handy to pass around for IMAP since otherwise we might need
+    // to perform header lookups later on.  It will likely also be useful for
+    // debugging.  But ideally we would not include this.
+    guid: x.guid
+  };
 }
 
 /**

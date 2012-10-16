@@ -323,7 +323,7 @@ ImapConnection.prototype.connect = function(loginCb) {
           self._state.curXferred = 0;
           self._state.curExpected = null;
           self._state.curData = null;
-          curReq._msg.emit('end');
+          curReq._msg.emit('end', curReq._msg);
           // XXX we could just change the next else to not be an else, and then
           // this conditional is not required and we can just fall out.  (The
           // expected check === 0 may need to be reinstated, however.)

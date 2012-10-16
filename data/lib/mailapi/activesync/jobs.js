@@ -190,7 +190,7 @@ console.log('MUTATION DONE');
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
-      function perFolder(folderConn, storage, serverIds, callWhenDone) {
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
         let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(mo.MoveItems);
 
@@ -247,7 +247,7 @@ console.log('MUTATION DONE');
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
-      function perFolder(folderConn, storage, serverIds, callWhenDone) {
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
         let w = folderConn.prepareMutation();
         for (let i = 0; i < serverIds.length; i++) {
           let srvid = serverIds[i];

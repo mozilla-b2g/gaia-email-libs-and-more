@@ -462,14 +462,20 @@ TD.commonCase('move/trash messages', function(T) {
     testAccount.eImapAccount.expect_runOp_end('local_do', 'delete');
 
     testAccount.expect_headerChanges(
-      sourceView,
-      { additions: [], changes: [], deletions: [toMove, toDelete] });
-    testAccount.expect_headerChanges(
       targetView,
-      { additions: [toMove], changes: [], deletions: [] });
+      { additions: [toMove], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
+    // While the removal of toMove actually happens before the target hears
+    // about it, since we are waiting for 2 events, we will see it happen here
+    // once the toDelete removal fires.
+    testAccount.expect_headerChanges(
+      sourceView,
+      { additions: [], changes: [], deletions: [toMove, toDelete] },
+      null, /* done after 2 events: */ 2);
     testAccount.expect_headerChanges(
       trashView,
-      { additions: [toDelete], changes: [], deletions: [] });
+      { additions: [toDelete], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
 
     undoMove = toMove.moveMessage(targetFolder.mailFolder);
     undoDelete = toDelete.deleteMessage();

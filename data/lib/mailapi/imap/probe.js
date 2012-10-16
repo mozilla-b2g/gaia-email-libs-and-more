@@ -139,6 +139,8 @@ var getTZOffset = exports.getTZOffset = function getTZOffset(conn, callback) {
       {
         request: {
           headers: ['RECEIVED'],
+          struct: false,
+          body: false
         },
       });
     fetcher.on('message', function onMsg(msg) {

@@ -378,6 +378,10 @@ MailSlice.prototype = {
     if (hlen >= this.desiredHeaders && idx === hlen &&
         !this._accumulating)
       return;
+    // If we are inserting, be sure to grow the number of desired headers for
+    // consistency.
+    if (hlen >= this.desiredHeaders)
+      this.desiredHeaders++;
 
     if (this.startTS === null ||
         BEFORE(header.date, this.startTS)) {
@@ -2521,13 +2525,11 @@ FolderStorage.prototype = {
     var headers = [];
     var gotHeader = function gotHeader(header) {
       headers.push(header);
-console.log('GOT', header.id, header.suid, header.date);
       if (headers.length === namers.length)
         callback(headers);
     };
     for (var i = 0; i < namers.length; i++) {
       var namer = namers[i];
-console.log('ASKING FOR', namer.suid, namer.date);
       this.getMessageHeader(namer.suid, namer.date, gotHeader);
     }
   },
@@ -2549,26 +2551,35 @@ console.log('ASKING FOR', namer.suid, namer.date);
       var date = header.date, uid = header.id;
       for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
         var slice = this._slices[iSlice];
-
         if (slice === this._curSyncSlice)
           continue;
-        // We never automatically grow a slice into the past, so bail on that.
-        if (BEFORE(date, slice.startTS))
-          continue;
-        // We do grow a slice into the present if it's already up-to-date...
-        if (SINCE(date, slice.endTS)) {
-          // !(covers most recently known message)
-          if(!(this._headerBlockInfos.length &&
-               slice.endTS === this._headerBlockInfos[0].endTS &&
-               slice.endUID === this._headerBlockInfos[0].endUID))
+
+        // (if the slice is empty, it cares about any header!)
+        if (slice.startTS !== null) {
+          // We never automatically grow a slice into the past, so bail on that.
+          if (BEFORE(date, slice.startTS))
             continue;
+          // We do grow a slice into the present if it's already up-to-date...
+          if (SINCE(date, slice.endTS)) {
+            // !(covers most recently known message)
+            if(!(this._headerBlockInfos.length &&
+                 slice.endTS === this._headerBlockInfos[0].endTS &&
+                 slice.endUID === this._headerBlockInfos[0].endUID))
+              continue;
+          }
+          else if ((date === slice.startTS &&
+                    uid < slice.startUID) ||
+                   (date === slice.endTS &&
+                    uid > slice.endUID)) {
+            continue;
+          }
         }
-        else if ((date === slice.startTS &&
-                  uid < slice.startUID) ||
-                 (date === slice.endTS &&
-                  uid > slice.endUID)) {
-          continue;
+        else {
+          // Make sure to increase the number of desired headers so the
+          // truncating heuristic won't rule the header out.
+          slice.desiredHeaders++;
         }
+
         slice.onHeaderAdded(header, false, true);
       }
     }
@@ -2611,42 +2622,60 @@ console.log('ASKING FOR', namer.suid, namer.date);
         iInfo = infoTuple[0], info = infoTuple[1], self = this;
     function doUpdateHeader(block) {
       var idx = block.uids.indexOf(id), header;
-      if (idx === -1)
-        throw new Error("Failed to find ID " + id + "!");
-      if (headerOrMutationFunc instanceof Function) {
+      if (idx === -1) {
+        // Call the mutation func with null to let it know we couldn't find the
+        // header.
+        if (headerOrMutationFunc instanceof Function)
+          headerOrMutationFunc(null);
+        else
+          throw new Error('Failed to find ID ' + id + '!');
+      }
+      else if (headerOrMutationFunc instanceof Function) {
         // If it returns false it means that the header did not change and so
         // there is no need to mark anything dirty and we can leave without
         // notifying anyone.
         if (!headerOrMutationFunc((header = block.headers[idx])))
-          return;
+          header = null;
       }
-      else
+      else {
         header = block.headers[idx] = headerOrMutationFunc;
-      self._dirty = true;
-      self._dirtyHeaderBlocks[info.blockId] = block;
+      }
+      // only dirty us and generate notifications if there is a header
+      if (header) {
+        self._dirty = true;
+        self._dirtyHeaderBlocks[info.blockId] = block;
 
-      if (partOfSync && self._curSyncSlice && !self._curSyncSlice.ignoreHeaders)
-        self._curSyncSlice.onHeaderAdded(header, false, false);
-      if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
-        for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
-          var slice = self._slices[iSlice];
-          if (partOfSync && slice === self._curSyncSlice)
-            continue;
-          if (BEFORE(date, slice.startTS) ||
-              STRICTLY_AFTER(date, slice.endTS))
-            continue;
-          if ((date === slice.startTS &&
-               id < slice.startUID) ||
-              (date === slice.endTS &&
-               id > slice.endUID))
-            continue;
-          slice.onHeaderModified(header);
+        if (partOfSync && self._curSyncSlice &&
+            !self._curSyncSlice.ignoreHeaders)
+          self._curSyncSlice.onHeaderAdded(header, false, false);
+        if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
+          for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
+            var slice = self._slices[iSlice];
+            if (partOfSync && slice === self._curSyncSlice)
+              continue;
+            if (BEFORE(date, slice.startTS) ||
+                STRICTLY_AFTER(date, slice.endTS))
+              continue;
+            if ((date === slice.startTS &&
+                 id < slice.startUID) ||
+                (date === slice.endTS &&
+                 id > slice.endUID))
+              continue;
+            slice.onHeaderModified(header);
+          }
         }
       }
       if (callback)
         callback();
     }
-    if (!this._headerBlocks.hasOwnProperty(info.blockId))
+    if (!info) {
+      if (headerOrMutationFunc instanceof Function)
+        headerOrMutationFunc(null);
+      else
+        throw new Error('Failed to block containing header with date: ' +
+                        date + ' id: ' + id);
+    }
+    else if (!this._headerBlocks.hasOwnProperty(info.blockId))
       this._loadBlock('header', info.blockId, doUpdateHeader);
     else
       doUpdateHeader(this._headerBlocks[info.blockId]);

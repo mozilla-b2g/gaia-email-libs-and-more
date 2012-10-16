@@ -123,6 +123,12 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  *     subsequent move or the table is cleared once all operations for the
  *     account complete.
  *   }
+ *   @key[moveMap @dictof[
+ *     @key[oldSuid SUID]
+ *     @value[newSuid SUID]
+ *   ]]{
+ *     Expresses the relationship between moved messages by local-operations.
+ *   }
  * ]]
  *
  * @typedef[MutationStateDelta @dict[
@@ -140,12 +146,6 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  *     @value[newSuid SUID]
  *   ]]{
  *     Expresses the relationship between moved messages by local-operations.
- *     This currently serves as debugging information.  It's not needed
- *     currently because all manipulations are always posed in terms of the
- *     local header's suid and there is no need to discuss the previous suid. It
- *     would be required to implement the ability to undo an operation
- *     out-of-sequence relative to a move or if we wanted to restore the
- *     original suid's of a message when undoing a move.
  *   }
  * ]]{
  *   A set of attributes that can be set on an operation to cause changes to
@@ -163,6 +163,7 @@ function ImapJobDriver(account, state) {
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
     state.suidToServerId = {};
+    state.moveMap = {};
   }
 
   this._stateDelta = {
@@ -351,7 +352,7 @@ ImapJobDriver.prototype = {
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
-      function perFolder(folderConn, storage, serverIds, callWhenDone) {
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
         var modsToGo = 0;
         function tagsModded(err) {
           if (err) {
@@ -569,39 +570,117 @@ ImapJobDriver.prototype = {
 
   local_do_move: $jobmixins.local_do_move,
 
-  do_move: function(op, doneCallback, targetFolderId) {
-    var stateDelta = this._stateDelta;
+  do_move: function(op, jobDoneCallback, targetFolderId) {
+    var state = this._state, stateDelta = this._stateDelta, aggrErr = null;
+    if (!stateDelta.serverIdMap)
+      stateDelta.serverIdMap = {};
     // resolve the target folder again
     this._accessFolderForMutation(
-      targetFoldreId || op.targetFolder, true,
+      targetFolderId || op.targetFolder, true,
       function gotTargetConn(targetConn, targetStorage) {
         var uidnext = targetConn.box._uidnext;
 
       this._partitionAndAccessFoldersSequentially(
         op.messages, true,
-        function perFolder(folderConn, sourceStorage, suids, serverIds,
+        function perFolder(folderConn, sourceStorage, serverIds, namers,
                            perFolderDone){
           // - copies are done, find the UIDs
           // XXX process UIDPLUS output when present, avoiding this step.
-          /*
-           * Figuring out the new UIDs.  IMAP's semantics make this
-           * reasonably easy for us.
-           *
-           */
+          var guidToNamer = {}, waitingOnHeaders = namers.length,
+              reportedHeaders = 0, retriesLeft = 3;
           function copiedMessages_findNewUIDs() {
+            // Force a re-select of the folder to try and force the server to
+            // perceive the move.  This was necessary for me at least on my
+            // dovceot test setup.  Although we had heard that the COPY
+            // completed, our FETCH was too fast, although an IDLE did report
+            // the new messages after that.
+            targetConn.reselectBox();
 
+            var fetcher = targetConn._conn.fetch(
+              uidnext + ':*',
+              {
+                request: {
+                  headers: ['MESSAGE-ID'],
+                  struct: false,
+                  body: false
+                }
+              });
+            // because we aren't waiting for body data, we can just process the
+            // 'message' event directly without registering for an 'end' event
+            // on it.
+            fetcher.on('message', function(msg) {
+              msg.on('end', fetchedMessageData);
+            });
+            // We don't need to wait for 'end' since we know how many of these
+            // we care about.
+            fetcher.on('error', function(err) {
+              aggrErr = err;
+              perFolderDone();
+            });
+            fetcher.on('end', function() {
+              if (reportedHeaders < namers.length) {
+                // If we didn't hear about all the headers, let's retry in
+                // a little bit.
+                if (--retriesLeft === 0) {
+                  aggrErr = 'aborted-retry';
+                  perFolderDone();
+                  return;
+                }
+
+                window.setTimeout(copiedMessages_findNewUIDs, 500);
+              }
+            });
+          }
+          function fetchedMessageData(msg) {
+            var guid = msg.msg.meta.messageId;
+            if (!guidToNamer.hasOwnProperty(guid))
+              return;
+            reportedHeaders++;
+            var namer = guidToNamer[guid];
+            stateDelta.serverIdMap[namer.suid] = msg.id;
+            uidnext = msg.id + 1;
+            var newSuid = state.moveMap[namer.suid];
+            var newId =
+                  parseInt(newSuid.substring(newSuid.lastIndexOf('/') + 1));
+            targetStorage.updateMessageHeader(
+              namer.date, newId, false,
+              function(header) {
+                // If the header isn't there because it got moved, then null
+                // will be returned and it's up to the next move operation
+                // to fix this up.
+                if (header)
+                  header.srvid = msg.id;
+                else
+                  console.warn('did not find header for', namer.suid,
+                               newSuid, namer.date, newId);
+                if (--waitingOnHeaders === 0)
+                  foundUIDs_deleteOriginals();
+                return true;
+              });
           }
           function foundUIDs_deleteOriginals() {
-            folderConn._conn.addFlags(serverIds, ['\\Deleted'], deleted);
-
-            stateDelta.serverIdMap[suid] = newUid;
+            folderConn._conn.addFlags(serverIds, ['\\Deleted'],
+                                      deletedMessages);
           }
-          folderConn._conn.copy(serverIds, targetFolderMeta.path,
-                                copiedMessages_deleteOriginals);
+          function deletedMessages(err) {
+            if (err)
+              aggrErr = true;
+            perFolderDone();
+          }
 
-          var iNextHeader = 0, header = null, body = null, addWait = 0;
+          for (var i = 0; i < namers.length; i++) {
+            var namer = namers[i];
+            guidToNamer[namer.guid] = namer;
+          }
+
+          folderConn._conn.copy(
+            serverIds,
+            targetStorage.folderMeta.path,
+            copiedMessages_findNewUIDs);
         },
-        doneCallback,
+        function() {
+          jobDoneCallback(aggrErr);
+        },
         null,
         false,
         'local move source');

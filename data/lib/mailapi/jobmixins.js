@@ -18,7 +18,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
   this._partitionAndAccessFoldersSequentially(
     op.messages,
     false,
-    function perFolder(ignoredConn, storage, headers, callWhenDone) {
+    function perFolder(ignoredConn, storage, headers, namers, callWhenDone) {
       var waitingOn = headers.length;
       function headerUpdated() {
         if (--waitingOn === 0)
@@ -69,31 +69,44 @@ exports.local_undo_modtags = function(op, callback) {
 exports.local_do_move = function(op, doneCallback, targetFolderId) {
   // create a scratch field to store the guid's for check purposes
   op.guids = {};
-  const nukeServerIds = !this.account.resilientServerIds;
+  const nukeServerIds = !this.resilientServerIds;
 
-  var stateDelta = this._stateDelta;
+  var stateDelta = this._stateDelta, addWait = 0;
+  if (!stateDelta.moveMap)
+    stateDelta.moveMap = {};
+  if (!stateDelta.serverIdMap)
+    stateDelta.serverIdMap = {};
   var perSourceFolder = function perSourceFolder(ignoredConn, targetStorage) {
     this._partitionAndAccessFoldersSequentially(
       op.messages, false,
-      function perFolder(ignoredConn, sourceStorage, headers, perFolderDone) {
+      function perFolder(ignoredConn, sourceStorage, headers, namers,
+                         perFolderDone) {
         // -- get the body for the next header (or be done)
         function processNext() {
           if (iNextHeader >= headers.length) {
+console.log('*: done');
             perFolderDone();
             return;
           }
+console.log('1: getting body');
           header = headers[iNextHeader++];
           sourceStorage.getMessageBody(header.suid, header.date,
                                        gotBody_nowDelete);
         }
         // -- delete the header and body from the source
         function gotBody_nowDelete(_body) {
+console.log('2: got body, deleting');
           body = _body;
           sourceStorage.deleteMessageHeaderAndBody(header, deleted_nowAdd);
         }
         // -- add the header/body to the target folder
         function deleted_nowAdd() {
+console.log('3: deleted, adding to target');
           var sourceSuid = header.suid;
+
+          // We need an entry in the server id map if we are moving it.
+          if (nukeServerIds && header.srvid)
+            stateDelta.serverIdMap[sourceSuid] = header.srvid;
 
           // - update id fields
           header.id = targetStorage._issueNewHeaderId();
@@ -108,11 +121,14 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
           targetStorage.addMessageBody(header, body, added);
         }
         function added() {
+console.log('4: added, addWait will be:', addWait - 1);
           if (--addWait !== 0)
             return;
           processNext();
         }
         var iNextHeader = 0, header = null, body = null, addWait = 0;
+console.log('0: starting process');
+        processNext();
       },
       doneCallback,
       null,
@@ -152,16 +168,26 @@ exports.local_undo_delete = function(op, doneCallback) {
 
 exports.postJobCleanup = function(passed) {
   if (passed) {
-    // - apply updates to the suidToServerId map
+    var deltaMap, fullMap;
+    // - apply updates to the serverIdMap map
     if (this._stateDelta.serverIdMap) {
-      const deltaMap = this._stateDelta.serverIdMap,
-            fullMap = this._state.suidToServerId;
+      deltaMap = this._stateDelta.serverIdMap;
+      fullMap = this._state.suidToServerId;
       for (var suid in deltaMap) {
         var srvid = deltaMap[suid];
         if (srvid === null)
           delete fullMap[suid];
         else
           fullMap[suid] = srvid;
+      }
+    }
+    // - apply updates to the move map
+    if (this._stateDelta.moveMap) {
+      deltaMap = this._stateDelta.moveMap;
+      fullMap = this._state.moveMap;
+      for (var oldSuid in deltaMap) {
+        var newSuid = deltaMap[suid];
+        fullMap[oldSuid] = newSuid;
       }
     }
   }
@@ -177,6 +203,7 @@ exports.postJobCleanup = function(passed) {
 
 exports.allJobsDone =  function() {
   this._state.suidToServerId = {};
+  this._state.moveMap = {};
 };
 
 /**
@@ -211,16 +238,16 @@ exports.allJobsDone =  function() {
  * ]
  */
 exports._partitionAndAccessFoldersSequentially = function(
-    messageNamers,
+    allMessageNamers,
     needConn,
     callInFolder,
     callWhenDone,
     callOnConnLoss,
     reverse,
     label) {
-  var partitions = $util.partitionMessagesByFolderId(messageNamers);
+  var partitions = $util.partitionMessagesByFolderId(allMessageNamers);
   var folderConn, storage, self = this,
-      folderId = null, messageIds = null, serverIds = null,
+      folderId = null, folderMessageNamers = null, serverIds = null,
       iNextPartition = 0, curPartition = null, modsToGo = 0;
 
   if (reverse)
@@ -244,7 +271,7 @@ exports._partitionAndAccessFoldersSequentially = function(
     }
 
     curPartition = partitions[iNextPartition++];
-    messageIds = curPartition.messages;
+    folderMessageNamers = curPartition.messages;
     serverIds = null;
     if (curPartition.folderId !== folderId) {
       folderId = curPartition.folderId;
@@ -260,37 +287,47 @@ exports._partitionAndAccessFoldersSequentially = function(
       var neededHeaders = [],
           suidToServerId = self._state.suidToServerId;
       serverIds = [];
-      for (var i = 0; i < curPartition.messages.length; i++) {
-        var namer = curPartition.messages[i];
+      for (var i = 0; i < folderMessageNamers.length; i++) {
+        var namer = folderMessageNamers[i];
         var srvid = suidToServerId[namer.suid];
-        // (we do not try to maintain the ordering of anything; no need)
-        if (srvid)
+        if (srvid) {
           serverIds.push(srvid);
-        else
+        }
+        else {
+          serverIds.push(null);
           neededHeaders.push(namer);
+        }
       }
 
       if (!neededHeaders.length)
-        callInFolder(folderConn, storage, serverIds, openNextFolder);
+        callInFolder(folderConn, storage, serverIds, folderMessageNamers,
+                     openNextFolder);
       else
         storage.getMessageHeaders(neededHeaders, gotNeededHeaders);
     }
     else {
-      storage.getMessageHeaders(curPartition.messages, gotHeaders);
+      storage.getMessageHeaders(folderMessageNamers, gotHeaders);
     }
   };
   var gotNeededHeaders = function gotNeededHeaders(headers) {
+    var iNextServerId = serverIds.indexOf(null);
     for (var i = 0; i < headers.length; i++) {
-      var srvid = headers[i].srvid;
-      if (srvid)
-        serverIds.push(srvid);
-      else
+      var header = headers[i];
+      if (!header)
+        console.warn('missing header!',
+                     JSON.stringify(folderMessageNamers[iNextServerId]));
+      var srvid = header.srvid;
+      serverIds[iNextServerId] = srvid;
+      iNextServerId = serverIds.indexOf(null, iNextServerId + 1);
+      if (!srvid)
         console.warn('Header', headers[i].suid, 'missing server id in job!');
     }
-    callInFolder(folderConn, storage, serverIds, openNextFolder);
+    callInFolder(folderConn, storage, serverIds, folderMessageNamers,
+                 openNextFolder);
   };
   var gotHeaders = function gotHeaders(headers) {
-    callInFolder(folderConn, storage, headers, openNextFolder);
+    callInFolder(folderConn, storage, headers, folderMessageNamers,
+                 openNextFolder);
   };
   openNextFolder();
 };

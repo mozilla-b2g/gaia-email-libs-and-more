@@ -760,9 +760,12 @@ var TestImapAccountMixins = {
                              expectedFlags.grow, 'synced');
 
     // - listen for the changes
-    var additionRep = {}, changeRep = {}, deletionRep = {};
+    var additionRep = {}, changeRep = {}, deletionRep = {},
+        eventCounter = 0;
     viewThing.slice.onadd = function(item) {
       additionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
@@ -775,13 +778,17 @@ var TestImapAccountMixins = {
         if (item[changeEntry.field] !== changeEntry.value)
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
       });
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
     viewThing.slice.onremove = function(item) {
       deletionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
-    function completed() {
-      if (!completeCheckOn)
-        self._logger.messagesReported(viewThing.slice.items.length);
+    var completed = function completed() {
+      //if (completeCheckOn !== 'roundtrip')
+      //  self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(additionRep, changeRep, deletionRep);
       if (expectedFlags)
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
@@ -791,10 +798,14 @@ var TestImapAccountMixins = {
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
     };
-    if (completeCheckOn === 'roundtrip')
+    if (completeCheckOn === 'roundtrip') {
       this.MailAPI.ping(completed);
-    else
+    }
+    else if (typeof(completeCheckOn) === 'number') {
+      eventCounter = completeCheckOn;
+    } else {
       viewThing.slice.oncomplete = completed;
+    }
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
