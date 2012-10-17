@@ -378,9 +378,11 @@ MailSlice.prototype = {
     if (hlen >= this.desiredHeaders && idx === hlen &&
         !this._accumulating)
       return;
-    // If we are inserting, be sure to grow the number of desired headers for
-    // consistency.
-    if (hlen >= this.desiredHeaders)
+    // If we are inserting (not at the end) and not accumulating (in which case
+    // we can chop off the excess before we tell about it), then be sure to grow
+    // the number of desired headers to be consistent with the number of headers
+    // we have.
+    if (hlen >= this.desiredHeaders && !this._accumulating)
       this.desiredHeaders++;
 
     if (this.startTS === null ||
