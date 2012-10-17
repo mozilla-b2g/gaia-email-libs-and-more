@@ -847,6 +847,12 @@ ImapJobDriver.prototype = {
     }
     function addBoxCallback(err) {
       if (err) {
+        // If the folder already exists, we are done.
+        if (err.serverResponse &&
+            /\[ALREADYEXISTS\]/.test(err.serverResponse)) {
+          done(null);
+          return;
+        }
         console.error('Error creating box:', err);
         // XXX implement the already-exists check...
         done('unknown');

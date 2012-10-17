@@ -236,6 +236,7 @@ var TestImapAccountMixins = {
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
+    self._opts = opts;
     if (!opts.universe)
       throw new Error("Universe not specified!");
     if (!opts.universe.__testAccounts)
@@ -344,6 +345,7 @@ var TestImapAccountMixins = {
           displayName: TEST_PARAMS.name,
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
+          accountName: self._opts.name || null,
         },
         null,
         function accountMaybeCreated(error) {

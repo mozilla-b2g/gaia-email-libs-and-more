@@ -727,14 +727,14 @@ MailUniverse.prototype = {
     for (var i = 0; i < account.mutations.length; i++) {
       var op = account.mutations[i];
       if (op.lifecycle !== 'done' && op.lifecycle !== 'undone') {
-        // Per operation strategy documentation, we treat all depersisted
-        // operations not known to have completed as potentially-run, so we
-        // change the serverStatus to check which will trigger a server-check.
-        // We set localStatus to 'unknown' (for now) to stop undo from
-        // potentially getting confused if we tried to run the transaction with
-        // our db in an unknown state since we aren't planning to issue commits
-        // after every individual transaction.
-        op.localStatus = 'unknown';
+        // For localStatus, we currently expect it to be consistent with the
+        // state of the folder's database.  We expect this to be true going
+        // forward and as we make changes because when we save the account's
+        // operation status, we should also be saving the folder changes at the
+        // same time.
+        //
+        // The same cannot be said for serverStatus, so we need to check.  See
+        // comments about operations elsewhere (currently in imap/jobs.js).
         op.serverStatus = 'check';
         this._queueAccountOp(account, op);
       }

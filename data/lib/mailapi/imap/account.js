@@ -293,7 +293,8 @@ ImapAccount.prototype = {
       throw new Error("No such folder: " + folderId);
 
     if (!this.universe.online) {
-      callback('offline');
+      if (callback)
+        callback('offline');
       return;
     }
 

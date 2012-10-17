@@ -399,7 +399,7 @@ Configurators['imap+smtp'] = {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
-      name: userDetails.emailAddress,
+      name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'imap+smtp',
       receiveType: 'imap',
@@ -462,7 +462,7 @@ Configurators['fake'] = {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
-      name: userDetails.emailAddress,
+      name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'fake',
       syncRange: '3d',
@@ -568,7 +568,7 @@ Configurators['activesync'] = {
       var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
       var accountDef = {
         id: accountId,
-        name: userDetails.emailAddress,
+        name: userDetails.accountName || userDetails.emailAddress,
 
         type: 'activesync',
         syncRange: '3d',
