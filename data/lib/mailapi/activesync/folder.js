@@ -531,6 +531,10 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
            .tag(as.CollectionId, this._storage.folderMeta.serverId)
+           // DeletesAsMoves defaults to true, so we can omit it
+           // GetChanges defaults to true, so we must explicitly disable it to
+           // avoid hearing about changes.
+           .tag(as.GetChanges, '0')
              .stag(as.Commands);
 
     return w;
@@ -546,8 +550,11 @@ ActiveSyncFolderConn.prototype = {
      .etag(as.Sync);
 
     this._account.conn.postCommand(w, function(aError, aResponse) {
-      if (aError)
+      if (aError) {
+        console.error('postCommand error:', aError);
         callback('unknown');
+        return;
+      }
 
       let e = new $wbxml.EventParser();
       let syncKey, status;
@@ -560,6 +567,8 @@ ActiveSyncFolderConn.prototype = {
         status = node.children[0].textContent;
       });
 
+      console.warn('COMMAND RESULT:\n', aResponse.dump());
+      aResponse.rewind();
       e.run(aResponse);
 
       if (status === '1') {

@@ -25,6 +25,7 @@ function ActiveSyncJobDriver(account, state) {
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
     state.suidToServerId = {};
+    state.moveMap = {};
   }
 
   this._stateDelta = {
@@ -97,7 +98,7 @@ console.log('IMMEDIATE CALLBACK', syncer.folderConn, storage);
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
-      function perFolder(folderConn, storage, serverIds, callWhenDone) {
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
 console.log('IN FOLDER');
         var modsToGo = 0;
         function tagsModded(err) {
@@ -253,17 +254,20 @@ console.log('MUTATION DONE');
           let srvid = serverIds[i];
           // If the header is somehow an offline header, it will be null and
           // there is nothing we can really do for it.
-          if (!srvid)
+          if (!srvid) {
+            console.log('AS message', namers[i].suid, 'lacks srvid!');
             continue;
+          }
 
           w.stag(as.Delete)
               .tag(as.ServerId, srvid)
-            .etag();
+            .etag(as.Delete);
         }
         folderConn.performMutation(w, function(err) {
-          if (err)
+          if (err) {
             aggrErr = err;
-          console.error('failure deleting messages:', err);
+            console.error('failure deleting messages:', err);
+          }
           callWhenDone();
         });
       },

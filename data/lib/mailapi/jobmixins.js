@@ -105,7 +105,7 @@ console.log('3: deleted, adding to target');
           var sourceSuid = header.suid;
 
           // We need an entry in the server id map if we are moving it.
-          if (nukeServerIds && header.srvid)
+          if (header.srvid)
             stateDelta.serverIdMap[sourceSuid] = header.srvid;
 
           // - update id fields
@@ -223,7 +223,11 @@ exports.allJobsDone =  function() {
  *     @args[
  *       @param[folderConn ImapFolderConn]
  *       @param[folderStorage FolderStorage]
- *       @param[headers @listof[HeaderInfo]]
+ *       @param[headersOrServerIds @oneof[
+ *         @listof[HeaderInfo]
+ *         @listof[ServerID]]
+ *       ]
+ *       @param[messageNamers @listof[MessageNamer]]
  *       @param[callWhenDoneWithFolder Function]
  *     ]
  *   ]]
