@@ -68,6 +68,11 @@ post-check-one: check-one
 post-xpcshell-tests: xpcshell-tests
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all.log
 
+storage_server_port = 8080
+
+activesync-server:
+	$(PYTHON) $(CURDIR)/test/run_server.py $(B2GSD) $(B2GBD) $(CURDIR) \
+	  run_activesync_server.js --port $(storage_server_port)
 
 clean:
 	rm -rf data/deps
