@@ -730,7 +730,13 @@ ImapJobDriver.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
   // append: Add a message to a folder
-
+  //
+  // Message should look like:
+  // {
+  //    messageText: the message body,
+  //    date: the date to use as the INTERNALDATE of the message,
+  //    flags: the initial set of flags for the message
+  // }
 
   local_do_append: function(op, doneCallback) {
     doneCallback(null);

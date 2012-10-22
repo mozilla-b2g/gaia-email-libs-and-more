@@ -179,7 +179,41 @@ CompositeAccount.prototype = {
   },
 
   sendMessage: function(composedMessage, callback) {
-    return this._sendPiece.sendMessage(composedMessage, callback);
+    return this._sendPiece.sendMessage(
+      composedMessage,
+      function(err, errDetails) {
+        // We need to append the message to the sent folder if we think we sent
+        // the message okay.
+        if (!err) {
+          // have it internally accumulate the data rather than using the stream
+          // mechanism.
+          composedMessage._cacheOutput = true;
+          // reset the offsets since we are reusing the composer.
+          composedMessage._message.processingStart = 0;
+          composedMessage._message.processingPos = 0;
+          var data = null;
+          process.immediate = true;
+          composedMessage._processBufferedOutput = function() {
+            data = composedMessage._outputBuffer;
+          };
+          composedMessage._composeMessage();
+          process.immediate = false;
+
+          var message = {
+            messageText: data.trimRight(),
+            // do not specify date; let the server use its own timestamping
+            // since we want the approximate value of 'now' anyways.
+            flags: ['Seen'],
+          };
+
+          var sentFolder = this.getFirstFolderWithType('sent');
+          if (sentFolder)
+            this.universe.appendMessages(sentFolder.id,
+                                         [message]);
+        }
+        callback(err, errDetails);
+      }.bind(this));
+
   },
 
   getFolderStorageForFolderId: function(folderId) {
