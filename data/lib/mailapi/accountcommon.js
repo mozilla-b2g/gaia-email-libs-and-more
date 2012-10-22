@@ -230,6 +230,13 @@ var autoconfigByDomain = {
       username: '%EMAILLOCALPART%',
     },
   },
+  'aslocalhost': {
+    type: 'activesync',
+    displayName: 'Test',
+    incoming: {
+      server: 'http://localhost:8080',
+    },
+  },
   // Mapping for a nonexistent domain for testing a bad domain without it being
   // detected ahead of time by the autoconfiguration logic or otherwise.
   'nonesuch.nonesuch': {
