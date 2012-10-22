@@ -102,8 +102,6 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyTo = replyComposer.to;
-    replyCc = replyComposer.cc;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
                                                         sentDate) {
       replySentDate = new Date(sentDate);
