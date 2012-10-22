@@ -549,6 +549,8 @@ ActiveSyncFolderConn.prototype = {
        .etag(as.Collections)
      .etag(as.Sync);
 
+
+
     this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error('postCommand error:', aError);
@@ -567,8 +569,8 @@ ActiveSyncFolderConn.prototype = {
         status = node.children[0].textContent;
       });
 
-      console.warn('COMMAND RESULT:\n', aResponse.dump());
-      aResponse.rewind();
+      //console.warn('COMMAND RESULT:\n', aResponse.dump());
+      //aResponse.rewind();
       e.run(aResponse);
 
       if (status === '1') {

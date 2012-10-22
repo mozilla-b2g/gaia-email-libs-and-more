@@ -54,7 +54,9 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
                                     header, headerUpdated);
       }
     },
-    doneCallback,
+    function() {
+      doneCallback(null, null, true);
+    },
     null,
     undo,
     'modtags');
@@ -130,7 +132,9 @@ console.log('4: added, addWait will be:', addWait - 1);
 console.log('0: starting process');
         processNext();
       },
-      doneCallback,
+      function() {
+        doneCallback(null, null, true);
+      },
       null,
       false,
       'local move source');
@@ -303,11 +307,18 @@ exports._partitionAndAccessFoldersSequentially = function(
         }
       }
 
-      if (!neededHeaders.length)
-        callInFolder(folderConn, storage, serverIds, folderMessageNamers,
-                     openNextFolder);
-      else
+      if (!neededHeaders.length) {
+        try {
+          callInFolder(folderConn, storage, serverIds, folderMessageNamers,
+                       openNextFolder);
+        }
+        catch (ex) {
+          console.error('PAAFS error:', ex, '\n', ex.stack);
+        }
+      }
+      else {
         storage.getMessageHeaders(neededHeaders, gotNeededHeaders);
+      }
     }
     else {
       storage.getMessageHeaders(folderMessageNamers, gotHeaders);
@@ -326,12 +337,22 @@ exports._partitionAndAccessFoldersSequentially = function(
       if (!srvid)
         console.warn('Header', headers[i].suid, 'missing server id in job!');
     }
-    callInFolder(folderConn, storage, serverIds, folderMessageNamers,
-                 openNextFolder);
+    try {
+      callInFolder(folderConn, storage, serverIds, folderMessageNamers,
+                   openNextFolder);
+    }
+    catch (ex) {
+      console.error('PAAFS error:', ex, '\n', ex.stack);
+    }
   };
   var gotHeaders = function gotHeaders(headers) {
-    callInFolder(folderConn, storage, headers, folderMessageNamers,
-                 openNextFolder);
+    try {
+      callInFolder(folderConn, storage, headers, folderMessageNamers,
+                   openNextFolder);
+    }
+    catch (ex) {
+      console.error('PAAFS error:', ex, '\n', ex.stack);
+    }
   };
   openNextFolder();
 };

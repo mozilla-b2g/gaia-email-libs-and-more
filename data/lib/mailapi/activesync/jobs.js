@@ -46,22 +46,17 @@ ActiveSyncJobDriver.prototype = {
                                      label) {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
-console.log('WANT TO ACCESS', folderId);
     storage.runMutexed(label, function(releaseMutex) {
-console.log('GOT MUTEX');
       self._heldMutexReleasers.push(releaseMutex);
 
       var syncer = storage.folderSyncer;
-console.log('needConn?', needConn, 'connected?', self.account.conn.connected);
       if (needConn && !self.account.conn.connected) {
-console.log('deferred!');
         // XXX will this connection automatically retry?
         self.account.conn.connect(function(err, config) {
           callback(syncer.folderConn, storage);
         });
       }
       else {
-console.log('IMMEDIATE CALLBACK', syncer.folderConn, storage);
         callback(syncer.folderConn, storage);
       }
     });
@@ -99,7 +94,6 @@ console.log('IMMEDIATE CALLBACK', syncer.folderConn, storage);
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
-console.log('IN FOLDER');
         var modsToGo = 0;
         function tagsModded(err) {
           if (err) {
@@ -111,7 +105,6 @@ console.log('IN FOLDER');
           if (--modsToGo === 0)
             callWhenDone();
         }
-console.log('PREPARING FOR MUTATION');
         let w = folderConn.prepareMutation();
         for (let i = 0; i < serverIds.length; i++) {
           let srvid = serverIds[i];
@@ -135,9 +128,7 @@ console.log('PREPARING FOR MUTATION');
             w.etag(as.ApplicationData)
          .etag(as.Change);
         }
-console.log('PERFORMING MUTATION');
         folderConn.performMutation(w, function(err) {
-console.log('MUTATION DONE');
           if (err)
             aggrErr = err;
           callWhenDone();
@@ -201,24 +192,24 @@ console.log('MUTATION DONE');
           // there is nothing we can really do for it.
           if (!srvid)
             continue;
-
           w.stag(mo.Move)
               .tag(mo.SrcMsgId, srvid)
               .tag(mo.SrcFldId, storage.folderMeta.serverId)
-              .tag(mo.DstFlfId, targetFolderStorage.folderMeta.serverId)
+              .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
             .etag(mo.Move);
         }
         w.etag(mo.MoveItems);
 
-        account.conn.potsCommand(w, function(err, response) {
-          if (err)
+        account.conn.postCommand(w, function(err, response) {
+          if (err) {
             aggrErr = err;
-          console.error('failure moving messages:', err);
+            console.error('failure moving messages:', err);
+          }
           callWhenDone();
         });
       },
       function allDone() {
-        jobDoneCallback(aggrErr);
+        jobDoneCallback(aggrErr, null, true);
       },
       function deadConn() {
         aggrErr = 'aborted-retry';
@@ -272,7 +263,7 @@ console.log('MUTATION DONE');
         });
       },
       function allDone() {
-        jobDoneCallback(aggrErr);
+        jobDoneCallback(aggrErr, null, true);
       },
       function deadConn() {
         aggrErr = 'aborted-retry';
