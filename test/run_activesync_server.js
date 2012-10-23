@@ -64,25 +64,40 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
     const fh = $ascp.FolderHierarchy.Tags;
     const folderType = $ascp.FolderHierarchy.Enums.Type;
 
+    let syncKey;
+
+    let e = new $wbxml.EventParser();
+    e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
+      syncKey = node.children[0].textContent;
+    });
+    e.run(decodeWBXML(request.bodyInputStream));
+
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
        .tag(fh.SyncKey, 'XXX')
-       .stag(fh.Changes)
-         .tag(fh.Count, '2')
-         .stag(fh.Add)
-           .tag(fh.ServerId, 'XXX-1')
-           .tag(fh.ParentId, '0')
-           .tag(fh.DisplayName, 'Inbox')
-           .tag(fh.Type, folderType.DefaultInbox)
-         .etag()
-         .stag(fh.Add)
-           .tag(fh.ServerId, 'XXX-2')
-           .tag(fh.ParentId, '0')
-           .tag(fh.DisplayName, 'Sent')
-           .tag(fh.Type, folderType.DefaultSent)
-         .etag()
+      .stag(fh.Changes);
+
+    if (syncKey === '0') {
+      w.tag(fh.Count, '2')
+       .stag(fh.Add)
+         .tag(fh.ServerId, 'XXX-1')
+         .tag(fh.ParentId, '0')
+         .tag(fh.DisplayName, 'Inbox')
+         .tag(fh.Type, folderType.DefaultInbox)
        .etag()
+       .stag(fh.Add)
+         .tag(fh.ServerId, 'XXX-2')
+         .tag(fh.ParentId, '0')
+         .tag(fh.DisplayName, 'Sent')
+         .tag(fh.Type, folderType.DefaultSent)
+       .etag();
+    }
+    else {
+      w.tag(fh.Count, '0');
+    }
+
+    w  .etag()
      .etag();
 
     response.setStatusLine('1.1', 200, 'OK');
@@ -94,8 +109,9 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
     const as  = $ascp.AirSync.Tags;
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
+    const asEnum = $ascp.AirSync.Enums;
 
-    let syncKey, collectionId;
+    let syncKey, nextSyncKey, collectionId;
 
     let e = new $wbxml.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
@@ -109,34 +125,34 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
 
     e.run(decodeWBXML(request.bodyInputStream));
 
+    if (syncKey === '0')
+      nextSyncKey = 'XXX';
+    else if (syncKey === 'XXX' || syncKey === 'XXXX')
+      nextSyncKey = 'XXXX';
+    else
+      nextSyncKey = '0';
+
+    let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
+                                       asEnum.Status.Success
+
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
 
-    if (syncKey === '0') {
-      w.stag(as.Sync)
-         .stag(as.Collections)
-           .stag(as.Collection)
-             .tag(as.SyncKey, 'XXX')
-             .tag(as.CollectionId, collectionId)
-             .tag(as.Status, '1')
-           .etag()
-         .etag()
-       .etag();
-    }
-    else {
-      w.stag(as.Sync)
-         .stag(as.Collections)
-           .stag(as.Collection)
-             .tag(as.SyncKey, syncKey + 'X')
-             .tag(as.CollectionId, collectionId)
-             .tag(as.Status, '1')
-             .stag(as.Commands);
+    w.stag(as.Sync)
+       .stag(as.Collections)
+         .stag(as.Collection)
+           .tag(as.SyncKey, nextSyncKey)
+           .tag(as.CollectionId, collectionId)
+           .tag(as.Status, status);
+
+    if (syncKey === 'XXX') {
+      w.stag(as.Commands);
 
       for (let message of messages) {
         w.stag(as.Add)
            .tag(as.ServerId, message.id)
            .stag(as.ApplicationData)
-             .tag(em.From, message.from)
-             .tag(em.To, message.to.join(', '))
+             .tag(em.From, msgGen.formatAddresses([message.from]))
+             .tag(em.To, msgGen.formatAddresses(message.to))
              .tag(em.Subject, message.subject)
              .tag(em.DateReceived, new Date(message.date).toISOString())
              .tag(em.Importance, '1')
@@ -151,11 +167,12 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
          .etag();
       }
 
-      w      .etag(as.Commands)
-           .etag(as.Collection)
-         .etag(as.Collections)
-       .etag(as.Sync);
+      w.etag(as.Commands);
     }
+
+    w    .etag(as.Collection)
+       .etag(as.Collections)
+     .etag(as.Sync);
 
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');

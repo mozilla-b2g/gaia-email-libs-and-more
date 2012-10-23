@@ -227,7 +227,7 @@ MessageGenerator.prototype = {
    *
    * (mailcomposer will handle punycode and mime-word encoding as needed.)
    */
-  _formatAddresses: function(nameAddrPairs) {
+  formatAddresses: function(nameAddrPairs) {
     var addrstrings = [];
     for (var i = 0; i < nameAddrPairs.length; i++) {
       var pair = nameAddrPairs[i];
