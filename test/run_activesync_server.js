@@ -44,11 +44,11 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
         }
         else {
           query[decodeURIComponent(param.substring(0, idx))] =
-            decodeURIComponent(param.substring(idx +1 ));
+            decodeURIComponent(param.substring(idx + 1));
         }
       }
 
-      this['_handle' + query.Cmd](request, query, response);
+      this['_handleCommand_' + query.Cmd](request, query, response);
     }
   },
 
@@ -56,11 +56,18 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Public', 'OPTIONS,POST');
     response.setHeader('Allow', 'OPTIONS,POST');
-    response.setHeader('MS-ASProtocolVersions', '2.5,14.0');
-    response.setHeader('MS-ASProtocolCommands', 'FolderSync,Sync');
+    response.setHeader('MS-ASProtocolVersions', '14.0');
+
+    // Find the commands we've implemented.
+    let commands = [], m;
+    for (let key in this) {
+      if (( m = /^_handleCommand_(.*)$/.exec(key) ))
+        commands.push(m[1]);
+    }
+    response.setHeader('MS-ASProtocolCommands', commands.join(','));
   },
 
-  _handleFolderSync: function(request, query, response) {
+  _handleCommand_FolderSync: function(request, query, response) {
     const fh = $ascp.FolderHierarchy.Tags;
     const folderType = $ascp.FolderHierarchy.Enums.Type;
 
@@ -105,7 +112,7 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
     response.write(encodeWBXML(w));
   },
 
-  _handleSync: function(request, query, response) {
+  _handleCommand_Sync: function(request, query, response) {
     const as  = $ascp.AirSync.Tags;
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
