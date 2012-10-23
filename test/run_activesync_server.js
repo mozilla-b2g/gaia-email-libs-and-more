@@ -7,6 +7,7 @@ Cu.import('resource://gre/modules/NetUtil.jsm');
 
 load('deps/activesync/wbxml/wbxml.js');
 load('deps/activesync/codepages.js');
+load('test/messageGenerator.js');
 
 const $wbxml = WBXML;
 const $ascp = ActiveSyncCodepages;
@@ -25,6 +26,9 @@ function decodeWBXML(stream) {
 }
 
 let server = new HttpServer();
+
+let msgGen = new MessageGenerator();
+let messages = msgGen.makeMessages();
 
 server.registerPathHandler('/Microsoft-Server-ActiveSync', {
   handle: function(request, response) {
@@ -125,45 +129,32 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
              .tag(as.SyncKey, syncKey + 'X')
              .tag(as.CollectionId, collectionId)
              .tag(as.Status, '1')
-             .stag(as.Commands)
-               .stag(as.Add)
-                 .tag(as.ServerId, 'XXX-1')
-                 .stag(as.ApplicationData)
-                   .tag(em.To, 'foo@example.com')
-                   .tag(em.From, 'bar@example.com')
-                   .tag(em.Subject, 'A test message')
-                   .tag(em.DateReceived, '2012-10-19T03:03:43.283Z')
-                   .tag(em.Importance, '1')
-                   .tag(em.Read, '0')
-                   .stag(asb.Body)
-                     .tag(asb.Type, '1')
-                     .tag(asb.EstimatedDataSize, '13')
-                     .tag(asb.Truncated, '0')
-                     .tag(asb.Data, 'Hello, world!')
-                   .etag()
-                 .etag()
-               .etag()
-               .stag(as.Add)
-                 .tag(as.ServerId, 'XXX-2')
-                 .stag(as.ApplicationData)
-                   .tag(em.To, 'foo@example.com')
-                   .tag(em.From, 'bar@example.com')
-                   .tag(em.Subject, 'Another test message')
-                   .tag(em.DateReceived, '2012-10-19T03:03:43.283Z')
-                   .tag(em.Importance, '1')
-                   .tag(em.Read, '0')
-                   .stag(asb.Body)
-                     .tag(asb.Type, '1')
-                     .tag(asb.EstimatedDataSize, '13')
-                     .tag(asb.Truncated, '0')
-                     .tag(asb.Data, 'Hello, world!')
-                   .etag()
-                 .etag()
-               .etag()
+             .stag(as.Commands);
+
+      for (let message of messages) {
+        w.stag(as.Add)
+           .tag(as.ServerId, message.id)
+           .stag(as.ApplicationData)
+             .tag(em.From, message.from)
+             .tag(em.To, message.to.join(', '))
+             .tag(em.Subject, message.subject)
+             .tag(em.DateReceived, new Date(message.date).toISOString())
+             .tag(em.Importance, '1')
+             .tag(em.Read, '0')
+             .stag(asb.Body)
+               .tag(asb.Type, '1')
+               .tag(asb.EstimatedDataSize, '13')
+               .tag(asb.Truncated, '0')
+               .tag(asb.Data, 'Hello, world!')
              .etag()
            .etag()
-         .etag()
-       .etag();
+         .etag();
+      }
+
+      w      .etag(as.Commands)
+           .etag(as.Collection)
+         .etag(as.Collections)
+       .etag(as.Sync);
     }
 
     response.setStatusLine('1.1', 200, 'OK');
