@@ -6,6 +6,7 @@ define(
     'activesync/protocol',
     'mimelib',
     '../quotechew',
+    '../htmlchew',
     '../date',
     '../syncbase',
     '../util',
@@ -19,6 +20,7 @@ define(
     $activesync,
     $mimelib,
     $quotechew,
+    $htmlchew,
     $date,
     $sync,
     $util,
@@ -179,7 +181,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
-                 .tag(asb.Type, asbEnum.Type.PlainText)
+                 .tag(asb.Type, asbEnum.Type.HTML)
                .etag();
 
               w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
@@ -297,8 +299,10 @@ ActiveSyncFolderConn.prototype = {
    * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfc__parseMessage(node, isAdded) {
-    const asb = $ascp.AirSyncBase.Tags;
     const em = $ascp.Email.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
+    const asbEnum = $ascp.AirSyncBase.Enums;
+
     let header, body, flagHeader;
 
     if (isAdded) {
@@ -373,6 +377,8 @@ ActiveSyncFolderConn.prototype = {
       }
     }
 
+    let bodyType, bodyText;
+
     for (let [,child] in Iterator(node.children)) {
       let childText = child.children.length ? child.children[0].textContent :
                                               null;
@@ -407,24 +413,19 @@ ActiveSyncFolderConn.prototype = {
         break;
       case asb.Body: // ActiveSync 12.0+
         for (let [,grandchild] in Iterator(child.children)) {
-          if (grandchild.tag === asb.Data) {
-            body.bodyReps = [
-              'plain',
-              $quotechew.quoteProcessTextBody(
-                grandchild.children[0].textContent)
-            ];
-            header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
-                                                        DESIRED_SNIPPET_LENGTH);
+          switch (grandchild.tag) {
+          case asb.Type:
+            bodyType = grandchild.children[0].textContent;
+            break;
+          case asb.Data:
+            bodyText = grandchild.children[0].textContent;
+            break;
           }
         }
         break;
       case em.Body: // pre-ActiveSync 12.0
-        body.bodyReps = [
-          'plain',
-          $quotechew.quoteProcessTextBody(childText)
-        ];
-        header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
-                                                    DESIRED_SNIPPET_LENGTH);
+        bodyType = asbEnum.Type.PlainText;
+        bodyText = childText;
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
@@ -490,6 +491,20 @@ ActiveSyncFolderConn.prototype = {
         header.hasAttachments = body.attachments.length > 0;
         break;
       }
+    }
+
+    // Process the body as needed.
+    if (bodyType === asbEnum.Type.PlainText) {
+      var bodyRep = $quotechew.quoteProcessTextBody(bodyText);
+      header.snippet = $quotechew.generateSnippet(bodyRep,
+                                                  DESIRED_SNIPPET_LENGTH);
+      body.bodyReps = ['plain', bodyRep];
+    }
+    else if (bodyType === asbEnum.Type.HTML) {
+      var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
+      header.snippet = $htmlchew.generateSnippet(htmlNode,
+                                                 DESIRED_SNIPPET_LENGTH);
+      body.bodyReps = ['html', htmlNode.innerHTML];
     }
 
     return { header: header, body: body };
