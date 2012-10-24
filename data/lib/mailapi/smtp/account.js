@@ -61,7 +61,12 @@ SmtpAccount.prototype = {
   },
 
   /**
+   * Asynchronously send an e-mail message.  Does not provide retries, offline
+   * remembering of the command, or any follow-on logic like appending the
+   * message to the sent folder.
+   *
    * @args[
+   *   @param[composedMessage]
    *   @param[callback @func[
    *     @args[
    *       @param[error @oneof[
