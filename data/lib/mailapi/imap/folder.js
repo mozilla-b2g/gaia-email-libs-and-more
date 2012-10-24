@@ -85,7 +85,8 @@ const INITIAL_FETCH_PARAMS = {
   request: {
     headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO', 'MESSAGE-ID',
               'REFERENCES'],
-    struct: true
+    struct: true,
+    body: false
   },
 };
 
@@ -149,6 +150,21 @@ ImapFolderConn.prototype = {
    * Acquire a connection and invoke the callback once we have it and we have
    * entered the folder.  This method should only be called when running
    * inside `runMutexed`.
+   *
+   * @args[
+   *   @param[callback @func[
+   *     @args[
+   *       @param[folderConn ImapFolderConn]
+   *       @param[storage FolderStorage]
+   *     ]
+   *   ]]
+   *   @param[deathback Function]{
+   *     Invoked if the connection dies.
+   *   }
+   *   @param[label String]{
+   *     A debugging label to name the purpose of the connection.
+   *   }
+   * ]
    */
   acquireConn: function(callback, deathback, label) {
     var self = this, handedOff = false;
@@ -173,10 +189,11 @@ ImapFolderConn.prototype = {
             }
             self.box = box;
             handedOff = true;
-            callback(self);
+            callback(self, self._storage);
           });
       },
       function deadconn() {
+        self._conn = null;
         if (handedOff && deathback)
           deathback();
       });
@@ -188,6 +205,10 @@ ImapFolderConn.prototype = {
 
     this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
+  },
+
+  reselectBox: function(callback) {
+    this._conn.openBox(this._storage.folderMeta.path, callback);
   },
 
   /**
@@ -235,6 +256,12 @@ ImapFolderConn.prototype = {
    * if the server does not have an index on internaldate, these queries are
    * going to be very expensive and the UID limitation would probably be a
    * mercy to the server.)
+   *
+   * @args[
+   *   @param[startTS]
+   *   @param[endTS]
+   *
+   * ]
    */
   syncDateRange: function(startTS, endTS, accuracyStamp, useBisectLimit,
                           doneCallback) {
@@ -302,7 +329,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
         // rather than splicing lists and causing shifts, we null out values.
         for (var iMsg = 0; iMsg < headers.length; iMsg++) {
           var header = headers[iMsg];
-          var idxUid = serverUIDs.indexOf(header.id);
+          var idxUid = serverUIDs.indexOf(header.srvid);
           // deleted!
           if (idxUid === -1) {
             storage.deleteMessageHeaderAndBody(header);
@@ -314,7 +341,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           // new messages to us.
           serverUIDs[idxUid] = null;
           // but save the UID so we can do a flag-check.
-          knownUIDs.push(header.id);
+          knownUIDs.push(header.srvid);
         }
 
         var newUIDs = compactArray(serverUIDs); // (re-labeling, same array)
@@ -338,13 +365,13 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     // apply a timezone to the question we ask it and will not actually tell us
     // dates lined up with UTC.  Accordingly, we don't want our DB query to
     // be lined up with UTC but instead the time zone.
-    // XXX STOPGAP HACK for now: just assume the server is in GMT-7 since
-    // yahoo.com appears to be in GMT-7.  We handle this by adding 7 hours
-    // because the search is run using an effective GMT-7, which means that
-    // if it 11:59pm on the day, it would be 6:59am in UTC land.
-    const HACK_TZ_OFFSET = 7 * 60 * 60 * 1000;
-    var skewedStartTS = startTS + HACK_TZ_OFFSET,
-        skewedEndTS = endTS ? endTS + HACK_TZ_OFFSET : null;
+    //
+    // So if our timezone offset is UTC-4, that means that we will actually be
+    // getting results in that timezone, whose midnight is actually 4am UTC.
+    // In other words, we care about the time in UTC-0, so we subtract the
+    // offset.
+    var skewedStartTS = startTS - this._account.tzOffset,
+        skewedEndTS = endTS ? endTS - this._account.tzOffset : null;
     console.log('Skewed DB lookup. Start: ',
                 skewedStartTS, new Date(skewedStartTS).toUTCString(),
                 'End: ', skewedEndTS,
@@ -481,7 +508,8 @@ console.log('   header processed');
             // If there are no parts to process, consume it now.
             if (chewRep.bodyParts.length === 0) {
               if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                          storage.folderId)) {
+                                          storage.folderId,
+                                          storage._issueNewHeaderId())) {
                 storage.addMessageHeader(chewRep.header);
                 storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
               }
@@ -522,10 +550,12 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
                   // -- Process
                   if (partsReceived.length === chewRep.bodyParts.length) {
                     try {
-                      if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                                  storage.folderId)) {
+                      if ($imapchew.chewBodyParts(
+                            chewRep, partsReceived, storage.folderId,
+                            storage._issueNewHeaderId())) {
                         storage.addMessageHeader(chewRep.header);
-                        storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
+                        storage.addMessageBody(chewRep.header,
+                                               chewRep.bodyInfo);
                       }
                       else {
                         self._LOG.bodyChewError(false);
@@ -564,9 +594,12 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
           // msg right now, but let's wait on an optimization pass.)
           msg.on('end', function onKnownMsgEnd() {
             var i = numFetched++;
-            // RFC 3501 doesn't seem to require that we get results in the order
-            // we request them, so use indexOf if things don't line up.
-            if (knownHeaders[i].id !== msg.id) {
+console.log('FETCHED', i, 'known id', knownHeaders[i].id,
+            'known srvid', knownHeaders[i].srvid, 'actual id', msg.id);
+            // RFC 3501 doesn't require that we get results in the order we
+            // request them, so use indexOf if things don't line up.  (In fact,
+            // dovecot sorts them, so we might just want to sort ours too.)
+            if (knownHeaders[i].srvid !== msg.id) {
               i = knownUIDs.indexOf(msg.id);
               // If it's telling us about a message we don't know about, run away.
               if (i === -1) {
@@ -577,6 +610,8 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
             var header = knownHeaders[i];
             // (msg.flags comes sorted and we maintain that invariant)
             if (header.flags.toString() !== msg.flags.toString()) {
+console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
+             msg.flags.toString() + '"');
               header.flags = msg.flags;
               storage.updateMessageHeader(header.date, header.id, true, header);
             }
@@ -720,20 +755,39 @@ ImapFolderSyncer.prototype = {
     // have been bisected by the user scrolling into the past and
     // triggering a refresh.
     this.folderStorage.getMessagesBeforeMessage(
+      // Use one less than the fill range because this style of request will
+      // start from the 0th element, so we have effectively already traversed
+      // 1 message this way.
       null, null, $sync.INITIAL_FILL_SIZE - 1,
       function(headers, moreExpected) {
         if (moreExpected)
           return;
-        var header = headers[headers.length - 1];
-        pastDate = quantizeDate(header.date);
+
+        if (headers.length) {
+          var header = headers[headers.length - 1];
+          // The timezone issues with internaldate get tricky here.  We know the
+          // UTC date of the oldest message here, but that is not necessarily
+          // the INTERNALDATE the message will show up on.  So we need to apply
+          // the timezone offset to find the day we want our search to cover.
+          // (We use UTC dates as our normalized date-without-time
+          // representation for talking to the IMAP layer right now.)  The
+          // syncDateRange call will also do some timezone compensation, but
+          // that is just to make sure it loads the right headers to cover the
+          // date we ended up asking it for.
+          //
+          // We add the timezone offset because we are interested in the date of
+          // the message in its own timezone (as opposed to the date in UTC-0).
+          startTS = quantizeDate(header.date + this._account.tzOffset);
+        }
         syncCallback('sync', true);
-        this._startSync(pastDate, endTS);
+        this._startSync(startTS, endTS);
       }.bind(this)
     );
   },
 
   refreshSync: function(startTS, endTS, useBisectLimit, callback) {
     this._curSyncAccuracyStamp = NOW();
+    // timezone compensation happens in the caller
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   useBisectLimit, callback);
   },
@@ -748,8 +802,11 @@ ImapFolderSyncer.prototype = {
       syncStartTS = batchHeaders[batchHeaders.length - 1].date;
 
     if (syncStartTS) {
-      // We are computing a SINCE value, so quantize (to midnight)
-      syncStartTS = quantizeDate(syncStartTS);
+      // We are computing a SINCE value, so adjust the date to be the effective
+      // date in the server's timezone and quantize to canonicalize it to be
+      // our date (sans time) rep.  (We add the timezone to be relative to that
+      // timezone.)
+      syncStartTS = quantizeDate(syncStartTS + this._account.tzOffset);
       // If we're not syncing at least one day, flag to give up.
       if (syncStartTS === syncEndTS)
         syncStartTS = null;
@@ -760,9 +817,15 @@ ImapFolderSyncer.prototype = {
       // We intentionally quantized syncEndTS to avoid re-synchronizing messages
       // that got us to our last sync.  So we want to send those excluded
       // headers in a batch since the sync will not report them for us.
-      var iFirstNotToSend = 0;
+      //
+      // We need to subtract off our timezone offset since we are trying to
+      // imitate the database logic here, and this compensation happens using
+      // timestamps in UTC-0.  Also note we are doing this to the end-stamp, not
+      // the start stamp, so there is no interaction with the above.
+      var iFirstNotToSend = 0,
+          localSyncEndTS = syncEndTS - this._account.tzOffset;
       for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
-        if (BEFORE(batchHeaders[iFirstNotToSend].date, syncEndTS))
+        if (BEFORE(batchHeaders[iFirstNotToSend].date, localSyncEndTS))
           break;
       }
 
@@ -775,7 +838,7 @@ ImapFolderSyncer.prototype = {
     // as far back as we go, issue a (potentially expanding) sync.
     else if (batchHeaders.length === 0 && userRequestsGrowth) {
       syncCallback('sync', 0);
-      this._startSync(null, endTS);
+      this._startSync(null, syncEndTS);
       return true;
     }
 

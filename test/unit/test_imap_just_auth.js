@@ -1,7 +1,7 @@
 load('resources/loggest_test_framework.js');
 
 var TD = $tc.defineTestsFor(
-  { id: 'blah' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_imap_just_auth' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('just auth', function(T) {
   var testUniverse = T.actor('testUniverse', 'U'),
@@ -9,5 +9,5 @@ TD.commonCase('just auth', function(T) {
 });
 
 function run_test() {
-  runMyTests(10); // we do a lot of appending...
+  runMyTests(6);
 }
