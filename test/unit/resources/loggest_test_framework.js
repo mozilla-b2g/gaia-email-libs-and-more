@@ -7,6 +7,7 @@
 // prefixing everything since we are running in the global scope and I don't
 // want the modules to accidentally see these because of a lack of shadowing.
 var $_mailuniverse = require('mailapi/mailuniverse'),
+    $_accountcommon = require('mailapi/accountcommon'),
     $_mailbridge = require('mailapi/mailbridge'),
     $_mailapi = require('mailapi/mailapi'),
     $_allback = require('mailapi/allback'),

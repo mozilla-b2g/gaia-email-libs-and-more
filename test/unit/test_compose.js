@@ -74,7 +74,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           '> Antelope banana credenza.',
           '>',
           '> Dialog excitement!',
-          '', '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
+          '', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -102,8 +102,6 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyTo = replyComposer.to;
-    replyCc = replyComposer.cc;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
                                                         sentDate) {
       replySentDate = new Date(sentDate);
@@ -126,7 +124,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       expectedForwardBody = {
         text: [
           '', '',
-          '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
+          '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + replySentDate,
@@ -196,7 +194,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
         '</blockquote>' +
         '<pre class="moz-signature" cols="72">' +
-        $_mailuniverse.DEFAULT_SIGNATURE +
+        $_accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
       bpartHtml =
         new SyntheticPartLeaf(

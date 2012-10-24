@@ -94,7 +94,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+  var staticNow = Date.UTC(2012, 0, 28, 0, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -122,7 +122,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   var c1Folder = testAccount.do_createTestFolder(
     'test_complex_old1',
     // we will sync 9, leave an extra 1 not to sync so grow is true.
-    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
+    { count: 10, age: { days: 6 * TSYNCI }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c1Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -157,6 +157,12 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // Jump time so that the messages are just under the old threshold.  They
   // are already 6 time intervals in the past, but we want them at 15, so
   // add 9 TSYNCI less 0.5 days.
+  // XXX we have actually been adding 0.5 days, which should put us over the
+  // threshold, but the right thing seems to be happening, otherwise the
+  // test would fail.  I belive I added 0.5 just to make the sync intervals
+  // each hold 3 messages; if we do -0.5, we end up with 1 on its own.
+  // In any event, this demands more investigation and the very least a
+  // comment cleanup.
   staticNow = createdAt +
               ((9 * TSYNCI) + 0.5) * DAY_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 0.5 days out');
@@ -234,7 +240,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   createdAt = staticNow;
   var c2Folder = testAccount.do_createTestFolder(
     'test_complex_old2',
-    { count: 9, age: { days: 7 * TSYNCI + 1 }, age_incr: { days: 1 } });
+    { count: 9, age: { days: 7 * TSYNCI }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c2Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -252,7 +258,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('lots of messages:  #1 refresh open with overflow');
   testAccount.do_addMessagesToFolder(
     c2Folder,
-    { count: 21, age: { days: 1.5 }, age_incr: { days: 1 } });
+    { count: 21, age: { days: 0.5 }, age_incr: { days: 1 } });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   var f2View = testAccount.do_openFolderView(
@@ -268,20 +274,16 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('free growth to previously synced message bounds');
   testAccount.do_growFolderView(
     f2View, 9, false, 9,
-    // this will explode into a bisect covering 21 messages, it will guess 8
-    // because Math.ceil(15 / 42 * 21 = 7.5) = 8.  This will trigger an
+    // this will explode into a bisect covering 20 messages, it will guess 8
+    // because Math.ceil(15 / 42 * 20 = 7.14) = 8.  This will trigger an
     // automated follow-on for another 8 days because it will use the same
     // time-window for the follow-on, 4 of which will already be known
     [{ count: 0, full: null, flags: null, deleted: null },
      { count: 8, full: 8, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
   testAccount.do_growFolderView(
-    // do not request growth; we want to make sure we provide it for free since
-    // we are saying atBottom is false and therefore so is grow.
-    f2View, 10, false, 17,
-     // this should properly only give us 10 messages, but the new messages
-     // get interleaved and so we see them all at once.
-     [{ count: 13, full: 4, flags: 9, deleted: 0 }],
+    f2View, 12, false, 17,
+    [{ count: 13, full: 4, flags: 9, deleted: 0 }],
     { top: true, bottom: true, grow: false });
 
   testAccount.do_closeFolderView(f2View);
@@ -297,7 +299,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
     // By choosing one more than the fill size(9), we ensure that the time range
     // won't stretch to the dawn of time and therefore that the interpolation
     // will not have to exercise its sanity check mode.
-    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
+    { count: 10, age: { days: 6 * TSYNCI }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c3Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -314,7 +316,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('lots of messages: #2 date range with overflow');
   testAccount.do_addMessagesToFolder(
     c3Folder,
-    { count: 16, age: { days: 1.5 }, age_incr: { days: 1 } });
+    { count: 16, age: { days: 0.5 }, age_incr: { days: 1 } });
   staticNow += 3 * HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+3 hour');
   testAccount.do_viewFolder(

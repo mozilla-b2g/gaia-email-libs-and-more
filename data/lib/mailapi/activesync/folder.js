@@ -131,7 +131,7 @@ ActiveSyncFolderConn.prototype = {
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
    */
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
-    let folderConn = this;
+    let folderConn = this, storage = this._storage;
     let account = this._account;
 
     if (!account.conn.connected) {
@@ -231,6 +231,7 @@ ActiveSyncFolderConn.prototype = {
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
                          function(node) {
+        let id;
         let guid;
         let msg;
 
@@ -245,8 +246,13 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        msg.header.guid = msg.header.id = guid;
-        msg.header.suid = folderConn._storage.folderId + '/' + guid;
+        if (node.tag === as.Add) {
+          msg.header.id = id = storage._issueNewHeaderId();
+          msg.header.suid = folderConn._storage.folderId + '/' + id;
+          msg.header.guid = '';
+        }
+        msg.header.srvid = guid;
+        // XXX need to get the message's message-id header value!
 
         let collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
@@ -304,6 +310,7 @@ ActiveSyncFolderConn.prototype = {
     if (isAdded) {
       header = {
         id: null,
+        srvid: null,
         suid: null,
         guid: null,
         author: null,
@@ -348,7 +355,7 @@ ActiveSyncFolderConn.prototype = {
           }
 
           // Merge everything else
-          const skip = ['mergeInto', 'suid', 'guid', 'id', 'flags'];
+          const skip = ['mergeInto', 'suid', 'srvid', 'guid', 'id', 'flags'];
           for (let [key, value] in Iterator(this)) {
             if (skip.indexOf(key) !== -1)
               continue;
@@ -489,8 +496,8 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,message] in Iterator(changed)) {
-        storage.updateMessageHeaderByUid(message.header.id, true,
-                                         function(oldHeader) {
+        storage.updateMessageHeaderByServerId(message.header.srvid, true,
+                                              function(oldHeader) {
           message.header.mergeInto(oldHeader);
           return true;
         });
@@ -498,7 +505,7 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,messageGuid] in Iterator(deleted)) {
-        storage.deleteMessageByUid(messageGuid);
+        storage.deleteMessageByServerId(messageGuid);
       }
 
       messagesSeen += added.length + changed.length + deleted.length;
@@ -507,6 +514,76 @@ ActiveSyncFolderConn.prototype = {
         folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, messagesSeen);
+      }
+    });
+  },
+
+  performMutation: function(invokeWithWriter, callWhenDone) {
+    const as = $ascp.AirSync.Tags,
+          folderConn = this;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(as.Sync)
+       .stag(as.Collections)
+         .stag(as.Collection);
+
+    if (this._account.conn.currentVersion.lt('12.1'))
+          w.tag(as.Class, 'Email');
+
+          w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
+           .tag(as.CollectionId, this._storage.folderMeta.serverId)
+           // DeletesAsMoves defaults to true, so we can omit it
+           // GetChanges defaults to true, so we must explicitly disable it to
+           // avoid hearing about changes.
+           .tag(as.GetChanges, '0')
+             .stag(as.Commands);
+
+    try {
+      invokeWithWriter(w);
+    }
+    catch (ex) {
+      console.error('Exception in performMutation callee:', ex,
+                    '\n', ex.stack);
+      callWhenDone('unknown');
+      return;
+    }
+
+           w.etag(as.Commands)
+         .etag(as.Collection)
+       .etag(as.Collections)
+     .etag(as.Sync);
+
+    this._account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        console.error('postCommand error:', aError);
+        callWhenDone('unknown');
+        return;
+      }
+
+      let e = new $wbxml.EventParser();
+      let syncKey, status;
+
+      const base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        syncKey = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+
+      //console.warn('COMMAND RESULT:\n', aResponse.dump());
+      //aResponse.rewind();
+      e.run(aResponse);
+
+      if (status === '1') {
+        folderConn.syncKey = syncKey;
+        if (callWhenDone)
+          callWhenDone(null);
+      }
+      else {
+        console.error('Something went wrong during ActiveSync syncing and we ' +
+                      'got a status of ' + status);
+        callWhenDone('status:' + status);
       }
     });
   },

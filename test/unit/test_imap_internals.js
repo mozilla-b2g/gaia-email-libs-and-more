@@ -74,7 +74,7 @@ TD.commonCase('account persistence', function(T) {
   var deletedHeader;
   testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
     deletedHeader = slice.items[0];
-    slice.items[0].deleteMessage();
+    MailAPI.modifyMessageTags([deletedHeader], ['\\Deleted'], null, 'delete');
 
     // (this is low-level IMAP Deletion and is just a flag change)
     for (var i = 0; i < 1; i++) {
@@ -109,10 +109,12 @@ TD.commonCase('account persistence', function(T) {
   var TF4 = testFolder = testAccount.do_useExistingFolder(
                            'test_internals', '#4', testFolder);
 
+  var s0subject, s1subject;
   testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
+    s0subject = slice.items[0].subject;
     slice.items[0].setRead(true);
+    s1subject = slice.items[1].subject;
     slice.items[1].setStarred(true);
-    // (this is low-level IMAP Deletion and is just a flag change)
     for (var i = 0; i < 2; i++) {
       // we had to latch TA2 because testAccount is updated statically
       TA4.eImapAccount.expect_runOp_begin('do', 'modtags');
@@ -124,10 +126,14 @@ TD.commonCase('account persistence', function(T) {
     { count: 5, full: 0, flags: 5, deleted: 0 },
     { top: true, bottom: true, grow: false });
   T.check('check modified message flags', eSync, function() {
+    eSync.expect_namedValue('0:subject', s0subject);
     eSync.expect_namedValue('0:read', true);
+    eSync.expect_namedValue('1:subject', s1subject);
     eSync.expect_namedValue('1:starred', true);
 
+    eSync.namedValue('0:subject', TV4.slice.items[0].subject);
     eSync.namedValue('0:read', TV4.slice.items[0].isRead);
+    eSync.namedValue('1:subject', TV4.slice.items[1].subject);
     eSync.namedValue('1:starred', TV4.slice.items[1].isStarred);
   });
   testAccount.do_closeFolderView(TV4);
@@ -266,8 +272,8 @@ TD.commonCase('sync further back in time on demand', function(T) {
 
   T.group('grow old again');
   testAccount.do_growFolderView(
-    syncView, 21, false, 45,
-    [],
+    syncView, 21, false, 24,
+    { count: 21, full: 0, flags: 21, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');

@@ -323,7 +323,7 @@ ImapConnection.prototype.connect = function(loginCb) {
           self._state.curXferred = 0;
           self._state.curExpected = null;
           self._state.curData = null;
-          curReq._msg.emit('end');
+          curReq._msg.emit('end', curReq._msg);
           // XXX we could just change the next else to not be an else, and then
           // this conditional is not required and we can just fall out.  (The
           // expected check === 0 may need to be reinstated, however.)
@@ -434,7 +434,7 @@ ImapConnection.prototype.connect = function(loginCb) {
             if ((result = /^\[UIDVALIDITY (\d+)\]/i.exec(data[2])))
               self._state.box.validity = result[1];
             else if ((result = /^\[UIDNEXT (\d+)\]/i.exec(data[2])))
-              self._state.box._uidnext = result[1];
+              self._state.box._uidnext = parseInt(result[1]);
             // Flags the client can change permanently.  If \* is included, it
             // means we can make up new keywords.
             else if ((result = /^\[PERMANENTFLAGS \((.*)\)\]/i.exec(data[2]))) {

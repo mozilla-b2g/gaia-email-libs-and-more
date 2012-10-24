@@ -211,7 +211,15 @@ function filterOutBuiltinFlags(flags) {
  * Extract the canonical naming attributes out of the MailHeader instance.
  */
 function serializeMessageName(x) {
-  return { date: x.date.valueOf(), suid: x.id };
+  return {
+    date: x.date.valueOf(),
+    suid: x.id,
+    // NB: strictly speaking, this is redundant information.  However, it is
+    // also fairly handy to pass around for IMAP since otherwise we might need
+    // to perform header lookups later on.  It will likely also be useful for
+    // debugging.  But ideally we would not include this.
+    guid: x.guid
+  };
 }
 
 /**
@@ -272,12 +280,14 @@ MailHeader.prototype = {
     return this._slice._api.deleteMessages([this]);
   },
 
-  /**
+  /*
    * Copy this message to another folder.
    */
+  /*
   copyMessage: function(targetFolder) {
     return this._slice._api.copyMessages([this], targetFolder);
   },
+  */
 
   /**
    * Move this message to another folder.
@@ -1584,17 +1594,56 @@ MailAPI.prototype = {
   // All actions are undoable and return an `UndoableOperation`.
 
   deleteMessages: function ma_deleteMessages(messages) {
-    // XXX for now, just pose this as a flag change rather than any moving
-    // to trash semantics.  We just want to be able to make our sync logic
-    // perceive a deletion.  Obviously, DO NOT HOOK THIS UP TO THE UI YET.
-    return this.modifyMessageTags(messages,
-                                  ['\\Deleted'], null, 'delete');
+    // We allocate a handle that provides a temporary name for our undoable
+    // operation until we hear back from the other side about it.
+    var handle = this._nextHandle++;
+
+    var undoableOp = new UndoableOperation(this, 'delete', messages.length,
+                                           handle),
+        msgSuids = messages.map(serializeMessageName);
+
+    this._pendingRequests[handle] = {
+      type: 'mutation',
+      handle: handle,
+      undoableOp: undoableOp
+    };
+    this.__bridgeSend({
+      type: 'deleteMessages',
+      handle: handle,
+      messages: msgSuids,
+    });
+
+    return undoableOp;
   },
 
+  // Copying messages is not required yet.
+  /*
   copyMessages: function ma_copyMessages(messages, targetFolder) {
   },
+  */
 
   moveMessages: function ma_moveMessages(messages, targetFolder) {
+    // We allocate a handle that provides a temporary name for our undoable
+    // operation until we hear back from the other side about it.
+    var handle = this._nextHandle++;
+
+    var undoableOp = new UndoableOperation(this, 'move', messages.length,
+                                           handle),
+        msgSuids = messages.map(serializeMessageName);
+
+    this._pendingRequests[handle] = {
+      type: 'mutation',
+      handle: handle,
+      undoableOp: undoableOp
+    };
+    this.__bridgeSend({
+      type: 'moveMessages',
+      handle: handle,
+      messages: msgSuids,
+      targetFolder: targetFolder.id
+    });
+
+    return undoableOp;
   },
 
   markMessagesRead: function ma_markMessagesRead(messages, beRead) {

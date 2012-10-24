@@ -10,6 +10,7 @@ define(
     'activesync/codepages',
     'activesync/protocol',
     '../a64',
+    '../accountmixins',
     '../mailslice',
     '../searchfilter',
     './folder',
@@ -25,6 +26,7 @@ define(
     $ascp,
     $activesync,
     $a64,
+    $acctmixins,
     $mailslice,
     $searchfilter,
     $asfolder,
@@ -71,8 +73,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
 
-  this._jobDriver = new $asjobs.ActiveSyncJobDriver(this);
-
   this.enabled = true;
   this.problems = [];
 
@@ -90,7 +90,10 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.meta = folderInfos.$meta;
   this.mutations = folderInfos.$mutations;
-  this.deferredMutations = folderInfos.$deferredMutations;
+
+  // ActiveSync has no need of a timezone offset, but it simplifies things for
+  // FolderStorage to be able to rely on this.
+  this.tzOffset = 0;
 
   // Sync existing folders
   for (var folderId in folderInfos) {
@@ -106,6 +109,10 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   }
 
   this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
+
+  this._jobDriver = new $asjobs.ActiveSyncJobDriver(
+                          this,
+                          this._folderInfos.$mutationState);
 
   // TODO: this is a really hacky way of syncing folders after the first time.
   if (this.meta.syncKey != '0')
@@ -317,12 +324,14 @@ ActiveSyncAccount.prototype = {
         syncKey: '0',
       },
       $impl: {
+        nextId: 0,
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
       accuracy: [],
       headerBlocks: [],
       bodyBlocks: [],
+      serverIdHeaderBlockMapping: {},
     };
 
     console.log('Added folder ' + displayName + ' (' + folderId + ')');
@@ -592,34 +601,15 @@ ActiveSyncAccount.prototype = {
     return this._folderStorages[this._serverIdToFolderId[serverId]];
   },
 
-  runOp: function asa_runOp(op, mode, callback) {
-    console.log('runOp('+JSON.stringify(op)+', '+mode+', '+callback+')');
-
-    var methodName = mode + '_' + op.type, self = this,
-        isLocal = (mode === 'local_do' || mode === 'local_undo');
-
-    if (!(methodName in this._jobDriver))
-      throw new Error("Unsupported op: '" + op.type + "' (mode: " + mode + ")");
-
-    if (!isLocal)
-      op.status = mode + 'ing';
-
-    if (callback) {
-      this._LOG.runOp_begin(mode, op.type, null, op);
-      this._jobDriver[methodName](op, function(error, resultIfAny,
-                                               accountSaveSuggested) {
-        self._jobDriver.postJobCleanup();
-        self._LOG.runOp_end(mode, op.type, error, op);
-        callback(error, resultIfAny, accountSaveSuggested);
-      });
-    }
-    else {
-      this._LOG.runOp_begin(mode, op.type, null, null);
-      var rval = this._jobDriver[methodName](op);
-      this._jobDriver.postJobCleanup();
-      this._LOG.runOp_end(mode, op.type, rval, op);
-    }
+  ensureEssentialFolders: function(callback) {
+    // XXX I am assuming ActiveSync servers are smart enough to already come
+    // with these folders.  If not, we should move IMAP's ensureEssentialFolders
+    // into the mixins class.
+    callback();
   },
+
+  runOp: $acctmixins.runOp,
+  getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

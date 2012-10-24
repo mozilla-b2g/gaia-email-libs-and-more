@@ -250,7 +250,7 @@ console.log('done proc modifyConfig');
 
   notifyAccountAdded: function mb_notifyAccountAdded(account) {
     var accountWireRep = account.toBridgeWire();
-    var i, proxy, slices, wireSplice = null;
+    var i, proxy, slices, wireSplice = null, markersSplice = null;
     // -- notify account slices
     slices = this._slicesByType['accounts'];
     for (i = 0; i < slices.length; i++) {
@@ -273,14 +273,17 @@ console.log('done proc modifyConfig');
 
       idxStart = bsearchForInsert(proxy.markers, startMarker, strcmp);
       wireSplice = [accountWireRep];
-      var markerSpliceArgs = [idxStart, 0, startMarker];
+      markersSplice = [startMarker];
       for (var iFolder = 0; iFolder < account.folders.length; iFolder++) {
-        var folder = account.folders[iFolder];
-        wireSplice.push(folder);
-        markerSpliceArgs.push(makeFolderSortString(account.id, folder));
+        var folder = account.folders[iFolder],
+            folderMarker = makeFolderSortString(account.id, folder),
+            idxFolder = bsearchForInsert(markersSplice, folderMarker, strcmp);
+        wireSplice.splice(idxFolder, 0, folder);
+        markersSplice.splice(idxFolder, 0, folderMarker);
       }
       proxy.sendSplice(idxStart, 0, wireSplice, false, false);
-      proxy.markers.splice.apply(proxy.markers, markerSpliceArgs);
+      proxy.markers.splice.apply(proxy.markers,
+                                 [idxStart, 0].concat(markersSplice));
     }
   },
 
@@ -359,12 +362,13 @@ console.log('done proc modifyConfig');
 
     var wireReps = [];
 
-    // folders currently come sorted by path
     function pushAccountFolders(acct) {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
-        wireReps.push(folder);
-        markers.push(makeFolderSortString(acct.id, folder));
+        var newMarker = makeFolderSortString(acct.id, folder);
+        var idx = bsearchForInsert(markers, newMarker, strcmp);
+        wireReps.splice(idx, 0, folder);
+        markers.splice(idx, 0, newMarker);
       }
     }
 
@@ -381,9 +385,12 @@ console.log('done proc modifyConfig');
       });
 
       for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
-        var acct = accounts[iAcct], acctBridgeRep = acct.toBridgeFolder();
-        wireReps.push(acctBridgeRep);
-        markers.push(makeFolderSortString(acct.id, acctBridgeRep));
+        var acct = accounts[iAcct], acctBridgeRep = acct.toBridgeFolder(),
+            acctMarker = makeFolderSortString(acct.id, acctBridgeRep),
+            idxAcct = bsearchForInsert(markers, acctMarker, strcmp);
+
+        wireReps.splice(idxAcct, 0, acctBridgeRep);
+        markers.splice(idxAcct, 0, acctMarker);
         pushAccountFolders(acct);
       }
     }
@@ -510,6 +517,26 @@ console.log('done proc modifyConfig');
 
     var longtermIds = this.universe.modifyMessageTags(
       msg.opcode, msg.messages, msg.addTags, msg.removeTags);
+    this.__sendMessage({
+      type: 'mutationConfirmed',
+      handle: msg.handle,
+      longtermIds: longtermIds,
+    });
+  },
+
+  _cmd_deleteMessages: function mb__cmd_deleteMessages(msg) {
+    var longtermIds = this.universe.deleteMessages(
+      msg.messages);
+    this.__sendMessage({
+      type: 'mutationConfirmed',
+      handle: msg.handle,
+      longtermIds: longtermIds,
+    });
+  },
+
+  _cmd_moveMessages: function mb__cmd_moveMessages(msg) {
+    var longtermIds = this.universe.moveMessages(
+      msg.messages, msg.targetFolder);
     this.__sendMessage({
       type: 'mutationConfirmed',
       handle: msg.handle,

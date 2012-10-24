@@ -38,12 +38,14 @@ function makeTestContext() {
         depth: 0
       },
       $impl: {
+        nextId: 0,
         nextHeaderBlock: 0,
         nextBodyBlock: 0,
       },
       accuracy: [],
       headerBlocks: [],
-      bodyBlocks: []
+      bodyBlocks: [],
+      serverIdHeaderBlockMapping: {},
     },
     db,
     null);
@@ -59,7 +61,8 @@ function makeTestContext() {
         attachments: null, bodyReps: null
       };
       storage._insertIntoBlockUsingDateAndUID(
-        'body', date, uid, size, bodyInfo, function blockPicked(info, block) {
+        'body', date, uid, 'S' + uid, size, bodyInfo,
+        function blockPicked(info, block) {
           // Make sure the insertion happens in the block location we were
           // expecting.
           do_check_eq(storage._bodyBlockInfos.indexOf(info),
@@ -116,6 +119,8 @@ function makeTestContext() {
       var headerInfo = {
         date: date,
         id: uid,
+        // have the server-id differ
+        srvid: 'S' + uid,
         suid: folderId + '/' + uid,
         guid: uid,
       };
@@ -149,9 +154,12 @@ function makeDummyHeaders(count) {
  * so let's just encode things so that they make sense to us...
  */
 function DateUTC(y, m, d) {
-  return y * 10000 + m * 100 + d;
+  return y * 100000 + m * 1000 + d * 10;
 }
 
+/**
+ * Helper to check the values of an accuracy range entry.
+ */
 function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
   do_check_eq(arange.startTS, startTS);
   do_check_eq(arange.endTS, endTS);
@@ -412,6 +420,9 @@ const BIG2 = 36 * 1024;
  */
 const BIG3 = 28 * 1024;
 
+/**
+ * Helper to check the values in a block info structure.
+ */
 function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
   do_check_eq(blockInfo.count, count);
   do_check_eq(blockInfo.estSize, size);
@@ -888,6 +899,12 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   ctx.storage.getMessagesInImapDateRange(
     dA, dC, null, null,
     chexpect(dB, uidB3, dA, uidA1));
+
+  // Contrained date range bracketing, no limit
+  ctx.storage.getMessagesInImapDateRange(
+    dB - 1, dB + 1, null, null,
+    chexpect(dB, uidB3, dB, uidB1));
+
   // Constrained date ranges, limited
   ctx.storage.getMessagesInImapDateRange(
     dA, dC, 1, 1,
