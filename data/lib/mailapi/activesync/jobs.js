@@ -105,34 +105,36 @@ ActiveSyncJobDriver.prototype = {
           if (--modsToGo === 0)
             callWhenDone();
         }
-        let w = folderConn.prepareMutation();
-        for (let i = 0; i < serverIds.length; i++) {
-          let srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be null and
-          // there is nothing we can really do for it.
-          if (!srvid)
-            continue;
+        folderConn.performMutation(
+          function withWriter(w) {
+            for (let i = 0; i < serverIds.length; i++) {
+              let srvid = serverIds[i];
+              // If the header is somehow an offline header, it will be null and
+              // there is nothing we can really do for it.
+              if (!srvid)
+                continue;
 
-          w.stag(as.Change)
-             .tag(as.ServerId, srvid)
-             .stag(as.ApplicationData);
+              w.stag(as.Change)
+                 .tag(as.ServerId, srvid)
+                 .stag(as.ApplicationData);
 
-          if (markRead !== undefined)
-            w.tag(em.Read, markRead ? '1' : '0');
+              if (markRead !== undefined)
+                w.tag(em.Read, markRead ? '1' : '0');
 
-          if (markFlagged !== undefined)
-            w.stag(em.Flag)
-               .tag(em.Status, markFlagged ? '2' : '0')
-             .etag();
+              if (markFlagged !== undefined)
+                w.stag(em.Flag)
+                   .tag(em.Status, markFlagged ? '2' : '0')
+                 .etag();
 
-            w.etag(as.ApplicationData)
-         .etag(as.Change);
-        }
-        folderConn.performMutation(w, function(err) {
-          if (err)
-            aggrErr = err;
-          callWhenDone();
-        });
+                w.etag(as.ApplicationData)
+             .etag(as.Change);
+            }
+          },
+          function mutationPerformed(err) {
+            if (err)
+              aggrErr = err;
+            callWhenDone();
+          });
       },
       function allDone() {
         jobDoneCallback(aggrErr);
@@ -240,27 +242,29 @@ ActiveSyncJobDriver.prototype = {
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
-        let w = folderConn.prepareMutation();
-        for (let i = 0; i < serverIds.length; i++) {
-          let srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be null and
-          // there is nothing we can really do for it.
-          if (!srvid) {
-            console.log('AS message', namers[i].suid, 'lacks srvid!');
-            continue;
-          }
+        folderConn.performMutation(
+          function withWriter(w) {
+            for (let i = 0; i < serverIds.length; i++) {
+              let srvid = serverIds[i];
+              // If the header is somehow an offline header, it will be null and
+              // there is nothing we can really do for it.
+              if (!srvid) {
+                console.log('AS message', namers[i].suid, 'lacks srvid!');
+                continue;
+              }
 
-          w.stag(as.Delete)
-              .tag(as.ServerId, srvid)
-            .etag(as.Delete);
-        }
-        folderConn.performMutation(w, function(err) {
-          if (err) {
-            aggrErr = err;
-            console.error('failure deleting messages:', err);
-          }
-          callWhenDone();
-        });
+              w.stag(as.Delete)
+                  .tag(as.ServerId, srvid)
+                .etag(as.Delete);
+            }
+          },
+          function mutationPerformed(err) {
+            if (err) {
+              aggrErr = err;
+              console.error('failure deleting messages:', err);
+            }
+            callWhenDone();
+          });
       },
       function allDone() {
         jobDoneCallback(aggrErr, null, true);

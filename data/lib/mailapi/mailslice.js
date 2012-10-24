@@ -55,6 +55,7 @@ define(
     'rdcommon/log',
     './util',
     './a64',
+    './allback',
     './date',
     './syncbase',
     'module',
@@ -64,6 +65,7 @@ define(
     $log,
     $util,
     $a64,
+    $allback,
     $date,
     $sync,
     $module,
@@ -72,6 +74,7 @@ define(
 const bsearchForInsert = $util.bsearchForInsert,
       bsearchMaybeExists = $util.bsearchMaybeExists,
       cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
+      allbackMaker = $allback.allbackMaker,
       BEFORE = $date.BEFORE,
       ON_OR_BEFORE = $date.ON_OR_BEFORE,
       SINCE = $date.SINCE,
@@ -84,6 +87,7 @@ const bsearchForInsert = $util.bsearchForInsert,
       makeDaysAgo = $date.makeDaysAgo,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
+
 
 /**
  * What is the maximum number of bytes a block should store before we split
@@ -2761,16 +2765,10 @@ FolderStorage.prototype = {
 
     if (this._serverIdHeaderBlockMapping && header.srvid)
       delete this._serverIdHeaderBlockMapping[header.srvid];
-    var countCallback = null;
-    if (callback) {
-      var callbacksLeft = 2;
-      countCallback = function() {
-        if (--callbacksLeft === 0)
-          callback();
-      };
-    }
-    this._deleteFromBlock('header', header.date, header.id, countCallback);
-    this._deleteFromBlock('body', header.date, header.id, countCallback);
+
+    var callbacks = allbackMaker(['header', 'body'], callback);
+    this._deleteFromBlock('header', header.date, header.id, callbacks.header);
+    this._deleteFromBlock('body', header.date, header.id, callbacks.body);
   },
 
   /**

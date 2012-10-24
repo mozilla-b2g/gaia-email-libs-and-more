@@ -741,6 +741,10 @@ Autoconfigurator.prototype = {
         callback('unknown');
         return;
       }
+      // XXX: For reasons which are currently unclear (possibly a platform
+      // issue), trying to use responseXML results in a SecurityError when
+      // running XPath queries. So let's just do an end-run around the
+      // "security".
       let doc = new DOMParser().parseFromString(xhr.responseText, 'text/xml');
       function getNode(xpath, rel) {
         return doc.evaluate(xpath, rel || doc, null,
@@ -871,7 +875,7 @@ Autoconfigurator.prototype = {
         if (self._isSuccessOrFatal(error))
           return callback(error, config);
 
-        console.log('Trying domain autodiscover');
+        console.log('  Trying domain autodiscover');
         self._getConfigFromAutodiscover(userDetails, callback);
       });
     });

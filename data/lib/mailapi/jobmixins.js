@@ -86,24 +86,20 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
         // -- get the body for the next header (or be done)
         function processNext() {
           if (iNextHeader >= headers.length) {
-console.log('*: done');
             perFolderDone();
             return;
           }
-console.log('1: getting body');
           header = headers[iNextHeader++];
           sourceStorage.getMessageBody(header.suid, header.date,
                                        gotBody_nowDelete);
         }
         // -- delete the header and body from the source
         function gotBody_nowDelete(_body) {
-console.log('2: got body, deleting');
           body = _body;
           sourceStorage.deleteMessageHeaderAndBody(header, deleted_nowAdd);
         }
         // -- add the header/body to the target folder
         function deleted_nowAdd() {
-console.log('3: deleted, adding to target');
           var sourceSuid = header.suid;
 
           // We need an entry in the server id map if we are moving it.
@@ -123,13 +119,11 @@ console.log('3: deleted, adding to target');
           targetStorage.addMessageBody(header, body, added);
         }
         function added() {
-console.log('4: added, addWait will be:', addWait - 1);
           if (--addWait !== 0)
             return;
           processNext();
         }
         var iNextHeader = 0, header = null, body = null, addWait = 0;
-console.log('0: starting process');
         processNext();
       },
       function() {

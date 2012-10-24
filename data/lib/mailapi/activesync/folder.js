@@ -518,8 +518,9 @@ ActiveSyncFolderConn.prototype = {
     });
   },
 
-  prepareMutation: function() {
-    const as = $ascp.AirSync.Tags;
+  performMutation: function(invokeWithWriter, callWhenDone) {
+    const as = $ascp.AirSync.Tags,
+          folderConn = this;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -537,24 +538,25 @@ ActiveSyncFolderConn.prototype = {
            .tag(as.GetChanges, '0')
              .stag(as.Commands);
 
-    return w;
-  },
-
-  performMutation: function(w, callback) {
-    const as = $ascp.AirSync.Tags,
-          folderConn = this;
+    try {
+      invokeWithWriter(w);
+    }
+    catch (ex) {
+      console.error('Exception in performMutation callee:', ex,
+                    '\n', ex.stack);
+      callWhenDone('unknown');
+      return;
+    }
 
            w.etag(as.Commands)
          .etag(as.Collection)
        .etag(as.Collections)
      .etag(as.Sync);
 
-
-
     this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error('postCommand error:', aError);
-        callback('unknown');
+        callWhenDone('unknown');
         return;
       }
 
@@ -575,13 +577,13 @@ ActiveSyncFolderConn.prototype = {
 
       if (status === '1') {
         folderConn.syncKey = syncKey;
-        if (callback)
-          callback(null);
+        if (callWhenDone)
+          callWhenDone(null);
       }
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
                       'got a status of ' + status);
-        callback('status:' + status);
+        callWhenDone('status:' + status);
       }
     });
   },

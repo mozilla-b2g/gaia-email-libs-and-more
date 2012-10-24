@@ -1260,7 +1260,6 @@ MailUniverse.prototype = {
 
     // If there is already something active, don't do anything!
     if (queues.active) {
-console.log('active queue! not running');
     }
     else if (queues.local.length) {
       // Only actually dispatch if there is only the op we just (maybe).
@@ -1273,15 +1272,6 @@ console.log('active queue! not running');
     else if (queues.server.length === 1 && this.online && account.enabled) {
       this._dispatchServerOpForAccount(account, op);
     }
-else {
-  console.log('not running because no!',
-              'lc', op.lifecycle,
-              'ls', op.localStatus,
-              'disabling?', this._testModeDisablingLocalOps,
-              'a', queues.active, 'local', queues.local.length,
-             'servers', queues.server.length, 'online',
-             this.online, 'enabled', account.enabled);
-}
 
     return op.longtermId;
   },
