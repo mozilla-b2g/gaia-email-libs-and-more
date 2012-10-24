@@ -114,8 +114,6 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
 
   _handleCommand_Sync: function(request, query, response) {
     const as  = $ascp.AirSync.Tags;
-    const em  = $ascp.Email.Tags;
-    const asb = $ascp.AirSyncBase.Tags;
     const asEnum = $ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId;
@@ -157,21 +155,12 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
       for (let message of messages) {
         w.stag(as.Add)
            .tag(as.ServerId, message.id)
-           .stag(as.ApplicationData)
-             .tag(em.From, msgGen.formatAddresses([message.from]))
-             .tag(em.To, msgGen.formatAddresses(message.to))
-             .tag(em.Subject, message.subject)
-             .tag(em.DateReceived, new Date(message.date).toISOString())
-             .tag(em.Importance, '1')
-             .tag(em.Read, '0')
-             .stag(asb.Body)
-               .tag(asb.Type, '1')
-               .tag(asb.EstimatedDataSize, '13')
-               .tag(asb.Truncated, '0')
-               .tag(asb.Data, 'Hello, world!')
-             .etag()
-           .etag()
-         .etag();
+           .stag(as.ApplicationData);
+
+        this._writeEmail(w, message);
+
+        w  .etag(as.ApplicationData)
+         .etag(as.Add);
       }
 
       w.etag(as.Commands);
@@ -185,6 +174,81 @@ server.registerPathHandler('/Microsoft-Server-ActiveSync', {
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
     response.write(encodeWBXML(w));
   },
+
+  _handleCommand_ItemOperations: function(request, query, response) {
+    const io = $ascp.ItemOperations.Tags;
+    const as = $ascp.AirSync.Tags;
+
+    let fetches = [];
+
+    let e = new $wbxml.EventParser();
+    e.addEventListener([io.ItemOperations, io.Fetch], function(node) {
+      let fetch = {};
+
+      for (let child of node.children) {
+        switch (child.tag) {
+        case as.CollectionId:
+          fetch.collectionId = child.children[0].textContent;
+          break;
+        case as.ServerId:
+          fetch.serverId = child.children[0].textContent;
+          break;
+        }
+      }
+
+      // XXX: Implement error handling
+      for (let message of messages) {
+        if (message.id === fetch.serverId)
+          fetch.message = message;
+      }
+      fetches.push(fetch);
+    });
+    e.run(decodeWBXML(request.bodyInputStream));
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(io.ItemOperations)
+       .tag(io.Status, '1')
+       .stag(io.Response);
+
+    for (let fetch of fetches) {
+      w.stag(io.Fetch)
+         .tag(io.Status, '1')
+         .tag(as.CollectionId, fetch.collectionId)
+         .tag(as.ServerId, fetch.serverId)
+         .tag(as.Class, 'Email')
+         .stag(io.Properties);
+
+      this._writeEmail(w, fetch.message);
+
+      w  .etag(io.Properties)
+       .etag(io.Fetch);
+    }
+
+    w  .etag(io.Response)
+     .etag(io.ItemOperations);
+
+    response.setStatusLine('1.1', 200, 'OK');
+    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
+    response.write(encodeWBXML(w));
+  },
+
+  _writeEmail: function(w, message) {
+    const em  = $ascp.Email.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
+
+    w.tag(em.From, msgGen.formatAddresses([message.from]))
+     .tag(em.To, msgGen.formatAddresses(message.to))
+     .tag(em.Subject, message.subject)
+     .tag(em.DateReceived, new Date(message.date).toISOString())
+     .tag(em.Importance, '1')
+     .tag(em.Read, '0')
+     .stag(asb.Body)
+       .tag(asb.Type, '1')
+       .tag(asb.EstimatedDataSize, '13')
+       .tag(asb.Truncated, '0')
+       .tag(asb.Data, 'Hello, world!')
+     .etag();
+  }
 });
 
 server.start(8080);
