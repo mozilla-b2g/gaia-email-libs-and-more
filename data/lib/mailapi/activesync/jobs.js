@@ -229,6 +229,67 @@ ActiveSyncJobDriver.prototype = {
   undo_move: function(op, jobDoneCallback) {
   },
 
+  //////////////////////////////////////////////////////////////////////////////
+  // delete
+
+  local_do_delete: $jobmixins.local_do_delete,
+
+  do_delete: function(op, jobDoneCallback) {
+    let aggrErr = null;
+    const as = $ascp.AirSync.Tags;
+    const em = $ascp.Email.Tags;
+
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        folderConn.performMutation(
+          function withWriter(w) {
+            for (let i = 0; i < serverIds.length; i++) {
+              let srvid = serverIds[i];
+              // If the header is somehow an offline header, it will be null and
+              // there is nothing we can really do for it.
+              if (!srvid) {
+                console.log('AS message', namers[i].suid, 'lacks srvid!');
+                continue;
+              }
+
+              w.stag(as.Delete)
+                  .tag(as.ServerId, srvid)
+                .etag(as.Delete);
+            }
+          },
+          function mutationPerformed(err) {
+            if (err) {
+              aggrErr = err;
+              console.error('failure deleting messages:', err);
+            }
+            callWhenDone();
+          });
+      },
+      function allDone() {
+        jobDoneCallback(aggrErr, null, true);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      false,
+      'delete');
+  },
+
+  check_delete: function(op, callback) {
+    callback(null, 'idempotent');
+  },
+
+  local_undo_delete: $jobmixins.local_undo_delete,
+
+  // TODO implement
+  undo_delete: function(op, callback) {
+    callback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // download
+
   local_do_download: function(op, ignoredCallback) {
     // Downloads are inherently online operations.
     return null;
@@ -298,64 +359,6 @@ ActiveSyncJobDriver.prototype = {
       console.log(aResult.dump());
       callback('badness', []);
     });
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // delete
-
-  local_do_delete: $jobmixins.local_do_delete,
-
-  do_delete: function(op, jobDoneCallback) {
-    let aggrErr = null;
-    const as = $ascp.AirSync.Tags;
-    const em = $ascp.Email.Tags;
-
-    this._partitionAndAccessFoldersSequentially(
-      op.messages, true,
-      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
-        folderConn.performMutation(
-          function withWriter(w) {
-            for (let i = 0; i < serverIds.length; i++) {
-              let srvid = serverIds[i];
-              // If the header is somehow an offline header, it will be null and
-              // there is nothing we can really do for it.
-              if (!srvid) {
-                console.log('AS message', namers[i].suid, 'lacks srvid!');
-                continue;
-              }
-
-              w.stag(as.Delete)
-                  .tag(as.ServerId, srvid)
-                .etag(as.Delete);
-            }
-          },
-          function mutationPerformed(err) {
-            if (err) {
-              aggrErr = err;
-              console.error('failure deleting messages:', err);
-            }
-            callWhenDone();
-          });
-      },
-      function allDone() {
-        jobDoneCallback(aggrErr, null, true);
-      },
-      function deadConn() {
-        aggrErr = 'aborted-retry';
-      },
-      false,
-      'delete');
-  },
-
-  check_delete: function(op, callback) {
-    callback(null, 'idempotent');
-  },
-
-  local_undo_delete: $jobmixins.local_undo_delete,
-
-  // TODO implement
-  undo_delete: function(op, callback) {
-    callback('moot');
   },
 
   //////////////////////////////////////////////////////////////////////////////
