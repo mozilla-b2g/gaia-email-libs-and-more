@@ -77,19 +77,29 @@ var bsearchMaybeExists = exports.bsearchMaybeExists =
   return null;
 };
 
+/**
+ * Partition a list of messages (identified by message namers, aka the suid and
+ * date of the message) by the folder they belong to.
+ *
+ * @args[
+ *   @param[messageNamers @listof[MessageNamer]]
+ * ]
+ * @return[@listof[@dict[
+ *   @key[folderId FolderID]
+ *   @key[messages @listof[MessageNamer]]
+ * ]
+ */
 exports.partitionMessagesByFolderId =
-    function partitionMessagesByFolderId(messageNamers, onlyKeepMsgId) {
+    function partitionMessagesByFolderId(messageNamers) {
   var results = [], foldersToMsgs = {};
   for (var i = 0; i < messageNamers.length; i++) {
-    var messageSuid = messageNamers[i].suid,
+    var messageNamer = messageNamers[i],
+        messageSuid = messageNamer.suid,
         idxLastSlash = messageSuid.lastIndexOf('/'),
-        folderId = messageSuid.substring(0, idxLastSlash),
-        // if we only want the UID, do so, but make sure to parse it as a #!
-        useId = onlyKeepMsgId ? parseInt(messageSuid.substring(idxLastSlash+1))
-                              : messageSuid;
+        folderId = messageSuid.substring(0, idxLastSlash);
 
     if (!foldersToMsgs.hasOwnProperty(folderId)) {
-      var messages = [useId];
+      var messages = [messageNamer];
       results.push({
         folderId: folderId,
         messages: messages,
@@ -97,7 +107,7 @@ exports.partitionMessagesByFolderId =
       foldersToMsgs[folderId] = messages;
     }
     else {
-      foldersToMsgs[folderId].push(useId);
+      foldersToMsgs[folderId].push(messageNamer);
     }
   }
   return results;

@@ -445,7 +445,7 @@ MessageGenerator.prototype = {
       var data = null;
       process.immediate = true;
       composer._processBufferedOutput = function() {
-        data = this._outputBuffer;
+        data = composer._outputBuffer;
       };
       composer._composeMessage();
       process.immediate = false;

@@ -48,7 +48,7 @@ exports.allbackMaker = function allbackMaker(names, allDoneCallback) {
         aggrData[name] = arguments;
       else
         aggrData[name] = callbackResult;
-      if (waitingFor.length === 0)
+      if (waitingFor.length === 0 && allDoneCallback)
         allDoneCallback(aggrData);
     };
   });

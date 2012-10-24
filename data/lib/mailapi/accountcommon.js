@@ -4,27 +4,33 @@
 
 define(
   [
+    'rdcommon/log',
     './a64',
     './allback',
     './imap/probe',
     './smtp/probe',
     'activesync/protocol',
+    './accountmixins',
     './imap/account',
     './smtp/account',
     './fake/account',
     './activesync/account',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $a64,
     $allback,
     $imapprobe,
     $smtpprobe,
     $asproto,
+    $acctmixins,
     $imapacct,
     $smtpacct,
     $fakeacct,
     $asacct,
+    $module,
     exports
   ) {
 const allbackMaker = $allback.allbackMaker;
@@ -86,7 +92,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
-  this.deferredMutations = this._receivePiece.deferredMutations;
+  this.tzOffset = accountDef.tzOffset;
 }
 exports.CompositeAccount = CompositeAccount;
 CompositeAccount.prototype = {
@@ -173,7 +179,41 @@ CompositeAccount.prototype = {
   },
 
   sendMessage: function(composedMessage, callback) {
-    return this._sendPiece.sendMessage(composedMessage, callback);
+    return this._sendPiece.sendMessage(
+      composedMessage,
+      function(err, errDetails) {
+        // We need to append the message to the sent folder if we think we sent
+        // the message okay.
+        if (!err) {
+          // have it internally accumulate the data rather than using the stream
+          // mechanism.
+          composedMessage._cacheOutput = true;
+          // reset the offsets since we are reusing the composer.
+          composedMessage._message.processingStart = 0;
+          composedMessage._message.processingPos = 0;
+          var data = null;
+          process.immediate = true;
+          composedMessage._processBufferedOutput = function() {
+            data = composedMessage._outputBuffer;
+          };
+          composedMessage._composeMessage();
+          process.immediate = false;
+
+          var message = {
+            messageText: data.trimRight(),
+            // do not specify date; let the server use its own timestamping
+            // since we want the approximate value of 'now' anyways.
+            flags: ['Seen'],
+          };
+
+          var sentFolder = this.getFirstFolderWithType('sent');
+          if (sentFolder)
+            this.universe.appendMessages(sentFolder.id,
+                                         [message]);
+        }
+        callback(err, errDetails);
+      }.bind(this));
+
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -183,6 +223,12 @@ CompositeAccount.prototype = {
   runOp: function(op, mode, callback) {
     return this._receivePiece.runOp(op, mode, callback);
   },
+
+  ensureEssentialFolders: function(callback) {
+    return this._receivePiece.ensureEssentialFolders(callback);
+  },
+
+  getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
 };
 
 const COMPOSITE_ACCOUNT_TYPE_TO_CLASS = {
@@ -300,9 +346,12 @@ Configurators['imap+smtp'] = {
           var account = self._defineImapAccount(
             universe,
             userDetails, credentials,
-            imapConnInfo, smtpConnInfo, results.imap[1]);
+            imapConnInfo, smtpConnInfo, results.imap[1],
+            results.imap[2]);
           account.syncFolderList(function() {
-            callback(null, account);
+            account.ensureEssentialFolders(function() {
+              callback(null, account);
+            });
           });
 
         }
@@ -357,7 +406,11 @@ Configurators['imap+smtp'] = {
       },
 
       identities: recreateIdentities(universe, accountId,
-                                     oldAccountDef.identities)
+                                     oldAccountDef.identities),
+      // this default timezone here maintains things; but people are going to
+      // need to create new accounts at some point...
+      tzOffset: oldAccountInfo.tzOffset !== undefined ?
+                  oldAccountInfo.tzOffset : -7 * 60 * 60 * 1000,
     };
 
     var account = this._loadAccount(universe, accountDef,
@@ -376,11 +429,11 @@ Configurators['imap+smtp'] = {
   _defineImapAccount: function cfg_is__defineImapAccount(
                         universe,
                         userDetails, credentials, imapConnInfo, smtpConnInfo,
-                        imapProtoConn) {
+                        imapProtoConn, tzOffset) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
-      name: userDetails.emailAddress,
+      name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'imap+smtp',
       receiveType: 'imap',
@@ -401,7 +454,8 @@ Configurators['imap+smtp'] = {
           replyTo: null,
           signature: DEFAULT_SIGNATURE
         },
-      ]
+      ],
+      tzOffset: tzOffset,
     };
 
     return this._loadAccount(universe, accountDef, null, imapProtoConn);
@@ -426,7 +480,7 @@ Configurators['imap+smtp'] = {
                    imapProtoConn.delim,
       },
       $mutations: [],
-      $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, imapProtoConn);
@@ -442,7 +496,7 @@ Configurators['fake'] = {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
-      name: userDetails.emailAddress,
+      name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'fake',
       syncRange: '3d',
@@ -510,7 +564,7 @@ Configurators['fake'] = {
         nextMutationNum: 0,
       },
       $mutations: [],
-      $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, null);
@@ -548,7 +602,7 @@ Configurators['activesync'] = {
       var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
       var accountDef = {
         id: accountId,
-        name: userDetails.emailAddress,
+        name: userDetails.accountName || userDetails.emailAddress,
 
         type: 'activesync',
         syncRange: '3d',
@@ -621,7 +675,7 @@ Configurators['activesync'] = {
         syncKey: '0',
       },
       $mutations: [],
-      $deferredMutations: [],
+      $mutationState: {},
     };
     universe.saveAccountDef(accountDef, folderInfo);
     return universe._loadAccount(accountDef, folderInfo, protoConn);
@@ -717,6 +771,10 @@ Autoconfigurator.prototype = {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
     xhr.onload = function() {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        callback('unknown');
+        return;
+      }
       // XXX: For reasons which are currently unclear (possibly a platform
       // issue), trying to use responseXML results in a SecurityError when
       // running XPath queries. So let's just do an end-run around the
@@ -757,7 +815,7 @@ Autoconfigurator.prototype = {
         callback('unknown');
       }
     };
-    xhr.onerror = function() { callback('unknown'); }
+    xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
   },
@@ -769,7 +827,7 @@ Autoconfigurator.prototype = {
    * @param callback a callback taking an error string (if any) and the config
    *        info, formatted as JSON
    */
-  _getConfigFromLocalFile: function getConfigFromDB(domain, callback) {
+  _getConfigFromLocalFile: function getConfigFromLocalFile(domain, callback) {
     this._getXmlConfig('/autoconfig/' + encodeURIComponent(domain), callback);
   },
 
@@ -851,6 +909,7 @@ Autoconfigurator.prototype = {
         if (self._isSuccessOrFatal(error))
           return callback(error, config);
 
+        console.log('  Trying domain autodiscover');
         self._getConfigFromAutodiscover(userDetails, callback);
       });
     });

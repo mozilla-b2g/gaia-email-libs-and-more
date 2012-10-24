@@ -17,7 +17,8 @@ var TD = $tc.defineTestsFor(
  */
 TD.commonCase('account creation/deletion', function(T) {
   T.group('create universe, first account');
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U',
+                             { name: 'A' }),
       testAccountA = T.actor('testImapAccount', 'A',
                              { universe: testUniverse }),
       eSliceCheck = T.lazyLogger('sliceCheck');
@@ -29,7 +30,7 @@ TD.commonCase('account creation/deletion', function(T) {
 
   T.group('create second account');
   var testAccountB = T.actor('testImapAccount', 'B',
-                             { universe: testUniverse });
+                             { universe: testUniverse, name: 'B' });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
     eSliceCheck.expect_namedValue('accounts[1].id', testAccountB.accountId);

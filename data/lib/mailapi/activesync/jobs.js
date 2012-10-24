@@ -3,132 +3,230 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
-    '../util',
+    '../jobmixins',
     'exports'
   ],
   function(
     $wbxml,
     $ascp,
     $activesync,
-    $util,
+    $jobmixins,
     exports
   ) {
 'use strict';
 
-function ActiveSyncJobDriver(account) {
+function ActiveSyncJobDriver(account, state) {
   this.account = account;
+  // XXX for simplicity for now, let's assume that ActiveSync GUID's are
+  // maintained across folder moves.
+  this.resilientServerIds = true;
+  this._heldMutexReleasers = [];
+  this._state = state;
+  // (we only need to use one as a proxy for initialization)
+  if (!state.hasOwnProperty('suidToServerId')) {
+    state.suidToServerId = {};
+    state.moveMap = {};
+  }
+
+  this._stateDelta = {
+    serverIdMap: null,
+    moveMap: null,
+  };
 }
 exports.ActiveSyncJobDriver = ActiveSyncJobDriver;
 ActiveSyncJobDriver.prototype = {
-  postJobCleanup: function() {
+  //////////////////////////////////////////////////////////////////////////////
+  // helpers
+
+  postJobCleanup: $jobmixins.postJobCleanup,
+
+  allJobsDone: $jobmixins.allJobsDone,
+
+  _accessFolderForMutation: function(folderId, needConn, callback, deathback,
+                                     label) {
+    var storage = this.account.getFolderStorageForFolderId(folderId),
+        self = this;
+    storage.runMutexed(label, function(releaseMutex) {
+      self._heldMutexReleasers.push(releaseMutex);
+
+      var syncer = storage.folderSyncer;
+      if (needConn && !self.account.conn.connected) {
+        // XXX will this connection automatically retry?
+        self.account.conn.connect(function(err, config) {
+          callback(syncer.folderConn, storage);
+        });
+      }
+      else {
+        callback(syncer.folderConn, storage);
+      }
+    });
   },
 
-  local_do_modtags: function(op, callback) {
-    // XXX: we'll probably remove this once deleting stops being a modtag op
-    if (op.addTags && op.addTags.indexOf('\\Deleted') !== -1)
-      return this.local_do_delete(op, callback);
+  _partitionAndAccessFoldersSequentially:
+    $jobmixins._partitionAndAccessFoldersSequentially,
 
-    for (let [,message] in Iterator(op.messages)) {
-      let lslash = message.suid.lastIndexOf('/');
-      let folderId = message.suid.substring(0, lslash);
-      let messageId = message.suid.substring(lslash + 1);
-      let folderStorage = this.account.getFolderStorageForFolderId(folderId);
+  //////////////////////////////////////////////////////////////////////////////
+  // modtags
 
-      folderStorage.updateMessageHeader(message.date, messageId, false,
-                                        function(header) {
-        let modified = false;
+  local_do_modtags: $jobmixins.local_do_modtags,
 
-        for (let [,tag] in Iterator(op.addTags || [])) {
-          if (header.flags.indexOf(tag) !== -1)
-            continue;
-          header.flags.push(tag);
-          header.flags.sort();
-          modified = true;
-        }
-        for (let [,remove] in Iterator(op.removeTags || [])) {
-          let index = header.flags.indexOf(remove);
-          if (index === -1)
-            continue;
-          header.flags.splice(index, 1);
-          modified = true;
-        }
-        return modified;
-      });
-    }
+  do_modtags: function(op, jobDoneCallback, undo) {
+    // Note: this method is derived from the IMAP implementation.
+    let addTags = undo ? op.removeTags : op.addTags,
+        removeTags = undo ? op.addTags : op.removeTags;
 
-    this.account.saveAccountState();
-    if (callback)
-      setZeroTimeout(callback);
-  },
-
-  do_modtags: function(op, callback) {
     function getMark(tag) {
-      if (op.addTags && op.addTags.indexOf(tag) !== -1)
+      if (addTags && addTags.indexOf(tag) !== -1)
         return true;
-      if (op.removeTags && op.removeTags.indexOf(tag) !== -1)
+      if (removeTags && removeTags.indexOf(tag) !== -1)
         return false;
       return undefined;
     }
 
-    // XXX: we'll probably remove this once deleting stops being a modtag op
-    if (getMark('\\Deleted'))
-      return this.do_delete(op, callback);
-
     let markRead = getMark('\\Seen');
     let markFlagged = getMark('\\Flagged');
 
-    this._do_crossFolderOp(op, callback, function(w, messageGuid) {
-      const as = $ascp.AirSync.Tags;
-      const em = $ascp.Email.Tags;
+    const as = $ascp.AirSync.Tags;
+    const em = $ascp.Email.Tags;
 
-      w.stag(as.Change)
-         .tag(as.ServerId, messageGuid)
-         .stag(as.ApplicationData);
+    let aggrErr = null;
 
-      if (markRead !== undefined)
-        w.tag(em.Read, markRead ? '1' : '0');
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        var modsToGo = 0;
+        function tagsModded(err) {
+          if (err) {
+            console.error('failure modifying tags', err);
+            aggrErr = 'unknown';
+            return;
+          }
+          op.progress += (undo ? -serverIds.length : serverIds.length);
+          if (--modsToGo === 0)
+            callWhenDone();
+        }
+        folderConn.performMutation(
+          function withWriter(w) {
+            for (let i = 0; i < serverIds.length; i++) {
+              let srvid = serverIds[i];
+              // If the header is somehow an offline header, it will be null and
+              // there is nothing we can really do for it.
+              if (!srvid)
+                continue;
 
-      if (markFlagged !== undefined)
-        w.stag(em.Flag)
-           .tag(em.Status, markFlagged ? '2' : '0')
-         .etag();
+              w.stag(as.Change)
+                 .tag(as.ServerId, srvid)
+                 .stag(as.ApplicationData);
 
-        w.etag()
-       .etag();
-    });
+              if (markRead !== undefined)
+                w.tag(em.Read, markRead ? '1' : '0');
+
+              if (markFlagged !== undefined)
+                w.stag(em.Flag)
+                   .tag(em.Status, markFlagged ? '2' : '0')
+                 .etag();
+
+                w.etag(as.ApplicationData)
+             .etag(as.Change);
+            }
+          },
+          function mutationPerformed(err) {
+            if (err)
+              aggrErr = err;
+            callWhenDone();
+          });
+      },
+      function allDone() {
+        jobDoneCallback(aggrErr);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      /* reverse if we're undoing */ undo,
+      'modtags');
   },
 
   check_modtags: function(op, callback) {
     callback(null, 'idempotent');
   },
 
-  local_do_delete: function(op, callback) {
-    for (let [,message] in Iterator(op.messages)) {
-      let lslash = message.suid.lastIndexOf('/');
-      let folderId = message.suid.substring(0, lslash);
-      let messageId = message.suid.substring(lslash + 1);
-      let folderStorage = this.account.getFolderStorageForFolderId(folderId);
+  local_undo_modtags: $jobmixins.local_undo_modtags,
 
-      folderStorage.deleteMessageByUid(messageId);
-    }
-
-    this.account.saveAccountState();
-    if (callback)
-      setZeroTimeout(callback);
+  undo_modtags: function(op, callback) {
+    this.do_modtags(op, callback, true);
   },
 
-  do_delete: function(op, callback) {
-    this._do_crossFolderOp(op, callback, function(w, messageGuid) {
-      const as = $ascp.AirSync.Tags;
+  //////////////////////////////////////////////////////////////////////////////
+  // move
 
-      w.stag(as.Delete)
-         .tag(as.ServerId, messageGuid)
-       .etag();
-    });
+  local_do_move: $jobmixins.local_do_move,
+
+  do_move: function(op, jobDoneCallback) {
+    /*
+     * The ActiveSync command for this does not produce or consume SyncKeys.
+     * As such, we don't need to acquire mutexes for the source folders for
+     * synchronization correctness, although it is helpful for ordering
+     * purposes and reducing confusion.
+     *
+     * For the target folder a similar logic exists as long as the server-issued
+     * GUID's are resilient against folder moves.  However, we do require in
+     * all cases that before synchronizing the target folder that we make sure
+     * all move operations to the folder have completed so we message doesn't
+     * disappear and then show up again. XXX we are not currently enforcing this
+     * yet.
+     */
+    let aggrErr = null, account = this.account,
+        targetFolderStorage = this.account.getFolderStorageForFolderId(
+                                op.targetFolder);
+    const as = $ascp.AirSync.Tags;
+    const em = $ascp.Email.Tags;
+    const mo = $ascp.Move.Tags;
+
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        w.stag(mo.MoveItems);
+
+        for (let i = 0; i < serverIds.length; i++) {
+          let srvid = serverIds[i];
+          // If the header is somehow an offline header, it will be null and
+          // there is nothing we can really do for it.
+          if (!srvid)
+            continue;
+          w.stag(mo.Move)
+              .tag(mo.SrcMsgId, srvid)
+              .tag(mo.SrcFldId, storage.folderMeta.serverId)
+              .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
+            .etag(mo.Move);
+        }
+        w.etag(mo.MoveItems);
+
+        account.conn.postCommand(w, function(err, response) {
+          if (err) {
+            aggrErr = err;
+            console.error('failure moving messages:', err);
+          }
+          callWhenDone();
+        });
+      },
+      function allDone() {
+        jobDoneCallback(aggrErr, null, true);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      false,
+      'move');
   },
 
-  check_delete: function(op, callback) {
-    callback(null, 'idempotent');
+  check_move: function(op, jobDoneCallback) {
+
+  },
+
+  local_undo_move: $jobmixins.local_undo_move,
+
+  undo_move: function(op, jobDoneCallback) {
   },
 
   local_do_download: function(op, ignoredCallback) {
@@ -202,101 +300,65 @@ ActiveSyncJobDriver.prototype = {
     });
   },
 
-  _do_crossFolderOp: function(op, callback, command) {
-    let jobDriver = this;
+  //////////////////////////////////////////////////////////////////////////////
+  // delete
 
-    if (!this.account.conn.connected) {
-      this.account.conn.connect(function(error, config) {
-        if (error)
-          console.error(error);
-        else
-          jobDriver.do_modtags(op, callback);
-      });
-      return;
-    }
+  local_do_delete: $jobmixins.local_do_delete,
 
-    // XXX: we really only want the message ID, but this method tries to parse
-    // it as an int (it's a GUID).
-    let partitions = $util.partitionMessagesByFolderId(op.messages, false);
-
+  do_delete: function(op, jobDoneCallback) {
+    let aggrErr = null;
     const as = $ascp.AirSync.Tags;
     const em = $ascp.Email.Tags;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(as.Sync)
-       .stag(as.Collections);
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        folderConn.performMutation(
+          function withWriter(w) {
+            for (let i = 0; i < serverIds.length; i++) {
+              let srvid = serverIds[i];
+              // If the header is somehow an offline header, it will be null and
+              // there is nothing we can really do for it.
+              if (!srvid) {
+                console.log('AS message', namers[i].suid, 'lacks srvid!');
+                continue;
+              }
 
-    for (let [,part] in Iterator(partitions)) {
-      let folderStorage = this.account.getFolderStorageForFolderId(
-        part.folderId);
-
-      w.stag(as.Collection);
-
-      if (this.account.conn.currentVersion.lt('12.1'))
-        w.tag(as.Class, 'Email');
-
-        w.tag(as.SyncKey, folderStorage.folderMeta.syncKey)
-         .tag(as.CollectionId, folderStorage.folderMeta.serverId)
-         .stag(as.Commands);
-
-      for (let [,message] in Iterator(part.messages)) {
-        let slash = message.lastIndexOf('/');
-        let messageGuid = message.substring(slash+1);
-
-        command(w, messageGuid);
-      }
-
-        w.etag(as.Commands)
-       .etag(as.Collection);
-    }
-
-      w.etag(as.Collections)
-     .etag(as.Sync);
-
-    this.account.conn.postCommand(w, function(aError, aResponse) {
-      if (aError)
-        return;
-
-      let e = new $wbxml.EventParser();
-
-      let statuses = [];
-      let syncKeys = [];
-      let collectionIds = [];
-
-      const base = [as.Sync, as.Collections, as.Collection];
-      e.addEventListener(base.concat(as.SyncKey), function(node) {
-        syncKeys.push(node.children[0].textContent);
-      });
-      e.addEventListener(base.concat(as.CollectionId), function(node) {
-        collectionIds.push(node.children[0].textContent);
-      });
-      e.addEventListener(base.concat(as.Status), function(node) {
-        statuses.push(node.children[0].textContent);
-      });
-
-      e.run(aResponse);
-
-      let allGood = statuses.reduce(function(good, status) {
-        return good && status === '1';
-      }, true);
-
-      if (allGood) {
-        for (let i = 0; i < collectionIds.length; i++) {
-          let folderStorage = jobDriver.account.getFolderStorageForServerId(
-            collectionIds[i]);
-          folderStorage.folderMeta.syncKey = syncKeys[i];
-        }
-
-        if (callback)
-          callback();
-        jobDriver.account.saveAccountState();
-      }
-      else {
-        console.error('Something went wrong during ActiveSync syncing and we ' +
-                      'got a status of ' + status);
-      }
-    });
+              w.stag(as.Delete)
+                  .tag(as.ServerId, srvid)
+                .etag(as.Delete);
+            }
+          },
+          function mutationPerformed(err) {
+            if (err) {
+              aggrErr = err;
+              console.error('failure deleting messages:', err);
+            }
+            callWhenDone();
+          });
+      },
+      function allDone() {
+        jobDoneCallback(aggrErr, null, true);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      false,
+      'delete');
   },
+
+  check_delete: function(op, callback) {
+    callback(null, 'idempotent');
+  },
+
+  local_undo_delete: $jobmixins.local_undo_delete,
+
+  // TODO implement
+  undo_delete: function(op, callback) {
+    callback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 }); // end define

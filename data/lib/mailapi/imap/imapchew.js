@@ -288,7 +288,7 @@ const DESIRED_SNIPPET_LENGTH = 100;
  * }
  */
 exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
-                                               folderId) {
+                                               folderId, newMsgId) {
   var snippet = null, bodyReps = [];
 
   // Mailing lists can result in a text/html body part followed by a text/plain
@@ -319,11 +319,14 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
 
 
   rep.header = {
-    // the UID (as an integer)
-    id: rep.msg.id,
+    // the FolderStorage issued id for this message (which differs from the
+    // IMAP-server-issued UID so we can do speculative offline operations like
+    // moves).
+    id: newMsgId,
+    srvid: rep.msg.id,
     // The sufficiently unique id is a concatenation of the UID onto the
     // folder id.
-    suid: folderId + '/' + rep.msg.id,
+    suid: folderId + '/' + newMsgId,
     // The message-id header value; as GUID as get for now; on gmail we can
     // use their unique value, or if we could convince dovecot to tell us, etc.
     guid: rep.msg.msg.meta.messageId,

@@ -85,7 +85,7 @@ TD.commonCase('general reconnect logic', function(T) {
   T.action('kill the existing connection of', testAccount.eImapAccount,
            function() {
     FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
-    testAccount._hasConnection = false;
+    testAccount._unusedConnections = 0;
     testAccount.eImapAccount.expect_deadConnection();
   });
 

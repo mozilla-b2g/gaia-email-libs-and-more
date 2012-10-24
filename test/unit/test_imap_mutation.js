@@ -112,7 +112,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
   T.action('go online, see changes happen for', testAccount.eImapAccount,
            eSync, function() {
@@ -148,7 +148,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
 
   T.action('go online, see undos happen for', testAccount.eImapAccount,
@@ -189,7 +189,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
   T.action('trigger undo ops, hear local changes',
            testAccount, testAccount.eImapAccount, function() {
@@ -202,7 +202,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
   T.action('go online, see nothing happen',
            testAccount.eImapAccount, eSync, function() {
@@ -237,7 +237,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_saveState();
@@ -296,7 +296,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount2.expect_headerChanges(
       folderView2, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      6);
   });
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
@@ -367,7 +367,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount3.expect_headerChanges(
       folderView3, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      1);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -394,7 +394,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount3.expect_headerChanges(
       folderView3, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      'roundtrip');
+      1);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -413,6 +413,109 @@ TD.commonCase('mutate flags', function(T) {
   T.group('cleanup');
 });
 
+/**
+ * Create a source folder and a target folder with some messages in the source
+ * folder.
+ */
+TD.commonCase('move/trash messages', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Our test requires 4 connections because we hold open 3 views at once and
+  // then perform a move to a folder that doesn't have an open view.
+  T.action('set max conns to 4 ', function() {
+    testAccount.imapAccount._maxConnsAllowed = 4;
+  });
+
+  var sourceFolder = testAccount.do_createTestFolder(
+    'test_move_source',
+    { count: 5, age_incr: { days: 1 } });
+  var targetFolder = testAccount.do_createTestFolder(
+    'test_move_target',
+    { count: 0 });
+  var blindTargetFolder = testAccount.do_createTestFolder(
+    'test_move_blind_target',
+    { count: 0 });
+  var trashFolder = testAccount.do_createTestFolder(
+    'Trash',
+    { count: 0 });
+
+  var sourceView = testAccount.do_openFolderView(
+    'sourceView', sourceFolder,
+    { count: 5, full: 5, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  var targetView = testAccount.do_openFolderView(
+    'sourceView', targetFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  // open the trash but don't care what's in there, we just care about deltas
+  var trashView = testAccount.do_openFolderView('trashView', trashFolder, null);
+
+  T.group('offline manipulation; released to server');
+
+  var undoMoveBlind = null, undoMoveVisible = null, undoDelete = null;
+
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('move/trash messages',
+           testAccount, testAccount.eImapAccount, function() {
+    // by mentioning testAccount we ensure that we will assert if we see a
+    // reuseConnection from it.
+    var headers = sourceView.slice.items,
+        toMoveBlind = headers[1],
+        toMoveVisible = headers[2],
+        toDelete = headers[3];
+
+    testAccount.eImapAccount.expect_runOp_begin('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_end('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_end('local_do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('local_do', 'delete');
+    testAccount.eImapAccount.expect_runOp_end('local_do', 'delete');
+
+    testAccount.expect_headerChanges(
+      targetView,
+      { additions: [toMoveVisible], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
+    // While the removal of toMove actually happens before the target hears
+    // about it, since we are waiting for 2 events, we will see it happen here
+    // once the toDelete removal fires.
+    testAccount.expect_headerChanges(
+      sourceView,
+      { additions: [], changes: [],
+        deletions: [toMoveBlind, toMoveVisible, toDelete] },
+      null, /* done after 3 events: */ 3);
+    testAccount.expect_headerChanges(
+      trashView,
+      { additions: [toDelete], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
+
+    undoMoveBlind = toMoveBlind.moveMessage(blindTargetFolder.mailFolder);
+    undoMoveVisible = toMoveVisible.moveMessage(targetFolder.mailFolder);
+    undoDelete = toDelete.deleteMessage();
+  });
+  T.action('go online, see changes happen for', testAccount.eImapAccount,
+           eSync, function() {
+    testAccount.eImapAccount.expect_runOp_begin('do', 'move');
+    testAccount.expect_connection();
+    testAccount.eImapAccount.expect_releaseConnection();
+    testAccount.eImapAccount.expect_runOp_end('do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('do', 'move');
+    testAccount.eImapAccount.expect_runOp_end('do', 'move');
+    testAccount.eImapAccount.expect_runOp_begin('do', 'delete');
+    testAccount.eImapAccount.expect_runOp_end('do', 'delete');
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+});
+
 function run_test() {
-  runMyTests(10);
+  runMyTests(15);
 }
