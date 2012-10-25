@@ -25,11 +25,25 @@ function decodeWBXML(stream) {
   return new $wbxml.Reader(bytes, $ascp);
 }
 
+var msgGen = new MessageGenerator();
+
+var nextCollectionId = 1;
+function ActiveSyncFolder(name, type, parent) {
+  this.name = name;
+  this.type = type;
+  this.id = 'folder-' + nextCollectionId++;
+  this.parentId = parent ? parent.id : '0';
+  this.messages = msgGen.makeMessages({});
+}
+
 function ActiveSyncServer() {
   this.server = new HttpServer();
 
-  this.msgGen = new MessageGenerator();
-  this.messages = this.msgGen.makeMessages({});
+  const folderType = $ascp.FolderHierarchy.Enums.Type;
+  this.folders = [
+    new ActiveSyncFolder('Inbox', folderType.DefaultInbox),
+    new ActiveSyncFolder('Sent Mail', folderType.DefaultSent)
+  ];
 }
 
 ActiveSyncServer.prototype = {
@@ -111,26 +125,23 @@ ActiveSyncServer.prototype = {
       .stag(fh.Changes);
 
     if (syncKey === '0') {
-      w.tag(fh.Count, '2')
-       .stag(fh.Add)
-         .tag(fh.ServerId, 'XXX-1')
-         .tag(fh.ParentId, '0')
-         .tag(fh.DisplayName, 'Inbox')
-         .tag(fh.Type, folderType.DefaultInbox)
-       .etag()
-       .stag(fh.Add)
-         .tag(fh.ServerId, 'XXX-2')
-         .tag(fh.ParentId, '0')
-         .tag(fh.DisplayName, 'Sent')
-         .tag(fh.Type, folderType.DefaultSent)
-       .etag();
+      w.tag(fh.Count, this.folders.length);
+
+      for (let folder of this.folders) {
+        w.stag(fh.Add)
+           .tag(fh.ServerId, folder.id)
+           .tag(fh.ParentId, folder.parentId)
+           .tag(fh.DisplayName, folder.name)
+           .tag(fh.Type, folder.type)
+         .etag();
+      }
     }
     else {
       w.tag(fh.Count, '0');
     }
 
-    w  .etag()
-     .etag();
+    w  .etag(fh.Changes)
+     .etag(fh.FolderSync);
 
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
@@ -156,14 +167,16 @@ ActiveSyncServer.prototype = {
     e.run(decodeWBXML(request.bodyInputStream));
 
     if (syncKey === '0')
-      nextSyncKey = 'XXX';
-    else if (syncKey === 'XXX' || syncKey === 'XXXX')
-      nextSyncKey = 'XXXX';
+      nextSyncKey = '1';
+    else if (syncKey === '1' || syncKey === '2')
+      nextSyncKey = '2';
     else
       nextSyncKey = '0';
 
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
-                                       asEnum.Status.Success
+                                       asEnum.Status.Success;
+
+    let folder = this._findFolderById(collectionId);
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
 
@@ -174,10 +187,10 @@ ActiveSyncServer.prototype = {
            .tag(as.CollectionId, collectionId)
            .tag(as.Status, status);
 
-    if (syncKey === 'XXX') {
+    if (syncKey === '1') {
       w.stag(as.Commands);
 
-      for (let message of this.messages) {
+      for (let message of folder.messages) {
         w.stag(as.Add)
            .tag(as.ServerId, message.messageId)
            .stag(as.ApplicationData);
@@ -258,6 +271,13 @@ ActiveSyncServer.prototype = {
     response.write(encodeWBXML(w));
   },
 
+  _findFolderById: function(id) {
+    for (let folder of this.folders) {
+      if (folder.id === id)
+        return folder;
+    }
+  },
+
   _writeEmail: function(w, message) {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
@@ -270,9 +290,9 @@ ActiveSyncServer.prototype = {
      .tag(em.Read, '0')
      .stag(asb.Body)
        .tag(asb.Type, '1')
-       .tag(asb.EstimatedDataSize, '13')
+       .tag(asb.EstimatedDataSize, message.bodyPart.body.length)
        .tag(asb.Truncated, '0')
-       .tag(asb.Data, 'Hello, world!')
+      .tag(asb.Data, message.bodyPart.body)
      .etag();
   }
 };
