@@ -49,16 +49,25 @@ ImapProber.prototype = {
       this.onError(err);
       return;
     }
-    if (!this.onresult)
-      return;
 
-    console.log('PROBE:IMAP happy');
+    getTZOffset(this._conn, this.onGotTZOffset.bind(this));
+  },
+
+  onGotTZOffset: function ImapProber_onGotTZOffset(err, tzOffset) {
+    if (err) {
+      this.onError(err);
+      return;
+    }
+
+    console.log('PROBE:IMAP happy, TZ offset:', tzOffset / (60 * 60 * 1000));
     this.accountGood = true;
 
     var conn = this._conn;
     this._conn = null;
 
-    this.onresult(this.accountGood, conn);
+    if (!this.onresult)
+      return;
+    this.onresult(this.accountGood, conn, tzOffset);
     this.onresult = false;
   },
 
@@ -79,6 +88,88 @@ ImapProber.prototype = {
     // we could potentially see many errors...
     this.onresult = false;
   },
+};
+
+
+/**
+ * If a folder has no messages, then we need to default the timezone, and
+ * California is the most popular!
+ *
+ * XXX DST issue, maybe vary this.
+ */
+const DEFAULT_TZ_OFFSET = -7 * 60 * 60 * 1000;
+
+/**
+ * Try and infer the current effective timezone of the server by grabbing the
+ * most recent message as implied by UID (may be inaccurate), and then looking
+ * at the most recent Received header's timezone.
+ *
+ * In order to figure out the UID to ask for, we do a dumb search to figure out
+ * what UIDs are valid.
+ */
+var getTZOffset = exports.getTZOffset = function getTZOffset(conn, callback) {
+  function gotInbox(err, box) {
+    if (err) {
+      callback(err);
+      return;
+    }
+    if (!box.messages.total) {
+      callback(null, DEFAULT_TZ_OFFSET);
+      return;
+    }
+    searchRange(box._uidnext - 1);
+  }
+  function searchRange(highUid) {
+    conn.search([['UID', Math.max(1, highUid - 49) + ':' + highUid]],
+                gotSearch.bind(null, highUid - 50));
+  }
+  function gotSearch(nextHighUid, err, uids) {
+    if (!uids.length) {
+      if (nextHighUid < 0) {
+        callback(null, DEFAULT_TZ_OFFSET);
+        return;
+      }
+      searchRange(nextHighUid);
+    }
+    useUid(uids[uids.length - 1]);
+  }
+  function useUid(uid) {
+    var fetcher = conn.fetch(
+      [uid],
+      {
+        request: {
+          headers: ['RECEIVED'],
+          struct: false,
+          body: false
+        },
+      });
+    fetcher.on('message', function onMsg(msg) {
+        msg.on('end', function onMsgEnd() {
+            var allHeaders = msg.msg.headers;
+            for (var i = 0; i < allHeaders.length; i++) {
+              var hpair = allHeaders[i];
+              if (hpair.key !== 'received')
+                continue;
+              var tzMatch = /([+-]\d{4}).+$/.exec(hpair.value);
+              if (tzMatch) {
+                var tz =
+                  parseInt(tzMatch[1].substring(1, 3)) * 60 * 60 * 1000+
+                  parseInt(tzMatch[1].substring(3, 5)) * 60 * 1000;
+                if (tzMatch[1].substring(0, 1) === '-')
+                  tz *= -1;
+                callback(null, tz);
+                return;
+              }
+            }
+          });
+      });
+    fetcher.on('error', function onFetchErr(err) {
+      callback(err);
+      return;
+    });
+  }
+  var uidsTried = 0;
+  conn.openBox('INBOX', true, gotInbox);
 };
 
 }); // end define

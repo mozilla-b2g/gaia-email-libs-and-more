@@ -236,6 +236,7 @@ var TestImapAccountMixins = {
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
+    self._opts = opts;
     if (!opts.universe)
       throw new Error("Universe not specified!");
     if (!opts.universe.__testAccounts)
@@ -247,7 +248,14 @@ var TestImapAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
     self._useDate = self.testUniverse._useDate;
-    self._hasConnection = false;
+    /**
+     * Very simple/primitive connection book-keeping.  We only alter this in
+     * a test step if the connection will outlive the step, such as when
+     * opening a slice and leaving it open.  A single step that opens
+     * multiple connections is beyond our automated ken and needs to either be
+     * manually handled or update this common logic.
+     */
+    self._unusedConnections = 0;
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
@@ -272,9 +280,12 @@ var TestImapAccountMixins = {
   },
 
   expect_connection: function() {
-    if (!this._hasConnection) {
+    if (!this._unusedConnections) {
       this.eImapAccount.expect_createConnection();
-      this._hasConnection = true;
+      // caller will need to decrement this if they are going to keep the
+      // connection alive; we are expecting it to become available again at
+      // the end of the step...
+      this._unusedConnections++;
     }
     this.eImapAccount.expect_reuseConnection();
   },
@@ -322,7 +333,7 @@ var TestImapAccountMixins = {
       self.rawAccount = null;
 
       // we expect the connection to be reused and release to sync the folders
-      self._hasConnection = true;
+      self._unusedConnections = 1;
       self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
       // we expect the account state to be saved after syncing folders
@@ -334,6 +345,7 @@ var TestImapAccountMixins = {
           displayName: TEST_PARAMS.name,
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
+          accountName: self._opts.name || null,
         },
         null,
         function accountMaybeCreated(error) {
@@ -364,7 +376,8 @@ var TestImapAccountMixins = {
     testFolder.messages = null;
     testFolder._approxMessageCount = messageSetDef.count;
     testFolder._liveSliceThings = [];
-    this.T.convenienceSetup('delete test folder if it exists', function() {
+    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
+                            function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
       if (!existingFolder)
         return;
@@ -383,7 +396,8 @@ var TestImapAccountMixins = {
       MailUniverse.accounts[0].deleteFolder(existingFolder.id);
     });
 
-    this.T.convenienceSetup(self.eImapAccount, 'create test folder',function(){
+    this.T.convenienceSetup(self.eImapAccount, 'create test folder', testFolder,
+                            function(){
       self.RT.reportActiveActorThisStep(self);
       self.RT.reportActiveActorThisStep(testFolder.connActor);
       self.RT.reportActiveActorThisStep(testFolder.storageActor);
@@ -625,6 +639,8 @@ var TestImapAccountMixins = {
         self.expect_connection();
         if (!_saveToThing)
           self.eImapAccount.expect_releaseConnection();
+        else
+          self._unusedConnections--;
       }
 
       // generate expectations for each date sync range
@@ -720,7 +736,8 @@ var TestImapAccountMixins = {
     var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
     if (expected.hasOwnProperty('additions') && expected.additions) {
       for (i = 0; i < expected.additions.length; i++) {
-        expAdditionRep[expected.additions[i].subject] = true;
+        var msgThing = expected.additions[i], subject;
+        expAdditionRep[msgThing.subject || msgThing.headerInfo.subject] = true;
       }
     }
     for (i = 0; i < expected.deletions.length; i++) {
@@ -745,9 +762,12 @@ var TestImapAccountMixins = {
                              expectedFlags.grow, 'synced');
 
     // - listen for the changes
-    var additionRep = {}, changeRep = {}, deletionRep = {};
+    var additionRep = {}, changeRep = {}, deletionRep = {},
+        eventCounter = 0;
     viewThing.slice.onadd = function(item) {
       additionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
@@ -760,11 +780,15 @@ var TestImapAccountMixins = {
         if (item[changeEntry.field] !== changeEntry.value)
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
       });
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
     viewThing.slice.onremove = function(item) {
       deletionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
     };
-    function completed() {
+    var completed = function completed() {
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(additionRep, changeRep, deletionRep);
@@ -776,10 +800,14 @@ var TestImapAccountMixins = {
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
     };
-    if (completeCheckOn === 'roundtrip')
+    if (completeCheckOn === 'roundtrip') {
       this.MailAPI.ping(completed);
-    else
+    }
+    else if (typeof(completeCheckOn) === 'number') {
+      eventCounter = completeCheckOn;
+    } else {
       viewThing.slice.oncomplete = completed;
+    }
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
@@ -796,19 +824,34 @@ var TestImapAccountMixins = {
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
-                              extraFlag) {
+                              extraFlag, willFailFlag) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
-      if (dirMagnitude < 0)
-        viewThing.offset += dirMagnitude;
-
       var totalExpected = self._expect_dateSyncs(
                             viewThing.testFolder, expectedValues,
                             extraFlag) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, { changes: [], deletions: [] },
-                                expectedFlags);
+
+      var expectedMessages;
+      if (dirMagnitude < 0) {
+        viewThing.offset += dirMagnitude;
+        expectedMessages = viewThing.testFolder.messages.slice(
+                             viewThing.offset,
+                             viewThing.offset - dirMagnitude);
+      }
+      else {
+        if (willFailFlag)
+          expectedMessages = [];
+        else
+          expectedMessages = viewThing.testFolder.messages.slice(
+                               viewThing.offset + alreadyExists,
+                               viewThing.offset + totalExpected);
+      }
+      self.expect_headerChanges(
+        viewThing,
+        { additions: expectedMessages, changes: [], deletions: [] },
+        expectedFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
     });
   },
@@ -880,6 +923,8 @@ var TestImapAccountMixins = {
         self._logger.sliceDied(viewThing.slice.handle);
       };
       viewThing.slice.die();
+      // This frees up a connection.
+      self._unusedConnections++;
     });
   },
 

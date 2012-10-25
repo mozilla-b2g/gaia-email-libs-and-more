@@ -24,8 +24,8 @@ function makeRandomSubject() {
 
 /**
  * Compose a new message from scratch without saving it to drafts, verify that
- * we think it was sent, verify that we received it (which is also a good test
- * of refresh).
+ * we think it was sent, verify that it ended up in the sent folder, and verify
+ * that we received it (which is also a good test of refresh).
  */
 TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
@@ -37,6 +37,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - open the folder
   var inboxFolder = testAccount.do_useExistingFolder('INBOX', ''),
       inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
+      sentFolder = testAccount.do_useExistingFolder('Sent', ''),
+      sentView = testAccount.do_openFolderView('sent', sentFolder, null),
       replyComposer, expectedReplyBody;
 
   // - compose and send
@@ -48,6 +50,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   });
   T.action('send', eLazy, function() {
     eLazy.expect_event('sent');
+    eLazy.expect_event('appended');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
@@ -58,8 +61,22 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.error(err);
       else
         eLazy.event('sent');
+      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+        eLazy.event('appended');
+      });
     });
   }).timeoutMS = 5000;
+
+  // - verify sent folder contents
+  testAccount.do_waitForMessage(sentView, uniqueSubject, {
+    expect: function() {
+      RT.reportActiveActorThisStep(eLazy);
+      eLazy.expect_namedValue('subject', uniqueSubject);
+    },
+    withMessage: function(header) {
+      eLazy.namedValue('subject', header.subject);
+    }
+  });
 
   // - see the new message, start to reply to the message!
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
@@ -74,7 +91,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           '> Antelope banana credenza.',
           '>',
           '> Dialog excitement!',
-          '', '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
+          '', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -102,8 +119,6 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyTo = replyComposer.to;
-    replyCc = replyComposer.cc;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
                                                         sentDate) {
       replySentDate = new Date(sentDate);
@@ -126,7 +141,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       expectedForwardBody = {
         text: [
           '', '',
-          '-- ', $_mailuniverse.DEFAULT_SIGNATURE, '',
+          '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + replySentDate,
@@ -196,7 +211,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
         '</blockquote>' +
         '<pre class="moz-signature" cols="72">' +
-        $_mailuniverse.DEFAULT_SIGNATURE +
+        $_accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
       bpartHtml =
         new SyntheticPartLeaf(

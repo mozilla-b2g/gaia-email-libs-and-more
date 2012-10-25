@@ -75,6 +75,8 @@ var _window_mixin = {
     var parser = Cc["@mozilla.org/xmlextras/domparser;1"]
                    .createInstance(Ci.nsIDOMParser);
     parser.init();
+    // XXX we really need to wrap the parser's parser methods in try/catch
+    // blocks because in content space parseFromString does not throw.
     return parser;
   },
   XPathResult: {

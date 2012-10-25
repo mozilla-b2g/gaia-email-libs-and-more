@@ -136,8 +136,10 @@ TD.commonCase('folder sync', function(T) {
   T.group('sync detects additions/modifications/deletions');
   // delete 2 from the first interval (of 7), 1 from the second (of 7)
   testAccount.do_manipulateFolder(msearchFolder, 'nolocal', function(slice) {
-    slice.items[1].deleteMessage();
-    MailAPI.deleteMessages([slice.items[2], slice.items[8]]);
+
+    MailAPI.modifyMessageTags([slice.items[1]], ['\\Deleted'], null, 'delete');
+    MailAPI.modifyMessageTags([slice.items[2], slice.items[8]],
+                              ['\\Deleted'], null, 'delete');
     slice.items[3].setRead(true);
     slice.items[4].setStarred(true);
 
@@ -178,9 +180,11 @@ TD.commonCase('folder sync', function(T) {
     msearchView, 'nolocal',
     function(slice) {
       expectedRefreshChanges.deletions.push(slice.items[8]);
-      slice.items[8].deleteMessage();
+      MailAPI.modifyMessageTags([slice.items[8]],
+                                ['\\Deleted'], null, 'delete');
       expectedRefreshChanges.deletions.push(slice.items[0]);
-      slice.items[0].deleteMessage();
+      MailAPI.modifyMessageTags([slice.items[0]],
+                                ['\\Deleted'], null, 'delete');
 
       expectedRefreshChanges.changes.push([slice.items[12], 'isRead', true]);
       slice.items[12].setRead(true);

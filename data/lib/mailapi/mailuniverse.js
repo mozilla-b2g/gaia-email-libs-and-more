@@ -136,12 +136,12 @@ const MAX_LOG_BACKLOG = 30;
  * @typedef[SerializedMutation @dict[
  *   @key[type @oneof[
  *     @case['modtags']{
- *       Modify tags by adding and/or removing them.  Idempotent and atomic under
- *       all implementations;  no explicit account saving required.
+ *       Modify tags by adding and/or removing them.  Idempotent and atomic
+ *       under all implementations; no explicit account saving required.
  *     }
  *     @case['delete']{
- *       Delete a message under the "move to trash" model.  For IMAP, this is the
- *       same as a move operation.
+ *       Delete a message under the "move to trash" model.  For IMAP, this is
+ *       the same as a move operation.
  *     }
  *     @case['move']{
  *       Move message(s) within the same account.  For IMAP, this is neither
@@ -161,31 +161,84 @@ const MAX_LOG_BACKLOG = 30;
  *     Unique-ish identifier for the mutation.  Just needs to be unique enough
  *     to not refer to any pending or still undoable-operation.
  *   }
- *   @key[status @oneof[
+ *   @key[lifecyle @oneof[
+ *     @case['do']{
+ *       The initial state of an operation; indicates we want to execute the
+ *       operation to completion.
+ *     }
+ *     @case['done']{
+ *       The operation completed, it's done!
+ *     }
+ *     @case['undo']{
+ *       We want to undo the operation.
+ *     }
+ *     @case['undone']{
+ *     }
+ *   ]]{
+ *     Tracks the overall desired state and completion state of the operation.
+ *     Operations currently cannot be redone after they are undone.  This field
+ *     differs from the `localStatus` and `serverStatus` in that they track
+ *     what we have done to the local database and the server rather than our
+ *     goals.  It is very possible for an operation to have a lifecycle of
+ *     'undone' without ever having manipulated the local database or told the
+ *     server anything.
+ *   }
+ *   @key[localStatus @oneof[
  *     @case[null]{
- *       'local_do' has been invoked, but the action has not been run against
- *       the server.  Invoking `undoMutation` will invoke 'local_undo' and mark
- *       this as 'undone'.
+ *       Nothing has happened; no changes have been made to the local database.
+ *     }
+ *     @case['doing']{
+ *       'local_do' is running.  An attempt to undo the operation while in this
+ *       state will not interrupt 'local_do', but will enqueue the operation
+ *       to run 'local_undo' subsequently.
+ *     }
+ *     @case['done']{
+ *       'local_do' has successfully run to completion.
+ *     }
+ *     @case['undoing']{
+ *       'local_undo' is running.
+ *     }
+ *     @case['undone']{
+ *       'local_undo' has successfully run to completion or we canceled the
+ *       operation
+ *     }
+ *     @case['unknown']{
+ *       We're not sure what actually got persisted to disk.  If we start
+ *       generating more transactions once we're sure the I/O won't be harmful,
+ *       we can remove this state.
+ *     }
+ *   ]]{
+ *     The state of the local mutation effects of this operation.  This used
+ *     to be conflated together with `serverStatus` in a single status variable,
+ *     but the multiple potential undo transitions once local_do became async
+ *     made this infeasible.
+ *   }
+ *   @key[serverStatus @oneof[
+ *     @case[null]{
+ *       Nothing has happened; no attempt has been made to talk to the server.
  *     }
  *     @case['check']{
  *       We don't know what has or hasn't happened on the server so we need to
  *       run a check operation before doing anything.
  *     }
+ *     @case['checking']{
+ *       A check operation is currently being run.
+ *     }
  *     @case['doing']{
- *       'local_do' has been run, and 'do' is currently running.  Invoking
- *       `undoMutation` will not attempt to stop 'do', but will enqueue
+ *       'do' is currently running.  Invoking `undoMutation` will not attempt to
+ *       stop 'do', but will enqueue the operation with a desire of 'undo' to be
+ *       run later.
  *     }
  *     @case['done']{
- *       The op ran to completion; all done!  'local_do' and 'do' both ran
- *       successfully.
+ *       'do' successfully ran to completion.
  *     }
  *     @case['undoing']{
- *       'local_undo' has been run, and 'undo' is currently happening.
+ *       'undo' is currently running.  Invoking `undoMutation` will not attempt
+ *       to stop this but will enqueut the operation with a desire of 'do' to be
+ *       run later.
  *     }
  *     @case['undone']{
- *       The operation was 'done', then an undo was run, and it's now 'undone'.
- *       It is as-if the operation was never scheduled.  This is distinct from
- *       the null case becase null has run 'local_do'.
+ *       The operation was 'done' and has now been 'undone'.
  *     }
  *     @case['moot']{
  *       The job is no longer relevant; the messages it operates on don't exist,
@@ -194,16 +247,13 @@ const MAX_LOG_BACKLOG = 30;
  *       be executed.
  *     }
  *   ]]{
+ *     The state of the operation on the server.  This is tracked separately
+ *     from the `localStatus` to reduce the number of possible states.
  *   }
  *   @key[tryCount Number]{
  *     How many times have we attempted to run this operation.  If we retry an
  *     operation too many times, we eventually will discard it with the
  *     assumption that it's never going to succeed.
- *   }
- *   @key[desire @oneof['do' 'undo']]{
- *     Allows us to indicate that we want to undo an operation even while its
- *     'do' method is active.  `status` can't be used for this purpose without
- *     breaking our logic.
  *   }
  *   @key[humanOp String]{
  *     The user friendly opcode where flag manipulations like starring have
@@ -225,6 +275,34 @@ function MailUniverse(callAfterBigBang) {
   this.identities = [];
   this._identitiesById = {};
 
+  /**
+   * @dictof[
+   *   @key[AccountID]
+   *   @key[@dict[
+   *     @key[active Boolean]{
+   *       Is there an active operation right now?
+   *     }
+   *     @key[local @listof[SerializedMutation]]{
+   *       Operations to be run for local changes.  This queue is drained with
+   *       preference to the `server` queue.  Operations on this list will also
+   *       be added to the `server` list.
+   *     }
+   *     @key[server @listof[SerializedMutation]]{
+   *       Operations to be run against the server.
+   *     }
+   *     @key[deferred @listof[SerializedMutation]]{
+   *       Operations that were taken out of either of the above queues because
+   *       of a failure where we need to wait some amount of time before
+   *       retrying.
+   *     }
+   *   ]]
+   * ]{
+   *   Per-account lists of operations to run for local changes (first priority)
+   *   and against the server (second priority).  This does not contain
+   *   completed operations; those are stored on `MailAccount.mutations` (along
+   *   with uncompleted operations!)
+   * }
+   */
   this._opsByAccount = {};
   // populated by waitForAccountOps, invoked when all ops complete
   this._opCompletionListenersByAccount = {};
@@ -243,15 +321,6 @@ function MailUniverse(callAfterBigBang) {
 
   this._testModeDisablingLocalOps = false;
 
-  /**
-   * @dictof[
-   *   @key[AccountId]
-   *   @value[@listof[SerializedMutation]]
-   * ]{
-   *   The list of mutations for the account that still have yet to complete.
-   * }
-   */
-  this._pendingMutationsByAcct = {};
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
    * their operation queues.
@@ -491,30 +560,65 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Helper function to wrap calls to account.runOp since it now gets more
-   * complex with 'check' mode.
+   * Helper function to wrap calls to account.runOp for local operations; done
+   * only for consistency with `_dispatchServerOpForAccount`.
    */
-  _dispatchOpForAccount: function(account, op) {
-    var mode = op.desire;
-    if (op.status === 'check')
-      mode = 'check';
+  _dispatchLocalOpForAccount: function(account, op) {
+    var queues = this._opsByAccount[account.id];
+    queues.active = true;
+
+    var mode;
+    switch (op.lifecycle) {
+      case 'do':
+        mode = 'local_do';
+        op.localStatus = 'doing';
+        break;
+      case 'undo':
+        mode = 'local_undo';
+        op.localStatus = 'undoing';
+        break;
+      default:
+        throw new Error('Illegal lifecycle state for local op');
+    }
+
     account.runOp(
       op, mode,
-      this._opCompleted.bind(this, account, op));
+      this._localOpCompleted.bind(this, account, op));
+  },
+
+  /**
+   * Helper function to wrap calls to account.runOp for server operations since
+   * it now gets more complex with 'check' mode.
+   */
+  _dispatchServerOpForAccount: function(account, op) {
+    var queues = this._opsByAccount[account.id];
+    queues.active = true;
+
+    var mode = op.lifecycle;
+    if (op.serverStatus === 'check')
+      mode = 'check';
+    op.serverStatus = mode + 'ing';
+
+    account.runOp(
+      op, mode,
+      this._serverOpCompleted.bind(this, account, op));
   },
 
   /**
    * Start processing ops for an account if it's able and has ops to run.
    */
   _resumeOpProcessingForAccount: function(account) {
-    var queue = this._opsByAccount[account.id];
+    var queues = this._opsByAccount[account.id];
     if (!account.enabled)
       return;
-    if (queue.length &&
+    // Nothing to do if there's a local op running
+    if (!queues.local.length &&
+        queues.server.length &&
         // (it's possible there is still an active job right now)
-        (queue[0].status !== 'doing' && queue[0].status !== 'undoing')) {
-      var op = queue[0];
-      this._dispatchOpForAccount(account, op);
+        (queues.server[0].serverStatus !== 'doing' &&
+         queues.server[0].serverStatus !== 'undoing')) {
+      var op = queues.server[0];
+      this._dispatchServerOpForAccount(account, op);
     }
   },
 
@@ -601,7 +705,12 @@ MailUniverse.prototype = {
 
     this.accounts.push(account);
     this._accountsById[account.id] = account;
-    this._opsByAccount[account.id] = [];
+    this._opsByAccount[account.id] = {
+      active: false,
+      local: [],
+      server: [],
+      deferred: []
+    };
     this._opCompletionListenersByAccount[account.id] = null;
 
     for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
@@ -613,23 +722,23 @@ MailUniverse.prototype = {
     this.__notifyAddedAccount(account);
 
     // - check for mutations that still need to be processed
+    // This will take care of deferred mutations too because they are still
+    // maintained in this list.
     for (var i = 0; i < account.mutations.length; i++) {
       var op = account.mutations[i];
-      if (op.desire) {
-        // Per operation strategy documentation, we treat all depersisted
-        // operations as potentially-run, so we change the status to check.
-        // The check will be run before we decide to actually do what the
-        // operation wants.
-        op.status = 'check';
-        this._queueAccountOp(account, op, null, true);
+      if (op.lifecycle !== 'done' && op.lifecycle !== 'undone') {
+        // For localStatus, we currently expect it to be consistent with the
+        // state of the folder's database.  We expect this to be true going
+        // forward and as we make changes because when we save the account's
+        // operation status, we should also be saving the folder changes at the
+        // same time.
+        //
+        // The same cannot be said for serverStatus, so we need to check.  See
+        // comments about operations elsewhere (currently in imap/jobs.js).
+        op.serverStatus = 'check';
+        this._queueAccountOp(account, op);
       }
     }
-    // - propagate deferred mutations to the actual mutations list
-    // (These were deferred because a resource was not available; since we
-    // must have been asleep awhile, the resource is probably fine now.)
-    while (account.deferredMutations.length)
-      this._queueAccountOp(account, account.deferredMutations.shift(),
-                           null, true);
 
     return account;
   },
@@ -815,26 +924,88 @@ MailUniverse.prototype = {
    * and transferred across to the non-deferred queue at account-load time.
    */
   _deferOp: function(account, op) {
-    account.deferredMutations.push(op);
+    account.deferredMutations.push(op.longtermId);
     if (this._deferredOpTimeout !== null)
       this._deferredOpTimeout = window.setTimeout(
         this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
   },
 
   /**
-   * Transfer all deferred ops onto their op queue; invoked by the setTimeout
-   * scheduled by `_deferOp`.  We use a single timeout across all accounts, so
-   * the duration of the defer delay can vary a bit, but our goal is just to
-   * avoid deferrals turning into a tight loop that pounds the server, nothing
-   * fancier.
+   * Enqueue all deferred ops; invoked by the setTimeout scheduled by
+   * `_deferOp`.  We use a single timeout across all accounts, so the duration
+   * of the defer delay can vary a bit, but our goal is just to avoid deferrals
+   * turning into a tight loop that pounds the server, nothing fancier.
    */
   _queueDeferredOps: function() {
     this._deferredOpTimeout = null;
     for (var iAccount = 0; iAccount < this.accounts.length; iAccount++) {
-      var account = this.accounts[iAccount];
+      var account = this.accounts[iAccount],
+          queues = this._opsByAccount[account.id];
       // we need to mutate in-place, so concat is not an option
-      while (account.deferredMutations.length)
-        account.mutations.push(account.deferredMutations.shift());
+      while (queues.deferred.length) {
+        var op = queues.deferred.shift();
+        // There is no need to enqueue the operation if:
+        // - It's already enqueued because someone called undo
+        // - Undo got called and that ran to completion
+        if (queues.server.indexOf(op) === -1 &&
+            op.lifecycle !== 'undo')
+          this._queueAccountOp(account, op);
+      }
+    }
+  },
+
+  _localOpCompleted: function(account, op, err, resultIfAny,
+                              accountSaveSuggested) {
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    queues.active = false;
+
+    var removeFromServerQueue = false;
+    if (err) {
+      switch (err) {
+        // Only defer is currently supported as a recoverable local failure
+        // type.
+        case 'defer':
+          if (++op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
+            this._LOG.opDeferred(op.type, op.longtermId);
+            this._deferOp(op);
+            removeFromServerQueue = true;
+            break;
+          }
+          // fall-through to an error
+        default:
+          this._LOG.opGaveUp(op.type, op.longtermId);
+          op.localStatus = 'unknown';
+          op.serverStatus = 'moot';
+          removeFromServerQueue = true;
+          break;
+      }
+    }
+    else {
+      switch (op.localStatus) {
+        case 'doing':
+          op.localStatus = 'done';
+          break;
+        case 'undoing':
+          op.localStatus = 'undone';
+          break;
+      }
+    }
+    if (removeFromServerQueue) {
+      var idx = serverQueue.indexOf(op);
+      if (idx !== -1)
+        serverQueue.splice(idx, 1);
+    }
+    localQueue.shift();
+
+    if (localQueue.length) {
+      op = localQueue[0];
+      this._dispatchLocalOpForAccount(account, op);
+    }
+    else if (serverQueue.length && this.online && account.enabled) {
+      op = serverQueue[0];
+      this._dispatchServerOpForAccount(account, op);
     }
   },
 
@@ -894,9 +1065,14 @@ MailUniverse.prototype = {
    *   }
    * ]
    */
-  _opCompleted: function(account, op, err, resultIfAny, accountSaveSuggested) {
-    var queue = this._opsByAccount[account.id];
-    if (queue[0] !== op)
+  _serverOpCompleted: function(account, op, err, resultIfAny,
+                               accountSaveSuggested) {
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    queues.active = false;
+
+    if (serverQueue[0] !== op)
       this._LOG.opInvariantFailure();
 
     // Should we attempt to retry (but fail if tryCount is reached)?
@@ -908,10 +1084,19 @@ MailUniverse.prototype = {
     if (err) {
       switch (err) {
         case 'defer':
-          this._LOG.opDeferred(op.type, op.longtermId);
-          this._deferOp(op);
-          // remove the op from the queue, but don't mark it completed
-          completeOp = false;
+          if (++op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
+            // Defer the operation if we still want to do the thing, but skip
+            // deferring if we are now trying to undo the thing.
+            if (op.serverStatus === 'doing' && op.lifecycle === 'do') {
+              this._LOG.opDeferred(op.type, op.longtermId);
+              this._deferOp(op);
+            }
+            // remove the op from the queue, but don't mark it completed
+            completeOp = false;
+          }
+          else {
+            op.serverStatus = 'moot';
+          }
           break;
         case 'aborted-retry':
           op.tryCount++;
@@ -924,36 +1109,36 @@ MailUniverse.prototype = {
         case 'failure-give-up':
           this._LOG.opGaveUp(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
-          op.status = 'moot';
+          op.serverStatus = 'moot';
           break;
         case 'moot':
           this._LOG.opMooted(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
-          op.status = 'moot';
+          op.serverStatus = 'moot';
           break;
       }
     }
     else {
-      switch (op.status) {
+      switch (op.serverStatus) {
         case 'checking':
           // Update the status, and figure out if there is any work to do based
           // on our desire.
           switch (resultIfAny) {
             case 'checked-notyet':
             case 'coherent-notyet':
-              op.status = null;
+              op.serverStatus = null;
               break;
             case 'idempotent':
-              if (op.desire === 'do')
-                op.status = null;
+              if (op.lifecycle === 'do' || op.lifecycle === 'done')
+                op.serverStatus = null;
               else
-                op.status = 'done';
+                op.serverStatus = 'done';
               break;
             case 'happened':
-              op.status = 'done';
+              op.serverStatus = 'done';
               break;
             case 'moot':
-              op.status = 'moot';
+              op.serverStatus = 'moot';
               break;
             // this is the same thing as defer.
             case 'bailed':
@@ -964,20 +1149,20 @@ MailUniverse.prototype = {
           }
           break;
         case 'doing':
-          op.status = 'done';
-          // clear the desire if it hasn't changed to undo
-          if (op.desire === 'do')
-            op.desire = null;
+          op.serverStatus = 'done';
+          // lifecycle may have changed to 'undo'; don't mutate if so
+          if (op.lifecycle === 'do')
+            op.lifecycle = 'done';
           break;
         case 'undoing':
-          op.status = 'undone';
-          // clear the desire if it hasn't changed back to 'do'
-          if (op.desire === 'undo')
-            op.desire = null;
+          op.serverStatus = 'undone';
+          // this will always be true until we gain 'redo' functionality
+          if (op.lifecycle === 'undo')
+            op.lifecycle = 'undone';
           break;
       }
       // If we still want to do something, then don't consume the op.
-      if (op.desire)
+      if (op.lifecycle === 'do' || op.lifecycle === 'undo')
         consumeOp = false;
     }
 
@@ -985,18 +1170,18 @@ MailUniverse.prototype = {
       if (op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
         // We're still good to try again, but we will need to check the status
         // first.
-        op.status = 'check';
+        op.serverStatus = 'check';
         consumeOp = false;
       }
       else {
         this._LOG.opTryLimitReached(op.type, op.longtermId);
         // we complete the op, but the error flag is propagated
-        op.status = 'moot';
+        op.serverStatus = 'moot';
       }
     }
 
     if (consumeOp)
-      queue.shift();
+      serverQueue.shift();
 
     if (completeOp) {
       if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
@@ -1016,9 +1201,13 @@ MailUniverse.prototype = {
         account.saveAccountState();
     }
 
-    if (queue.length && this.online && account.enabled) {
-      op = queue[0];
-      this._dispatchOpForAccount(account, op);
+    if (localQueue.length) {
+      op = localQueue[0];
+      this._dispatchLocalOpForAccount(account, op);
+    }
+    else if (serverQueue.length && this.online && account.enabled) {
+      op = serverQueue[0];
+      this._dispatchServerOpForAccount(account, op);
     }
     else if (this._opCompletionListenersByAccount[account.id]) {
       this._opCompletionListenersByAccount[account.id](account);
@@ -1027,12 +1216,8 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Immediately run the local mutation (synchronously) for an operation and
-   * enqueue its server operation for asynchronous operation.
-   *
-   * (nb: Header updates' execution may actually be deferred into the future if
-   * block loads are required, but they will maintain their apparent ordering
-   * on the folder in question.)
+   * Enqueue an operation for processing.  The local mutation is enqueued if it
+   * has not yet been run.  The server piece is always enqueued.
    *
    * @args[
    *   @param[account]
@@ -1047,42 +1232,54 @@ MailUniverse.prototype = {
    *   }
    * ]
    */
-  _queueAccountOp: function(account, op, optionalCallback, justRequeue) {
-    var queue = this._opsByAccount[account.id];
-    queue.push(op);
-
+  _queueAccountOp: function(account, op, optionalCallback) {
+    // - Name the op, register callbacks
     if (op.longtermId === null) {
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
       while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
-             account.mutations[0].desire === null) {
+             (account.mutations[0].lifecycle === 'done') ||
+             (account.mutations[0].lifecycle === 'undone')) {
         account.mutations.shift();
       }
     }
     if (optionalCallback)
       this._opCallbacks[op.longtermId] = optionalCallback;
 
-    // - run the local manipulation immediately
-    if (!this._testModeDisablingLocalOps && !justRequeue) {
-      switch (op.desire) {
-        case 'do':
-          account.runOp(op, 'local_do');
-          break;
-        case 'undo':
-          account.runOp(op, 'local_undo');
-          break;
-      }
+    // - Enqueue
+    var queues = this._opsByAccount[account.id];
+    // Local processing needs to happen if we're not in the right local state.
+    if (!this._testModeDisablingLocalOps &&
+        ((op.lifecycle === 'do' && op.localStatus === null) ||
+         (op.lifecycle === 'undo' && op.localStatus !== 'undone' &&
+          op.localStatus !== 'unknown')))
+      queues.local.push(op);
+    // Server processing is always needed
+    queues.server.push(op);
+
+    // If there is already something active, don't do anything!
+    if (queues.active) {
+    }
+    else if (queues.local.length) {
+      // Only actually dispatch if there is only the op we just (maybe).
+      if (queues.local.length === 1 && queues.local[0] === op)
+        this._dispatchLocalOpForAccount(account, op);
+      else
+        console.log('local active! not running!');
+      // else: we grabbed control flow to avoid the server queue running
+    }
+    else if (queues.server.length === 1 && this.online && account.enabled) {
+      this._dispatchServerOpForAccount(account, op);
     }
 
-    // - initiate async execution if this is the first op
-    if (this.online && account.enabled && queue.length === 1)
-      this._dispatchOpForAccount(account, op);
     return op.longtermId;
   },
 
   waitForAccountOps: function(account, callback) {
-    if (this._opsByAccount[account.id].length === 0)
+    var queues = this._opsByAccount[account.id];
+    if (queues.local.length === 0 &&
+        queues.server.length === 0)
       callback();
     else
       this._opCompletionListenersByAccount[account.id] = callback;
@@ -1106,9 +1303,10 @@ MailUniverse.prototype = {
       {
         type: 'download',
         longtermId: null,
-        status: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
         tryCount: 0,
-        desire: 'do',
         humanOp: 'download',
         messageSuid: messageSuid,
         messageDate: messageDate,
@@ -1126,9 +1324,10 @@ MailUniverse.prototype = {
         {
           type: 'modtags',
           longtermId: null,
-          status: null,
+          lifecycle: 'do',
+          localStatus: null,
+          serverStatus: null,
           tryCount: 0,
-          desire: 'do',
           humanOp: humanOp,
           messages: x.messages,
           addTags: addTags,
@@ -1142,6 +1341,49 @@ MailUniverse.prototype = {
   },
 
   moveMessages: function(messageSuids, targetFolderId) {
+    var self = this, longtermIds = [],
+        targetFolderAccount = this.getAccountForFolderId(targetFolderId);
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      // TODO: implement cross-account moves and then remove this constraint
+      // and instead schedule the cross-account move.
+      if (x.account !== targetFolderAccount)
+        throw new Error('cross-account moves not currently supported!');
+      var longtermId = self._queueAccountOp(
+        x.account,
+        {
+          type: 'move',
+          longtermId: null,
+          lifecycle: 'do',
+          localStatus: null,
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'move',
+          messages: x.messages,
+          targetFolder: targetFolderId,
+        });
+      longtermIds.push(longtermId);
+    });
+    return longtermIds;
+  },
+
+  deleteMessages: function(messageSuids) {
+    var self = this, longtermIds = [];
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      var longtermId = self._queueAccountOp(
+        x.account,
+        {
+          type: 'delete',
+          longtermId: null,
+          lifecycle: 'do',
+          localStatus: null,
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'delete',
+          messages: x.messages
+        });
+      longtermIds.push(longtermId);
+    });
+    return longtermIds;
   },
 
   appendMessages: function(folderId, messages) {
@@ -1151,9 +1393,10 @@ MailUniverse.prototype = {
       {
         type: 'append',
         longtermId: null,
-        status: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
         tryCount: 0,
-        desire: 'do',
         humanOp: 'append',
         messages: messages,
         folderId: folderId,
@@ -1211,9 +1454,10 @@ MailUniverse.prototype = {
       {
         type: 'createFolder',
         longtermId: null,
-        status: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
         tryCount: 0,
-        desire: 'do',
         humanOp: 'createFolder',
         parentFolderId: parentFolderId,
         folderName: folderName,
@@ -1223,46 +1467,46 @@ MailUniverse.prototype = {
     return [longtermId];
   },
 
+  /**
+   * Idempotently trigger the undo logic for the performed operation.  Calling
+   * undo on an operation that is already undone/slated for undo has no effect.
+   */
   undoMutation: function(longtermIds) {
     for (var i = 0; i < longtermIds.length; i++) {
       var longtermId = longtermIds[i],
-          account = this.getAccountForFolderId(longtermId); // (it's fine)
+          account = this.getAccountForFolderId(longtermId), // (it's fine)
+          queues = this._opsByAccount[account.id];
 
       for (var iOp = 0; iOp < account.mutations.length; iOp++) {
         var op = account.mutations[iOp];
         if (op.longtermId === longtermId) {
-          switch (op.status) {
-            // if we haven't started doing the operation, we can cancel it
-            case null:
-              var queue = this._opsByAccount[account.id],
-                  idx = queue.indexOf(op);
-              if (idx !== -1) {
-                queue.splice(idx, 1);
-                // we still need to trigger the local_undo, of course
-                account.runOp(op, 'local_undo');
-                op.desire = null;
-              }
-              // If it somehow didn't exist, enqueue it.  Presumably this is
-              // something odd like a second undo request, which is logically
-              // a 'do' request, which is unsupported, but hey.
-              else {
-                op.desire = 'do';
-                this._queueAccountOp(account, op);
-              }
-              break;
-            // If it has been completed or is in the processing of happening, we
-            // should just enqueue it again to trigger its undoing/doing.
-            case 'done':
-            case 'doing':
-              op.desire = 'undo';
-              this._queueAccountOp(account, op);
-              break;
-            case 'undone':
-            case 'undoing':
-              op.desire = 'do';
-              this._queueAccountOp(account, op);
-              break;
+          // There is nothing to do if we have already processed the request or
+          // or the op has already been fully undone.
+          if (op.lifecycle === 'undo' || op.lifecycle === 'undone') {
+            continue;
           }
+
+          // Queue an undo operation if we're already done.
+          if (op.lifecycle === 'done') {
+            op.lifecycle = 'undo';
+            this._queueAccountOp(account, op);
+            continue;
+          }
+          // else op.lifecycle === 'do'
+
+          // If we have not yet started processing the operation, we can
+          // simply remove the operation from the local queue.
+          var idx = queues.local.indexOf(op);
+          if (idx !== -1) {
+              op.lifecycle = 'undone';
+              queues.local.splice(idx, 1);
+              continue;
+          }
+          // (the operation must have already been run locally, which means
+          // that at the very least we need to local_undo, so queue it.)
+
+          op.lifecycle = 'undo';
+          this._queueAccountOp(account, op);
         }
       }
     }
