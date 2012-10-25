@@ -7,7 +7,7 @@ Cu.import('resource://gre/modules/NetUtil.jsm');
 
 load('deps/activesync/wbxml/wbxml.js');
 load('deps/activesync/codepages.js');
-load('test/messageGenerator.js');
+load('test/unit/resources/messageGenerator.js');
 
 const $wbxml = WBXML;
 const $ascp = ActiveSyncCodepages;
@@ -29,17 +29,26 @@ function ActiveSyncServer() {
   this.server = new HttpServer();
 
   this.msgGen = new MessageGenerator();
-  this.messages = this.msgGen.makeMessages();
+  this.messages = this.msgGen.makeMessages({});
 }
 
 ActiveSyncServer.prototype = {
+  /**
+   * Start the server on a specified port.
+   */
   start: function(port) {
     this.server.registerPathHandler('/Microsoft-Server-ActiveSync',
                                     this._commandHandler.bind(this));
     this.server.start(port);
   },
 
+  /**
+   * Stop the server.
+   *
+   * @param callback A callback to call when the server is stopped.
+   */
   stop: function(callback) {
+    this.server.stop({ onStopped: callback });
   },
 
   _commandHandler: function(request, response) {
@@ -170,7 +179,7 @@ ActiveSyncServer.prototype = {
 
       for (let message of this.messages) {
         w.stag(as.Add)
-           .tag(as.ServerId, message.id)
+           .tag(as.ServerId, message.messageId)
            .stag(as.ApplicationData);
 
         this._writeEmail(w, message);
@@ -215,7 +224,7 @@ ActiveSyncServer.prototype = {
 
       // XXX: Implement error handling
       for (let message of server.messages) {
-        if (message.id === fetch.serverId)
+        if (message.messageId === fetch.serverId)
           fetch.message = message;
       }
       fetches.push(fetch);
@@ -253,8 +262,8 @@ ActiveSyncServer.prototype = {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
 
-    w.tag(em.From, this.msgGen.formatAddresses([message.from]))
-     .tag(em.To, this.msgGen.formatAddresses(message.to))
+    w.tag(em.From, message.headers['From'])
+     .tag(em.To, message.headers['To'])
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
