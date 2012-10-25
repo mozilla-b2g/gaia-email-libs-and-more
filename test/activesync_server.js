@@ -48,6 +48,22 @@ function ActiveSyncFolder(name, type, parent) {
   this.messages = msgGen.makeMessages({});
 }
 
+ActiveSyncFolder.prototype = {
+  /**
+   * Find a message object by its server ID.
+   *
+   * @param id the ServerId for the message
+   * @return the message object, or null if no message was found
+   */
+  findMessageById: function(id) {
+    for (let message of this.messages) {
+      if (message.messageId === id)
+        return message;
+    }
+    return null;
+  }
+};
+
 function ActiveSyncServer() {
   this.server = new HttpServer();
 
@@ -248,10 +264,8 @@ ActiveSyncServer.prototype = {
       }
 
       // XXX: Implement error handling
-      for (let message of server.messages) {
-        if (message.messageId === fetch.serverId)
-          fetch.message = message;
-      }
+      let folder = server._findFolderById(fetch.collectionId);
+      fetch.message = folder.findMessageById(fetch.serverId);
       fetches.push(fetch);
     });
     e.run(decodeWBXML(request.bodyInputStream));
