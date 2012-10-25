@@ -19,7 +19,7 @@ const $ascp = ActiveSyncCodepages;
  * @return a string of the bytes
  */
 function encodeWBXML(wbxml) {
-  return TextDecoder('ascii').decode(wbxml.bytes);
+  return String.fromCharCode.apply(String, wbxml.bytes);
 }
 
 /**
