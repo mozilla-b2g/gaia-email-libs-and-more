@@ -290,19 +290,18 @@ ActiveSyncJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // download
 
-  local_do_download: function(op, ignoredCallback) {
+  local_do_download: function(op, callback) {
     // Downloads are inherently online operations.
-    return null;
+    callback(null);
   },
 
   do_download: function(op, callback) {
     let jobDriver = this;
-    let lslash = message.suid.lastIndexOf('/')
-    let folderId = message.suid.substring(0, lslash);
-    let messageId = message.suid.substring(lslash + 1);
+    let lslash = op.messageSuid.lastIndexOf('/')
+    let folderId = op.messageSuid.substring(0, lslash);
+    let messageId = op.messageSuid.substring(lslash + 1);
     let folderStorage = this.account.getFolderStorageForFolderId(folderId);
 
-    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
     // Now that we have the body, we can know the part numbers and eliminate /
     // filter out any redundant download requests.  Issue all the fetches at
     // once.
@@ -319,7 +318,6 @@ ActiveSyncJobDriver.prototype = {
         if (!partInfo.file)
           partsToDownload.push(partInfo);
       }
-
       jobDriver._downloadAttachments(messageId, partsToDownload, gotParts);
     };
 
@@ -341,25 +339,55 @@ ActiveSyncJobDriver.prototype = {
       folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
       callback(err, bodyInfo, true);
     };
+
+    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
   },
 
+  // XXX: take advantage of multipart responses here.
+  // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
   _downloadAttachments: function(messageId, partsToDownload, callback) {
     const io = $ascp.ItemOperations.Tags;
     const asb = $ascp.AirSyncBase.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(io.ItemOperations)
-       .stag(io.Fetch)
+    w.stag(io.ItemOperations);
+    for (let [,part] in Iterator(partsToDownload)) {
+      w.stag(io.Fetch)
          .tag(io.Store, 'Mailbox')
-         .tag(asb.FileReference, partsToDownload[0].part)
-       .etag()
-     .etag();
+         .tag(asb.FileReference, part.part)
+       .etag();
+    }
+    w.etag();
 
-    this.account.conn.doCommand(w, function(aError, aResult) {
-      console.log(aResult.dump());
-      callback('badness', []);
+    this.account.conn.postCommand(w, function(aError, aResult) {
+      let bodies = [];
+
+      let e = new $wbxml.EventParser();
+      e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
+                          io.Properties, io.Data], function(node) {
+        let data = node.children[0].textContent;
+        bodies.push(new Buffer(data, 'base64'));
+      });
+      e.run(aResult);
+
+      callback(null, bodies);
     });
   },
+
+  check_download: function(op, callback) {
+    // If we had download the file and persisted it successfully, this job would
+    // be marked done because of the atomicity guarantee on our commits.
+    callback(null, 'coherent-notyet');
+  },
+
+  local_undo_download: function(op, callback) {
+    callback(null);
+  },
+
+  undo_download: function(op, callback) {
+    callback(null);
+  },
+
 
   //////////////////////////////////////////////////////////////////////////////
 };
