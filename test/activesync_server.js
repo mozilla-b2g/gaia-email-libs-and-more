@@ -12,10 +12,22 @@ load('test/unit/resources/messageGenerator.js');
 const $wbxml = WBXML;
 const $ascp = ActiveSyncCodepages;
 
+/**
+ * Encode a WBXML writer's bytes for sending over the network.
+ *
+ * @param wbxml the WBXML Writer
+ * @return a string of the bytes
+ */
 function encodeWBXML(wbxml) {
   return TextDecoder('ascii').decode(wbxml.bytes);
 }
 
+/**
+ * Decode a stream from the network into a WBXML reader.
+ *
+ * @param stream the incoming stream
+ * @return the WBXML Reader
+ */
 function decodeWBXML(stream) {
   let str = NetUtil.readInputStreamToString(stream, stream.available());
   let bytes = new Uint8Array(str.length);
@@ -271,13 +283,26 @@ ActiveSyncServer.prototype = {
     response.write(encodeWBXML(w));
   },
 
+  /**
+   * Find a folder object by its server ID.
+   *
+   * @param id the CollectionId for the folder
+   * @return the ActiveSyncFolder object, or null if no folder was found
+   */
   _findFolderById: function(id) {
     for (let folder of this.folders) {
       if (folder.id === id)
         return folder;
     }
+    return null;
   },
 
+  /**
+   * Write the WBXML for an individual message.
+   *
+   * @param w the WBXML writer
+   * @param message the message object
+   */
   _writeEmail: function(w, message) {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
