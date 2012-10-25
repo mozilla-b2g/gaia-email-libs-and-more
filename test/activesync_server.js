@@ -149,7 +149,7 @@ ActiveSyncServer.prototype = {
   },
 
   _handleCommand_Sync: function(request, query, response) {
-    const as  = $ascp.AirSync.Tags;
+    const as = $ascp.AirSync.Tags;
     const asEnum = $ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId;
@@ -292,8 +292,7 @@ ActiveSyncServer.prototype = {
        .tag(asb.Type, '1')
        .tag(asb.EstimatedDataSize, message.bodyPart.body.length)
        .tag(asb.Truncated, '0')
-      .tag(asb.Data, message.bodyPart.body)
+       .tag(asb.Data, message.bodyPart.body)
      .etag();
   }
 };
-
