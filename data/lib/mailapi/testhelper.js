@@ -1015,9 +1015,15 @@ var TestActiveSyncAccountMixins = {
 
           self._logger.accountCreated();
           var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-          self.accountId = self.compositeAccount.id;
+          self.account = self.universe.accounts[idxAccount];
+          self.accountId = self.account.id;
         });
     });
+  },
+
+  expect_shutdown: function() {
+    this.RT.reportActiveActorThisStep(this.eAccount);
+    this.eAccount.expectOnly__die();
   },
 };
 
