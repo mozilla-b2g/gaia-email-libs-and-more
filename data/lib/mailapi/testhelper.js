@@ -5,6 +5,7 @@ var $log = require('rdcommon/log'),
     $mailbridge = require('mailapi/mailbridge'),
     $date = require('mailapi/date'),
     $imapacct = require('mailapi/imap/account'),
+    $activesyncacct = require('mailapi/activesync/account'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
@@ -963,6 +964,63 @@ var TestImapAccountMixins = {
   },
 };
 
+var TestActiveSyncAccountMixins = {
+  __constructor: function(self, opts) {
+    self.eAccount = self.T.actor('ActiveSyncAccount', self.__name, null, self);
+
+    self._opts = opts;
+    if (!opts.universe)
+      throw new Error("Universe not specified!");
+    if (!opts.universe.__testAccounts)
+      throw new Error("Universe is not of the right type: " + opts.universe);
+
+    self.accountId = null;
+    self.universe = null;
+    self.MailAPI = null;
+    self.testUniverse = opts.universe;
+    self.testUniverse.__testAccounts.push(this);
+
+    self._do_createAccount();
+  },
+
+  _do_createAccount: function() {
+    var self = this;
+    /**
+     * Create a test account as defined by TEST_PARAMS and query for the list of
+     * all accounts and folders, advancing to the next test when both slices are
+     * populated.
+     */
+    self.T.convenienceSetup(self, 'creates test account', function() {
+      self.__attachToLogger(LOGFAB.testActiveSyncAccount(self, null,
+                                                         self.__name));
+
+      self.RT.reportActiveActorThisStep(self.eAccount);
+      self.expect_accountCreated();
+
+      self.universe = self.testUniverse.universe;
+      self.MailAPI = self.testUniverse.MailAPI;
+
+      self.MailAPI.tryToCreateAccount(
+        {
+          displayName: 'test',
+          emailAddress: 'test@aslocalhost',
+          password: 'test',
+          accountName: self._opts.name || null,
+        },
+        null,
+        function accountMaybeCreated(error) {
+          if (error)
+            do_throw('Failed to create account: ' + 'test@aslocalhost' +
+                     ': ' + error);
+
+          self._logger.accountCreated();
+          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
+          self.accountId = self.compositeAccount.id;
+        });
+    });
+  },
+};
+
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   bridgeSnoop: {
     type: $log.CLIENT,
@@ -1015,6 +1073,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changeMismatch: { field: false, expectedValue: false },
     },
   },
+  testActiveSyncAccount: {
+    type: $log.TEST_SYNTHETIC_ACTOR,
+    subtype: $log.CLIENT,
+    topBilling: true,
+
+    events: {
+      accountCreated: {},
+    },
+  },
 });
 
 exports.TESTHELPER = {
@@ -1026,10 +1093,12 @@ exports.TESTHELPER = {
     $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,
+    $activesyncacct.LOGFAB,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,
     testImapAccount: TestImapAccountMixins,
+    testActiveSyncAccount: TestActiveSyncAccountMixins,
   }
 };
 

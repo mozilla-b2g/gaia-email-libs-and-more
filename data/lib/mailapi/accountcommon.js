@@ -995,7 +995,7 @@ Autoconfigurator.prototype = {
   getConfig: function getConfig(userDetails, callback) {
     let [emailLocalPart, emailDomainPart] = userDetails.emailAddress.split('@');
     let domain = emailDomainPart.toLowerCase();
-    console.log('Attempting to get autoconfiguration for:'. domain);
+    console.log('Attempting to get autoconfiguration for:', domain);
 
     const placeholderFields = {
       incoming: ['username', 'hostname', 'server'],
