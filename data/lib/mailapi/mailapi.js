@@ -473,9 +473,9 @@ MailBody.prototype = {
 
   /**
    * Trigger the download of any inline images sent as part of the message.
-   * Once the images have been downloaded
+   * Once the images have been downloaded, invoke the provided callback.
    */
-  downloadEmbeddedImages: function(callback) {
+  downloadEmbeddedImages: function(callWhenDone, callOnProgress) {
     var relPartIndices = [];
     for (var i = 0; i < this._relatedParts.length; i++) {
       var relatedPart = this._relatedParts[i];
@@ -484,10 +484,12 @@ MailBody.prototype = {
       relPartIndices.push(i);
     }
     if (!relPartIndices.length) {
-      callback();
+      if (callWhenDone)
+        callWhenDone();
       return;
     }
-    this._api._downloadAttachments(this, relPartIndices, [], callback);
+    this._api._downloadAttachments(this, relPartIndices, [],
+                                   callWhenDone, callOnProgress);
   },
 
   /**
@@ -602,6 +604,12 @@ MailAttachment.prototype = {
 
   get isDownloaded() {
     return !!this._file;
+  },
+
+  download: function(callWhenDone, callOnProgress) {
+    this._body._api._downloadAttachments(
+      this._body, [], [this._body.attachments.indexOf(this)],
+      callWhenDone, callOnProgress);
   },
 };
 
@@ -895,9 +903,7 @@ function MessageComposition(api, handle) {
 
   this._references = null;
   this._customHeaders = null;
-  // XXX attachments aren't implemented yet, of course.  They will be added
-  // via helper method.
-  this._attachments = null;
+  this.attachments = null;
 }
 MessageComposition.prototype = {
   toString: function() {
@@ -921,6 +927,24 @@ MessageComposition.prototype = {
   },
 
   /**
+   * @args[
+   *   @param[attachmentDef @dict[
+   *     @key[fileName String]
+   *     @key[blob Blob]
+   *   ]]
+   * ]
+   */
+  addAttachment: function(attachmentDef) {
+    this.attachments.push(attachmentDef);
+  },
+
+  removeAttachment: function(attachmentDef) {
+    var idx = this.attachments.indexOf(attachmentDef);
+    if (idx !== -1)
+      this.attachments.splice(idx, 1);
+  },
+
+  /**
    * Populate our state to send over the wire to the back-end.
    */
   _buildWireRep: function() {
@@ -933,7 +957,7 @@ MessageComposition.prototype = {
       body: this.body,
       referencesStr: this._references,
       customHeaders: this._customHeaders,
-      attachments: this._attachments,
+      attachments: this.attachments,
     };
   },
 
@@ -1284,14 +1308,15 @@ MailAPI.prototype = {
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,
-                                 callback) {
+                                 callWhenDone, callOnProgress) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'downloadAttachments',
       body: body,
       relParts: relPartIndices.length > 0,
       attachments: attachmentIndices.length > 0,
-      callback: callback,
+      callback: callWhenDone,
+      progress: callOnProgress
     };
     this.__bridgeSend({
       type: 'downloadAttachments',
@@ -1312,11 +1337,11 @@ MailAPI.prototype = {
     delete this._pendingRequests[msg.handle];
 
     // What will have changed are the attachment lists, so update them.
-    if (msg.body) {
+    if (msg.bodyInfo) {
       if (req.relParts)
-        req.body._relatedParts = msg.body.relatedParts;
+        req.body._relatedParts = msg.bodyInfo.relatedParts;
       if (req.attachments) {
-        var wireAtts = msg.body.attachments;
+        var wireAtts = msg.bodyInfo.attachments;
         for (var i = 0; i < wireAtts.length; i++) {
           var wireAtt = wireAtts[i], bodyAtt = req.body.attachments[i];
           bodyAtt.sizeEstimateInBytes = wireAtt.sizeEstimate;
@@ -1844,7 +1869,7 @@ MailAPI.prototype = {
     req.composer.cc = msg.cc;
     req.composer.bcc = msg.bcc;
     req.composer._references = msg.referencesStr;
-    // XXX attachments
+    req.composer.attachments = msg.attachments;
 
     if (req.callback) {
       var callback = req.callback;

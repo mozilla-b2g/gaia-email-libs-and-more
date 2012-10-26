@@ -66,7 +66,14 @@ SmtpAccount.prototype = {
    * message to the sent folder.
    *
    * @args[
-   *   @param[composedMessage]
+   *   @param[composedMessage MailComposer]{
+   *     A mailcomposer instance that has already generated its message payload
+   *     to its _outputBuffer field.  We previously used streaming generation,
+   *     but have abandoned this for now for IMAP Sent folder saving purposes.
+   *     Namely, our IMAP implementation doesn't support taking a stream for
+   *     APPEND right now, and there's no benefit to doing double the work and
+   *     generating extra garbage.
+   *   }
    *   @param[callback @func[
    *     @args[
    *       @param[error @oneof[
@@ -126,8 +133,8 @@ SmtpAccount.prototype = {
         if (bailed)
           return;
         sendingMessage = true;
-        composedMessage.streamMessage();
-        composedMessage.pipe(conn);
+        conn.write(composedMessage._outputBuffer);
+        conn.end();
       });
     // And close the connection and be done once it has been sent
     conn.on('ready', function() {

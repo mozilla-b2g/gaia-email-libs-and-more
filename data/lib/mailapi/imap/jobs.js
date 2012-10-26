@@ -253,91 +253,15 @@ ImapJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message
 
-  local_do_download: function(op, callback) {
-    // Downloads are inherently online operations.
-    callback(null);
-  },
+  local_do_download: $jobmixins.local_do_download,
 
-  do_download: function(op, callback) {
-    var self = this;
-    var idxLastSlash = op.messageSuid.lastIndexOf('/'),
-        folderId = op.messageSuid.substring(0, idxLastSlash);
+  do_download: $jobmixins.do_download,
 
-    var folderConn, folderStorage;
-    // Once we have the connection, get the current state of the body rep.
-    var gotConn = function gotConn(_folderConn, _folderStorage) {
-      folderConn = _folderConn;
-      folderStorage = _folderStorage;
+  check_download: $jobmixins.check_download,
 
-      folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
-    };
-    var deadConn = function deadConn() {
-      callback('aborted-retry');
-    };
-    // Now that we have the body, we can know the part numbers and eliminate /
-    // filter out any redundant download requests.  Issue all the fetches at
-    // once.
-    var partsToDownload = [], header, bodyInfo, uid;
-    var gotHeader = function gotHeader(_headerInfo) {
-      header = _headerInfo;
-      uid = header.srvid;
-      folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
-    };
-    var gotBody = function gotBody(_bodyInfo) {
-      bodyInfo = _bodyInfo;
-      var i, partInfo;
-      for (i = 0; i < op.relPartIndices.length; i++) {
-        partInfo = bodyInfo.relatedParts[op.relPartIndices[i]];
-        if (partInfo.file)
-          continue;
-        partsToDownload.push(partInfo);
-      }
-      for (i = 0; i < op.attachmentIndices.length; i++) {
-        partInfo = bodyInfo.attachments[op.attachmentIndices[i]];
-        if (partInfo.file)
-          continue;
-        partsToDownload.push(partInfo);
-      }
+  local_undo_download: $jobmixins.local_undo_download,
 
-      folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
-    };
-    var gotParts = function gotParts(err, bodyBuffers) {
-      if (bodyBuffers.length !== partsToDownload.length) {
-        callback(err, null, false);
-        return;
-      }
-      for (var i = 0; i < partsToDownload.length; i++) {
-        // Because we should be under a mutex, this part should still be the
-        // live representation and we can mutate it.
-        var partInfo = partsToDownload[i],
-            buffer = bodyBuffers[i];
-
-        partInfo.sizeEstimate = buffer.length;
-        partInfo.file = new Blob([buffer],
-                                 { contentType: partInfo.type });
-      }
-      folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-      callback(err, bodyInfo, true);
-    };
-
-    self._accessFolderForMutation(folderId, true, gotConn, deadConn,
-                                  'download');
-  },
-
-  check_download: function(op, callback) {
-    // If we had download the file and persisted it successfully, this job would
-    // be marked done because of the atomicity guarantee on our commits.
-    callback(null, UNCHECKED_COHERENT_NOTYET);
-  },
-
-  local_undo_download: function(op, callback) {
-    callback(null);
-  },
-
-  undo_download: function(op, callback) {
-    callback(null);
-  },
-
+  undo_download: $jobmixins.undo_download,
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
