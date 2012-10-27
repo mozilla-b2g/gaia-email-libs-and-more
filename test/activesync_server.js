@@ -1,9 +1,7 @@
 'use strict';
 
-const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
-
-Cu.import('resource://testing-common/httpd.js');
-Cu.import('resource://gre/modules/NetUtil.jsm');
+Components.utils.import('resource://testing-common/httpd.js');
+Components.utils.import('resource://gre/modules/NetUtil.jsm');
 
 load('deps/activesync/wbxml/wbxml.js');
 load('deps/activesync/codepages.js');
