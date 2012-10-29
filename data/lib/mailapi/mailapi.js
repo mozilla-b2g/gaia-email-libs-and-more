@@ -814,6 +814,14 @@ BridgedViewSlice.prototype = {
   },
 
   die: function() {
+    // Null out all listeners except for the ondead listener.  This avoids
+    // the callbacks from having to filter out messages from dead slices.
+    this.onadd = null;
+    this.onchange = null;
+    this.onsplice = null;
+    this.onremove = null;
+    this.onstatus = null;
+    this.oncomplete = null;
     this._api.__bridgeSend({
         type: 'killSlice',
         handle: this._handle
@@ -1255,6 +1263,7 @@ MailAPI.prototype = {
     delete this._slices[msg.handle];
     if (slice.ondead)
       slice.ondead(slice);
+    slice.ondead = null;
   },
 
   _getBodyForMessage: function(header, callback) {
