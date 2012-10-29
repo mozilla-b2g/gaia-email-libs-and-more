@@ -179,28 +179,23 @@ CompositeAccount.prototype = {
   },
 
   sendMessage: function(composedMessage, callback) {
+    // Render the message to its output buffer.
+    composedMessage._cacheOutput = true;
+    process.immediate = true;
+    composedMessage._processBufferedOutput = function() {
+      // we are stopping the DKIM logic from firing.
+    };
+    composedMessage._composeMessage();
+    process.immediate = false;
+
     return this._sendPiece.sendMessage(
       composedMessage,
       function(err, errDetails) {
         // We need to append the message to the sent folder if we think we sent
         // the message okay.
         if (!err) {
-          // have it internally accumulate the data rather than using the stream
-          // mechanism.
-          composedMessage._cacheOutput = true;
-          // reset the offsets since we are reusing the composer.
-          composedMessage._message.processingStart = 0;
-          composedMessage._message.processingPos = 0;
-          var data = null;
-          process.immediate = true;
-          composedMessage._processBufferedOutput = function() {
-            data = composedMessage._outputBuffer;
-          };
-          composedMessage._composeMessage();
-          process.immediate = false;
-
           var message = {
-            messageText: data.trimRight(),
+            messageText: composedMessage._outputBuffer,
             // do not specify date; let the server use its own timestamping
             // since we want the approximate value of 'now' anyways.
             flags: ['Seen'],
