@@ -334,8 +334,10 @@ var TestImapAccountMixins = {
 
       // we expect the connection to be reused and release to sync the folders
       self._unusedConnections = 1;
+      self.eImapAccount.expect_runOp_begin('do', 'syncFolderList');
       self.expect_connection();
       self.eImapAccount.expect_releaseConnection();
+      self.eImapAccount.expect_runOp_end('do', 'syncFolderList');
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState_begin();
       self.eImapAccount.expect_saveAccountState_end();
@@ -352,12 +354,18 @@ var TestImapAccountMixins = {
           if (error)
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
                      ': ' + error);
-          self._logger.accountCreated();
           var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
           self.compositeAccount = self.universe.accounts[idxAccount];
           self.imapAccount = self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
           self.accountId = self.compositeAccount.id;
+
+          // Because folder list synchronizing happens as an operation, we want
+          // to wait for that operation to complete before declaring the account
+          // created.
+          MailUniverse.waitForAccountOps(self.compositeAccount, function() {
+            self._logger.accountCreated();
+          });
         });
     }).timeoutMS = 5000; // there can be slow startups...
   },
@@ -499,7 +507,7 @@ var TestImapAccountMixins = {
         }
       }
       MailUniverse.appendMessages(testFolder.id, messageBodies);
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      MailUniverse.waitForAccountOps(self.compositeAccount, function() {
         self._logger.appendNotified();
         self.universe._testModeDisablingLocalOps = false;
       });

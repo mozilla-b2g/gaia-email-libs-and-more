@@ -721,6 +721,23 @@ MailUniverse.prototype = {
 
     this.__notifyAddedAccount(account);
 
+    // - issue a (non-persisted) syncFolderList if needed
+    var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
+    if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
+      this._queueAccountOp(
+        account,
+        {
+          type: 'syncFolderList',
+          // no need to track this in the mutations list
+          longtermId: 'internal',
+          lifecycle: 'do',
+          localStatus: 'done',
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'syncFolderList'
+        });
+    }
+
     // - check for mutations that still need to be processed
     // This will take care of deferred mutations too because they are still
     // maintained in this list.

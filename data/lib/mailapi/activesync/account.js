@@ -113,10 +113,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this._jobDriver = new $asjobs.ActiveSyncJobDriver(
                           this,
                           this._folderInfos.$mutationState);
-
-  // TODO: this is a really hacky way of syncing folders after the first time.
-  if (this.meta.syncKey != '0')
-    setTimeout(this.syncFolderList.bind(this), 1000);
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
@@ -224,6 +220,10 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        callback(aError);
+        return;
+      }
       let e = new $wbxml.EventParser();
       let deferredAddedFolders = [];
 
@@ -265,9 +265,8 @@ ActiveSyncAccount.prototype = {
       }
 
       console.log('Synced folder list');
-      account.saveAccountState(null, null, 'folderList');
       if (callback)
-        callback();
+        callback(null);
     });
   },
 

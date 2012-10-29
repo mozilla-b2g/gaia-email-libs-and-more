@@ -288,6 +288,38 @@ ActiveSyncJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // syncFolderList
+  //
+  // Synchronize our folder list.  This should always be an idempotent operation
+  // that makes no sense to undo/redo/etc.
+
+  local_do_syncFolderList: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_syncFolderList: function(op, doneCallback) {
+    var account = this.account;
+    account.syncFolderList(function(err) {
+      if (!err)
+        account.meta.lastFolderSyncAt = Date.now();
+      // save if it worked
+      doneCallback(err ? 'aborted-retry' : null, null, !err);
+    });
+  },
+
+  check_syncFolderList: function(op, doneCallback) {
+    doneCallback('idempotent');
+  },
+
+  local_undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 }); // end define
