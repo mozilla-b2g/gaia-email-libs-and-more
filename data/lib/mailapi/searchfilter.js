@@ -96,7 +96,9 @@ define(
 
 /**
  * This internal function checks if a string or a regexp matches an input
- * and if it does, it returns a 'return value' as RegExp.exec does.
+ * and if it does, it returns a 'return value' as RegExp.exec does.  Note that
+ * the 'index' of the returned value will be relative to the provided
+ * `fromIndex` as if the string had been sliced using fromIndex.
  */
 function matchRegexpOrString(phrase, input, fromIndex) {
   if (!input) {
@@ -113,7 +115,7 @@ function matchRegexpOrString(phrase, input, fromIndex) {
   }
 
   var ret = [ phrase ];
-  ret.index = idx;
+  ret.index = idx - fromIndex;
   return ret;
 }
 
@@ -133,7 +135,7 @@ AuthorFilter.prototype = {
 
   testMessage: function(header, body, match) {
     var author = header.author, phrase = this.phrase, ret;
-    if ((ret = matchRegexpOrString(phrase, author.name))) {
+    if ((ret = matchRegexpOrString(phrase, author.name, 0))) {
       match.author = {
         text: author.name,
         offset: 0,
@@ -142,7 +144,7 @@ AuthorFilter.prototype = {
       };
       return true;
     }
-    if ((ret = matchRegexpOrString(phrase, author.address))) {
+    if ((ret = matchRegexpOrString(phrase, author.address, 0))) {
       match.author = {
         text: author.address,
         offset: 0,
@@ -186,7 +188,7 @@ RecipientFilter.prototype = {
       var ret;
       for (var i = 0; i < list.length; i++) {
         var recip = list[i];
-        if ((ret = matchRegexpOrString(phrase, recip.name))) {
+        if ((ret = matchRegexpOrString(phrase, recip.name, 0))) {
           matches.push({
             text: recip.name,
             offset: 0,
@@ -197,7 +199,7 @@ RecipientFilter.prototype = {
             continue;
           return;
         }
-        if ((ret = matchRegexpOrString(phrase, recip.address))) {
+        if ((ret = matchRegexpOrString(phrase, recip.address, 0))) {
           matches.push({
             text: recip.address,
             offset: 0,
@@ -249,6 +251,8 @@ function snippetMatchHelper(str, start, length, contextBefore, contextAfter,
   if (contextBefore > start)
     contextBefore = start;
   var offset = str.indexOf(' ', start - contextBefore);
+  if (offset === -1)
+    offset = 0;
   if (offset >= start)
     offset = start - contextBefore;
   var endIdx = str.lastIndexOf(' ', start + length + contextAfter);
@@ -295,7 +299,7 @@ SubjectFilter.prototype = {
       if (!ret)
         break;
 
-      matches.push(snippetMatchHelper(subject, ret.index, ret[0].length,
+      matches.push(snippetMatchHelper(subject, idx + ret.index, ret[0].length,
                                       contextBefore, contextAfter, null));
       idx += ret.index + ret[0].length;
     }
@@ -413,7 +417,7 @@ BodyFilter.prototype = {
             // worry about it.
             var nodeText = node.data;
 
-            var ret = matchRegexpOrString(phrase, nodeText);
+            var ret = matchRegexpOrString(phrase, nodeText, 0);
             if (ret) {
               matches.push(
                 snippetMatchHelper(nodeText, ret.index, ret[0].length,
@@ -464,7 +468,6 @@ function MessageFilterer(filters) {
     if (filter.needsBody)
       this.bodiesNeeded = true;
   }
-console.log('sf: filterer: bodiesNeeded:', this.bodiesNeeded);
 }
 exports.MessageFilterer = MessageFilterer;
 MessageFilterer.prototype = {
@@ -474,8 +477,8 @@ MessageFilterer.prototype = {
    * are defined by the filterers in use.
    */
   testMessage: function(header, body) {
-console.log('sf: testMessage(', header.suid, header.author.address,
-            header.subject, 'body?', !!body, ')');
+    //console.log('sf: testMessage(', header.suid, header.author.address,
+    //            header.subject, 'body?', !!body, ')');
     var matched = false, matchObj = {};
     const filters = this.filters;
     for (var i = 0; i < filters.length; i++) {
@@ -483,7 +486,7 @@ console.log('sf: testMessage(', header.suid, header.author.address,
       if (filter.testMessage(header, body, matchObj))
         matched = true;
     }
-console.log('   =>', matched, JSON.stringify(matchObj));
+    //console.log('   =>', matched, JSON.stringify(matchObj));
     if (matched)
       return matchObj;
     else
@@ -516,7 +519,9 @@ console.log('sf: creating SearchSlice:', phrase);
   this.endUID = null;
 
   if (!(phrase instanceof RegExp)) {
-    phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&"), 'i');
+    phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g,
+                                       '\\$&'),
+                        'i');
   }
 
   var filters = [];

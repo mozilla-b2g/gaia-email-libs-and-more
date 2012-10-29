@@ -226,6 +226,7 @@ TestContext.prototype = {
     actor.event = logger.event.bind(logger);
     actor.value = logger.value.bind(logger);
     actor.namedValue = logger.namedValue.bind(logger);
+    actor.namedValueD = logger.namedValueD.bind(logger);
     actor.error = logger.error.bind(logger);
 
     return actor;
@@ -668,9 +669,11 @@ var LAZYLOGFAB = exports.__LAZYLOGFAB = $log.register(null, {
     type: $log.TEST_LAZY,
     subtype: $log.TEST_LAZY,
     events: {
-      event: {name: true},
-      value: {value: true},
-      namedValue: {name: true, value: true},
+      event: { name: true },
+      value: { value: true },
+      namedValue: { name: true, value: true },
+      // provide detail that should not be part of the expectation
+      namedValueD: { name: true, value: true, detail: false },
     },
     errors: {
       error: {what: $log.EXCEPTION},

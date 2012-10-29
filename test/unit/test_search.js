@@ -2,130 +2,214 @@
  * Test the search filters.
  **/
 
+load('resources/loggest_test_framework.js');
+
+var TD = $tc.defineTestsFor(
+  { id: 'test_search' }, null, [$th_imap.TESTHELPER], ['app']);
+
 var $filters = require('mailapi/searchfilter');
 
-function run_test_author() {
-  var results = [
-    { phrase: 'foo',
+TD.commonCase('author filter', function(T) {
+  var eLazy = T.lazyLogger('filter');
+
+  var samples = [
+    { name: 'no match against empty author',
+      phrase: 'foo',
       headers: { author: {} },
       result: false,
       index: 0 },
-    { phrase: 'foo',
+    { name: 'no match against populated author',
+      phrase: 'foo',
       headers: { author: { name: 'bar', address: 'barbar' } },
       result: false,
       index: 0 },
-    { phrase: 'foo',
+    { name: 'match address exactly',
+      phrase: 'foo',
+      headers: { author: { name: 'bar', address: 'foo' } },
+      result: true,
+      index: 0 },
+    { name: 'match start of address',
+      phrase: 'foo',
+      headers: { author: { name: 'bar', address: 'foo bar' } },
+      result: true,
+      index: 0 },
+    { name: 'match middle of address with whitespace',
+      phrase: 'foo',
       headers: { author: { name: 'bar', address: 'bar foo bar' } },
       result: true,
       index: 4 },
-    { phrase: 'foo',
+    { name: 'match middle of address without whitespace',
+      phrase: 'foo',
+      headers: { author: { name: 'bar', address: 'barfoobar' } },
+      result: true,
+      index: 3 },
+    { name: 'match end of address',
+      phrase: 'foo',
+      headers: { author: { name: 'bar', address: 'bar foo' } },
+      result: true,
+      index: 4 },
+    { name: 'match name exactly',
+      phrase: 'foo',
       headers: { author: { name: 'foo', address: null } },
       result: true,
       index: 0 },
-    { phrase: 'foo',
+    { name: 'match middle of name',
+      phrase: 'foo',
       headers: { author: { name: 'afooa', address: null } },
       result: true,
       index: 1 },
-    { phrase: 'foo',
-      headers: { author: { name: null, address: 'foo' } },
-      result: true,
-      index: 0 },
-    { phrase: /foo/i,
+    { name: 'match ignoring case',
+      phrase: /foo/i,
       headers: { author: { name: null, address: 'F FOOBAR R' } },
       result: true,
-      index: 2 }
+      index: 2,
+      length: 3 },
+    {
+      name: 'match variable-length regexp',
+      phrase: /fo+/i,
+      headers: { author: { name: 'afOoOoa', address: null } },
+      result: true,
+      index: 1,
+      length: 5
+    }
   ];
 
-  for (let i = 0; i < results.length; ++i) {
-    var author = new $filters.AuthorFilter(results[i].phrase);
-    var match = {};
-    var ret = author.testMessage(results[i].headers, '', match);
-    do_check_eq(ret, results[i].result);
+  samples.forEach(function(sample) {
+    T.action(sample.name, eLazy, function() {
+      eLazy.expect_namedValueD('matches?', sample.result);
+      if (sample.result) {
+        eLazy.expect_namedValue('offset', sample.index);
+        eLazy.expect_namedValue('length',
+                                sample.length || sample.phrase.length);
+      }
 
-    if (!ret) {
-      continue;
-    }
+      var author = new $filters.AuthorFilter(sample.phrase);
+      var match = {};
+      var ret = author.testMessage(sample.headers, '', match);
+      eLazy.namedValueD('matches?', !!ret, ret);
+      if (!ret)
+        return;
+      eLazy.namedValue('offset', match.author.matchRuns[0].start);
+      eLazy.namedValue('length', match.author.matchRuns[0].length);
+    });
+  });
+});
 
-    do_check_eq(match.author.matchRuns[0].start, results[i].index);
-  }
-}
+TD.commonCase('recipient filter', function(T) {
+  var eLazy = T.lazyLogger('filter');
 
-function run_test_recipient() {
-  var results = [
-    { phrase: 'foo',
+  var samples = [
+    { name: 'no match against empty to',
+      phrase: 'foo',
       body: { to: [ {} ] },
       result: false,
       index: 0 },
-    { phrase: 'foo',
+    { name: 'no match against populated to',
+      phrase: 'foo',
       body: { to: [ {}, {}, { name: 'bar', address: 'barbar' } ] },
       result: false,
       index: 0 },
-    { phrase: 'foo',
+    { name: 'match middle of address',
+      phrase: 'foo',
       body: { to: [ {}, {}, { name: 'bar', address: 'bar foobar' } ] },
       result: true,
       index: 4 },
-    { phrase: /foobar/i,
+    { name: 'match name ignoring case',
+      phrase: /foobar/i,
       body: { to: [ {}, {}, {name: 'FOOBaR'} ] },
       result: true,
-      index: 0 },
-    { phrase: /foobar/i,
+      index: 0,
+      length: 6 },
+    { name: 'match address ignoring case',
+      phrase: /foobar/i,
       body: { bcc: [ {}, {}, {address: 'FOOBaR'} ] },
       result: true,
-      index: 0 }
+      index: 0,
+      length: 6 }
   ];
 
-  for (let i = 0; i < results.length; ++i) {
-    var recipient = new $filters.RecipientFilter(results[i].phrase, 1, true, true, true);
-    var match = {};
-    var ret = recipient.testMessage({}, results[i].body, match);
-    do_check_eq(ret, results[i].result);
+  samples.forEach(function(sample) {
+    T.action(sample.name, eLazy, function() {
+      eLazy.expect_namedValueD('matches?', sample.result);
+      if (sample.result) {
+        eLazy.expect_namedValue('count', 1);
+        eLazy.expect_namedValue('offset', sample.index);
+        eLazy.expect_namedValue('length',
+                                sample.length || sample.phrase.length);
+      }
 
-    if (!ret) {
-      continue;
-    }
+      var recipient = new $filters.RecipientFilter(
+        sample.phrase, 1, true, true, true);
+      var match = {};
+      var ret = recipient.testMessage('', sample.body, match);
+      eLazy.namedValueD('matches?', ret, match);
+      if (!ret)
+        return;
+      eLazy.namedValue('count', match.recipients.length, 1);
+      eLazy.namedValue('offset', match.recipients[0].matchRuns[0].start);
+      eLazy.namedValue('length', match.recipients[0].matchRuns[0].length);
+    });
+  });
+});
 
-    do_check_eq(match.recipients.length, 1);
-    do_check_eq(match.recipients[0].matchRuns[0].start, results[i].index);
-  }
-}
+TD.commonCase('subject filter', function(T) {
+  var eLazy = T.lazyLogger('filter');
 
-function run_test_subject() {
-  var results = [
-    { phrase: 'bob',
+  var samples = [
+    {
+      name: 'match multiple times',
+      phrase: 'bob',
       header: { subject: 'bobobob' },
       result: true,
-      matches: 2 },
-    { phrase: /bob/i,
+      matches: [
+        { start: 0, length: 3 },
+        { start: 4, length: 3 }
+      ]
+    },
+    {
+      name: 'match multiple times ignoring case',
+      phrase: /bob/i,
       header: { subject: 'bObObOb' },
       result: true,
-      matches: 2 },
-    { phrase: /bob/i,
+      matches: [
+        { start: 0, length: 3 },
+        { start: 4, length: 3 }
+      ]
+    },
+    {
+      name: 'fail to match',
+      phrase: /bob/i,
       header: { subject: 'foobar' },
       result: false,
-      matches: 0 }
+      matches: []
+    }
   ];
 
-  for (let i = 0; i < results.length; ++i) {
-    var subject = new $filters.SubjectFilter(results[i].phrase, 20, 0, 10000);
-    var match = {};
-    var ret = subject.testMessage(results[i].header, {}, match);
-    do_check_eq(ret, results[i].result);
+  samples.forEach(function(sample) {
+    T.action(sample.name, eLazy, function() {
+      eLazy.expect_namedValueD('matches?', sample.result);
+      if (sample.result) {
+        for (var i = 0; i < sample.matches.length; i++) {
+          eLazy.expect_namedValue('matchRun', [sample.matches[i]]);
+        }
+      }
 
-    if (!ret) {
-      continue;
-    }
+      var subject = new $filters.SubjectFilter(sample.phrase, 20, 0, 10000);
+      var match = {};
+      var ret = subject.testMessage(sample.header, {}, match);
+      eLazy.namedValueD('matches?', !!ret, match);
+      if (!ret)
+        return;
+      for (i = 0; i < match.subject.length; i++) {
+        eLazy.namedValue('matchRun', match.subject[i].matchRuns);
+      }
+    });
+  });
+});
 
-    do_check_eq(match.subject.length, results[i].matches);
-  }
-}
 
-function run_test_body() {
-  // XXX This part must be completed
-}
+// XXX write a body test
 
 function run_test() {
-  run_test_author();
-  run_test_recipient();
-  run_test_subject();
-  run_test_body();
+  runMyTests(5);
 }
