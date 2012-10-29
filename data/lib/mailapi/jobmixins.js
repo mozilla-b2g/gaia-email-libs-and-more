@@ -164,6 +164,136 @@ exports.local_undo_delete = function(op, doneCallback) {
   this.local_undo_move(op, doneCallback, trashFolder.id);
 };
 
+exports.do_download = function(op, callback) {
+  var self = this;
+  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+      folderId = op.messageSuid.substring(0, idxLastSlash);
+
+  var folderConn, folderStorage;
+  // Once we have the connection, get the current state of the body rep.
+  var gotConn = function gotConn(_folderConn, _folderStorage) {
+    folderConn = _folderConn;
+    folderStorage = _folderStorage;
+
+    folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
+  };
+  var deadConn = function deadConn() {
+    callback('aborted-retry');
+  };
+  // Now that we have the body, we can know the part numbers and eliminate /
+  // filter out any redundant download requests.  Issue all the fetches at
+  // once.
+  var partsToDownload = [], storePartsTo = [], header, bodyInfo, uid;
+  var gotHeader = function gotHeader(_headerInfo) {
+    header = _headerInfo;
+    uid = header.srvid;
+    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+  };
+  var gotBody = function gotBody(_bodyInfo) {
+    bodyInfo = _bodyInfo;
+    var i, partInfo;
+    for (i = 0; i < op.relPartIndices.length; i++) {
+      partInfo = bodyInfo.relatedParts[op.relPartIndices[i]];
+      if (partInfo.file)
+        continue;
+      partsToDownload.push(partInfo);
+      storePartsTo.push('idb');
+    }
+    for (i = 0; i < op.attachmentIndices.length; i++) {
+      partInfo = bodyInfo.attachments[op.attachmentIndices[i]];
+      if (partInfo.file)
+        continue;
+      partsToDownload.push(partInfo);
+      // right now all attachments go in pictures
+      storePartsTo.push('pictures');
+    }
+
+    folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
+  };
+  var pendingStorageWrites = 0, downloadErr = null;
+  /**
+   * Save an attachment to device storage, making the filename unique if we
+   * encounter a collision.
+   */
+  function saveToStorage(blob, storage, filename, partInfo, isRetry) {
+    pendingStorageWrites++;
+    var dstorage = navigator.getDeviceStorage(storage);
+    var req = dstorage.addNamed(blob, filename);
+    req.onerror = function() {
+      console.warn('failed to save attachment to', storage, filename,
+                   'type:', blob.type);
+      pendingStorageWrites--;
+      // if we failed to unique the file after appending junk, just give up
+      if (isRetry) {
+        if (pendingStorageWrites === 0)
+          done();
+        return;
+      }
+      // retry by appending a super huge timestamp to the file before its
+      // extension.
+      var idxLastPeriod = filename.lastIndexOf('.');
+      if (idxLastPeriod === -1)
+        idxLastPeriod = filename.length;
+      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+                   filename.substring(idxLastPeriod);
+      saveToStorage(blob, storage, filename, partInfo, true);
+    };
+    req.onsuccess = function() {
+      console.log('saved attachment to', storage, filename, 'type:', blob.type);
+      partInfo.file = [storage, filename];
+      if (--pendingStorageWrites === 0)
+        done();
+    };
+  }
+  var gotParts = function gotParts(err, bodyBuffers) {
+    if (bodyBuffers.length !== partsToDownload.length) {
+      callback(err, null, false);
+      return;
+    }
+    downloadErr = err;
+    for (var i = 0; i < partsToDownload.length; i++) {
+      // Because we should be under a mutex, this part should still be the
+      // live representation and we can mutate it.
+      var partInfo = partsToDownload[i],
+          buffer = bodyBuffers[i],
+          storeTo = storePartsTo[i];
+
+      partInfo.sizeEstimate = buffer.length;
+      var blob = new Blob([buffer], { type: partInfo.type });
+      if (storeTo === 'idb')
+        partInfo.file = blob;
+      else
+        saveToStorage(blob, storeTo, partInfo.name, partInfo);
+    }
+    if (!pendingStorageWrites)
+      done();
+  };
+  function done() {
+    folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
+    callback(downloadErr, bodyInfo, true);
+  };
+
+  self._accessFolderForMutation(folderId, true, gotConn, deadConn,
+                                'download');
+};
+
+exports.local_do_download = function(op, callback) {
+  // Downloads are inherently online operations.
+  callback(null);
+};
+
+exports.check_download = function(op, callback) {
+  // If we had download the file and persisted it successfully, this job would
+  // be marked done because of the atomicity guarantee on our commits.
+  callback(null, 'coherent-notyet');
+};
+exports.local_undo_download = function(op, callback) {
+  callback(null);
+};
+exports.undo_download = function(op, callback) {
+  callback(null);
+};
+
 exports.postJobCleanup = function(passed) {
   if (passed) {
     var deltaMap, fullMap;

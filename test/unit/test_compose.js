@@ -48,6 +48,17 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
+
+  // Have our attachment data:
+  // - Contain all possible binary values so we can make sure there are no
+  //   encoding snafus.
+  // - Be long enough that the base64 encoding will cross multiple lines.
+  // - Be non-repeating so that slice errors show up.
+  const attachmentData = [];
+  for (var iData = 0; iData < 256; iData++) {
+    attachmentData.push(iData);
+  }
+
   T.action('send', eLazy, function() {
     eLazy.expect_event('sent');
     eLazy.expect_event('appended');
@@ -55,6 +66,11 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
     composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
+
+    composer.addAttachment({
+      name: 'foo.png',
+      blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
+    });
 
     composer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
@@ -70,11 +86,52 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
+      __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
       RT.reportActiveActorThisStep(eLazy);
       eLazy.expect_namedValue('subject', uniqueSubject);
+      eLazy.expect_namedValue(
+        'attachments',
+        [{
+          filename: 'foo.png',
+          mimetype: 'image/png',
+          // there is some guessing/rounding involved
+          sizeEstimateInBytes: 257,
+         }]);
+      eLazy.expect_namedValue('addNamed:pictures', 'foo.png');
+      eLazy.expect_namedValue('get:pictures', 'foo.png');
+      eLazy.expect_namedValue(
+        'attachment[0].data', attachmentData.concat());
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
+      header.getBody(function(body) {
+        var attachments = [];
+        body.attachments.forEach(function(att, iAtt) {
+          attachments.push({
+            filename: att.filename,
+            mimetype: att.mimetype,
+            sizeEstimateInBytes: att.sizeEstimateInBytes,
+          });
+          att.download(function() {
+            var storage = navigator.getDeviceStorage(att._file[0]),
+                storageReq = storage.get(att._file[1]);
+            storageReq.onsuccess = function() {
+              var reader = new FileReader();
+              reader.onload = function(data) {
+                var dataArr = [];
+                for (var i = 0; i < data.length; i++) {
+                  dataArr.push(data[i]);
+                }
+                eLazy.namedValue('attachment[' + iAtt + '].data',
+                                 dataArr);
+                __deviceStorageLogFunc = function() {};
+              };
+              reader.readAsArrayBuffer(storageReq.result);
+            };
+          });
+        });
+        eLazy.namedValue('attachments', attachments);
+      });
     }
   });
 
