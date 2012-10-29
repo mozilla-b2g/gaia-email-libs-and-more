@@ -614,9 +614,7 @@ Configurators['activesync'] = {
       };
 
       var account = self._loadAccount(universe, accountDef, conn);
-      account.syncFolderList(function() {
-        callback(null, account);
-      });
+      callback(null, account);
     });
   },
 
@@ -645,9 +643,7 @@ Configurators['activesync'] = {
     };
 
     var account = this._loadAccount(universe, accountDef, null);
-    account.syncFolderList(function() {
-      callback(null, account);
-    });
+    callback(null, account);
   },
 
   /**
@@ -661,6 +657,7 @@ Configurators['activesync'] = {
       $meta: {
         nextFolderNum: 0,
         nextMutationNum: 0,
+        lastFolderSyncAt: 0,
         syncKey: '0',
       },
       $mutations: [],

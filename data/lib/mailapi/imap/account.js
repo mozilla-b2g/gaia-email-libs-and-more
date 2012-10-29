@@ -182,6 +182,14 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * expunging deleted messages.
    */
   this._TEST_doNotCloseFolder = false;
+
+  // Ensure we have an inbox.  This is a folder that must exist with a standard
+  // name, so we can create it without talking to the server.
+  var inboxFolder = this.getFirstFolderWithType('inbox');
+  if (!inboxFolder) {
+    // XXX localized inbox string (bug 805834)
+    this._learnAboutFolder('INBOX', 'INBOX', 'inbox', '/', 0);
+  }
 }
 exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
@@ -768,6 +776,12 @@ ImapAccount.prototype = {
 
         // - already known folder
         if (folderPubsByPath.hasOwnProperty(path)) {
+          // Make sure the delimiter is up-to-date (for INBOX we initially make
+          // a guess which we must update here.)
+          var meta = folderPubsByPath[path];
+          if (meta.delim !== box.delim)
+            meta.delim = box.delim;
+
           // mark it with true to show that we've seen it.
           folderPubsByPath = true;
         }

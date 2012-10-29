@@ -113,6 +113,14 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this._jobDriver = new $asjobs.ActiveSyncJobDriver(
                           this,
                           this._folderInfos.$mutationState);
+
+  // Ensure we have an inbox.  This is a folder that must exist with a standard
+  // name, so we can create it without talking to the server.
+  var inboxFolder = this.getFirstFolderWithType('inbox');
+  if (!inboxFolder) {
+    // XXX localized Inbox string (bug 805834)
+    this._addedFolder(null, '0', 'Inbox', '2');
+  }
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
@@ -309,6 +317,23 @@ ActiveSyncAccount.prototype = {
       let parent = this._folderInfos[parentFolderId];
       path = parent.$meta.path + '/' + path;
       depth = parent.$meta.depth + 1;
+    }
+
+    // Handle sentinel Inbox.
+    if (typeNum === '2') {
+      let existingInboxMeta = this.getFirstFolderWithType('inbox');
+      if (existingInboxMeta) {
+        // update everything about the folder meta
+        existingInboxMeta.serverId = serverId;
+        existingInboxMeta.name = displayName;
+        existingInboxMeta.path = path;
+        existingInboxMeta.depth = depth;
+        // Its folder connection needs to know the updated server id since it
+        // copied it out.
+        let folderStorage = this._folderStorages[existingInboxMeta.id];
+        folderStorage.folderSyncer.folderConn.serverId = serverId;
+        return existingInboxMeta;
+      }
     }
 
     let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
