@@ -39,6 +39,8 @@ Components.utils.import("resource://test/resources/globalshack.jsm",
  */
 var __blobLogFunc = function() {
 };
+var __deviceStorageLogFunc = function() {
+};
 
 var _window_mixin = {
   // - indexed db
@@ -132,6 +134,36 @@ var _window_mixin = {
       getAll: function() {},
       remove: function() {},
     },
+    getDeviceStorage: function(ds) {
+      return {
+        addNamed: function(blob, name) {
+          __deviceStorageLogFunc('addNamed:' + ds, name);
+          _FAKE_DEVICE_STORAGE[ds + ':' + name] = blob;
+          var req = {
+            onsuccess: null,
+            onerror: null
+          };
+          window.setZeroTimeout(function() {
+            if (req.onsuccess)
+              req.onsuccess({ target: req });
+          });
+          return req;
+        },
+        'get': function(name) {
+          __deviceStorageLogFunc('get:' + ds, name);
+          var req = {
+            onsuccess: null,
+            onerror: null,
+            result: null
+          };
+          window.setZeroTimeout(function() {
+            req.result = _FAKE_DEVICE_STORAGE[ds + ':' + name];
+            req.onsuccess({ target: req });
+          });
+          return req;
+        },
+      };
+    },
     mozSetMessageHandler: function() {},
     mozHasPendingMessage: function() {
       return false;
@@ -206,13 +238,32 @@ var window = this, self = this;
 // during the RequireJS bootstrap, have navigator be undefined.
 navigator = undefined;
 
+var _FAKE_DEVICE_STORAGE = {};
+
 function Blob(parts, properties) {
   this.parts = parts;
   this.properties = properties;
+  this.type = properties.type;
+  this.endings = properties.endings;
 
   this.str = parts[0].toString();
 
   __blobLogFunc('createBlob', this.str);
 }
 Blob.prototype = {
+};
+
+function FileReader() {
+  this.onload = null;
+}
+FileReader.prototype = {
+  readAsArrayBuffer: function(blob) {
+    var self = this;
+    window.setZeroTimeout(function() {
+      var arr = blob.parts[0];
+      self.result = arr;
+      if (self.onload)
+        self.onload(arr);
+    });
+  }
 };

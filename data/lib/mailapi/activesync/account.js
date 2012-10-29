@@ -543,7 +543,12 @@ ActiveSyncAccount.prototype = {
   sendMessage: function asa_sendMessage(composedMessage, callback) {
     // XXX: This is very hacky and gross. Fix it to use pipes later.
     composedMessage._cacheOutput = true;
+    process.immediate = true;
+    composedMessage._processBufferedOutput = function() {
+      // we are stopping the DKIM logic from firing.
+    };
     composedMessage._composeMessage();
+    process.immediate = false;
 
     // ActiveSync 14.0 has a completely different API for sending email. Make
     // sure we format things the right way.

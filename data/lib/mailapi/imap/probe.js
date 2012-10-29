@@ -123,6 +123,7 @@ var getTZOffset = exports.getTZOffset = function getTZOffset(conn, callback) {
     conn.search([['UID', Math.max(1, highUid - 49) + ':' + highUid]],
                 gotSearch.bind(null, highUid - 50));
   }
+  var viableUids = null;
   function gotSearch(nextHighUid, err, uids) {
     if (!uids.length) {
       if (nextHighUid < 0) {
@@ -131,7 +132,8 @@ var getTZOffset = exports.getTZOffset = function getTZOffset(conn, callback) {
       }
       searchRange(nextHighUid);
     }
-    useUid(uids[uids.length - 1]);
+    viableUids = uids;
+    useUid(viableUids.pop());
   }
   function useUid(uid) {
     var fetcher = conn.fetch(
@@ -161,6 +163,13 @@ var getTZOffset = exports.getTZOffset = function getTZOffset(conn, callback) {
                 return;
               }
             }
+            // If we are here, the message somehow did not have a Received
+            // header.  Try again with another known UID or fail out if we
+            // have run out of UIDs.
+            if (viableUids.length)
+              useUid(viableUids.pop());
+            else // fail to the default.
+              callback(null, DEFAULT_TZ_OFFSET);
           });
       });
     fetcher.on('error', function onFetchErr(err) {
