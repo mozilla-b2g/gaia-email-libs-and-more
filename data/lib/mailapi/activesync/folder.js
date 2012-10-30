@@ -32,7 +32,8 @@ const DESIRED_SNIPPET_LENGTH = 100;
 const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
 
 // Map our built-in sync range values to their corresponding ActiveSync
-// FilterType values.
+// FilterType values. We exclude 3 and 6 months, since they aren't valid for
+// email.
 const SYNC_RANGE_TO_FILTER_TYPE = {
    '1d': FILTER_TYPE.OneDayBack,
    '3d': FILTER_TYPE.ThreeDaysBack,
