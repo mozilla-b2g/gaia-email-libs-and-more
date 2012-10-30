@@ -10,7 +10,15 @@
 
 'use strict';
 
+load('deps/activesync/wbxml/wbxml.js');
+load('deps/activesync/codepages.js');
+load('test/unit/resources/messageGenerator.js');
+const $wbxml = WBXML;
+const $ascp = ActiveSyncCodepages;
+
 load('test/activesync_server.js');
+
+
 
 let server = new ActiveSyncServer();
 server.start(SERVER_PORT);
