@@ -3,13 +3,6 @@
 Components.utils.import('resource://testing-common/httpd.js');
 Components.utils.import('resource://gre/modules/NetUtil.jsm');
 
-load('deps/activesync/wbxml/wbxml.js');
-load('deps/activesync/codepages.js');
-load('test/unit/resources/messageGenerator.js');
-
-const $wbxml = WBXML;
-const $ascp = ActiveSyncCodepages;
-
 /**
  * Encode a WBXML writer's bytes for sending over the network.
  *
@@ -70,6 +63,9 @@ function ActiveSyncServer() {
     new ActiveSyncFolder('Inbox', folderType.DefaultInbox),
     new ActiveSyncFolder('Sent Mail', folderType.DefaultSent)
   ];
+  this.logRequest = null;
+  this.logRequestBody = null;
+  this.logResponse = null;
 }
 
 ActiveSyncServer.prototype = {
@@ -92,6 +88,8 @@ ActiveSyncServer.prototype = {
   },
 
   _commandHandler: function(request, response) {
+    if (this.logRequest)
+      this.logRequest(request);
     if (request.method === 'OPTIONS') {
       this._options(request, response);
     }
@@ -130,6 +128,9 @@ ActiveSyncServer.prototype = {
         commands.push(m[1]);
     }
     response.setHeader('MS-ASProtocolCommands', commands.join(','));
+
+    if (this.logResponse)
+      this.logResponse(request, response);
   },
 
   _handleCommand_FolderSync: function(request, query, response) {
@@ -142,7 +143,10 @@ ActiveSyncServer.prototype = {
     e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
       syncKey = node.children[0].textContent;
     });
-    e.run(decodeWBXML(request.bodyInputStream));
+    let reader = decodeWBXML(request.bodyInputStream);
+    if (this.logRequestBody)
+      this.logRequestBody(reader);
+    e.run(reader);
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
@@ -172,6 +176,8 @@ ActiveSyncServer.prototype = {
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
     response.write(encodeWBXML(w));
+    if (this.logResponse)
+      this.logResponse(request, response, w);
   },
 
   _handleCommand_Sync: function(request, query, response) {
@@ -190,7 +196,10 @@ ActiveSyncServer.prototype = {
       collectionId = node.children[0].textContent;
     });
 
-    e.run(decodeWBXML(request.bodyInputStream));
+    let reader = decodeWBXML(request.bodyInputStream);
+    if (this.logRequestBody)
+      this.logRequestBody(reader);
+    e.run(reader);
 
     if (syncKey === '0')
       nextSyncKey = '1';
@@ -237,6 +246,8 @@ ActiveSyncServer.prototype = {
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
     response.write(encodeWBXML(w));
+    if (this.logResponse)
+      this.logResponse(request, response, w);
   },
 
   _handleCommand_ItemOperations: function(request, query, response) {
@@ -266,7 +277,10 @@ ActiveSyncServer.prototype = {
       fetch.message = folder.findMessageById(fetch.serverId);
       fetches.push(fetch);
     });
-    e.run(decodeWBXML(request.bodyInputStream));
+    let reader = decodeWBXML(request.bodyInputStream);
+    if (this.logRequestBody)
+      this.logRequestBody(reader);
+    e.run(reader);
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations)
@@ -293,6 +307,8 @@ ActiveSyncServer.prototype = {
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
     response.write(encodeWBXML(w));
+    if (this.logResponse)
+      this.logResponse(request, response, w);
   },
 
   /**

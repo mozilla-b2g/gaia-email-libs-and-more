@@ -5,6 +5,10 @@
  **/
 
 load('resources/loggest_test_framework.js');
+const $wbxml = require('wbxml');
+const $ascp = require('activesync/codepages');
+load('resources/messageGenerator.js');
+load('../activesync_server.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_activesync_general' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -12,6 +16,7 @@ var TD = $tc.defineTestsFor(
 TD.commonCase('folder sync', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
+      testServer = T.actor('testActiveSyncServer', 'S'),
       testAccount = T.actor('testActiveSyncAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
