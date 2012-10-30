@@ -635,7 +635,7 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
     }
   },
 
-  downloadMessageAttachments: function(uid, partInfos, callback) {
+  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
     var conn = this._conn;
     var mparser = new $mailparser.MailParser();
 

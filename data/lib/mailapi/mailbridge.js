@@ -641,6 +641,7 @@ console.log('done proc modifyConfig');
               cc: rCc,
               bcc: rBcc,
               referencesStr: referencesStr,
+              attachments: [],
             });
           }
           else {
@@ -662,6 +663,7 @@ console.log('done proc modifyConfig');
               // they came from, but with an extra header so that it was
               // possible to detect it was a forward.
               references: null,
+              attachments: [],
             });
           }
         });
@@ -678,6 +680,7 @@ console.log('done proc modifyConfig');
       cc: [],
       bcc: [],
       references: null,
+      attachments: [],
     });
   },
 
@@ -735,18 +738,46 @@ console.log('done proc modifyConfig');
     if (wireRep.references)
       composer.addHeader('References', wireRep.references);
 
+
     if (msg.command === 'send') {
-      var self = this;
-      account.sendMessage(composer, function(err, badAddresses) {
-        self.__sendMessage({
-          type: 'sent',
-          handle: msg.handle,
-          err: err,
-          badAddresses: badAddresses,
-          messageId: messageId,
-          sentDate: sentDate.valueOf(),
+      var self = this, asyncPending = 0;
+
+      if (wireRep.attachments) {
+        wireRep.attachments.forEach(function(attachmentDef) {
+          var reader = new FileReader();
+          reader.onload = function onloaded() {
+            composer.addAttachment({
+              filename: attachmentDef.name,
+              contentType: attachmentDef.blob.type,
+              contents: new Uint8Array(reader.result),
+            });
+            if (--asyncPending === 0)
+              initiateSend();
+          };
+          try {
+            reader.readAsArrayBuffer(attachmentDef.blob);
+            asyncPending++;
+          }
+          catch (ex) {
+            console.error('Problem attaching attachment:', ex, '\n', ex.stack);
+          }
         });
-      });
+      }
+
+      var initiateSend = function() {
+        account.sendMessage(composer, function(err, badAddresses) {
+          self.__sendMessage({
+            type: 'sent',
+            handle: msg.handle,
+            err: err,
+            badAddresses: badAddresses,
+            messageId: messageId,
+            sentDate: sentDate.valueOf(),
+          });
+        });
+      };
+      if (asyncPending === 0)
+        initiateSend();
     }
     else { // (msg.command === draft)
       // XXX save drafts!

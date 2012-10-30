@@ -49,18 +49,22 @@ B2GSD=b2g-srcdir-symlink
 B2GBD=b2g-builddir-symlink
 ARBPLD=arbpl-dir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
+# common xpcshell args
+RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
+           --build-info-json=$(B2GBD)/mozinfo.json \
+           --testing-modules-dir=$(B2GBD)/_tests/modules
 xpcshell-tests:
 	-rm test/unit/all.log test/unit/*.js.log
-	-$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json $(B2GBD)/dist/bin/xpcshell test/unit
+	-$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) $(B2GBD)/dist/bin/xpcshell test/unit
 	cat test/unit/*.js.log > test/unit/all.log
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
 check-one:
-	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
+	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
 
 check-interactive:
-	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py --symbols-path=$(B2GBD)/dist/crashreporter-symbols --build-info-json=$(B2GBD)/mozinfo.json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
 
 post-check-one: check-one
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
@@ -68,6 +72,11 @@ post-check-one: check-one
 post-xpcshell-tests: xpcshell-tests
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all.log
 
+ACTIVESYNC_SERVER_PORT ?= 8080
+
+activesync-server:
+	$(PYTHON) $(CURDIR)/test/run_server.py $(B2GSD) $(B2GBD) $(CURDIR) \
+	  run_activesync_server.js --port $(ACTIVESYNC_SERVER_PORT)
 
 clean:
 	rm -rf data/deps

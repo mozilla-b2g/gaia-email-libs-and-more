@@ -179,28 +179,23 @@ CompositeAccount.prototype = {
   },
 
   sendMessage: function(composedMessage, callback) {
+    // Render the message to its output buffer.
+    composedMessage._cacheOutput = true;
+    process.immediate = true;
+    composedMessage._processBufferedOutput = function() {
+      // we are stopping the DKIM logic from firing.
+    };
+    composedMessage._composeMessage();
+    process.immediate = false;
+
     return this._sendPiece.sendMessage(
       composedMessage,
       function(err, errDetails) {
         // We need to append the message to the sent folder if we think we sent
         // the message okay.
         if (!err) {
-          // have it internally accumulate the data rather than using the stream
-          // mechanism.
-          composedMessage._cacheOutput = true;
-          // reset the offsets since we are reusing the composer.
-          composedMessage._message.processingStart = 0;
-          composedMessage._message.processingPos = 0;
-          var data = null;
-          process.immediate = true;
-          composedMessage._processBufferedOutput = function() {
-            data = composedMessage._outputBuffer;
-          };
-          composedMessage._composeMessage();
-          process.immediate = false;
-
           var message = {
-            messageText: data.trimRight(),
+            messageText: composedMessage._outputBuffer,
             // do not specify date; let the server use its own timestamping
             // since we want the approximate value of 'now' anyways.
             flags: ['Seen'],
@@ -245,7 +240,7 @@ function accountTypeToClass(type) {
 exports.accountTypeToClass = accountTypeToClass;
 
 // Simple hard-coded autoconfiguration by domain...
-var autoconfigByDomain = {
+var autoconfigByDomain = exports._autoconfigByDomain = {
   'localhost': {
     type: 'imap+smtp',
     incoming: {
@@ -274,6 +269,15 @@ var autoconfigByDomain = {
       port: 465,
       socketType: 'SSL',
       username: '%EMAILLOCALPART%',
+    },
+  },
+  'aslocalhost': {
+    type: 'activesync',
+    displayName: 'Test',
+    incoming: {
+      // This string may be clobbered with the correct port number when
+      // running as a unit test.
+      server: 'http://localhost:8080',
     },
   },
   // Mapping for a nonexistent domain for testing a bad domain without it being
@@ -967,12 +971,23 @@ Autoconfigurator.prototype = {
       // XXX: We need to normalize the domain here to get the base domain, but
       // that's complicated because people like putting dots in TLDs. For now,
       // let's just pretend no one would do such a horrible thing.
-      mxDomain = mxDomain.split('.').slice(-2).join('.');
+      mxDomain = mxDomain.split('.').slice(-2).join('.').toLowerCase();
+      console.log('  Found MX for', mxDomain);
 
       if (domain === mxDomain)
         return callback('unknown');
 
-      self._getConfigFromDB(mxDomain, callback);
+      // If we found a different domain after MX lookup, we should look in our
+      // local file store (mostly to support Google Apps domains) and, if that
+      // doesn't work, the Mozilla ISPDB.
+      console.log('  Looking in local file store');
+      self._getConfigFromLocalFile(mxDomain, function(error, config) {
+        if (!error)
+          return callback(error, config);
+
+        console.log('  Looking in the Mozilla ISPDB');
+        self._getConfigFromDB(mxDomain, callback);
+      });
     });
   },
 
@@ -988,7 +1003,7 @@ Autoconfigurator.prototype = {
   getConfig: function getConfig(userDetails, callback) {
     let [emailLocalPart, emailDomainPart] = userDetails.emailAddress.split('@');
     let domain = emailDomainPart.toLowerCase();
-    console.log('Attempting to get autoconfiguration for:'. domain);
+    console.log('Attempting to get autoconfiguration for', domain);
 
     const placeholderFields = {
       incoming: ['username', 'hostname', 'server'],
