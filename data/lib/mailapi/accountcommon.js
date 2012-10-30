@@ -240,7 +240,7 @@ function accountTypeToClass(type) {
 exports.accountTypeToClass = accountTypeToClass;
 
 // Simple hard-coded autoconfiguration by domain...
-var autoconfigByDomain = {
+var autoconfigByDomain = exports._autoconfigByDomain = {
   'localhost': {
     type: 'imap+smtp',
     incoming: {
@@ -269,6 +269,15 @@ var autoconfigByDomain = {
       port: 465,
       socketType: 'SSL',
       username: '%EMAILLOCALPART%',
+    },
+  },
+  'aslocalhost': {
+    type: 'activesync',
+    displayName: 'Test',
+    incoming: {
+      // This string may be clobbered with the correct port number when
+      // running as a unit test.
+      server: 'http://localhost:8080',
     },
   },
   // Mapping for a nonexistent domain for testing a bad domain without it being
