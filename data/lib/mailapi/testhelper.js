@@ -4,7 +4,9 @@ var $log = require('rdcommon/log'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
     $date = require('mailapi/date'),
+    $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
+    $activesyncacct = require('mailapi/activesync/account'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
@@ -971,6 +973,112 @@ var TestImapAccountMixins = {
   },
 };
 
+var TestActiveSyncServerMixins = {
+  __constructor: function(self, opts) {
+    self.T.convenienceSetup(self, 'created, listening to get port',
+                            function() {
+      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
+                                                        self.__name));
+      self.server = new ActiveSyncServer();
+      self.server.start(0);
+      self.server.logRequest = function(request) {
+        self._logger.request(request._method, request._path,
+                             request._headers._headers);
+      };
+      self.server.logRequestBody = function(reader) {
+        self._logger.requestBody(reader.dump());
+        reader.rewind();
+      };
+      self.server.logResponse = function(request, response, writer) {
+        var body;
+        if (writer) {
+          var reader = new $wbxml.Reader(writer.bytes, $ascp);
+          body = reader.dump();
+        }
+        self._logger.response(response._httpCode, response._headers._headers,
+                              body);
+      };
+      var httpServer = self.server.server;
+      var port = httpServer._socket.port;
+      httpServer._port = port;
+      // it had created the identity on port 0, which is not helpful to anyone
+      httpServer._identity._initialize(port, httpServer._host, true);
+      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
+        'http://localhost:' + self.server.server._socket.port;
+      self._logger.started(httpServer._socket.port);
+    });
+    self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
+      self.server.stop(function() {
+        self._logger.stopped();
+      });
+    });
+  },
+};
+
+var TestActiveSyncAccountMixins = {
+  __constructor: function(self, opts) {
+    self.eAccount = self.T.actor('ActiveSyncAccount', self.__name, null, self);
+
+    self._opts = opts;
+    if (!opts.universe)
+      throw new Error("Universe not specified!");
+    if (!opts.universe.__testAccounts)
+      throw new Error("Universe is not of the right type: " + opts.universe);
+
+    self.accountId = null;
+    self.universe = null;
+    self.MailAPI = null;
+    self.testUniverse = opts.universe;
+    self.testUniverse.__testAccounts.push(this);
+
+    self._do_createAccount();
+  },
+
+  _do_createAccount: function() {
+    var self = this;
+    /**
+     * Create a test account as defined by TEST_PARAMS and query for the list of
+     * all accounts and folders, advancing to the next test when both slices are
+     * populated.
+     */
+    self.T.convenienceSetup(self, 'creates test account', function() {
+      self.__attachToLogger(LOGFAB.testActiveSyncAccount(self, null,
+                                                         self.__name));
+
+      self.RT.reportActiveActorThisStep(self.eAccount);
+      self.expect_accountCreated();
+
+      self.universe = self.testUniverse.universe;
+      self.MailAPI = self.testUniverse.MailAPI;
+
+      self.MailAPI.tryToCreateAccount(
+        {
+          displayName: 'test',
+          emailAddress: 'test@aslocalhost',
+          password: 'test',
+          accountName: self._opts.name || null,
+        },
+        null,
+        function accountMaybeCreated(error) {
+          if (error) {
+            self._logger.accountCreationError(error);
+            return;
+          }
+
+          self._logger.accountCreated();
+          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
+          self.account = self.universe.accounts[idxAccount];
+          self.accountId = self.account.id;
+        });
+    });
+  },
+
+  expect_shutdown: function() {
+    this.RT.reportActiveActorThisStep(this.eAccount);
+    this.eAccount.expectOnly__die();
+  },
+};
+
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   bridgeSnoop: {
     type: $log.CLIENT,
@@ -1023,6 +1131,37 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changeMismatch: { field: false, expectedValue: false },
     },
   },
+  testActiveSyncServer: {
+    type: $log.SERVER,
+    topBilling: true,
+
+    events: {
+      started: { port: false },
+      stopped: {},
+
+      request: { method: false, path: false, headers: false },
+      requestBody: { },
+      response: { status: false, headers: false },
+    },
+    // I am putting these under TEST_ONLY_ as a hack to get these displayed
+    // differently since they are walls of text.
+    TEST_ONLY_events: {
+      requestBody: { body: false },
+      response: { body: false },
+    },
+  },
+  testActiveSyncAccount: {
+    type: $log.TEST_SYNTHETIC_ACTOR,
+    subtype: $log.CLIENT,
+    topBilling: true,
+
+    events: {
+      accountCreated: {},
+    },
+    errors: {
+      accountCreationError: { err: false },
+    },
+  },
 });
 
 exports.TESTHELPER = {
@@ -1034,10 +1173,13 @@ exports.TESTHELPER = {
     $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
     $smtpacct.LOGFAB,
+    $activesyncacct.LOGFAB,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,
     testImapAccount: TestImapAccountMixins,
+    testActiveSyncServer: TestActiveSyncServerMixins,
+    testActiveSyncAccount: TestActiveSyncAccountMixins,
   }
 };
 
