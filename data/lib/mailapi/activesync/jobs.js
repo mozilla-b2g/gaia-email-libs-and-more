@@ -298,7 +298,19 @@ ActiveSyncJobDriver.prototype = {
   },
 
   do_syncFolderList: function(op, doneCallback) {
-    var account = this.account;
+    var account = this.account, self = this;
+    // establish a connection if we are not already connected
+    if (!account.conn.connected) {
+      account.conn.connect(function(err, config) {
+        if (err) {
+          doneCallback('aborted-retry');
+          return;
+        }
+        self.do_syncFolderList(op, doneCallback);
+      });
+      return;
+    }
+
     account.syncFolderList(function(err) {
       if (!err)
         account.meta.lastFolderSyncAt = Date.now();
