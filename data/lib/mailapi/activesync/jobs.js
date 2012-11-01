@@ -290,89 +290,9 @@ ActiveSyncJobDriver.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // download
 
-  local_do_download: function(op, callback) {
-    // Downloads are inherently online operations.
-    callback(null);
-  },
+  local_do_download: $jobmixins.local_do_download,
 
-  do_download: function(op, callback) {
-    let jobDriver = this;
-    let lslash = op.messageSuid.lastIndexOf('/')
-    let folderId = op.messageSuid.substring(0, lslash);
-    let messageId = op.messageSuid.substring(lslash + 1);
-    let folderStorage = this.account.getFolderStorageForFolderId(folderId);
-
-    // Now that we have the body, we can know the part numbers and eliminate /
-    // filter out any redundant download requests.  Issue all the fetches at
-    // once.
-    let partsToDownload = [], bodyInfo;
-    function gotBody(_bodyInfo) {
-      bodyInfo = _bodyInfo;
-      for (let [,index] in Iterator(op.relPartIndices)) {
-        let partInfo = bodyInfo.relatedParts[index];
-        if (!partInfo.file)
-          partsToDownload.push(partInfo);
-      }
-      for (let [,index] in Iterator(op.attachmentIndices)) {
-        let partInfo = bodyInfo.attachments[index];
-        if (!partInfo.file)
-          partsToDownload.push(partInfo);
-      }
-      jobDriver._downloadAttachments(messageId, partsToDownload, gotParts);
-    };
-
-    function gotParts(err, bodyBuffers) {
-      if (bodyBuffers.length !== partsToDownload.length) {
-        callback(err, null, false);
-        return;
-      }
-      for (let i = 0; i < partsToDownload.length; i++) {
-        // Because we should be under a mutex, this part should still be the
-        // live representation and we can mutate it.
-        let partInfo = partsToDownload[i],
-            buffer = bodyBuffers[i];
-
-        partInfo.sizeEstimate = buffer.length;
-        partInfo.file = new Blob([buffer],
-                                 { contentType: partInfo.type });
-      }
-      folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-      callback(err, bodyInfo, true);
-    };
-
-    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
-  },
-
-  // XXX: take advantage of multipart responses here.
-  // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
-  _downloadAttachments: function(messageId, partsToDownload, callback) {
-    const io = $ascp.ItemOperations.Tags;
-    const asb = $ascp.AirSyncBase.Tags;
-
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(io.ItemOperations);
-    for (let [,part] in Iterator(partsToDownload)) {
-      w.stag(io.Fetch)
-         .tag(io.Store, 'Mailbox')
-         .tag(asb.FileReference, part.part)
-       .etag();
-    }
-    w.etag();
-
-    this.account.conn.postCommand(w, function(aError, aResult) {
-      let bodies = [];
-
-      let e = new $wbxml.EventParser();
-      e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                          io.Properties, io.Data], function(node) {
-        let data = node.children[0].textContent;
-        bodies.push(new Buffer(data, 'base64'));
-      });
-      e.run(aResult);
-
-      callback(null, bodies);
-    });
-  },
+  do_download: $jobmixins.do_download,
 
   check_download: function(op, callback) {
     // If we had download the file and persisted it successfully, this job would
