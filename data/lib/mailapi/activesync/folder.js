@@ -477,7 +477,7 @@ ActiveSyncFolderConn.prototype = {
               break;
             case asb.EstimatedDataSize:
             case em.AttSize:
-              attachment.sizeEstimate = attachDataText;
+              attachment.sizeEstimate = parseInt(attachDataText);
               break;
             case asb.ContentId:
               attachment.contentId = attachDataText;
