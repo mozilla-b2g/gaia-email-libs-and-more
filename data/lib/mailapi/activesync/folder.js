@@ -686,18 +686,14 @@ ActiveSyncFolderConn.prototype = {
        .etag();
     }
     w.etag();
-    console.log(new $wbxml.Reader(w, $ascp).dump());
 
     this._account.conn.postCommand(w, function(aError, aResult) {
-      console.log(aResult.dump()); aResult.rewind();
-
       let bodies = [];
 
       let e = new $wbxml.EventParser();
       e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
                           io.Properties, io.Data], function(node) {
         let data = node.children[0].textContent;
-                            console.log('GOT DATA', data);
         bodies.push(new Buffer(data, 'base64'));
       });
       e.run(aResult);
