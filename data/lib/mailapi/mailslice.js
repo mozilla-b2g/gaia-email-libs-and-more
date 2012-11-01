@@ -641,8 +641,11 @@ MailSlice.prototype = {
  * ]]
  * @typedef[AttachmentInfo @dict[
  *   @key[name String]{
- *     The filename of the attachment if this is an attachment, the content-id
- *     of the attachment if this is a related part for inline display.
+ *     The filename of the attachment, if any.
+ *   }
+ *   @key[contentId String]{
+ *     The content-id of the attachment if this is a related part for inline
+ *     display.
  *   }
  *   @key[type String]{
  *     The (full) mime-type of the attachment.
