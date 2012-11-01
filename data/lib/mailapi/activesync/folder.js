@@ -698,7 +698,6 @@ ActiveSyncFolderConn.prototype = {
       });
       e.run(aResult);
 
-      console.warn('successfully downloaded attachments', bodies.length);
       callback(null, bodies);
     });
   },
