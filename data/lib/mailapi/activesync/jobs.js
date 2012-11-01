@@ -294,19 +294,11 @@ ActiveSyncJobDriver.prototype = {
 
   do_download: $jobmixins.do_download,
 
-  check_download: function(op, callback) {
-    // If we had download the file and persisted it successfully, this job would
-    // be marked done because of the atomicity guarantee on our commits.
-    callback(null, 'coherent-notyet');
-  },
+  check_download: $jobmixins.check_download,
 
-  local_undo_download: function(op, callback) {
-    callback(null);
-  },
+  local_undo_download: $jobmixins.local_undo_download,
 
-  undo_download: function(op, callback) {
-    callback(null);
-  },
+  undo_download: $jobmixins.undo_download,
 
 
   //////////////////////////////////////////////////////////////////////////////
