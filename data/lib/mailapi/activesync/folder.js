@@ -178,6 +178,9 @@ ActiveSyncFolderConn.prototype = {
              .stag(as.Options)
                .tag(as.FilterType, this.filterType)
 
+      // XXX: For some servers (e.g. Hotmail), we could be smart and get the
+      // native body type (plain text or HTML), but Gmail doesn't seem to let us
+      // do this. For now, let's keep it simple and always get HTML.
       if (account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
                  .tag(asb.Type, asbEnum.Type.HTML)
