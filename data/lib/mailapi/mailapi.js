@@ -728,6 +728,11 @@ function BridgedViewSlice(api, ns, handle) {
   this.status = 'synced';
 
   /**
+   * A value in the range [0.0, 1.0] expressing our synchronization progress.
+   */
+  this.syncProgress = 0.0;
+
+  /**
    * False if we can grow the slice in the negative direction without
    * requiring user prompting.
    */
@@ -1183,8 +1188,11 @@ MailAPI.prototype = {
     slice.atTop = msg.atTop;
     slice.atBottom = msg.atBottom;
     slice.userCanGrowDownwards = msg.userCanGrowDownwards;
-    if (msg.status && slice.status !== msg.status) {
+    if (msg.status &&
+        (slice.status !== msg.status ||
+         slice.syncProgress !== msg.progress)) {
       slice.status = msg.status;
+      slice.syncProgress = msg.progress;
       if (slice.onstatus)
         slice.onstatus(slice.status);
     }

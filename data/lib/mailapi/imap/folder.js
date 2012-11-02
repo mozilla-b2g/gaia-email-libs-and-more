@@ -105,24 +105,8 @@ const FLAG_FETCH_PARAMS = {
 /**
  * Folder connections do the actual synchronization logic.  They are associated
  * with one or more `ImapSlice` instances that issue the requests that trigger
- * synchronization.  Storage is handled by `ImapFolderStorage` or
- * `GmailMessageStorage` instances.
- *
- * == IMAP Protocol Connection Management
- *
- * We request IMAP protocol connections from the account.  There is currently no
- * way for us to surrender our connection or indicate to the account that we
- * are capable of surrending the connection.  That might be a good idea, though.
- *
- * All accesses to a folder's connection should be done through an
- * `ImapFolderConn`, even if the actual mutation logic is being driven by code
- * living in the account.
- *
- * == Error Handling / Connection Maintenance
- *
- * One-off transient connection failures are dealt with by reconnecting and
- * restarting whatever we were doing.  Because it's possible to be in a
- * situation where the network is bad, we use a backoff strategy
+ * synchronization.  Storage is handled by `FolderStorage` instances.  All of
+ * the connection life-cycle nitty-gritty is handled by the `ImapAccount`.
  *
  * == IDLE
  *
@@ -212,15 +196,10 @@ ImapFolderConn.prototype = {
   },
 
   /**
-   * Wrap the search command and shirk the errors for now.  I was thinking we
-   * might have this do automatic connection re-establishment, etc., but I think
-   * it makes more sense to have the IMAP protocol connection object do that
-   * under the hood or in participation with the account class via another
-   * interface since it already handles command queueing.
-   *
-   * This also conveniently hides the connection acquisition asynchrony.
+   * Perform a SEARCH for the purposes of folder synchronization.  This is an
+   * expiring request
    */
-  _reliaSearch: function(searchOptions, callback) {
+  _timelySyncSearch: function(searchOptions, callback, progress) {
     // If we don't have a connection, get one, then re-call.
     if (!this._conn) {
       this.acquireConn(this._reliaSearch.bind(this, searchOptions, callback),
@@ -377,7 +356,7 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
                 'End: ', skewedEndTS,
                 skewedEndTS ? new Date(skewedEndTS).toUTCString() : null);
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
-    this._reliaSearch(searchOptions, callbacks.search);
+    this._timelySyncSearch(searchOptions, callbacks.search);
     this._storage.getAllMessagesInImapDateRange(skewedStartTS, skewedEndTS,
                                                 callbacks.db);
   },

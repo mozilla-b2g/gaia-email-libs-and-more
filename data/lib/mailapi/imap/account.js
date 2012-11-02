@@ -419,14 +419,18 @@ ImapAccount.prototype = {
    *     reclaim it.
    *   }
    * ]
+   * @return[demandHandle Object]{
+   *
+   * }
    */
   __folderDemandsConnection: function(folderId, label, callback, deathback) {
-    this._demandedConns.push({
+    var demand = {
       folderId: folderId,
       label: label,
       callback: callback,
       deathback: deathback
-    });
+    };
+    this._demandedConns.push(demand);
 
     // No line-cutting; bail if there was someone ahead of us.
     if (this._demandedConns.length > 1)
@@ -438,6 +442,8 @@ ImapAccount.prototype = {
 
     // - we need to wait for a new conn or one to free up
     this._makeConnectionIfPossible();
+
+    return;
   },
 
   _allocateExistingConnection: function() {

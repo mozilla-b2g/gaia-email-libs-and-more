@@ -325,6 +325,16 @@ MailSlice.prototype = {
     }
   },
 
+  /**
+   * Update our sync progress with a value in the range [0.0, 1.0].  We leave
+   * it up to the specific protocol to determine how it maps values.
+   */
+  setSyncProgress: function(value) {
+    if (!this._bridgeHandle)
+      return;
+    this._bridgeHandle.sendSyncProgress(value);
+  },
+
   batchAppendHeaders: function(headers, insertAt, moreComing) {
     this._LOG.headersAppended(headers);
     if (insertAt === -1)
@@ -1741,6 +1751,9 @@ FolderStorage.prototype = {
       this._curSyncSlice = slice;
     }).bind(this);
 
+    var progressCallback = (function progressCallback() {
+    }).bind(this);
+
     // If we're offline, there's nothing to look into; use the DB.
     if (!this._account.universe.online) {
       existingDataGood = true;
@@ -1796,7 +1809,7 @@ FolderStorage.prototype = {
     // -- Bad existing data, issue a sync and have the slice
     this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback);
   },
-
+p
   /**
    * The slice wants more headers.  Grab from the database and/or sync as
    * appropriate to get more headers.  If there is a cost, require a user

@@ -129,21 +129,26 @@ ActiveSyncFolderConn.prototype = {
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
+  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
+                                                                 progress) {
     let folderConn = this, storage = this._storage;
     let account = this._account;
 
     if (!account.conn.connected) {
       account.conn.connect(function(error, config) {
-        if (error)
+        if (error) {
           console.error('Error connecting to ActiveSync:', error);
-        else
-          folderConn._enumerateFolderChanges(callback);
+          callback('connect');
+        }
+        else {
+          folderConn._enumerateFolderChanges(callback, progress);
+        }
       });
       return;
     }
     if (this.syncKey === '0') {
-      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback));
+      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback,
+                                                         progress));
       return;
     }
 
@@ -279,7 +284,7 @@ ActiveSyncFolderConn.prototype = {
                     changed.length + ', deleted ' + deleted.length);
         callback(null, added, changed, deleted, moreAvailable);
         if (moreAvailable)
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.warn('ActiveSync had a bad sync key');
@@ -288,8 +293,10 @@ ActiveSyncFolderConn.prototype = {
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
                       'got a status of ' + status);
+        callback('unknown');
       }
-    });
+    }, null, null,
+    progress);
   },
 
   /**

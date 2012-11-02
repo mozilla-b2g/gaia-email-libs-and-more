@@ -794,6 +794,7 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.__listener = null;
 
   this.status = 'synced';
+  this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
   this.userCanGrowDownwards = false;
@@ -813,6 +814,7 @@ SliceBridgeProxy.prototype = {
       requested: requested,
       moreExpected: moreExpected,
       status: this.status,
+      progress: this.progress,
       atTop: this.atTop,
       atBottom: this.atBottom,
       userCanGrowDownwards: this.userCanGrowDownwards,
@@ -833,6 +835,11 @@ SliceBridgeProxy.prototype = {
   sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
     this.status = status;
     this.sendSplice(0, 0, [], requested, moreExpected);
+  },
+
+  sendSyncProgress: function(progress) {
+    this.progress = progress;
+    this.sendSplice(0, 0, [], true, true);
   },
 
   die: function sbp_die() {
