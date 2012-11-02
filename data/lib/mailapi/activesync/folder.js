@@ -704,8 +704,7 @@ ActiveSyncFolderConn.prototype = {
       });
       e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
                          function(node) {
-        let part = null;
-        let attachment = {};
+        let part = null, attachment = {};
 
         for (let [,child] in Iterator(node.children)) {
           switch (child.tag) {
@@ -716,14 +715,23 @@ ActiveSyncFolderConn.prototype = {
             part = child.children[0].textContent;
             break;
           case io.Properties:
+            var contentType = null, data = null;
+
             for (let [,grandchild] in Iterator(child.children)) {
+              let textContent = grandchild.children[0].textContent;
+
               switch (grandchild.tag) {
+              case asb.ContentType:
+                contentType = textContent;
+                break;
               case io.Data:
-                attachment.data = new Buffer(grandchild.children[0].textContent,
-                                             'base64');
+                data = new Buffer(textContent, 'base64');
                 break;
               }
             }
+
+            if (contentType && data)
+              attachment.data = new Blob([data], { type: contentType });
             break;
           }
 
@@ -738,13 +746,11 @@ ActiveSyncFolderConn.prototype = {
       for (let [,part] in Iterator(partInfos)) {
         if (attachments.hasOwnProperty(part.part) &&
             attachments[part.part].status === ioStatus.Success) {
-            bodies.push(attachments[part.part].data);
+          bodies.push(attachments[part.part].data);
         }
         else {
           error = 'unknown';
-          // XXX: Remove the Buffer and just push |null| when upstream code can
-          // handle it.
-          bodies.push(new Buffer('', 'base64'));
+          bodies.push(null);
         }
       }
       callback(error, bodies);

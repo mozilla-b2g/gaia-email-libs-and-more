@@ -696,7 +696,7 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
         setupBodyParser(partInfo);
         msg.on('data', bodyParseBuffer);
         msg.on('end', function() {
-          bodies.push(finishBodyParsing());
+          bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
 
           if (--pendingFetches === 0)
             callback(anyError, bodies);

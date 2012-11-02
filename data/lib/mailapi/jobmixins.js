@@ -245,8 +245,8 @@ exports.do_download = function(op, callback) {
         done();
     };
   }
-  var gotParts = function gotParts(err, bodyBuffers) {
-    if (bodyBuffers.length !== partsToDownload.length) {
+  var gotParts = function gotParts(err, bodyBlobs) {
+    if (bodyBlobs.length !== partsToDownload.length) {
       callback(err, null, false);
       return;
     }
@@ -255,15 +255,17 @@ exports.do_download = function(op, callback) {
       // Because we should be under a mutex, this part should still be the
       // live representation and we can mutate it.
       var partInfo = partsToDownload[i],
-          buffer = bodyBuffers[i],
+          blob = bodyBlobs[i],
           storeTo = storePartsTo[i];
 
-      partInfo.sizeEstimate = buffer.length;
-      var blob = new Blob([buffer], { type: partInfo.type });
-      if (storeTo === 'idb')
-        partInfo.file = blob;
-      else
-        saveToStorage(blob, storeTo, partInfo.name, partInfo);
+      if (blob) {
+        partInfo.sizeEstimate = blob.length;
+        partInfo.type = blob.type;
+        if (storeTo === 'idb')
+          partInfo.file = blob;
+        else
+          saveToStorage(blob, storeTo, partInfo.name, partInfo);
+      }
     }
     if (!pendingStorageWrites)
       done();
