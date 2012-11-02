@@ -675,6 +675,7 @@ ActiveSyncFolderConn.prototype = {
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
     const io = $ascp.ItemOperations.Tags;
+    const ioStatus = $ascp.ItemOperations.Enums.Status;
     const asb = $ascp.AirSyncBase.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -688,17 +689,65 @@ ActiveSyncFolderConn.prototype = {
     w.etag();
 
     this._account.conn.postCommand(w, function(aError, aResult) {
-      let bodies = [];
+      if (aError) {
+        console.error('postCommand error:', aError);
+        callback('unknown');
+        return;
+      }
+
+      let globalStatus;
+      let attachments = {};
 
       let e = new $wbxml.EventParser();
-      e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                          io.Properties, io.Data], function(node) {
-        let data = node.children[0].textContent;
-        bodies.push(new Buffer(data, 'base64'));
+      e.addEventListener([io.ItemOperations, io.Status], function(node) {
+        globalStatus = node.children[0].textContent;
+      });
+      e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
+                         function(node) {
+        let part = null;
+        let attachment = {};
+
+        for (let [,child] in Iterator(node.children)) {
+          switch (child.tag) {
+          case io.Status:
+            attachment.status = child.children[0].textContent;
+            break;
+          case asb.FileReference:
+            part = child.children[0].textContent;
+            break;
+          case io.Properties:
+            for (let [,grandchild] in Iterator(child.children)) {
+              switch (grandchild.tag) {
+              case io.Data:
+                attachment.data = new Buffer(grandchild.children[0].textContent,
+                                             'base64');
+                break;
+              }
+            }
+            break;
+          }
+
+          if (part)
+            attachments[part] = attachment;
+        }
       });
       e.run(aResult);
 
-      callback(null, bodies);
+      let error = globalStatus !== ioStatus.Success ? 'unknown' : null;
+      let bodies = [];
+      for (let [,part] in Iterator(partInfos)) {
+        if (attachments.hasOwnProperty(part.part) &&
+            attachments[part.part].status === ioStatus.Success) {
+            bodies.push(attachments[part.part].data);
+        }
+        else {
+          error = 'unknown';
+          // XXX: Remove the Buffer and just push |null| when upstream code can
+          // handle it.
+          bodies.push(new Buffer('', 'base64'));
+        }
+      }
+      callback(error, bodies);
     });
   },
 };
