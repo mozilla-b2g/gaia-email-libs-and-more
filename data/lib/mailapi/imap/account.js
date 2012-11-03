@@ -895,6 +895,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       unknownDeadConnection: {},
       connectionError: {},
       folderAlreadyHasConn: { folderId: false },
+      opError: { mode: false, type: false, ex: $log.EXCEPTION },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },

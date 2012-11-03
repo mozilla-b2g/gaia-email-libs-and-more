@@ -3,10 +3,12 @@ define(function(require, exports, $module) {
 var $log = require('rdcommon/log'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
+    $maildb = require('mailapi/maildb'),
     $date = require('mailapi/date'),
     $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
     $activesyncacct = require('mailapi/activesync/account'),
+    $activesyncfolder = require('mailapi/activesync/folder'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
@@ -104,6 +106,14 @@ var TestUniverseMixins = {
           self._logger.queriesIssued();
         });
 
+      var testOpts = {};
+      if (opts.dbDelta)
+        testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
+      if (opts.dbVersion)
+        testOpts.dbVersion = opts.dbVersion;
+      if (opts.nukeDb)
+        testOpts.nukeDb = opts.nukeDb;
+
       MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
@@ -131,7 +141,8 @@ var TestUniverseMixins = {
           gAllFoldersSlice = self.allFoldersSlice =
             self.MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
-        });
+        },
+        testOpts);
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
                                       function() {
@@ -230,6 +241,36 @@ var TestUniverseMixins = {
     });
   },
 
+  do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {
+    var self = this;
+    this.T.action(this, 'kill operations for', testAccount, function() {
+      self.expect_killedOperations(count);
+
+      var ops = self.universe._opsByAccount[testAccount.accountId][opsType];
+      var killed = ops.splice(0, ops.length);
+      self._logger.killedOperations(killed.length, killed);
+      if (saveTo)
+        saveTo.ops = killed;
+    });
+  },
+
+  do_restoreQueuedOperationsAndWait: function(testAccount, killedThing,
+                                              expectFunc) {
+    var self = this;
+    this.T.action(this, 'restore operations from', killedThing, 'on',
+                  testAccount, 'and wait', function() {
+      if (expectFunc)
+        expectFunc();
+      self.expect_operationsDone();
+      for (var i = 0; i < killedThing.ops.length; i++) {
+        self.universe._queueAccountOp(testAccount.account,
+                                      killedThing.ops[i]);
+      }
+      self.universe.waitForAccountOps(testAccount.account, function() {
+        self._logger.operationsDone();
+      });
+    });
+  },
 };
 
 var TestImapAccountMixins = {
@@ -306,7 +347,7 @@ var TestImapAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
-      self.compositeAccount =
+      self.account = self.compositeAccount =
              self.universe.accounts[
                self.testUniverse.__testAccounts.indexOf(self)];
       self.imapAccount = self.compositeAccount._receivePiece;
@@ -357,7 +398,8 @@ var TestImapAccountMixins = {
             do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
                      ': ' + error);
           var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-          self.compositeAccount = self.universe.accounts[idxAccount];
+          self.account = self.compositeAccount =
+            self.universe.accounts[idxAccount];
           self.imapAccount = self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
           self.accountId = self.compositeAccount.id;
@@ -365,7 +407,7 @@ var TestImapAccountMixins = {
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
           // created.
-          MailUniverse.waitForAccountOps(self.compositeAccount, function() {
+          self.universe.waitForAccountOps(self.compositeAccount, function() {
             self._logger.accountCreated();
           });
         });
@@ -725,6 +767,7 @@ var TestImapAccountMixins = {
    *       The MailHeader that we expect to be deleted.
    *     }
    *   ]]
+   *  @param[expectedFlags]
    *  @param[completeCheckOn #:optional @oneof[
    *    @default{
    *      The slice's oncomplete method is used.
@@ -739,7 +782,6 @@ var TestImapAccountMixins = {
   expect_headerChanges: function(viewThing, expected, expectedFlags,
                                  completeCheckOn) {
     this.RT.reportActiveActorThisStep(this);
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
 
     var changeMap = {}, self = this;
     // - generate expectations and populate changeMap
@@ -975,11 +1017,13 @@ var TestImapAccountMixins = {
 
 var TestActiveSyncServerMixins = {
   __constructor: function(self, opts) {
+    if (!opts.universe)
+      throw new Error('You need to provide a universe!');
     self.T.convenienceSetup(self, 'created, listening to get port',
                             function() {
       self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
                                                         self.__name));
-      self.server = new ActiveSyncServer();
+      self.server = new ActiveSyncServer(opts.universe._useDate);
       self.server.start(0);
       self.server.logRequest = function(request) {
         self._logger.request(request._method, request._path,
@@ -1013,6 +1057,11 @@ var TestActiveSyncServerMixins = {
       });
     });
   },
+
+  getFirstFolderWithType: function(folderType) {
+    var folders = this.server.foldersByType[folderType];
+    return folders[0];
+  },
 };
 
 var TestActiveSyncAccountMixins = {
@@ -1022,6 +1071,8 @@ var TestActiveSyncAccountMixins = {
     self._opts = opts;
     if (!opts.universe)
       throw new Error("Universe not specified!");
+    if (!opts.server)
+      throw new Error("Server not specified!");
     if (!opts.universe.__testAccounts)
       throw new Error("Universe is not of the right type: " + opts.universe);
 
@@ -1030,8 +1081,33 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
+    self.testServer = opts.server;
 
-    self._do_createAccount();
+    // dummy attributes to be more like IMAP to reuse some logic:
+    self._unusedConnections = 0;
+
+    if (opts.restored) {
+      self.testUniverse.__restoredAccounts.push(this);
+      self._do_issueRestoredAccountQueries();
+    }
+    else {
+      self._do_createAccount();
+    }
+  },
+
+  _do_issueRestoredAccountQueries: function() {
+    var self = this;
+    self.T.convenienceSetup(self, 'issues helper queries', function() {
+      self.__attachToLogger(LOGFAB.testActiveSyncAccount(self, null,
+                                                         self.__name));
+
+      self.universe = self.testUniverse.universe;
+      self.MailAPI = self.testUniverse.MailAPI;
+
+      var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
+      self.account = self.universe.accounts[idxAccount];
+      self.accountId = self.account.id;
+    });
   },
 
   _do_createAccount: function() {
@@ -1065,10 +1141,16 @@ var TestActiveSyncAccountMixins = {
             return;
           }
 
-          self._logger.accountCreated();
           var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
           self.account = self.universe.accounts[idxAccount];
           self.accountId = self.account.id;
+
+          // Because folder list synchronizing happens as an operation, we want
+          // to wait for that operation to complete before declaring the account
+          // created.
+          self.universe.waitForAccountOps(self.account, function() {
+            self._logger.accountCreated();
+          });
         });
     });
   },
@@ -1077,6 +1159,89 @@ var TestActiveSyncAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.eAccount.expectOnly__die();
   },
+
+  expect_saveState: function() {
+    this.RT.reportActiveActorThisStep(this.eAccount);
+    this.eAccount.expect_saveAccountState_begin();
+    this.eAccount.expect_saveAccountState_end();
+  },
+
+  _expect_restore: function() {
+    this.RT.reportActiveActorThisStep(this.eAccount);
+  },
+
+  // copy-paste-modify of the IMAP by-name variant
+  do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderType + suffix);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderType);
+    testFolder.serverFolder = null;
+    testFolder.messages = null;
+    testFolder._liveSliceThings = [];
+    this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
+      self.expect_foundFolder(true);
+      testFolder.serverFolder = self.testServer.getFirstFolderWithType('inbox');
+      testFolder.messages = testFolder.serverFolder.messages;
+      testFolder.mailFolder =
+        self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
+      self._logger.foundFolder(!!testFolder.mailFolder, testFolder.mailFolder);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder)
+        testFolder.messages = oldFolder.messages;
+
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
+
+  // XXX experimental attempt to re-create IMAP case; will need more love to
+  // properly unify things.
+  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags, _saveToThing) {
+    var self = this;
+    this.T.action(this, desc, testFolder, function() {
+      var totalExpected = expectedValues.count;
+      if (expectedValues) {
+        // Generate overall count expectation and first and last message
+        // expectations by subject.
+        self.expect_messagesReported(totalExpected);
+        if (totalExpected) {
+          self.expect_messageSubject(
+            0, testFolder.messages[0].subject);
+          self.expect_messageSubject(
+            totalExpected - 1,
+            testFolder.messages[totalExpected - 1].subject);
+        }
+        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                               expectedFlags.grow, 'synced');
+      }
+
+      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      slice.oncomplete = function() {
+        self._logger.messagesReported(slice.items.length);
+        if (totalExpected) {
+          self._logger.messageSubject(0, slice.items[0].subject);
+          self._logger.messageSubject(
+            totalExpected - 1, slice.items[totalExpected - 1].subject);
+        }
+        self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowDownwards, slice.status);
+        if (_saveToThing) {
+          _saveToThing.slice = slice;
+          testFolder._liveSliceThings.push(_saveToThing);
+        }
+        else {
+          slice.die();
+        }
+      };
+    });
+  },
+
+  expect_headerChanges: TestImapAccountMixins.expect_headerChanges,
+
+  do_openFolderView: TestImapAccountMixins.do_openFolderView,
+  do_closeFolderView: TestImapAccountMixins.do_closeFolderView,
+
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
@@ -1098,6 +1263,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       queriesIssued: {},
 
       dbRowPresent: { table: true, prefix: true, present: true },
+
+      killedOperations: { length: true, ops: false },
+      operationsDone: {},
     },
     errors: {
       dbProblem: { err: false },
@@ -1157,6 +1325,16 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
     events: {
       accountCreated: {},
+      foundFolder: { found: true, rep: false },
+
+      sliceDied: { handle: true },
+
+      splice: { index: true, howMany: true },
+      sliceFlags: { top: true, bottom: true, grow: true, status: true },
+      messagesReported: { count: true },
+      messageSubject: { index: true, subject: true },
+
+      changesReported: { additions: true, changes: true, deletions: true },
     },
     errors: {
       accountCreationError: { err: false },
@@ -1170,10 +1348,13 @@ exports.TESTHELPER = {
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB,
     $errbackoff.LOGFAB,
+    // IMAP!
     $imapacct.LOGFAB, $imapfolder.LOGFAB,
     $imapjs.LOGFAB,
+    // SMTP!
     $smtpacct.LOGFAB,
-    $activesyncacct.LOGFAB,
+    // ActiveSync!
+    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,

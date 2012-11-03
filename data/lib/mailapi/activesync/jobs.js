@@ -311,11 +311,24 @@ ActiveSyncJobDriver.prototype = {
       return;
     }
 
+    // The inbox needs to be resynchronized if there was no server id and we
+    // have active slices displaying the contents of the folder.  (No server id
+    // means the sync will not happen.)
+    var inboxFolder = this.account.getFirstFolderWithType('inbox'),
+        inboxStorage, inboxNeedsResync = false;
+    if (inboxFolder && inboxFolder.serverId === null) {
+      inboxStorage = this.account.getFolderStorageForFolderId(inboxFolder.id);
+      inboxNeedsResync = inboxStorage.hasActiveSlices;
+    }
+
     account.syncFolderList(function(err) {
       if (!err)
         account.meta.lastFolderSyncAt = Date.now();
       // save if it worked
       doneCallback(err ? 'aborted-retry' : null, null, !err);
+
+      if (inboxNeedsResync)
+        inboxStorage.resetAndRefreshActiveSlices();
     });
   },
 

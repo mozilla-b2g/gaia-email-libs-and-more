@@ -36,7 +36,16 @@ function ActiveSyncFolder(name, type, parent) {
   this.type = type;
   this.id = 'folder-' + nextCollectionId++;
   this.parentId = parent ? parent.id : '0';
-  this.messages = msgGen.makeMessages({});
+  // Start with the first message one hour in the past and each message after
+  // it going one hour further into the past.  This ordering has the nice
+  // benefit that it mirrors the ordering of view slices.  It also helps make
+  // bugs in sync evident since view-slices will not automatically expand
+  // into the field of older messages.
+  this.messages = msgGen.makeMessages({
+                    count: 10,
+                    age: { hours: 1 },
+                    age_incr: { hours: 1 },
+                  });
 }
 
 ActiveSyncFolder.prototype = {
@@ -55,14 +64,22 @@ ActiveSyncFolder.prototype = {
   }
 };
 
-function ActiveSyncServer() {
+function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
+
+  // Make sure the message generator is using the same start date as us.
+  if (startDate)
+    msgGen._clock = startDate;
 
   const folderType = $ascp.FolderHierarchy.Enums.Type;
   this.folders = [
     new ActiveSyncFolder('Inbox', folderType.DefaultInbox),
     new ActiveSyncFolder('Sent Mail', folderType.DefaultSent)
   ];
+  this.foldersByType = {
+    inbox: [this.folders[0]],
+    sent: [this.folders[1]]
+  };
   this.logRequest = null;
   this.logRequestBody = null;
   this.logResponse = null;

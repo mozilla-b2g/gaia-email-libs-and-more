@@ -601,6 +601,13 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 }
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
+  /**
+   * Can we synchronize?  Not if we don't have a server id!
+   */
+  get canSyncRightNow() {
+    return this.folderConn.serverId !== null;
+  },
+
   syncDateRange: function(startTS, endTS, syncCallback) {
     syncCallback('sync', false, true);
     this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),

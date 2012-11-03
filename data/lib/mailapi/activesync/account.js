@@ -411,6 +411,7 @@ ActiveSyncAccount.prototype = {
    *   complete, taking the new folder storage
    */
   _recreateFolder: function asa__recreateFolder(folderId, callback) {
+    this._LOG.recreateFolder(folderId);
     let folderInfo = this._folderInfos[folderId];
     folderInfo.accuracy = [];
     folderInfo.headerBlocks = [];
@@ -648,11 +649,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       createFolder: {},
       deleteFolder: {},
+      recreateFolder: { id: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
       saveAccountState: { reason: false },
     },
+    errors: {
+      opError: { mode: false, type: false, ex: $log.EXCEPTION },
+    }
   },
 });
 
