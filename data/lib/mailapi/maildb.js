@@ -31,10 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 12 because IMAP is changing to issue its own suid's and store the
- * server suid separately.
+ * Bumping to 13 because we now track when we last did a folder sync.
  */
-const CUR_VERSION = 12;
+const CUR_VERSION = exports.CUR_VERSION = 13;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -132,8 +131,26 @@ const TBL_BODY_BLOCKS = 'bodyBlocks';
  * a blob for non-binary data that exceeds 64k by a fair margin, and less
  * compressible binary data that is at least 64k.
  *
+ * @args[
+ *   @param[testOptions #:optional @dict[
+ *     @key[dbVersion #:optional Number]{
+ *       Override the database version to treat as the database version to use.
+ *       This is intended to let us do simple database migration testing by
+ *       creating the database with an old version number, then re-open it
+ *       with the current version and seeing a migration happen.  To test
+ *       more authentic migrations when things get more complex, we will
+ *       probably want to persist JSON blobs to disk of actual older versions
+ *       and then pass that in to populate the database.
+ *     }
+ *     @key[nukeDb #:optional Boolean]{
+ *       Compel ourselves to nuke the previous database state and start from
+ *       scratch.  This only has an effect when IndexedDB has fired an
+ *       onupgradeneeded event.
+ *     }
+ *   ]]
+ * ]
  */
-function MailDB() {
+function MailDB(testOptions) {
   this._db = null;
   this._onDB = [];
 
@@ -172,7 +189,10 @@ function MailDB() {
                   explainedSource);
   };
 
-  var openRequest = IndexedDB.open('b2g-email', CUR_VERSION), self = this;
+  var dbVersion = CUR_VERSION;
+  if (testOptions && testOptions.dbVersion)
+    dbVersion = testOptions.dbVersion;
+  var openRequest = IndexedDB.open('b2g-email', dbVersion), self = this;
   openRequest.onsuccess = function(event) {
     self._db = openRequest.result;
     for (var i = 0; i < self._onDB.length; i++) {
@@ -183,8 +203,13 @@ function MailDB() {
   openRequest.onupgradeneeded = function(event) {
     var db = openRequest.result;
 
-    // friendly, lazy upgrade:
-    if (event.oldVersion >= FRIENDLY_LAZY_DB_UPGRADE_VERSION) {
+    // - reset to clean slate
+    if ((event.oldVersion < FRIENDLY_LAZY_DB_UPGRADE_VERSION) ||
+        (testOptions && testOptions.nukeDb)) {
+      self._nukeDB(db);
+    }
+    // - friendly, lazy upgrade
+    else {
       var trans = openRequest.transaction;
       // Load the current config, save it off so getConfig can use it, then nuke
       // like usual.  This is obviously a potentially data-lossy approach to
@@ -199,10 +224,6 @@ function MailDB() {
           };
         self._nukeDB(db);
       }, trans);
-    }
-    // - reset to clean slate
-    else {
-      self._nukeDB(db);
     }
   };
   openRequest.onerror = this._fatalError;

@@ -657,8 +657,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
  * Provides mechanisms for creating vaguely interesting, but at least valid,
  *  SyntheticMessage instances.
  */
-function MessageGenerator() {
-  this._clock = new Date(2000, 1, 1);
+function MessageGenerator(startDate) {
+  this._clock = startDate || new Date(2012, 5, 14);
   this._nextNameNumber = 0;
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
@@ -902,7 +902,7 @@ MessageGenerator.prototype = {
     if (aArgs.age) {
       let age = aArgs.age;
       // start from 'now'
-      let ts = new Date().valueOf();
+      let ts = this._clock || Date.now();
       if (age.minutes)
         ts -= age.minutes * 60 * 1000;
       if (age.hours)

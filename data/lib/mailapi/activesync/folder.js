@@ -105,6 +105,7 @@ ActiveSyncFolderConn.prototype = {
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
+        // XXX why are we not calling callback here?
         return;
       }
 
@@ -116,6 +117,7 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (folderConn.syncKey === '0')
+        // XXX and why are we not calling callback here?
         console.error('Unable to get sync key for folder');
       else
         callback();
@@ -606,6 +608,13 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 }
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
+  /**
+   * Can we synchronize?  Not if we don't have a server id!
+   */
+  get canSyncRightNow() {
+    return this.folderConn.serverId !== null;
+  },
+
   syncDateRange: function(startTS, endTS, syncCallback) {
     syncCallback('sync', false, true);
     this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),

@@ -128,9 +128,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    *   @param[nextMutationNum Number]{
    *     The next mutation id to be allocated.
    *   }
-   *   @param[lastFullFolderProbeAt DateMS]{
-   *     When was the last time we went through our list of folders and got the
-   *     unread count in each folder.
+   *   @param[lastFolderSyncAt DateMS]{
+   *     When was the last time we ran `syncFolderList`?
    *   }
    *   @param[capability @listof[String]]{
    *     The post-login capabilities from the server.
@@ -183,6 +182,14 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * expunging deleted messages.
    */
   this._TEST_doNotCloseFolder = false;
+
+  // Ensure we have an inbox.  This is a folder that must exist with a standard
+  // name, so we can create it without talking to the server.
+  var inboxFolder = this.getFirstFolderWithType('inbox');
+  if (!inboxFolder) {
+    // XXX localized inbox string (bug 805834)
+    this._learnAboutFolder('INBOX', 'INBOX', 'inbox', '/', 0);
+  }
 }
 exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
@@ -655,11 +662,13 @@ ImapAccount.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Folder synchronization
 
-  syncFolderList: function(callback) {
-    var self = this;
-    this.__folderDemandsConnection(null, 'syncFolderList', function(conn) {
-      conn.getBoxes(self._syncFolderComputeDeltas.bind(self, conn, callback));
-    });
+  /**
+   * Helper in conjunction with `_syncFolderComputeDeltas` for use by the
+   * syncFolderList operation/job.  The op is on the hook for the connection's
+   * lifecycle.
+   */
+  _syncFolderList: function(conn, callback) {
+    conn.getBoxes(this._syncFolderComputeDeltas.bind(this, conn, callback));
   },
   _determineFolderType: function(box, path) {
     var type = null;
@@ -754,9 +763,7 @@ ImapAccount.prototype = {
   _syncFolderComputeDeltas: function(conn, callback, err, boxesRoot) {
     var self = this;
     if (err) {
-      // XXX need to deal with transient failure states
-      this.__folderDoneWithConnection(conn, false, false);
-      callback();
+      callback(err);
       return;
     }
 
@@ -775,6 +782,12 @@ ImapAccount.prototype = {
 
         // - already known folder
         if (folderPubsByPath.hasOwnProperty(path)) {
+          // Make sure the delimiter is up-to-date (for INBOX we initially make
+          // a guess which we must update here.)
+          var meta = folderPubsByPath[path];
+          if (meta.delim !== box.delim)
+            meta.delim = box.delim;
+
           // mark it with true to show that we've seen it.
           folderPubsByPath = true;
         }
@@ -803,10 +816,7 @@ ImapAccount.prototype = {
       this._forgetFolder(folderPub.id);
     }
 
-    this.__folderDoneWithConnection(conn, false, false);
-    // be sure to save our state now that we are up-to-date on this.
-    this.saveAccountState();
-    callback();
+    callback(null);
   },
 
   /**
@@ -891,6 +901,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       unknownDeadConnection: {},
       connectionError: {},
       folderAlreadyHasConn: { folderId: false },
+      opError: { mode: false, type: false, ex: $log.EXCEPTION },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
