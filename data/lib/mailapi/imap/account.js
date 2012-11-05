@@ -401,7 +401,7 @@ ImapAccount.prototype = {
    * like Thunderbird uses.  The rationale is that many servers cap the number
    * of connections we are allowed to maintain, plus it's hard to justify
    * locally tying up those resources.  (Thunderbird has more need of watching
-   * multiple folders than ourselves, bu we may still want to synchronize a
+   * multiple folders than ourselves, but we may still want to synchronize a
    * bunch of folders in parallel for latency reasons.)
    *
    * The provided connection will *not* be in the requested folder; it's up to
@@ -425,17 +425,29 @@ ImapAccount.prototype = {
    *     A callback to invoke if the connection dies or we feel compelled to
    *     reclaim it.
    *   }
+   *   @param[dieOnConnectFailure #:optional Boolean]{
+   *     Should we invoke the deathback for this request if we fail to establish
+   *     a connection in a timely manner?  This will be immediately invoked if
+   *     we are offline or if we exhaust our retries for establishing
+   *     connections with the server.
+   *   }
    * ]
-   * @return[demandHandle Object]{
-   *
-   * }
    */
-  __folderDemandsConnection: function(folderId, label, callback, deathback) {
+  __folderDemandsConnection: function(folderId, label, callback, deathback,
+                                      dieOnConnectFailure) {
+    // If we are offline, invoke the deathback soon and don't bother trying to
+    // get a connection.
+    if (dieOnConnectFailure && !this.universe.online) {
+      window.setZeroTimeout(deathback);
+      return;
+    }
+
     var demand = {
       folderId: folderId,
       label: label,
       callback: callback,
-      deathback: deathback
+      deathback: deathback,
+      dieOnConnectFailure: Boolean(dieOnConnectFailure)
     };
     this._demandedConns.push(demand);
 
@@ -453,6 +465,28 @@ ImapAccount.prototype = {
     return;
   },
 
+  /**
+   * Trigger the deathbacks for all connection demands where dieOnConnectFailure
+   * is true.
+   */
+  _killDieOnConnectFailureDemands: function() {
+    for (var i = 0; i < this._demandedConns.length; i++) {
+      var demand = this._demandedConns[i];
+      if (demand.dieOnConnectFailure) {
+        demand.deathback.call(null);
+        i--;
+      }
+    }
+  },
+
+  /**
+   * Try and find an available connection and assign it to the first connection
+   * demand.
+   *
+   * @return[Boolean]{
+   *   True if we allocated a demand to a conncetion, false if we did not.
+   * }
+   */
   _allocateExistingConnection: function() {
     if (!this._demandedConns.length)
       return false;
@@ -579,9 +613,12 @@ ImapAccount.prototype = {
         if (maybeRetry) {
           if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
             this._makeConnectionIfPossible();
+          else
+            this._killDieOnConnectFailureDemands();
         }
         else {
           this._backoffEndpoint.noteBrokenConnection();
+          this._killDieOnConnectFailureDemands();
         }
       }
       else {

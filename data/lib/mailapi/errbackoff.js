@@ -118,6 +118,10 @@ BackoffEndpoint.prototype = {
    *     for some reason.
    *   }
    * ]
+   * @return[shouldRetry Boolean]{
+   *   Returns true if we should retry creating the connection, false if we
+   *   should give up.
+   * }
    */
   noteConnectFailureMaybeRetry: function(reachable) {
     this._LOG.connectFailure(reachable);

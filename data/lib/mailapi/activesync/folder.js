@@ -87,7 +87,7 @@ ActiveSyncFolderConn.prototype = {
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
-       .stag(as.Collections)
+      .stag(as.Collections)
          .stag(as.Collection)
 
     if (account.conn.currentVersion.lt('12.1'))
@@ -130,6 +130,8 @@ ActiveSyncFolderConn.prototype = {
    *
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {function} progress A function to be called as the operation
+   *   progresses.
    */
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
                                                                  progress) {
@@ -615,25 +617,34 @@ ActiveSyncFolderSyncer.prototype = {
     return this.folderConn.serverId !== null;
   },
 
-  syncDateRange: function(startTS, endTS, syncCallback) {
+  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                          progressCallback) {
     syncCallback('sync', false, true);
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  this.onSyncCompleted.bind(this));
+    this.folderConn.syncDateRange(
+      startTS, endTS, $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback));
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                                  progressCallback) {
     // ActiveSync doesn't adjust date ranges. Just do a normal sync.
-    this.syncDateRange(startTS, endTS, syncCallback);
+    this.syncDateRange(startTS, endTS, syncCallback, doneCallback,
+                       progressCallback);
   },
 
-  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(), callback);
+  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
+                        progressCallback) {
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
+                                  doneCallback, progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+                     doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
+    // (There is no need to invoke the callbacks; by returning false, we
+    // indicate that we did no work.)
     return false;
   },
 
@@ -642,7 +653,8 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, bisectInfo,
+                                                messagesSeen) {
     let storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");
@@ -656,7 +668,8 @@ ActiveSyncFolderSyncer.prototype = {
     storage.getMessagesInImapDateRange(
       0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
       // Don't trigger a refresh; we just synced.
-      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false)
+      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                    doneCallback)
     );
 
     storage._curSyncSlice = null;

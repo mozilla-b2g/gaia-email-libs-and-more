@@ -832,8 +832,11 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
+  sendStatus: function sbp_sendStatus(status, requested, moreExpected,
+                                      progress) {
     this.status = status;
+    if (progress != null)
+      this.progress = progress;
     this.sendSplice(0, 0, [], requested, moreExpected);
   },
 

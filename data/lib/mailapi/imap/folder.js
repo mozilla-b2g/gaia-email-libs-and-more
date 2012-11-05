@@ -108,6 +108,20 @@ const FLAG_FETCH_PARAMS = {
  * synchronization.  Storage is handled by `FolderStorage` instances.  All of
  * the connection life-cycle nitty-gritty is handled by the `ImapAccount`.
  *
+ * == Progress
+ *
+ * Our progress break-down is:
+ * - [0.0, 0.1]: Getting the IMAP connection.
+ * - (0.1, 0.25]: Getting usable SEARCH results.  Bisect back-off does not
+ *     update progress.
+ * - (0.25, 1.0]: Fetching revised flags, headers, and bodies.  Since this
+ *     is primarily a question of network latency, we weight things based
+ *     on round-trip requests required with reduced cost for number of packets
+ *     required.
+ *   - Revised flags: 20 + 1 * number of known headers
+ *   - New headers: 20 + 5 * number of new headers
+ *   - Bodies: 30 * number of new headers
+ *
  * == IDLE
  *
  * We plan to IDLE in folders that we have active slices in.  We are assuming
@@ -196,23 +210,38 @@ ImapFolderConn.prototype = {
   },
 
   /**
-   * Perform a SEARCH for the purposes of folder synchronization.  This is an
-   * expiring request
+   * Perform a SEARCH for the purposes of folder synchronization.  In the event
+   * we are unable to reach the server (we are offline, the server is down,
+   * nework troubles), the `abortedCallback` will be invoked.  Note that it can
+   * take many seconds for us to conclusively fail to reach the server.
    */
-  _timelySyncSearch: function(searchOptions, callback, progress) {
+  _timelySyncSearch: function(searchOptions, searchedCallback,
+                              abortedCallback, progressCallback) {
     // If we don't have a connection, get one, then re-call.
     if (!this._conn) {
-      this.acquireConn(this._reliaSearch.bind(this, searchOptions, callback),
-                       /* XXX NULL deathback */ null, 'sync');
+      // XXX the abortedCallback should really only be used for the duration
+      // of this request, but it will end up being used for the entire duration
+      // our folder holds on to the connection.  This is not a great idea as
+      // long as we are leaving the IMAP connection idling in the folder (which
+      // causes us to not release the connection back to the account).  We
+      // should tie this to the mutex or something else transactional.
+      this.acquireConn(
+        this._timelySyncSearch.bind(this, searchOptions, searchedCallback,
+                                    abortedCallback, progressCallback),
+        abortedCallback, 'sync');
       return;
     }
 
+    // Having a connection is 10% of the battle
+    if (progressCallback)
+      progressCallback(0.1);
     this._conn.search(searchOptions, function(err, uids) {
         if (err) {
           console.error('Search error on', searchOptions, 'err:', err);
+          abortedCallback();
           return;
         }
-        callback(uids);
+        searchedCallback(uids);
       });
   },
 
@@ -243,7 +272,7 @@ ImapFolderConn.prototype = {
    * ]
    */
   syncDateRange: function(startTS, endTS, accuracyStamp, useBisectLimit,
-                          doneCallback) {
+                          doneCallback, progressCallback) {
 console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
@@ -304,6 +333,9 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
           }
         }
 
+        if (progressCallback)
+          progressCallback(0.25);
+
         // -- infer deletion, flag to distinguish known messages
         // rather than splicing lists and causing shifts, we null out values.
         for (var iMsg = 0; iMsg < headers.length; iMsg++) {
@@ -335,7 +367,8 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             self._storage.markSyncRange(startTS, endTS, modseq,
                                         accuracyStamp);
             doneCallback(null, newCount + knownCount);
-          });
+          },
+          progressCallback);
       });
 
     // - Adjust DB time range for server skew on INTERNALDATE
@@ -356,7 +389,12 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
                 'End: ', skewedEndTS,
                 skewedEndTS ? new Date(skewedEndTS).toUTCString() : null);
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
-    this._timelySyncSearch(searchOptions, callbacks.search);
+    this._timelySyncSearch(
+      searchOptions, callbacks.search,
+      function abortedSearch() {
+        doneCallback('timeout');
+      },
+      progressCallback);
     this._storage.getAllMessagesInImapDateRange(skewedStartTS, skewedEndTS,
                                                 callbacks.db);
   },
@@ -393,10 +431,31 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
    * Third, we fetch the body parts in our newest-to-startTS order, adding
    * finalized headers and bodies as we go.
    */
-  _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback) {
+  _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback,
+                        progressCallback) {
     var conn = this._conn, storage = this._storage, self = this;
 console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
             knownUIDs.length, 'knownHeaders', knownHeaders.length);
+    // See the `ImapFolderConn` block comment for rationale.
+    const KNOWN_HEADERS_AGGR_COST = 20,
+          KNOWN_HEADERS_PER_COST = 1,
+          NEW_HEADERS_AGGR_COST = 20,
+          NEW_HEADERS_PER_COST = 5,
+          NEW_BODIES_PER_COST = 30;
+    var progressCost =
+          (knownUIDs.length ? KNOWN_HEADERS_AGGR_COST : 0) +
+          KNOWN_HEADERS_PER_COST * knownUIDs.length +
+          (newUIDs.length ? NEW_HEADERS_AGGR_COST : 0) +
+          NEW_HEADERS_PER_COST * newUIDs.length +
+          NEW_BODIES_PER_COST * newUIDs.length,
+        progressSoFar = 0;
+
+    function updateProgress(newProgress) {
+      progressSoFar += newProgress;
+      if (progressCallback)
+        progressCallback(0.25 + 0.75 * (progressSoFar / progressCost));
+    }
+
     var callbacks = allbackMaker(
       ['newMsgs', 'knownMsgs'],
       function() {
@@ -426,6 +485,10 @@ console.log('   header processed');
           console.warn('New UIDs fetch error, ideally harmless:', err);
         });
       newFetcher.on('end', function onNewFetchEnd() {
+          // the fetch results will be bursty, so just update all at once
+          updateProgress(NEW_HEADERS_AGGR_COST +
+                         NEW_HEADERS_PER_COST * newUIDs.length);
+
           // sort the messages, endTS to startTS (aka numerically descending)
           newChewReps.sort(function(a, b) {
               return b.msg.date - a.msg.date;
@@ -522,6 +585,7 @@ try {
                 setupBodyParser(bodyPart);
                 msg.on('data', bodyParseBuffer);
                 msg.on('end', function() {
+                  updateProgress(NEW_BODIES_PER_COST);
                   partsReceived.push(finishBodyParsing());
 console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
             partsReceived.length, chewRep.bodyParts.length);
@@ -606,6 +670,9 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
           console.warn('Known UIDs fetch error, ideally harmless:', err);
         });
       knownFetcher.on('end', function() {
+        // the fetch results will be bursty, so just update all at once
+        updateProgress(KNOWN_HEADERS_AGGR_COST +
+                       KNOWN_HEADERS_PER_COST * knownUIDs.length);
         callbacks.knownMsgs();
       });
     }
@@ -718,6 +785,10 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
    * before we hit this date, it makes sense to keep taking smaller sync steps.
    */
   this._curSyncDoNotGrowWindowBefore = null;
+  /**
+   * The callback to invoke when we complete the sync, regardless of success.
+   */
+  this._curSyncDoneCallback = null;
 
   this.folderConn = new ImapFolderConn(account, folderStorage, this._LOG);
 }
@@ -729,12 +800,14 @@ ImapFolderSyncer.prototype = {
    */
   canSyncRightNow: true,
 
-  syncDateRange: function(startTS, endTS, syncCallback) {
+  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                          progressCallback) {
     syncCallback('sync', false);
-    this._startSync(startTS, endTS);
+    this._startSync(startTS, endTS, doneCallback, progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                                  progressCallback) {
     // We need to iterate over the headers to figure out the right
     // date to use.  We can't just use the accuracy range because it may
     // have been bisected by the user scrolling into the past and
@@ -765,20 +838,23 @@ ImapFolderSyncer.prototype = {
           startTS = quantizeDate(header.date + this._account.tzOffset);
         }
         syncCallback('sync', true);
-        this._startSync(startTS, endTS);
+        this._startSync(startTS, endTS, doneCallback, progressCallback);
       }.bind(this)
     );
   },
 
-  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
+  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
+                        progressCallback) {
     this._curSyncAccuracyStamp = NOW();
     // timezone compensation happens in the caller
-    this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  useBisectLimit, callback);
+    this.folderConn.syncDateRange(
+      startTS, endTS, this._curSyncAccuracyStamp, useBisectLimit,
+      doneCallback, progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+                     doneCallback, progressCallback) {
     // The sync wants to be BEFORE the earliest day (which we are assuming
     // is fully synced based on our day granularity).
     var syncEndTS = quantizeDate(endTS);
@@ -816,30 +892,46 @@ ImapFolderSyncer.prototype = {
 
       // Perform a limited synchronization; do not issue additional syncs!
       syncCallback('limsync', iFirstNotToSend);
-      this._startSync(syncStartTS, syncEndTS);
+      this._startSync(syncStartTS, syncEndTS, doneCallback, progressCallback);
       return true;
     }
     // If growth was requested/is allowed or our accuracy range already covers
     // as far back as we go, issue a (potentially expanding) sync.
     else if (batchHeaders.length === 0 && userRequestsGrowth) {
       syncCallback('sync', 0);
-      this._startSync(null, syncEndTS);
+      this._startSync(null, syncEndTS, doneCallback, progressCallback);
       return true;
     }
 
     return false;
   },
 
-  _startSync: function ifs__startSync(startTS, endTS) {
+  _startSync: function ifs__startSync(startTS, endTS, doneCallback,
+                                      progressCallback) {
     if (startTS === null)
       startTS = endTS - ($sync.INITIAL_SYNC_DAYS * DAY_MILLIS);
     this._curSyncAccuracyStamp = NOW();
     this._curSyncStartTS = startTS;
     this._curSyncDayStep = $sync.INITIAL_SYNC_DAYS;
     this._curSyncDoNotGrowWindowBefore = null;
+    this._curSyncDoneCallback = doneCallback;
 
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  null, this.onSyncCompleted.bind(this));
+                                  null, this.onSyncCompleted.bind(this),
+                                  progressCallback);
+  },
+
+  _doneSync: function ifs__doneSync(err) {
+    if (this._curSyncDoneCallback)
+      this._curSyncDoneCallback(err);
+
+    this._account.__checkpointSyncCompleted();
+
+    this._curSyncAccuracyStamp = null;
+    this._curSyncStartTS = null;
+    this._curSyncDayStep = null;
+    this._curSyncDoNotGrowWindowBefore = null;
+    this._curSyncDoneCallback = null;
   },
 
   /**
@@ -854,6 +946,8 @@ ImapFolderSyncer.prototype = {
       this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
       this._curSyncDayStep = bisectInfo.dayStep;
       this._curSyncStartTS = bisectInfo.newStartTS;
+      // We return now without calling _doneSync because we are not done; the
+      // caller (syncDateRange) will re-trigger itself and keep going.
       return;
     }
 
@@ -918,16 +1012,12 @@ console.log("folder message count", folderMessageCount,
         this.folderStorage._curSyncSlice.desiredHeaders =
           this.folderStorage._curSyncSlice.headers.length;
       }
-      this.folderStorage._curSyncSlice.waitingOnData = false;
-      this.folderStorage._curSyncSlice.setStatus('synced', true, false, true);
-      this.folderStorage._curSyncSlice = null;
-
-      this._account.__checkpointSyncCompleted();
+      this._doneSync();
       return;
     }
     else if (this.folderStorage._curSyncSlice._accumulating) {
-      this.folderStorage._curSyncSlice.setStatus('synchronizing', true, true,
-                                                 true);
+      this.folderStorage._curSyncSlice.setStatus(
+        'synchronizing', true, true, true);
     }
 
     // - Increase our search window size if we aren't finding anything

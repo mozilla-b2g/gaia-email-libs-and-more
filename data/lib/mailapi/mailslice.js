@@ -306,7 +306,8 @@ MailSlice.prototype = {
     this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status, requested, moreExpected, flushAccumulated) {
+  setStatus: function(status, requested, moreExpected, flushAccumulated,
+                      progress) {
     if (!this._bridgeHandle)
       return;
 
@@ -329,7 +330,7 @@ MailSlice.prototype = {
                                     requested, moreExpected);
     }
     else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected);
+      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
     }
   },
 
@@ -871,7 +872,9 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._slices = [];
   /**
    * The slice that is driving our current synchronization and wants to hear
-   * about all header modifications/notes as they occur.
+   * about all header modifications/notes as they occur.  This will be null
+   * when performing a refresh sync, but `_activeSync` will always be truthy
+   * when a sync is active.
    */
   this._curSyncSlice = null;
 
@@ -880,15 +883,6 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
-  /**
-   * Return true if there is another sync happening in this folder right now.
-   * This allows the `CronSyncer` to avoid starting a sync that will immediately
-   * fail because there is a sync-in-progress.  See its logic for more details.
-   */
-  get syncInProgress() {
-    return this._curSyncSlice !== null;
-  },
-
   get hasActiveSlices() {
     return this._slices.length > 0;
   },
@@ -906,7 +900,7 @@ FolderStorage.prototype = {
       var slice = this._slices[i];
       slice._resetHeadersBecauseOfRefreshExplosion();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
-      this._resetAndResyncSlice(slice, false);
+      this._resetAndResyncSlice(slice, false, null);
     }
   },
 
@@ -1743,15 +1737,24 @@ FolderStorage.prototype = {
    */
   sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired,
                                                   forceDeepening) {
-    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
-    this._slices.push(slice);
-    if (this._curSyncSlice) {
-      console.error("Trying to open a slice and initiate a sync when there",
-                    "is already an active sync slice!");
-      return;
-    }
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
     // by definition, we must be at the top
     slice.atTop = true;
+    this.runMutexed(
+      'sync',
+      this._sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening));
+  },
+  _sliceOpenFromNow: function ifs__sliceOpenFromNowfunction(
+      slice, daysDesired, forceDeepening, releaseMutex) {
+    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
+
+    // We only put the slice in the list of slices now that we have the mutex
+    // in order to avoid having the slice have data fed into it if there were
+    // other synchronizations already in progress.
+    this._slices.push(slice);
 
     // -- Check if we have sufficiently useful data on hand.
     // For checking accuracy ranges, the first accuracy range is authoritative
@@ -1767,9 +1770,8 @@ FolderStorage.prototype = {
         worstGoodData = 0,
         existingDataGood = false;
 
-    var syncCallback = (function syncCallback(syncMode, accumulateMode,
-                                              ignoreHeaders) {
-      slice.setStatus('synchronizing', false, true);
+    var syncCallback = function syncCallback(syncMode, accumulateMode,
+                                             ignoreHeaders) {
       slice.waitingOnData = syncMode;
       if (accumulateMode && slice.headers.length === 0) {
         slice._accumulating = true;
@@ -1778,10 +1780,17 @@ FolderStorage.prototype = {
         slice.ignoreHeaders = true;
       }
       this._curSyncSlice = slice;
-    }).bind(this);
+    }.bind(this);
 
-    var progressCallback = (function progressCallback() {
-    }).bind(this);
+    var doneCallback = function doneSyncCallback() {
+      slice.waitingOnData = false;
+      slice.setStatus('synced', true, false, true);
+      this._curSyncSlice = null;
+
+      releaseMutex();
+    }.bind(this);
+
+    var progressCallback = slice.setSyncProgress.bind(slice);
 
     // If we're offline or the folder can't be synchronized right now, then
     // there's nothing to look into; use the DB.
@@ -1818,7 +1827,8 @@ FolderStorage.prototype = {
         var updateThresh = now - rangeThresh;
         if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
           this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
-                                                  syncCallback);
+                                                  syncCallback, doneCallback,
+                                                  progressCallback);
           return;
         }
       }
@@ -1834,15 +1844,17 @@ FolderStorage.prototype = {
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
           this, slice,
-          this._account.universe.online && this.folderSyncer.canSyncRightNow)
+          this._account.universe.online && this.folderSyncer.canSyncRightNow,
+          doneCallback)
       );
       return;
     }
 
     // -- Bad existing data, issue a sync and have the slice
-    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback);
+    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback,
+                                    doneCallback, progressCallback);
   },
-p
+
   /**
    * The slice wants more headers.  Grab from the database and/or sync as
    * appropriate to get more headers.  If there is a cost, require a user
@@ -1865,6 +1877,17 @@ p
    * date overlap from sync activity.
    */
   growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
+    // If the user requested synchronization, provide UI feedback immediately,
+    // otherwise, let the method set this state if/when we actually decide to
+    // talk to the server.
+    if (userRequestsGrowth)
+      slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'grow',
+      this._growSlice.bind(this, slice, dirMagnitude, userRequestsGrowth));
+  },
+  _growSlice: function ifs__growSlice(slice, dirMagnitude, userRequestsGrowth,
+                                      releaseMutex) {
     var dir, desiredCount;
     if (dirMagnitude < 0) {
       dir = -1;
@@ -1897,16 +1920,29 @@ p
               slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
                                        -1, true);
             slice.desiredHeaders += desiredCount;
-            slice.setStatus('synchronizing', false, true);
+            // (we are did this if userRequestsGrowth is true in `growSlice`)
+            if (!userRequestsGrowth)
+              slice.setStatus('synchronizing', false, true, false, 0.0);
             slice.waitingOnData = syncMode;
             this._curSyncSlice = slice;
           }
         }).bind(this);
 
-        // If we're offline, just use what we've got and be done with it.
+        var doneCallback = function doneGrowCallback() {
+          slice.waitingOnData = false;
+          slice.setStatus('synced', true, false, true);
+          this._curSyncSlice = null;
+
+          releaseMutex();
+        }.bind(this);
+
+        var progressCallback = slice.setSyncProgress.bind(slice);
+
+        // We can only grow if we are online.
         if (this._account.universe.online) {
           growingSync = this.folderSyncer.growSync(
-            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback);
+            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback,
+            doneCallback, progressCallback);
         }
 
         if (!growingSync) {
@@ -1917,6 +1953,7 @@ p
           else {
             slice.sendEmptyCompletion();
           }
+          releaseMutex();
         }
       }.bind(this);
 
@@ -1941,10 +1978,17 @@ p
    * full date bounds.
    */
   refreshSlice: function ifs_refreshSlice(slice, useBisectLimit) {
-    // XXX use mutex scheduling to avoid this possibly happening...
-    if (this._curSyncSlice)
-      throw new Error("Can't refresh a slice when there is an existing sync");
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'refresh',
+      this._refreshSlice.bind(this, slice, useBisectLimit));
 
+  },
+  _refreshSlice: function ifs__refreshSlice(slice, useBisectLimit,
+                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
 
     var startTS = slice.startTS, endTS = slice.endTS;
@@ -1980,34 +2024,36 @@ p
 
     this._LOG.refreshSlice(startTS, endTS, useBisectLimit);
 
-    var self = this;
-    this.folderSyncer.refreshSync(startTS, endTS, useBisectLimit,
-                                  function(bisectInfo, numMessages) {
-      // If a bisection occurred then this can no longer be a refresh and
-      // instead we need to retract all known messages and instead convert
-      // this into a synchronization.
-      if (bisectInfo) {
-        // (The first time through bisectInfo is an object; we return 'abort'
-        // and then get called again with 'aborted'...)
-        if (bisectInfo === 'aborted')
-          self._resetAndResyncSlice(slice, true);
-        else
-          slice._resetHeadersBecauseOfRefreshExplosion();
-        return 'abort';
-      }
+    this.folderSyncer.refreshSync(
+      startTS, endTS, useBisectLimit,
+      function refreshDoneCallback(bisectInfo, numMessages) {
+        // If a bisection occurred then this can no longer be a refresh and
+        // instead we need to retract all known messages and instead convert
+        // this into a synchronization.
+        if (bisectInfo) {
+          // (The first time through bisectInfo is an object; we return 'abort'
+          // and then get called again with 'aborted'...)
+          if (bisectInfo === 'aborted')
+            this._resetAndResyncSlice(slice, true);
+          else
+            slice._resetHeadersBecauseOfRefreshExplosion();
+          return 'abort';
+        }
 
-      slice.waitingOnData = false;
-      if (self._curSyncSlice === slice)
-        self._curSyncSlice = null;
-      self._account.__checkpointSyncCompleted();
-      slice.setStatus('synced', true, false);
-      return undefined;
-    });
+        slice.waitingOnData = false;
+        this._account.__checkpointSyncCompleted();
+        slice.setStatus('synced', true, false);
+        return undefined;
+      }.bind(this),
+      slice.setSyncProgress.bind(slice));
   },
 
-  _resetAndResyncSlice: function(slice, forceDeepening) {
+  _resetAndResyncSlice: function(slice, forceDeepening, releaseMutex) {
     this._slices.splice(this._slices.indexOf(slice), 1);
-    this.sliceOpenFromNow(slice, null, forceDeepening);
+    if (releaseMutex)
+      this._sliceOpenFromNow(slice, null, forceDeepening, releaseMutex);
+    else
+      this.sliceOpenFromNow(slice, null, forceDeepening);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2021,7 +2067,7 @@ p
   /**
    * Receive messages directly from the database (streaming).
    */
-  onFetchDBHeaders: function(slice, triggerRefresh,
+  onFetchDBHeaders: function(slice, triggerRefresh, doneCallback,
                              headers, moreMessagesComing) {
     var triggerNow = false;
     if (!moreMessagesComing && triggerRefresh) {
@@ -2037,8 +2083,7 @@ p
 
     if (!moreMessagesComing) {
       slice.desiredHeaders = slice.headers.length;
-      slice.setStatus('synced', true, false);
-      slice.waitingOnData = false;
+      doneCallback();
     }
     else if (triggerNow) {
       slice.desiredHeaders = slice.headers.length;
