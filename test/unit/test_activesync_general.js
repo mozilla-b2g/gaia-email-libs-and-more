@@ -16,9 +16,10 @@ var TD = $tc.defineTestsFor(
 TD.commonCase('folder sync', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testServer = T.actor('testActiveSyncServer', 'S'),
+      testServer = T.actor('testActiveSyncServer', 'S',
+                           { universe: testUniverse }),
       testAccount = T.actor('testActiveSyncAccount', 'A',
-                            { universe: testUniverse }),
+                            { universe: testUniverse, server: testServer }),
       eSync = T.lazyLogger('sync');
 
   T.group('cleanup');

@@ -288,6 +288,63 @@ ActiveSyncJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // syncFolderList
+  //
+  // Synchronize our folder list.  This should always be an idempotent operation
+  // that makes no sense to undo/redo/etc.
+
+  local_do_syncFolderList: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_syncFolderList: function(op, doneCallback) {
+    var account = this.account, self = this;
+    // establish a connection if we are not already connected
+    if (!account.conn.connected) {
+      account.conn.connect(function(err, config) {
+        if (err) {
+          doneCallback('aborted-retry');
+          return;
+        }
+        self.do_syncFolderList(op, doneCallback);
+      });
+      return;
+    }
+
+    // The inbox needs to be resynchronized if there was no server id and we
+    // have active slices displaying the contents of the folder.  (No server id
+    // means the sync will not happen.)
+    var inboxFolder = this.account.getFirstFolderWithType('inbox'),
+        inboxStorage, inboxNeedsResync = false;
+    if (inboxFolder && inboxFolder.serverId === null) {
+      inboxStorage = this.account.getFolderStorageForFolderId(inboxFolder.id);
+      inboxNeedsResync = inboxStorage.hasActiveSlices;
+    }
+
+    account.syncFolderList(function(err) {
+      if (!err)
+        account.meta.lastFolderSyncAt = Date.now();
+      // save if it worked
+      doneCallback(err ? 'aborted-retry' : null, null, !err);
+
+      if (inboxNeedsResync)
+        inboxStorage.resetAndRefreshActiveSlices();
+    });
+  },
+
+  check_syncFolderList: function(op, doneCallback) {
+    doneCallback('idempotent');
+  },
+
+  local_undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 }); // end define
