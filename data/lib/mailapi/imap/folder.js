@@ -748,7 +748,7 @@ ImapFolderSyncer.prototype = {
    * Although we do have some errbackoff stuff we do, we can always try to
    * synchronize.  The errbackoff is just a question of when we will retry.
    */
-  canSyncRightNow: true,
+  syncable: true,
 
   syncDateRange: function(startTS, endTS, syncCallback) {
     syncCallback('sync', false);

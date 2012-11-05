@@ -114,12 +114,14 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                           this,
                           this._folderInfos.$mutationState);
 
-  // Ensure we have an inbox.  This is a folder that must exist with a standard
-  // name, so we can create it without talking to the server.
+  // Ensure we have an inbox.  The server id cannot be magically known, so we
+  // create it with a null id.  When we actually sync the folder list, the
+  // server id will be updated.
   var inboxFolder = this.getFirstFolderWithType('inbox');
   if (!inboxFolder) {
     // XXX localized Inbox string (bug 805834)
-    this._addedFolder(null, '0', 'Inbox', '2');
+    this._addedFolder(null, '0', 'Inbox',
+                      $ascp.FolderHierarchy.Enums.Type.DefaultInbox);
   }
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
@@ -309,6 +311,8 @@ ActiveSyncAccount.prototype = {
     if (!(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
+    const folderType = $ascp.FolderHierarchy.Enums.Type;
+
     let path = displayName;
     let depth = 0;
     if (parentId !== '0') {
@@ -321,7 +325,7 @@ ActiveSyncAccount.prototype = {
     }
 
     // Handle sentinel Inbox.
-    if (typeNum === '2') {
+    if (typeNum === folderType.DefaultInbox) {
       let existingInboxMeta = this.getFirstFolderWithType('inbox');
       if (existingInboxMeta) {
         // update everything about the folder meta
