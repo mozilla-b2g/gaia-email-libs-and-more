@@ -74,6 +74,14 @@ exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX = 7 * $date.DAY_MILLIS;
 exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX = 6 * $date.HOUR_MILLIS;
 
 ////////////////////////////////////////////////////////////////////////////////
+// General Sync Constants
+
+/**
+ * How frequently do we want to automatically synchronize our folder list?
+ * Currently, we think that once a day is sufficient.  This is a lower bound,
+ * we may sync less frequently than this.
+ */
+exports.SYNC_FOLDER_LIST_EVERY_MS = $date.DAY_MILLIS;
 
 /**
  * How many messages should we send to the UI in the first go?

@@ -114,9 +114,15 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                           this,
                           this._folderInfos.$mutationState);
 
-  // TODO: this is a really hacky way of syncing folders after the first time.
-  if (this.meta.syncKey != '0')
-    setTimeout(this.syncFolderList.bind(this), 1000);
+  // Ensure we have an inbox.  The server id cannot be magically known, so we
+  // create it with a null id.  When we actually sync the folder list, the
+  // server id will be updated.
+  var inboxFolder = this.getFirstFolderWithType('inbox');
+  if (!inboxFolder) {
+    // XXX localized Inbox string (bug 805834)
+    this._addedFolder(null, '0', 'Inbox',
+                      $ascp.FolderHierarchy.Enums.Type.DefaultInbox);
+  }
 }
 exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
@@ -225,6 +231,10 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        callback(aError);
+        return;
+      }
       let e = new $wbxml.EventParser();
       let deferredAddedFolders = [];
 
@@ -266,9 +276,8 @@ ActiveSyncAccount.prototype = {
       }
 
       console.log('Synced folder list');
-      account.saveAccountState(null, null, 'folderList');
       if (callback)
-        callback();
+        callback(null);
     });
   },
 
@@ -302,6 +311,8 @@ ActiveSyncAccount.prototype = {
     if (!(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
+    const folderType = $ascp.FolderHierarchy.Enums.Type;
+
     let path = displayName;
     let depth = 0;
     if (parentId !== '0') {
@@ -311,6 +322,23 @@ ActiveSyncAccount.prototype = {
       let parent = this._folderInfos[parentFolderId];
       path = parent.$meta.path + '/' + path;
       depth = parent.$meta.depth + 1;
+    }
+
+    // Handle sentinel Inbox.
+    if (typeNum === folderType.DefaultInbox) {
+      let existingInboxMeta = this.getFirstFolderWithType('inbox');
+      if (existingInboxMeta) {
+        // update everything about the folder meta
+        existingInboxMeta.serverId = serverId;
+        existingInboxMeta.name = displayName;
+        existingInboxMeta.path = path;
+        existingInboxMeta.depth = depth;
+        // Its folder connection needs to know the updated server id since it
+        // copied it out.
+        let folderStorage = this._folderStorages[existingInboxMeta.id];
+        folderStorage.folderSyncer.folderConn.serverId = serverId;
+        return existingInboxMeta;
+      }
     }
 
     let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
@@ -387,6 +415,7 @@ ActiveSyncAccount.prototype = {
    *   complete, taking the new folder storage
    */
   _recreateFolder: function asa__recreateFolder(folderId, callback) {
+    this._LOG.recreateFolder(folderId);
     let folderInfo = this._folderInfos[folderId];
     folderInfo.accuracy = [];
     folderInfo.headerBlocks = [];
@@ -624,11 +653,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       createFolder: {},
       deleteFolder: {},
+      recreateFolder: { id: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
       saveAccountState: { reason: false },
     },
+    errors: {
+      opError: { mode: false, type: false, ex: $log.EXCEPTION },
+    }
   },
 });
 

@@ -742,6 +742,49 @@ ImapJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // syncFolderList
+  //
+  // Synchronize our folder list.  This should always be an idempotent operation
+  // that makes no sense to undo/redo/etc.
+
+  local_do_syncFolderList: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_syncFolderList: function(op, doneCallback) {
+    var account = this.account, reported = false;
+    this._acquireConnWithoutFolder(
+      'syncFolderList',
+      function gotConn(conn) {
+        account._syncFolderList(conn, function(err) {
+            if (!err)
+              account.meta.lastFolderSyncAt = Date.now();
+            // request an account save
+            if (!reported)
+              doneCallback(err ? 'aborted-retry' : null, null, !err);
+            reported = true;
+          });
+      },
+      function deadConn() {
+        if (!reported)
+          doneCallback('aborted-retry');
+        reported = true;
+      });
+  },
+
+  check_syncFolderList: function(op, doneCallback) {
+    doneCallback('idempotent');
+  },
+
+  local_undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  undo_syncFolderList: function(op, doneCallback) {
+    doneCallback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
   // createFolder: Create a folder
 
   local_do_createFolder: function(op, doneCallback) {

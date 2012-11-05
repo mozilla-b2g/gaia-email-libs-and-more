@@ -53,15 +53,22 @@ exports.runOp = function runOp(op, mode, callback) {
   }
 
   this._LOG.runOp_begin(mode, op.type, null, op);
-  this._jobDriver[methodName](op, function(error, resultIfAny,
-                                           accountSaveSuggested) {
-    self._jobDriver.postJobCleanup(!error);
-    self._LOG.runOp_end(mode, op.type, error, op);
-    // defer the callback to the next tick to avoid deep recursion
-    window.setZeroTimeout(function() {
-      callback(error, resultIfAny, accountSaveSuggested);
+  // _LOG supports wrapping calls, but we want to be able to strip out all
+  // logging, and that wouldn't work.
+  try {
+    this._jobDriver[methodName](op, function(error, resultIfAny,
+                                             accountSaveSuggested) {
+      self._jobDriver.postJobCleanup(!error);
+      self._LOG.runOp_end(mode, op.type, error, op);
+      // defer the callback to the next tick to avoid deep recursion
+      window.setZeroTimeout(function() {
+        callback(error, resultIfAny, accountSaveSuggested);
+      });
     });
-  });
+  }
+  catch (ex) {
+    this._LOG.opError(mode, op.type, ex);
+  }
 };
 
 

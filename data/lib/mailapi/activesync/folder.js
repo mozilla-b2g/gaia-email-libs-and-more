@@ -105,6 +105,7 @@ ActiveSyncFolderConn.prototype = {
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
+        callback('unknown');
         return;
       }
 
@@ -115,10 +116,15 @@ ActiveSyncFolderConn.prototype = {
       });
       e.run(aResponse);
 
-      if (folderConn.syncKey === '0')
+      if (folderConn.syncKey === '0') {
+        // XXX we should re-sync the entire folder list from scratch and compute
+        // the deltas.
         console.error('Unable to get sync key for folder');
-      else
+        callback('unknown');
+      }
+      else {
         callback();
+      }
     });
   },
 
@@ -599,6 +605,13 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 }
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
+  /**
+   * Can we synchronize?  Not if we don't have a server id!
+   */
+  get syncable() {
+    return this.folderConn.serverId !== null;
+  },
+
   syncDateRange: function(startTS, endTS, syncCallback) {
     syncCallback('sync', false, true);
     this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
