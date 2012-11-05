@@ -168,6 +168,14 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
    * in this.headers.
    */
   this._accumulating = false;
+  /**
+   * If true, don't add any headers.  This is used by ActiveSync during its
+   * synchronization step to wait until all headers have been retrieved and
+   * then the slice is populated from the database.  After this initial sync,
+   * ignoreHeaders is set to false so that updates and (hopefully small
+   * numbers of) additions/removals can be observed.
+   */
+  this.ignoreHeaders = false;
 
   /**
    * @listof[HeaderInfo]
@@ -872,6 +880,27 @@ FolderStorage.prototype = {
    */
   get syncInProgress() {
     return this._curSyncSlice !== null;
+  },
+
+  get hasActiveSlices() {
+    return this._slices.length > 0;
+  },
+
+  /**
+   * Reset all active slices.
+   */
+  resetAndRefreshActiveSlices: function() {
+    if (!this._slices.length)
+      return;
+    // This will splice out slices as we go, so work from the back to avoid
+    // processing any slice more than once.  (Shuffling of processed slices
+    // will occur, but we don't care.)
+    for (var i = this._slices.length - 1; i >= 0; i--) {
+      var slice = this._slices[i];
+      slice._resetHeadersBecauseOfRefreshExplosion();
+      slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
+      this._resetAndResyncSlice(slice, false);
+    }
   },
 
   generatePersistenceInfo: function() {
@@ -1744,8 +1773,10 @@ FolderStorage.prototype = {
       this._curSyncSlice = slice;
     }).bind(this);
 
-    // If we're offline, there's nothing to look into; use the DB.
-    if (!this._account.universe.online) {
+    // If we're offline or the folder can't be synchronized right now, then
+    // there's nothing to look into; use the DB.
+    if (!this._account.universe.online ||
+        !this.folderSyncer.syncable) {
       existingDataGood = true;
     }
     else if (this._accuracyRanges.length && !forceDeepening) {
@@ -1791,7 +1822,9 @@ FolderStorage.prototype = {
       this.getMessagesInImapDateRange(
         0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
         // trigger a refresh if we are online
-        this.onFetchDBHeaders.bind(this, slice, this._account.universe.online)
+        this.onFetchDBHeaders.bind(
+          this, slice,
+          this._account.universe.online && this.folderSyncer.syncable)
       );
       return;
     }
@@ -1944,13 +1977,12 @@ FolderStorage.prototype = {
       // instead we need to retract all known messages and instead convert
       // this into a synchronization.
       if (bisectInfo) {
-        if (bisectInfo === 'aborted') {
-          self._slices.splice(self._slices.indexOf(slice), 1);
-          self.sliceOpenFromNow(slice, null, true);
-        }
-        else {
+        // (The first time through bisectInfo is an object; we return 'abort'
+        // and then get called again with 'aborted'...)
+        if (bisectInfo === 'aborted')
+          self._resetAndResyncSlice(slice, true);
+        else
           slice._resetHeadersBecauseOfRefreshExplosion();
-        }
         return 'abort';
       }
 
@@ -1961,6 +1993,11 @@ FolderStorage.prototype = {
       slice.setStatus('synced', true, false);
       return undefined;
     });
+  },
+
+  _resetAndResyncSlice: function(slice, forceDeepening) {
+    this._slices.splice(this._slices.indexOf(slice), 1);
+    this.sliceOpenFromNow(slice, null, forceDeepening);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -1976,8 +2013,6 @@ FolderStorage.prototype = {
    */
   onFetchDBHeaders: function(slice, triggerRefresh,
                              headers, moreMessagesComing) {
-    slice.atBottom = this.headerIsOldestKnown(slice.endTS, slice.endUID);
-
     var triggerNow = false;
     if (!moreMessagesComing && triggerRefresh) {
       moreMessagesComing = true;
@@ -1985,7 +2020,9 @@ FolderStorage.prototype = {
     }
 
     if (headers.length) {
-      slice.batchAppendHeaders(headers, -1, moreMessagesComing);
+      // Claim there are more headers coming since we will trigger setStatus
+      // right below and we want that to be the only edge transition.
+      slice.batchAppendHeaders(headers, -1, true);
     }
 
     if (!moreMessagesComing) {

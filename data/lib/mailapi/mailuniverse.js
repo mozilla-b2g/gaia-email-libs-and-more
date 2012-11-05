@@ -266,7 +266,7 @@ const MAX_LOG_BACKLOG = 30;
  *   }
  * ]]
  */
-function MailUniverse(callAfterBigBang) {
+function MailUniverse(callAfterBigBang, testOptions) {
   /** @listof[Account] */
   this.accounts = [];
   this._accountsById = {};
@@ -278,7 +278,7 @@ function MailUniverse(callAfterBigBang) {
   /**
    * @dictof[
    *   @key[AccountID]
-   *   @key[@dict[
+   *   @value[@dict[
    *     @key[active Boolean]{
    *       Is there an active operation right now?
    *     }
@@ -333,7 +333,7 @@ function MailUniverse(callAfterBigBang) {
   this._logBacklog = null;
 
   this._LOG = null;
-  this._db = new $maildb.MailDB();
+  this._db = new $maildb.MailDB(testOptions);
   this._cronSyncer = new $cronsync.CronSyncer(this);
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
@@ -389,7 +389,8 @@ function MailUniverse(callAfterBigBang) {
       self._db.saveConfig(self.config);
 
       // - Try to re-create any accounts using old account infos.
-      if (lazyCarryover && self.online) {
+      if (lazyCarryover) {
+        self._LOG.configMigrating(lazyCarryover);
         var waitingCount = 0;
         var oldVersion = lazyCarryover.oldVersion;
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
@@ -407,6 +408,9 @@ function MailUniverse(callAfterBigBang) {
         }
         // Do not let callAfterBigBang get called.
         return;
+      }
+      else {
+        self._LOG.configCreated(self.config);
       }
     }
     self._initFromConfig();
@@ -720,6 +724,23 @@ MailUniverse.prototype = {
     }
 
     this.__notifyAddedAccount(account);
+
+    // - issue a (non-persisted) syncFolderList if needed
+    var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
+    if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
+      this._queueAccountOp(
+        account,
+        {
+          type: 'syncFolderList',
+          // no need to track this in the mutations list
+          longtermId: 'internal',
+          lifecycle: 'do',
+          localStatus: 'done',
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'syncFolderList'
+        });
+    }
 
     // - check for mutations that still need to be processed
     // This will take care of deferred mutations too because they are still
@@ -1519,6 +1540,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   MailUniverse: {
     type: $log.ACCOUNT,
     events: {
+      configCreated: {},
+      configMigrating: {},
       configLoaded: {},
       createAccount: { type: true, id: false },
       opDeferred: { type: true, id: false },
@@ -1527,6 +1550,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       opMooted: { type: true, id: false },
     },
     TEST_ONLY_events: {
+      configCreated: { config: false },
+      configMigrating: { lazyCarryover: false },
       configLoaded: { config: false, accounts: false },
       createAccount: { name: false },
     },

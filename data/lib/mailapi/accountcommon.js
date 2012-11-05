@@ -352,12 +352,7 @@ Configurators['imap+smtp'] = {
             userDetails, credentials,
             imapConnInfo, smtpConnInfo, results.imap[1],
             results.imap[2]);
-          account.syncFolderList(function() {
-            account.ensureEssentialFolders(function() {
-              callback(null, account);
-            });
-          });
-
+          callback(null, account);
         }
         // -- either/both bad
         else {
@@ -419,9 +414,7 @@ Configurators['imap+smtp'] = {
 
     var account = this._loadAccount(universe, accountDef,
                                     oldAccountInfo.folderInfo);
-    account.syncFolderList(function() {
-      callback(null, account);
-    });
+    callback(null, account);
   },
 
   /**
@@ -477,7 +470,7 @@ Configurators['imap+smtp'] = {
       $meta: {
         nextFolderNum: 0,
         nextMutationNum: 0,
-        lastFullFolderProbeAt: 0,
+        lastFolderSyncAt: 0,
         capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
                     imapProtoConn.capabilities,
         rootDelim: (oldFolderInfo && oldFolderInfo.$meta.rootDelim) ||
@@ -566,6 +559,7 @@ Configurators['fake'] = {
     var folderInfo = {
       $meta: {
         nextMutationNum: 0,
+        lastFolderSyncAt: 0,
       },
       $mutations: [],
       $mutationState: {},
@@ -629,9 +623,7 @@ Configurators['activesync'] = {
       };
 
       var account = self._loadAccount(universe, accountDef, conn);
-      account.syncFolderList(function() {
-        callback(null, account);
-      });
+      callback(null, account);
     });
   },
 
@@ -660,9 +652,7 @@ Configurators['activesync'] = {
     };
 
     var account = this._loadAccount(universe, accountDef, null);
-    account.syncFolderList(function() {
-      callback(null, account);
-    });
+    callback(null, account);
   },
 
   /**
@@ -676,6 +666,7 @@ Configurators['activesync'] = {
       $meta: {
         nextFolderNum: 0,
         nextMutationNum: 0,
+        lastFolderSyncAt: 0,
         syncKey: '0',
       },
       $mutations: [],
