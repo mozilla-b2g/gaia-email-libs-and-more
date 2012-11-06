@@ -283,13 +283,13 @@ ActiveSyncAccount.prototype = {
 
   // Map folder type numbers from ActiveSync to Gaia's types
   _folderTypes: {
-     1: 'normal', // User-created generic folder
-     2: 'inbox',
-     3: 'drafts',
-     4: 'trash',
-     5: 'sent',
-     6: 'normal', // Outbox, actually
-    12: 'normal', // User-created mail folder
+     1: 'normal', // Generic
+     2: 'inbox',  // DefaultInbox
+     3: 'drafts', // DefaultDrafts
+     4: 'trash',  // DefaultDeleted
+     5: 'sent',   // DefaultSent
+     6: 'normal', // DefaultOutbox
+    12: 'normal', // Mail
   },
 
   /**

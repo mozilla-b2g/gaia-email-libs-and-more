@@ -1062,6 +1062,10 @@ var TestActiveSyncServerMixins = {
     var folders = this.server.foldersByType[folderType];
     return folders[0];
   },
+
+  addFolder: function(name, type, parent, args) {
+    this.server.addFolder(name, type, parent, args);
+  },
 };
 
 var TestActiveSyncAccountMixins = {

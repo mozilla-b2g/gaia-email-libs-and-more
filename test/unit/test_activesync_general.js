@@ -22,9 +22,48 @@ TD.commonCase('folder sync', function(T) {
                             { universe: testUniverse, server: testServer }),
       eSync = T.lazyLogger('sync');
 
+  T.action(eSync, 'check folder list', testAccount, function() {
+    eSync.expect_namedValue('inbox', {
+      syncKey: '0',
+      hasServerId: true
+    });
+
+    var folder = testAccount.account.getFirstFolderWithType('inbox');
+    eSync.namedValue('inbox', {
+      syncKey: folder.syncKey,
+      hasServerId: folder.serverId !== null
+    });
+  });
+
+  T.action(eSync, 'add folder and resync', testServer, testAccount.eAccount,
+           function() {
+    testAccount.eAccount.expect_runOp_begin('do', 'syncFolderList');
+    testAccount.eAccount.expect_runOp_end('do', 'syncFolderList');
+    testAccount.expect_saveState();
+
+    eSync.expect_namedValue('folder', {
+      name: 'Test',
+      type: 'normal'
+    });
+
+    testServer.server.addFolder('Test', $ascp.FolderHierarchy.Enums.Type.Mail);
+    MailUniverse.syncFolderList(testAccount.account, function() {
+      var folder;
+      for (var i = 0; i < testAccount.account.folders.length; i++) {
+        if (testAccount.account.folders[i].name === 'Test')
+          folder = testAccount.account.folders[i];
+      }
+
+      eSync.namedValue('folder', folder && {
+        name: folder.name,
+        type: folder.type
+      });
+    });
+  });
+
   T.group('cleanup');
 });
 
 function run_test() {
-  runMyTests(20); // we do a lot of appending...
+  runMyTests(5);
 }

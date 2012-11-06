@@ -31,21 +31,25 @@ function decodeWBXML(stream) {
 var msgGen = new MessageGenerator();
 
 var nextCollectionId = 1;
-function ActiveSyncFolder(name, type, parent) {
+function ActiveSyncFolder(name, type, parent, args) {
   this.name = name;
   this.type = type;
   this.id = 'folder-' + nextCollectionId++;
   this.parentId = parent ? parent.id : '0';
-  // Start with the first message one hour in the past and each message after
-  // it going one hour further into the past.  This ordering has the nice
-  // benefit that it mirrors the ordering of view slices.  It also helps make
-  // bugs in sync evident since view-slices will not automatically expand
-  // into the field of older messages.
-  this.messages = msgGen.makeMessages({
-                    count: 10,
-                    age: { hours: 1 },
-                    age_incr: { hours: 1 },
-                  });
+
+  if (!args) {
+    // Start with the first message one hour in the past and each message after
+    // it going one hour further into the past.  This ordering has the nice
+    // benefit that it mirrors the ordering of view slices.  It also helps make
+    // bugs in sync evident since view-slices will not automatically expand
+    // into the field of older messages.
+    args = { count: 10,
+             age: { hours: 1 },
+             age_incr: { hours: 1 },
+           };
+  }
+
+  this.messages = msgGen.makeMessages(args);
 }
 
 ActiveSyncFolder.prototype = {
@@ -72,14 +76,21 @@ function ActiveSyncServer(startDate) {
     msgGen._clock = startDate;
 
   const folderType = $ascp.FolderHierarchy.Enums.Type;
-  this.folders = [
-    new ActiveSyncFolder('Inbox', folderType.DefaultInbox),
-    new ActiveSyncFolder('Sent Mail', folderType.DefaultSent)
-  ];
+  this._folders = [];
   this.foldersByType = {
-    inbox: [this.folders[0]],
-    sent: [this.folders[1]]
+    inbox:  [],
+    sent:   [],
+    drafts: [],
+    trash:  [],
+    normal: []
   };
+
+  this._nextFolderSyncId = 1;
+  this._folderSyncStates = {};
+
+  this.addFolder('Inbox', folderType.DefaultInbox);
+  this.addFolder('Sent Mail', folderType.DefaultSent);
+
   this.logRequest = null;
   this.logRequestBody = null;
   this.logResponse = null;
@@ -102,6 +113,29 @@ ActiveSyncServer.prototype = {
    */
   stop: function(callback) {
     this.server.stop({ onStopped: callback });
+  },
+
+  // Map folder type numbers from ActiveSync to Gaia's types
+  _folderTypes: {
+     1: 'normal', // Generic
+     2: 'inbox',  // DefaultInbox
+     3: 'drafts', // DefaultDrafts
+     4: 'trash',  // DefaultDeleted
+     5: 'sent',   // DefaultSent
+     6: 'normal', // DefaultOutbox
+    12: 'normal', // Mail
+  },
+
+  addFolder: function(name, type, parent, args) {
+    if (!this._folderTypes.hasOwnProperty(type))
+      throw new Error('Invalid folder type');
+
+    let folder = new ActiveSyncFolder(name, type, parent, args);
+    this._folders.push(folder);
+    this.foldersByType[this._folderTypes[type]].push(folder);
+
+    for (let [,syncState] in Iterator(this._folderSyncStates))
+      syncState.push({ type: 'add', folder: folder });
   },
 
   _commandHandler: function(request, response) {
@@ -165,16 +199,19 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
+    let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
+    this._folderSyncStates[nextSyncKey] = [];
+
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
-       .tag(fh.SyncKey, 'XXX')
+       .tag(fh.SyncKey, nextSyncKey)
       .stag(fh.Changes);
 
     if (syncKey === '0') {
-      w.tag(fh.Count, this.folders.length);
+      w.tag(fh.Count, this._folders.length);
 
-      for (let folder of this.folders) {
+      for (let folder of this._folders) {
         w.stag(fh.Add)
            .tag(fh.ServerId, folder.id)
            .tag(fh.ParentId, folder.parentId)
@@ -184,7 +221,20 @@ ActiveSyncServer.prototype = {
       }
     }
     else {
-      w.tag(fh.Count, '0');
+      let changes = this._folderSyncStates[syncKey];
+      delete this._folderSyncStates[syncKey];
+      w.tag(fh.Count, changes.length);
+
+      for (let change of changes) {
+        if (change.type === 'add') {
+          w.stag(fh.Add)
+           .tag(fh.ServerId, change.folder.id)
+           .tag(fh.ParentId, change.folder.parentId)
+           .tag(fh.DisplayName, change.folder.name)
+           .tag(fh.Type, change.folder.type)
+         .etag();
+        }
+      }
     }
 
     w  .etag(fh.Changes)
@@ -335,7 +385,7 @@ ActiveSyncServer.prototype = {
    * @return the ActiveSyncFolder object, or null if no folder was found
    */
   _findFolderById: function(id) {
-    for (let folder of this.folders) {
+    for (let folder of this._folders) {
       if (folder.id === id)
         return folder;
     }
