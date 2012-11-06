@@ -68,6 +68,17 @@ ActiveSyncFolder.prototype = {
     return null;
   },
 
+  addMessage: function(args) {
+    let newMessage = this.server.msgGen.makeMessage(args);
+    this.messages.unshift(newMessage);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
+
+    for (let [,syncState] in Iterator(this._messageSyncStates))
+      syncState.push({ type: 'add', message: newMessage });
+
+    return newMessage;
+  },
+
   addMessages: function(args) {
     let newMessages = this.server.msgGen.makeMessages(args);
     this.messages.unshift.apply(this.messages, newMessages);
@@ -77,6 +88,8 @@ ActiveSyncFolder.prototype = {
       for (let message of newMessages)
         syncState.push({ type: 'add', message: message });
     }
+
+    return newMessages;
   },
 
   createSyncState: function(oldSyncKey) {
@@ -195,6 +208,7 @@ ActiveSyncServer.prototype = {
         this['_handleCommand_' + query.Cmd](request, query, response);
       } catch(e) {
         console.error(e + '\n' + e.stack + '\n');
+        dump(e + '\n' + e.stack + '\n');
         throw e;
       }
     }
@@ -444,6 +458,10 @@ ActiveSyncServer.prototype = {
   _writeEmail: function(w, message) {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
+    const asbType = $ascp.AirSyncBase.Enums.Type;
+    // TODO: make this match the requested type
+    let bodyType = message.bodyPart._contentType === 'text/html' ?
+                   asbType.HTML : asbType.PlainText;
 
     w.tag(em.From, message.headers['From'])
      .tag(em.To, message.headers['To'])
@@ -452,7 +470,7 @@ ActiveSyncServer.prototype = {
      .tag(em.Importance, '1')
      .tag(em.Read, '0')
      .stag(asb.Body)
-       .tag(asb.Type, '1')
+       .tag(asb.Type, bodyType)
        .tag(asb.EstimatedDataSize, message.bodyPart.body.length)
        .tag(asb.Truncated, '0')
        .tag(asb.Data, message.bodyPart.body)

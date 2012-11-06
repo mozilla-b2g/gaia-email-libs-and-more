@@ -1271,6 +1271,14 @@ var TestActiveSyncAccountMixins = {
   do_openFolderView: TestImapAccountMixins.do_openFolderView,
   do_closeFolderView: TestImapAccountMixins.do_closeFolderView,
 
+  do_addMessageToFolder: function(folder, messageDef) {
+    var self = this;
+    this.T.convenienceSetup(this, 'add message to', folder, function() {
+      self.RT.reportActiveActorThisStep(self.eAccount);
+      folder.serverFolder.addMessage(messageDef);
+    });
+  },
+
   do_addMessagesToFolder: function(folder, messageSetDef) {
     var self = this;
     this.T.convenienceSetup(this, 'add messages to', folder, function() {
