@@ -1025,12 +1025,13 @@ MessageGenerator.prototype = {
         args[propAttrName] = aSetDef[propAttrName];
     }
 
-    let count = aSetDef.count || this.MAKE_MESSAGES_DEFAULTS.count;
-    let messagsPerThread = aSetDef.msgsPerThread || 1;
+    let count = aSetDef.hasOwnProperty('count') ? aSetDef.count :
+                this.MAKE_MESSAGES_DEFAULTS.count;
+    let messagesPerThread = aSetDef.msgsPerThread || 1;
     let lastMessage = null;
     for (let iMsg = 0; iMsg < count; iMsg++) {
       // primitive threading support...
-      if (lastMessage && (iMsg % messagsPerThread != 0))
+      if (lastMessage && (iMsg % messagesPerThread != 0))
         args.inReplyTo = lastMessage;
       else if (!("inReplyTo" in aSetDef))
         args.inReplyTo = null;

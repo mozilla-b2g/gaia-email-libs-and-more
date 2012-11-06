@@ -22,7 +22,7 @@ TD.commonCase('folder sync', function(T) {
                             { universe: testUniverse, server: testServer }),
       eSync = T.lazyLogger('sync');
 
-  T.action(eSync, 'check folder list', testAccount, function() {
+  T.action(eSync, 'check initial folder list', testAccount, function() {
     eSync.expect_namedValue('inbox', {
       syncKey: '0',
       hasServerId: true
@@ -35,31 +35,44 @@ TD.commonCase('folder sync', function(T) {
     });
   });
 
-  T.action(eSync, 'add folder and resync', testServer, testAccount.eAccount,
-           function() {
-    testAccount.eAccount.expect_runOp_begin('do', 'syncFolderList');
-    testAccount.eAccount.expect_runOp_end('do', 'syncFolderList');
-    testAccount.expect_saveState();
+  /**
+   * Try and synchronize an empty folder.  Verify that our slice completes with
+   * minimal legwork.
+   */
+  T.group('sync empty folder');
+  var emptyFolder = testAccount.do_createTestFolder(
+    'test_empty_sync', { count: 0 });
+  testAccount.do_viewFolder('syncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(true);
+  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
 
-    eSync.expect_namedValue('folder', {
-      name: 'Test',
-      type: 'normal'
-    });
-
-    testServer.server.addFolder('Test', $ascp.FolderHierarchy.Enums.Type.Mail);
-    MailUniverse.syncFolderList(testAccount.account, function() {
-      var folder;
-      for (var i = 0; i < testAccount.account.folders.length; i++) {
-        if (testAccount.account.folders[i].name === 'Test')
-          folder = testAccount.account.folders[i];
-      }
-
-      eSync.namedValue('folder', folder && {
-        name: folder.name,
-        type: folder.type
-      });
-    });
-  });
+  /**
+   * Perform a folder sync where our initial time fetch window contains all of
+   * the messages in the folder.
+   */
+  T.group('initial interval is full sync');
+  var fullSyncFolder = testAccount.do_createTestFolder(
+    'test_initial_full_sync',
+    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder('syncs', fullSyncFolder,
+                            { count: 4, full: 4, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(true);
+  testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
+                            { count: 4, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', fullSyncFolder,
+                            { count: 4, full: 0, flags: 4, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
 });

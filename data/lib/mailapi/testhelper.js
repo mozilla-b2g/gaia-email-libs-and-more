@@ -1062,10 +1062,6 @@ var TestActiveSyncServerMixins = {
     var folders = this.server.foldersByType[folderType];
     return folders[0];
   },
-
-  addFolder: function(name, type, parent, args) {
-    this.server.addFolder(name, type, parent, args);
-  },
 };
 
 var TestActiveSyncAccountMixins = {
@@ -1174,6 +1170,33 @@ var TestActiveSyncAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eAccount);
   },
 
+  do_createTestFolder: function(folderName, messageSetDef) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+    testFolder.serverFolder = null;
+    testFolder.messages = null;
+    testFolder._liveSliceThings = [];
+
+    this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
+      self.expect_foundFolder(true);
+      testFolder.serverFolder = self.testServer.server.addFolder(
+        folderName, null, null, messageSetDef);
+      testFolder.messages = testFolder.serverFolder.messages;
+      MailUniverse.syncFolderList(self.account, function() {
+        testFolder.mailFolder =
+          self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
+        self._logger.foundFolder(!!testFolder.mailFolder,
+                                 testFolder.mailFolder);
+        testFolder.id = testFolder.mailFolder.id;
+
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+      });
+    });
+    return testFolder;
+  },
+
   // copy-paste-modify of the IMAP by-name variant
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
@@ -1246,6 +1269,9 @@ var TestActiveSyncAccountMixins = {
   do_openFolderView: TestImapAccountMixins.do_openFolderView,
   do_closeFolderView: TestImapAccountMixins.do_closeFolderView,
 
+  do_addMessagesToFolder: function(folder, messageSetDef) {
+    folder.addMessages(messageSetDef);
+  },
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

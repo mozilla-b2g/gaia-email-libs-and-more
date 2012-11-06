@@ -28,13 +28,11 @@ function decodeWBXML(stream) {
   return new $wbxml.Reader(bytes, $ascp);
 }
 
-var msgGen = new MessageGenerator();
-
-var nextCollectionId = 1;
-function ActiveSyncFolder(name, type, parent, args) {
+function ActiveSyncFolder(server, name, type, parent, args) {
+  this.server = server;
   this.name = name;
-  this.type = type;
-  this.id = 'folder-' + nextCollectionId++;
+  this.type = type || $ascp.FolderHierarchy.Enums.Type.Mail;
+  this.id = 'folder-' + (this.server._nextCollectionId++);
   this.parentId = parent ? parent.id : '0';
 
   if (!args) {
@@ -49,7 +47,10 @@ function ActiveSyncFolder(name, type, parent, args) {
            };
   }
 
-  this.messages = msgGen.makeMessages(args);
+  this.messages = this.server.msgGen.makeMessages(args);
+
+  this._nextMessageSyncId = 1;
+  this._messageSyncStates = {};
 }
 
 ActiveSyncFolder.prototype = {
@@ -65,15 +66,44 @@ ActiveSyncFolder.prototype = {
         return message;
     }
     return null;
-  }
+  },
+
+  addMessages: function(args) {
+    let newMessages = this.server.msgGen.makeMessages(args);
+    this.messages.extend(newMessages);
+
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      for (let message of newMessages)
+        syncState.push({ type: 'add', message: message });
+    }
+  },
+
+  createSyncState: function(oldSyncKey) {
+    if (oldSyncKey !== '0' &&
+        !this._messageSyncStates.hasOwnProperty(oldSyncKey))
+      return '0';
+
+    let syncKey = 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
+    this._messageSyncStates[syncKey] = [];
+    if (oldSyncKey === '0')
+      this._messageSyncStates[syncKey].push({ type: 'addall' });
+    return syncKey;
+  },
+
+  takeSyncState: function(syncKey) {
+    let syncState = this._messageSyncStates[syncKey];
+    delete this._messageSyncStates[syncKey];
+    return syncState;
+  },
 };
 
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
+  this.msgGen = new MessageGenerator();
 
   // Make sure the message generator is using the same start date as us.
   if (startDate)
-    msgGen._clock = startDate;
+    this.msgGen._clock = startDate;
 
   const folderType = $ascp.FolderHierarchy.Enums.Type;
   this._folders = [];
@@ -85,11 +115,12 @@ function ActiveSyncServer(startDate) {
     normal: []
   };
 
+  this._nextCollectionId = 1;
   this._nextFolderSyncId = 1;
   this._folderSyncStates = {};
 
   this.addFolder('Inbox', folderType.DefaultInbox);
-  this.addFolder('Sent Mail', folderType.DefaultSent);
+  this.addFolder('Sent Mail', folderType.DefaultSent, null, {count: 5});
 
   this.logRequest = null;
   this.logRequestBody = null;
@@ -127,15 +158,17 @@ ActiveSyncServer.prototype = {
   },
 
   addFolder: function(name, type, parent, args) {
-    if (!this._folderTypes.hasOwnProperty(type))
+    if (type && !this._folderTypes.hasOwnProperty(type))
       throw new Error('Invalid folder type');
 
-    let folder = new ActiveSyncFolder(name, type, parent, args);
+    let folder = new ActiveSyncFolder(this, name, type, parent, args);
     this._folders.push(folder);
-    this.foldersByType[this._folderTypes[type]].push(folder);
+    this.foldersByType[this._folderTypes[folder.type]].push(folder);
 
     for (let [,syncState] in Iterator(this._folderSyncStates))
       syncState.push({ type: 'add', folder: folder });
+
+    return folder;
   },
 
   _commandHandler: function(request, response) {
@@ -268,17 +301,12 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
-    if (syncKey === '0')
-      nextSyncKey = '1';
-    else if (syncKey === '1' || syncKey === '2')
-      nextSyncKey = '2';
-    else
-      nextSyncKey = '0';
+    let folder = this._findFolderById(collectionId),
+        nextSyncKey = folder.createSyncState(syncKey),
+        syncState = syncKey !== '0' ? folder.takeSyncState(syncKey) : [];
 
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
                                        asEnum.Status.Success;
-
-    let folder = this._findFolderById(collectionId);
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
 
@@ -289,18 +317,32 @@ ActiveSyncServer.prototype = {
            .tag(as.CollectionId, collectionId)
            .tag(as.Status, status);
 
-    if (syncKey === '1') {
+    if (syncState.length) {
       w.stag(as.Commands);
 
-      for (let message of folder.messages) {
-        w.stag(as.Add)
-           .tag(as.ServerId, message.messageId)
-           .stag(as.ApplicationData);
+      for (let change of syncState) {
+        if (change.type === 'addall') {
+          for (let message of folder.messages) {
+            w.stag(as.Add)
+              .tag(as.ServerId, message.messageId)
+              .stag(as.ApplicationData);
 
-        this._writeEmail(w, message);
+            this._writeEmail(w, message);
 
-        w  .etag(as.ApplicationData)
-         .etag(as.Add);
+            w  .etag(as.ApplicationData)
+              .etag(as.Add);
+          }
+        }
+        else if (change.type === 'add') {
+          w.stag(as.Add)
+            .tag(as.ServerId, message.messageId)
+            .stag(as.ApplicationData);
+
+          this._writeEmail(w, message);
+
+          w  .etag(as.ApplicationData)
+            .etag(as.Add);
+        }
       }
 
       w.etag(as.Commands);
