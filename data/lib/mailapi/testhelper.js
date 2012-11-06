@@ -1184,14 +1184,16 @@ var TestActiveSyncAccountMixins = {
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
       MailUniverse.syncFolderList(self.account, function() {
-        testFolder.mailFolder =
-          self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
-        self._logger.foundFolder(!!testFolder.mailFolder,
-                                 testFolder.mailFolder);
-        testFolder.id = testFolder.mailFolder.id;
+        MailAPI.ping(function() {
+          testFolder.mailFolder = self.testUniverse.allFoldersSlice
+                                      .getFirstFolderWithName(folderName);
+          self._logger.foundFolder(!!testFolder.mailFolder,
+                                   testFolder.mailFolder);
+          testFolder.id = testFolder.mailFolder.id;
 
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+          testFolder.storageActor.__attachToLogger(
+            self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+        });
       });
     });
     return testFolder;
