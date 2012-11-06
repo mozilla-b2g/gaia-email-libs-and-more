@@ -70,7 +70,8 @@ ActiveSyncFolder.prototype = {
 
   addMessages: function(args) {
     let newMessages = this.server.msgGen.makeMessages(args);
-    this.messages.extend(newMessages);
+    this.messages.unshift.apply(this.messages, newMessages);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       for (let message of newMessages)
@@ -193,7 +194,7 @@ ActiveSyncServer.prototype = {
       try {
         this['_handleCommand_' + query.Cmd](request, query, response);
       } catch(e) {
-        dump(e + '\n' + e.stack + '\n');
+        console.error(e + '\n' + e.stack + '\n');
         throw e;
       }
     }
@@ -335,10 +336,10 @@ ActiveSyncServer.prototype = {
         }
         else if (change.type === 'add') {
           w.stag(as.Add)
-            .tag(as.ServerId, message.messageId)
+            .tag(as.ServerId, change.message.messageId)
             .stag(as.ApplicationData);
 
-          this._writeEmail(w, message);
+          this._writeEmail(w, change.message);
 
           w  .etag(as.ApplicationData)
             .etag(as.Add);

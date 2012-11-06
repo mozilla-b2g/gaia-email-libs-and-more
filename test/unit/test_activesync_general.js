@@ -74,7 +74,17 @@ TD.commonCase('folder sync', function(T) {
                             { count: 4, full: 0, flags: 4, deleted: 0 },
                             { top: true, bottom: true, grow: false });
 
+
+  T.group('sync detects additions');
+  testAccount.do_addMessagesToFolder(fullSyncFolder, { count: 1,
+                                                       age: { hours: 1 } });
+  var folderView = testAccount.do_openFolderView(
+    'fullSyncFolder', fullSyncFolder,
+    { count:  5, full: 1, flags: 4, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
   T.group('cleanup');
+  testAccount.do_closeFolderView(folderView);
 });
 
 function run_test() {
