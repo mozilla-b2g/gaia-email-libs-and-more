@@ -88,5 +88,5 @@ TD.commonCase('folder sync', function(T) {
 });
 
 function run_test() {
-  runMyTests(5);
+  runMyTests(10);
 }
