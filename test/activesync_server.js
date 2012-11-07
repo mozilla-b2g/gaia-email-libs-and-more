@@ -458,22 +458,48 @@ ActiveSyncServer.prototype = {
   _writeEmail: function(w, message) {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
-    const asbType = $ascp.AirSyncBase.Enums.Type;
+    const asbEnum = $ascp.AirSyncBase.Enums;
+
+    // TODO: this could be smarter, and accept more complicated MIME structures
+    let bodyPart = message.bodyPart;
+    let attachments = [];
+    if (!(bodyPart instanceof SyntheticPartLeaf)) {
+      attachments = bodyPart.parts.slice(1);
+      bodyPart = bodyPart.parts[0];
+    }
+
     // TODO: make this match the requested type
-    let bodyType = message.bodyPart._contentType === 'text/html' ?
-                   asbType.HTML : asbType.PlainText;
+    let bodyType = bodyPart._contentType === 'text/html' ?
+                   asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
     w.tag(em.From, message.headers['From'])
      .tag(em.To, message.headers['To'])
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, '0')
-     .stag(asb.Body)
+     .tag(em.Read, '0');
+
+    if (attachments.length) {
+      w.stag(asb.Attachments);
+      for (let attachment of attachments) {
+        w.stag(asb.Attachment)
+           .tag(asb.DisplayName, attachment._filename)
+           .tag(asb.FileReference, 'XXX')
+           .tag(asb.Method, asbEnum.Method.Normal)
+           .tag(asb.EstimatedDataSize, attachment.body.length)
+           // TODO: add these for inline attachments
+           // asb.ContentId
+           // asb.IsInline
+         .etag();
+      }
+      w.etag();
+    }
+
+    w.stag(asb.Body)
        .tag(asb.Type, bodyType)
-       .tag(asb.EstimatedDataSize, message.bodyPart.body.length)
+       .tag(asb.EstimatedDataSize, bodyPart.body.length)
        .tag(asb.Truncated, '0')
-       .tag(asb.Data, message.bodyPart.body)
+       .tag(asb.Data, bodyPart.body)
      .etag();
   }
 };
