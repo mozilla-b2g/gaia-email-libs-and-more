@@ -81,12 +81,10 @@ TD.commonCase('folder sync', function(T) {
   T.group('saturated initial interval');
   var saturatedFolder = testAccount.do_createTestFolder(
     'test_saturated_sync',
-    { count: 21, age: { days: 0 }, age_incr: { hours: 9.1 } });
-  // This should provide 20 messages in our 7.5 day range.  (9 hours makes it
-  // line up perfectly so we actually get 21, which is not what we want.)
+    { count: 17, age: { days: 0 }, age_incr: { days: 1 }, age_incr_every: 2 });
   testAccount.do_viewFolder(
     'syncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 20, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 16, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
@@ -97,7 +95,7 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 20, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 16, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   /**
@@ -107,7 +105,7 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial fetch spans multiple time ranges');
   var msearchFolder = testAccount.do_createTestFolder(
     'test_multiple_ranges', // (insert one more than we want to find)
-    { count: 17, age: { days: 0, hours: 13 }, age_incr: { days: 1 } });
+    { count: 17, age: { days: 1 }, age_incr: { days: 1 } });
   // will fetch: 7, 7, 3 = 17
   testAccount.do_viewFolder(
     'syncs', msearchFolder,

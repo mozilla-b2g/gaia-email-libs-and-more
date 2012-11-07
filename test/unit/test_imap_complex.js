@@ -94,7 +94,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 0, 0, 0);
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -117,12 +117,12 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   });
 
   T.group('no change: setup');
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
   var createdAt = staticNow;
   var c1Folder = testAccount.do_createTestFolder(
     'test_complex_old1',
     // we will sync 9, leave an extra 1 not to sync so grow is true.
-    { count: 10, age: { days: 6 * TSYNCI }, age_incr: { days: 1 } });
+    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c1Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -157,14 +157,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   // Jump time so that the messages are just under the old threshold.  They
   // are already 6 time intervals in the past, but we want them at 15, so
   // add 9 TSYNCI less 0.5 days.
-  // XXX we have actually been adding 0.5 days, which should put us over the
-  // threshold, but the right thing seems to be happening, otherwise the
-  // test would fail.  I belive I added 0.5 just to make the sync intervals
-  // each hold 3 messages; if we do -0.5, we end up with 1 on its own.
-  // In any event, this demands more investigation and the very least a
-  // comment cleanup.
   staticNow = createdAt +
-              ((9 * TSYNCI) + 0.5) * DAY_MILLIS;
+              (9 * TSYNCI) * DAY_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 0.5 days out');
   testAccount.do_viewFolder(
     'syncs', c1Folder,
@@ -235,12 +229,12 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
 
   T.group('lots of messages: setup for #1');
   // May 28th, intentionally staying far away from daylight savings time.
-  staticNow = Date.UTC(2012, 4, 28, 0, 0, 0);
-  testUniverse.do_timewarpNow(staticNow, 'May 28th midnight UTC');
+  staticNow = new Date(2012, 4, 28, 12, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'May 28th noon-ish');
   createdAt = staticNow;
   var c2Folder = testAccount.do_createTestFolder(
     'test_complex_old2',
-    { count: 9, age: { days: 7 * TSYNCI }, age_incr: { days: 1 } });
+    { count: 9, age: { days: 7 * TSYNCI + 1 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c2Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -258,7 +252,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('lots of messages:  #1 refresh open with overflow');
   testAccount.do_addMessagesToFolder(
     c2Folder,
-    { count: 21, age: { days: 0.5 }, age_incr: { days: 1 } });
+    { count: 21, age: { days: 1 }, age_incr: { days: 1 } });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   var f2View = testAccount.do_openFolderView(
@@ -269,7 +263,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false },
+    { extraMutex: 'sync' });
 
   T.group('free growth to previously synced message bounds');
   testAccount.do_growFolderView(
@@ -290,8 +285,8 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
 
   T.group('lots of messages: setup for #2');
   // May 28th, intentionally staying far away from daylight savings time.
-  staticNow = Date.UTC(2012, 4, 30, 0, 0, 0);
-  testUniverse.do_timewarpNow(staticNow, 'May 30th midnight UTC');
+  staticNow = new Date(2012, 4, 30, 12, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'May 30th noon-ish');
   createdAt = staticNow;
 
   var c3Folder = testAccount.do_createTestFolder(
@@ -299,7 +294,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
     // By choosing one more than the fill size(9), we ensure that the time range
     // won't stretch to the dawn of time and therefore that the interpolation
     // will not have to exercise its sanity check mode.
-    { count: 10, age: { days: 6 * TSYNCI }, age_incr: { days: 1 } });
+    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', c3Folder,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
@@ -316,7 +311,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('lots of messages: #2 date range with overflow');
   testAccount.do_addMessagesToFolder(
     c3Folder,
-    { count: 16, age: { days: 0.5 }, age_incr: { days: 1 } });
+    { count: 16, age: { days: 1 }, age_incr: { days: 1 } });
   staticNow += 3 * HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+3 hour');
   testAccount.do_viewFolder(
@@ -352,7 +347,7 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -375,10 +370,10 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   });
 
   T.group('no change: setup');
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon-ish');
   var testFolder = testAccount.do_createTestFolder(
     'test_complex_refresh',
-    { count: 6, age: { hours: 12 }, age_incr: { hours: 1 } });
+    { count: 6, age: { days: 1 }, age_incr: { hours: 1 } });
   testAccount.do_viewFolder(
     'syncs', testFolder,
     [{ count: 4, full: 6, flags: 0, deleted: 0 }],
@@ -420,12 +415,12 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 4;
   testUniverse.do_adjustSyncValues({
-    fillSize: 4,
+    fillSize: 3,
     days: TSYNCI,
     // never grow the sync interval!
     scaleFactor: 1,
@@ -443,18 +438,18 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
   });
 
   T.group('initial sync/view');
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th midnight UTC');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon-ish');
   var testFolder = testAccount.do_createTestFolder(
     'test_complex_no_skip_synced',
-    { count: 7, age: { hours: 1 }, age_incr: { hours: 12 } });
+    { count: 6, age: { hours: 1 }, age_incr: { days: 1 }, age_incr_every: 2 });
   var folderView = testAccount.do_openFolderView(
     'syncs', testFolder,
-    [{ count: 4, full: 7, flags: 0, deleted: 0 }],
+    [{ count: 3, full: 6, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
   T.group('grow');
   testAccount.do_growFolderView(
-    folderView, 3, false, 4,
+    folderView, 3, false, 3,
     [{ count: 3, full: 0, flags: 2, deleted: 0 }],
     { top: true, bottom: true, grow: false });
 
@@ -496,7 +491,7 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
   });
 
   T.group('make there be 1 unexpunged but deleted message');
-  var staticNow = Date.UTC(2000, 0, 1, 12, 0, 0);
+  var staticNow = new Date(2000, 0, 1, 12, 0, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 1, 2000');
   var testFolder = testAccount.do_createTestFolder(
     'test_stop_at_1990',
@@ -512,7 +507,7 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
   });
 
   T.group('time-warp so no refresh happens');
-  staticNow = Date.UTC(2000, 0, 3, 12, 0, 0);
+  staticNow = new Date(2000, 0, 3, 12, 0, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
 
   T.group('go to 1990 but no further!');

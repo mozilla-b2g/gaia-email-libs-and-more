@@ -65,11 +65,15 @@
 
 define(
   [
+    'rdcommon/log',
     '../jobmixins',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $jobmixins,
+    $module,
     exports
   ) {
 
@@ -155,10 +159,13 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  * }
  **/
 
-function ImapJobDriver(account, state) {
+function ImapJobDriver(account, state, _parentLog) {
   this.account = account;
   this.resilientServerIds = false;
   this._heldMutexReleasers = [];
+
+  this._LOG = LOGFAB.ImapJobDriver(this, _parentLog, this.account.id);
+
   this._state = state;
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
@@ -216,7 +223,12 @@ ImapJobDriver.prototype = {
         syncer.folderConn.acquireConn(callback, deathback, label);
       }
       else {
-        callback(syncer.folderConn, storage);
+        try {
+          callback(syncer.folderConn, storage);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
     });
   },
@@ -240,7 +252,12 @@ ImapJobDriver.prototype = {
         self._heldMutexReleasers.push(function() {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
-        callback(conn);
+        try {
+          callback(conn);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       },
       deathback
     );
@@ -932,5 +949,14 @@ HighLevelJobDriver.prototype = {
   undo_xcopy: function() {
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ImapJobDriver: {
+    type: $log.DAEMON,
+    errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+    },
+  },
+});
 
 }); // end define

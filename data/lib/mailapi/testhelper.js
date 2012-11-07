@@ -9,10 +9,12 @@ var $log = require('rdcommon/log'),
     $imapacct = require('mailapi/imap/account'),
     $activesyncacct = require('mailapi/activesync/account'),
     $activesyncfolder = require('mailapi/activesync/folder'),
+    $activesyncjobs = require('mailapi/activesync/jobs'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
+    $imapjobs = require('mailapi/imap/jobs'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
@@ -55,7 +57,12 @@ var TestUniverseMixins = {
     // our time-warp functionality on the server to make this okay.
     if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      self._useDate.setHours(12, 0, 0, 0);
+      // our nominal timezone is GMT-5; adjust the date we use to this end
+      var datezone = new Date(),
+          zone = datezone.getTimezoneOffset() / -60,
+          zoneDelta = 5 - zone;
+
+      self._useDate.setHours(12 + zoneDelta, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
       // These are all the default values that tests code against by default.
@@ -307,6 +314,20 @@ var TestImapAccountMixins = {
     else {
       self._do_createAccount();
     }
+  },
+
+  /**
+   * Expect that a mutex operation will be run on the provided storageActor of
+   * the given type.  Ignore block load and deletion notifications during this
+   * time.
+   */
+  _expect_storage_mutexed: function(storageActor, syncType) {
+    this.RT.reportActiveActorThisStep(storageActor);
+    storageActor.expect_mutexedCall_begin(syncType);
+    storageActor.expect_mutexedCall_end(syncType);
+    storageActor.ignore_loadBlock_begin();
+    storageActor.ignore_loadBlock_end();
+    storageActor.ignore_deleteFromBlock();
   },
 
   expect_shutdown: function() {
@@ -679,10 +700,18 @@ var TestImapAccountMixins = {
    * and keep it open and detect changes, etc.
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          _saveToThing) {
+                          _saveToThing, extraFlags) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
+      self._expect_storage_mutexed(testFolder.storageActor, 'sync');
+      // In the bisect case, we may end up actually generating a first sync
+      // mutex for a refresh followed by a second one once the bisect converts
+      // to a traditional sliceOpenFromNow.  We need the caller to tell us this.
+      if (extraFlags && extraFlags.extraMutex)
+        self._expect_storage_mutexed(testFolder.storageActor,
+                                     extraFlags.extraMutex);
+
       if (self.universe.online) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);
         // Turn on set matching since connection reuse and account saving are
@@ -734,13 +763,13 @@ var TestImapAccountMixins = {
   },
 
   do_openFolderView: function(viewName, testFolder, expectedValues,
-                              expectedFlags) {
+                              expectedFlags, extraFlags) {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
     viewThing.offset = 0;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
-                       viewThing);
+                       viewThing, extraFlags);
     return viewThing;
   },
 
@@ -870,6 +899,10 @@ var TestImapAccountMixins = {
                                                  expectedValues);
       self.expect_messagesReported(totalExpected);
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
+                                   'refresh');
+
       viewThing.slice.refresh();
     });
   },
@@ -884,6 +917,8 @@ var TestImapAccountMixins = {
                             extraFlag) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow');
 
       var expectedMessages;
       if (dirMagnitude < 0) {
@@ -1239,6 +1274,8 @@ var TestActiveSyncAccountMixins = {
 
   expect_headerChanges: TestImapAccountMixins.expect_headerChanges,
 
+  _expect_storage_mutexed: TestImapAccountMixins._expect_storage_mutexed,
+
   do_openFolderView: TestImapAccountMixins.do_openFolderView,
   do_closeFolderView: TestImapAccountMixins.do_closeFolderView,
 
@@ -1349,12 +1386,12 @@ exports.TESTHELPER = {
     $mailslice.LOGFAB,
     $errbackoff.LOGFAB,
     // IMAP!
-    $imapacct.LOGFAB, $imapfolder.LOGFAB,
+    $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
     $imapjs.LOGFAB,
     // SMTP!
     $smtpacct.LOGFAB,
     // ActiveSync!
-    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB,
+    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB, $activesyncjobs.LOGFAB,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,

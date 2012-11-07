@@ -182,7 +182,8 @@ ImapFolderConn.prototype = {
               // hand the connection back, noting a resource problem
               self._account.__folderDoneWithConnection(
                 self._conn, false, true);
-              deathback();
+              if (deathback)
+                deathback();
               return;
             }
             self.box = box;
@@ -735,8 +736,14 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
       fetcher.on('error', function(err) {
         if (!anyError)
           anyError = err;
-        if (--pendingFetches === 0)
-          callback(anyError, bodies);
+        if (--pendingFetches === 0) {
+          try {
+            callback(anyError, bodies);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
+        }
       });
       fetcher.on('message', function(msg) {
         setupBodyParser(partInfo);
@@ -744,8 +751,14 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
         msg.on('end', function() {
           bodies.push(finishBodyParsing());
 
-          if (--pendingFetches === 0)
-            callback(anyError, bodies);
+          if (--pendingFetches === 0) {
+            try {
+              callback(anyError, bodies);
+            }
+            catch (ex) {
+              self._LOG.callbackErr(ex);
+            }
+          }
         });
       });
     });
@@ -1115,6 +1128,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     TEST_ONLY_events: {
     },
     errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+
       bodyChewError: { ex: $log.EXCEPTION },
     },
     asyncJobs: {

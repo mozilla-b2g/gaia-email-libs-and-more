@@ -175,7 +175,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   });
 
   this._jobDriver = new $imapjobs.ImapJobDriver(
-                          this, this._folderInfos.$mutationState);
+                          this, this._folderInfos.$mutationState, this._LOG);
 
   /**
    * Flag to allow us to avoid calling closeBox to close a folder.  This avoids

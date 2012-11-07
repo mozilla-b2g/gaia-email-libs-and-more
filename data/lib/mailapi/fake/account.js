@@ -370,6 +370,8 @@ MessageGenerator.prototype = {
       var age = aArgs.age;
       // start from 'now'
       var ts = this._clock || Date.now();
+      if (age.seconds)
+        ts -= age.seconds * 1000;
       if (age.minutes)
         ts -= age.minutes * 60 * 1000;
       if (age.hours)
@@ -486,6 +488,9 @@ MessageGenerator.prototype = {
    *  age: As used by makeMessage.
    *  age_incr: Similar to age, but used to increment the values in the age
    *      dictionary (assuming a value of zero if omitted).
+   *  age_incr_every: How often to apply age_incr.  If omitted, treated like 1
+   *      is specified.  Use this to cluster messages during the middle of the
+   *      day so you aren't betrayed by timezone issues.
    *  @param [aSetDef.msgsPerThread=1] The number of messages per thread.  If
    *      you want to create direct-reply threads, you can pass a value for this
    *      and have it not be one.  If you need fancier reply situations,
@@ -501,10 +506,12 @@ MessageGenerator.prototype = {
   makeMessages: function MessageGenerator_makeMessages(aSetDef) {
     var messages = [];
 
-    var args = {}, unit, delta;
+    var args = {
+      age_incr_every: 1,
+    }, unit, delta;
     // zero out all the age_incr fields in age (if present)
     if (aSetDef.age_incr) {
-      args.age = {};
+      args.age = { seconds: 0 };
       for (unit in aSetDef.age_incr) {
         args.age[unit] = 0;
       }
@@ -554,9 +561,16 @@ MessageGenerator.prototype = {
       messages.push(lastMessage);
 
       if (aSetDef.age_incr) {
-        for (unit in aSetDef.age_incr) {
-          delta = aSetDef.age_incr[unit];
-          args.age[unit] += delta;
+        if (!aSetDef.age_incr_every ||
+            (messages.length % aSetDef.age_incr_every === 0)) {
+          args.age.seconds = 0;
+          for (unit in aSetDef.age_incr) {
+            delta = aSetDef.age_incr[unit];
+            args.age[unit] += delta;
+          }
+        }
+        else {
+          args.age.seconds++;
         }
       }
     }

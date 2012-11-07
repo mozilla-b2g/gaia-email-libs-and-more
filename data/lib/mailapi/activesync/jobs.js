@@ -3,24 +3,31 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
+    'rdcommon/log',
     '../jobmixins',
+    'module',
     'exports'
   ],
   function(
     $wbxml,
     $ascp,
     $activesync,
+    $log,
     $jobmixins,
+    $module,
     exports
   ) {
 'use strict';
 
-function ActiveSyncJobDriver(account, state) {
+function ActiveSyncJobDriver(account, state, _parentLog) {
   this.account = account;
   // XXX for simplicity for now, let's assume that ActiveSync GUID's are
   // maintained across folder moves.
   this.resilientServerIds = true;
   this._heldMutexReleasers = [];
+
+  this._LOG = LOGFAB.ActiveSyncJobDriver(this, _parentLog, this.account.id);
+
   this._state = state;
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
@@ -53,11 +60,21 @@ ActiveSyncJobDriver.prototype = {
       if (needConn && !self.account.conn.connected) {
         // XXX will this connection automatically retry?
         self.account.conn.connect(function(err, config) {
-          callback(syncer.folderConn, storage);
+          try {
+            callback(syncer.folderConn, storage);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       }
       else {
-        callback(syncer.folderConn, storage);
+        try {
+          callback(syncer.folderConn, storage);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
     });
   },
@@ -346,5 +363,14 @@ ActiveSyncJobDriver.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ActiveSyncJobDriver: {
+    type: $log.DAEMON,
+    errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+    },
+  },
+});
 
 }); // end define

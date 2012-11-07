@@ -193,27 +193,38 @@ exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
  * be too high an initial value for actual use, but is fine for tests.
  */
 exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
-  exports.INITIAL_FILL_SIZE = syncValues.fillSize;
-  exports.INITIAL_SYNC_DAYS = syncValues.days;
+  if (syncValues.hasOwnProperty('fillSize'))
+    exports.INITIAL_FILL_SIZE = syncValues.fillSize;
+  if (syncValues.hasOwnProperty('days'))
+    exports.INITIAL_SYNC_DAYS = syncValues.days;
 
-  exports.BISECT_DATE_AT_N_MESSAGES = syncValues.bisectThresh;
-  exports.TOO_MANY_MESSAGES = syncValues.tooMany;
+  if (syncValues.hasOwnProperty('bisectThresh'))
+    exports.BISECT_DATE_AT_N_MESSAGES = syncValues.bisectThresh;
+  if (syncValues.hasOwnProperty('tooMany'))
+    exports.TOO_MANY_MESSAGES = syncValues.tooMany;
 
-  exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = syncValues.scaleFactor;
+  if (syncValues.hasOwnProperty('scaleFactor'))
+    exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = syncValues.scaleFactor;
 
-  exports.REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX =
-    syncValues.refreshNonInbox;
-  exports.REFRESH_USABLE_DATA_TIME_THRESH_INBOX =
-    syncValues.refreshInbox;
-  exports.REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH =
-    syncValues.oldIsSafeForRefresh;
-  exports.REFRESH_USABLE_DATA_TIME_THRESH_OLD =
-    syncValues.refreshOld;
+  if (syncValues.hasOwnProperty('refreshNonInbox'))
+    exports.REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX =
+      syncValues.refreshNonInbox;
+  if (syncValues.hasOwnProperty('refreshInbox'))
+    exports.REFRESH_USABLE_DATA_TIME_THRESH_INBOX =
+      syncValues.refreshInbox;
+  if (syncValues.hasOwnProperty('oldIsSafeForRefresh'))
+    exports.REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH =
+      syncValues.oldIsSafeForRefresh;
+  if (syncValues.hasOwnProperty('refreshOld'))
+    exports.REFRESH_USABLE_DATA_TIME_THRESH_OLD =
+      syncValues.refreshOld;
 
-  exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
-    syncValues.useRangeNonInbox;
-  exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
-    syncValues.useRangeInbox;
+  if (syncValues.hasOwnProperty('useRangeNonInbox'))
+    exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX =
+      syncValues.useRangeNonInbox;
+  if (syncValues.hasOwnProperty('useRangeInbox'))
+    exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
+      syncValues.useRangeInbox;
 
   if (syncValues.hasOwnProperty('MAX_OP_TRY_COUNT'))
     exports.MAX_OP_TRY_COUNT = syncValues.MAX_OP_TRY_COUNT;

@@ -59,9 +59,9 @@ TD.commonCase('embedded and remote images', function(T) {
     },
   ];
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var TU1 = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testImapAccount', 'A',
-                            { universe: testUniverse }),
+                            { universe: TU1 }),
       eCheck = T.lazyLogger('messageCheck');
 
   __blobLogFunc = eCheck.namedValue.bind(eCheck);
@@ -69,7 +69,8 @@ TD.commonCase('embedded and remote images', function(T) {
   // -- create the folder, append the messages
   var testFolder = testAccount.do_createTestFolder(
     'test_mail_html', function makeMessages() {
-    var messageAppends = [], msgGen = new MessageGenerator();
+    var messageAppends = [],
+        msgGen = new MessageGenerator(TU1._useDate);
 
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];
@@ -216,7 +217,7 @@ TD.commonCase('embedded and remote images', function(T) {
   });
 
   T.group('unclean account shutdown');
-  testUniverse.do_shutdown();
+  TU1.do_shutdown();
 
   T.group('reload universe');
   var TU2 = T.actor('testUniverse', 'U2');

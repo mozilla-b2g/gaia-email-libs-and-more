@@ -293,7 +293,8 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
-    var messageAppends = [], msgGen = new MessageGenerator();
+    var messageAppends = [],
+        msgGen = new MessageGenerator(testUniverse._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);

@@ -87,7 +87,7 @@ ActiveSyncFolderConn.prototype = {
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
-      .stag(as.Collections)
+       .stag(as.Collections)
          .stag(as.Collection)
 
     if (account.conn.currentVersion.lt('12.1'))
@@ -669,7 +669,7 @@ ActiveSyncFolderSyncer.prototype = {
       0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
       // Don't trigger a refresh; we just synced.
       storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
-                                    doneCallback)
+                                    doneCallback, null)
     );
 
     storage._curSyncSlice = null;

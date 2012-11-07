@@ -923,25 +923,30 @@ FolderStorage.prototype = {
     this._mutexedCallInProgress = true;
     this._LOG.mutexedCall_begin(callInfo.name);
 
-    callInfo.func(function mutexedOpDone() {
-      if (done) {
-        self._LOG.tooManyCallbacks(callInfo.name);
-        return;
-      }
-      self._LOG.mutexedCall_end(callInfo.name);
-      done = true;
-      if (self._mutexQueue[0] !== callInfo) {
-        self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
-        return;
-      }
-      self._mutexQueue.shift();
-      // Although everything should be async, avoid stack explosions by
-      // deferring the execution to a future turn of the event loop.
-      if (self._mutexQueue.length)
-        window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
-      else if (self._slices.length === 0)
-        self.folderSyncer.allConsumersDead();
-    });
+    try {
+      callInfo.func(function mutexedOpDone() {
+        if (done) {
+          self._LOG.tooManyCallbacks(callInfo.name);
+          return;
+        }
+        self._LOG.mutexedCall_end(callInfo.name);
+        done = true;
+        if (self._mutexQueue[0] !== callInfo) {
+          self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
+          return;
+        }
+        self._mutexQueue.shift();
+        // Although everything should be async, avoid stack explosions by
+        // deferring the execution to a future turn of the event loop.
+        if (self._mutexQueue.length)
+          window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+        else if (self._slices.length === 0)
+          self.folderSyncer.allConsumersDead();
+      });
+    }
+    catch (ex) {
+      this._LOG.mutexedOpErr(ex);
+    }
   },
 
   /**
@@ -1643,7 +1648,12 @@ FolderStorage.prototype = {
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
-        listeners[i](block);
+        try {
+          listeners[i](block);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
 
       if (self._pendingLoads.length === 0)
@@ -1845,7 +1855,7 @@ FolderStorage.prototype = {
         this.onFetchDBHeaders.bind(
           this, slice,
           this._account.universe.online && this.folderSyncer.canSyncRightNow,
-          doneCallback)
+          doneCallback, releaseMutex)
       );
       return;
     }
@@ -1899,6 +1909,8 @@ FolderStorage.prototype = {
         slice.endTS, slice.endUID, desiredCount,
         function(headers, moreExpected) {
           slice.batchAppendHeaders(headers, 0, moreExpected);
+          slice.desiredHeaders = slice.headers.length;
+          releaseMutex();
         });
     }
     else {
@@ -1946,6 +1958,8 @@ FolderStorage.prototype = {
         }
 
         if (!growingSync) {
+          // If a refresh is not actually required / going to happen, generate
+          // our slice events and cleanup the mutex.
           if (batchHeaders.length) {
             slice.batchAppendHeaders(batchHeaders, -1, false);
             slice.desiredHeaders = slice.headers.length;
@@ -2022,8 +2036,6 @@ FolderStorage.prototype = {
     if (startTS)
       startTS = quantizeDate(startTS);
 
-    this._LOG.refreshSlice(startTS, endTS, useBisectLimit);
-
     this.folderSyncer.refreshSync(
       startTS, endTS, useBisectLimit,
       function refreshDoneCallback(bisectInfo, numMessages) {
@@ -2033,13 +2045,19 @@ FolderStorage.prototype = {
         if (bisectInfo) {
           // (The first time through bisectInfo is an object; we return 'abort'
           // and then get called again with 'aborted'...)
-          if (bisectInfo === 'aborted')
+          if (bisectInfo === 'aborted') {
+            // This is going to be converted into a new sliceOpenFromNow, so
+            // we want to release our mutex.
+            releaseMutex();
             this._resetAndResyncSlice(slice, true);
-          else
+          }
+          else {
             slice._resetHeadersBecauseOfRefreshExplosion();
+          }
           return 'abort';
         }
 
+        releaseMutex();
         slice.waitingOnData = false;
         this._account.__checkpointSyncCompleted();
         slice.setStatus('synced', true, false);
@@ -2067,7 +2085,7 @@ FolderStorage.prototype = {
   /**
    * Receive messages directly from the database (streaming).
    */
-  onFetchDBHeaders: function(slice, triggerRefresh, doneCallback,
+  onFetchDBHeaders: function(slice, triggerRefresh, doneCallback, releaseMutex,
                              headers, moreMessagesComing) {
     var triggerNow = false;
     if (!moreMessagesComing && triggerRefresh) {
@@ -2095,7 +2113,7 @@ FolderStorage.prototype = {
       this._curSyncSlice = null;
       // We do want to use the bisection limit so that the refresh gets
       // converted to a sync in the event of an overflow.
-      this.refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES);
+      this._refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES, releaseMutex);
     }
   },
 
@@ -2597,7 +2615,12 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.headerNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._LOG.callbackErr(ex);
+      }
       return;
     }
     var headerBlockInfo = posInfo[1], self = this;
@@ -2607,7 +2630,12 @@ FolderStorage.prototype = {
           var headerInfo = headerBlock.headers[idx] || null;
           if (!headerInfo)
             self._LOG.headerNotFound();
-          callback(headerInfo);
+          try {
+            callback(headerInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2616,7 +2644,12 @@ FolderStorage.prototype = {
         headerInfo = block.headers[idx] || null;
     if (!headerInfo)
       this._LOG.headerNotFound();
-    callback(headerInfo);
+    try {
+      callback(headerInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -2926,7 +2959,12 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.bodyNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._log.callbackErr(ex);
+      }
       return;
     }
     var bodyBlockInfo = posInfo[1], self = this;
@@ -2935,7 +2973,12 @@ FolderStorage.prototype = {
           var bodyInfo = bodyBlock.bodies[id] || null;
           if (!bodyInfo)
             self._LOG.bodyNotFound();
-          callback(bodyInfo);
+          try {
+            callback(bodyInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2943,7 +2986,12 @@ FolderStorage.prototype = {
         bodyInfo = block.bodies[id] || null;
     if (!bodyInfo)
       this._LOG.bodyNotFound();
-    callback(bodyInfo);
+    try {
+      callback(bodyInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -3017,8 +3065,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // unexpected errors, so this is getting downgraded for now.
       headerNotFound: {},
       bodyNotFound: {},
-
-      refreshSlice: { startTS: false, endTS: false, useBisectLimit: false },
     },
     TEST_ONLY_events: {
     },
@@ -3030,7 +3076,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       loadBlock: { block: false },
     },
     errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+
       badBlockLoad: { type: false, blockId: false },
+
       // Exposing date/uid at a general level is deemed okay because they are
       // opaque identifiers and the most likely failure models involve the
       // values being ridiculous (and therefore not legal).
@@ -3038,6 +3087,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
       serverIdMappingMissing: { srvid: false },
+
+      mutexedOpErr: { err: $log.EXCEPTION },
 
       tooManyCallbacks: { name: false },
       mutexInvariantFail: { fireName: false, curName: false },

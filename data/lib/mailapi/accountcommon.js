@@ -358,7 +358,7 @@ Configurators['imap+smtp'] = {
         else {
           // clean up the imap connection if it was okay but smtp failed
           if (results.imap[0])
-            results.imap[1].close();
+            results.imap[1].die();
           callback('unknown', null);
           return;
         }
