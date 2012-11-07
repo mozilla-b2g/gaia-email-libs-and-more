@@ -505,7 +505,8 @@ MailBody.prototype = {
       var relPart = this._relatedParts[i];
       // Related parts should all be stored as Blobs-in-IndexedDB
       if (relPart.file && !Array.isArray(relPart.file)) {
-        cidToObjectUrl[relPart.name] = useWin.URL.createObjectURL(relPart.file);
+        cidToObjectUrl[relPart.contentId] = useWin.URL.createObjectURL(
+          relPart.file);
       }
     }
     this._cleanup = function revokeURLs() {
@@ -1927,7 +1928,9 @@ MailAPI.prototype = {
       unexpectedBridgeDataError('Bad handle for sent:', msg.handle);
       return;
     }
-    delete this._pendingRequests[msg.handle];
+    // Only delete the request if the send succeeded.
+    if (!msg.err)
+      delete this._pendingRequests[msg.handle];
     if (req.callback) {
       req.callback.call(null, msg.err, msg.badAddresses, msg.sentDate);
       req.callback = null;

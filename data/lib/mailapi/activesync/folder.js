@@ -6,6 +6,7 @@ define(
     'activesync/protocol',
     'mimelib',
     '../quotechew',
+    '../htmlchew',
     '../date',
     '../syncbase',
     '../util',
@@ -19,6 +20,7 @@ define(
     $activesync,
     $mimelib,
     $quotechew,
+    $htmlchew,
     $date,
     $sync,
     $util,
@@ -105,7 +107,7 @@ ActiveSyncFolderConn.prototype = {
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
-        // XXX why are we not calling callback here?
+        callback('unknown');
         return;
       }
 
@@ -116,11 +118,15 @@ ActiveSyncFolderConn.prototype = {
       });
       e.run(aResponse);
 
-      if (folderConn.syncKey === '0')
-        // XXX and why are we not calling callback here?
+      if (folderConn.syncKey === '0') {
+        // XXX we should re-sync the entire folder list from scratch and compute
+        // the deltas.
         console.error('Unable to get sync key for folder');
-      else
+        callback('unknown');
+      }
+      else {
         callback();
+      }
     });
   },
 
@@ -185,9 +191,12 @@ ActiveSyncFolderConn.prototype = {
              .stag(as.Options)
                .tag(as.FilterType, this.filterType)
 
+      // XXX: For some servers (e.g. Hotmail), we could be smart and get the
+      // native body type (plain text or HTML), but Gmail doesn't seem to let us
+      // do this. For now, let's keep it simple and always get HTML.
       if (account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
-                 .tag(asb.Type, asbEnum.Type.PlainText)
+                 .tag(asb.Type, asbEnum.Type.HTML)
                .etag();
 
               w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
@@ -313,8 +322,10 @@ ActiveSyncFolderConn.prototype = {
    * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfc__parseMessage(node, isAdded) {
-    const asb = $ascp.AirSyncBase.Tags;
     const em = $ascp.Email.Tags;
+    const asb = $ascp.AirSyncBase.Tags;
+    const asbEnum = $ascp.AirSyncBase.Enums;
+
     let header, body, flagHeader;
 
     if (isAdded) {
@@ -339,6 +350,7 @@ ActiveSyncFolderConn.prototype = {
         bcc: null,
         replyTo: null,
         attachments: [],
+        relatedParts: [],
         references: null,
         bodyReps: null,
       };
@@ -389,9 +401,11 @@ ActiveSyncFolderConn.prototype = {
       }
     }
 
+    let bodyType, bodyText;
+
     for (let [,child] in Iterator(node.children)) {
-      let childText = child.children.length &&
-                      child.children[0].textContent;
+      let childText = child.children.length ? child.children[0].textContent :
+                                              null;
 
       switch (child.tag) {
       case em.Subject:
@@ -423,44 +437,47 @@ ActiveSyncFolderConn.prototype = {
         break;
       case asb.Body: // ActiveSync 12.0+
         for (let [,grandchild] in Iterator(child.children)) {
-          if (grandchild.tag === asb.Data) {
-            body.bodyReps = [
-              'plain',
-              $quotechew.quoteProcessTextBody(
-                grandchild.children[0].textContent)
-            ];
-            header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
-                                                        DESIRED_SNIPPET_LENGTH);
+          switch (grandchild.tag) {
+          case asb.Type:
+            bodyType = grandchild.children[0].textContent;
+            break;
+          case asb.Data:
+            bodyText = grandchild.children[0].textContent;
+            break;
           }
         }
         break;
       case em.Body: // pre-ActiveSync 12.0
-        body.bodyReps = [
-          'plain',
-          $quotechew.quoteProcessTextBody(childText)
-        ];
-        header.snippet = $quotechew.generateSnippet(body.bodyReps[1],
-                                                    DESIRED_SNIPPET_LENGTH);
+        bodyType = asbEnum.Type.PlainText;
+        bodyText = childText;
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        header.hasAttachments = true;
-        body.attachments = [];
         for (let [,attachmentNode] in Iterator(child.children)) {
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
             continue;
 
-          let attachment = { name: null, type: null, part: null,
-                             sizeEstimate: null };
+          let attachment = {
+            name: null,
+            contentId: null,
+            type: null,
+            part: null,
+            encoding: null,
+            sizeEstimate: null,
+            file: null,
+          };
 
+          let isInline = false;
           for (let [,attachData] in Iterator(attachmentNode.children)) {
             let dot, ext;
+            let attachDataText = attachData.children.length ?
+                                 attachData.children[0].textContent : null;
 
             switch (attachData.tag) {
             case asb.DisplayName:
             case em.DisplayName:
-              attachment.name = attachData.children[0].textContent;
+              attachment.name = attachDataText;
 
               // Get the file's extension to look up a mimetype, but ignore it
               // if the filename is of the form '.bashrc'.
@@ -469,16 +486,87 @@ ActiveSyncFolderConn.prototype = {
               attachment.type = $mimelib.contentTypes[ext] ||
                                 'application/octet-stream';
               break;
+            case asb.FileReference:
+            case em.AttName:
+              attachment.part = attachDataText;
+              break;
             case asb.EstimatedDataSize:
             case em.AttSize:
-              attachment.sizeEstimate = attachData.children[0].textContent;
+              attachment.sizeEstimate = parseInt(attachDataText);
+              break;
+            case asb.ContentId:
+              attachment.contentId = attachDataText;
+              break;
+            case asb.IsInline:
+              isInline = (attachDataText === '1');
+              break;
+            case asb.FileReference:
+            case em.Att0Id:
+              attachment.part = attachData.children[0].textContent;
               break;
             }
           }
-          body.attachments.push(attachment);
+
+          if (isInline)
+            body.relatedParts.push(attachment);
+          else
+            body.attachments.push(attachment);
         }
+        header.hasAttachments = body.attachments.length > 0;
         break;
       }
+    }
+
+    // Process the body as needed.
+    if (bodyType === asbEnum.Type.PlainText) {
+      let bodyRep = $quotechew.quoteProcessTextBody(bodyText);
+      header.snippet = $quotechew.generateSnippet(bodyRep,
+                                                  DESIRED_SNIPPET_LENGTH);
+      body.bodyReps = ['plain', bodyRep];
+    }
+    else if (bodyType === asbEnum.Type.HTML) {
+      // For some reason, Gmail converts cid: URLs into a URL relative to the
+      // Gmail web site, which isn't very useful for us. Detect this sort of
+      // tomfoolery and de-munge the URLs into a proper CID reference. These
+      // URLs usually look like the following:
+      //
+      //   ?ui=pb&view=att&th=13ab448f53725ee6m&attid=0.1.1&disp=emb&zw&atsh=1
+      //
+      // |th| is the message's ServerId, and |attid| is the part number for the
+      // attachment. Conveniently, the part number is also listed at the end of
+      // the FileReference in the WBXML response, like so:
+      //
+      //   1417301890109169382/5e21a1963d098bad_0.1.1
+      //
+      // What we want to do is grab the |attid| and then iterate through all our
+      // related parts and compare to the FileReference (stored in the |part|
+      // attribute) to find our attachment info. Then set the CID on our node
+      // from said info.
+      let demungeGmailUrls = function(node, lowerTag) {
+        if (lowerTag === 'img') {
+          let m, src = node.getAttribute('src');
+          // Find the magic Gmail URLs and grab the |attid| parameter.
+          if ((m = /^\?ui=pb&view=att&.*attid=([^&]*)/.exec(src))) {
+            for (let [,part] in Iterator(body.relatedParts)) {
+              // Check if the current related part's FileReference ends in the
+              // part number we're looking for.
+              if (part.part.lastIndexOf('_' + m[1]) ===
+                  part.part.length - m[1].length - 1) {
+                node.classList.add('moz-embedded-image');
+                node.setAttribute('cid-src', part.contentId);
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      };
+
+      let htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText,
+                                                        demungeGmailUrls);
+      header.snippet = $htmlchew.generateSnippet(htmlNode,
+                                                 DESIRED_SNIPPET_LENGTH);
+      body.bodyReps = ['html', htmlNode.innerHTML];
     }
 
     return { header: header, body: body };
@@ -597,6 +685,92 @@ ActiveSyncFolderConn.prototype = {
       }
     });
   },
+
+  // XXX: take advantage of multipart responses here.
+  // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
+  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+    const io = $ascp.ItemOperations.Tags;
+    const ioStatus = $ascp.ItemOperations.Enums.Status;
+    const asb = $ascp.AirSyncBase.Tags;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(io.ItemOperations);
+    for (let [,part] in Iterator(partInfos)) {
+      w.stag(io.Fetch)
+         .tag(io.Store, 'Mailbox')
+         .tag(asb.FileReference, part.part)
+       .etag();
+    }
+    w.etag();
+
+    this._account.conn.postCommand(w, function(aError, aResult) {
+      if (aError) {
+        console.error('postCommand error:', aError);
+        callback('unknown');
+        return;
+      }
+
+      let globalStatus;
+      let attachments = {};
+
+      let e = new $wbxml.EventParser();
+      e.addEventListener([io.ItemOperations, io.Status], function(node) {
+        globalStatus = node.children[0].textContent;
+      });
+      e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
+                         function(node) {
+        let part = null, attachment = {};
+
+        for (let [,child] in Iterator(node.children)) {
+          switch (child.tag) {
+          case io.Status:
+            attachment.status = child.children[0].textContent;
+            break;
+          case asb.FileReference:
+            part = child.children[0].textContent;
+            break;
+          case io.Properties:
+            var contentType = null, data = null;
+
+            for (let [,grandchild] in Iterator(child.children)) {
+              let textContent = grandchild.children[0].textContent;
+
+              switch (grandchild.tag) {
+              case asb.ContentType:
+                contentType = textContent;
+                break;
+              case io.Data:
+                data = new Buffer(textContent, 'base64');
+                break;
+              }
+            }
+
+            if (contentType && data)
+              attachment.data = new Blob([data], { type: contentType });
+            break;
+          }
+
+          if (part)
+            attachments[part] = attachment;
+        }
+      });
+      e.run(aResult);
+
+      let error = globalStatus !== ioStatus.Success ? 'unknown' : null;
+      let bodies = [];
+      for (let [,part] in Iterator(partInfos)) {
+        if (attachments.hasOwnProperty(part.part) &&
+            attachments[part.part].status === ioStatus.Success) {
+          bodies.push(attachments[part.part].data);
+        }
+        else {
+          error = 'unknown';
+          bodies.push(null);
+        }
+      }
+      callback(error, bodies);
+    });
+  },
 };
 
 function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
@@ -613,7 +787,7 @@ ActiveSyncFolderSyncer.prototype = {
   /**
    * Can we synchronize?  Not if we don't have a server id!
    */
-  get canSyncRightNow() {
+  get syncable() {
     return this.folderConn.serverId !== null;
   },
 

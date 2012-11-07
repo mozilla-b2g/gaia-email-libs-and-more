@@ -660,8 +660,11 @@ MailSlice.prototype = {
  * ]]
  * @typedef[AttachmentInfo @dict[
  *   @key[name String]{
- *     The filename of the attachment if this is an attachment, the content-id
- *     of the attachment if this is a related part for inline display.
+ *     The filename of the attachment, if any.
+ *   }
+ *   @key[contentId String]{
+ *     The content-id of the attachment if this is a related part for inline
+ *     display.
  *   }
  *   @key[type String]{
  *     The (full) mime-type of the attachment.
@@ -1805,7 +1808,7 @@ FolderStorage.prototype = {
     // If we're offline or the folder can't be synchronized right now, then
     // there's nothing to look into; use the DB.
     if (!this._account.universe.online ||
-        !this.folderSyncer.canSyncRightNow) {
+        !this.folderSyncer.syncable) {
       existingDataGood = true;
     }
     else if (this._accuracyRanges.length && !forceDeepening) {
@@ -1854,7 +1857,7 @@ FolderStorage.prototype = {
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
           this, slice,
-          this._account.universe.online && this.folderSyncer.canSyncRightNow,
+          this._account.universe.online && this.folderSyncer.syncable,
           doneCallback, releaseMutex)
       );
       return;

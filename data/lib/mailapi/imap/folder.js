@@ -749,7 +749,7 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
         setupBodyParser(partInfo);
         msg.on('data', bodyParseBuffer);
         msg.on('end', function() {
-          bodies.push(finishBodyParsing());
+          bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
 
           if (--pendingFetches === 0) {
             try {
@@ -811,7 +811,7 @@ ImapFolderSyncer.prototype = {
    * Although we do have some errbackoff stuff we do, we can always try to
    * synchronize.  The errbackoff is just a question of when we will retry.
    */
-  canSyncRightNow: true,
+  syncable: true,
 
   syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
                           progressCallback) {

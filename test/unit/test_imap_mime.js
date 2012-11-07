@@ -393,7 +393,10 @@ TD.commonCase('MIME hierarchies', function(T) {
         eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
-          eCheck.expect_namedValue('attachment', msgDef.attachments._filename);
+          eCheck.expect_namedValue('attachment-name',
+                                   msgDef.attachments[i].filename);
+          eCheck.expect_namedValue('attachment-size',
+                                   msgDef.attachments[i].body.length);
         }
       }
 
@@ -411,8 +414,9 @@ TD.commonCase('MIME hierarchies', function(T) {
           eCheck.namedValue('snippet', header.snippet);
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
-            eCheck.expect_namedValue('attachment',
-                                     body.attachments[i].filename);
+            eCheck.namedValue('attachment-name', body.attachments[i].filename);
+            eCheck.namedValue('attachment-size',
+                              body.attachments[i].sizeEstimateInBytes);
           }
         }
         body.die();
