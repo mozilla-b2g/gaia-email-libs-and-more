@@ -31,9 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 13 because we now track when we last did a folder sync.
+ * Bumping to 14 because we now support (require, really) HTML in ActiveSync
  */
-const CUR_VERSION = exports.CUR_VERSION = 13;
+const CUR_VERSION = exports.CUR_VERSION = 14;
 
 /**
  * What is the lowest database version that we are capable of performing a

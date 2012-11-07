@@ -345,6 +345,20 @@ ActiveSyncJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // download
+
+  local_do_download: $jobmixins.local_do_download,
+
+  do_download: $jobmixins.do_download,
+
+  check_download: $jobmixins.check_download,
+
+  local_undo_download: $jobmixins.local_undo_download,
+
+  undo_download: $jobmixins.undo_download,
+
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 }); // end define
