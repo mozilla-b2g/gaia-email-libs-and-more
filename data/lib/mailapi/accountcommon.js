@@ -580,6 +580,7 @@ Configurators['activesync'] = {
     var conn = new $asproto.Connection(credentials.username,
                                        credentials.password);
     conn.setServer(domainInfo.incoming.server);
+    conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
     conn.connect(function(error, config, options) {
       // XXX: Think about what to do with this error handling, since it's
@@ -735,6 +736,7 @@ Configurators['activesync'] = {
  */
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
+  this.timeout = 30 * 1000;
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
@@ -765,6 +767,8 @@ Autoconfigurator.prototype = {
   _getXmlConfig: function getXmlConfig(url, callback) {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
+    xhr.timeout = this.timeout;
+
     xhr.onload = function() {
       if (xhr.status < 200 || xhr.status >= 300) {
         callback('unknown');
@@ -810,7 +814,8 @@ Autoconfigurator.prototype = {
         callback('unknown');
       }
     };
-    xhr.onerror = function() { callback('unknown'); };
+
+    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
   },
@@ -934,13 +939,16 @@ Autoconfigurator.prototype = {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', 'https://live.mozillamessaging.com/dns/mx/' +
              encodeURIComponent(domain), true);
+    xhr.timeout = this.timeout;
+
     xhr.onload = function() {
       if (xhr.status === 200)
         callback(null, xhr.responseText.split('\n')[0]);
       else
         callback('unknown');
     };
-    xhr.onerror = function() { callback('unknown'); };
+
+    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
   },

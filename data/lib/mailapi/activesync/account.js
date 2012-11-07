@@ -39,6 +39,8 @@ define(
 
 const bsearchForInsert = $util.bsearchForInsert;
 
+const DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
+
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                            receiveProtoConn, _parentLog) {
   this.universe = universe;
@@ -51,6 +53,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   else {
     this.conn = new $activesync.Connection(accountDef.credentials.username,
                                            accountDef.credentials.password);
+    this.conn.timeout = DEFAULT_TIMEOUT_MS;
 
     // XXX: We should check for errors during connection and alert the user.
     if (this.accountDef.connInfo) {
