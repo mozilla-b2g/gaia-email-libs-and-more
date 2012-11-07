@@ -28,24 +28,29 @@ function decodeWBXML(stream) {
   return new $wbxml.Reader(bytes, $ascp);
 }
 
-var msgGen = new MessageGenerator();
-
-var nextCollectionId = 1;
-function ActiveSyncFolder(name, type, parent) {
+function ActiveSyncFolder(server, name, type, parent, args) {
+  this.server = server;
   this.name = name;
-  this.type = type;
-  this.id = 'folder-' + nextCollectionId++;
+  this.type = type || $ascp.FolderHierarchy.Enums.Type.Mail;
+  this.id = 'folder-' + (this.server._nextCollectionId++);
   this.parentId = parent ? parent.id : '0';
-  // Start with the first message one hour in the past and each message after
-  // it going one hour further into the past.  This ordering has the nice
-  // benefit that it mirrors the ordering of view slices.  It also helps make
-  // bugs in sync evident since view-slices will not automatically expand
-  // into the field of older messages.
-  this.messages = msgGen.makeMessages({
-                    count: 10,
-                    age: { hours: 1 },
-                    age_incr: { hours: 1 },
-                  });
+
+  if (!args) {
+    // Start with the first message one hour in the past and each message after
+    // it going one hour further into the past.  This ordering has the nice
+    // benefit that it mirrors the ordering of view slices.  It also helps make
+    // bugs in sync evident since view-slices will not automatically expand
+    // into the field of older messages.
+    args = { count: 10,
+             age: { hours: 1 },
+             age_incr: { hours: 1 },
+           };
+  }
+
+  this.messages = this.server.msgGen.makeMessages(args);
+
+  this._nextMessageSyncId = 1;
+  this._messageSyncStates = {};
 }
 
 ActiveSyncFolder.prototype = {
@@ -61,25 +66,76 @@ ActiveSyncFolder.prototype = {
         return message;
     }
     return null;
-  }
+  },
+
+  addMessage: function(args) {
+    let newMessage = this.server.msgGen.makeMessage(args);
+    this.messages.unshift(newMessage);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
+
+    for (let [,syncState] in Iterator(this._messageSyncStates))
+      syncState.push({ type: 'add', message: newMessage });
+
+    return newMessage;
+  },
+
+  addMessages: function(args) {
+    let newMessages = this.server.msgGen.makeMessages(args);
+    this.messages.unshift.apply(this.messages, newMessages);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
+
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      for (let message of newMessages)
+        syncState.push({ type: 'add', message: message });
+    }
+
+    return newMessages;
+  },
+
+  createSyncState: function(oldSyncKey) {
+    if (oldSyncKey !== '0' &&
+        !this._messageSyncStates.hasOwnProperty(oldSyncKey))
+      return '0';
+
+    let syncKey = 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
+    this._messageSyncStates[syncKey] = [];
+    if (oldSyncKey === '0')
+      this._messageSyncStates[syncKey].push({ type: 'addall' });
+    return syncKey;
+  },
+
+  takeSyncState: function(syncKey) {
+    let syncState = this._messageSyncStates[syncKey];
+    delete this._messageSyncStates[syncKey];
+    return syncState;
+  },
 };
 
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
+  this.msgGen = new MessageGenerator();
 
   // Make sure the message generator is using the same start date as us.
   if (startDate)
-    msgGen._clock = startDate;
+    this.msgGen._clock = startDate;
 
   const folderType = $ascp.FolderHierarchy.Enums.Type;
-  this.folders = [
-    new ActiveSyncFolder('Inbox', folderType.DefaultInbox),
-    new ActiveSyncFolder('Sent Mail', folderType.DefaultSent)
-  ];
+  this._folders = [];
   this.foldersByType = {
-    inbox: [this.folders[0]],
-    sent: [this.folders[1]]
+    inbox:  [],
+    sent:   [],
+    drafts: [],
+    trash:  [],
+    normal: []
   };
+
+  this._nextCollectionId = 1;
+  this._nextFolderSyncId = 1;
+  this._folderSyncStates = {};
+
+  this.addFolder('Inbox', folderType.DefaultInbox);
+  this.addFolder('Sent Mail', folderType.DefaultSent, null, {count: 5});
+
   this.logRequest = null;
   this.logRequestBody = null;
   this.logResponse = null;
@@ -104,6 +160,31 @@ ActiveSyncServer.prototype = {
     this.server.stop({ onStopped: callback });
   },
 
+  // Map folder type numbers from ActiveSync to Gaia's types
+  _folderTypes: {
+     1: 'normal', // Generic
+     2: 'inbox',  // DefaultInbox
+     3: 'drafts', // DefaultDrafts
+     4: 'trash',  // DefaultDeleted
+     5: 'sent',   // DefaultSent
+     6: 'normal', // DefaultOutbox
+    12: 'normal', // Mail
+  },
+
+  addFolder: function(name, type, parent, args) {
+    if (type && !this._folderTypes.hasOwnProperty(type))
+      throw new Error('Invalid folder type');
+
+    let folder = new ActiveSyncFolder(this, name, type, parent, args);
+    this._folders.push(folder);
+    this.foldersByType[this._folderTypes[folder.type]].push(folder);
+
+    for (let [,syncState] in Iterator(this._folderSyncStates))
+      syncState.push({ type: 'add', folder: folder });
+
+    return folder;
+  },
+
   _commandHandler: function(request, response) {
     if (this.logRequest)
       this.logRequest(request);
@@ -126,6 +207,7 @@ ActiveSyncServer.prototype = {
       try {
         this['_handleCommand_' + query.Cmd](request, query, response);
       } catch(e) {
+        console.error(e + '\n' + e.stack + '\n');
         dump(e + '\n' + e.stack + '\n');
         throw e;
       }
@@ -165,16 +247,19 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
+    let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
+    this._folderSyncStates[nextSyncKey] = [];
+
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
-       .tag(fh.SyncKey, 'XXX')
+       .tag(fh.SyncKey, nextSyncKey)
       .stag(fh.Changes);
 
     if (syncKey === '0') {
-      w.tag(fh.Count, this.folders.length);
+      w.tag(fh.Count, this._folders.length);
 
-      for (let folder of this.folders) {
+      for (let folder of this._folders) {
         w.stag(fh.Add)
            .tag(fh.ServerId, folder.id)
            .tag(fh.ParentId, folder.parentId)
@@ -184,7 +269,20 @@ ActiveSyncServer.prototype = {
       }
     }
     else {
-      w.tag(fh.Count, '0');
+      let changes = this._folderSyncStates[syncKey];
+      delete this._folderSyncStates[syncKey];
+      w.tag(fh.Count, changes.length);
+
+      for (let change of changes) {
+        if (change.type === 'add') {
+          w.stag(fh.Add)
+           .tag(fh.ServerId, change.folder.id)
+           .tag(fh.ParentId, change.folder.parentId)
+           .tag(fh.DisplayName, change.folder.name)
+           .tag(fh.Type, change.folder.type)
+         .etag();
+        }
+      }
     }
 
     w  .etag(fh.Changes)
@@ -218,17 +316,12 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
-    if (syncKey === '0')
-      nextSyncKey = '1';
-    else if (syncKey === '1' || syncKey === '2')
-      nextSyncKey = '2';
-    else
-      nextSyncKey = '0';
+    let folder = this._findFolderById(collectionId),
+        nextSyncKey = folder.createSyncState(syncKey),
+        syncState = syncKey !== '0' ? folder.takeSyncState(syncKey) : [];
 
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
                                        asEnum.Status.Success;
-
-    let folder = this._findFolderById(collectionId);
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
 
@@ -239,18 +332,32 @@ ActiveSyncServer.prototype = {
            .tag(as.CollectionId, collectionId)
            .tag(as.Status, status);
 
-    if (syncKey === '1') {
+    if (syncState.length) {
       w.stag(as.Commands);
 
-      for (let message of folder.messages) {
-        w.stag(as.Add)
-           .tag(as.ServerId, message.messageId)
-           .stag(as.ApplicationData);
+      for (let change of syncState) {
+        if (change.type === 'addall') {
+          for (let message of folder.messages) {
+            w.stag(as.Add)
+              .tag(as.ServerId, message.messageId)
+              .stag(as.ApplicationData);
 
-        this._writeEmail(w, message);
+            this._writeEmail(w, message);
 
-        w  .etag(as.ApplicationData)
-         .etag(as.Add);
+            w  .etag(as.ApplicationData)
+              .etag(as.Add);
+          }
+        }
+        else if (change.type === 'add') {
+          w.stag(as.Add)
+            .tag(as.ServerId, change.message.messageId)
+            .stag(as.ApplicationData);
+
+          this._writeEmail(w, change.message);
+
+          w  .etag(as.ApplicationData)
+            .etag(as.Add);
+        }
       }
 
       w.etag(as.Commands);
@@ -335,7 +442,7 @@ ActiveSyncServer.prototype = {
    * @return the ActiveSyncFolder object, or null if no folder was found
    */
   _findFolderById: function(id) {
-    for (let folder of this.folders) {
+    for (let folder of this._folders) {
       if (folder.id === id)
         return folder;
     }
@@ -351,18 +458,53 @@ ActiveSyncServer.prototype = {
   _writeEmail: function(w, message) {
     const em  = $ascp.Email.Tags;
     const asb = $ascp.AirSyncBase.Tags;
+    const asbEnum = $ascp.AirSyncBase.Enums;
+
+    // TODO: this could be smarter, and accept more complicated MIME structures
+    let bodyPart = message.bodyPart;
+    let attachments = [];
+    if (!(bodyPart instanceof SyntheticPartLeaf)) {
+      attachments = bodyPart.parts.slice(1);
+      bodyPart = bodyPart.parts[0];
+    }
+
+    // TODO: make this match the requested type
+    let bodyType = bodyPart._contentType === 'text/html' ?
+                   asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
     w.tag(em.From, message.headers['From'])
      .tag(em.To, message.headers['To'])
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, '0')
-     .stag(asb.Body)
-       .tag(asb.Type, '1')
-       .tag(asb.EstimatedDataSize, message.bodyPart.body.length)
+     .tag(em.Read, '0');
+
+    if (attachments.length) {
+      w.stag(asb.Attachments);
+      for (let [i, attachment] in Iterator(attachments)) {
+        w.stag(asb.Attachment)
+           .tag(asb.DisplayName, attachment._filename)
+           // We intentionally mimic Gmail's style of naming FileReferences here
+           // to make testing our Gmail demunger easier.
+           .tag(asb.FileReference, 'file_0.' + (i+1))
+           .tag(asb.Method, asbEnum.Method.Normal)
+          .tag(asb.EstimatedDataSize, attachment.body.length);
+
+        if (attachment.hasContentId) {
+          w.tag(asb.ContentId, attachment._contentId)
+           .tag(asb.IsInline, '1');
+        }
+
+        w.etag();
+      }
+      w.etag();
+    }
+
+    w.stag(asb.Body)
+       .tag(asb.Type, bodyType)
+       .tag(asb.EstimatedDataSize, bodyPart.body.length)
        .tag(asb.Truncated, '0')
-       .tag(asb.Data, message.bodyPart.body)
+       .tag(asb.Data, bodyPart.body)
      .etag();
   }
 };

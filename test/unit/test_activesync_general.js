@@ -22,9 +22,71 @@ TD.commonCase('folder sync', function(T) {
                             { universe: testUniverse, server: testServer }),
       eSync = T.lazyLogger('sync');
 
+  T.action(eSync, 'check initial folder list', testAccount, function() {
+    eSync.expect_namedValue('inbox', {
+      syncKey: '0',
+      hasServerId: true
+    });
+
+    var folder = testAccount.account.getFirstFolderWithType('inbox');
+    eSync.namedValue('inbox', {
+      syncKey: folder.syncKey,
+      hasServerId: folder.serverId !== null
+    });
+  });
+
+  /**
+   * Try and synchronize an empty folder.  Verify that our slice completes with
+   * minimal legwork.
+   */
+  T.group('sync empty folder');
+  var emptyFolder = testAccount.do_createTestFolder(
+    'test_empty_sync', { count: 0 });
+  testAccount.do_viewFolder('syncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(true);
+  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', emptyFolder,
+                            { count: 0, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+
+  /**
+   * Perform a folder sync where our initial time fetch window contains all of
+   * the messages in the folder.
+   */
+  T.group('initial interval is full sync');
+  var fullSyncFolder = testAccount.do_createTestFolder(
+    'test_initial_full_sync',
+    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder('syncs', fullSyncFolder,
+                            { count: 4, full: 4, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(true);
+  testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
+                            { count: 4, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+  testUniverse.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', fullSyncFolder,
+                            { count: 4, full: 0, flags: 4, deleted: 0 },
+                            { top: true, bottom: true, grow: false });
+
+
+  T.group('sync detects additions');
+  testAccount.do_addMessagesToFolder(fullSyncFolder, { count: 1,
+                                                       age: { hours: 1 } });
+  var folderView = testAccount.do_openFolderView(
+    'fullSyncFolder', fullSyncFolder,
+    { count:  5, full: 1, flags: 4, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
   T.group('cleanup');
+  testAccount.do_closeFolderView(folderView);
 });
 
 function run_test() {
-  runMyTests(20); // we do a lot of appending...
+  runMyTests(10);
 }

@@ -526,8 +526,9 @@ MessageGenerator.prototype = {
         args[propAttrName] = aSetDef[propAttrName];
     }
 
-    var count = aSetDef.count || this.MAKE_MESSAGES_DEFAULTS.count;
-    var messagsPerThread = aSetDef.msgsPerThread || 1;
+    var count = aSetDef.hasOwnProperty('count') ? aSetDef.count :
+                this.MAKE_MESSAGES_DEFAULTS.count;
+    var messagesPerThread = aSetDef.msgsPerThread || 1;
     var rawBodies = aSetDef.hasOwnProperty('rawBodies') ? aSetDef.rawBodies
                                                         : null,
         replaceHeaders = aSetDef.hasOwnProperty('replaceHeaders') ?
@@ -536,7 +537,7 @@ MessageGenerator.prototype = {
     var lastMessage = null;
     for (var iMsg = 0; iMsg < count; iMsg++) {
       // primitive threading support...
-      if (lastMessage && (iMsg % messagsPerThread != 0))
+      if (lastMessage && (iMsg % messagesPerThread != 0))
         args.inReplyTo = lastMessage;
       else if (!("inReplyTo" in aSetDef))
         args.inReplyTo = null;
