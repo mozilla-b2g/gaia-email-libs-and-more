@@ -65,7 +65,26 @@ TD.commonCase('folder sync', function(T) {
       snipStyleHtml = 'I am the actual content.',
       bpartStyleHtml =
         new SyntheticPartLeaf(
-          bstrStyleHtml, { contentType: 'text/html' });
+          bstrStyleHtml, { contentType: 'text/html' }),
+
+      bstrImageHtml =
+        'Have an image! <img src="cid:waffles@mozilla.com">',
+      bstrSanitizedImageHtml =
+        'Have an image! <img cid-src="waffles@mozilla.com" ' +
+        'class="moz-embedded-image">',
+      bpartImageHtml =
+        new SyntheticPartLeaf(
+          bstrImageHtml, { contentType: 'text/html' }),
+
+      bstrGmailImageHtml =
+        'Have an image! <img src="?ui=pb&view=att&th=123&attid=0.1&disp=emb&' +
+        'zw&atsh=1">',
+      bstrSanitizedGmailImageHtml =
+        'Have an image! <img cid-src="waffles@mozilla.com" ' +
+        'class="moz-embedded-image">',
+      bpartGmailImageHtml =
+        new SyntheticPartLeaf(
+          bstrGmailImageHtml, { contentType: 'text/html' });
 
 
   var testMessages = [
@@ -110,6 +129,24 @@ TD.commonCase('folder sync', function(T) {
         { filename: 'file2.txt', body: 'So am I!' },
       ],
     },
+    {
+      name: 'text/html with embedded image',
+      bodyPart: bpartImageHtml,
+      checkBody: bstrSanitizedImageHtml,
+      attachments: [
+        { filename: 'image.png', contentId: 'waffles@mozilla.com',
+          body: 'pretend this is an image' },
+      ],
+    },
+    {
+      name: 'text/html with embedded image, munged gmail-style',
+      bodyPart: bpartGmailImageHtml,
+      checkBody: bstrSanitizedGmailImageHtml,
+      attachments: [
+        { filename: 'image.png', contentId: 'waffles@mozilla.com',
+          body: 'pretend this is an image' },
+      ],
+    },
   ];
 
   for (var i = 0; i < testMessages.length; i++) {
@@ -132,9 +169,11 @@ TD.commonCase('folder sync', function(T) {
         eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
-          eCheck.expect_namedValue('attachment-name',
+          var prefix = msgDef.attachments[i].contentId ?
+                       'relatedpart' : 'attachment';
+          eCheck.expect_namedValue(prefix + '-name',
                                    msgDef.attachments[i].filename);
-          eCheck.expect_namedValue('attachment-size',
+          eCheck.expect_namedValue(prefix + '-size',
                                    msgDef.attachments[i].body.length);
         }
       }
@@ -156,6 +195,14 @@ TD.commonCase('folder sync', function(T) {
             eCheck.namedValue('attachment-name', body.attachments[i].filename);
             eCheck.namedValue('attachment-size',
                               body.attachments[i].sizeEstimateInBytes);
+          }
+        }
+        if (body._relatedParts && body._relatedParts.length) {
+          for (var i = 0; i < body._relatedParts.length; i++) {
+            eCheck.namedValue('relatedpart-name',
+                              body._relatedParts[i].name);
+            eCheck.namedValue('relatedpart-size',
+                              body._relatedParts[i].sizeEstimate);
           }
         }
         body.die();

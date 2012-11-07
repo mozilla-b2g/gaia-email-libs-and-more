@@ -481,16 +481,21 @@ ActiveSyncServer.prototype = {
 
     if (attachments.length) {
       w.stag(asb.Attachments);
-      for (let attachment of attachments) {
+      for (let [i, attachment] in Iterator(attachments)) {
         w.stag(asb.Attachment)
            .tag(asb.DisplayName, attachment._filename)
-           .tag(asb.FileReference, 'XXX')
+           // We intentionally mimic Gmail's style of naming FileReferences here
+           // to make testing our Gmail demunger easier.
+           .tag(asb.FileReference, 'file_0.' + (i+1))
            .tag(asb.Method, asbEnum.Method.Normal)
-           .tag(asb.EstimatedDataSize, attachment.body.length)
-           // TODO: add these for inline attachments
-           // asb.ContentId
-           // asb.IsInline
-         .etag();
+          .tag(asb.EstimatedDataSize, attachment.body.length);
+
+        if (attachment.hasContentId) {
+          w.tag(asb.ContentId, attachment._contentId)
+           .tag(asb.IsInline, '1');
+        }
+
+        w.etag();
       }
       w.etag();
     }
