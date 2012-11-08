@@ -137,7 +137,8 @@ ActiveSyncFolderConn.prototype = {
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
    * @param {function} progress A function to be called as the operation
-   *   progresses.
+   *   progresses that takes a number in the range [0.0, 1.0] to express
+   *   progress.
    */
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
                                                                  progress) {
@@ -309,7 +310,18 @@ ActiveSyncFolderConn.prototype = {
         callback('unknown');
       }
     }, null, null,
-    progress);
+    function progressData(bytesSoFar, totalBytes) {
+      // We get the XHR progress status and convert it into progress in the
+      // range [0.10, 0.80].  The remaining 20% is processing the specific
+      // messages, but we don't bother to generate notifications since that
+      // is done synchronously.
+      if (totalBytes !== 0) {
+        progress(0.1 + 0.7 * (bytesSoFar/totalBytes));
+      }
+      else {
+        progress(0.1 + 0.7 * Math.min(1.0, bytesSoFar / 1000000));
+      }
+    });
   },
 
   /**
@@ -573,7 +585,7 @@ ActiveSyncFolderConn.prototype = {
   },
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             doneCallback) {
+                                             doneCallback, progressCallback) {
     let storage = this._storage;
     let folderConn = this;
     let messagesSeen = 0;
@@ -613,7 +625,8 @@ ActiveSyncFolderConn.prototype = {
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, messagesSeen);
       }
-    });
+    },
+    progressCallback);
   },
 
   performMutation: function(invokeWithWriter, callWhenDone) {
@@ -796,7 +809,8 @@ ActiveSyncFolderSyncer.prototype = {
     syncCallback('sync', false, true);
     this.folderConn.syncDateRange(
       startTS, endTS, $date.NOW(),
-      this.onSyncCompleted.bind(this, doneCallback));
+      this.onSyncCompleted.bind(this, doneCallback),
+      progressCallback);
   },
 
   syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,

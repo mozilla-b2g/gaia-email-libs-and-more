@@ -391,10 +391,9 @@ function MailUniverse(callAfterBigBang, testOptions) {
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover) {
         self._LOG.configMigrating(lazyCarryover);
-        var waitingCount = 0;
+        var waitingCount = lazyCarryover.accountInfos.length;
         var oldVersion = lazyCarryover.oldVersion;
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
-          waitingCount++;
           var accountInfo = lazyCarryover.accountInfos[i];
           $acctcommon.recreateAccount(self, oldVersion, accountInfo,
                                       function() {

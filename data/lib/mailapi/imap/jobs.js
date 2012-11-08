@@ -889,7 +889,10 @@ ImapJobDriver.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this._acquireConnWithoutFolder('createFolder', gotConn);
+    function deadConn() {
+      callback('aborted-retry');
+    }
+    this._acquireConnWithoutFolder('createFolder', gotConn, deadConn);
   },
 
   check_createFolder: function(op, doneCallback) {

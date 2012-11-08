@@ -28,6 +28,11 @@
  *    which theoretically is restartable if the IMAP connection maintains its
  *    state and re-establishes.)
  *
+ * - A non-refresh non-first synchronization (so that message display is blocked
+ *    pending on the sync) fails to connect to the server and converts itself
+ *    into a display of offline messages.
+ *
+ *
  * - Failures in the (auto)configuration process (covering all the enumerated
  *   failure values we define.)
  **/
@@ -385,7 +390,7 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
 
 /**
  * Verify that a folder still synchronizes correctly even though we lose the
- * connection in th middle of the synchronization.
+ * connection in the middle of the synchronization.
  */
 TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
@@ -410,6 +415,55 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 
 });
 
+TD.commonCase('convert failed non-refresh sync to offline', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  // we would ideally extract this in case we are running against other servers
+  var testHost = 'localhost', testPort = 143;
+
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  testUniverse.do_adjustSyncValues({
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+  });
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_err_fail_to_offline',
+    { count: 3, age: { days: 1 }, age_incr: { minutes: 1 } });
+
+  T.group('sync to get offline data');
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 3, full: 3, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+  T.group('failing non-refresh sync becomes offline load');
+  staticNow += DAY_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '1 day later');
+
+  T.action('kill connection, queue up failures', function() {
+    FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
+    testAccount._unusedConnections = 0;
+    testAccount.eImapAccount.expect_deadConnection();
+
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+  });
+
+  testAccount.do_viewFolder(
+    'fallback to offline', testFolder,
+    { count: 3, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    null, { extraMutex: true });
+
+  T.group('cleanup');
+});
 
 function run_test() {
   runMyTests(15);

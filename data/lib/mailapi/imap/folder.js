@@ -330,7 +330,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
             "startTS", startTS, "endTS", endTS, "backDays", backDays);
             return self.syncDateRange(startTS, endTS, accuracyStamp, null,
-                                      doneCallback);
+                                      doneCallback, progressCallback);
           }
         }
 
