@@ -319,6 +319,52 @@ TD.commonCase('grow with deepening required', function(T) {
   testAccount.do_closeFolderView(syncView);
 });
 
+
+/**
+ * Make sure we don't get duplicate folders from running syncFolderList a
+ * second time.  Our account list should be up-to-date at this time, so
+ * running it a second time should not result in a change in the number of
+ * folders.  We also want to rule out the existing folders being removed and
+ * then replaced with effectively identical ones, so we listen for splice
+ * notifications.
+ */
+TD.commonCase('syncFolderList is idempotent', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testImapAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  T.group('syncFolderList and check');
+  var numFolders, numAdds = 0, numDeletes = 0;
+  T.action('run syncFolderList', eSync, function(T) {
+    numFolders = testUniverse.allFoldersSlice.items.length;
+    testUniverse.allFoldersSlice.onsplice = function(index, delCount,
+                                                     addedItems) {
+      numAdds += addedItems.length;
+      numDeletes += delCount;
+    };
+
+    testAccount.expect_runOp('syncFolderList', true, { conn: true });
+    eSync.expect_event('roundtripped');
+    testUniverse.universe.syncFolderList(testAccount.account, function() {
+      testUniverse.MailAPI.ping(function() {
+        eSync.event('roundtripped');
+      });
+    });
+  });
+  T.check('check folder list', eSync, function(T) {
+    eSync.expect_namedValue('num folders', numFolders);
+    eSync.expect_namedValue('num added', numAdds);
+    eSync.expect_namedValue('num deleted', numDeletes);
+    eSync.namedValue('num folders', testUniverse.allFoldersSlice.items.length);
+    eSync.namedValue('num added', numAdds);
+    eSync.namedValue('num deleted', numDeletes);
+  });
+
+  T.group('cleanup');
+});
+
 function run_test() {
   runMyTests(15);
 }

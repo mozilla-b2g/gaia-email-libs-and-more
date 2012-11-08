@@ -633,11 +633,17 @@ var TestImapAccountMixins = {
     });
   },
 
-  expect_runOp: function(jobName, accountSave) {
+  expect_runOp: function(jobName, accountSave, flags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
-    this.eImapAccount.expect_runOp_begin('local_do', jobName);
-    this.eImapAccount.expect_runOp_end('local_do', jobName);
+    if (flags && flags.nolocal) {
+      this.eImapAccount.expect_runOp_begin('local_do', jobName);
+      this.eImapAccount.expect_runOp_end('local_do', jobName);
+    }
     this.eImapAccount.expect_runOp_begin('do', jobName);
+    if (flags && flags.conn) {
+      this.expect_connection();
+      this.eImapAccount.expect_releaseConnection();
+    }
     this.eImapAccount.expect_runOp_end('do', jobName);
     if (accountSave)
       this.expect_saveState();

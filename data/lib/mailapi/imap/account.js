@@ -762,7 +762,8 @@ ImapAccount.prototype = {
     }
 
     // - build a map of known existing folders
-    var folderPubsByPath = {}, folderPub;
+    const folderPubsByPath = {};
+    var folderPub;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       folderPub = this.folders[iFolder];
       folderPubsByPath[folderPub.path] = folderPub;
@@ -783,7 +784,7 @@ ImapAccount.prototype = {
             meta.delim = box.delim;
 
           // mark it with true to show that we've seen it.
-          folderPubsByPath = true;
+          folderPubsByPath[path] = true;
         }
         // - new to us!
         else {
