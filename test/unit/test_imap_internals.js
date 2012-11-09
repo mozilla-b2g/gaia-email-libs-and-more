@@ -17,7 +17,7 @@ TD.commonCase('account persistence', function(T) {
   //////////////////////////////////////////////////////////////////////////////
   // Universe 1 : initial
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   T.group('cram messages in, sync them');
@@ -38,7 +38,7 @@ TD.commonCase('account persistence', function(T) {
   T.group('U2 [add]: reload account, universe');
   // rebind to new universe / (loaded) account
   testUniverse = T.actor('testUniverse', 'U2');
-  var TA2 = testAccount = T.actor('testImapAccount', 'A2',
+  var TA2 = testAccount = T.actor('testAccount', 'A2',
                         { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -63,7 +63,7 @@ TD.commonCase('account persistence', function(T) {
   T.group('U3 [delete]: reload account, universe');
   // rebind to new universe / (loaded) account
   var TU3 = testUniverse = T.actor('testUniverse', 'U3');
-  var TA3 = testAccount = T.actor('testImapAccount', 'A3',
+  var TA3 = testAccount = T.actor('testAccount', 'A3',
                             { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -102,7 +102,7 @@ TD.commonCase('account persistence', function(T) {
   T.group('U4 [change]: reload account, universe');
   // rebind to new universe / (loaded) account
   var TU4 = testUniverse = T.actor('testUniverse', 'U4');
-  var TA4 = testAccount = T.actor('testImapAccount', 'A4',
+  var TA4 = testAccount = T.actor('testAccount', 'A4',
                             { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -149,7 +149,7 @@ TD.commonCase('account persistence', function(T) {
   // Universe 5 : checks
   T.group('U5 [check]: reload account, universe');
   var TU5 = testUniverse = T.actor('testUniverse', 'U5');
-  testAccount = T.actor('testImapAccount', 'A5',
+  testAccount = T.actor('testAccount', 'A5',
                         { universe: testUniverse, restored: true });
   var TF5 = testFolder = testAccount.do_useExistingFolder(
                            'test_internals', '#', testFolder);
@@ -192,7 +192,7 @@ TD.commonCase('account persistence', function(T) {
 TD.commonCase('sync further back in time on demand', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -287,7 +287,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
 TD.commonCase('grow with deepening required', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -319,51 +319,6 @@ TD.commonCase('grow with deepening required', function(T) {
   testAccount.do_closeFolderView(syncView);
 });
 
-
-/**
- * Make sure we don't get duplicate folders from running syncFolderList a
- * second time.  Our account list should be up-to-date at this time, so
- * running it a second time should not result in a change in the number of
- * folders.  We also want to rule out the existing folders being removed and
- * then replaced with effectively identical ones, so we listen for splice
- * notifications.
- */
-TD.commonCase('syncFolderList is idempotent', function(T) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
-                            { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
-
-  T.group('syncFolderList and check');
-  var numFolders, numAdds = 0, numDeletes = 0;
-  T.action('run syncFolderList', eSync, function(T) {
-    numFolders = testUniverse.allFoldersSlice.items.length;
-    testUniverse.allFoldersSlice.onsplice = function(index, delCount,
-                                                     addedItems) {
-      numAdds += addedItems.length;
-      numDeletes += delCount;
-    };
-
-    testAccount.expect_runOp('syncFolderList', true, { conn: true });
-    eSync.expect_event('roundtripped');
-    testUniverse.universe.syncFolderList(testAccount.account, function() {
-      testUniverse.MailAPI.ping(function() {
-        eSync.event('roundtripped');
-      });
-    });
-  });
-  T.check('check folder list', eSync, function(T) {
-    eSync.expect_namedValue('num folders', numFolders);
-    eSync.expect_namedValue('num added', numAdds);
-    eSync.expect_namedValue('num deleted', numDeletes);
-    eSync.namedValue('num folders', testUniverse.allFoldersSlice.items.length);
-    eSync.namedValue('num added', numAdds);
-    eSync.namedValue('num deleted', numDeletes);
-  });
-
-  T.group('cleanup');
-});
 
 function run_test() {
   runMyTests(15);

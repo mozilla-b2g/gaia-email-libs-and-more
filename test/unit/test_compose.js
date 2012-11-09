@@ -4,8 +4,6 @@
  **/
 
 load('resources/loggest_test_framework.js');
-// currently the verbatim thunderbird message generator dude
-load('resources/messageGenerator.js');
 
 var $util = require('mailapi/util');
 var $fakeacct = require('mailapi/fake/account');
@@ -29,7 +27,7 @@ function makeRandomSubject() {
  */
 TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse });
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
 
   var uniqueSubject = makeRandomSubject();
 
@@ -236,7 +234,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
  */
 TD.commonCase('reply/forward html message', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 
@@ -381,7 +379,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
  */
 TD.commonCase('reply all', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 

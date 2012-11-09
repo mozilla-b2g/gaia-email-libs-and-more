@@ -9,8 +9,6 @@
  **/
 
 load('resources/loggest_test_framework.js');
-// currently the verbatim thunderbird message generator dude
-load('resources/messageGenerator.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_mime' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -43,7 +41,7 @@ var rawUnicodeName = 'Figui\u00e8re',
 TD.commonCase('message encodings', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eBodies = T.lazyLogger('bodies');
 
   var fullSyncFolder = testAccount.do_createTestFolder(
@@ -335,7 +333,7 @@ TD.commonCase('MIME hierarchies', function(T) {
 
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 

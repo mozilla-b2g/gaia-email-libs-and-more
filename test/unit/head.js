@@ -254,12 +254,17 @@ const ENVIRON_MAPPINGS = [
   {
     name: 'password',
     envVar: 'GELAM_TEST_PASSWORD',
+  },
+  {
+    name: 'type',
+    envVar: 'GELAM_TEST_ACCOUNT_TYPE'
   }
 ];
 var TEST_PARAMS = {
   name: 'Baron von Testendude',
   emailAddress: 'testy@localhost',
   password: 'testy',
+  type: 'imap'
 };
 var TEST_PARAMS_ARE_DEFAULTS = true;
 
@@ -269,6 +274,7 @@ function populateTestParams() {
   for each (let [, {name, envVar}] in Iterator(ENVIRON_MAPPINGS)) {
     if (environ.exists(envVar)) {
       TEST_PARAMS[name] = environ.get(envVar);
+      console.log('environment:', name, TEST_PARAMS[name]);
       TEST_PARAMS_ARE_DEFAULTS = false;
     }
   }
