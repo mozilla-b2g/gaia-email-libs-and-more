@@ -80,9 +80,10 @@ ActiveSyncFolderConn.prototype = {
   /**
    * Get the initial sync key for the folder so we can start getting data
    *
+   * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getSyncKey: function asfc__getSyncKey(callback) {
+  _getSyncKey: function asfc__getSyncKey(filterType, callback) {
     let folderConn = this;
     let account = this._account;
     const as = $ascp.AirSync.Tags;
@@ -98,7 +99,7 @@ ActiveSyncFolderConn.prototype = {
           w.tag(as.SyncKey, '0')
            .tag(as.CollectionId, this.serverId)
            .stag(as.Options)
-             .tag(as.FilterType, this.filterType)
+             .tag(as.FilterType, filterType)
            .etag()
          .etag()
        .etag()
@@ -132,6 +133,58 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
+   * Get an estimate of the number of messages to be synced.
+   *
+   * @param {string} filterType The filter type for our estimate
+   * @param {function} callback A callback to be run when the operation finishes
+   */
+  _getItemEstimate: function asfc__getItemEstimate(filterType, callback) {
+    const ie = $ascp.ItemEstimate.Tags;
+    const as = $ascp.AirSync.Tags;
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(ie.GetItemEstimate)
+       .stag(ie.Collections)
+         .stag(ie.Collection)
+           .tag(as.SyncKey, this.syncKey)
+           .tag(ie.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.FilterType, filterType)
+           .etag()
+         .etag()
+       .etag()
+     .etag();
+
+    this._account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        callback('unknown');
+        return;
+      }
+
+      let e = new $wbxml.EventParser();
+      const base = [ie.GetItemEstimate, ie.Response];
+
+      let status, estimate;
+      e.addEventListener(base.concat(ie.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(ie.Collection, ie.Estimate),
+                         function(node) {
+        estimate = node.children[0].textContent;
+      });
+      e.run(aResponse);
+
+      if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
+        console.log(status);
+        callback('unknown');
+      }
+      else {
+        callback(null, estimate);
+      }
+    });
+  },
+
+  /**
    * Sync the folder with the server and enumerate all the changes since the
    * last sync.
    *
@@ -144,15 +197,35 @@ ActiveSyncFolderConn.prototype = {
 
     if (!account.conn.connected) {
       account.conn.connect(function(error, config) {
-        if (error)
+        if (error) {
+          callback('unknown');
           console.error('Error connecting to ActiveSync:', error);
+        }
+        else {
+          folderConn._enumerateFolderChanges(callback);
+        }
+      });
+      return;
+    }
+    if (this.syncKey === '0') {
+      this._getSyncKey(this.filterType, function(error) {
+        if (error)
+          callback('unknown');
         else
           folderConn._enumerateFolderChanges(callback);
       });
       return;
     }
-    if (this.syncKey === '0') {
-      this._getSyncKey(this._enumerateFolderChanges.bind(this, callback));
+    if (!this.estimate) {
+      this._getItemEstimate(this.filterType, function(error, estimate) {
+        if (error)
+          callback('unknown');
+        else {
+          folderConn.estimate = estimate;
+          console.log("We shall get ~" + estimate + " messages");
+          folderConn._enumerateFolderChanges(callback);
+        }
+      });
       return;
     }
 
@@ -577,6 +650,10 @@ ActiveSyncFolderConn.prototype = {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
           folderConn.storage = s;
         });
+        return;
+      }
+      else if (error) {
+        // XXX: TODO handle error
         return;
       }
 
