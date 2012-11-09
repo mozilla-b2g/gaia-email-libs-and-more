@@ -13,8 +13,8 @@
 load('deps/activesync/wbxml/wbxml.js');
 load('deps/activesync/codepages.js');
 load('test/unit/resources/messageGenerator.js');
-const $wbxml = WBXML;
-const $ascp = ActiveSyncCodepages;
+const $_wbxml = WBXML;
+const $_ascp = ActiveSyncCodepages;
 
 load('test/activesync_server.js');
 

@@ -22,7 +22,7 @@ const INITIAL_SYNC_DAYS = 7,
 TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   /**
@@ -339,7 +339,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
 TD.commonCase('refresh does not break when db limit hit', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -407,7 +407,7 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
 TD.commonCase('already synced headers are not skipped in grow', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -466,7 +466,7 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
 TD.commonCase('do not sync earlier than 1990', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 

@@ -75,7 +75,7 @@ function thunkErrbackoffTimer(lazyLogger) {
 TD.commonCase('general reconnect logic', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: false }),
       eCheck = T.lazyLogger('check');
 
@@ -234,7 +234,7 @@ TD.commonCase('general reconnect logic', function(T) {
 TD.commonCase('bad password login failure', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
@@ -345,7 +345,7 @@ TD.commonCase('bad password login failure', function(T) {
 TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -361,7 +361,7 @@ TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
 TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -395,7 +395,7 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
 TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -409,7 +409,7 @@ TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
 TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 

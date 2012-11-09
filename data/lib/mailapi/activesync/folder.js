@@ -119,8 +119,9 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (folderConn.syncKey === '0') {
-        // XXX we should re-sync the entire folder list from scratch and compute
-        // the deltas.
+        // We should never actually hit this, since it would mean that the
+        // server is refusing to give us a sync key. On the off chance that we
+        // do hit it, just bail.
         console.error('Unable to get sync key for folder');
         callback('unknown');
       }

@@ -19,7 +19,7 @@ TD.commonCase('account creation/deletion', function(T) {
   T.group('create universe, first account');
   var testUniverse = T.actor('testUniverse', 'U',
                              { name: 'A' }),
-      testAccountA = T.actor('testImapAccount', 'A',
+      testAccountA = T.actor('testAccount', 'A',
                              { universe: testUniverse }),
       eSliceCheck = T.lazyLogger('sliceCheck');
   var folderPointAB = null, folderPointBC = null, folderPointC = null;
@@ -29,7 +29,7 @@ TD.commonCase('account creation/deletion', function(T) {
 
 
   T.group('create second account');
-  var testAccountB = T.actor('testImapAccount', 'B',
+  var testAccountB = T.actor('testAccount', 'B',
                              { universe: testUniverse, name: 'B' });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
@@ -59,7 +59,7 @@ TD.commonCase('account creation/deletion', function(T) {
   });
 
   T.group('create third account');
-  var testAccountC = T.actor('testImapAccount', 'C',
+  var testAccountC = T.actor('testAccount', 'C',
                              { universe: testUniverse });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
@@ -126,6 +126,52 @@ TD.commonCase('account creation/deletion', function(T) {
       { table: 'headerBlocks', prefix: testAccountB.accountId + '/' },
       { table: 'bodyBlocks', prefix: testAccountB.accountId + '/' },
     ]);
+  });
+
+  T.group('cleanup');
+});
+
+/**
+ * Make sure we don't get duplicate folders from running syncFolderList a
+ * second time.  Our account list should be up-to-date at this time, so
+ * running it a second time should not result in a change in the number of
+ * folders.  We also want to rule out the existing folders being removed and
+ * then replaced with effectively identical ones, so we listen for splice
+ * notifications.
+ */
+TD.commonCase('syncFolderList is idempotent', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  T.group('syncFolderList and check');
+  var numFolders, numAdds = 0, numDeletes = 0;
+  T.action('run syncFolderList', eSync, function(T) {
+    numFolders = testUniverse.allFoldersSlice.items.length;
+    testUniverse.allFoldersSlice.onsplice = function(index, delCount,
+                                                     addedItems) {
+      numAdds += addedItems.length;
+      numDeletes += delCount;
+    };
+
+    testAccount.expect_runOp('syncFolderList', true,
+                             { local: false, conn: true });
+    eSync.expect_event('roundtripped');
+    testUniverse.universe.syncFolderList(testAccount.account, function() {
+      testUniverse.MailAPI.ping(function() {
+        eSync.event('roundtripped');
+      });
+    });
+  });
+  T.check('check folder list', eSync, function(T) {
+    eSync.expect_namedValue('num folders', numFolders);
+    eSync.expect_namedValue('num added', numAdds);
+    eSync.expect_namedValue('num deleted', numDeletes);
+    eSync.namedValue('num folders', testUniverse.allFoldersSlice.items.length);
+    eSync.namedValue('num added', numAdds);
+    eSync.namedValue('num deleted', numDeletes);
   });
 
   T.group('cleanup');

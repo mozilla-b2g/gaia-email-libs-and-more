@@ -6,8 +6,6 @@
  **/
 
 load('resources/loggest_test_framework.js');
-// currently the verbatim thunderbird message generator dude
-load('resources/messageGenerator.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_mail_html' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -221,7 +219,7 @@ TD.commonCase('embedded and remote images', function(T) {
 
   T.group('reload universe');
   var TU2 = T.actor('testUniverse', 'U2');
-  var TA2 = T.actor('testImapAccount', 'A2',
+  var TA2 = T.actor('testAccount', 'A2',
                     { universe: TU2, restored: true });
 
   T.group('verify images persisted');
