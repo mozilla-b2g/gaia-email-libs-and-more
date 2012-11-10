@@ -1042,6 +1042,9 @@ var TestActiveSyncServerMixins = {
         self._logger.response(response._httpCode, response._headers._headers,
                               body);
       };
+      self.server.logResponseError = function(error) {
+        self._logger.responseError(error);
+      };
       var httpServer = self.server.server;
       var port = httpServer._socket.port;
       httpServer._port = port;
@@ -1354,6 +1357,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       request: { method: false, path: false, headers: false },
       requestBody: { },
       response: { status: false, headers: false },
+    },
+    errors: {
+      responseError: { err: false },
     },
     // I am putting these under TEST_ONLY_ as a hack to get these displayed
     // differently since they are walls of text.

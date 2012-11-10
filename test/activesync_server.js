@@ -167,6 +167,7 @@ function ActiveSyncServer(startDate) {
   this.logRequest = null;
   this.logRequestBody = null;
   this.logResponse = null;
+  this.logResponseError = null;
 }
 
 ActiveSyncServer.prototype = {
@@ -235,8 +236,10 @@ ActiveSyncServer.prototype = {
       try {
         this['_handleCommand_' + query.Cmd](request, query, response);
       } catch(e) {
-        console.error(e + '\n' + e.stack + '\n');
-        dump(e + '\n' + e.stack + '\n');
+        if (this.logResponseError)
+          this.logResponseError(e + '\n' + e.stack);
+        else
+          dump(e + '\n' + e.stack + '\n');
         throw e;
       }
     }
