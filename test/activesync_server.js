@@ -109,6 +109,10 @@ ActiveSyncFolder.prototype = {
     delete this._messageSyncStates[syncKey];
     return syncState;
   },
+
+  peekSyncState: function(syncKey) {
+    return this._messageSyncStates[syncKey];
+  },
 };
 
 function ActiveSyncServer(startDate) {
@@ -427,6 +431,60 @@ ActiveSyncServer.prototype = {
 
     w  .etag(io.Response)
      .etag(io.ItemOperations);
+
+    response.setStatusLine('1.1', 200, 'OK');
+    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
+    response.write(encodeWBXML(w));
+    if (this.logResponse)
+      this.logResponse(request, response, w);
+  },
+
+  _handleCommand_GetItemEstimate: function(request, query, response) {
+    const ie = $ascp.ItemEstimate.Tags;
+    const as = $ascp.AirSync.Tags;
+
+    let syncKey, collectionId;
+
+    let server = this;
+    let e = new $wbxml.EventParser();
+    e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection], function(node) {
+      for (let child of node.children) {
+        switch (child.tag) {
+        case as.SyncKey:
+          syncKey = child.children[0].textContent;
+          break;
+        case ie.CollectionId:
+          collectionId = child.children[0].textContent;
+          break;
+        }
+      }
+    });
+    let reader = decodeWBXML(request.bodyInputStream);
+    if (this.logRequestBody)
+      this.logRequestBody(reader);
+    e.run(reader);
+
+    let folder = this._findFolderById(collectionId),
+        syncState = folder.takeSyncState(syncKey),
+        estimate = 0;
+
+    for (let change of syncState) {
+      if (change.type === 'addall')
+        estimate += folder.messages.length;
+      else
+        estimate++;
+    }
+
+    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(ie.GetItemEstimate)
+       .stag(ie.Response)
+         .tag(ie.Status, '1')
+         .stag(ie.Collection)
+           .tag(ie.CollectionId, collectionId)
+           .tag(ie.Estimate, estimate)
+         .etag()
+       .etag()
+     .etag();
 
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
