@@ -442,12 +442,14 @@ ActiveSyncServer.prototype = {
   _handleCommand_GetItemEstimate: function(request, query, response) {
     const ie = $ascp.ItemEstimate.Tags;
     const as = $ascp.AirSync.Tags;
+    const ieStatus = $ascp.ItemEstimate.Enums.Status;
 
     let syncKey, collectionId;
 
     let server = this;
     let e = new $wbxml.EventParser();
-    e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection], function(node) {
+    e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection],
+                       function(node) {
       for (let child of node.children) {
         switch (child.tag) {
         case as.SyncKey:
@@ -464,27 +466,39 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
-    let folder = this._findFolderById(collectionId),
-        syncState = folder.takeSyncState(syncKey),
-        estimate = 0;
+    let status, syncState, estimate,
+        folder = this._findFolderById(collectionId);
+    if (!folder)
+      status = ieStatus.InvalidCollection;
+    else if (syncKey === '0')
+      status = ieStatus.NoSyncState;
+    else if (!(syncState = folder.peekSyncState(syncKey)))
+      status = ieStatus.InvalidSyncKey;
+    else {
+      status = ieStatus.Success;
 
-    for (let change of syncState) {
-      if (change.type === 'addall')
-        estimate += folder.messages.length;
-      else
-        estimate++;
+      estimate = 0;
+      for (let change of syncState) {
+        if (change.type === 'addall')
+          estimate += folder.messages.length;
+        else
+          estimate++;
+      }
     }
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Response)
-         .tag(ie.Status, '1')
-         .stag(ie.Collection)
+         .tag(ie.Status, status);
+
+    if (status === ieStatus.Success)
+      w  .stag(ie.Collection)
            .tag(ie.CollectionId, collectionId)
            .tag(ie.Estimate, estimate)
-         .etag()
-       .etag()
-     .etag();
+         .etag();
+
+    w  .etag(ie.Response)
+     .etag(ie.GetItemEstimate);
 
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
