@@ -94,8 +94,8 @@ ActiveSyncFolderConn.prototype = {
         return this.folderMeta.filterType;
     }
     else {
-      console.warn('Got an invalid syncRange: ' + syncRange +
-                   ': using three days back instead');
+      console.warn('Got an invalid syncRange (' + syncRange +
+                   ') using three days back instead');
       return $ascp.AirSync.Enums.FilterType.ThreeDaysBack;
     }
   },
@@ -330,6 +330,7 @@ ActiveSyncFolderConn.prototype = {
     // an empty request to repeat our request. This saves a little bandwidth.
     if (this._account._syncsInProgress++ === 0 &&
         this._account._lastSyncKey === this.syncKey &&
+        this._account._lastSyncFilterType === this.filterType &&
         this._account._lastSyncResponseWasEmpty) {
       w = as.Sync;
     }
@@ -379,6 +380,7 @@ ActiveSyncFolderConn.prototype = {
       }
 
       folderConn._account._lastSyncKey = folderConn.syncKey;
+      folderConn._account._lastSyncFilterType = folderConn.filterType;
 
       if (!aResponse) {
         console.log('Sync completed with empty response');
