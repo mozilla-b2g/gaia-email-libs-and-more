@@ -55,6 +55,15 @@ const SYNC_RANGE_TO_FILTER_TYPE = {
    'all': FILTER_TYPE.NoFilter,
 };
 
+const FILTER_TYPE_TO_STRING = {
+  0: 'all messages',
+  1: 'one day',
+  2: 'three days',
+  3: 'one week',
+  4: 'two weeks',
+  5: 'one month',
+};
+
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
   this._storage = storage;
@@ -293,16 +302,7 @@ ActiveSyncFolderConn.prototype = {
         if (error)
           callback('unknown');
         else {
-          let filterNames = {
-            0: 'all',
-            1: 'one day',
-            2: 'three days',
-            3: 'one week',
-            4: 'two weeks',
-            5: 'one month',
-          };
-          console.log('We want a filter of ' + filterNames[filterType]);
-
+          console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
           folderConn.folderMeta.filterType = filterType;
           folderConn._enumerateFolderChanges(callback);
         }
