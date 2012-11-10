@@ -31,11 +31,20 @@ define(
 
 const DESIRED_SNIPPET_LENGTH = 100;
 
+/**
+ * This is minimum number of messages we'd like to get for a folder for a given
+ * sync range. It's not exact, since we estimate from the number of messages in
+ * the past two weeks, but it's close enough.
+ */
+const DESIRED_MESSAGE_COUNT = 50;
+
 const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
 
-// Map our built-in sync range values to their corresponding ActiveSync
-// FilterType values. We exclude 3 and 6 months, since they aren't valid for
-// email.
+/**
+ * Map our built-in sync range values to their corresponding ActiveSync
+ * FilterType values. We exclude 3 and 6 months, since they aren't valid for
+ * email.
+ */
 const SYNC_RANGE_TO_FILTER_TYPE = {
    '1d': FILTER_TYPE.OneDayBack,
    '3d': FILTER_TYPE.ThreeDaysBack,
@@ -66,6 +75,9 @@ ActiveSyncFolderConn.prototype = {
   },
 
   get filterType() {
+    if (this.folderMeta.filterType)
+      return this.folderMeta.filterType;
+
     let syncRange = this._account.accountDef.syncRange;
     if (SYNC_RANGE_TO_FILTER_TYPE.hasOwnProperty(syncRange)) {
       return SYNC_RANGE_TO_FILTER_TYPE[syncRange];
@@ -185,6 +197,71 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
+   * Infer the filter type for this folder to get a sane number of messages.
+   *
+   * @param {function} callback A callback to be run when the operation
+   *  finishes, taking two arguments: an error (if any), and the filter type we
+   *  picked
+   */
+  _inferFilterType: function asfc__inferFilterType(callback) {
+    let folderConn = this;
+    const Type = $ascp.AirSync.Enums.FilterType;
+
+    let getEstimate = function(filterType, onSuccess) {
+      folderConn._getSyncKey(filterType, function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+
+        folderConn._getItemEstimate(filterType, function(error, estimate) {
+          if (error) {
+            callback('unknown');
+            return;
+          }
+
+          onSuccess(estimate);
+        });
+      });
+    };
+
+    getEstimate(Type.TwoWeeksBack, function(estimate) {
+      let messagesPerDay = estimate / 14; // Two weeks. Twoooo weeeeeeks.
+      let filterType;
+
+      if (estimate < 0)
+        filterType = Type.ThreeDaysBack;
+      else if (messagesPerDay >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneDayBack;
+      else if (messagesPerDay * 3 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.ThreeDaysBack;
+      else if (messagesPerDay * 7 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneWeekBack;
+      else if (messagesPerDay * 14 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.TwoWeeksBack;
+      else if (messagesPerDay * 30 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneMonthBack;
+      else {
+        getEstimate(Type.NoFilter, function(estimate) {
+          let filterType;
+          if (estimate > DESIRED_MESSAGE_COUNT)
+            filterType = Type.OneMonthBack;
+          else {
+            filterType = Type.NoFilter;
+            folderConn.syncKey = '0';
+          }
+          callback(null, filterType);
+        });
+        return;
+      }
+
+      if (filterType !== Type.TwoWeeksBack)
+        folderConn.syncKey = '0';
+      callback(null, filterType);
+    });
+  },
+
+  /**
    * Sync the folder with the server and enumerate all the changes since the
    * last sync.
    *
@@ -207,24 +284,33 @@ ActiveSyncFolderConn.prototype = {
       });
       return;
     }
+    if (!this.folderMeta.filterType) {
+      this._inferFilterType(function(error, filterType) {
+        if (error)
+          callback('unknown');
+        else {
+          let filterNames = {
+            0: 'all',
+            1: 'one day',
+            2: 'three days',
+            3: 'one week',
+            4: 'two weeks',
+            5: 'one month',
+          };
+          console.log('We want a filter of ' + filterNames[filterType]);
+
+          folderConn.folderMeta.filterType = filterType;
+          folderConn._enumerateFolderChanges(callback);
+        }
+      });
+      return;
+    }
     if (this.syncKey === '0') {
       this._getSyncKey(this.filterType, function(error) {
         if (error)
           callback('unknown');
         else
           folderConn._enumerateFolderChanges(callback);
-      });
-      return;
-    }
-    if (!this.estimate) {
-      this._getItemEstimate(this.filterType, function(error, estimate) {
-        if (error)
-          callback('unknown');
-        else {
-          folderConn.estimate = estimate;
-          console.log("We shall get ~" + estimate + " messages");
-          folderConn._enumerateFolderChanges(callback);
-        }
       });
       return;
     }
