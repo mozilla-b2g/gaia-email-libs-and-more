@@ -742,7 +742,7 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
       else if (error) {
-        // XXX: TODO handle error
+        doneCallback(error);
         return;
       }
 
