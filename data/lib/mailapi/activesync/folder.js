@@ -46,12 +46,13 @@ const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
  * email.
  */
 const SYNC_RANGE_TO_FILTER_TYPE = {
-   '1d': FILTER_TYPE.OneDayBack,
-   '3d': FILTER_TYPE.ThreeDaysBack,
-   '1w': FILTER_TYPE.OneWeekBack,
-   '2w': FILTER_TYPE.TwoWeeksBack,
-   '1m': FILTER_TYPE.OneMonthBack,
-  'all': FILTER_TYPE.NoFilter,
+  'auto': null,
+    '1d': FILTER_TYPE.OneDayBack,
+    '3d': FILTER_TYPE.ThreeDaysBack,
+    '1w': FILTER_TYPE.OneWeekBack,
+    '2w': FILTER_TYPE.TwoWeeksBack,
+    '1m': FILTER_TYPE.OneMonthBack,
+   'all': FILTER_TYPE.NoFilter,
 };
 
 function ActiveSyncFolderConn(account, storage, _parentLog) {
@@ -75,12 +76,13 @@ ActiveSyncFolderConn.prototype = {
   },
 
   get filterType() {
-    if (this.folderMeta.filterType)
-      return this.folderMeta.filterType;
-
     let syncRange = this._account.accountDef.syncRange;
     if (SYNC_RANGE_TO_FILTER_TYPE.hasOwnProperty(syncRange)) {
-      return SYNC_RANGE_TO_FILTER_TYPE[syncRange];
+      let accountFilterType = SYNC_RANGE_TO_FILTER_TYPE[syncRange];
+      if (accountFilterType)
+        return accountFilterType;
+      else
+        return this.folderMeta.filterType;
     }
     else {
       console.warn('Got an invalid syncRange: ' + syncRange +
@@ -169,6 +171,7 @@ ActiveSyncFolderConn.prototype = {
 
     this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
+        console.error(aError);
         callback('unknown');
         return;
       }
@@ -187,7 +190,7 @@ ActiveSyncFolderConn.prototype = {
       e.run(aResponse);
 
       if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
-        console.log(status);
+        console.log('Error getting item estimate:', status);
         callback('unknown');
       }
       else {
@@ -284,7 +287,7 @@ ActiveSyncFolderConn.prototype = {
       });
       return;
     }
-    if (!this.folderMeta.filterType) {
+    if (!this.filterType) {
       this._inferFilterType(function(error, filterType) {
         if (error)
           callback('unknown');

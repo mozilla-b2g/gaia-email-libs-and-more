@@ -436,7 +436,7 @@ Configurators['imap+smtp'] = {
       receiveType: 'imap',
       sendType: 'smtp',
 
-      syncRange: '3d',
+      syncRange: 'auto',
 
       credentials: credentials,
       receiveConnInfo: imapConnInfo,
@@ -496,7 +496,7 @@ Configurators['fake'] = {
       name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'fake',
-      syncRange: '3d',
+      syncRange: 'auto',
 
       credentials: credentials,
       connInfo: {
@@ -603,7 +603,7 @@ Configurators['activesync'] = {
         name: userDetails.accountName || userDetails.emailAddress,
 
         type: 'activesync',
-        syncRange: '3d',
+        syncRange: 'auto',
 
         credentials: credentials,
         connInfo: {
