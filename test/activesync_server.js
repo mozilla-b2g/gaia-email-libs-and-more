@@ -54,6 +54,20 @@ function ActiveSyncFolder(server, name, type, parent, args) {
 }
 
 ActiveSyncFolder.prototype = {
+  filterTypeToMS: {
+    1: 86400 * 1000,
+    2: 3 * 86400 * 1000,
+    3: 7 * 86400 * 1000,
+    4: 14 * 86400 * 1000,
+    5: 30 * 86400 * 1000,
+  },
+
+  _messageInFilterRange: function(filterType, message) {
+    return filterType === $ascp.AirSync.Enums.FilterType.NoFilter ||
+           (this.server._clock - this.filterTypeToMS[filterType] <=
+            message.date);
+  },
+
   /**
    * Find a message object by its server ID.
    *
@@ -73,8 +87,10 @@ ActiveSyncFolder.prototype = {
     this.messages.unshift(newMessage);
     this.messages.sort(function(a, b) { return a.date < b.date; });
 
-    for (let [,syncState] in Iterator(this._messageSyncStates))
-      syncState.push({ type: 'add', message: newMessage });
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      if (this._messageInFilterRange(syncState.filterType, message))
+        syncState.changes.push({ type: 'add', message: newMessage });
+    }
 
     return newMessage;
   },
@@ -86,21 +102,30 @@ ActiveSyncFolder.prototype = {
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       for (let message of newMessages)
-        syncState.push({ type: 'add', message: message });
+        syncState.changes.push({ type: 'add', message: message });
     }
 
     return newMessages;
   },
 
-  createSyncState: function(oldSyncKey) {
+  createSyncState: function(oldSyncKey, filterType) {
     if (oldSyncKey !== '0' &&
-        !this._messageSyncStates.hasOwnProperty(oldSyncKey))
+        (!this._messageSyncStates.hasOwnProperty(oldSyncKey) ||
+         this._messageSyncStates[oldSyncKey].filterType !== filterType))
       return '0';
 
     let syncKey = 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
-    this._messageSyncStates[syncKey] = [];
-    if (oldSyncKey === '0')
-      this._messageSyncStates[syncKey].push({ type: 'addall' });
+    let syncState = this._messageSyncStates[syncKey] = {
+      filterType: filterType,
+      changes: []
+    };
+
+    if (oldSyncKey === '0') {
+      for (let message of this.messages) {
+        if (this._messageInFilterRange(syncState.filterType, message))
+          syncState.changes.push({ type: 'add', message: message });
+      }
+    }
     return syncKey;
   },
 
@@ -120,8 +145,7 @@ function ActiveSyncServer(startDate) {
   this.msgGen = new MessageGenerator();
 
   // Make sure the message generator is using the same start date as us.
-  if (startDate)
-    this.msgGen._clock = startDate;
+  this._clock = this.msgGen._clock = startDate || Date.now();
 
   const folderType = $ascp.FolderHierarchy.Enums.Type;
   this._folders = [];
@@ -273,11 +297,11 @@ ActiveSyncServer.prototype = {
       }
     }
     else {
-      let changes = this._folderSyncStates[syncKey];
+      let syncState = this._folderSyncStates[syncKey];
       delete this._folderSyncStates[syncKey];
-      w.tag(fh.Count, changes.length);
+      w.tag(fh.Count, syncState.length);
 
-      for (let change of changes) {
+      for (let change of syncState) {
         if (change.type === 'add') {
           w.stag(fh.Add)
            .tag(fh.ServerId, change.folder.id)
@@ -303,7 +327,8 @@ ActiveSyncServer.prototype = {
     const as = $ascp.AirSync.Tags;
     const asEnum = $ascp.AirSync.Enums;
 
-    let syncKey, nextSyncKey, collectionId;
+    let syncKey, nextSyncKey, collectionId,
+        filterType = asEnum.FilterType.NoFilter;
 
     let e = new $wbxml.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
@@ -314,6 +339,9 @@ ActiveSyncServer.prototype = {
     e.addEventListener(base.concat(as.CollectionId), function(node) {
       collectionId = node.children[0].textContent;
     });
+    e.addEventListener(base.concat(as.Options, as.FilterType), function(node) {
+      filterType = node.children[0].textContent;
+    });
 
     let reader = decodeWBXML(request.bodyInputStream);
     if (this.logRequestBody)
@@ -321,8 +349,8 @@ ActiveSyncServer.prototype = {
     e.run(reader);
 
     let folder = this._findFolderById(collectionId),
-        nextSyncKey = folder.createSyncState(syncKey),
-        syncState = syncKey !== '0' ? folder.takeSyncState(syncKey) : [];
+        nextSyncKey = folder.createSyncState(syncKey, filterType),
+        syncState = syncKey !== '0' ? folder.takeSyncState(syncKey) : null;
 
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
                                        asEnum.Status.Success;
@@ -336,23 +364,11 @@ ActiveSyncServer.prototype = {
            .tag(as.CollectionId, collectionId)
            .tag(as.Status, status);
 
-    if (syncState.length) {
+    if (syncState && syncState.changes.length) {
       w.stag(as.Commands);
 
-      for (let change of syncState) {
-        if (change.type === 'addall') {
-          for (let message of folder.messages) {
-            w.stag(as.Add)
-              .tag(as.ServerId, message.messageId)
-              .stag(as.ApplicationData);
-
-            this._writeEmail(w, message);
-
-            w  .etag(as.ApplicationData)
-              .etag(as.Add);
-          }
-        }
-        else if (change.type === 'add') {
+      for (let change of syncState.changes) {
+        if (change.type === 'add') {
           w.stag(as.Add)
             .tag(as.ServerId, change.message.messageId)
             .stag(as.ApplicationData);
@@ -476,14 +492,7 @@ ActiveSyncServer.prototype = {
       status = ieStatus.InvalidSyncKey;
     else {
       status = ieStatus.Success;
-
-      estimate = 0;
-      for (let change of syncState) {
-        if (change.type === 'addall')
-          estimate += folder.messages.length;
-        else
-          estimate++;
-      }
+      estimate = syncState.changes.length;
     }
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');

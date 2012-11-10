@@ -83,6 +83,26 @@ TD.commonCase('folder sync', function(T) {
     { count:  5, full: 1, flags: 4, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
+  /**
+   * Perform a folder sync where our initial time fetch window contains a subset
+   * of the messages in the folder.
+   */
+  T.group('initial interval is partial sync');
+  var partialSyncFolder = testAccount.do_createTestFolder(
+    'test_initial_partial_sync',
+    { count: 60, age: { days: 0 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder('syncs', partialSyncFolder,
+                            { count: 15, full: 15, flags: 0, deleted: 0 },
+                            { top: true, bottom: false, grow: false });
+  testUniverse.do_pretendToBeOffline(true);
+  testAccount.do_viewFolder('checks persisted data of', partialSyncFolder,
+                            { count: 15, full: 0, flags: 0, deleted: 0 },
+                            { top: true, bottom: false, grow: false });
+  testUniverse.do_pretendToBeOffline(false);
+  testAccount.do_viewFolder('resyncs', partialSyncFolder,
+                            { count: 15, full: 0, flags: 15, deleted: 0 },
+                            { top: true, bottom: false, grow: false });
+
   T.group('cleanup');
   testAccount.do_closeFolderView(folderView);
 });
