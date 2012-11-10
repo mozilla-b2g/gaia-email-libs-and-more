@@ -247,11 +247,12 @@ ActiveSyncFolderConn.prototype = {
       else {
         getEstimate(Type.NoFilter, function(estimate) {
           let filterType;
-          if (estimate > DESIRED_MESSAGE_COUNT)
+          if (estimate > DESIRED_MESSAGE_COUNT) {
             filterType = Type.OneMonthBack;
+            folderConn.syncKey = '0';
+          }
           else {
             filterType = Type.NoFilter;
-            folderConn.syncKey = '0';
           }
           callback(null, filterType);
         });
