@@ -22,18 +22,21 @@ load('resources/loggest_test_framework.js');
 var TD = $tc.defineTestsFor(
   { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
 
-// This gets clobbered into $mailslice by testhelper.js as a default.
-// This really means 7.5 days
-const INITIAL_SYNC_DAYS = 7,
+const INITIAL_SYNC_DAYS = 5,
       // This is the number of messages after which the sync logic will
       // declare victory and stop filling.
-      INITIAL_FILL_SIZE = 15;
+      INITIAL_FILL_SIZE = 12;
 
 TD.commonCase('folder sync', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
+
+  testUniverse.do_adjustSyncValues({
+    fillSize: INITIAL_FILL_SIZE,
+    days: INITIAL_SYNC_DAYS,
+  });
 
   /**
    * Try and synchronize an empty folder.  Verify that our slice completes with
@@ -76,15 +79,16 @@ TD.commonCase('folder sync', function(T) {
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
-   * messages than we want and there are even more messages beyond.
+   * messages than we want and there are even more messages before that time
+   * window.
    */
   T.group('saturated initial interval');
   var saturatedFolder = testAccount.do_createTestFolder(
     'test_saturated_sync',
-    { count: 17, age: { days: 0 }, age_incr: { days: 1 }, age_incr_every: 2 });
+    { count: 17, age: { days: 1 }, age_incr: { days: 1 }, age_incr_every: 3 });
   testAccount.do_viewFolder(
     'syncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 16, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 15, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
@@ -95,7 +99,7 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 16, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 15, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   /**
@@ -105,13 +109,12 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial fetch spans multiple time ranges');
   var msearchFolder = testAccount.do_createTestFolder(
     'test_multiple_ranges', // (insert one more than we want to find)
-    { count: 17, age: { days: 1 }, age_incr: { days: 1 } });
-  // will fetch: 7, 7, 3 = 17
+    { count: 13, age: { days: 1 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', msearchFolder,
-    [{ count: 7, full: 7, flags: 0, deleted: 0 },
-     { count: 7, full: 7, flags: 0, deleted: 0 },
-     { count: 1, full: 3, flags: 0, deleted: 0 }],
+    [{ count: 5, full: 5, flags: 0, deleted: 0 },
+     { count: 5, full: 5, flags: 0, deleted: 0 },
+     { count: 2, full: 3, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
@@ -122,9 +125,9 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', msearchFolder,
-    [{ count: 7, full: 0, flags: 7, deleted: 0 },
-     { count: 7, full: 0, flags: 7, deleted: 0 },
-     { count: 1, full: 0, flags: 3, deleted: 0 }],
+    [{ count: 5, full: 0, flags: 5, deleted: 0 },
+     { count: 5, full: 0, flags: 5, deleted: 0 },
+     { count: 2, full: 0, flags: 3, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
   /**
@@ -151,18 +154,18 @@ TD.commonCase('folder sync', function(T) {
     msearchFolder.messages.splice(2, 1);
     msearchFolder.messages.splice(1, 1);
   });
-  // add messages (4, 3) to (7-2=5, 7-1=6) so our fetches become: 9, 9
+  // add messages (4, 3) to (5-2=3, 5-1=4) so our fetches become: 7, 7
   // (and we are no longer covering all known messages)
   testAccount.do_addMessagesToFolder(
     msearchFolder,
-    { count: 7, age: { days: 0 }, age_incr: { days: 2 } });
+    { count: 7, age: { days: 2 }, age_incr: { days: 1 } });
   // - open view, checking refresh, and _leave it open_ for the next group
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
     // because the new messages are interleaved rather than at the end, we will
-    // end up with more than 15/INITIAL_FILL_SIZE in the second case.
-    [{ count:  9, full: 4, flags: 5, deleted: 2 },
-     { count:  9, full: 3, flags: 6, deleted: 1 }],
+    // end up with more than 12/INITIAL_FILL_SIZE in the second case.
+    [{ count:  7, full: 4, flags: 3, deleted: 2 },
+     { count:  7, full: 3, flags: 4, deleted: 1 }],
     { top: true, bottom: false, grow: false });
 
   /**
@@ -184,11 +187,11 @@ TD.commonCase('folder sync', function(T) {
       MailAPI.modifyMessageTags([slice.items[0]],
                                 ['\\Deleted'], null, 'delete');
 
-      expectedRefreshChanges.changes.push([slice.items[12], 'isRead', true]);
-      slice.items[12].setRead(true);
+      expectedRefreshChanges.changes.push([slice.items[9], 'isRead', true]);
+      slice.items[9].setRead(true);
 
-      expectedRefreshChanges.changes.push([slice.items[13], 'isStarred', true]);
-      slice.items[13].setStarred(true);
+      expectedRefreshChanges.changes.push([slice.items[10], 'isStarred', true]);
+      slice.items[10].setStarred(true);
 
       msearchFolder.messages.splice(8, 1);
       msearchFolder.messages.splice(0, 1);
@@ -197,7 +200,7 @@ TD.commonCase('folder sync', function(T) {
     msearchView,
     // Our expectations happen in a single go here because the refresh covers
     // the entire date range in question.
-    { count: 16, full: 0, flags: 16, deleted: 2 },
+    { count: 12, full: 0, flags: 12, deleted: 2 },
     expectedRefreshChanges,
     { top: true, bottom: false, grow: false });
 

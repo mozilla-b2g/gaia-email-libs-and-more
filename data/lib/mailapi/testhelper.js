@@ -62,12 +62,8 @@ var TestUniverseMixins = {
     // our time-warp functionality on the server to make this okay.
     if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      // our nominal timezone is GMT-5; adjust the date we use to this end
-      var datezone = new Date(),
-          zone = datezone.getTimezoneOffset() / -60,
-          zoneDelta = 5 - zone;
-
-      self._useDate.setHours(12 + zoneDelta, 0, 0, 0);
+      // use local noon.
+      self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
       // These are all the default values that tests code against by default.
