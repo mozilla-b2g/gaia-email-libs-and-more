@@ -2011,7 +2011,7 @@ FolderStorage.prototype = {
     var startTS = slice.startTS, endTS = slice.endTS;
 
     // - Grow endTS
-    // If the endTS lines up with the most recent know message for the folder,
+    // If the endTS lines up with the most recent known message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
@@ -2035,6 +2035,7 @@ FolderStorage.prototype = {
     // of the start message.
     else
       startTS += this._account.tzOffset;
+
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);

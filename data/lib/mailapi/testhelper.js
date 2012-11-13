@@ -90,6 +90,7 @@ var TestUniverseMixins = {
     }
     else {
       self._useDate = new Date();
+      $date.TEST_LetsDoTheTimewarpAgain(null);
     }
 
     /**

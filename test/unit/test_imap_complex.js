@@ -523,6 +523,59 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
 
 });
 
+/**
+ * If we keep refreshing, the time range should stay the same.  The compose
+ * test, at least around certain times of day, however, ended up with each
+ * refresh lopping off a day in a way that perceived the set reduction as
+ * deletions and eventually ended up with no covered messages.  This caused
+ * the refresh to screw up and try and sync from 0 milliseconds.
+ */
+TD.commonCase('repeated refresh is stable', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U', {}),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true });
+
+  const fillSize = 3, totalCount = 4;
+  testUniverse.do_adjustSyncValues({
+    fillSize: fillSize,
+  });
+
+  var staticNow = new Date(2000, 0, 3, 23, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_stable_refresh',
+    { count: totalCount, age: { days: 0 }, age_incr: { days: 1 } });
+
+  T.group('open view, keep refreshing');
+  var noChanges = {
+    changes: [],
+    deletions: []
+  };
+  var testView = testAccount.do_openFolderView(
+    'refresher', testFolder,
+    { count: fillSize, full: totalCount, flags: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+  testAccount.do_refreshFolderView(
+    testView,
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    noChanges,
+    { top: true, bottom: false, grow: false });
+  testAccount.do_refreshFolderView(
+    testView,
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    noChanges,
+    { top: true, bottom: false, grow: false });
+  testAccount.do_refreshFolderView(
+    testView,
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    noChanges,
+    { top: true, bottom: false, grow: false });
+
+  T.group('cleanup');
+});
+
 function run_test() {
   runMyTests(20); // we do a lot of appending...
 }

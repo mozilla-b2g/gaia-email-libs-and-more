@@ -418,7 +418,7 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 TD.commonCase('convert failed non-refresh sync to offline', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 

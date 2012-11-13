@@ -58,7 +58,7 @@ TD.commonCase('embedded and remote images', function(T) {
   ];
   T.group('setup');
   var TU1 = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: TU1 }),
       eCheck = T.lazyLogger('messageCheck');
 
