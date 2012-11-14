@@ -304,7 +304,7 @@ var TestCommonAccountMixins = {
     // -- Problem!
     else {
       throw new Error('Unknown account type provided by ' +
-                      'GELAM_TEST_ACCOUNT_TYPE environemnt variable: ' +
+                      'GELAM_TEST_ACCOUNT_TYPE environment variable: ' +
                       TEST_PARAMS.type);
     }
     self.__constructor(self, opts);
