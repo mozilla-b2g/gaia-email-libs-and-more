@@ -263,6 +263,7 @@ ActiveSyncFolderConn.prototype = {
           else {
             filterType = Type.NoFilter;
           }
+          folderConn._LOG.inferFilterType(filterType);
           callback(null, filterType);
         });
         return;
@@ -270,6 +271,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (filterType !== Type.TwoWeeksBack)
         folderConn.syncKey = '0';
+      folderConn._LOG.inferFilterType(filterType);
       callback(null, filterType);
     });
   },
@@ -770,7 +772,8 @@ ActiveSyncFolderConn.prototype = {
       messagesSeen += added.length + changed.length + deleted.length;
 
       if (!moreAvailable) {
-        folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+        folderConn._LOG.syncDateRange_end(added.length, changed.length,
+                                          deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, messagesSeen);
       }
@@ -1014,6 +1017,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     type: $log.CONNECTION,
     subtype: $log.CLIENT,
     events: {
+      inferFilterType: { filterType: false },
     },
     asyncJobs: {
       syncDateRange: {
