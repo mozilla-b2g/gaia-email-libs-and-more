@@ -427,13 +427,13 @@ var TestCommonAccountMixins = {
   },
 
   do_openFolderView: function(viewName, testFolder, expectedValues,
-                              expectedFlags) {
+                              expectedFlags, extraFlag) {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
     viewThing.offset = 0;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
-                       viewThing);
+                       extraFlag, viewThing);
     return viewThing;
   },
 
@@ -871,7 +871,7 @@ var TestImapAccountMixins = {
    * and keep it open and detect changes, etc.
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          _saveToThing) {
+                          extraFlag, _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
@@ -888,7 +888,8 @@ var TestImapAccountMixins = {
       }
 
       // generate expectations for each date sync range
-      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
+      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
+                                                 extraFlag);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
@@ -1258,7 +1259,7 @@ var TestActiveSyncAccountMixins = {
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
-      MailUniverse.syncFolderList(self.account, function() {
+      self.testUniverse.syncFolderList(self.account, function() {
         MailAPI.ping(function() {
           testFolder.mailFolder = self.testUniverse.allFoldersSlice
                                       .getFirstFolderWithName(folderName);
@@ -1279,15 +1280,17 @@ var TestActiveSyncAccountMixins = {
   // copy-paste-modify of the IMAP by-name variant
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderType + suffix);
+        folderName = folderType + suffix,
+        testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderType);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.serverFolder = null;
     testFolder.messages = null;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.getFirstFolderWithType('inbox');
+      testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+        folderType);
       testFolder.messages = testFolder.serverFolder.messages;
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
@@ -1307,11 +1310,12 @@ var TestActiveSyncAccountMixins = {
   // XXX experimental attempt to re-create IMAP case; will need more love to
   // properly unify things.
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          _saveToThing) {
+                          extraFlag, _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
-      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
+      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
+                                                 extraFlag);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.

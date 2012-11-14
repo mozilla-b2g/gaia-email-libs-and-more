@@ -11,6 +11,8 @@ var TD = $tc.defineTestsFor(
   { id: 'test_activesync_recreate' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('create, recreate offline', function(T) {
+  const FilterType = $ascp.AirSync.Enums.FilterType;
+
   T.group('create old db');
   // create a database that will get migrated at next universe
   var TU1 = T.actor('testUniverse', 'U1', { dbDelta: -1 }),
@@ -41,9 +43,9 @@ TD.commonCase('create, recreate offline', function(T) {
   TU2.do_killQueuedOperations(TA2, 'server', 1, savedFolderSyncOpList);
   TU2.do_pretendToBeOffline(false);
   var view2 = TA2.do_openFolderView(
-    'sync', inbox2,
-    { count: 0, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: true });
+    'sync', inbox2, null,
+    { top: true, bottom: true, grow: true },
+    'nosave');
 
   T.group('sync folder list triggers sync');
   TU2.do_restoreQueuedOperationsAndWait(TA2, savedFolderSyncOpList, function() {
@@ -74,9 +76,10 @@ TD.commonCase('create, recreate offline', function(T) {
                     { universe: TU4, restored: true });
   const DEFAULT_MESSAGE_COUNT = 10;
   var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4');
-  TA2.do_viewFolder('sync', inbox4,
+  TA4.do_viewFolder('sync', inbox4,
                     { count: DEFAULT_MESSAGE_COUNT,
-                      full: DEFAULT_MESSAGE_COUNT, flags: 0, deleted: 0 },
+                      full: DEFAULT_MESSAGE_COUNT, flags: 0, deleted: 0,
+                      filterType: FilterType.NoFilter },
                     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
