@@ -55,6 +55,9 @@ const SYNC_RANGE_TO_FILTER_TYPE = {
    'all': FILTER_TYPE.NoFilter,
 };
 
+/**
+ * This mapping is purely for logging purposes.
+ */
 const FILTER_TYPE_TO_STRING = {
   0: 'all messages',
   1: 'one day',
@@ -84,6 +87,12 @@ ActiveSyncFolderConn.prototype = {
     return this.folderMeta.syncKey = value;
   },
 
+  /**
+   * Get the filter type for this folder. If the account has a particular
+   * syncRange set (i.e. not "auto"), this will return the filter type for the
+   * whole account. Otherwise, this will return the filter type for the
+   * individual folder (possibly undefined).
+   */
   get filterType() {
     let syncRange = this._account.accountDef.syncRange;
     if (SYNC_RANGE_TO_FILTER_TYPE.hasOwnProperty(syncRange)) {
@@ -258,6 +267,8 @@ ActiveSyncFolderConn.prototype = {
           let filterType;
           if (estimate > DESIRED_MESSAGE_COUNT) {
             filterType = Type.OneMonthBack;
+            // Reset the sync key since we're changing filter types. This
+            // requires another round-trip to get a new sync key.
             folderConn.syncKey = '0';
           }
           else {
@@ -269,8 +280,11 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      if (filterType !== Type.TwoWeeksBack)
+      if (filterType !== Type.TwoWeeksBack) {
+        // Reset the sync key since we're changing filter types. This requires
+        // another round-trip to get a new sync key.
         folderConn.syncKey = '0';
+      }
       folderConn._LOG.inferFilterType(filterType);
       callback(null, filterType);
     });
