@@ -245,10 +245,12 @@ ImapJobDriver.prototype = {
    * there is no need to release it directly.
    */
   _acquireConnWithoutFolder: function(label, callback, deathback) {
+    this._LOG.acquireConnWithoutFolder_begin(label);
     const self = this;
     this.account.__folderDemandsConnection(
       null, label,
       function(conn) {
+        self._LOG.acquireConnWithoutFolder_end(label);
         self._heldMutexReleasers.push(function() {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
@@ -956,6 +958,9 @@ HighLevelJobDriver.prototype = {
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {
     type: $log.DAEMON,
+    asyncJobs: {
+      acquireConnWithoutFolder: { label: false },
+    },
     errors: {
       callbackErr: { ex: $log.EXCEPTION },
     },

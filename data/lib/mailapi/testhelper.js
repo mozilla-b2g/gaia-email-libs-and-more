@@ -727,7 +727,17 @@ var TestImapAccountMixins = {
     return testFolder;
   },
 
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
+  /**
+   * @args[
+   *   @param[doNotExpect #:optional Boolean]{
+   *     If true, do not add the injected messages into the set of known (to
+   *     testhelper) messages so that we do not generate expectations on the
+   *     headers.  Use this is adding messages to a folder that we expect to
+   *     not learn about because we are testing failures.
+   *   }
+   * ]
+   */
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef, opts) {
     var self = this;
     this.T.convenienceSetup(this, desc, testFolder,function(){
       self.RT.reportActiveActorThisStep(self.eImapAccount);
@@ -750,8 +760,11 @@ var TestImapAccountMixins = {
         var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
         messageBodies = generator.makeMessages(messageSetDef);
       }
+
+      if (checkFlagDefault(opts, 'doNotExpect', false)) {
+      }
       // no messages in there yet, just use the list as-is
-      if (!testFolder.messages) {
+      else if (!testFolder.messages) {
         testFolder.messages = messageBodies;
       }
       // messages already in there, need to insert them appropriately
@@ -779,9 +792,9 @@ var TestImapAccountMixins = {
   /**
    * Add messages to an existing test folder.
    */
-  do_addMessagesToFolder: function(testFolder, messageSetDef) {
+  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
     this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef);
+                                     messageSetDef, opts);
   },
 
   /**
@@ -898,6 +911,8 @@ var TestImapAccountMixins = {
       if (extraFlags && extraFlags.extraMutex)
         self._expect_storage_mutexed(testFolder.storageActor,
                                      extraFlags.extraMutex);
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
 
       if (self.universe.online) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);

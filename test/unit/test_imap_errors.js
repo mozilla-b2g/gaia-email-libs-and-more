@@ -61,6 +61,13 @@ function thunkErrbackoffTimer(lazyLogger) {
   };
 }
 
+function zeroTimeoutErrbackoffTimer(lazyLogger) {
+  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+    lazyLogger.namedValue('errbackoff:schedule', delay);
+    window.setZeroTimeout(func);
+  });
+}
+
 /**
  * Attempt to connect to a server with immediate failures each time (that we
  * have already established an account for).  Verify that we do the backoff
@@ -160,6 +167,9 @@ TD.commonCase('general reconnect logic', function(T) {
     testAccount.imapAccount.checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
     });
+  });
+  T.check('no precommands left', function() {
+    FawltySocketFactory.assertNoPrecommands();
   });
 
   T.group('recover');
@@ -373,7 +383,7 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
 
   T.group('SELECT time');
-  T.action('queue up SELECT to result in conncetion loss', function() {
+  T.action('queue up SELECT to result in connection loss', function() {
     FawltySocketFactory.precommand(
       testHost, testPort, null,
       {
@@ -415,12 +425,23 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 
 });
 
-TD.commonCase('convert failed non-refresh sync to offline', function(T) {
+/**
+ * Sync a folder so we have offline copies of the state (and close the view),
+ * add a message to the folder so it's obvious if a sync succeeds when it should
+ * not, do a time-warp so the next sync cannot be a refresh, prime the failure
+ * pump so we end up abandoning the sync, then initiate the sync.  Make sure
+ * the sync only tells us about the offline messages we already knew about.
+ */
+TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
+
+  T.action('reset fault injecting socket',
+           FawltySocketFactory.reset.bind(FawltySocketFactory));
+  zeroTimeoutErrbackoffTimer(eCheck);
 
   // we would ideally extract this in case we are running against other servers
   var testHost = 'localhost', testPort = 143;
@@ -441,15 +462,22 @@ TD.commonCase('convert failed non-refresh sync to offline', function(T) {
     'syncs', testFolder,
     { count: 3, full: 3, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
+
+  T.group('add messages not to be seen');
+  testAccount.do_addMessagesToFolder(
+    testFolder, { count: 1, age: { days: 1 } }, { doNotExpect: true });
+
   T.group('failing non-refresh sync becomes offline load');
   staticNow += DAY_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '1 day later');
 
-  T.action('kill connection, queue up failures', function() {
+  T.action('kill connection, queue up failures', testAccount.eImapAccount,
+           function() {
     FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
     testAccount._unusedConnections = 0;
     testAccount.eImapAccount.expect_deadConnection();
 
+    // immediate retry then 3 timed retries
     FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
     FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
     FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
@@ -460,7 +488,17 @@ TD.commonCase('convert failed non-refresh sync to offline', function(T) {
     'fallback to offline', testFolder,
     { count: 3, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false },
-    null, { extraMutex: true });
+    null,
+    {
+      extraMutex: true,
+      expectFunc: function() {
+        RT.reportActiveActorThisStep(testAccount.eImapAccount);
+        // (one create invocation is already expected by do_viewfolder)
+        testAccount.eImapAccount.expect_createConnection();
+        testAccount.eImapAccount.expect_createConnection();
+        testAccount.eImapAccount.expect_createConnection();
+      }
+    });
 
   T.group('cleanup');
 });
