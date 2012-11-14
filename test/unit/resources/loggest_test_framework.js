@@ -14,10 +14,16 @@ var $_mailuniverse = require('mailapi/mailuniverse'),
     $_imapfolder = require('mailapi/imap/folder'),
     $_mailslice = require('mailapi/mailslice'),
     $_quotechew = require('mailapi/quotechew'),
+    $_wbxml = require('activesync/wbxml/wbxml'),
+    $_ascp = require('activesync/codepages'),
     $_Q = require('q'),
     $tc = require('rdcommon/testcontext'),
     $_testdriver = require('rdcommon/testdriver'),
     $th_imap = require('mailapi/testhelper');
+
+// this is relative to our caller, which is a bit crap, but should be fine
+load('resources/messageGenerator.js');
+load('../activesync_server.js');
 
 var MailAPI = null, MailBridge = null, MailUniverse = null;
 

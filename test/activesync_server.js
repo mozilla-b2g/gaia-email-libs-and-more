@@ -25,13 +25,13 @@ function decodeWBXML(stream) {
   for (let i = 0; i < str.length; i++)
     bytes[i] = str.charCodeAt(i);
 
-  return new $wbxml.Reader(bytes, $ascp);
+  return new $_wbxml.Reader(bytes, $_ascp);
 }
 
 function ActiveSyncFolder(server, name, type, parent, args) {
   this.server = server;
   this.name = name;
-  this.type = type || $ascp.FolderHierarchy.Enums.Type.Mail;
+  this.type = type || $_ascp.FolderHierarchy.Enums.Type.Mail;
   this.id = 'folder-' + (this.server._nextCollectionId++);
   this.parentId = parent ? parent.id : '0';
 
@@ -147,7 +147,7 @@ function ActiveSyncServer(startDate) {
   // Make sure the message generator is using the same start date as us.
   this._clock = this.msgGen._clock = startDate || Date.now();
 
-  const folderType = $ascp.FolderHierarchy.Enums.Type;
+  const folderType = $_ascp.FolderHierarchy.Enums.Type;
   this._folders = [];
   this.foldersByType = {
     inbox:  [],
@@ -264,12 +264,12 @@ ActiveSyncServer.prototype = {
   },
 
   _handleCommand_FolderSync: function(request, query, response) {
-    const fh = $ascp.FolderHierarchy.Tags;
-    const folderType = $ascp.FolderHierarchy.Enums.Type;
+    const fh = $_ascp.FolderHierarchy.Tags;
+    const folderType = $_ascp.FolderHierarchy.Enums.Type;
 
     let syncKey;
 
-    let e = new $wbxml.EventParser();
+    let e = new $_wbxml.EventParser();
     e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
       syncKey = node.children[0].textContent;
     });
@@ -281,7 +281,7 @@ ActiveSyncServer.prototype = {
     let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
     this._folderSyncStates[nextSyncKey] = [];
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
        .tag(fh.SyncKey, nextSyncKey)
@@ -327,13 +327,13 @@ ActiveSyncServer.prototype = {
   },
 
   _handleCommand_Sync: function(request, query, response) {
-    const as = $ascp.AirSync.Tags;
-    const asEnum = $ascp.AirSync.Enums;
+    const as = $_ascp.AirSync.Tags;
+    const asEnum = $_ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId,
         filterType = asEnum.FilterType.NoFilter;
 
-    let e = new $wbxml.EventParser();
+    let e = new $_wbxml.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
 
     e.addEventListener(base.concat(as.SyncKey), function(node) {
@@ -358,7 +358,7 @@ ActiveSyncServer.prototype = {
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
                                        asEnum.Status.Success;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
 
     w.stag(as.Sync)
        .stag(as.Collections)
@@ -398,13 +398,13 @@ ActiveSyncServer.prototype = {
   },
 
   _handleCommand_ItemOperations: function(request, query, response) {
-    const io = $ascp.ItemOperations.Tags;
-    const as = $ascp.AirSync.Tags;
+    const io = $_ascp.ItemOperations.Tags;
+    const as = $_ascp.AirSync.Tags;
 
     let fetches = [];
 
     let server = this;
-    let e = new $wbxml.EventParser();
+    let e = new $_wbxml.EventParser();
     e.addEventListener([io.ItemOperations, io.Fetch], function(node) {
       let fetch = {};
 
@@ -429,7 +429,7 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations)
        .tag(io.Status, '1')
        .stag(io.Response);
@@ -540,9 +540,9 @@ ActiveSyncServer.prototype = {
    * @param message the message object
    */
   _writeEmail: function(w, message) {
-    const em  = $ascp.Email.Tags;
-    const asb = $ascp.AirSyncBase.Tags;
-    const asbEnum = $ascp.AirSyncBase.Enums;
+    const em  = $_ascp.Email.Tags;
+    const asb = $_ascp.AirSyncBase.Tags;
+    const asbEnum = $_ascp.AirSyncBase.Enums;
 
     // TODO: this could be smarter, and accept more complicated MIME structures
     let bodyPart = message.bodyPart;

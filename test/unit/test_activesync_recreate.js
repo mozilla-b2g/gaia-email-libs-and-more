@@ -6,8 +6,6 @@
 load('resources/loggest_test_framework.js');
 const $wbxml = require('wbxml');
 const $ascp = require('activesync/codepages');
-load('resources/messageGenerator.js');
-load('../activesync_server.js');
 
 var TD = $tc.defineTestsFor(
   { id: 'test_activesync_recreate' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -16,10 +14,8 @@ TD.commonCase('create, recreate offline', function(T) {
   T.group('create old db');
   // create a database that will get migrated at next universe
   var TU1 = T.actor('testUniverse', 'U1', { dbDelta: -1 }),
-      testServer = T.actor('testActiveSyncServer', 'S',
-                           { universe: TU1 }),
-      TA1 = T.actor('testActiveSyncAccount', 'A1',
-                    { universe: TU1, server: testServer }),
+      TA1 = T.actor('testAccount', 'A1',
+                    { universe: TU1 }),
       eCheck = T.lazyLogger('check');
 
   T.group('go offline, shutdown');
@@ -30,8 +26,8 @@ TD.commonCase('create, recreate offline', function(T) {
   T.group('migrate while offline');
   // this universe will trigger lazy upgrade migration
   var TU2 = T.actor('testUniverse', 'U2'),
-      TA2 = T.actor('testActiveSyncAccount', 'A2',
-                    { universe: TU2, server: testServer, restored: true });
+      TA2 = T.actor('testAccount', 'A2',
+                    { universe: TU2, restored: true });
   // check that the inbox exists
   var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2');
 
@@ -66,16 +62,16 @@ TD.commonCase('create, recreate offline', function(T) {
   T.group('create old db');
   // create a universe that nukes everything.
   var TU3 = T.actor('testUniverse', 'U3', { dbDelta: 1, nukeDb: true }),
-      TA3 = T.actor('testActiveSyncAccount', 'A3',
-                    { universe: TU3, server: testServer });
+      TA3 = T.actor('testAccount', 'A3',
+                    { universe: TU3 });
   TU3.do_saveState();
   TU3.do_shutdown();
 
   T.group('migrate while online');
   // this will trigger lazy upgrade migration
   var TU4 = T.actor('testUniverse', 'U4', { dbDelta: 2 }),
-      TA4 = T.actor('testActiveSyncAccount', 'A4',
-                    { universe: TU4, server: testServer, restored: true });
+      TA4 = T.actor('testAccount', 'A4',
+                    { universe: TU4, restored: true });
   const DEFAULT_MESSAGE_COUNT = 10;
   var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4');
   TA2.do_viewFolder('sync', inbox4,

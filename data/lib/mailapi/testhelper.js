@@ -18,6 +18,11 @@ var $log = require('rdcommon/log'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account');
 
+function checkFlagDefault(flags, flag, def) {
+  if (!flags || !flags.hasOwnProperty(flag))
+    return def;
+  return flags[flag];
+}
 
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
@@ -273,9 +278,204 @@ var TestUniverseMixins = {
   },
 };
 
+/**
+ * This is test account functionality common to both ActiveSync and IMAP.
+ * During the constructor, we mix-in the bits
+ */
+var TestCommonAccountMixins = {
+  __constructor: function(self, opts) {
+    function mix(source, target) {
+      for (var key in source) {
+        target[key] = source[key];
+      }
+    }
+    // -- IMAP
+    if (TEST_PARAMS.type === 'imap') {
+      mix(TestImapAccountMixins, self);
+    }
+    // -- ActiveSync
+    else if (TEST_PARAMS.type === 'activesync') {
+      mix(TestActiveSyncAccountMixins, self);
+    }
+    // -- Problem!
+    else {
+      throw new Error('Unknown account type provided by ' +
+                      'GELAM_TEST_ACCOUNT_TYPE environment variable: ' +
+                      TEST_PARAMS.type);
+    }
+    self.__constructor(self, opts);
+  },
+
+  /**
+   * @args[
+   *   @param[viewThing]
+   *   @param[expected @dict[
+   *     @key[additions #:optional @listof[MailHeader]]{
+   *       List of headers/header-like things we expect to be added.  We will
+   *       only test based on distinct characteristics like the subject, not
+   *       values that can't/shouldn't be known a priori like the UID, etc.
+   *     }
+   *     @key[changes @listof[
+   *       @list[MailHeader attrName attrValue]{
+   *         The header that we expect to change, and the name of the field
+   *         that we expect to change and the value we expect it to have after
+   *         the change.  We don't know what the previous value is and the
+   *         the notification does not currently compute the field that changed,
+   *         so be careful about ensuring that the value didn't start out with
+   *         the right value.
+   *       }
+   *     ]
+   *     @key[deletions @listof[MailHeader]]{
+   *       The MailHeader that we expect to be deleted.
+   *     }
+   *   ]]
+   *  @param[expectedFlags]
+   *  @param[completeCheckOn #:optional @oneof[
+   *    @default{
+   *      The slice's oncomplete method is used.
+   *    }
+   *    @case['roundtrip']{
+   *      Expect that we will have heard all modifications by the time a ping
+   *      issued during the call has its callback invoked.  (Make sure to call
+   *      this method after issuing the mutations for this to work out...)
+   *    }
+   * ]
+   */
+  expect_headerChanges: function(viewThing, expected, expectedFlags,
+                                 completeCheckOn) {
+    this.RT.reportActiveActorThisStep(this);
+
+    var changeMap = {}, self = this;
+    // - generate expectations and populate changeMap
+    var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
+    if (expected.hasOwnProperty('additions') && expected.additions) {
+      for (i = 0; i < expected.additions.length; i++) {
+        var msgThing = expected.additions[i], subject;
+        expAdditionRep[msgThing.subject || msgThing.headerInfo.subject] = true;
+      }
+    }
+    for (i = 0; i < expected.deletions.length; i++) {
+      expDeletionRep[expected.deletions[i].subject] = true;
+    }
+    for (i = 0; i < expected.changes.length; i++) {
+      var change = expected.changes[i];
+      // We're not actually logging what attributes changed here; we verify
+      // correctness with an assertion check that logs an error on mis-match.
+      expChangeRep[change[0].subject] = true;
+      // There may be more than one attribute to check.
+      // (And eventually, there may need to be set-ish checks like for custom
+      // tags.)
+      var expChanges = changeMap[change[0].subject] = [];
+      for (iExp = 1; iExp < change.length; iExp += 2) {
+        expChanges.push({ field: change[iExp], value: change[iExp+1] });
+      }
+    }
+    this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
+    if (expectedFlags)
+      this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.grow, 'synced');
+
+    // - listen for the changes
+    var additionRep = {}, changeRep = {}, deletionRep = {},
+        eventCounter = 0;
+    viewThing.slice.onadd = function(item) {
+      additionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
+    };
+    viewThing.slice.onchange = function(item) {
+      changeRep[item.subject] = true;
+      var changeEntries = changeMap[item.subject];
+      if (!changeEntries) {
+        self._logger.unexpectedChange(item.subject);
+        return;
+      }
+      changeEntries.forEach(function(changeEntry) {
+        if (item[changeEntry.field] !== changeEntry.value)
+          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
+      });
+      if (eventCounter && --eventCounter === 0)
+        completed();
+    };
+    viewThing.slice.onremove = function(item) {
+      deletionRep[item.subject] = true;
+      if (eventCounter && --eventCounter === 0)
+        completed();
+    };
+    var completed = function completed() {
+      if (!completeCheckOn)
+        self._logger.messagesReported(viewThing.slice.items.length);
+      self._logger.changesReported(additionRep, changeRep, deletionRep);
+      if (expectedFlags)
+        self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                                viewThing.slice.userCanGrowDownwards,
+                                viewThing.slice.status);
+
+      viewThing.slice.onchange = null;
+      viewThing.slice.onremove = null;
+    };
+    if (completeCheckOn === 'roundtrip') {
+      this.MailAPI.ping(completed);
+    }
+    else if (typeof(completeCheckOn) === 'number') {
+      eventCounter = completeCheckOn;
+    } else {
+      viewThing.slice.oncomplete = completed;
+    }
+  },
+
+  do_openFolderView: function(viewName, testFolder, expectedValues,
+                              expectedFlags) {
+    var viewThing = this.T.thing('folderView', viewName);
+    viewThing.testFolder = testFolder;
+    viewThing.slice = null;
+    viewThing.offset = 0;
+    this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
+                       viewThing);
+    return viewThing;
+  },
+
+  do_closeFolderView: function(viewThing) {
+    var self = this;
+    this.T.action(this, 'close', viewThing, function() {
+      var testFolder = viewThing.testFolder;
+      var idx = testFolder._liveSliceThings.indexOf(viewThing);
+      if (idx === -1)
+        throw new Error('Trying to close a non-live slice thing!');
+      testFolder._liveSliceThings.splice(idx, 1);
+      self.expect_sliceDied(viewThing.slice.handle);
+      viewThing.slice.ondead = function() {
+        self._logger.sliceDied(viewThing.slice.handle);
+      };
+      viewThing.slice.die();
+      // This frees up a connection.
+      self._unusedConnections++;
+    });
+  },
+
+  expect_runOp: function(jobName, accountSave, flags) {
+    this.RT.reportActiveActorThisStep(this.eOpAccount);
+    if (checkFlagDefault(flags, 'local', true)) {
+      this.eOpAccount.expect_runOp_begin('local_do', jobName);
+      this.eOpAccount.expect_runOp_end('local_do', jobName);
+    }
+    this.eOpAccount.expect_runOp_begin('do', jobName);
+    // activesync does not care about connections
+    if (checkFlagDefault(flags, 'conn', false)  &&
+        ('expect_connection' in this)) {
+      this.expect_connection();
+      this.eOpAccount.expect_releaseConnection();
+    }
+    this.eOpAccount.expect_runOp_end('do', jobName);
+    if (accountSave)
+      this.expect_saveState();
+  },
+};
+
 var TestImapAccountMixins = {
   __constructor: function(self, opts) {
-    self.eImapAccount = self.T.actor('ImapAccount', self.__name, null, self);
+    self.eImapAccount = self.eOpAccount =
+      self.T.actor('ImapAccount', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
@@ -342,7 +542,7 @@ var TestImapAccountMixins = {
   _do_issueRestoredAccountQueries: function() {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
-      self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
@@ -364,7 +564,7 @@ var TestImapAccountMixins = {
      * populated.
      */
     self.T.convenienceSetup(self, 'creates test account', function() {
-      self.__attachToLogger(LOGFAB.testImapAccount(self, null, self.__name));
+      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
@@ -633,16 +833,6 @@ var TestImapAccountMixins = {
     });
   },
 
-  expect_runOp: function(jobName, accountSave) {
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
-    this.eImapAccount.expect_runOp_begin('local_do', jobName);
-    this.eImapAccount.expect_runOp_end('local_do', jobName);
-    this.eImapAccount.expect_runOp_begin('do', jobName);
-    this.eImapAccount.expect_runOp_end('do', jobName);
-    if (accountSave)
-      this.expect_saveState();
-  },
-
   _expect_dateSyncs: function(testFolder, expectedValues, flag) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
@@ -731,135 +921,6 @@ var TestImapAccountMixins = {
         }
       };
     }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
-  },
-
-  do_openFolderView: function(viewName, testFolder, expectedValues,
-                              expectedFlags) {
-    var viewThing = this.T.thing('folderView', viewName);
-    viewThing.testFolder = testFolder;
-    viewThing.slice = null;
-    viewThing.offset = 0;
-    this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
-                       viewThing);
-    return viewThing;
-  },
-
-  /**
-   * @args[
-   *   @param[viewThing]
-   *   @param[expected @dict[
-   *     @key[additions #:optional @listof[MailHeader]]{
-   *       List of headers/header-like things we expect to be added.  We will
-   *       only test based on distinct characteristics like the subject, not
-   *       values that can't/shouldn't be known a priori like the UID, etc.
-   *     }
-   *     @key[changes @listof[
-   *       @list[MailHeader attrName attrValue]{
-   *         The header that we expect to change, and the name of the field
-   *         that we expect to change and the value we expect it to have after
-   *         the change.  We don't know what the previous value is and the
-   *         the notification does not currently compute the field that changed,
-   *         so be careful about ensuring that the value didn't start out with
-   *         the right value.
-   *       }
-   *     ]
-   *     @key[deletions @listof[MailHeader]]{
-   *       The MailHeader that we expect to be deleted.
-   *     }
-   *   ]]
-   *  @param[expectedFlags]
-   *  @param[completeCheckOn #:optional @oneof[
-   *    @default{
-   *      The slice's oncomplete method is used.
-   *    }
-   *    @case['roundtrip']{
-   *      Expect that we will have heard all modifications by the time a ping
-   *      issued during the call has its callback invoked.  (Make sure to call
-   *      this method after issuing the mutations for this to work out...)
-   *    }
-   * ]
-   */
-  expect_headerChanges: function(viewThing, expected, expectedFlags,
-                                 completeCheckOn) {
-    this.RT.reportActiveActorThisStep(this);
-
-    var changeMap = {}, self = this;
-    // - generate expectations and populate changeMap
-    var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
-    if (expected.hasOwnProperty('additions') && expected.additions) {
-      for (i = 0; i < expected.additions.length; i++) {
-        var msgThing = expected.additions[i], subject;
-        expAdditionRep[msgThing.subject || msgThing.headerInfo.subject] = true;
-      }
-    }
-    for (i = 0; i < expected.deletions.length; i++) {
-      expDeletionRep[expected.deletions[i].subject] = true;
-    }
-    for (i = 0; i < expected.changes.length; i++) {
-      var change = expected.changes[i];
-      // We're not actually logging what attributes changed here; we verify
-      // correctness with an assertion check that logs an error on mis-match.
-      expChangeRep[change[0].subject] = true;
-      // There may be more than one attribute to check.
-      // (And eventually, there may need to be set-ish checks like for custom
-      // tags.)
-      var expChanges = changeMap[change[0].subject] = [];
-      for (iExp = 1; iExp < change.length; iExp += 2) {
-        expChanges.push({ field: change[iExp], value: change[iExp+1] });
-      }
-    }
-    this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
-    if (expectedFlags)
-      this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.grow, 'synced');
-
-    // - listen for the changes
-    var additionRep = {}, changeRep = {}, deletionRep = {},
-        eventCounter = 0;
-    viewThing.slice.onadd = function(item) {
-      additionRep[item.subject] = true;
-      if (eventCounter && --eventCounter === 0)
-        completed();
-    };
-    viewThing.slice.onchange = function(item) {
-      changeRep[item.subject] = true;
-      var changeEntries = changeMap[item.subject];
-      if (!changeEntries) {
-        self._logger.unexpectedChange(item.subject);
-        return;
-      }
-      changeEntries.forEach(function(changeEntry) {
-        if (item[changeEntry.field] !== changeEntry.value)
-          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
-      });
-      if (eventCounter && --eventCounter === 0)
-        completed();
-    };
-    viewThing.slice.onremove = function(item) {
-      deletionRep[item.subject] = true;
-      if (eventCounter && --eventCounter === 0)
-        completed();
-    };
-    var completed = function completed() {
-      if (!completeCheckOn)
-        self._logger.messagesReported(viewThing.slice.items.length);
-      self._logger.changesReported(additionRep, changeRep, deletionRep);
-      if (expectedFlags)
-        self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
-                                viewThing.slice.userCanGrowDownwards,
-                                viewThing.slice.status);
-
-      viewThing.slice.onchange = null;
-      viewThing.slice.onremove = null;
-    };
-    if (completeCheckOn === 'roundtrip') {
-      this.MailAPI.ping(completed);
-    }
-    else if (typeof(completeCheckOn) === 'number') {
-      eventCounter = completeCheckOn;
-    } else {
-      viewThing.slice.oncomplete = completed;
-    }
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
@@ -962,24 +1023,6 @@ var TestImapAccountMixins = {
     });
   },
 
-  do_closeFolderView: function(viewThing) {
-    var self = this;
-    this.T.action(this, 'close', viewThing, function() {
-      var testFolder = viewThing.testFolder;
-      var idx = testFolder._liveSliceThings.indexOf(viewThing);
-      if (idx === -1)
-        throw new Error('Trying to close a non-live slice thing!');
-      testFolder._liveSliceThings.splice(idx, 1);
-      self.expect_sliceDied(viewThing.slice.handle);
-      viewThing.slice.ondead = function() {
-        self._logger.sliceDied(viewThing.slice.handle);
-      };
-      viewThing.slice.die();
-      // This frees up a connection.
-      self._unusedConnections++;
-    });
-  },
-
   /**
    * Wait for a message with the given subject to show up in the account.
    *
@@ -1015,6 +1058,12 @@ var TestImapAccountMixins = {
   },
 };
 
+/**
+ * For now, we create at most one server for the lifetime of the xpcshell test.
+ * So we spin it up the first time we need it, and we never actually clean up
+ * after it.
+ */
+var gActiveSyncServer = null;
 var TestActiveSyncServerMixins = {
   __constructor: function(self, opts) {
     if (!opts.universe)
@@ -1023,8 +1072,11 @@ var TestActiveSyncServerMixins = {
                             function() {
       self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
                                                         self.__name));
-      self.server = new ActiveSyncServer(opts.universe._useDate);
-      self.server.start(0);
+      if (!gActiveSyncServer) {
+        gActiveSyncServer = new ActiveSyncServer(opts.universe._useDate);
+        gActiveSyncServer.start(0);
+      }
+      self.server = gActiveSyncServer;
       self.server.logRequest = function(request) {
         self._logger.request(request._method, request._path,
                              request._headers._headers);
@@ -1036,7 +1088,7 @@ var TestActiveSyncServerMixins = {
       self.server.logResponse = function(request, response, writer) {
         var body;
         if (writer) {
-          var reader = new $wbxml.Reader(writer.bytes, $ascp);
+          var reader = new $_wbxml.Reader(writer.bytes, $_ascp);
           body = reader.dump();
         }
         self._logger.response(response._httpCode, response._headers._headers,
@@ -1055,9 +1107,15 @@ var TestActiveSyncServerMixins = {
       self._logger.started(httpServer._socket.port);
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
+      // Do not stop, pre the above, but do stop logging stuff to it.
+      self.server.logRequest = null;
+      self.server.logRequestBody = null;
+      self.server.logResponse = null;
+      /*
       self.server.stop(function() {
         self._logger.stopped();
       });
+      */
     });
   },
 
@@ -1069,13 +1127,12 @@ var TestActiveSyncServerMixins = {
 
 var TestActiveSyncAccountMixins = {
   __constructor: function(self, opts) {
-    self.eAccount = self.T.actor('ActiveSyncAccount', self.__name, null, self);
+    self.eAccount = self.eOpAccount =
+      self.T.actor('ActiveSyncAccount', self.__name, null, self);
 
     self._opts = opts;
     if (!opts.universe)
       throw new Error("Universe not specified!");
-    if (!opts.server)
-      throw new Error("Server not specified!");
     if (!opts.universe.__testAccounts)
       throw new Error("Universe is not of the right type: " + opts.universe);
 
@@ -1084,7 +1141,21 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
-    self.testServer = opts.server;
+    // If a server was not explicitly provided, then create one that should
+    // have a lifetime of this current test step.  We use the blackboard
+    // instead of the universe because a freshly started universe currently
+    // does not know about the universe it is replacing.
+    if (!opts.server) {
+      if (!self.RT.blackboard.testActiveSyncServer) {
+        self.RT.blackboard.testActiveSyncServer =
+          self.T.actor('testActiveSyncServer', 'S',
+                       { universe: opts.universe });
+      }
+      self.testServer = self.RT.blackboard.testActiveSyncServer;
+    }
+    else {
+      self.testServer = opts.server;
+    }
 
     // dummy attributes to be more like IMAP to reuse some logic:
     self._unusedConnections = 0;
@@ -1101,8 +1172,7 @@ var TestActiveSyncAccountMixins = {
   _do_issueRestoredAccountQueries: function() {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncAccount(self, null,
-                                                         self.__name));
+      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
@@ -1121,8 +1191,7 @@ var TestActiveSyncAccountMixins = {
      * populated.
      */
     self.T.convenienceSetup(self, 'creates test account', function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncAccount(self, null,
-                                                         self.__name));
+      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.expect_accountCreated();
@@ -1269,11 +1338,6 @@ var TestActiveSyncAccountMixins = {
     });
   },
 
-  expect_headerChanges: TestImapAccountMixins.expect_headerChanges,
-
-  do_openFolderView: TestImapAccountMixins.do_openFolderView,
-  do_closeFolderView: TestImapAccountMixins.do_closeFolderView,
-
   do_addMessageToFolder: function(folder, messageDef) {
     var self = this;
     this.T.convenienceSetup(this, 'add message to', folder, function() {
@@ -1318,13 +1382,14 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       dbProblem: { err: false },
     },
   },
-  testImapAccount: {
+  testAccount: {
     type: $log.TEST_SYNTHETIC_ACTOR,
     subtype: $log.CLIENT,
     topBilling: true,
 
     events: {
       accountCreated: {},
+      foundFolder: { found: true, rep: false },
 
       deletionNotified: { count: true },
       creationNotified: { count: true },
@@ -1341,6 +1406,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changesReported: { additions: true, changes: true, deletions: true },
     },
     errors: {
+      accountCreationError: { err: false },
+
       folderCreationError: { err: false },
       unexpectedChange: { subject: false },
       changeMismatch: { field: false, expectedValue: false },
@@ -1368,28 +1435,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       response: { body: false },
     },
   },
-  testActiveSyncAccount: {
-    type: $log.TEST_SYNTHETIC_ACTOR,
-    subtype: $log.CLIENT,
-    topBilling: true,
-
-    events: {
-      accountCreated: {},
-      foundFolder: { found: true, rep: false },
-
-      sliceDied: { handle: true },
-
-      splice: { index: true, howMany: true },
-      sliceFlags: { top: true, bottom: true, grow: true, status: true },
-      messagesReported: { count: true },
-      messageSubject: { index: true, subject: true },
-
-      changesReported: { additions: true, changes: true, deletions: true },
-    },
-    errors: {
-      accountCreationError: { err: false },
-    },
-  },
 });
 
 exports.TESTHELPER = {
@@ -1408,9 +1453,8 @@ exports.TESTHELPER = {
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,
-    testImapAccount: TestImapAccountMixins,
+    testAccount: TestCommonAccountMixins,
     testActiveSyncServer: TestActiveSyncServerMixins,
-    testActiveSyncAccount: TestActiveSyncAccountMixins,
   }
 };
 

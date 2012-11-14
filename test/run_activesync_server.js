@@ -13,8 +13,11 @@
 load('deps/activesync/wbxml/wbxml.js');
 load('deps/activesync/codepages.js');
 load('test/unit/resources/messageGenerator.js');
-const $wbxml = WBXML;
-const $ascp = ActiveSyncCodepages;
+// Prefixing since we are running in the global scope and we don't want modules
+// under test that use $wbxml without requiring/defining it to accidentally
+// work.
+const $_wbxml = WBXML;
+const $_ascp = ActiveSyncCodepages;
 
 load('test/activesync_server.js');
 
