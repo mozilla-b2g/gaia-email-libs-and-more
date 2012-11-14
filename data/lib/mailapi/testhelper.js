@@ -1259,6 +1259,7 @@ var TestActiveSyncAccountMixins = {
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
+      self.expect_runOp('syncFolderList', true, { local: false });
       MailUniverse.syncFolderList(self.account, function() {
         MailAPI.ping(function() {
           testFolder.mailFolder = self.testUniverse.allFoldersSlice
