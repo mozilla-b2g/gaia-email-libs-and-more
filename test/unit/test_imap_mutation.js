@@ -32,7 +32,7 @@ var TD = $tc.defineTestsFor(
 TD.commonCase('mutate flags', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync'),
       numMessages = 7;
 
@@ -243,7 +243,7 @@ TD.commonCase('mutate flags', function(T) {
   testUniverse.do_saveState();
   testUniverse.do_shutdown();
   var testUniverse2 = T.actor('testUniverse', 'U2'),
-      testAccount2 = T.actor('testImapAccount', 'A2',
+      testAccount2 = T.actor('testAccount', 'A2',
                              { universe: testUniverse2, restored: true }),
       testFolder2 = testAccount2.do_useExistingFolder(
                       'test_mutation_flags', '#2', testFolder),
@@ -301,7 +301,7 @@ TD.commonCase('mutate flags', function(T) {
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
   var testUniverse3 = T.actor('testUniverse', 'U3'),
-      testAccount3 = T.actor('testImapAccount', 'A3',
+      testAccount3 = T.actor('testAccount', 'A3',
                              { universe: testUniverse3, restored: true }),
       testFolder3 = testAccount3.do_useExistingFolder(
         'test_mutation_flags', '#3', testFolder2),
@@ -420,7 +420,7 @@ TD.commonCase('mutate flags', function(T) {
 TD.commonCase('move/trash messages', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testImapAccount', 'A',
+      testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 

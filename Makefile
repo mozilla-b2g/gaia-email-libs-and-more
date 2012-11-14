@@ -53,24 +53,60 @@ PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
            --build-info-json=$(B2GBD)/mozinfo.json \
            --testing-modules-dir=$(B2GBD)/_tests/modules
-xpcshell-tests:
-	-rm test/unit/all.log test/unit/*.js.log
-	-$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) $(B2GBD)/dist/bin/xpcshell test/unit
-	cat test/unit/*.js.log > test/unit/all.log
+
+# Common test running logic.  Some test files are for both IMAP and ActiveSync.
+# Some test files are just for one or the other.  xpcshell has a mechanism for
+# specifying constraings on test files in xpcshell.ini, and we are using that.
+
+define run-xpc-tests # $(call run-xpc-tests,type)
+	-rm test/unit/all-$(1).log test/unit/*.js.log
+	-GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json $(B2GBD)/dist/bin/xpcshell test/unit
+	cat test/unit/*.js.log > test/unit/all-$(1).log
+endef
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
-check-one:
-	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
+define run-one-test
+	GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
+endef
 
-check-interactive:
-	$(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+define run-interactive-test
+	GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+endef
 
-post-check-one: check-one
+imap-tests:
+	$(call run-xpc-tests,imap)
+
+one-imap-test:
+	$(call run-one-test,imap)
+
+interactive-imap-test:
+	$(call run-interactive-test,imap)
+
+activesync-tests:
+	$(call run-xpc-tests,activesync)
+
+one-activesync-test:
+	$(call run-one-test,activesync)
+
+interactive-activesync-test:
+	$(call run-interactive-test,activesync)
+
+all-tests: imap-tests activesync-tests
+
+post-one-imap-test: one-imap-test
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
 
-post-xpcshell-tests: xpcshell-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all.log
+post-imap-tests: imap-tests
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-imap.log
+
+post-one-activesync-test: one-activesync-test
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+
+post-activesync-tests: activesync-tests
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-activesync.log
+
+
 
 ACTIVESYNC_SERVER_PORT ?= 8080
 
