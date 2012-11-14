@@ -204,7 +204,7 @@ ActiveSyncFolderConn.prototype = {
       });
       e.addEventListener(base.concat(ie.Collection, ie.Estimate),
                          function(node) {
-        estimate = node.children[0].textContent;
+        estimate = parseInt(node.children[0].textContent);
       });
       e.run(aResponse);
 
