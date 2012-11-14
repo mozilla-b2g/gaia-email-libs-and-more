@@ -119,10 +119,10 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial interval is partial sync');
   var partialSyncFolder = testAccount.do_createTestFolder(
     'test_initial_partial_sync',
-    { count: 60, age: { days: 0 }, age_incr: { hours: 2 } });
+    { count: 60, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', partialSyncFolder,
-    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, deleted: 0,
+    { count: INITIAL_FILL_SIZE, full: 31, flags: 0, deleted: 0,
       filterType: FilterType.TwoWeeksBack },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);

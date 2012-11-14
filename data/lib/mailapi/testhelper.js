@@ -1259,7 +1259,7 @@ var TestActiveSyncAccountMixins = {
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
-      self.testUniverse.syncFolderList(self.account, function() {
+      MailUniverse.syncFolderList(self.account, function() {
         MailAPI.ping(function() {
           testFolder.mailFolder = self.testUniverse.allFoldersSlice
                                       .getFirstFolderWithName(folderName);
