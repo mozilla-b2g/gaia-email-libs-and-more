@@ -11,6 +11,8 @@ var TD = $tc.defineTestsFor(
   { id: 'test_activesync_html' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
+  const FilterType = $ascp.AirSync.Enums.FilterType;
+
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testServer = T.actor('testActiveSyncServer', 'S',
@@ -156,7 +158,7 @@ TD.commonCase('folder sync', function(T) {
   var folderView = testAccount.do_openFolderView(
     'syncs', fullSyncFolder,
     { count: testMessages.length, full: testMessages.length, flags: 0,
-      deleted: 0 },
+      deleted: 0, filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false }
   );
   // -- check each message in its own step
