@@ -377,6 +377,7 @@ const RE_NODE_NEEDS_TRANSFORM = /^(?:a|area|img)$/;
 
 const RE_CID_URL = /^cid:/i;
 const RE_HTTP_URL = /^http(?:s)?/i;
+const RE_MAILTO_URL = /^mailto:/i;
 
 const RE_IMG_TAG = /^img$/;
 
@@ -410,7 +411,8 @@ function stashLinks(node, lowerTag) {
   // - a, area: href
   else {
     var link = node.getAttribute('href');
-    if (RE_HTTP_URL.test(link)) {
+    if (RE_HTTP_URL.test(link) ||
+        RE_MAILTO_URL.test(link)) {
       node.classList.add('moz-external-link');
       node.setAttribute('ext-href', link);
       // 'href' attribute will be removed by whitelist
