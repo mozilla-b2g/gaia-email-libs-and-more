@@ -46,6 +46,12 @@ const PIECE_ACCOUNT_TYPE_TO_CLASS = {
 const DEFAULT_SIGNATURE = exports.DEFAULT_SIGNATURE =
   'Sent from my Firefox OS device.';
 
+// The number of milliseconds to wait for various (non-ActiveSync) XHRs to
+// complete during the autoconfiguration process. This value is intentionally
+// fairly large so that we don't abort an XHR just because the network is
+// spotty.
+const AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
+
 /**
  * Composite account type to expose account piece types with individual
  * implementations (ex: imap, smtp) together as a single account.  This is
@@ -736,7 +742,7 @@ Configurators['activesync'] = {
  */
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
-  this.timeout = 30 * 1000;
+  this.timeout = AUTOCONFIG_TIMEOUT_MS;
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
