@@ -48,6 +48,41 @@ function parseImapDate(dstr) {
 }
 
 /**
+ * Modified utf-7 detecting regexp for use by `decodeModifiedUtf7`.
+ */
+const RE_MUTF7 = /&([^-]*)-/g,
+      RE_COMMA = /,/g;
+/**
+ * Decode the modified utf-7 representation used to encode mailbox names to
+ * lovely unicode.
+ *
+ * Notes:
+ * - '&' enters mutf-7 mode, '-' exits it (and exiting is required!), but '&-'
+ *    encodes a '&' rather than * a zero-length string.
+ * - ',' is used instead of '/' for the base64 encoding
+ *
+ * Learn all about it at:
+ * https://tools.ietf.org/html/rfc3501#section-5.1.3
+ */
+function decodeModifiedUtf7(encoded) {
+  return encoded.replace(
+    RE_MUTF7,
+    function replacer(fullMatch, b64data) {
+      // &- encodes &
+      if (!b64data.length)
+        return '&';
+      // we use a funky base64 where ',' is used instead of '/'...
+      b64data = b64data.replace(RE_COMMA, '/');
+      // The base-64 encoded utf-16 gets converted into a buffer holding the
+      // utf-16 encoded bits.
+      var u16data = new Buffer(b64data, 'base64');
+      // and this actually decodes the utf-16 into a JS string.
+      return u16data.toString('utf-16be');
+    });
+}
+exports.decodeModifiedUtf7 = decodeModifiedUtf7;
+
+/**
  * Parses IMAP date-times into UTC timestamps.  IMAP date-times are
  * "DD-Mon-YYYY HH:MM:SS +ZZZZ"
  */
@@ -485,7 +520,13 @@ ImapConnection.prototype.connect = function(loginCb) {
             if (self._state.requests[0].args.length === 0)
               self._state.requests[0].args.push({});
             result = /^\((.*)\) (.+?) "?([^"]+)"?$/.exec(data[2]);
+
+            var name = result[3];
+            if (name[0] === '"' && name[name.length-1] === '"')
+              name = name.substring(1, name.length - 1);
+
             var box = {
+                  displayName: decodeModifiedUtf7(name),
                   attribs: result[1].split(' ').map(function(attrib) {
                              return attrib.substr(1).toUpperCase();
                            }),
@@ -493,9 +534,7 @@ ImapConnection.prototype.connect = function(loginCb) {
                           ? false : result[2].substring(1, result[2].length-1)),
                   children: null,
                   parent: null
-                }, name = result[3], curChildren = self._state.requests[0].args[0];
-            if (name[0] === '"' && name[name.length-1] === '"')
-              name = name.substring(1, name.length - 1);
+                }, curChildren = self._state.requests[0].args[0];
 
             if (box.delim) {
               var path = name.split(box.delim).filter(isNotEmpty),
@@ -509,6 +548,7 @@ ImapConnection.prototype.connect = function(loginCb) {
                 parent = curChildren[path[i]];
                 curChildren = curChildren[path[i]].children;
               }
+
               box.parent = parent;
             }
             if (!curChildren[name])

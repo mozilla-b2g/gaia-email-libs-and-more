@@ -789,7 +789,8 @@ ImapAccount.prototype = {
         // - new to us!
         else {
           var type = self._determineFolderType(box, path);
-          self._learnAboutFolder(boxName, path, type, box.delim, pathDepth);
+          self._learnAboutFolder(box.displayName, path, type, box.delim,
+                                 pathDepth);
         }
 
         if (box.children)
