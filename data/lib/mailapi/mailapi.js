@@ -164,6 +164,7 @@ function MailFolder(api, wireRep) {
    *   @case['archive']
    *   @case['junk']
    *   @case['starred']
+   *   @case['important']
    *   @case['normal']{
    *     A traditional mail folder with nothing special about it.
    *   }

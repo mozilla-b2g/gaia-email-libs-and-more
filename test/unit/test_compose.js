@@ -33,9 +33,9 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
 
   var composer, eLazy = T.lazyLogger('misc');
   // - open the folder
-  var inboxFolder = testAccount.do_useExistingFolder('INBOX', ''),
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', ''),
       inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
-      sentFolder = testAccount.do_useExistingFolder('Sent', ''),
+      sentFolder = testAccount.do_useExistingFolderWithType('sent', ''),
       sentView = testAccount.do_openFolderView('sent', sentFolder, null),
       replyComposer, expectedReplyBody;
 
@@ -285,13 +285,14 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     }
   };
 
-  var inboxFolder = testAccount.do_useExistingFolder('INBOX', '');
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
 
   var inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null);
 
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
-    var messageAppends = [], msgGen = new MessageGenerator();
+    var messageAppends = [],
+        msgGen = new MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
@@ -474,5 +475,5 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 function run_test() {
-  runMyTests(15);
+  runMyTests(30);
 }

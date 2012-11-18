@@ -521,12 +521,8 @@ ImapConnection.prototype.connect = function(loginCb) {
               self._state.requests[0].args.push({});
             result = /^\((.*)\) (.+?) "?([^"]+)"?$/.exec(data[2]);
 
-            var name = result[3];
-            if (name[0] === '"' && name[name.length-1] === '"')
-              name = name.substring(1, name.length - 1);
-
             var box = {
-                  displayName: decodeModifiedUtf7(name),
+                  displayName: null,
                   attribs: result[1].split(' ').map(function(attrib) {
                              return attrib.substr(1).toUpperCase();
                            }),
@@ -534,7 +530,11 @@ ImapConnection.prototype.connect = function(loginCb) {
                           ? false : result[2].substring(1, result[2].length-1)),
                   children: null,
                   parent: null
-                }, curChildren = self._state.requests[0].args[0];
+                },
+                name = result[3],
+                curChildren = self._state.requests[0].args[0];
+            if (name[0] === '"' && name[name.length-1] === '"')
+              name = name.substring(1, name.length - 1);
 
             if (box.delim) {
               var path = name.split(box.delim).filter(isNotEmpty),
@@ -551,6 +551,7 @@ ImapConnection.prototype.connect = function(loginCb) {
 
               box.parent = parent;
             }
+            box.displayName = decodeModifiedUtf7(name);
             if (!curChildren[name])
               curChildren[name] = box;
           }
