@@ -186,6 +186,14 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - see the reply, check the forward logic (but don't send)
   // XXX for now, we are not creating the 'header' overview for the forwarded
   // message.
+
+  // The sent date is not going to be the same as the internaldate in many
+  // cases, so we need to just XX out the time since strict equivalence is
+  // not going to let us do an epsilon.
+  function safeifyTime(s) {
+    return s.replace(/ \d{2}:\d{2}:\d{2} /, 'XX:XX:XX');
+  }
+
   var forwardComposer, expectedForwardBody;
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
@@ -199,7 +207,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
-          'Date: ' + replySentDate,
+          'Date: ' + safeifyTime(replySentDate + ''),
           'From: ' + formattedMail,
           'To: ' + formattedMail,
           '',
@@ -220,7 +228,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.event('forward setup completed');
         eLazy.namedValue('to', forwardComposer.to);
         eLazy.namedValue('subject', forwardComposer.subject);
-        eLazy.namedValue('body text', forwardComposer.body.text);
+        eLazy.namedValue('body text', safeifyTime(forwardComposer.body.text));
         eLazy.namedValue('body html', forwardComposer.body.html);
       });
     },
@@ -475,5 +483,5 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 function run_test() {
-  runMyTests(30);
+  runMyTests(60);
 }

@@ -198,6 +198,10 @@ ImapAccount.prototype = {
     return '[ImapAccount: ' + this.id + ']';
   },
 
+  get isGmail() {
+    return this.meta.capability.indexOf('X-GM-EXT-1') !== -1;
+  },
+
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
    */
