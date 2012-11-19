@@ -736,6 +736,8 @@ ImapAccount.prototype = {
           case 'INBOX':
             type = 'inbox';
             break;
+          // Yahoo provides "Bulk Mail" for yahoo.fr.
+          case 'BULK MAIL':
           case 'JUNK':
           case 'SPAM':
             type = 'junk';
@@ -745,6 +747,11 @@ ImapAccount.prototype = {
             break;
           case 'TRASH':
             type = 'trash';
+            break;
+          // This currently only exists for consistency with Thunderbird, but
+          // may become useful in the future when we need an outbox.
+          case 'UNSENT MESSAGES':
+            type = 'queue';
             break;
         }
       }
