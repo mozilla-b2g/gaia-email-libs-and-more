@@ -174,6 +174,9 @@ function MailFolder(api, wireRep) {
    */
   this.type = wireRep.type;
 
+  // Exchange folder name with the localized version if available
+  this.name = this._api.l10n_folder_name(this.name, this.type);
+
   this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
   this.onchange = null;
@@ -2040,6 +2043,23 @@ MailAPI.prototype = {
       type: 'localizedStrings',
       strings: strings
     });
+    if(strings.folderNames)
+      this.l10n_folder_names = strings.folderNames;
+  },
+
+  /*
+   * L10n strings for folder names.  These map folder types to appropriate
+   * localized strings.
+   *
+   * We don't remap unknown types, so this doesn't need defaults.
+   */
+  l10n_folder_names: {},
+
+  l10n_folder_name: function(name, type) {
+    if(this.l10n_folder_names[type] && type === name.toLowerCase())
+      return this.l10n_folder_names[type];
+    else
+      return name;
   },
 
   //////////////////////////////////////////////////////////////////////////////
