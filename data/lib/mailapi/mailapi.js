@@ -159,6 +159,7 @@ function MailFolder(api, wireRep) {
    *   }
    *   @case['inbox']
    *   @case['drafts']
+   *   @case['queue']
    *   @case['sent']
    *   @case['trash']
    *   @case['archive']
@@ -2043,11 +2044,11 @@ MailAPI.prototype = {
       type: 'localizedStrings',
       strings: strings
     });
-    if(strings.folderNames)
+    if (strings.folderNames)
       this.l10n_folder_names = strings.folderNames;
   },
 
-  /*
+  /**
    * L10n strings for folder names.  These map folder types to appropriate
    * localized strings.
    *
@@ -2056,10 +2057,19 @@ MailAPI.prototype = {
   l10n_folder_names: {},
 
   l10n_folder_name: function(name, type) {
-    if(this.l10n_folder_names[type] && type === name.toLowerCase())
-      return this.l10n_folder_names[type];
-    else
-      return name;
+    if (this.l10n_folder_names.hasOwnProperty(type)) {
+      var lowerName = name.toLowerCase();
+      // Many of the names are the same as the type, but not all.
+      if ((type === lowerName) ||
+          (type === 'drafts' && lowerName === 'draft') ||
+          // yahoo.fr uses 'bulk mail' as its unlocalized name
+          (type === 'junk' && lowerName === 'bulk mail') ||
+          (type === 'junk' && lowerName === 'spam') ||
+          // this is for consistency with Thunderbird
+          (type === 'queue' && lowerName === 'unsent messages'))
+        return this.l10n_folder_names[type];
+    }
+    return name;
   },
 
   //////////////////////////////////////////////////////////////////////////////

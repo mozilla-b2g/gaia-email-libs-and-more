@@ -31,6 +31,7 @@ const FOLDER_TYPE_TO_SORT_PRIORITY = {
   inbox: 'c',
   starred: 'e',
   drafts: 'g',
+  queue: 'h',
   sent: 'i',
   junk: 'k',
   trash: 'm',
