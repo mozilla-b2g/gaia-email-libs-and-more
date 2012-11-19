@@ -488,7 +488,6 @@ TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
     'fallback to offline', testFolder,
     { count: 3, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false },
-    null,
     {
       extraMutex: true,
       expectFunc: function() {

@@ -217,14 +217,14 @@ TD.commonCase('sync further back in time on demand', function(T) {
   testAccount.do_growFolderView(
     syncView, 1, false, 14,
     [],
-    { top: true, bottom: true, grow: true }, 'nosave');
+    { top: true, bottom: true, grow: true }, { nosave: true });
 
   T.group('fail to grow older when offline');
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_growFolderView(
     syncView, 1, true, 14,
     [],
-    { top: true, bottom: true, grow: true }, 'nosave');
+    { top: true, bottom: true, grow: true }, { nosave: true });
   testUniverse.do_pretendToBeOffline(false);
 
   T.group('grow older (sync more than requested)');
@@ -260,11 +260,11 @@ TD.commonCase('sync further back in time on demand', function(T) {
   testAccount.do_growFolderView(
     syncView, -7, false, 34,
     [],
-    { top: false, bottom: true, grow: false }, 'nosave');
+    { top: false, bottom: true, grow: false }, { nosave: true });
   testAccount.do_growFolderView(
     syncView, -8, false, 42,
     [],
-    { top: true, bottom: true, grow: false }, 'nosave');
+    { top: true, bottom: true, grow: false }, { nosave: true });
 
 
   T.group('shrink off old');

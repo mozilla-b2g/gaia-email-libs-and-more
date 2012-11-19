@@ -46,6 +46,12 @@ const PIECE_ACCOUNT_TYPE_TO_CLASS = {
 const DEFAULT_SIGNATURE = exports.DEFAULT_SIGNATURE =
   'Sent from my Firefox OS device.';
 
+// The number of milliseconds to wait for various (non-ActiveSync) XHRs to
+// complete during the autoconfiguration process. This value is intentionally
+// fairly large so that we don't abort an XHR just because the network is
+// spotty.
+const AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
+
 /**
  * Composite account type to expose account piece types with individual
  * implementations (ex: imap, smtp) together as a single account.  This is
@@ -436,7 +442,7 @@ Configurators['imap+smtp'] = {
       receiveType: 'imap',
       sendType: 'smtp',
 
-      syncRange: '3d',
+      syncRange: 'auto',
 
       credentials: credentials,
       receiveConnInfo: imapConnInfo,
@@ -496,7 +502,7 @@ Configurators['fake'] = {
       name: userDetails.accountName || userDetails.emailAddress,
 
       type: 'fake',
-      syncRange: '3d',
+      syncRange: 'auto',
 
       credentials: credentials,
       connInfo: {
@@ -580,6 +586,7 @@ Configurators['activesync'] = {
     var conn = new $asproto.Connection(credentials.username,
                                        credentials.password);
     conn.setServer(domainInfo.incoming.server);
+    conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
     conn.connect(function(error, config, options) {
       // XXX: Think about what to do with this error handling, since it's
@@ -603,7 +610,7 @@ Configurators['activesync'] = {
         name: userDetails.accountName || userDetails.emailAddress,
 
         type: 'activesync',
-        syncRange: '3d',
+        syncRange: 'auto',
 
         credentials: credentials,
         connInfo: {
@@ -735,6 +742,7 @@ Configurators['activesync'] = {
  */
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
+  this.timeout = AUTOCONFIG_TIMEOUT_MS;
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
@@ -765,6 +773,8 @@ Autoconfigurator.prototype = {
   _getXmlConfig: function getXmlConfig(url, callback) {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', url, true);
+    xhr.timeout = this.timeout;
+
     xhr.onload = function() {
       if (xhr.status < 200 || xhr.status >= 300) {
         callback('unknown');
@@ -810,7 +820,8 @@ Autoconfigurator.prototype = {
         callback('unknown');
       }
     };
-    xhr.onerror = function() { callback('unknown'); };
+
+    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
   },
@@ -934,13 +945,16 @@ Autoconfigurator.prototype = {
     let xhr = new XMLHttpRequest({mozSystem: true});
     xhr.open('GET', 'https://live.mozillamessaging.com/dns/mx/' +
              encodeURIComponent(domain), true);
+    xhr.timeout = this.timeout;
+
     xhr.onload = function() {
       if (xhr.status === 200)
         callback(null, xhr.responseText.split('\n')[0]);
       else
         callback('unknown');
     };
-    xhr.onerror = function() { callback('unknown'); };
+
+    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
 
     xhr.send();
   },

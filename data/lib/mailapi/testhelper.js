@@ -99,6 +99,8 @@ var TestUniverseMixins = {
       self.RT.captureAllLoggersByType(
         'ImapFolderConn', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
+        'ActiveSyncFolderConn', self.__folderConnLoggerSoup);
+      self.RT.captureAllLoggersByType(
         'FolderStorage', self.__folderStorageLoggerSoup);
 
       for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
@@ -435,7 +437,7 @@ var TestCommonAccountMixins = {
     viewThing.slice = null;
     viewThing.offset = 0;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
-                       viewThing, extraFlags);
+                       extraFlags, viewThing);
     return viewThing;
   },
 
@@ -864,7 +866,7 @@ var TestImapAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
+  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -882,7 +884,8 @@ var TestImapAccountMixins = {
         }
       }
     }
-    if (this.universe.online && flag !== 'nosave') {
+    if (this.universe.online &&
+        !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eImapAccount.expect_saveAccountState_begin();
       this.eImapAccount.expect_saveAccountState_end();
     }
@@ -900,7 +903,7 @@ var TestImapAccountMixins = {
    * and keep it open and detect changes, etc.
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          _saveToThing, extraFlags) {
+                          extraFlags, _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
@@ -927,7 +930,8 @@ var TestImapAccountMixins = {
       }
 
       // generate expectations for each date sync range
-      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues);
+      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
+                                                 extraFlags);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
@@ -982,12 +986,12 @@ var TestImapAccountMixins = {
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
-                              extraFlag, willFailFlag) {
+                              extraFlags, willFailFlag) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(
                             viewThing.testFolder, expectedValues,
-                            extraFlag) +
+                            extraFlags) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
 
@@ -1141,6 +1145,9 @@ var TestActiveSyncServerMixins = {
         self._logger.response(response._httpCode, response._headers._headers,
                               body);
       };
+      self.server.logResponseError = function(error) {
+        self._logger.responseError(error);
+      };
       var httpServer = self.server.server;
       var port = httpServer._socket.port;
       httpServer._port = port;
@@ -1289,16 +1296,18 @@ var TestActiveSyncAccountMixins = {
   do_createTestFolder: function(folderName, messageSetDef) {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
+    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.serverFolder = null;
     testFolder.messages = null;
     testFolder._liveSliceThings = [];
 
-    this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
+    this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
+      self.expect_runOp('syncFolderList', true, { local: false });
       MailUniverse.syncFolderList(self.account, function() {
         MailAPI.ping(function() {
           testFolder.mailFolder = self.testUniverse.allFoldersSlice
@@ -1307,6 +1316,8 @@ var TestActiveSyncAccountMixins = {
                                    testFolder.mailFolder);
           testFolder.id = testFolder.mailFolder.id;
 
+          testFolder.connActor.__attachToLogger(
+            self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
           testFolder.storageActor.__attachToLogger(
             self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
         });
@@ -1318,14 +1329,17 @@ var TestActiveSyncAccountMixins = {
   // copy-paste-modify of the IMAP by-name variant
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderType + suffix);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderType);
+        folderName = folderType + suffix,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.serverFolder = null;
     testFolder.messages = null;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.getFirstFolderWithType('inbox');
+      testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+        folderType);
       testFolder.messages = testFolder.serverFolder.messages;
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
@@ -1334,6 +1348,8 @@ var TestActiveSyncAccountMixins = {
       if (oldFolder)
         testFolder.messages = oldFolder.messages;
 
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
       testFolder.storageActor.__attachToLogger(
         self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
     });
@@ -1342,10 +1358,13 @@ var TestActiveSyncAccountMixins = {
 
   // XXX experimental attempt to re-create IMAP case; will need more love to
   // properly unify things.
-  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags, _saveToThing) {
+  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
+                          extraFlags, _saveToThing) {
     var self = this;
-    this.T.action(this, desc, testFolder, function() {
-      var totalExpected = expectedValues.count;
+    this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
+                  function() {
+      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
+                                                 extraFlags);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
@@ -1380,6 +1399,38 @@ var TestActiveSyncAccountMixins = {
         }
       };
     });
+  },
+
+  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
+    this.RT.reportActiveActorThisStep(this.eAccount);
+    this.RT.reportActiveActorThisStep(testFolder.connActor);
+    if (expectedValues) {
+      if (!Array.isArray(expectedValues))
+        expectedValues = [expectedValues];
+
+      var totalMessageCount = 0;
+      for (var i = 0; i < expectedValues.length; i++) {
+        var einfo = expectedValues[i];
+        totalMessageCount += einfo.count;
+        if (this.universe.online) {
+          testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+          if (einfo.filterType)
+            testFolder.connActor.expect_inferFilterType(einfo.filterType);
+          testFolder.connActor.expect_syncDateRange_end(
+            einfo.full, einfo.flags, einfo.deleted);
+        }
+      }
+    }
+    if (this.universe.online && flag !== 'nosave') {
+      this.eAccount.expect_saveAccountState_begin();
+      this.eAccount.expect_saveAccountState_end();
+    }
+    else {
+      // Make account saving cause a failure; also, connection reuse, etc.
+      this.eAccount.expectNothing();
+    }
+
+    return totalMessageCount;
   },
 
   do_addMessageToFolder: function(folder, messageDef) {
@@ -1468,6 +1519,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       request: { method: false, path: false, headers: false },
       requestBody: { },
       response: { status: false, headers: false },
+    },
+    errors: {
+      responseError: { err: false },
     },
     // I am putting these under TEST_ONLY_ as a hack to get these displayed
     // differently since they are walls of text.

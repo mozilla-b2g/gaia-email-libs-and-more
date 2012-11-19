@@ -284,5 +284,3 @@ TD.commonCase('embedded and remote images', function(T) {
 function run_test() {
   runMyTests(10);
 }
-
-
