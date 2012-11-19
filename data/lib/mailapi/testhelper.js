@@ -695,6 +695,7 @@ var TestImapAccountMixins = {
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.messages = null;
+    testFolder._approxMessageCount = 30;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
@@ -710,6 +711,31 @@ var TestImapAccountMixins = {
     });
     return testFolder;
   },
+
+  do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
+    var self = this,
+        folderName = folderType + suffix,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+    testFolder.messages = null;
+    testFolder._approxMessageCount = 30;
+    testFolder._liveSliceThings = [];
+    this.T.convenienceSetup('find test folder', testFolder, function() {
+      testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithType(
+                                folderType);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder)
+        testFolder.messages = oldFolder.messages;
+
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
+
 
   _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
     var self = this;
@@ -1044,8 +1070,11 @@ var TestImapAccountMixins = {
           return;
         self._logger.messageSubject(null, header.subject);
         foundIt = true;
+        // Trigger the withMessage handler only once the slice completes so that
+        // we don't try and overlap with the slice's refresh.
         if (funcOpts.withMessage)
-          funcOpts.withMessage(header);
+          viewThing.slice.oncomplete =
+            funcOpts.withMessage.bind(funcOpts, header);
       };
       function completeFunc() {
         if (foundIt)
@@ -1287,6 +1316,7 @@ var TestActiveSyncAccountMixins = {
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
     testFolder.serverFolder = null;
     testFolder.messages = null;
+    testFolder._approxMessageCount = 30;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
       self.expect_foundFolder(true);

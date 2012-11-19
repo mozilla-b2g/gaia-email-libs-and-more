@@ -30,6 +30,7 @@ const FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
   inbox: 'c',
   starred: 'e',
+  important: 'f',
   drafts: 'g',
   queue: 'h',
   sent: 'i',

@@ -485,11 +485,9 @@ TestDefiner.prototype = {
         T.action(desc, testFunc);
       }
       else {
-        // XXX create a comparator helper and pass it in so we can have things
-        // roughly equivalent to do_check_eq or what fancy comparator libs
-        // provide.  Ideally reuse chai or something.
-        T.action(desc, function() {
-          testFunc();
+        var lazy = T.lazyLogger('lazy');
+        T.action(desc, lazy, function() {
+          testFunc(lazy);
         });
       }
     });
