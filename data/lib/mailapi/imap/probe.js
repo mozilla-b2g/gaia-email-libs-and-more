@@ -40,7 +40,7 @@ function ImapProber(credentials, connInfo, _LOG) {
   this._conn.on('error', this.onError.bind(this));
 
   this.onresult = null;
-  this.accountGood = null;
+  this.error = null;
 }
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
@@ -60,14 +60,14 @@ ImapProber.prototype = {
     }
 
     console.log('PROBE:IMAP happy, TZ offset:', tzOffset / (60 * 60 * 1000));
-    this.accountGood = true;
+    this.error = null;
 
     var conn = this._conn;
     this._conn = null;
 
     if (!this.onresult)
       return;
-    this.onresult(this.accountGood, conn, tzOffset);
+    this.onresult(this.error, conn, tzOffset);
     this.onresult = false;
   },
 
@@ -75,7 +75,12 @@ ImapProber.prototype = {
     if (!this.onresult)
       return;
     console.warn('PROBE:IMAP sad', err);
-    this.accountGood = false;
+    if (err.serverResponse.indexOf('[ALERT] Application-specific password required') != -1)
+      this.error = 'needs-app-pass';
+    else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') != -1)
+      this.error = 'imap-disabled';
+    else
+      this.error = 'bad-user-or-pass';
     // we really want to make sure we clean up after this dude.
     try {
       this._conn.die();
@@ -84,7 +89,7 @@ ImapProber.prototype = {
     }
     this._conn = null;
 
-    this.onresult(this.accountGood, null);
+    this.onresult(this.error, null);
     // we could potentially see many errors...
     this.onresult = false;
   },

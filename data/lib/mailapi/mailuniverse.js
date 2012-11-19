@@ -765,8 +765,13 @@ MailUniverse.prototype = {
     account.problems.push(problem);
     account.enabled = false;
 
-    if (problem === 'bad-user-or-pass')
-      this.__notifyBadLogin(account);
+    switch (problem) {
+      case 'bad-user-or-pass':
+      case 'imap-disabled':
+      case 'needs-app-pass':
+        this.__notifyBadLogin(account, problem);
+        break;
+    }
   },
 
   clearAccountProblems: function(account) {
@@ -777,10 +782,10 @@ MailUniverse.prototype = {
     this._resumeOpProcessingForAccount(account);
   },
 
-  __notifyBadLogin: function(account) {
+  __notifyBadLogin: function(account, problem) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
-      bridge.notifyBadLogin(account);
+      bridge.notifyBadLogin(account, problem);
     }
   },
 
