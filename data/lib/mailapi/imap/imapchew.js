@@ -73,7 +73,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
    * Sizes are the size of the encoded string, not the decoded value.
    */
   function estimatePartSizeInBytes(partInfo) {
-    var encoding = partInfo.encoding;
+    var encoding = partInfo.encoding.toLowerCase();
     // Base64 encodes 3 bytes in 4 characters with padding that always
     // causes the encoding to take 4 characters.  The max encoded line length
     // (ignoring CRLF) is 76 bytes, with 72 bytes also fairly common.
@@ -108,7 +108,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
 
     // - Start from explicit disposition, make attachment if non-displayable
     if (partInfo.disposition)
-      disposition = partInfo.disposition.type;
+      disposition = partInfo.disposition.type.toLowerCase();
     // UNTUNED-HEURISTIC (need test cases)
     // Parts with content ID's explicitly want to be referenced by the message
     // and so are inline.  (Although we might do well to check if they actually

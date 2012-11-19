@@ -31,12 +31,19 @@ var gAllAccountsSlice = null, gAllFoldersSlice = null;
 
 var gDumpedLogs = false, gRunner;
 function dumpAsUtf8WithNewline(s) {
-  var converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
-                    .createInstance(Ci.nsIScriptableUnicodeConverter);
-  converter.charset = "UTF-8";
-  var u8s = converter.ConvertFromUnicode(s);
-  print(u8s);
+  try {
+    var converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
+                      .createInstance(Ci.nsIScriptableUnicodeConverter);
+    converter.charset = "UTF-8";
+    var u8s = converter.ConvertFromUnicode(s);
+    print(u8s);
+    print('(printed ' + u8s.length + ' bytes from ' + s.length + ')');
+  }
+  catch(ex) {
+    console.error('Problem converting output to utf-8:', ex);
+  }
 }
+ErrorTrapper.reliableOutput = dumpAsUtf8WithNewline;
 function dumpLogs() {
   if (!gDumpedLogs) {
     gRunner.dumpLogResultsToConsole(dumpAsUtf8WithNewline);
