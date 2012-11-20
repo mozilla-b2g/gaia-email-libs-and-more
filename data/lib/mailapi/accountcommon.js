@@ -198,8 +198,10 @@ CompositeAccount.prototype = {
       composedMessage,
       function(err, errDetails) {
         // We need to append the message to the sent folder if we think we sent
-        // the message okay.
-        if (!err) {
+        // the message okay and this is not gmail.  gmail automatically crams
+        // the message in the sent folder for us, so if we do it, we're just
+        // going to create duplicates.
+        if (!err && !this._receivePiece.isGmail) {
           var message = {
             messageText: composedMessage._outputBuffer,
             // do not specify date; let the server use its own timestamping
@@ -352,7 +354,7 @@ Configurators['imap+smtp'] = {
       ['imap', 'smtp'],
       function probesDone(results) {
         // -- both good?
-        if (results.imap[0] && results.smtp) {
+        if (!results.imap[0] && results.smtp) {
           var account = self._defineImapAccount(
             universe,
             userDetails, credentials,
@@ -363,9 +365,13 @@ Configurators['imap+smtp'] = {
         // -- either/both bad
         else {
           // clean up the imap connection if it was okay but smtp failed
-          if (results.imap[0])
+          if (!results.imap[0]) {
             results.imap[1].die();
-          callback('unknown', null);
+            // Failure was caused by SMTP, but who knows why
+            callback('smtp-unknown', null);
+          } else {
+            callback(results.imap[0], null); // Pass imap error type back
+          }
           return;
         }
       });

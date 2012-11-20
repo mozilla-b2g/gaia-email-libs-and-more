@@ -198,6 +198,10 @@ ImapAccount.prototype = {
     return '[ImapAccount: ' + this.id + ']';
   },
 
+  get isGmail() {
+    return this.meta.capability.indexOf('X-GM-EXT-1') !== -1;
+  },
+
   /**
    * Make a given folder known to us, creating state tracking instances, etc.
    */
@@ -583,7 +587,13 @@ ImapAccount.prototype = {
           //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
           case 'NO':
           case 'no':
-            errName = 'bad-user-or-pass';
+            // XXX: Should we check if it's GMail first?
+            if (err.serverResponse.indexOf('[ALERT] Application-specific password required') !== -1)
+              errName = 'needs-app-pass';
+            else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') !== -1)
+              errName = 'imap-disabled';
+            else
+              errName = 'bad-user-or-pass';
             reachable = true;
             // go directly to the broken state; no retries
             maybeRetry = false;
@@ -736,6 +746,9 @@ ImapAccount.prototype = {
           case 'FLAGGED': // special-use
             type = 'starred';
             break;
+          case 'IMPORTANT': // (undocumented) xlist
+            type = 'important';
+            break;
           case 'INBOX': // xlist
             type = 'inbox';
             break;
@@ -780,6 +793,8 @@ ImapAccount.prototype = {
           case 'INBOX':
             type = 'inbox';
             break;
+          // Yahoo provides "Bulk Mail" for yahoo.fr.
+          case 'BULK MAIL':
           case 'JUNK':
           case 'SPAM':
             type = 'junk';
@@ -789,6 +804,11 @@ ImapAccount.prototype = {
             break;
           case 'TRASH':
             type = 'trash';
+            break;
+          // This currently only exists for consistency with Thunderbird, but
+          // may become useful in the future when we need an outbox.
+          case 'UNSENT MESSAGES':
+            type = 'queue';
             break;
         }
       }
@@ -816,24 +836,31 @@ ImapAccount.prototype = {
     // - walk the boxes
     function walkBoxes(boxLevel, pathSoFar, pathDepth) {
       for (var boxName in boxLevel) {
-        var box = boxLevel[boxName],
+        var box = boxLevel[boxName], meta,
             path = pathSoFar ? (pathSoFar + boxName) : boxName;
+
+        // - normalize jerk-moves
+        var type = self._determineFolderType(box, path);
+        // gmail finds it amusing to give us the localized name/path of its
+        // inbox, but still expects us to ask for it as INBOX.
+        if (type === 'inbox')
+          path = 'INBOX';
 
         // - already known folder
         if (folderPubsByPath.hasOwnProperty(path)) {
-          // Make sure the delimiter is up-to-date (for INBOX we initially make
-          // a guess which we must update here.)
-          var meta = folderPubsByPath[path];
-          if (meta.delim !== box.delim)
-            meta.delim = box.delim;
+          // Because we speculatively create the Inbox, both its display name
+          // and delimiter may be incorrect and need to be updated.
+          meta = folderPubsByPath[path];
+          meta.name = box.displayName;
+          meta.delim = box.delim;
 
           // mark it with true to show that we've seen it.
           folderPubsByPath[path] = true;
         }
         // - new to us!
         else {
-          var type = self._determineFolderType(box, path);
-          self._learnAboutFolder(boxName, path, type, box.delim, pathDepth);
+          self._learnAboutFolder(box.displayName, path, type, box.delim,
+                                 pathDepth);
         }
 
         if (box.children)

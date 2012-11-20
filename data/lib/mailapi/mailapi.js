@@ -159,11 +159,13 @@ function MailFolder(api, wireRep) {
    *   }
    *   @case['inbox']
    *   @case['drafts']
+   *   @case['queue']
    *   @case['sent']
    *   @case['trash']
    *   @case['archive']
    *   @case['junk']
    *   @case['starred']
+   *   @case['important']
    *   @case['normal']{
    *     A traditional mail folder with nothing special about it.
    *   }
@@ -173,6 +175,9 @@ function MailFolder(api, wireRep) {
    * }
    */
   this.type = wireRep.type;
+
+  // Exchange folder name with the localized version if available
+  this.name = this._api.l10n_folder_name(this.name, this.type);
 
   this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
@@ -1230,7 +1235,7 @@ MailAPI.prototype = {
 
   _recv_badLogin: function ma__recv_badLogin(msg) {
     if (this.onbadlogin)
-      this.onbadlogin(new MailAccount(this, msg.account));
+      this.onbadlogin(new MailAccount(this, msg.account), msg.problem);
   },
 
   _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
@@ -1500,6 +1505,13 @@ MailAPI.prototype = {
    *   @case['bad-user-or-pass']{
    *     The username and password didn't check out.  We don't know which one
    *     is wrong, just that one of them is wrong.
+   *   }
+   *   @case['imap-disabled']{
+   *     IMAP support is not enabled for the Gmail account in use.
+   *   }
+   *   @case['needs-app-pass']{
+   *     The Gmail account has two-factor authentication enabled, so the user
+   *     must provide an application-specific password.
    *   }
    *   @case['not-authorized']{
    *     The username and password are correct, but the user isn't allowed to
@@ -2056,6 +2068,32 @@ MailAPI.prototype = {
       type: 'localizedStrings',
       strings: strings
     });
+    if (strings.folderNames)
+      this.l10n_folder_names = strings.folderNames;
+  },
+
+  /**
+   * L10n strings for folder names.  These map folder types to appropriate
+   * localized strings.
+   *
+   * We don't remap unknown types, so this doesn't need defaults.
+   */
+  l10n_folder_names: {},
+
+  l10n_folder_name: function(name, type) {
+    if (this.l10n_folder_names.hasOwnProperty(type)) {
+      var lowerName = name.toLowerCase();
+      // Many of the names are the same as the type, but not all.
+      if ((type === lowerName) ||
+          (type === 'drafts' && lowerName === 'draft') ||
+          // yahoo.fr uses 'bulk mail' as its unlocalized name
+          (type === 'junk' && lowerName === 'bulk mail') ||
+          (type === 'junk' && lowerName === 'spam') ||
+          // this is for consistency with Thunderbird
+          (type === 'queue' && lowerName === 'unsent messages'))
+        return this.l10n_folder_names[type];
+    }
+    return name;
   },
 
   //////////////////////////////////////////////////////////////////////////////
