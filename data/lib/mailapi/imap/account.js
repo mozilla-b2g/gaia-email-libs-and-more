@@ -546,7 +546,13 @@ ImapAccount.prototype = {
           //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
           case 'NO':
           case 'no':
-            errName = 'bad-user-or-pass';
+            // XXX: Should we check if it's GMail first?
+            if (err.serverResponse.indexOf('[ALERT] Application-specific password required') !== -1)
+              errName = 'needs-app-pass';
+            else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') !== -1)
+              errName = 'imap-disabled';
+            else
+              errName = 'bad-user-or-pass';
             reachable = true;
             // go directly to the broken state; no retries
             maybeRetry = false;
