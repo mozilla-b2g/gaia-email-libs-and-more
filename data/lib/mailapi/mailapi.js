@@ -1222,7 +1222,7 @@ MailAPI.prototype = {
 
   _recv_badLogin: function ma__recv_badLogin(msg) {
     if (this.onbadlogin)
-      this.onbadlogin(new MailAccount(this, msg.account));
+      this.onbadlogin(new MailAccount(this, msg.account), msg.problem);
   },
 
   _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
@@ -1489,6 +1489,13 @@ MailAPI.prototype = {
    *   @case['bad-user-or-pass']{
    *     The username and password didn't check out.  We don't know which one
    *     is wrong, just that one of them is wrong.
+   *   }
+   *   @case['imap-disabled']{
+   *     IMAP support is not enabled for the Gmail account in use.
+   *   }
+   *   @case['needs-app-pass']{
+   *     The Gmail account has two-factor authentication enabled, so the user
+   *     must provide an application-specific password.
    *   }
    *   @case['not-authorized']{
    *     The username and password are correct, but the user isn't allowed to

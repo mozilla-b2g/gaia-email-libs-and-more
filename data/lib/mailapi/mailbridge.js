@@ -176,7 +176,11 @@ console.log('done proc modifyConfig');
     account.checkAccount(function(err) {
       // If we succeeded or the problem was not an authentication, assume
       // everything went fine and clear the problems.
-      if (!err || err !== 'bad-user-or-pass') {
+      if (!err || (
+          err !== 'bad-user-or-pass' && 
+          err !== 'needs-app-pass' && 
+          err !== 'imap-disabled'
+        )) {
         self.universe.clearAccountProblems(account);
       }
       // The login information is still bad; re-send the bad login notification.
@@ -232,10 +236,11 @@ console.log('done proc modifyConfig');
     this.universe.deleteAccount(msg.accountId);
   },
 
-  notifyBadLogin: function mb_notifyBadLogin(account) {
+  notifyBadLogin: function mb_notifyBadLogin(account, problem) {
     this.__sendMessage({
       type: 'badLogin',
       account: account.toBridgeWire(),
+      problem: problem
     });
   },
 
