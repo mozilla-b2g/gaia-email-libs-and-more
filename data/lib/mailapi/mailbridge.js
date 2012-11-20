@@ -177,8 +177,8 @@ console.log('done proc modifyConfig');
       // If we succeeded or the problem was not an authentication, assume
       // everything went fine and clear the problems.
       if (!err || (
-          err !== 'bad-user-or-pass' && 
-          err !== 'needs-app-pass' && 
+          err !== 'bad-user-or-pass' &&
+          err !== 'needs-app-pass' &&
           err !== 'imap-disabled'
         )) {
         self.universe.clearAccountProblems(account);
@@ -345,6 +345,17 @@ console.log('done proc modifyConfig');
   },
 
   notifyFolderModified: function(accountId, folderMeta) {
+    var marker = makeFolderSortString(accountId, folderMeta);
+
+    var slices = this._slicesByType['folders'];
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+
+      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
+      if (idx === null)
+        continue;
+      proxy.sendUpdate([idx, folderMeta]);
+    }
   },
 
   notifyFolderRemoved: function(accountId, folderMeta) {

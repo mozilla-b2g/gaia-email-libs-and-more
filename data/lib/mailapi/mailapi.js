@@ -179,6 +179,8 @@ function MailFolder(api, wireRep) {
   // Exchange folder name with the localized version if available
   this.name = this._api.l10n_folder_name(this.name, this.type);
 
+  this.__update(wireRep);
+
   this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
   this.onchange = null;
@@ -197,6 +199,11 @@ MailFolder.prototype = {
       type: 'MailFolder',
       path: this.path
     };
+  },
+
+  __update: function(wireRep) {
+    this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
+                                             : null;
   },
 };
 
