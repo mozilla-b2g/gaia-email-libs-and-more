@@ -1795,9 +1795,25 @@ FolderStorage.prototype = {
       this._curSyncSlice = slice;
     }.bind(this);
 
-    var doneCallback = function doneSyncCallback() {
+    var reportSyncStatusAs = 'synced';
+    var doneCallback = function doneSyncCallback(err) {
+      if (err) {
+        // If we encountered an error in synchronization, then we want to
+        // convert to displaying what we have from our cache.
+        slice._resetHeadersBecauseOfRefreshExplosion();
+        slice.waitingOnData = 'db';
+        slice._accumulating = false;
+        slice.ignoreHeaders = false;
+        reportSyncStatusAs = 'syncfailed';
+        this.getMessagesInImapDateRange(
+          0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+          this.onFetchDBHeaders.bind(
+            this, slice, /* no refresh */ false, doneCallback, null));
+        return;
+      }
+
       slice.waitingOnData = false;
-      slice.setStatus('synced', true, false, true);
+      slice.setStatus(reportSyncStatusAs, true, false, true);
       this._curSyncSlice = null;
 
       releaseMutex();
@@ -2592,6 +2608,11 @@ FolderStorage.prototype = {
     }
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
+
+    this.folderMeta.lastSyncedAt = endTS;
+    if (this._account.universe)
+      this._account.universe.__notifyModifiedFolder(this._account.id,
+                                                    this.folderMeta);
   },
 
   /**

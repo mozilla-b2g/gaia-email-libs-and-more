@@ -615,6 +615,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     address: ourIdentity.address,
   };
 
+  const HOURS_MS = 60 * 60 * 1000;
   var inboxFolder = {
     id: this.id + '/0',
     name: 'Inbox',
@@ -622,6 +623,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     type: 'inbox',
     delim: '/',
     depth: 0,
+    lastSyncedAt: Date.now() - 1 * HOURS_MS,
   };
   var todoFolder = {
     id: this.id + '/1',
@@ -630,6 +632,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     type: 'normal',
     delim: '/',
     depth: 1,
+    lastSyncedAt: Date.now() - 3 * HOURS_MS,
   };
   var draftsFolder = {
     id: this.id + '/2',
@@ -638,6 +641,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     type: 'drafts',
     delim: '/',
     depth: 0,
+    lastSyncedAt: Date.now() - 75 * HOURS_MS,
   };
   var sentFolder = {
     id: this.id + '/3',
@@ -646,6 +650,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
     type: 'sent',
     delim: '/',
     depth: 0,
+    lastSyncedAt: Date.now() - 29 * HOURS_MS,
   };
 
   this.folders = [inboxFolder, todoFolder, draftsFolder, sentFolder];

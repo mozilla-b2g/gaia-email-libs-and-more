@@ -210,7 +210,8 @@ ImapAccount.prototype = {
         path: path,
         type: type,
         delim: delim,
-        depth: depth
+        depth: depth,
+        lastSyncedAt: 0
       },
       $impl: {
         nextId: 0,

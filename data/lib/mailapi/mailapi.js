@@ -712,12 +712,20 @@ function BridgedViewSlice(api, ns, handle) {
 
   /**
    * @oneof[
+   *   @case['new']{
+   *     We were just created and have no meaningful state.
+   *   }
    *   @case['synchronizing']{
    *     We are talking to a server to populate/expand the contents of this
    *     list.
    *   }
    *   @case['synced']{
-   *     We are not talking to a server.
+   *     We successfully synchronized with the backing store/server.  If we are
+   *     known to be offline and did not attempt to talk to the server, then we
+   *     will still have this status.
+   *   }
+   *   @case['syncfailed']{
+   *     We tried to synchronize with the server but failed.
    *   }
    * ]{
    *   Quasi-extensible indicator of whether we are synchronizing or not.  The
@@ -725,7 +733,7 @@ function BridgedViewSlice(api, ns, handle) {
    *   at the end of the list of messages.
    * }
    */
-  this.status = 'synced';
+  this.status = 'new';
 
   /**
    * A value in the range [0.0, 1.0] expressing our synchronization progress.

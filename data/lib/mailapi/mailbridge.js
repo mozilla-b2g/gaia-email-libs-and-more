@@ -337,6 +337,9 @@ console.log('done proc modifyConfig');
     }
   },
 
+  notifyFolderModified: function(accountId, folderMeta) {
+  },
+
   notifyFolderRemoved: function(accountId, folderMeta) {
     var marker = makeFolderSortString(accountId, folderMeta);
 

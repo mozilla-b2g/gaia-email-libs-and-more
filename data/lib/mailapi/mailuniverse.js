@@ -804,6 +804,13 @@ MailUniverse.prototype = {
     }
   },
 
+  __notifyModifiedFolder: function(accountId, folderMeta) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyFolderModified(accountId, folderMeta);
+    }
+  },
+
   __notifyRemovedFolder: function(accountId, folderMeta) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
