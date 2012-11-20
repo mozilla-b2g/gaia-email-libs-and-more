@@ -74,17 +74,7 @@ TD.commonCase('folder sync', function(T) {
         'class="moz-embedded-image">',
       bpartImageHtml =
         new SyntheticPartLeaf(
-          bstrImageHtml, { contentType: 'text/html' }),
-
-      bstrGmailImageHtml =
-        'Have an image! <img src="?ui=pb&view=att&th=123&attid=0.1&disp=emb&' +
-        'zw&atsh=1">',
-      bstrSanitizedGmailImageHtml =
-        'Have an image! <img cid-src="waffles@mozilla.com" ' +
-        'class="moz-embedded-image">',
-      bpartGmailImageHtml =
-        new SyntheticPartLeaf(
-          bstrGmailImageHtml, { contentType: 'text/html' });
+          bstrImageHtml, { contentType: 'text/html' });
 
 
   var testMessages = [
@@ -133,15 +123,6 @@ TD.commonCase('folder sync', function(T) {
       name: 'text/html with embedded image',
       bodyPart: bpartImageHtml,
       checkBody: bstrSanitizedImageHtml,
-      attachments: [
-        { filename: 'image.png', contentId: 'waffles@mozilla.com',
-          body: 'pretend this is an image' },
-      ],
-    },
-    {
-      name: 'text/html with embedded image, munged gmail-style',
-      bodyPart: bpartGmailImageHtml,
-      checkBody: bstrSanitizedGmailImageHtml,
       attachments: [
         { filename: 'image.png', contentId: 'waffles@mozilla.com',
           body: 'pretend this is an image' },

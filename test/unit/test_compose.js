@@ -33,9 +33,9 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
 
   var composer, eLazy = T.lazyLogger('misc');
   // - open the folder
-  var inboxFolder = testAccount.do_useExistingFolder('INBOX', ''),
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', ''),
       inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
-      sentFolder = testAccount.do_useExistingFolder('Sent', ''),
+      sentFolder = testAccount.do_useExistingFolderWithType('sent', ''),
       sentView = testAccount.do_openFolderView('sent', sentFolder, null),
       replyComposer, expectedReplyBody;
 
@@ -186,6 +186,14 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - see the reply, check the forward logic (but don't send)
   // XXX for now, we are not creating the 'header' overview for the forwarded
   // message.
+
+  // The sent date is not going to be the same as the internaldate in many
+  // cases, so we need to just XX out the time since strict equivalence is
+  // not going to let us do an epsilon.
+  function safeifyTime(s) {
+    return s.replace(/ \d{2}:\d{2}:\d{2} /, 'XX:XX:XX');
+  }
+
   var forwardComposer, expectedForwardBody;
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
@@ -199,7 +207,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
-          'Date: ' + replySentDate,
+          'Date: ' + safeifyTime(replySentDate + ''),
           'From: ' + formattedMail,
           'To: ' + formattedMail,
           '',
@@ -220,7 +228,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.event('forward setup completed');
         eLazy.namedValue('to', forwardComposer.to);
         eLazy.namedValue('subject', forwardComposer.subject);
-        eLazy.namedValue('body text', forwardComposer.body.text);
+        eLazy.namedValue('body text', safeifyTime(forwardComposer.body.text));
         eLazy.namedValue('body html', forwardComposer.body.html);
       });
     },
@@ -285,13 +293,14 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     }
   };
 
-  var inboxFolder = testAccount.do_useExistingFolder('INBOX', '');
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
 
   var inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null);
 
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
-    var messageAppends = [], msgGen = new MessageGenerator();
+    var messageAppends = [],
+        msgGen = new MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
@@ -474,5 +483,5 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 function run_test() {
-  runMyTests(15);
+  runMyTests(60);
 }
