@@ -294,6 +294,24 @@ console.log('done proc modifyConfig');
     }
   },
 
+  /**
+   * Generate modifications for an account.  We only generate this for account
+   * queries proper and not the folder representations of accounts because we
+   * define that there is nothing interesting mutable for the folder
+   * representations.
+   */
+  notifyAccountModified: function(account) {
+    var slices = this._slicesByType['accounts'],
+        accountWireRep = account.toBridgeWire();
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+      var idx = proxy.markers.indexOf(account.id);
+      if (idx !== -1) {
+        proxy.sendUpdate([idx, accountWireRep]);
+      }
+    }
+  },
+
   notifyAccountRemoved: function(accountId) {
     var i, proxy, slices;
     // -- notify account slices

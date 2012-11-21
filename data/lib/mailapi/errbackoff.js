@@ -80,6 +80,15 @@ exports.TEST_useTimeoutFunc = function(func) {
   }
 };
 
+/**
+ * @args[
+ *   @param[listener @dict[
+ *     @key[onEndpointStateChange @func[
+ *       @args[state]
+ *     ]]
+ *   ]]
+ * ]
+ */
 function BackoffEndpoint(name, listener, _parentLog) {
   /** @oneof[
    *    @case['healthy']
@@ -102,10 +111,18 @@ function BackoffEndpoint(name, listener, _parentLog) {
   this.listener = listener;
 }
 BackoffEndpoint.prototype = {
+  _setState: function(newState) {
+    if (this.state === newState)
+      return;
+    this.state = newState;
+    this._LOG.state(newState);
+    if (this.listener)
+      this.listener.onEndpointStateChange(newState);
+  },
+
   noteConnectSuccess: function() {
-    this.state = 'healthy';
+    this._setState('healthy');
     this._iNextBackoff = 0;
-    this._LOG.state(this.state);
   },
 
   /**
@@ -129,14 +146,13 @@ BackoffEndpoint.prototype = {
       return false;
 
     if (reachable) {
-      this.state = 'broken';
-      this._LOG.state(this.state);
+      this._setState('broken');
       return false;
     }
 
     if (this._iNextBackoff > 0)
-      this.state = reachable ? 'broken' : 'unreachable';
-    this._LOG.state(this.state);
+      this._setState(reachable ? 'broken' : 'unreachable');
+
     // (Once this saturates, we never perform retries until the connection is
     // healthy again.  We do attempt re-connections when triggered by user
     // activity or synchronization logic; they just won't get retries.)
@@ -156,8 +172,7 @@ BackoffEndpoint.prototype = {
    */
   noteBrokenConnection: function() {
     this._LOG.connectFailure(true);
-    this.state = 'broken';
-    this._LOG.state(this.state);
+    this._setState('broken');
 
     this._iNextBackoff = BACKOFF_DURATIONS.length;
   },
@@ -188,12 +203,10 @@ BackoffEndpoint.prototype = {
     if (!this._badResources.hasOwnProperty(resourceId))
       return true;
     var info = this._badResources[resourceId], now = $date.NOW();
-
   },
 
   shutdown: function() {
-    this.state = 'shutdown';
-    this._LOG.state(this.state);
+    this._setState('shutdown');
   },
 };
 

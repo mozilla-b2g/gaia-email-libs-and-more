@@ -707,6 +707,23 @@ ImapAccount.prototype = {
     this._LOG.connectionMismatch();
   },
 
+  /**
+   * We receive this notification from our _backoffEndpoint.
+   */
+  onEndpointStateChange: function(state) {
+    switch (state) {
+      case 'healthy':
+        this.universe.__reportAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+      case 'unreachable':
+      case 'broken':
+        this.universe.__removeAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+    }
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // Folder synchronization
 

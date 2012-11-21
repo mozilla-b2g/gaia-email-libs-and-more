@@ -32,11 +32,13 @@ function MailAccount(api, wireRep) {
   this.enabled = wireRep.enabled;
   /**
    * @listof[@oneof[
-   *   @case['login-failed']{
-   *     The login explicitly failed, suggesting that the user's password is
-   *     bad.  Other possible interpretations include the account settings are
-   *     somehow wrong now, the server is experiencing a transient failure,
-   *     or who knows.
+   *   @case['bad-user-or-pass']
+   *   @case['needs-app-pass']
+   *   @case['imap-disabled']
+   *   @case['connection']{
+   *     Generic connection problem; this problem can quite possibly be present
+   *     in conjunction with more specific problems such as a bad username /
+   *     password.
    *   }
    * ]]{
    *   A list of known problems with the account which explain why the account
@@ -69,6 +71,11 @@ MailAccount.prototype = {
       accountType: this.type,
       id: this.id,
     };
+  },
+
+  __update: function(wireRep) {
+    this.enabled = wireRep.enabled;
+    this.problems = wireRep.problems;
   },
 
   /**
