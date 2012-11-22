@@ -1435,7 +1435,7 @@ var TestActiveSyncAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
+  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -1455,7 +1455,8 @@ var TestActiveSyncAccountMixins = {
         }
       }
     }
-    if (this.universe.online && flag !== 'nosave') {
+    if (this.universe.online &&
+        !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eAccount.expect_saveAccountState_begin();
       this.eAccount.expect_saveAccountState_end();
     }

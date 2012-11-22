@@ -1962,9 +1962,9 @@ FolderStorage.prototype = {
           }
         }).bind(this);
 
-        var doneCallback = function doneGrowCallback() {
+        var doneCallback = function doneGrowCallback(err) {
           slice.waitingOnData = false;
-          slice.setStatus('synced', true, false, true);
+          slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
           this._curSyncSlice = null;
 
           releaseMutex();
