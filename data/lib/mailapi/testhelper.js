@@ -1279,6 +1279,7 @@ var TestActiveSyncAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.expect_accountCreated();
+      self.expect_runOp('syncFolderList', true, { local: false });
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
