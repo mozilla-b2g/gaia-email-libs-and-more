@@ -89,7 +89,7 @@ exports.TEST_useTimeoutFunc = function(func) {
  *   ]]
  * ]
  */
-function BackoffEndpoint(name, listener, _parentLog) {
+function BackoffEndpoint(name, listener, parentLog) {
   /** @oneof[
    *    @case['healthy']
    *    @case['unreachable']
@@ -102,8 +102,7 @@ function BackoffEndpoint(name, listener, _parentLog) {
    */
   this.state = 'healthy';
   this._iNextBackoff = 0;
-
-  this._LOG = LOGFAB.BackoffEndpoint(this, _parentLog, name);
+  this._LOG = LOGFAB.BackoffEndpoint(this, parentLog, name);
   this._LOG.state(this.state);
 
   this._badResources = {};
@@ -181,6 +180,14 @@ BackoffEndpoint.prototype = {
     if (this.state === 'shutdown')
       return;
 
+    // If we have already saturated our retries then there won't be any
+    // automatic retries and this request is assumed to want us to try and
+    // create a connection right now.
+    if (this._iNextBackoff >= BACKOFF_DURATIONS.length) {
+      connectFunc();
+      return;
+    }
+
     var backoff = BACKOFF_DURATIONS[this._iNextBackoff++],
         delay = backoff.fixedMS +
                 Math.floor(Math.random() * backoff.randomMS);
@@ -210,13 +217,14 @@ BackoffEndpoint.prototype = {
   },
 };
 
-exports.createEndpoint = function(name, listener) {
-  return new BackoffEndpoint(name, listener);
+exports.createEndpoint = function(name, listener, parentLog) {
+  return new BackoffEndpoint(name, listener, parentLog);
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   BackoffEndpoint: {
     type: $log.TASK,
+    subtype: $log.CLIENT,
     stateVars: {
       state: false,
     },

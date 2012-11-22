@@ -37,7 +37,7 @@ function createBridgePair(universe) {
   };
   TMB.__sendMessage = function(msg) {
     window.setZeroTimeout(function() {
-      TMB._LOG.send(msg.type);
+      TMB._LOG.send(msg.type, msg);
       TMA.__bridgeReceive(msg);
     });
   };

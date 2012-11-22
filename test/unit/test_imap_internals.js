@@ -234,7 +234,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { count: 11, full: 14, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   T.group('grow older, get spare from last sync');
-  // We're asking for 14 here, but we should just get a batch o3 the spare 3
+  // We're asking for 14 here, but we should just get a batch of the spare 3
   // from last time.  Because 1 of them happens on the oldest day of our time
   // range, our sync will exclude that day and we will only need to sync 2
   // headers even though we will hear back about all 3.

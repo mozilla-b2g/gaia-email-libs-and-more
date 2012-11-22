@@ -162,10 +162,13 @@ ImapFolderConn.prototype = {
    *   @param[label String]{
    *     A debugging label to name the purpose of the connection.
    *   }
+   *   @param[dieOnConnectFailure #:optional Boolean]{
+   *     See `ImapAccount.__folderDemandsConnection`.
+   *   }
    * ]
    */
-  acquireConn: function(callback, deathback, label) {
-    var self = this, handedOff = false;
+  acquireConn: function(callback, deathback, label, dieOnConnectFailure) {
+    var self = this;
     this._account.__folderDemandsConnection(
       this._storage.folderId, label,
       function gotconn(conn) {
@@ -187,15 +190,15 @@ ImapFolderConn.prototype = {
               return;
             }
             self.box = box;
-            handedOff = true;
             callback(self, self._storage);
           });
       },
       function deadconn() {
         self._conn = null;
-        if (handedOff && deathback)
+        if (deathback)
           deathback();
-      });
+      },
+      dieOnConnectFailure);
   },
 
   relinquishConn: function() {
@@ -229,7 +232,7 @@ ImapFolderConn.prototype = {
       this.acquireConn(
         this._timelySyncSearch.bind(this, searchOptions, searchedCallback,
                                     abortedCallback, progressCallback),
-        abortedCallback, 'sync');
+        abortedCallback, 'sync', true);
       return;
     }
 
@@ -323,8 +326,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             startTS = bisectInfo.newStartTS;
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
-            if (doneCallback(bisectInfo, null) === 'abort') {
-              doneCallback('aborted', null);
+            if (doneCallback('bisect', bisectInfo, null) === 'abort') {
+              doneCallback('bisect-aborted', null);
               return null;
             }
 console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
@@ -367,7 +370,10 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
                                         startTS, endTS);
             self._storage.markSyncRange(startTS, endTS, modseq,
                                         accuracyStamp);
-            doneCallback(null, newCount + knownCount);
+            if (completed)
+              return;
+            completed = true;
+            doneCallback(null, null, newCount + knownCount);
           },
           progressCallback);
       });
@@ -384,7 +390,8 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     // In other words, we care about the time in UTC-0, so we subtract the
     // offset.
     var skewedStartTS = startTS - this._account.tzOffset,
-        skewedEndTS = endTS ? endTS - this._account.tzOffset : null;
+        skewedEndTS = endTS ? endTS - this._account.tzOffset : null,
+        completed = false;
     console.log('Skewed DB lookup. Start: ',
                 skewedStartTS, new Date(skewedStartTS).toUTCString(),
                 'End: ', skewedEndTS,
@@ -393,8 +400,12 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
     this._timelySyncSearch(
       searchOptions, callbacks.search,
       function abortedSearch() {
-        doneCallback('timeout');
-      },
+        if (completed)
+          return;
+        completed = true;
+        this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS);
+        doneCallback('aborted');
+      }.bind(this),
       progressCallback);
     this._storage.getAllMessagesInImapDateRange(skewedStartTS, skewedEndTS,
                                                 callbacks.db);
@@ -938,6 +949,8 @@ ImapFolderSyncer.prototype = {
     if (this._curSyncDoneCallback)
       this._curSyncDoneCallback(err);
 
+    // Save our state even if there was an error because we may have accumulated
+    // some partial state.
     this._account.__checkpointSyncCompleted();
 
     this._curSyncAccuracyStamp = null;
@@ -952,15 +965,19 @@ ImapFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(err, bisectInfo, messagesSeen) {
     // In the event the time range had to be bisected, update our info so if
     // we need to take another step we do the right thing.
-    if (bisectInfo) {
+    if (err === 'bisect') {
       this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
       this._curSyncDayStep = bisectInfo.dayStep;
       this._curSyncStartTS = bisectInfo.newStartTS;
       // We return now without calling _doneSync because we are not done; the
       // caller (syncDateRange) will re-trigger itself and keep going.
+      return;
+    }
+    else if (err) {
+      this._doneSync(err);
       return;
     }
 

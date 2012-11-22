@@ -351,6 +351,8 @@ TD.commonCase('bad password login failure', function(T) {
 /**
  * Sometimes a server doesn't want to let us into a folder.  For example,
  * Yahoo will do this.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
   T.group('setup');
@@ -401,6 +403,8 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
 /**
  * Verify that a folder still synchronizes correctly even though we lose the
  * connection in the middle of the synchronization.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
@@ -415,6 +419,8 @@ TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
  * Synchronize a folder so growth is possible, have the connection drop, then
  * issue a growth request and make sure we sync the additional messages as
  * expected.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
   T.group('setup');
@@ -489,7 +495,7 @@ TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
     { count: 3, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false },
     {
-      extraMutex: true,
+      failure: true,
       expectFunc: function() {
         RT.reportActiveActorThisStep(testAccount.eImapAccount);
         // (one create invocation is already expected by do_viewfolder)

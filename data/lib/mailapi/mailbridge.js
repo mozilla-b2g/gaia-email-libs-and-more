@@ -125,9 +125,7 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
-console.log('received modifyConfig');
     this.universe.modifyConfig(msg.mods);
-console.log('done proc modifyConfig');
   },
 
   notifyConfig: function(config) {
@@ -898,6 +896,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       send: { type: true },
     },
     TEST_ONLY_events: {
+      send: { msg: false },
     },
     errors: {
       badMessageType: { type: true },

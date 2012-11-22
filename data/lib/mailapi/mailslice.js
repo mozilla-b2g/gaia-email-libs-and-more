@@ -311,8 +311,11 @@ MailSlice.prototype = {
     if (!this._bridgeHandle)
       return;
 
-    if (status === 'synced') {
-      this._updateSliceFlags();
+    switch (status) {
+      case 'synced':
+      case 'syncfailed':
+        this._updateSliceFlags();
+        break;
     }
     if (flushAccumulated && this._accumulating) {
       if (this.headers.length > this.desiredHeaders) {
@@ -1969,8 +1972,13 @@ FolderStorage.prototype = {
 
         var progressCallback = slice.setSyncProgress.bind(slice);
 
-        // We can only grow if we are online.
-        if (this._account.universe.online) {
+        // We can only grow if we are online and the account is enabled.  Of
+        // course, the account being disabled is usually something that can be
+        // resolved by us trying to talk to the server (either we end up with a
+        // connection or the user gets a UI action), so allow it in that case
+        // too.
+        if (this._account.universe.online &&
+            (this._account.enabled || userRequestsGrowth)) {
           growingSync = this.folderSyncer.growSync(
             slice.startTS, batchHeaders, userRequestsGrowth, syncCallback,
             doneCallback, progressCallback);
@@ -2018,7 +2026,6 @@ FolderStorage.prototype = {
     this.runMutexed(
       'refresh',
       this._refreshSlice.bind(this, slice, useBisectLimit));
-
   },
   _refreshSlice: function ifs__refreshSlice(slice, useBisectLimit,
                                             releaseMutex) {
@@ -2058,29 +2065,33 @@ FolderStorage.prototype = {
 
     this.folderSyncer.refreshSync(
       startTS, endTS, useBisectLimit,
-      function refreshDoneCallback(bisectInfo, numMessages) {
-        // If a bisection occurred then this can no longer be a refresh and
-        // instead we need to retract all known messages and instead convert
-        // this into a synchronization.
-        if (bisectInfo) {
-          // (The first time through bisectInfo is an object; we return 'abort'
-          // and then get called again with 'aborted'...)
-          if (bisectInfo === 'aborted') {
+      function refreshDoneCallback(err, bisectInfo, numMessages) {
+        var reportSyncStatusAs = 'synced';
+        switch (err) {
+          // If a bisection occurred then this can no longer be a refresh and
+          // instead we need to retract all known messages and instead convert
+          // this into a synchronization.
+          case 'bisect':
+            slice._resetHeadersBecauseOfRefreshExplosion();
+            return 'abort';
+          // If we returned abort, then we should now be called with...
+          case 'bisect-aborted':
             // This is going to be converted into a new sliceOpenFromNow, so
             // we want to release our mutex.
             releaseMutex();
             this._resetAndResyncSlice(slice, true);
-          }
-          else {
-            slice._resetHeadersBecauseOfRefreshExplosion();
-          }
-          return 'abort';
+            return undefined;
+
+          case 'aborted':
+            reportSyncStatusAs = 'syncfailed';
+            break;
         }
 
         releaseMutex();
         slice.waitingOnData = false;
-        this._account.__checkpointSyncCompleted();
-        slice.setStatus('synced', true, false);
+        if (!err)
+          this._account.__checkpointSyncCompleted();
+        slice.setStatus(reportSyncStatusAs, true, false);
         return undefined;
       }.bind(this),
       slice.setSyncProgress.bind(slice));

@@ -68,7 +68,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   // Currently we don't persist the disabled state of an account because it's
   // easier for the UI to be edge-triggered right now and ensure that the
   // triggering occurs once each session.
-  this.enabled = true;
+  this._enabled = true;
   this.problems = [];
 
   // XXX for now we are stealing the universe's logger
@@ -144,6 +144,13 @@ CompositeAccount.prototype = {
       path: this.accountDef.name,
       type: 'account',
     };
+  },
+
+  get enabled() {
+    return this._enabled;
+  },
+  set enabled(val) {
+    this._enabled = this._receivePiece.enabled = val;
   },
 
   saveAccountState: function(reuseTrans) {

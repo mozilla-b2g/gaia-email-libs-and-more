@@ -930,7 +930,8 @@ var TestImapAccountMixins = {
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
                           extraFlags, _saveToThing) {
-    var self = this;
+    var self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
       self._expect_storage_mutexed(testFolder.storageActor, 'sync');
@@ -948,11 +949,13 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self.expect_connection();
-        if (!_saveToThing)
-          self.eImapAccount.expect_releaseConnection();
-        else
-          self._unusedConnections--;
+        if (!isFailure) {
+          self.expect_connection();
+          if (!_saveToThing)
+            self.eImapAccount.expect_releaseConnection();
+          else
+            self._unusedConnections--;
+        }
       }
 
       // generate expectations for each date sync range
@@ -969,8 +972,9 @@ var TestImapAccountMixins = {
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].headerInfo.subject);
         }
-        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                               expectedFlags.grow, 'synced');
+        self.expect_sliceFlags(
+          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          isFailure ? 'syncfailed' : 'synced');
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -1012,7 +1016,7 @@ var TestImapAccountMixins = {
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
-                              extraFlags, willFailFlag) {
+                              extraFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(
@@ -1031,7 +1035,7 @@ var TestImapAccountMixins = {
                              viewThing.offset - dirMagnitude);
       }
       else {
-        if (willFailFlag)
+        if (checkFlagDefault(extraFlags, 'willFail', false))
           expectedMessages = [];
         else
           expectedMessages = viewThing.testFolder.messages.slice(

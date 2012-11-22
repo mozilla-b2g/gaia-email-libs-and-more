@@ -56,6 +56,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.compositeAccount = compositeAccount;
   this.id = accountId;
 
+  this.enabled = true;
+
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
 
   this._credentials = credentials;
@@ -479,7 +481,7 @@ ImapAccount.prototype = {
       var demand = this._demandedConns[i];
       if (demand.dieOnConnectFailure) {
         demand.deathback.call(null);
-        i--;
+        this._demandedConns.splice(i--, 1);
       }
     }
   },
@@ -713,12 +715,12 @@ ImapAccount.prototype = {
   onEndpointStateChange: function(state) {
     switch (state) {
       case 'healthy':
-        this.universe.__reportAccountProblem(this.compositeAccount,
+        this.universe.__removeAccountProblem(this.compositeAccount,
                                              'connection');
         break;
       case 'unreachable':
       case 'broken':
-        this.universe.__removeAccountProblem(this.compositeAccount,
+        this.universe.__reportAccountProblem(this.compositeAccount,
                                              'connection');
         break;
     }
