@@ -292,7 +292,7 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
     incoming: {
       // This string may be clobbered with the correct port number when
       // running as a unit test.
-      server: 'http://localhost:8080',
+      server: 'http://localhost:8880',
     },
   },
   // Mapping for a nonexistent domain for testing a bad domain without it being

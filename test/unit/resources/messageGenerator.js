@@ -507,6 +507,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
      * @param aDate The date you want the message to claim to be from.
      */
     set: function(aDate) {
+      if (typeof(aDate) === 'number')
+        aDate = new Date(aDate);
       this._date = aDate;
       let dateParts = aDate.toString().split(" ");
       this.headers["Date"] = dateParts[0] + ", " + dateParts[2] + " " +
