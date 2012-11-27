@@ -308,7 +308,7 @@ ActiveSyncFolderConn.prototype = {
     let account = this._account;
 
     if (!account.conn.connected) {
-      account.conn.connect(function(error, config) {
+      account.conn.waitForConnection(function(error) {
         if (error) {
           callback('aborted');
           console.error('Error connecting to ActiveSync:', error);

@@ -58,8 +58,7 @@ ActiveSyncJobDriver.prototype = {
 
       var syncer = storage.folderSyncer;
       if (needConn && !self.account.conn.connected) {
-        // XXX will this connection automatically retry?
-        self.account.conn.connect(function(err, config) {
+        self.account.conn.waitForConnection(function(error) {
           try {
             callback(syncer.folderConn, storage);
           }
@@ -318,8 +317,8 @@ ActiveSyncJobDriver.prototype = {
     var account = this.account, self = this;
     // establish a connection if we are not already connected
     if (!account.conn.connected) {
-      account.conn.connect(function(err, config) {
-        if (err) {
+      account.conn.waitForConnection(function(error) {
+        if (error) {
           doneCallback('aborted-retry');
           return;
         }

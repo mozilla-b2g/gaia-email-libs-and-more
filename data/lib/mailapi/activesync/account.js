@@ -51,25 +51,13 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this.conn = receiveProtoConn;
   }
   else {
-    this.conn = new $activesync.Connection(accountDef.credentials.username,
-                                           accountDef.credentials.password);
+    this.conn = new $activesync.Connection();
     this.conn.timeout = DEFAULT_TIMEOUT_MS;
 
     // XXX: We should check for errors during connection and alert the user.
-    if (this.accountDef.connInfo) {
-      this.conn.setServer(this.accountDef.connInfo.server);
-      this.conn.connect();
-    }
-    else {
-      // This can happen with an older, broken version of the ActiveSync code.
-      // We can probably remove this eventually.
-      console.warning('ActiveSync connection info not found; ' +
-                      'attempting autodiscovery');
-      this.conn.connect(function (error, config, options) {
-        accountDef.connInfo = { server: config.selectedServer.url };
-        universe.saveAccountDef(accountDef, folderInfos);
-      });
-    }
+    this.conn.connect(accountDef.connInfo.server,
+                      accountDef.credentials.username,
+                      accountDef.credentials.password);
   }
 
   this._db = dbConn;

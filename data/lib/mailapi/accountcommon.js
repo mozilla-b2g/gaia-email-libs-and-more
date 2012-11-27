@@ -596,12 +596,11 @@ Configurators['activesync'] = {
     };
 
     var self = this;
-    var conn = new $asproto.Connection(credentials.username,
-                                       credentials.password);
-    conn.setServer(domainInfo.incoming.server);
+    var conn = new $asproto.Connection();
     conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
-    conn.connect(function(error, config, options) {
+    conn.connect(domainInfo.incoming.server, credentials.username,
+                 credentials.password, function(error, options) {
       // XXX: Think about what to do with this error handling, since it's
       // replicated in the autoconfig code.
       if (error) {
@@ -627,7 +626,7 @@ Configurators['activesync'] = {
 
         credentials: credentials,
         connInfo: {
-          server: config.selectedServer.url
+          server: domainInfo.incoming.server
         },
 
         identities: [
@@ -860,15 +859,8 @@ Autoconfigurator.prototype = {
    */
   _getConfigFromAutodiscover: function getConfigFromAutodiscover(userDetails,
                                                                  callback) {
-    // XXX: We should think about how this function is implemented:
-    // 1) Should we really create a Connection here? Maybe we want
-    //    autodiscover() to be a free function.
-    // 2) We're reimplementing jsas's "find the MobileSync server" code. Maybe
-    //    that belongs in autodiscover() somehow.
-
-    let conn = new $asproto.Connection(userDetails.emailAddress,
-                                       userDetails.password);
-    conn.autodiscover(function(error, config) {
+    $asproto.autodiscover(userDetails.emailAddress, userDetails.password,
+                          this.timeout, function(error, config) {
       if (error) {
         var failureType = 'unknown';
 
@@ -882,22 +874,14 @@ Autoconfigurator.prototype = {
         return;
       }
 
-      // Try to find a MobileSync server from Autodiscovery.
-      for (let [,server] in Iterator(config.servers)) {
-        if (server.type === 'MobileSync') {
-          let autoconfig = {
-            type: 'activesync',
-            displayName: config.user.name,
-            incoming: {
-              server: server.url,
-            },
-          };
-
-          return callback(null, autoconfig);
-        }
-      }
-
-      return callback('unknown');
+      let autoconfig = {
+        type: 'activesync',
+        displayName: config.user.name,
+        incoming: {
+          server: config.mobileSyncServer.url,
+        },
+      };
+      callback(null, autoconfig);
     });
   },
 
