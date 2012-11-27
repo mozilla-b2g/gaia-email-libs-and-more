@@ -496,12 +496,9 @@ ActiveSyncFolderConn.prototype = {
       // range [0.10, 0.80].  The remaining 20% is processing the specific
       // messages, but we don't bother to generate notifications since that
       // is done synchronously.
-      if (totalBytes !== 0) {
-        progress(0.1 + 0.7 * (bytesSoFar/totalBytes));
-      }
-      else {
-        progress(0.1 + 0.7 * Math.min(1.0, bytesSoFar / 1000000));
-      }
+      if (!totalBytes)
+        totalBytes = Math.max(1000000, bytesSoFar);
+      progress(0.1 + 0.7 * bytesSoFar / totalBytes);
     });
   },
 
