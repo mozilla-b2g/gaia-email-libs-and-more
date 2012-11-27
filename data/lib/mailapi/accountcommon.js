@@ -68,7 +68,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   // Currently we don't persist the disabled state of an account because it's
   // easier for the UI to be edge-triggered right now and ensure that the
   // triggering occurs once each session.
-  this.enabled = true;
+  this._enabled = true;
   this.problems = [];
 
   // XXX for now we are stealing the universe's logger
@@ -144,6 +144,13 @@ CompositeAccount.prototype = {
       path: this.accountDef.name,
       type: 'account',
     };
+  },
+
+  get enabled() {
+    return this._enabled;
+  },
+  set enabled(val) {
+    this._enabled = this._receivePiece.enabled = val;
   },
 
   saveAccountState: function(reuseTrans) {
@@ -285,7 +292,7 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
     incoming: {
       // This string may be clobbered with the correct port number when
       // running as a unit test.
-      server: 'http://localhost:8080',
+      server: 'http://localhost:8880',
     },
   },
   // Mapping for a nonexistent domain for testing a bad domain without it being
@@ -366,8 +373,9 @@ Configurators['imap+smtp'] = {
         else {
           // clean up the imap connection if it was okay but smtp failed
           if (!results.imap[0]) {
-            results.imap[1].close();
-            callback('smtp-unknown', null); // Failure was caused by SMTP, but who knows why
+            results.imap[1].die();
+            // Failure was caused by SMTP, but who knows why
+            callback('smtp-unknown', null);
           } else {
             callback(results.imap[0], null); // Pass imap error type back
           }

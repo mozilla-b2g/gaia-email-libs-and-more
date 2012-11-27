@@ -298,19 +298,23 @@ ActiveSyncFolderConn.prototype = {
    *
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {function} progress A function to be called as the operation
+   *   progresses that takes a number in the range [0.0, 1.0] to express
+   *   progress.
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
+  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
+                                                                 progress) {
     let folderConn = this, storage = this._storage;
     let account = this._account;
 
     if (!account.conn.connected) {
       account.conn.connect(function(error, config) {
         if (error) {
-          callback('unknown');
+          callback('aborted');
           console.error('Error connecting to ActiveSync:', error);
         }
         else {
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
         }
       });
       return;
@@ -322,7 +326,7 @@ ActiveSyncFolderConn.prototype = {
         else {
           console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
           folderConn.folderMeta.filterType = filterType;
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
         }
       });
       return;
@@ -330,9 +334,9 @@ ActiveSyncFolderConn.prototype = {
     if (this.syncKey === '0') {
       this._getSyncKey(this.filterType, function(error) {
         if (error)
-          callback('unknown');
+          callback('aborted');
         else
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
@@ -394,6 +398,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (aError) {
         console.error('Error syncing folder:', aError);
+        callback('aborted');
         return;
       }
 
@@ -474,7 +479,7 @@ ActiveSyncFolderConn.prototype = {
                     changed.length + ', deleted ' + deleted.length);
         callback(null, added, changed, deleted, moreAvailable);
         if (moreAvailable)
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.warn('ActiveSync had a bad sync key');
@@ -483,7 +488,17 @@ ActiveSyncFolderConn.prototype = {
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
                       'got a status of ' + status);
+        callback('unknown');
       }
+    }, null, null,
+    function progressData(bytesSoFar, totalBytes) {
+      // We get the XHR progress status and convert it into progress in the
+      // range [0.10, 0.80].  The remaining 20% is processing the specific
+      // messages, but we don't bother to generate notifications since that
+      // is done synchronously.
+      if (!totalBytes)
+        totalBytes = Math.max(1000000, bytesSoFar);
+      progress(0.1 + 0.7 * bytesSoFar / totalBytes);
     });
   },
 
@@ -710,7 +725,7 @@ ActiveSyncFolderConn.prototype = {
   },
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             doneCallback) {
+                                             doneCallback, progressCallback) {
     let storage = this._storage;
     let folderConn = this;
     let messagesSeen = 0;
@@ -753,9 +768,10 @@ ActiveSyncFolderConn.prototype = {
         folderConn._LOG.syncDateRange_end(added.length, changed.length,
                                           deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
-        doneCallback(null, messagesSeen);
+        doneCallback(null, null, messagesSeen);
       }
-    });
+    },
+    progressCallback);
   },
 
   performMutation: function(invokeWithWriter, callWhenDone) {
@@ -933,25 +949,35 @@ ActiveSyncFolderSyncer.prototype = {
     return this.folderConn.serverId !== null;
   },
 
-  syncDateRange: function(startTS, endTS, syncCallback) {
+  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                          progressCallback) {
     syncCallback('sync', false, true);
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  this.onSyncCompleted.bind(this));
+    this.folderConn.syncDateRange(
+      startTS, endTS, $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback),
+      progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                                  progressCallback) {
     // ActiveSync doesn't adjust date ranges. Just do a normal sync.
-    this.syncDateRange(startTS, endTS, syncCallback);
+    this.syncDateRange(startTS, endTS, syncCallback, doneCallback,
+                       progressCallback);
   },
 
-  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(), callback);
+  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
+                        progressCallback) {
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
+                                  doneCallback, progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+                     doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
+    // (There is no need to invoke the callbacks; by returning false, we
+    // indicate that we did no work.)
     return false;
   },
 
@@ -960,7 +986,13 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, err, bisectInfo,
+                                                messagesSeen) {
+    if (err) {
+      doneCallback(err);
+      return;
+    }
+
     let storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");
@@ -974,7 +1006,8 @@ ActiveSyncFolderSyncer.prototype = {
     storage.getMessagesInImapDateRange(
       0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
       // Don't trigger a refresh; we just synced.
-      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false)
+      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                    doneCallback, null)
     );
 
     storage._curSyncSlice = null;

@@ -32,11 +32,13 @@ function MailAccount(api, wireRep) {
   this.enabled = wireRep.enabled;
   /**
    * @listof[@oneof[
-   *   @case['login-failed']{
-   *     The login explicitly failed, suggesting that the user's password is
-   *     bad.  Other possible interpretations include the account settings are
-   *     somehow wrong now, the server is experiencing a transient failure,
-   *     or who knows.
+   *   @case['bad-user-or-pass']
+   *   @case['needs-app-pass']
+   *   @case['imap-disabled']
+   *   @case['connection']{
+   *     Generic connection problem; this problem can quite possibly be present
+   *     in conjunction with more specific problems such as a bad username /
+   *     password.
    *   }
    * ]]{
    *   A list of known problems with the account which explain why the account
@@ -69,6 +71,11 @@ MailAccount.prototype = {
       accountType: this.type,
       id: this.id,
     };
+  },
+
+  __update: function(wireRep) {
+    this.enabled = wireRep.enabled;
+    this.problems = wireRep.problems;
   },
 
   /**
@@ -179,6 +186,8 @@ function MailFolder(api, wireRep) {
   // Exchange folder name with the localized version if available
   this.name = this._api.l10n_folder_name(this.name, this.type);
 
+  this.__update(wireRep);
+
   this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
   this.onchange = null;
@@ -197,6 +206,11 @@ MailFolder.prototype = {
       type: 'MailFolder',
       path: this.path
     };
+  },
+
+  __update: function(wireRep) {
+    this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
+                                             : null;
   },
 };
 
@@ -717,12 +731,20 @@ function BridgedViewSlice(api, ns, handle) {
 
   /**
    * @oneof[
+   *   @case['new']{
+   *     We were just created and have no meaningful state.
+   *   }
    *   @case['synchronizing']{
    *     We are talking to a server to populate/expand the contents of this
    *     list.
    *   }
    *   @case['synced']{
-   *     We are not talking to a server.
+   *     We successfully synchronized with the backing store/server.  If we are
+   *     known to be offline and did not attempt to talk to the server, then we
+   *     will still have this status.
+   *   }
+   *   @case['syncfailed']{
+   *     We tried to synchronize with the server but failed.
    *   }
    * ]{
    *   Quasi-extensible indicator of whether we are synchronizing or not.  The
@@ -730,7 +752,12 @@ function BridgedViewSlice(api, ns, handle) {
    *   at the end of the list of messages.
    * }
    */
-  this.status = 'synced';
+  this.status = 'new';
+
+  /**
+   * A value in the range [0.0, 1.0] expressing our synchronization progress.
+   */
+  this.syncProgress = 0.0;
 
   /**
    * False if we can grow the slice in the negative direction without
@@ -1275,8 +1302,11 @@ MailAPI.prototype = {
     slice.atTop = msg.atTop;
     slice.atBottom = msg.atBottom;
     slice.userCanGrowDownwards = msg.userCanGrowDownwards;
-    if (msg.status && slice.status !== msg.status) {
+    if (msg.status &&
+        (slice.status !== msg.status ||
+         slice.syncProgress !== msg.progress)) {
       slice.status = msg.status;
+      slice.syncProgress = msg.progress;
       if (slice.onstatus)
         slice.onstatus(slice.status);
     }

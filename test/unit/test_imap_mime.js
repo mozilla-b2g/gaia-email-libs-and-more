@@ -359,7 +359,8 @@ TD.commonCase('MIME hierarchies', function(T) {
   // -- create the folder, append the messages
   var fullSyncFolder = testAccount.do_createTestFolder(
     'test_mime_hier', function makeMessages() {
-    var messageAppends = [], msgGen = new MessageGenerator();
+    var messageAppends = [],
+        msgGen = new MessageGenerator(testUniverse._useDate);
 
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];

@@ -45,7 +45,7 @@ TD.commonCase('create, recreate offline', function(T) {
   var view2 = TA2.do_openFolderView(
     'sync', inbox2, null,
     { top: true, bottom: true, grow: true },
-    'nosave');
+    { nosave: true });
 
   T.group('sync folder list triggers sync');
   TU2.do_restoreQueuedOperationsAndWait(TA2, savedFolderSyncOpList, function() {

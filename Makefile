@@ -108,7 +108,7 @@ post-activesync-tests: activesync-tests
 
 
 
-ACTIVESYNC_SERVER_PORT ?= 8080
+ACTIVESYNC_SERVER_PORT ?= 8880
 
 activesync-server:
 	$(PYTHON) $(CURDIR)/test/run_server.py $(B2GSD) $(B2GBD) $(CURDIR) \
