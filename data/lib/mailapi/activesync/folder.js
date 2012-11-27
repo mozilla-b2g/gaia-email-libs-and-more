@@ -310,7 +310,7 @@ ActiveSyncFolderConn.prototype = {
     if (!account.conn.connected) {
       account.conn.connect(function(error, config) {
         if (error) {
-          callback('unknown');
+          callback('aborted');
           console.error('Error connecting to ActiveSync:', error);
         }
         else {
@@ -334,7 +334,7 @@ ActiveSyncFolderConn.prototype = {
     if (this.syncKey === '0') {
       this._getSyncKey(this.filterType, function(error) {
         if (error)
-          callback('unknown');
+          callback('aborted');
         else
           folderConn._enumerateFolderChanges(callback, progress);
       });
@@ -398,6 +398,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (aError) {
         console.error('Error syncing folder:', aError);
+        callback('aborted');
         return;
       }
 
@@ -770,7 +771,7 @@ ActiveSyncFolderConn.prototype = {
         folderConn._LOG.syncDateRange_end(added.length, changed.length,
                                           deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
-        doneCallback(null, messagesSeen);
+        doneCallback(null, null, messagesSeen);
       }
     },
     progressCallback);
@@ -988,8 +989,13 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, bisectInfo,
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, err, bisectInfo,
                                                 messagesSeen) {
+    if (err) {
+      doneCallback(err);
+      return;
+    }
+
     let storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");

@@ -2083,6 +2083,7 @@ FolderStorage.prototype = {
             return undefined;
 
           case 'aborted':
+          case 'unknown':
             reportSyncStatusAs = 'syncfailed';
             break;
         }
