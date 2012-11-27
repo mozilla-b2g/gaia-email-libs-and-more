@@ -125,9 +125,7 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
-console.log('received modifyConfig');
     this.universe.modifyConfig(msg.mods);
-console.log('done proc modifyConfig');
   },
 
   notifyConfig: function(config) {
@@ -177,8 +175,8 @@ console.log('done proc modifyConfig');
       // If we succeeded or the problem was not an authentication, assume
       // everything went fine and clear the problems.
       if (!err || (
-          err !== 'bad-user-or-pass' && 
-          err !== 'needs-app-pass' && 
+          err !== 'bad-user-or-pass' &&
+          err !== 'needs-app-pass' &&
           err !== 'imap-disabled'
         )) {
         self.universe.clearAccountProblems(account);
@@ -294,6 +292,24 @@ console.log('done proc modifyConfig');
     }
   },
 
+  /**
+   * Generate modifications for an account.  We only generate this for account
+   * queries proper and not the folder representations of accounts because we
+   * define that there is nothing interesting mutable for the folder
+   * representations.
+   */
+  notifyAccountModified: function(account) {
+    var slices = this._slicesByType['accounts'],
+        accountWireRep = account.toBridgeWire();
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+      var idx = proxy.markers.indexOf(account.id);
+      if (idx !== -1) {
+        proxy.sendUpdate([idx, accountWireRep]);
+      }
+    }
+  },
+
   notifyAccountRemoved: function(accountId) {
     var i, proxy, slices;
     // -- notify account slices
@@ -341,6 +357,20 @@ console.log('done proc modifyConfig');
       var idx = bsearchForInsert(proxy.markers, newMarker, strcmp);
       proxy.sendSplice(idx, 0, [folderMeta], false, false);
       proxy.markers.splice(idx, 0, newMarker);
+    }
+  },
+
+  notifyFolderModified: function(accountId, folderMeta) {
+    var marker = makeFolderSortString(accountId, folderMeta);
+
+    var slices = this._slicesByType['folders'];
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+
+      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
+      if (idx === null)
+        continue;
+      proxy.sendUpdate([idx, folderMeta]);
     }
   },
 
@@ -801,6 +831,7 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.__listener = null;
 
   this.status = 'synced';
+  this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
   this.userCanGrowDownwards = false;
@@ -820,6 +851,7 @@ SliceBridgeProxy.prototype = {
       requested: requested,
       moreExpected: moreExpected,
       status: this.status,
+      progress: this.progress,
       atTop: this.atTop,
       atBottom: this.atBottom,
       userCanGrowDownwards: this.userCanGrowDownwards,
@@ -837,9 +869,17 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
+  sendStatus: function sbp_sendStatus(status, requested, moreExpected,
+                                      progress) {
     this.status = status;
+    if (progress != null)
+      this.progress = progress;
     this.sendSplice(0, 0, [], requested, moreExpected);
+  },
+
+  sendSyncProgress: function(progress) {
+    this.progress = progress;
+    this.sendSplice(0, 0, [], true, true);
   },
 
   die: function sbp_die() {
@@ -856,6 +896,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       send: { type: true },
     },
     TEST_ONLY_events: {
+      send: { msg: false },
     },
     errors: {
       badMessageType: { type: true },

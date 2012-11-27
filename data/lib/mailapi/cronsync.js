@@ -316,15 +316,8 @@ CronSyncer.prototype = {
     var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
 
-    // - Skip syncing this account if there is already a sync in progress.
-
-    // XXX for IMAP, there are conceivable edge cases where the user is in the
-    // process of synchronizing a window far back in time but would want to hear
-    // about new messages in the folder.
-    if (storage.syncInProgress) {
-      doneCallback(null);
-      return;
-    }
+    // XXX check when the folder was most recently synchronized and skip this
+    // sync if it is sufficiently recent.
 
     // - Figure out how many additional notifications we can generate
     var outstandingInfo;

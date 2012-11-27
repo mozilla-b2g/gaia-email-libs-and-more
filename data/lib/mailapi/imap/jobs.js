@@ -65,11 +65,15 @@
 
 define(
   [
+    'rdcommon/log',
     '../jobmixins',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $jobmixins,
+    $module,
     exports
   ) {
 
@@ -155,10 +159,13 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  * }
  **/
 
-function ImapJobDriver(account, state) {
+function ImapJobDriver(account, state, _parentLog) {
   this.account = account;
   this.resilientServerIds = false;
   this._heldMutexReleasers = [];
+
+  this._LOG = LOGFAB.ImapJobDriver(this, _parentLog, this.account.id);
+
   this._state = state;
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
@@ -216,7 +223,12 @@ ImapJobDriver.prototype = {
         syncer.folderConn.acquireConn(callback, deathback, label);
       }
       else {
-        callback(syncer.folderConn, storage);
+        try {
+          callback(syncer.folderConn, storage);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
     });
   },
@@ -233,14 +245,21 @@ ImapJobDriver.prototype = {
    * there is no need to release it directly.
    */
   _acquireConnWithoutFolder: function(label, callback, deathback) {
+    this._LOG.acquireConnWithoutFolder_begin(label);
     const self = this;
     this.account.__folderDemandsConnection(
       null, label,
       function(conn) {
+        self._LOG.acquireConnWithoutFolder_end(label);
         self._heldMutexReleasers.push(function() {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
-        callback(conn);
+        try {
+          callback(conn);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       },
       deathback
     );
@@ -872,7 +891,10 @@ ImapJobDriver.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this._acquireConnWithoutFolder('createFolder', gotConn);
+    function deadConn() {
+      callback('aborted-retry');
+    }
+    this._acquireConnWithoutFolder('createFolder', gotConn, deadConn);
   },
 
   check_createFolder: function(op, doneCallback) {
@@ -932,5 +954,17 @@ HighLevelJobDriver.prototype = {
   undo_xcopy: function() {
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ImapJobDriver: {
+    type: $log.DAEMON,
+    asyncJobs: {
+      acquireConnWithoutFolder: { label: false },
+    },
+    errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+    },
+  },
+});
 
 }); // end define

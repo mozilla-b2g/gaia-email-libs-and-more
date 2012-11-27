@@ -126,6 +126,11 @@ var TIME_WARPED_NOW = null, FUTURE_TIME_WARPED_NOW = null;
  * unit tests using canned message stores.
  */
 exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
+  if (fakeNow === null) {
+    TIME_WARPED_NOW = null;
+    FUTURE_TIME_WARPED_NOW = null;
+    return;
+  }
   if (typeof(fakeNow) !== 'number')
     fakeNow = fakeNow.valueOf();
   TIME_WARPED_NOW = fakeNow;

@@ -9,10 +9,12 @@ var $log = require('rdcommon/log'),
     $imapacct = require('mailapi/imap/account'),
     $activesyncacct = require('mailapi/activesync/account'),
     $activesyncfolder = require('mailapi/activesync/folder'),
+    $activesyncjobs = require('mailapi/activesync/jobs'),
     $fakeacct = require('mailapi/fake/account'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
+    $imapjobs = require('mailapi/imap/jobs'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
@@ -60,6 +62,7 @@ var TestUniverseMixins = {
     // our time-warp functionality on the server to make this okay.
     if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
@@ -83,6 +86,7 @@ var TestUniverseMixins = {
     }
     else {
       self._useDate = new Date();
+      $date.TEST_LetsDoTheTimewarpAgain(null);
     }
 
     /**
@@ -427,13 +431,13 @@ var TestCommonAccountMixins = {
   },
 
   do_openFolderView: function(viewName, testFolder, expectedValues,
-                              expectedFlags, extraFlag) {
+                              expectedFlags, extraFlags) {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
     viewThing.offset = 0;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
-                       extraFlag, viewThing);
+                       extraFlags, viewThing);
     return viewThing;
   },
 
@@ -453,6 +457,20 @@ var TestCommonAccountMixins = {
       // This frees up a connection.
       self._unusedConnections++;
     });
+  },
+
+  /**
+   * Expect that a mutex operation will be run on the provided storageActor of
+   * the given type.  Ignore block load and deletion notifications during this
+   * time.
+   */
+  _expect_storage_mutexed: function(storageActor, syncType) {
+    this.RT.reportActiveActorThisStep(storageActor);
+    storageActor.expect_mutexedCall_begin(syncType);
+    storageActor.expect_mutexedCall_end(syncType);
+    storageActor.ignore_loadBlock_begin();
+    storageActor.ignore_loadBlock_end();
+    storageActor.ignore_deleteFromBlock();
   },
 
   expect_runOp: function(jobName, accountSave, flags) {
@@ -737,7 +755,17 @@ var TestImapAccountMixins = {
   },
 
 
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef) {
+  /**
+   * @args[
+   *   @param[doNotExpect #:optional Boolean]{
+   *     If true, do not add the injected messages into the set of known (to
+   *     testhelper) messages so that we do not generate expectations on the
+   *     headers.  Use this is adding messages to a folder that we expect to
+   *     not learn about because we are testing failures.
+   *   }
+   * ]
+   */
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef, opts) {
     var self = this;
     this.T.convenienceSetup(this, desc, testFolder,function(){
       self.RT.reportActiveActorThisStep(self.eImapAccount);
@@ -760,8 +788,11 @@ var TestImapAccountMixins = {
         var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
         messageBodies = generator.makeMessages(messageSetDef);
       }
+
+      if (checkFlagDefault(opts, 'doNotExpect', false)) {
+      }
       // no messages in there yet, just use the list as-is
-      if (!testFolder.messages) {
+      else if (!testFolder.messages) {
         testFolder.messages = messageBodies;
       }
       // messages already in there, need to insert them appropriately
@@ -789,9 +820,9 @@ var TestImapAccountMixins = {
   /**
    * Add messages to an existing test folder.
    */
-  do_addMessagesToFolder: function(testFolder, messageSetDef) {
+  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
     this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef);
+                                     messageSetDef, opts);
   },
 
   /**
@@ -861,7 +892,7 @@ var TestImapAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
+  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -879,7 +910,8 @@ var TestImapAccountMixins = {
         }
       }
     }
-    if (this.universe.online && flag !== 'nosave') {
+    if (this.universe.online &&
+        !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eImapAccount.expect_saveAccountState_begin();
       this.eImapAccount.expect_saveAccountState_end();
     }
@@ -897,25 +929,38 @@ var TestImapAccountMixins = {
    * and keep it open and detect changes, etc.
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          extraFlag, _saveToThing) {
-    var self = this;
+                          extraFlags, _saveToThing) {
+    var self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
+      self._expect_storage_mutexed(testFolder.storageActor, 'sync');
+      // In the bisect case, we may end up actually generating a first sync
+      // mutex for a refresh followed by a second one once the bisect converts
+      // to a traditional sliceOpenFromNow.  We need the caller to tell us this.
+      if (extraFlags && extraFlags.extraMutex)
+        self._expect_storage_mutexed(testFolder.storageActor,
+                                     extraFlags.extraMutex);
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
+
       if (self.universe.online) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        self.expect_connection();
-        if (!_saveToThing)
-          self.eImapAccount.expect_releaseConnection();
-        else
-          self._unusedConnections--;
+        if (!isFailure) {
+          self.expect_connection();
+          if (!_saveToThing)
+            self.eImapAccount.expect_releaseConnection();
+          else
+            self._unusedConnections--;
+        }
       }
 
       // generate expectations for each date sync range
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
-                                                 extraFlag);
+                                                 extraFlags);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
@@ -927,8 +972,9 @@ var TestImapAccountMixins = {
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].headerInfo.subject);
         }
-        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                               expectedFlags.grow, 'synced');
+        self.expect_sliceFlags(
+          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          isFailure ? 'syncfailed' : 'synced');
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -960,20 +1006,26 @@ var TestImapAccountMixins = {
                                                  expectedValues);
       self.expect_messagesReported(totalExpected);
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
+                                   'refresh');
+
       viewThing.slice.refresh();
     });
   },
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
-                              extraFlag, willFailFlag) {
+                              extraFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(
                             viewThing.testFolder, expectedValues,
-                            extraFlag) +
+                            extraFlags) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow');
 
       var expectedMessages;
       if (dirMagnitude < 0) {
@@ -983,7 +1035,7 @@ var TestImapAccountMixins = {
                              viewThing.offset - dirMagnitude);
       }
       else {
-        if (willFailFlag)
+        if (checkFlagDefault(extraFlags, 'willFail', false))
           expectedMessages = [];
         else
           expectedMessages = viewThing.testFolder.messages.slice(
@@ -1227,6 +1279,7 @@ var TestActiveSyncAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.expect_accountCreated();
+      self.expect_runOp('syncFolderList', true, { local: false });
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
@@ -1341,12 +1394,12 @@ var TestActiveSyncAccountMixins = {
   // XXX experimental attempt to re-create IMAP case; will need more love to
   // properly unify things.
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          extraFlag, _saveToThing) {
+                          extraFlags, _saveToThing) {
     var self = this;
     this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
-                                                 extraFlag);
+                                                 extraFlags);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
@@ -1383,7 +1436,7 @@ var TestActiveSyncAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, flag) {
+  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     if (expectedValues) {
@@ -1403,7 +1456,8 @@ var TestActiveSyncAccountMixins = {
         }
       }
     }
-    if (this.universe.online && flag !== 'nosave') {
+    if (this.universe.online &&
+        !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eAccount.expect_saveAccountState_begin();
       this.eAccount.expect_saveAccountState_end();
     }
@@ -1521,12 +1575,12 @@ exports.TESTHELPER = {
     $mailslice.LOGFAB,
     $errbackoff.LOGFAB,
     // IMAP!
-    $imapacct.LOGFAB, $imapfolder.LOGFAB,
+    $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
     $imapjs.LOGFAB,
     // SMTP!
     $smtpacct.LOGFAB,
     // ActiveSync!
-    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB,
+    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB, $activesyncjobs.LOGFAB,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,

@@ -28,6 +28,7 @@ function FawltySocket(host, port, options, cmdDict) {
   this._sendWatches = [];
   if (cmdDict) {
     var precmd = cmdDict.pre;
+    console.log('FawltySocket: processing pre-command:', precmd);
     switch (precmd) {
       case 'no-dns-entry':
         // This currently manifests as a Connection refused error.  Test by using
@@ -225,8 +226,20 @@ var FawltySocketFactory = {
 
   getMostRecentLiveSocket: function() {
     if (!this._liveSockets.length)
-      throw new Error("No live sockets!");
+      throw new Error('No live sockets!');
     return this._liveSockets[this._liveSockets.length - 1];
+  },
+
+  reset: function() {
+    this._liveSockets = [];
+    this._precommands = {};
+  },
+
+  assertNoPrecommands: function(host, port) {
+    var key = host + port;
+    if (this._precommands.hasOwnProperty(key))
+      throw new Error('There are still ' + this._precommands[key].length +
+                      'precommands pending for: ' + key);
   },
 };
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;

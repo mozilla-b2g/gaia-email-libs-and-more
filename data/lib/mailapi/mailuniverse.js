@@ -391,10 +391,9 @@ function MailUniverse(callAfterBigBang, testOptions) {
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover) {
         self._LOG.configMigrating(lazyCarryover);
-        var waitingCount = 0;
+        var waitingCount = lazyCarryover.accountInfos.length;
         var oldVersion = lazyCarryover.oldVersion;
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
-          waitingCount++;
           var accountInfo = lazyCarryover.accountInfos[i];
           $acctcommon.recreateAccount(self, oldVersion, accountInfo,
                                       function() {
@@ -765,6 +764,8 @@ MailUniverse.prototype = {
     account.problems.push(problem);
     account.enabled = false;
 
+    this.__notifyModifiedAccount(account);
+
     switch (problem) {
       case 'bad-user-or-pass':
       case 'imap-disabled':
@@ -772,6 +773,19 @@ MailUniverse.prototype = {
         this.__notifyBadLogin(account, problem);
         break;
     }
+  },
+
+  __removeAccountProblem: function(account, problem) {
+    var idx = account.problems.indexOf(problem);
+    if (idx === -1)
+      return;
+    account.problems.splice(idx, 1);
+    account.enabled = (account.problems.length === 0);
+
+    this.__notifyModifiedAccount(account);
+
+    if (account.enabled)
+      this._resumeOpProcessingForAccount(account);
   },
 
   clearAccountProblems: function(account) {
@@ -796,6 +810,13 @@ MailUniverse.prototype = {
     }
   },
 
+  __notifyModifiedAccount: function(account) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyAccountModified(account);
+    }
+  },
+
   __notifyRemovedAccount: function(accountId) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
@@ -807,6 +828,13 @@ MailUniverse.prototype = {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
       bridge.notifyFolderAdded(accountId, folderMeta);
+    }
+  },
+
+  __notifyModifiedFolder: function(accountId, folderMeta) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyFolderModified(accountId, folderMeta);
     }
   },
 

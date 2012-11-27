@@ -306,12 +306,16 @@ MailSlice.prototype = {
     this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status, requested, moreExpected, flushAccumulated) {
+  setStatus: function(status, requested, moreExpected, flushAccumulated,
+                      progress) {
     if (!this._bridgeHandle)
       return;
 
-    if (status === 'synced') {
-      this._updateSliceFlags();
+    switch (status) {
+      case 'synced':
+      case 'syncfailed':
+        this._updateSliceFlags();
+        break;
     }
     if (flushAccumulated && this._accumulating) {
       if (this.headers.length > this.desiredHeaders) {
@@ -329,8 +333,18 @@ MailSlice.prototype = {
                                     requested, moreExpected);
     }
     else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected);
+      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
     }
+  },
+
+  /**
+   * Update our sync progress with a value in the range [0.0, 1.0].  We leave
+   * it up to the specific protocol to determine how it maps values.
+   */
+  setSyncProgress: function(value) {
+    if (!this._bridgeHandle)
+      return;
+    this._bridgeHandle.sendSyncProgress(value);
   },
 
   batchAppendHeaders: function(headers, insertAt, moreComing) {
@@ -864,7 +878,9 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._slices = [];
   /**
    * The slice that is driving our current synchronization and wants to hear
-   * about all header modifications/notes as they occur.
+   * about all header modifications/notes as they occur.  This will be null
+   * when performing a refresh sync, but `_activeSync` will always be truthy
+   * when a sync is active.
    */
   this._curSyncSlice = null;
 
@@ -873,15 +889,6 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
-  /**
-   * Return true if there is another sync happening in this folder right now.
-   * This allows the `CronSyncer` to avoid starting a sync that will immediately
-   * fail because there is a sync-in-progress.  See its logic for more details.
-   */
-  get syncInProgress() {
-    return this._curSyncSlice !== null;
-  },
-
   get hasActiveSlices() {
     return this._slices.length > 0;
   },
@@ -899,7 +906,7 @@ FolderStorage.prototype = {
       var slice = this._slices[i];
       slice._resetHeadersBecauseOfRefreshExplosion();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
-      this._resetAndResyncSlice(slice, false);
+      this._resetAndResyncSlice(slice, false, null);
     }
   },
 
@@ -922,25 +929,30 @@ FolderStorage.prototype = {
     this._mutexedCallInProgress = true;
     this._LOG.mutexedCall_begin(callInfo.name);
 
-    callInfo.func(function mutexedOpDone() {
-      if (done) {
-        self._LOG.tooManyCallbacks(callInfo.name);
-        return;
-      }
-      self._LOG.mutexedCall_end(callInfo.name);
-      done = true;
-      if (self._mutexQueue[0] !== callInfo) {
-        self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
-        return;
-      }
-      self._mutexQueue.shift();
-      // Although everything should be async, avoid stack explosions by
-      // deferring the execution to a future turn of the event loop.
-      if (self._mutexQueue.length)
-        window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
-      else if (self._slices.length === 0)
-        self.folderSyncer.allConsumersDead();
-    });
+    try {
+      callInfo.func(function mutexedOpDone() {
+        if (done) {
+          self._LOG.tooManyCallbacks(callInfo.name);
+          return;
+        }
+        self._LOG.mutexedCall_end(callInfo.name);
+        done = true;
+        if (self._mutexQueue[0] !== callInfo) {
+          self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
+          return;
+        }
+        self._mutexQueue.shift();
+        // Although everything should be async, avoid stack explosions by
+        // deferring the execution to a future turn of the event loop.
+        if (self._mutexQueue.length)
+          window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+        else if (self._slices.length === 0)
+          self.folderSyncer.allConsumersDead();
+      });
+    }
+    catch (ex) {
+      this._LOG.mutexedOpErr(ex);
+    }
   },
 
   /**
@@ -1642,7 +1654,12 @@ FolderStorage.prototype = {
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
-        listeners[i](block);
+        try {
+          listeners[i](block);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
 
       if (self._pendingLoads.length === 0)
@@ -1736,15 +1753,24 @@ FolderStorage.prototype = {
    */
   sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired,
                                                   forceDeepening) {
-    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
-    this._slices.push(slice);
-    if (this._curSyncSlice) {
-      console.error("Trying to open a slice and initiate a sync when there",
-                    "is already an active sync slice!");
-      return;
-    }
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
     // by definition, we must be at the top
     slice.atTop = true;
+    this.runMutexed(
+      'sync',
+      this._sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening));
+  },
+  _sliceOpenFromNow: function ifs__sliceOpenFromNowfunction(
+      slice, daysDesired, forceDeepening, releaseMutex) {
+    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
+
+    // We only put the slice in the list of slices now that we have the mutex
+    // in order to avoid having the slice have data fed into it if there were
+    // other synchronizations already in progress.
+    this._slices.push(slice);
 
     // -- Check if we have sufficiently useful data on hand.
     // For checking accuracy ranges, the first accuracy range is authoritative
@@ -1760,9 +1786,8 @@ FolderStorage.prototype = {
         worstGoodData = 0,
         existingDataGood = false;
 
-    var syncCallback = (function syncCallback(syncMode, accumulateMode,
-                                              ignoreHeaders) {
-      slice.setStatus('synchronizing', false, true);
+    var syncCallback = function syncCallback(syncMode, accumulateMode,
+                                             ignoreHeaders) {
       slice.waitingOnData = syncMode;
       if (accumulateMode && slice.headers.length === 0) {
         slice._accumulating = true;
@@ -1771,7 +1796,33 @@ FolderStorage.prototype = {
         slice.ignoreHeaders = true;
       }
       this._curSyncSlice = slice;
-    }).bind(this);
+    }.bind(this);
+
+    var reportSyncStatusAs = 'synced';
+    var doneCallback = function doneSyncCallback(err) {
+      if (err) {
+        // If we encountered an error in synchronization, then we want to
+        // convert to displaying what we have from our cache.
+        slice._resetHeadersBecauseOfRefreshExplosion();
+        slice.waitingOnData = 'db';
+        slice._accumulating = false;
+        slice.ignoreHeaders = false;
+        reportSyncStatusAs = 'syncfailed';
+        this.getMessagesInImapDateRange(
+          0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+          this.onFetchDBHeaders.bind(
+            this, slice, /* no refresh */ false, doneCallback, null));
+        return;
+      }
+
+      slice.waitingOnData = false;
+      slice.setStatus(reportSyncStatusAs, true, false, true);
+      this._curSyncSlice = null;
+
+      releaseMutex();
+    }.bind(this);
+
+    var progressCallback = slice.setSyncProgress.bind(slice);
 
     // If we're offline or the folder can't be synchronized right now, then
     // there's nothing to look into; use the DB.
@@ -1808,7 +1859,8 @@ FolderStorage.prototype = {
         var updateThresh = now - rangeThresh;
         if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
           this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
-                                                  syncCallback);
+                                                  syncCallback, doneCallback,
+                                                  progressCallback);
           return;
         }
       }
@@ -1824,13 +1876,15 @@ FolderStorage.prototype = {
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
           this, slice,
-          this._account.universe.online && this.folderSyncer.syncable)
+          this._account.universe.online && this.folderSyncer.syncable,
+          doneCallback, releaseMutex)
       );
       return;
     }
 
     // -- Bad existing data, issue a sync and have the slice
-    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback);
+    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback,
+                                    doneCallback, progressCallback);
   },
 
   /**
@@ -1855,6 +1909,17 @@ FolderStorage.prototype = {
    * date overlap from sync activity.
    */
   growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
+    // If the user requested synchronization, provide UI feedback immediately,
+    // otherwise, let the method set this state if/when we actually decide to
+    // talk to the server.
+    if (userRequestsGrowth)
+      slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'grow',
+      this._growSlice.bind(this, slice, dirMagnitude, userRequestsGrowth));
+  },
+  _growSlice: function ifs__growSlice(slice, dirMagnitude, userRequestsGrowth,
+                                      releaseMutex) {
     var dir, desiredCount;
     if (dirMagnitude < 0) {
       dir = -1;
@@ -1866,6 +1931,8 @@ FolderStorage.prototype = {
         slice.endTS, slice.endUID, desiredCount,
         function(headers, moreExpected) {
           slice.batchAppendHeaders(headers, 0, moreExpected);
+          slice.desiredHeaders = slice.headers.length;
+          releaseMutex();
         });
     }
     else {
@@ -1887,19 +1954,39 @@ FolderStorage.prototype = {
               slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
                                        -1, true);
             slice.desiredHeaders += desiredCount;
-            slice.setStatus('synchronizing', false, true);
+            // (we are did this if userRequestsGrowth is true in `growSlice`)
+            if (!userRequestsGrowth)
+              slice.setStatus('synchronizing', false, true, false, 0.0);
             slice.waitingOnData = syncMode;
             this._curSyncSlice = slice;
           }
         }).bind(this);
 
-        // If we're offline, just use what we've got and be done with it.
-        if (this._account.universe.online) {
+        var doneCallback = function doneGrowCallback(err) {
+          slice.waitingOnData = false;
+          slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
+          this._curSyncSlice = null;
+
+          releaseMutex();
+        }.bind(this);
+
+        var progressCallback = slice.setSyncProgress.bind(slice);
+
+        // We can only grow if we are online and the account is enabled.  Of
+        // course, the account being disabled is usually something that can be
+        // resolved by us trying to talk to the server (either we end up with a
+        // connection or the user gets a UI action), so allow it in that case
+        // too.
+        if (this._account.universe.online &&
+            (this._account.enabled || userRequestsGrowth)) {
           growingSync = this.folderSyncer.growSync(
-            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback);
+            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback,
+            doneCallback, progressCallback);
         }
 
         if (!growingSync) {
+          // If a refresh is not actually required / going to happen, generate
+          // our slice events and cleanup the mutex.
           if (batchHeaders.length) {
             slice.batchAppendHeaders(batchHeaders, -1, false);
             slice.desiredHeaders = slice.headers.length;
@@ -1907,6 +1994,7 @@ FolderStorage.prototype = {
           else {
             slice.sendEmptyCompletion();
           }
+          releaseMutex();
         }
       }.bind(this);
 
@@ -1931,16 +2019,22 @@ FolderStorage.prototype = {
    * full date bounds.
    */
   refreshSlice: function ifs_refreshSlice(slice, useBisectLimit) {
-    // XXX use mutex scheduling to avoid this possibly happening...
-    if (this._curSyncSlice)
-      throw new Error("Can't refresh a slice when there is an existing sync");
-
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'refresh',
+      this._refreshSlice.bind(this, slice, useBisectLimit));
+  },
+  _refreshSlice: function ifs__refreshSlice(slice, useBisectLimit,
+                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
 
     var startTS = slice.startTS, endTS = slice.endTS;
 
     // - Grow endTS
-    // If the endTS lines up with the most recent know message for the folder,
+    // If the endTS lines up with the most recent known message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
@@ -1964,40 +2058,52 @@ FolderStorage.prototype = {
     // of the start message.
     else
       startTS += this._account.tzOffset;
+
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);
 
-    this._LOG.refreshSlice(startTS, endTS, useBisectLimit);
+    this.folderSyncer.refreshSync(
+      startTS, endTS, useBisectLimit,
+      function refreshDoneCallback(err, bisectInfo, numMessages) {
+        var reportSyncStatusAs = 'synced';
+        switch (err) {
+          // If a bisection occurred then this can no longer be a refresh and
+          // instead we need to retract all known messages and instead convert
+          // this into a synchronization.
+          case 'bisect':
+            slice._resetHeadersBecauseOfRefreshExplosion();
+            return 'abort';
+          // If we returned abort, then we should now be called with...
+          case 'bisect-aborted':
+            // This is going to be converted into a new sliceOpenFromNow, so
+            // we want to release our mutex.
+            releaseMutex();
+            this._resetAndResyncSlice(slice, true);
+            return undefined;
 
-    var self = this;
-    this.folderSyncer.refreshSync(startTS, endTS, useBisectLimit,
-                                  function(bisectInfo, numMessages) {
-      // If a bisection occurred then this can no longer be a refresh and
-      // instead we need to retract all known messages and instead convert
-      // this into a synchronization.
-      if (bisectInfo) {
-        // (The first time through bisectInfo is an object; we return 'abort'
-        // and then get called again with 'aborted'...)
-        if (bisectInfo === 'aborted')
-          self._resetAndResyncSlice(slice, true);
-        else
-          slice._resetHeadersBecauseOfRefreshExplosion();
-        return 'abort';
-      }
+          case 'aborted':
+          case 'unknown':
+            reportSyncStatusAs = 'syncfailed';
+            break;
+        }
 
-      slice.waitingOnData = false;
-      if (self._curSyncSlice === slice)
-        self._curSyncSlice = null;
-      self._account.__checkpointSyncCompleted();
-      slice.setStatus('synced', true, false);
-      return undefined;
-    });
+        releaseMutex();
+        slice.waitingOnData = false;
+        if (!err)
+          this._account.__checkpointSyncCompleted();
+        slice.setStatus(reportSyncStatusAs, true, false);
+        return undefined;
+      }.bind(this),
+      slice.setSyncProgress.bind(slice));
   },
 
-  _resetAndResyncSlice: function(slice, forceDeepening) {
+  _resetAndResyncSlice: function(slice, forceDeepening, releaseMutex) {
     this._slices.splice(this._slices.indexOf(slice), 1);
-    this.sliceOpenFromNow(slice, null, forceDeepening);
+    if (releaseMutex)
+      this._sliceOpenFromNow(slice, null, forceDeepening, releaseMutex);
+    else
+      this.sliceOpenFromNow(slice, null, forceDeepening);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2011,7 +2117,7 @@ FolderStorage.prototype = {
   /**
    * Receive messages directly from the database (streaming).
    */
-  onFetchDBHeaders: function(slice, triggerRefresh,
+  onFetchDBHeaders: function(slice, triggerRefresh, doneCallback, releaseMutex,
                              headers, moreMessagesComing) {
     var triggerNow = false;
     if (!moreMessagesComing && triggerRefresh) {
@@ -2027,8 +2133,7 @@ FolderStorage.prototype = {
 
     if (!moreMessagesComing) {
       slice.desiredHeaders = slice.headers.length;
-      slice.setStatus('synced', true, false);
-      slice.waitingOnData = false;
+      doneCallback();
     }
     else if (triggerNow) {
       slice.desiredHeaders = slice.headers.length;
@@ -2040,7 +2145,7 @@ FolderStorage.prototype = {
       this._curSyncSlice = null;
       // We do want to use the bisection limit so that the refresh gets
       // converted to a sync in the event of an overflow.
-      this.refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES);
+      this._refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES, releaseMutex);
     }
   },
 
@@ -2515,6 +2620,11 @@ FolderStorage.prototype = {
     }
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
+
+    this.folderMeta.lastSyncedAt = endTS;
+    if (this._account.universe)
+      this._account.universe.__notifyModifiedFolder(this._account.id,
+                                                    this.folderMeta);
   },
 
   /**
@@ -2542,7 +2652,12 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.headerNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._LOG.callbackErr(ex);
+      }
       return;
     }
     var headerBlockInfo = posInfo[1], self = this;
@@ -2552,7 +2667,12 @@ FolderStorage.prototype = {
           var headerInfo = headerBlock.headers[idx] || null;
           if (!headerInfo)
             self._LOG.headerNotFound();
-          callback(headerInfo);
+          try {
+            callback(headerInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2561,7 +2681,12 @@ FolderStorage.prototype = {
         headerInfo = block.headers[idx] || null;
     if (!headerInfo)
       this._LOG.headerNotFound();
-    callback(headerInfo);
+    try {
+      callback(headerInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -2871,7 +2996,12 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.bodyNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._log.callbackErr(ex);
+      }
       return;
     }
     var bodyBlockInfo = posInfo[1], self = this;
@@ -2880,7 +3010,12 @@ FolderStorage.prototype = {
           var bodyInfo = bodyBlock.bodies[id] || null;
           if (!bodyInfo)
             self._LOG.bodyNotFound();
-          callback(bodyInfo);
+          try {
+            callback(bodyInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2888,7 +3023,12 @@ FolderStorage.prototype = {
         bodyInfo = block.bodies[id] || null;
     if (!bodyInfo)
       this._LOG.bodyNotFound();
-    callback(bodyInfo);
+    try {
+      callback(bodyInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -2962,8 +3102,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // unexpected errors, so this is getting downgraded for now.
       headerNotFound: {},
       bodyNotFound: {},
-
-      refreshSlice: { startTS: false, endTS: false, useBisectLimit: false },
     },
     TEST_ONLY_events: {
     },
@@ -2975,7 +3113,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       loadBlock: { block: false },
     },
     errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+
       badBlockLoad: { type: false, blockId: false },
+
       // Exposing date/uid at a general level is deemed okay because they are
       // opaque identifiers and the most likely failure models involve the
       // values being ridiculous (and therefore not legal).
@@ -2983,6 +3124,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
       serverIdMappingMissing: { srvid: false },
+
+      mutexedOpErr: { err: $log.EXCEPTION },
 
       tooManyCallbacks: { name: false },
       mutexInvariantFail: { fireName: false, curName: false },

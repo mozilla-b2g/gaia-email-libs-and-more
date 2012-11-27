@@ -56,6 +56,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.compositeAccount = compositeAccount;
   this.id = accountId;
 
+  this.enabled = true;
+
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
 
   this._credentials = credentials;
@@ -175,7 +177,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   });
 
   this._jobDriver = new $imapjobs.ImapJobDriver(
-                          this, this._folderInfos.$mutationState);
+                          this, this._folderInfos.$mutationState, this._LOG);
 
   /**
    * Flag to allow us to avoid calling closeBox to close a folder.  This avoids
@@ -214,7 +216,8 @@ ImapAccount.prototype = {
         path: path,
         type: type,
         delim: delim,
-        depth: depth
+        depth: depth,
+        lastSyncedAt: 0
       },
       $impl: {
         nextId: 0,
@@ -405,7 +408,7 @@ ImapAccount.prototype = {
    * like Thunderbird uses.  The rationale is that many servers cap the number
    * of connections we are allowed to maintain, plus it's hard to justify
    * locally tying up those resources.  (Thunderbird has more need of watching
-   * multiple folders than ourselves, bu we may still want to synchronize a
+   * multiple folders than ourselves, but we may still want to synchronize a
    * bunch of folders in parallel for latency reasons.)
    *
    * The provided connection will *not* be in the requested folder; it's up to
@@ -429,15 +432,31 @@ ImapAccount.prototype = {
    *     A callback to invoke if the connection dies or we feel compelled to
    *     reclaim it.
    *   }
+   *   @param[dieOnConnectFailure #:optional Boolean]{
+   *     Should we invoke the deathback for this request if we fail to establish
+   *     a connection in a timely manner?  This will be immediately invoked if
+   *     we are offline or if we exhaust our retries for establishing
+   *     connections with the server.
+   *   }
    * ]
    */
-  __folderDemandsConnection: function(folderId, label, callback, deathback) {
-    this._demandedConns.push({
+  __folderDemandsConnection: function(folderId, label, callback, deathback,
+                                      dieOnConnectFailure) {
+    // If we are offline, invoke the deathback soon and don't bother trying to
+    // get a connection.
+    if (dieOnConnectFailure && !this.universe.online) {
+      window.setZeroTimeout(deathback);
+      return;
+    }
+
+    var demand = {
       folderId: folderId,
       label: label,
       callback: callback,
-      deathback: deathback
-    });
+      deathback: deathback,
+      dieOnConnectFailure: Boolean(dieOnConnectFailure)
+    };
+    this._demandedConns.push(demand);
 
     // No line-cutting; bail if there was someone ahead of us.
     if (this._demandedConns.length > 1)
@@ -449,8 +468,32 @@ ImapAccount.prototype = {
 
     // - we need to wait for a new conn or one to free up
     this._makeConnectionIfPossible();
+
+    return;
   },
 
+  /**
+   * Trigger the deathbacks for all connection demands where dieOnConnectFailure
+   * is true.
+   */
+  _killDieOnConnectFailureDemands: function() {
+    for (var i = 0; i < this._demandedConns.length; i++) {
+      var demand = this._demandedConns[i];
+      if (demand.dieOnConnectFailure) {
+        demand.deathback.call(null);
+        this._demandedConns.splice(i--, 1);
+      }
+    }
+  },
+
+  /**
+   * Try and find an available connection and assign it to the first connection
+   * demand.
+   *
+   * @return[Boolean]{
+   *   True if we allocated a demand to a conncetion, false if we did not.
+   * }
+   */
   _allocateExistingConnection: function() {
     if (!this._demandedConns.length)
       return false;
@@ -583,9 +626,12 @@ ImapAccount.prototype = {
         if (maybeRetry) {
           if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
             this._makeConnectionIfPossible();
+          else
+            this._killDieOnConnectFailureDemands();
         }
         else {
           this._backoffEndpoint.noteBrokenConnection();
+          this._killDieOnConnectFailureDemands();
         }
       }
       else {
@@ -661,6 +707,23 @@ ImapAccount.prototype = {
       }
     }
     this._LOG.connectionMismatch();
+  },
+
+  /**
+   * We receive this notification from our _backoffEndpoint.
+   */
+  onEndpointStateChange: function(state) {
+    switch (state) {
+      case 'healthy':
+        this.universe.__removeAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+      case 'unreachable':
+      case 'broken':
+        this.universe.__reportAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
