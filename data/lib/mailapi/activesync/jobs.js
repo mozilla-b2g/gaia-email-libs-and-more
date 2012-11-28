@@ -58,8 +58,7 @@ ActiveSyncJobDriver.prototype = {
 
       var syncer = storage.folderSyncer;
       if (needConn && !self.account.conn.connected) {
-        // XXX will this connection automatically retry?
-        self.account.conn.connect(function(err, config) {
+        self.account.conn.connect(function(error) {
           try {
             callback(syncer.folderConn, storage);
           }
@@ -318,8 +317,8 @@ ActiveSyncJobDriver.prototype = {
     var account = this.account, self = this;
     // establish a connection if we are not already connected
     if (!account.conn.connected) {
-      account.conn.connect(function(err, config) {
-        if (err) {
+      account.conn.connect(function(error) {
+        if (error) {
           doneCallback('aborted-retry');
           return;
         }
@@ -331,10 +330,10 @@ ActiveSyncJobDriver.prototype = {
     // The inbox needs to be resynchronized if there was no server id and we
     // have active slices displaying the contents of the folder.  (No server id
     // means the sync will not happen.)
-    var inboxFolder = this.account.getFirstFolderWithType('inbox'),
+    var inboxFolder = account.getFirstFolderWithType('inbox'),
         inboxStorage, inboxNeedsResync = false;
     if (inboxFolder && inboxFolder.serverId === null) {
-      inboxStorage = this.account.getFolderStorageForFolderId(inboxFolder.id);
+      inboxStorage = account.getFolderStorageForFolderId(inboxFolder.id);
       inboxNeedsResync = inboxStorage.hasActiveSlices;
     }
 
