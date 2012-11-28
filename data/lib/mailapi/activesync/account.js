@@ -52,12 +52,12 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   }
   else {
     this.conn = new $activesync.Connection();
+    this.conn.open(accountDef.connInfo.server, accountDef.credentials.username,
+                   accountDef.credentials.password);
     this.conn.timeout = DEFAULT_TIMEOUT_MS;
 
     // XXX: We should check for errors during connection and alert the user.
-    this.conn.connect(accountDef.connInfo.server,
-                      accountDef.credentials.username,
-                      accountDef.credentials.password);
+    this.conn.connect();
   }
 
   this._db = dbConn;
@@ -213,6 +213,8 @@ ActiveSyncAccount.prototype = {
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
+    // We can assume that we already have a connection here, since jobs.js
+    // ensures it.
     let account = this;
 
     const fh = $ascp.FolderHierarchy.Tags;
@@ -474,6 +476,18 @@ ActiveSyncAccount.prototype = {
   createFolder: function asa_createFolder(parentFolderId, folderName,
                                           containOnlyOtherFolders, callback) {
     let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        account.createFolder(parentFolderId, folderName,
+                             containOnlyOtherFolders, callback);
+      });
+      return;
+    }
+
     let parentFolderServerId = parentFolderId ?
       this._folderInfos[parentFolderId] : '0';
 
@@ -527,6 +541,17 @@ ActiveSyncAccount.prototype = {
    */
   deleteFolder: function asa_deleteFolder(folderId, callback) {
     let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        account.deleteFolder(folderId, callback);
+      });
+      return;
+    }
+
     let folderMeta = this._folderInfos[folderId].$meta;
 
     const fh = $ascp.FolderHierarchy.Tags;
@@ -562,6 +587,18 @@ ActiveSyncAccount.prototype = {
   },
 
   sendMessage: function asa_sendMessage(composedMessage, callback) {
+    let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        account.sendMessage(composedMessage, callback);
+      });
+      return;
+    }
+
     // XXX: This is very hacky and gross. Fix it to use pipes later.
     composedMessage._cacheOutput = true;
     process.immediate = true;

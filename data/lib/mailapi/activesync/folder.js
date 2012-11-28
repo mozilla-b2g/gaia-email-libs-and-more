@@ -111,7 +111,8 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
-   * Get the initial sync key for the folder so we can start getting data
+   * Get the initial sync key for the folder so we can start getting data. We
+   * assume we have already negotiated a connection in the caller.
    *
    * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
@@ -166,7 +167,8 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
-   * Get an estimate of the number of messages to be synced.
+   * Get an estimate of the number of messages to be synced.  We assume we have
+   * already negotiated a connection in the caller.
    *
    * @param {string} filterType The filter type for our estimate
    * @param {function} callback A callback to be run when the operation finishes
@@ -305,38 +307,36 @@ ActiveSyncFolderConn.prototype = {
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
                                                                  progress) {
     let folderConn = this, storage = this._storage;
-    let account = this._account;
 
-    if (!account.conn.connected) {
-      account.conn.waitForConnection(function(error) {
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
         if (error) {
           callback('aborted');
-          console.error('Error connecting to ActiveSync:', error);
+          return;
         }
-        else {
-          folderConn._enumerateFolderChanges(callback, progress);
-        }
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
     if (!this.filterType) {
       this._inferFilterType(function(error, filterType) {
-        if (error)
+        if (error) {
           callback('unknown');
-        else {
-          console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
-          folderConn.folderMeta.filterType = filterType;
-          folderConn._enumerateFolderChanges(callback, progress);
+          return;
         }
+        console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
+        folderConn.folderMeta.filterType = filterType;
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
     if (this.syncKey === '0') {
       this._getSyncKey(this.filterType, function(error) {
-        if (error)
+        if (error) {
           callback('aborted');
-        else
-          folderConn._enumerateFolderChanges(callback, progress);
+          return;
+        }
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
@@ -362,7 +362,7 @@ ActiveSyncFolderConn.prototype = {
          .stag(as.Collections)
            .stag(as.Collection);
 
-      if (account.conn.currentVersion.lt('12.1'))
+      if (this._account.conn.currentVersion.lt('12.1'))
             w.tag(as.Class, 'Email');
 
             w.tag(as.SyncKey, this.syncKey)
@@ -374,7 +374,7 @@ ActiveSyncFolderConn.prototype = {
       // XXX: For some servers (e.g. Hotmail), we could be smart and get the
       // native body type (plain text or HTML), but Gmail doesn't seem to let us
       // do this. For now, let's keep it simple and always get HTML.
-      if (account.conn.currentVersion.gte('12.0'))
+      if (this._account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
                  .tag(asb.Type, asbEnum.Type.HTML)
                .etag();
@@ -387,7 +387,7 @@ ActiveSyncFolderConn.prototype = {
        .etag();
     }
 
-    account.conn.postCommand(w, function(aError, aResponse) {
+    this._account.conn.postCommand(w, function(aError, aResponse) {
       let added   = [];
       let changed = [];
       let deleted = [];
@@ -775,8 +775,19 @@ ActiveSyncFolderConn.prototype = {
   },
 
   performMutation: function(invokeWithWriter, callWhenDone) {
-    const as = $ascp.AirSync.Tags,
-          folderConn = this;
+    let folderConn = this;
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        folderConn.performMutation(invokeWithWriter, callWhenDone);
+      });
+      return;
+    }
+
+    const as = $ascp.AirSync.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -847,6 +858,19 @@ ActiveSyncFolderConn.prototype = {
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+    let folderConn = this;
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        folderConn.downloadMessageAttachments(uid, partInfos, callback,
+                                              progress);
+      });
+      return;
+    }
+
     const io = $ascp.ItemOperations.Tags;
     const ioStatus = $ascp.ItemOperations.Enums.Status;
     const asb = $ascp.AirSyncBase.Tags;

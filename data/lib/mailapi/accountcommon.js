@@ -597,10 +597,11 @@ Configurators['activesync'] = {
 
     var self = this;
     var conn = new $asproto.Connection();
+    conn.open(domainInfo.incoming.server, credentials.username,
+              credentials.password);
     conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
-    conn.connect(domainInfo.incoming.server, credentials.username,
-                 credentials.password, function(error, options) {
+    conn.connect(function(error, options) {
       // XXX: Think about what to do with this error handling, since it's
       // replicated in the autoconfig code.
       if (error) {
