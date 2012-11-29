@@ -167,6 +167,10 @@ MailBridge.prototype = {
       });
   },
 
+  _cmd_cancelAccountCreation: function mb__cmd_cancelAccountCreation(msg) {
+    this.universe.cancelAccountCreation();
+  },
+
   _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;

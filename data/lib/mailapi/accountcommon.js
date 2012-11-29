@@ -757,6 +757,7 @@ Configurators['activesync'] = {
 function Autoconfigurator(_LOG) {
   this._LOG = _LOG;
   this.timeout = AUTOCONFIG_TIMEOUT_MS;
+  this._activeXHRs = [];
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
@@ -836,6 +837,14 @@ Autoconfigurator.prototype = {
     };
 
     xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
+
+    let self = this;
+    xhr.onloadend = function() {
+      let idx = self._activeXHRs.indexOf(xhr);
+      if (idx !== -1)
+        self._activeXHRs.splice(idx, 1);
+    };
+    this._activeXHRs.push(xhr);
 
     xhr.send();
   },
@@ -955,6 +964,15 @@ Autoconfigurator.prototype = {
     };
 
     xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
+
+    let self = this;
+    xhr.onloadend = function() {
+      console.log("onloadend");
+      let idx = self._activeXHRs.indexOf(xhr);
+      if (idx !== -1)
+        self._activeXHRs.splice(idx, 1);
+    };
+    this._activeXHRs.push(xhr);
 
     xhr.send();
   },
@@ -1092,6 +1110,15 @@ Autoconfigurator.prototype = {
       configurator.tryToCreateAccount(universe, userDetails, config,
                                       callback, self._LOG);
     });
+  },
+
+  /**
+   * Abort the autoconfiguration process, closing any active connections.
+   */
+  abort: function() {
+    for (let [,xhr] in Iterator(this._activeXHRs))
+      xhr.abort();
+    this._activeXHRs = [];
   },
 };
 
