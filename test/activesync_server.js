@@ -330,7 +330,7 @@ ActiveSyncServer.prototype = {
     const as = $_ascp.AirSync.Tags;
     const asEnum = $_ascp.AirSync.Enums;
 
-    let syncKey, nextSyncKey, collectionId,
+    let syncKey, nextSyncKey, collectionId, getChanges,
         filterType = asEnum.FilterType.NoFilter;
 
     let e = new $_wbxml.EventParser();
@@ -342,6 +342,10 @@ ActiveSyncServer.prototype = {
     e.addEventListener(base.concat(as.CollectionId), function(node) {
       collectionId = node.children[0].textContent;
     });
+    e.addEventListener(base.concat(as.GetChanges), function(node) {
+      getChanges = node.children.length === 0 ||
+                   node.children[0].textContent === '1';
+    });
     e.addEventListener(base.concat(as.Options, as.FilterType), function(node) {
       filterType = node.children[0].textContent;
     });
@@ -351,9 +355,15 @@ ActiveSyncServer.prototype = {
       this.logRequestBody(reader);
     e.run(reader);
 
+    // If GetChanges wasn't specified, it defaults to true when the SyncKey is
+    // non-zero, and false when the SyncKey is zero.
+    if (getChanges === undefined)
+      getChanges = syncKey !== '0';
+
     let folder = this._findFolderById(collectionId),
-        nextSyncKey = folder.createSyncState(syncKey, filterType),
-        syncState = syncKey !== '0' ? folder.takeSyncState(syncKey) : null;
+        nextSyncKey = getChanges || syncKey === '0' ?
+                      folder.createSyncState(syncKey, filterType) : null,
+        syncState = getChanges ? folder.takeSyncState(syncKey) : null;
 
     let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
                                        asEnum.Status.Success;
