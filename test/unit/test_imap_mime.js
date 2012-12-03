@@ -27,7 +27,11 @@ b64TruthBeauty = b64TruthBeauty.substring(0, 76) + '\r\n' +
 
 // "Snake, Sammy", but with a much cooler looking S-like character!
 var rawSammySnake = '\u00dfnake, \u00dfammy',
-    mwqSammySnake = '=?iso-8859-1?Q?=DFnake=2C_=DFammy?=';
+    mwqSammySnake = '=?iso-8859-1?Q?=DFnake=2C_=DFammy?=',
+    rawMultiBase64 = 'Sssś Lałalalala',
+    mwbMultiBase64 = '=?UTF-8?B?U3NzxZsgTGHFgmFsYQ==?= =?UTF-8?B?bGFsYQ==?=',
+    rawBase64Gibberish = 'A\u0004\u0011E\u0014',
+    mwbBase64Gibberish = '=?UTF-8?B?Q!Q#@Q$RR$RR=====?=';
 
 var rawUnicodeName = 'Figui\u00e8re',
     utf8UnicodeName = new Buffer('Figui\u00c3\u00a8re', 'binary'),
@@ -48,7 +52,9 @@ TD.commonCase('message encodings', function(T) {
     'test_mime_encodings',
     { count: 2, age: { days: 0 }, age_incr: { days: 1 },
       from: { name: mwqSammySnake, address: 'sammy@snake.nul' },
-      to: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }],
+      to: [{ name: mwqSammySnake, address: 'sammy@snake.nul' },
+           { name: mwbMultiBase64, address: 'raw@multi.nul' },
+           { name: mwbBase64Gibberish, address: 'gibber@ish.nul'}],
       cc: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }],
       // replace the actual encoding with these values...
       replaceHeaders: [
@@ -67,6 +73,8 @@ TD.commonCase('message encodings', function(T) {
   T.check('check messages', eBodies, function() {
     eBodies.expect_namedValue('from name', rawSammySnake);
     eBodies.expect_namedValue('to[0] name', rawSammySnake);
+    eBodies.expect_namedValue('to[1] name', rawMultiBase64);
+    eBodies.expect_namedValue('to[2] name', rawBase64Gibberish);
     eBodies.expect_namedValue('cc[0] name', rawSammySnake);
     eBodies.expect_namedValue('qp', rawTruthBeauty);
     eBodies.expect_namedValue('b64', rawTruthBeauty);
@@ -76,6 +84,8 @@ TD.commonCase('message encodings', function(T) {
     eBodies.namedValue('from name', qpHeader.author.name);
     qpHeader.getBody(function(qpBody) {
     eBodies.namedValue('to[0] name', qpBody.to[0].name);
+    eBodies.namedValue('to[1] name', qpBody.to[1].name);
+    eBodies.namedValue('to[2] name', qpBody.to[2].name);
     eBodies.namedValue('cc[0] name', qpBody.cc[0].name);
       eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
       qpBody.die();
