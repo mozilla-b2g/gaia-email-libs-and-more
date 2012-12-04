@@ -16,6 +16,20 @@ define(
   ) {
 
 /**
+ * How many milliseconds should we wait before giving up on the connection?
+ *
+ * This really wants to be adaptive based on the type of the connection, but
+ * right now we have no accurate way of guessing how good the connection is in
+ * terms of latency, overall internet speed, etc.  Experience has shown that 10
+ * seconds is currently insufficient on an unagi device on 2G on an AT&T network
+ * in American suburbs, although some of that may be problems internal to the
+ * device.  I am tripling that to 30 seconds for now because although it's
+ * horrible to drag out a failed connection to an unresponsive server, it's far
+ * worse to fail to connect to a real server on a bad network, etc.
+ */
+exports.CONNECT_TIMEOUT_MS = 30000;
+
+/**
  * Right now our tests consist of:
  * - logging in to test the credentials
  *
@@ -30,6 +44,8 @@ function ImapProber(credentials, connInfo, _LOG) {
 
     username: credentials.username,
     password: credentials.password,
+
+    connTimeout: exports.CONNECT_TIMEOUT_MS,
   };
   if (_LOG)
     opts._logParent = _LOG;
@@ -75,12 +91,31 @@ ImapProber.prototype = {
     if (!this.onresult)
       return;
     console.warn('PROBE:IMAP sad', err);
-    if (err.serverResponse.indexOf('[ALERT] Application-specific password required') != -1)
-      this.error = 'needs-app-pass';
-    else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') != -1)
-      this.error = 'imap-disabled';
-    else
-      this.error = 'bad-user-or-pass';
+
+    switch (err.type) {
+      case 'NO':
+      case 'no':
+        if (!err.serverResponse)
+          this.error = 'unknown';
+        else if (err.serverResponse.indexOf(
+            '[ALERT] Application-specific password required') != -1)
+          this.error = 'needs-app-pass';
+        else if (err.serverResponse.indexOf(
+            '[ALERT] Your account is not enabled for IMAP use.') != -1)
+          this.error = 'imap-disabled';
+        else
+          this.error = 'bad-user-or-pass';
+        break;
+      case 'timeout':
+        this.error = 'timeout';
+        break;
+      // XXX we currently don't have a string for server maintenance, so go
+      // with unknown.  But it's also a very unlikely thing.
+      case 'server-maintenance':
+      default:
+        this.error = 'unknown';
+        break;
+    }
     // we really want to make sure we clean up after this dude.
     try {
       this._conn.die();

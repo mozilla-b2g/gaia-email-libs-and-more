@@ -16,7 +16,7 @@
  * - Sync login failure: The server does not like our credentials.
  *
  * We test these things elsewhere:
- * -
+ * - IMAP prober issues: test_imap_prober.js
  *
  * We want tests for the following (somewhere):
  * - Sync connection loss on SELECT. (This is during the opening of the folder
@@ -31,10 +31,6 @@
  * - A non-refresh non-first synchronization (so that message display is blocked
  *    pending on the sync) fails to connect to the server and converts itself
  *    into a display of offline messages.
- *
- *
- * - Failures in the (auto)configuration process (covering all the enumerated
- *   failure values we define.)
  **/
 
 load('resources/loggest_test_framework.js');
@@ -269,6 +265,10 @@ TD.commonCase('bad password login failure', function(T) {
   T.group('use bad password');
   T.action('create connection, should fail, generate MailAPI event', eCheck,
            testAccount.eBackoff, function() {
+    // XXX uh, this bit was written speculatively to make things go faster,
+    // but FawltySocketFactory doesn't support it yet.  May just want to wait
+    // and switch to IMAP fake-server instead.
+    /*
     FawltySocketFactory.precommand(
       testHost, testPort, null,
       {
@@ -281,6 +281,7 @@ TD.commonCase('bad password login failure', function(T) {
           }
         ]
       });
+    */
 
     testAccount.eBackoff.expect_connectFailure(true);
     eCheck.expect_namedValue('accountCheck:err', true);
