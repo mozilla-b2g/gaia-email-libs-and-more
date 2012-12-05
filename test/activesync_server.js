@@ -420,7 +420,7 @@ ActiveSyncServer.prototype = {
       status = asEnum.Status.InvalidSyncKey;
     }
     else {
-      // run commands
+      // Run any commands the client sent.
       for (let command of clientCommands) {
         let message = folder.findMessageById(command.serverId);
         if (command.type === 'change') {
