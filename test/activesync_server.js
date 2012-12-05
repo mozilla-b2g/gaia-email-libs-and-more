@@ -21,6 +21,9 @@ function encodeWBXML(wbxml) {
  */
 function decodeWBXML(stream) {
   let str = NetUtil.readInputStreamToString(stream, stream.available());
+  if (str.length === 0)
+    return null;
+
   let bytes = new Uint8Array(str.length);
   for (let i = 0; i < str.length; i++)
     bytes[i] = str.charCodeAt(i);
@@ -89,7 +92,7 @@ ActiveSyncFolder.prototype = {
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       if (this._messageInFilterRange(syncState.filterType, message))
-        syncState.changes.push({ type: 'add', message: newMessage });
+        syncState.commands.push({ type: 'add', message: newMessage });
     }
 
     return newMessage;
@@ -102,30 +105,31 @@ ActiveSyncFolder.prototype = {
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       for (let message of newMessages)
-        syncState.changes.push({ type: 'add', message: message });
+        syncState.commands.push({ type: 'add', message: message });
     }
 
     return newMessages;
   },
 
-  createSyncState: function(oldSyncKey, filterType) {
-    if (oldSyncKey !== '0' &&
-        (!this._messageSyncStates.hasOwnProperty(oldSyncKey) ||
-         this._messageSyncStates[oldSyncKey].filterType !== filterType))
-      return '0';
+  _createSyncKey: function() {
+    return 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
+  },
 
-    let syncKey = 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
-    let syncState = this._messageSyncStates[syncKey] = {
-      filterType: filterType,
-      changes: []
-    };
-
-    if (oldSyncKey === '0') {
+  createSyncState: function(filterType, commands) {
+    if (commands === 'initial') {
+      commands = [];
       for (let message of this.messages) {
-        if (this._messageInFilterRange(syncState.filterType, message))
-          syncState.changes.push({ type: 'add', message: message });
+        if (this._messageInFilterRange(filterType, message))
+          commands.push({ type: 'add', message: message });
       }
     }
+
+    let syncKey = this._createSyncKey();
+    let syncState = this._messageSyncStates[syncKey] = {
+      filterType: filterType,
+      commands: commands || []
+    };
+
     return syncKey;
   },
 
@@ -137,6 +141,12 @@ ActiveSyncFolder.prototype = {
 
   peekSyncState: function(syncKey) {
     return this._messageSyncStates[syncKey];
+  },
+
+  restoreSyncState: function(syncState) {
+    let syncKey = this._createSyncKey();
+    this._mesageSyncStates[syncKey] = syncState;
+    return syncKey;
   },
 };
 
@@ -234,7 +244,16 @@ ActiveSyncServer.prototype = {
       }
 
       try {
-        this['_handleCommand_' + query.Cmd](request, query, response);
+        let wbxmlResponse = this['_handleCommand_' + query.Cmd](
+          request, query, response);
+
+        if (wbxmlResponse) {
+          response.setStatusLine('1.1', 200, 'OK');
+          response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
+          response.write(encodeWBXML(wbxmlResponse));
+          if (this.logResponse)
+            this.logResponse(request, response, wbxmlResponse);
+        }
       } catch(e) {
         if (this.logResponseError)
           this.logResponseError(e + '\n' + e.stack);
@@ -319,11 +338,7 @@ ActiveSyncServer.prototype = {
     w  .etag(fh.Changes)
      .etag(fh.FolderSync);
 
-    response.setStatusLine('1.1', 200, 'OK');
-    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
-    response.write(encodeWBXML(w));
-    if (this.logResponse)
-      this.logResponse(request, response, w);
+    return w;
   },
 
   _handleCommand_Sync: function(request, query, response) {
@@ -331,7 +346,8 @@ ActiveSyncServer.prototype = {
     const asEnum = $_ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId, getChanges,
-        filterType = asEnum.FilterType.NoFilter;
+        filterType = asEnum.FilterType.NoFilter,
+        clientCommands = [];
 
     let e = new $_wbxml.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
@@ -349,8 +365,23 @@ ActiveSyncServer.prototype = {
     e.addEventListener(base.concat(as.Options, as.FilterType), function(node) {
       filterType = node.children[0].textContent;
     });
+    e.addEventListener(base.concat(as.Commands, as.Change), function(node) {
+      let command = { type: 'change' };
+      for (let child of node.children) {
+        switch(child.tag) {
+        case as.ServerId:
+          command.serverId = child.children[0].textContent;
+          break;
+        case as.ApplicationData:
+          command.data = child;
+          break;
+        }
+      }
+      clientCommands.push(command);
+    });
 
-    let reader = decodeWBXML(request.bodyInputStream);
+    let reader = decodeWBXML(request.bodyInputStream) ||
+                 this._cachedSyncRequest;
     if (this.logRequestBody)
       this.logRequestBody(reader);
     e.run(reader);
@@ -360,13 +391,65 @@ ActiveSyncServer.prototype = {
     if (getChanges === undefined)
       getChanges = syncKey !== '0';
 
-    let folder = this._findFolderById(collectionId),
-        nextSyncKey = getChanges || syncKey === '0' ?
-                      folder.createSyncState(syncKey, filterType) : null,
-        syncState = getChanges ? folder.takeSyncState(syncKey) : null;
+    // Check for invalid states in the request:
+    //   1) If the SyncKey is 0, the client can't request changes or run
+    //      commands.
+    //   2) If the SyncKey is not 0, the client must request changes or run
+    //      commands.
+    if ((syncKey === '0') === (getChanges || clientCommands.length)) {
+      let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(as.Sync)
+         .tag(as.Status, asEnum.Status.ProtocolError)
+        .etag();
+      return w;
+    }
 
-    let status = nextSyncKey === '0' ? asEnum.Status.InvalidSyncKey :
-                                       asEnum.Status.Success;
+    // Now it's time to actually perform the sync operation!
+
+    let folder = this._findFolderById(collectionId),
+        syncState = folder.takeSyncState(syncKey),
+        nextSyncKey, status;
+
+    if (syncKey === '0') {
+      nextSyncKey = folder.createSyncState(filterType, 'initial');
+      status = asEnum.Status.Success;
+    }
+    else if (!syncState ||
+             (filterType && filterType !== syncState.filterType)) {
+      nextSyncKey = '0';
+      status = asEnum.Status.InvalidSyncKey;
+    }
+    else {
+      // run commands
+      for (let command of clientCommands) {
+        let message = folder.findMessageById(command.serverId);
+        if (command.type === 'change') {
+          this._changeEmail(command.data);
+        }
+      }
+
+      if (getChanges) {
+        // Create a fresh sync state.
+        nextSyncKey = folder.createSyncState(syncState.filterType);
+      }
+      else if (clientCommands.length) {
+        // Create a new state with the old one's command list, and clear out our
+        // syncState so we don't return any changes.
+        nextSyncKey = folder.createSyncState(syncState.filterType,
+                                             syncState.commands);
+        syncState = null;
+      }
+      else {
+        // There are no changes, so cache the sync request and return an empty
+        // response.
+        response.setStatusLine('1.1', 200, 'OK');
+        reader.rewind();
+        this._cachedSyncRequest = reader;
+        return;
+      }
+
+      status = asEnum.Status.Success;
+    }
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
 
@@ -377,16 +460,16 @@ ActiveSyncServer.prototype = {
            .tag(as.CollectionId, collectionId)
            .tag(as.Status, status);
 
-    if (syncState && syncState.changes.length) {
+    if (syncState && syncState.commands.length) {
       w.stag(as.Commands);
 
-      for (let change of syncState.changes) {
-        if (change.type === 'add') {
+      for (let command of syncState.commands) {
+        if (command.type === 'add') {
           w.stag(as.Add)
-            .tag(as.ServerId, change.message.messageId)
+            .tag(as.ServerId, command.message.messageId)
             .stag(as.ApplicationData);
 
-          this._writeEmail(w, change.message);
+          this._writeEmail(w, command.message);
 
           w  .etag(as.ApplicationData)
             .etag(as.Add);
@@ -396,15 +479,26 @@ ActiveSyncServer.prototype = {
       w.etag(as.Commands);
     }
 
+    if (clientCommands.length) {
+      w.stag(as.Responses);
+
+      for (let command of clientCommands) {
+        if (command.type === 'change') {
+          w.stag(as.Change)
+             .tag(as.ServerId, command.serverId)
+             .tag(as.Status, asEnum.Status.Success)
+           .etag(as.Change);
+        }
+      }
+
+      w.etag(as.Responses);
+    }
+
     w    .etag(as.Collection)
        .etag(as.Collections)
      .etag(as.Sync);
 
-    response.setStatusLine('1.1', 200, 'OK');
-    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
-    response.write(encodeWBXML(w));
-    if (this.logResponse)
-      this.logResponse(request, response, w);
+    return w;
   },
 
   _handleCommand_ItemOperations: function(request, query, response) {
@@ -461,11 +555,7 @@ ActiveSyncServer.prototype = {
     w  .etag(io.Response)
      .etag(io.ItemOperations);
 
-    response.setStatusLine('1.1', 200, 'OK');
-    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
-    response.write(encodeWBXML(w));
-    if (this.logResponse)
-      this.logResponse(request, response, w);
+    return w;
   },
 
   _handleCommand_GetItemEstimate: function(request, query, response) {
@@ -505,7 +595,7 @@ ActiveSyncServer.prototype = {
       status = ieStatus.InvalidSyncKey;
     else {
       status = ieStatus.Success;
-      estimate = syncState.changes.length;
+      estimate = syncState.commands.length;
     }
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
@@ -522,11 +612,7 @@ ActiveSyncServer.prototype = {
     w  .etag(ie.Response)
      .etag(ie.GetItemEstimate);
 
-    response.setStatusLine('1.1', 200, 'OK');
-    response.setHeader('Content-Type', 'application/vnd.ms-sync.wbxml');
-    response.write(encodeWBXML(w));
-    if (this.logResponse)
-      this.logResponse(request, response, w);
+    return w;
   },
 
   /**
@@ -571,7 +657,7 @@ ActiveSyncServer.prototype = {
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, '0');
+     .tag(em.Read, message.metaState.read);
 
     if (attachments.length) {
       w.stag(asb.Attachments);
@@ -600,5 +686,17 @@ ActiveSyncServer.prototype = {
        .tag(asb.Truncated, '0')
        .tag(asb.Data, bodyPart.body)
      .etag();
-  }
+  },
+
+  _changeEmail: function(message, node) {
+    const em = $_ascp.Email.Tags;
+
+    for (let child of node.children) {
+      switch (child.tag) {
+      case em.Read:
+        message.metaState.read = child.children[0].textContent === '1';
+        break;
+      }
+    }
+  },
 };
