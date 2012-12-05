@@ -423,9 +423,8 @@ ActiveSyncServer.prototype = {
       // Run any commands the client sent.
       for (let command of clientCommands) {
         let message = folder.findMessageById(command.serverId);
-        if (command.type === 'change') {
-          this._changeEmail(command.data);
-        }
+        if (command.type === 'change')
+          this._changeEmail(message, command.data);
       }
 
       if (getChanges) {
@@ -657,7 +656,7 @@ ActiveSyncServer.prototype = {
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, message.metaState.read);
+     .tag(em.Read, message.metaState.read ? '1' : '0');
 
     if (attachments.length) {
       w.stag(asb.Attachments);
