@@ -880,7 +880,7 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split to [B's, A's]
   var olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_syncbase.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.push(olderBlockInfo);
 
   ctx.insertHeader(dC, uidC1);
@@ -890,7 +890,7 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split [C's and B's, A's] to [C's, B's, A's]
   olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_syncbase.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.splice(1, 0, olderBlockInfo);
 
   console.log(JSON.stringify(ctx.storage._headerBlockInfos));
