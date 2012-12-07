@@ -44,6 +44,8 @@ const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
  * Map our built-in sync range values to their corresponding ActiveSync
  * FilterType values. We exclude 3 and 6 months, since they aren't valid for
  * email.
+ *
+ * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
  */
 const SYNC_RANGE_TO_FILTER_TYPE = {
   'auto': null,

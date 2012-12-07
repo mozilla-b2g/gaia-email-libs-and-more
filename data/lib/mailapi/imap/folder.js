@@ -964,6 +964,18 @@ ImapFolderSyncer.prototype = {
    * Whatever synchronization we last triggered has now completed; we should
    * either trigger another sync if we still want more data, or close out the
    * current sync.
+   *
+   * ## Block Flushing
+   *
+   * We only cause a call to `ImapAccount.__checkpointSyncCompleted` (via a call
+   * to `_doneSync`) to happen and cause dirty blocks to be written to disk when
+   * we are done with synchronization.  This is because this method declares
+   * victory once a non-trivial amount of work has been done.  In the event that
+   * the sync is encountering a lot of deleted messages and so keeps loading
+   * blocks, the memory burden is limited because we will be emptying those
+   * blocks out so actual memory usage (after GC) is commensurate with the
+   * number of (still-)existing messages.  And those are what this method uses
+   * to determine when it is done.
    */
   onSyncCompleted: function ifs_onSyncCompleted(err, bisectInfo, messagesSeen) {
     // In the event the time range had to be bisected, update our info so if

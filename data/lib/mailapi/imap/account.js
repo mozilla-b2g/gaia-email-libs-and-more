@@ -55,6 +55,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.universe = universe;
   this.compositeAccount = compositeAccount;
   this.id = accountId;
+  this.accountDef = compositeAccount.accountDef;
 
   this.enabled = true;
 
@@ -275,7 +276,7 @@ ImapAccount.prototype = {
    * that ever ends up not being the case that we need to cause mutating
    * operations to defer until after that snapshot has occurred.
    */
-  saveAccountState: function(reuseTrans) {
+  saveAccountState: function(reuseTrans, callback) {
     var perFolderStuff = [], self = this;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -290,6 +291,8 @@ ImapAccount.prototype = {
       this._deadFolderIds,
       function stateSaved() {
         self._LOG.saveAccountState_end();
+        if (callback)
+          callback();
       },
       reuseTrans);
     this._deadFolderIds = null;

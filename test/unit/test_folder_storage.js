@@ -17,6 +17,10 @@ MockDB.prototype = {
 function MockAccount() {
 }
 MockAccount.prototype = {
+  accountDef: {
+    syncRange: 'auto',
+  },
+  tzOffset: 0,
 };
 
 /**
@@ -130,17 +134,69 @@ function makeTestContext() {
 }
 
 function makeDummyHeaders(count) {
-  var headers = [], uid = 100, date = DateUTC(2010, 0, 1);
+  var dayNum = 1, monthNum = 0;
+  var headers = [], uid = 100;
   while (count--) {
     headers.push({
       id: uid,
-      suid: 'H/1/' + uid++,
+      srvid: uid,
+      suid: 'H/1/' + uid,
+      guid: 'message-' + uid++,
       author: null,
-      date: date++,
+      date: Date.UTC(2010, monthNum, dayNum++),
       flags: null, hasAttachments: null, subject: null, snippet: null,
     });
+    // rather limited rollover support
+    if (monthNum === 0 && dayNum === 32) {
+      monthNum = 1;
+      dayNum = 1;
+    }
   }
   headers.reverse();
+  return headers;
+}
+
+function thunkConsole(T) {
+  var lazyConsole = T.lazyLogger('console');
+
+  gConsoleLogFunc = function(msg) {
+    lazyConsole.value(msg);
+  };
+}
+
+/**
+ * Byte size so that 2 fit in a block, but 3 will not.
+ */
+const BIG2 = 36 * 1024;
+/**
+ * Byte size so that 3 fit in a block, but 4 will not.
+ */
+const BIG3 = 28 * 1024;
+/**
+ * Byte size so that 5 fit in a block, but 6 will not.
+ */
+const BIG5 = 18 * 1024;
+
+
+/**
+ * Create messages distributed so that we have 5 headers per header block and
+ * 3 bodies per body blocks.
+ */
+function injectSomeMessages(ctx, count, headerSize, bodySize) {
+  var headers = makeDummyHeaders(count),
+      BS = BIG3;
+
+  // headers are ordered newest[0] to oldest[n-1]
+  for (var i = 0; i < headers.length; i++) {
+    var header = headers[i];
+    ctx.storage.addMessageHeader(header);
+    var bodyInfo = {
+      date: header.date, size: bodySize,
+      to: null, cc: null, bcc: null, replyTo: null,
+      attachments: null, bodyReps: null
+    };
+    ctx.storage.addMessageBody(header, bodyInfo);
+  }
   return headers;
 }
 
@@ -410,15 +466,6 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
 // Header/body insertion/deletion into/out of blocks.
 //
 // UIDs are in the 100's to make equivalence failure types more obvious.
-
-/**
- * Byte size so that 2 fit in a block, but 3 will not.
- */
-const BIG2 = 36 * 1024;
-/**
- * Byte size so that 3 fit in a block, but 4 will not.
- */
-const BIG3 = 28 * 1024;
 
 /**
  * Helper to check the values in a block info structure.
@@ -1044,7 +1091,197 @@ TD.commonSimple('header iteration', function test_header_iteration() {
 });
 
 ////////////////////////////////////////////////////////////////////////////////
+// Discard blocks from in-memory cache
+
+////////////////////////////////////////////////////////////////////////////////
+// Purge messages from disk
+
+TD.commonCase('message purging', function test_message_purging(T, RT) {
+  thunkConsole(T);
+
+  var eCheck = T.lazyLogger('check');
+
+  var testSitch = function testSitch(name, args) {
+    T.action(eCheck, name, function() {
+      var useNow = Date.UTC(2010, 0, args.count + 1).valueOf();
+      $_date.TEST_LetsDoTheTimewarpAgain(useNow);
+      $_syncbase.TEST_adjustSyncValues({
+        HEADER_EST_SIZE_IN_BYTES: args.headerSize,
+        BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS: 14 * $_date.DAY_MILLIS,
+        BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT: args.maxBlocks,
+      });
+      var ctx = makeTestContext();
+      var headers =
+            injectSomeMessages(ctx, args.count, args.headerSize, args.bodySize);
+
+      console.log('PRE: header block count:',
+                  ctx.storage._headerBlockInfos.length);
+      console.log('PRE: body block count:',
+                  ctx.storage._bodyBlockInfos.length);
+
+      var getOldestAccuracyStart = function () {
+        var aranges = ctx.storage._accuracyRanges;
+        if (!aranges.length)
+          return null;
+        return aranges[aranges.length - 1].startTS;
+      };
+
+      // (older range first)
+      ctx.storage.markSyncRange(
+        headers[headers.length - 1].date, // (oldest header)
+        headers[args.accuracyRange0StartsOn].date, // (middle-age header)
+        'abba', useNow - (args.accuracyAge1_days * $_date.DAY_MILLIS));
+      ctx.storage.markSyncRange(
+        headers[args.accuracyRange0StartsOn].date, // (middle-age header)
+        // add an extra day because the end part of the range is exclusive...
+        headers[0].date + $_date.DAY_MILLIS, // (youngest header)
+        'abba', useNow - (args.accuracyAge0_days * $_date.DAY_MILLIS));
+
+      ctx.account.accountDef.syncRange = args.syncRange;
+
+      eCheck.expect_namedValue('messagesPurged', args.purged);
+
+      if (args.purged) {
+        var lastRemainingHeader = headers[args.count - args.purged - 1];
+        eCheck.expect_namedValue('cutTS', lastRemainingHeader.date);
+        eCheck.expect_namedValue('oldestAccuracyStart',
+                                 lastRemainingHeader.date);
+      }
+      else {
+        eCheck.expect_namedValue('cutTS', 0);
+        eCheck.expect_namedValue('oldestAccuracyStart',
+                                 getOldestAccuracyStart());
+      }
+      eCheck.expect_namedValue('arange count', args.aranges);
+
+      // this should complete synchronously
+      ctx.storage.purgeExcessBlocks(function(numDeleted, cutTS) {
+        eCheck.namedValue('messagesPurged', numDeleted);
+        eCheck.namedValue('cutTS', cutTS);
+        eCheck.namedValue('oldestAccuracyStart',
+                          getOldestAccuracyStart());
+
+        // dump the accuracy ranges for introspection for my sanity
+        var aranges = ctx.storage._accuracyRanges;
+        eCheck.namedValue('arange count', aranges.length);
+        for (var i = 0; i < aranges.length; i++) {
+          console.log('arange', i, '[', aranges[i].startTS,
+                      aranges[i].endTS, ')');
+        }
+      });
+    });
+  };
+
+  // Note that because of the quantization
+
+
+  testSitch(
+    'accuracy range protects all',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range won't be protecting us here
+      syncRange: '1d',
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 2,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 0,
+      aranges: 2,
+    });
+
+  testSitch(
+    'accuracy range protects some',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range won't be protecting us here
+      syncRange: '1d',
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      // the accuracy range is more than 14 days old, so we will purge
+      accuracyAge1_days: 20,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 7,
+      aranges: 1,
+    });
+
+  testSitch(
+    'sync range protects',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range will protect 1 week's worth of messages
+      syncRange: '1w',
+      // both accuracy ranges are old, so won't be protected
+      accuracyAge0_days: 19,
+      accuracyRange0StartsOn: 4,
+      accuracyAge1_days: 20,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 7,
+      aranges: 2,
+    });
+
+  testSitch(
+    'block range culls headers',
+    {
+      count: 15,
+      // we will have 6 blocks of headers (we would have 5 fully filled, but our
+      // split logic slightly biases)
+      headerSize: BIG3,
+      // and 4 blocks of bodies (we would have 3 fully filled, but biasing)
+      bodySize: BIG5,
+
+      // the sync range should be trying to protect everything
+      syncRange: '1m',
+      // the accuracy ranges should be trying to protect everything
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 2,
+      // the block limit will kick in
+      maxBlocks: 3,
+
+      purged: 5,
+      aranges: 2
+    });
+
+  testSitch(
+    'block range culls bodies',
+    {
+      count: 15,
+      // we will have 4 blocks of headers
+      headerSize: BIG5,
+      // and 6 blocks of bodies
+      bodySize: BIG3,
+
+      // the sync range should be trying to protect everything
+      syncRange: '1m',
+      // the accuracy ranges should be trying to protect everything
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 1,
+      // the block limit will kick in
+      maxBlocks: 3,
+
+      purged: 5,
+      aranges: 1
+    });
+});
+
+////////////////////////////////////////////////////////////////////////////////
 
 function run_test() {
-  runMyTests(3);
+  runMyTests(5);
 }
