@@ -3342,6 +3342,8 @@ FolderStorage.prototype = {
                     4 * NULL_ATTR_OVERHEAD_EST;
     function sizifyAddrs(addrs) {
       sizeEst += LIST_ATTR_OVERHEAD_EST;
+      if (!addrs)
+        return;
       for (var i = 0; i < addrs.length; i++) {
         var addrPair = addrs[i];
         sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
@@ -3351,6 +3353,8 @@ FolderStorage.prototype = {
     }
     function sizifyAttachments(atts) {
       sizeEst += LIST_ATTR_OVERHEAD_EST;
+      if (!atts)
+        return;
       for (var i = 0; i < atts.length; i++) {
         var att = atts[i];
         sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
@@ -3363,6 +3367,8 @@ FolderStorage.prototype = {
     }
     function sizifyStringList(strings) {
       sizeEst += LIST_OVERHEAD_EST;
+      if (!strings)
+        return;
       for (var i = 0; i < strings.length; i++) {
         sizeEst += STR_ATTR_OVERHEAD_EST + strings[i].length;
       }
@@ -3377,6 +3383,8 @@ FolderStorage.prototype = {
       }
     };
     function sizifyBodyReps(reps) {
+      if (!reps)
+        return;
       sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
       for (var i = 0; i < reps.length; i += 2) {
         var type = reps[i], rep = reps[i + 1];
@@ -3397,6 +3405,7 @@ FolderStorage.prototype = {
       sizifyStr(bodyInfo.replyTo);
     sizifyAttachments(bodyInfo.attachments);
     sizifyAttachments(bodyInfo.relatedParts);
+    sizifyStringList(bodyInfo.references);
     sizifyBodyReps(bodyInfo.bodyReps);
     bodyInfo.size = sizeEst;
 
