@@ -1043,6 +1043,61 @@ TD.commonSimple('header iteration', function test_header_iteration() {
     chexpect(null, null, null, null));
 });
 
+/**
+ * Test that messages in the future are properly retrieved by the FolderStorage.
+ */
+TD.commonSimple('future headers', function test_future_headers() {
+  var ctx = makeTestContext(),
+      // Ensure that our message's date is in the future (without messing with
+      // $date.NOW()).
+      dA = Date.UTC(new Date().getFullYear() + 1, 0, 4),
+      uidA1 = 101, uidA2 = 102, uidA3 = 103;
+
+  ctx.insertHeader(dA, uidA1);
+  ctx.insertHeader(dA, uidA2);
+  ctx.insertHeader(dA, uidA3);
+
+  // Expect, where 'first' is first reported, and 'last' is last reported,
+  // with no explicit time constraints.  For new-to-old, this means that
+  // firstDate >= lastDate.
+  function chexpect(firstDate, firstUID, lastDate, lastUID) {
+    var seen = [];
+    return function(headers, moreExpected) {
+      console.log(
+        "headers!", headers.length, ":",
+        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+      // zero message case
+      if (!headers.length) {
+        if (moreExpected)
+          return;
+        do_check_eq(firstDate, null);
+        do_check_eq(firstUID, null);
+        do_check_eq(lastDate, null);
+        do_check_eq(lastUID, null);
+        return;
+      }
+
+      if (!seen.length) {
+        do_check_eq(firstDate, headers[0].date);
+        do_check_eq(firstUID, headers[0].id);
+      }
+      seen = seen.concat(headers);
+      if (!moreExpected) {
+        var last = seen.length - 1;
+        do_check_eq(lastUID, seen[last].id);
+        do_check_eq(lastDate, seen[last].date);
+      }
+    };
+  }
+
+  // -- getMessagesInImapDateRange
+  // Effectively unconstrained date range, no limit
+  ctx.storage.getMessagesInImapDateRange(
+    0, null, null, null,
+    chexpect(dA, uidA3, dA, uidA1));
+});
+
 ////////////////////////////////////////////////////////////////////////////////
 
 function run_test() {

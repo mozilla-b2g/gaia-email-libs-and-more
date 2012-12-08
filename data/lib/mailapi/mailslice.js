@@ -1308,7 +1308,8 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object that contains date ranges that overlaps the provided
-   * date range.  Scans from the present into the past.
+   * date range.  Scans from the present into the past.  If endTS is null, get
+   * treat it as being a date infinitely far in the future.
    */
   _findFirstObjIndexForDateRange: function ifs__findFirstObjIndexForDateRange(
       list, startTS, endTS) {
@@ -1330,7 +1331,7 @@ FolderStorage.prototype = {
 
       // nb: SINCE(endTS, info.startTS) is not right here because the equals
       // case does not result in overlap because endTS is exclusive.
-      if (STRICTLY_AFTER(endTS, info.startTS))
+      if (endTS === null || STRICTLY_AFTER(endTS, info.startTS))
         return [i, info];
       // (no overlap yet)
     }
@@ -1373,14 +1374,16 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object in the list whose `date` falls inside the given
-   * IMAP style date range.
+   * IMAP style date range.  If `endTS` is null, find the first object whose
+   * `date` is at least `startTS`.
    */
   _findFirstObjForDateRange: function ifs__findFirstObjForDateRange(
       list, startTS, endTS) {
     var i;
+    var dateComparator = endTS === null ? SINCE : IN_BS_DATE_RANGE;
     for (i = 0; i < list.length; i++) {
       var date = list[i].date;
-      if (IN_BS_DATE_RANGE(date, startTS, endTS))
+      if (dateComparator(date, startTS, endTS))
         return [i, list[i]];
     }
     return [i, null];
@@ -2240,10 +2243,11 @@ FolderStorage.prototype = {
    *
    * @args[
    *   @param[startTS DateMS]{
-   *     SINCE-evaluated start timestamp. (inclusive)
+   *     SINCE-evaluated start timestamp (inclusive).
    *   }
    *   @param[endTS DateMS]{
-   *     BEFORE-evaluated end timestamp. (exclusive)
+   *     BEFORE-evaluated end timestamp (exclusive).  If endTS is null, get all
+   *     messages since startTS.
    *   }
    *   @param[minDesired #:optional Number]{
    *     The minimum number of messages to return.  We will keep loading blocks
@@ -2269,8 +2273,6 @@ FolderStorage.prototype = {
         self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
-    if (endTS == null)
-      endTS = NOW(); // or just use a huge number?
 
     // find the first header block with the data we want
     var headerPair = this._findFirstObjIndexForDateRange(
