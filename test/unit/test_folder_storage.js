@@ -30,6 +30,8 @@ MockAccount.prototype = {
     syncRange: 'auto',
   },
   tzOffset: 0,
+  scheduleMessagePurge: function() {
+  },
 };
 
 /**
@@ -71,7 +73,7 @@ function makeTestContext() {
       var bodyInfo = {
         date: date, size: size,
         to: null, cc: null, bcc: null, replyTo: null,
-        attachments: null, bodyReps: null
+        attachments: [], relatedParts: [], references: [], bodyReps: [],
       };
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, 'S' + uid, size, bodyInfo,
@@ -200,9 +202,10 @@ function injectSomeMessages(ctx, count, bodySize) {
     var header = headers[i];
     ctx.storage.addMessageHeader(header);
     var bodyInfo = {
-      date: header.date, size: bodySize,
+      date: header.date, get size() { return bodySize; },
+      set size(val) {},
       to: null, cc: null, bcc: null, replyTo: null,
-      attachments: null, bodyReps: null
+      attachments: null, relatedParts: null, bodyReps: null
     };
     ctx.storage.addMessageBody(header, bodyInfo);
   }
@@ -927,6 +930,75 @@ TD.commonSimple('insertion differing only by UIDs',
   run_next_test();
 });
 
+// Expect, where 'first' is first reported, and 'last' is last reported,
+// with no explicit time constraints.  For new-to-old, this means that
+// firstDate >= lastDate.
+function chexpect(firstDate, firstUID, lastDate, lastUID) {
+  var seen = [];
+  return function(headers, moreExpected) {
+    console.log(
+      "headers!", headers.length, ":",
+      headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+    // zero message case
+    if (!headers.length) {
+      if (moreExpected)
+        return;
+      do_check_eq(firstDate, null);
+      do_check_eq(firstUID, null);
+      do_check_eq(lastDate, null);
+      do_check_eq(lastUID, null);
+      return;
+    }
+
+    if (!seen.length) {
+      do_check_eq(firstDate, headers[0].date);
+      do_check_eq(firstUID, headers[0].id);
+    }
+    seen = seen.concat(headers);
+    if (!moreExpected) {
+      var last = seen.length - 1;
+      do_check_eq(lastUID, seen[last].id);
+      do_check_eq(lastDate, seen[last].date);
+    }
+  };
+}
+
+// The time ordering of the headers is always the same (most recent in
+// a group at index 0, least recent at the last index) in a block, but
+// this requires different logic than chexpect...
+function rexpect(firstDate, firstUID, lastDate, lastUID) {
+  var seen = [];
+  return function(headers, moreExpected) {
+    console.log(
+      "headers!", headers.length, ":",
+      headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+    // zero message case
+    if (!headers.length) {
+      if (moreExpected)
+        return;
+      do_check_eq(firstDate, null);
+      do_check_eq(firstUID, null);
+      do_check_eq(lastDate, null);
+      do_check_eq(lastUID, null);
+      return;
+    }
+
+    if (!seen.length) {
+      var last = headers.length - 1;
+      do_check_eq(lastUID, headers[last].id);
+      do_check_eq(lastDate, headers[last].date);
+    }
+    seen = headers.concat(seen);
+    if (!moreExpected) {
+      do_check_eq(firstDate, headers[0].date);
+      do_check_eq(firstUID, headers[0].id);
+    }
+  };
+}
+
+
 /**
  * We have 3 header retrieval helper functions: getMessagesInImapDateRange
  * keys off IMAP-style date ranges, getMessagesBeforeMessage iterates over the
@@ -968,40 +1040,6 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   ctx.storage._headerBlockInfos.splice(1, 0, olderBlockInfo);
 
   console.log(JSON.stringify(ctx.storage._headerBlockInfos));
-
-  // Expect, where 'first' is first reported, and 'last' is last reported,
-  // with no explicit time constraints.  For new-to-old, this means that
-  // firstDate >= lastDate.
-  function chexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-      seen = seen.concat(headers);
-      if (!moreExpected) {
-        var last = seen.length - 1;
-        do_check_eq(lastUID, seen[last].id);
-        do_check_eq(lastDate, seen[last].date);
-      }
-    };
-  }
 
   // -- getMessagesInImapDateRange
   // Effectively unconstrained date range, no limit
@@ -1089,39 +1127,6 @@ TD.commonSimple('header iteration', function test_header_iteration() {
 
 
   // -- getMessagesAfterMessage
-  // The time ordering of the headers is always the same (most recent in
-  // a group at index 0, least recent at the last index) in a block, but
-  // this requires different logic than chexpect...
-  function rexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        var last = headers.length - 1;
-        do_check_eq(lastUID, headers[last].id);
-        do_check_eq(lastDate, headers[last].date);
-      }
-      seen = headers.concat(seen);
-      if (!moreExpected) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-    };
-  }
   // start from first message, no limit
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, null,
@@ -1177,40 +1182,6 @@ TD.commonSimple('future headers', function test_future_headers() {
   ctx.insertHeader(dA, uidA1);
   ctx.insertHeader(dA, uidA2);
   ctx.insertHeader(dA, uidA3);
-
-  // Expect, where 'first' is first reported, and 'last' is last reported,
-  // with no explicit time constraints.  For new-to-old, this means that
-  // firstDate >= lastDate.
-  function chexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-      seen = seen.concat(headers);
-      if (!moreExpected) {
-        var last = seen.length - 1;
-        do_check_eq(lastUID, seen[last].id);
-        do_check_eq(lastDate, seen[last].date);
-      }
-    };
-  }
 
   // -- getMessagesInImapDateRange
   // Effectively unconstrained date range, no limit
