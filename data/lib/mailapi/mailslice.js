@@ -1330,7 +1330,7 @@ FolderStorage.prototype = {
 
       // nb: SINCE(endTS, info.startTS) is not right here because the equals
       // case does not result in overlap because endTS is exclusive.
-      if (STRICTLY_AFTER(endTS, info.startTS))
+      if (endTS === null || STRICTLY_AFTER(endTS, info.startTS))
         return [i, info];
       // (no overlap yet)
     }
@@ -1373,14 +1373,16 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object in the list whose `date` falls inside the given
-   * IMAP style date range.
+   * IMAP style date range.  If `endTS` is null, find the first object whose
+   * `date` is at least `startTS`.
    */
   _findFirstObjForDateRange: function ifs__findFirstObjForDateRange(
       list, startTS, endTS) {
     var i;
+    var dateComparator = endTS === null ? SINCE : IN_BS_DATE_RANGE;
     for (i = 0; i < list.length; i++) {
       var date = list[i].date;
-      if (IN_BS_DATE_RANGE(date, startTS, endTS))
+      if (dateComparator(date, startTS, endTS))
         return [i, list[i]];
     }
     return [i, null];
@@ -2269,8 +2271,6 @@ FolderStorage.prototype = {
         self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
-    if (endTS == null)
-      endTS = NOW(); // or just use a huge number?
 
     // find the first header block with the data we want
     var headerPair = this._findFirstObjIndexForDateRange(
