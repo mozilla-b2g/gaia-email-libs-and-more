@@ -1043,9 +1043,14 @@ TD.commonSimple('header iteration', function test_header_iteration() {
     chexpect(null, null, null, null));
 });
 
+/**
+ * Test that messages in the future are properly retrieved by the FolderStorage.
+ */
 TD.commonSimple('future headers', function test_future_headers() {
   var ctx = makeTestContext(),
-      dA = Date.UTC(2013, 0, 4),
+      // Ensure that our message's date is in the future (without messing with
+      // $date.NOW()).
+      dA = Date.UTC(new Date().getFullYear() + 1, 0, 4),
       uidA1 = 101, uidA2 = 102, uidA3 = 103;
 
   ctx.insertHeader(dA, uidA1);

@@ -1308,7 +1308,8 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object that contains date ranges that overlaps the provided
-   * date range.  Scans from the present into the past.
+   * date range.  Scans from the present into the past.  If endTS is null, get
+   * treat it as being a date infinitely far in the future.
    */
   _findFirstObjIndexForDateRange: function ifs__findFirstObjIndexForDateRange(
       list, startTS, endTS) {
@@ -2242,10 +2243,11 @@ FolderStorage.prototype = {
    *
    * @args[
    *   @param[startTS DateMS]{
-   *     SINCE-evaluated start timestamp. (inclusive)
+   *     SINCE-evaluated start timestamp (inclusive).
    *   }
    *   @param[endTS DateMS]{
-   *     BEFORE-evaluated end timestamp. (exclusive)
+   *     BEFORE-evaluated end timestamp (exclusive).  If endTS is null, get all
+   *     messages since startTS.
    *   }
    *   @param[minDesired #:optional Number]{
    *     The minimum number of messages to return.  We will keep loading blocks
