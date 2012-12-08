@@ -88,6 +88,33 @@ const bsearchForInsert = $util.bsearchForInsert,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
 
+// What do we think the post-snappy compression overhead of the structured clone
+// persistence rep will be for various things?  These are total guesses right
+// now.  Keep in mind we do want the pre-compression size of the data in all
+// cases and we just hope it will compress a bit.  For the attributes we are
+// including the attribute name as well as any fixed-overhead for its payload,
+// especially numbers which may or may not be zig-zag encoded/etc.
+const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
+      NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
+      NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
+      NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
+
+/**
+ * Intersects two objects each defining tupled ranges of the type
+ * { startTS, startUID, endTS, endUID }, like block infos and mail slices.
+ * This is exported for unit testing purposes and because no state is closed
+ * over.
+ */
+const tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
+    function tupleRangeIntersectsTupleRange(a, b) {
+  if (BEFORE(a.endTS, b.startTS) ||
+      STRICTLY_AFTER(a.startTS, b.endTS))
+    return false;
+  if ((a.endTS === b.startTS && a.endUID < b.startUID) ||
+      (a.startTS === b.endTS && a.startTS > b.endUID))
+    return false;
+  return true;
+};
 
 /**
  * What is the maximum number of bytes a block should store before we split
@@ -862,11 +889,29 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._headerBlocks = {};
   /**
+   * @listof[FolderBlockInfo]{
+   *   The block infos of all the header blocks in `_headerBlocks`.  Exists so
+   *   that we don't need to map blocks back to their block infos when we are
+   *   considering flushing things.  This could also be used for most recently
+   *   loaded tracking.
+   * }
+   */
+  this._loadedHeaderBlockInfos = [];
+  /**
    * @dictof[@key[BlockId] @value[BodyBlock]]{
    *   In-memory cache of body blocks.
    * }
    */
   this._bodyBlocks = {};
+  /**
+   * @listof[FolderBlockInfo]{
+   *   The block infos of all the body blocks in `_bodyBlocks`.  Exists so
+   *   that we don't need to map blocks back to their block infos when we are
+   *   considering flushing things.  This could also be used for most recently
+   *   loaded tracking.
+   * }
+   */
+  this._loadedBodyBlockInfos = [];
 
   this._bound_makeHeaderBlock = this._makeHeaderBlock.bind(this);
   this._bound_insertHeaderInBlock = this._insertHeaderInBlock.bind(this);
@@ -935,6 +980,8 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._curSyncSlice = null;
 
+  this._messagePurgeScheduled = false;
+
   this.folderSyncer = FolderSyncer && new FolderSyncer(account, this,
                                                        this._LOG);
 }
@@ -964,6 +1011,10 @@ FolderStorage.prototype = {
   /**
    * Called by our owning account to generate lists of dirty blocks to be
    * persisted to the database if we have any dirty blocks.
+   *
+   * We trigger a cache flush after clearing the set of dirty blocks because
+   * this is the first time we can flush the no-longer-dirty blocks and this is
+   * an acceptable/good time to clear the cache since we must not be in a mutex.
    */
   generatePersistenceInfo: function() {
     if (!this._dirty)
@@ -976,6 +1027,7 @@ FolderStorage.prototype = {
     this._dirtyHeaderBlocks = {};
     this._dirtyBodyBlocks = {};
     this._dirty = false;
+    this.flushExcessCachedBlocks();
     return pinfo;
   },
 
@@ -997,6 +1049,7 @@ FolderStorage.prototype = {
           return;
         }
         self._mutexQueue.shift();
+        self.flushExcessCachedBlocks();
         // Although everything should be async, avoid stack explosions by
         // deferring the execution to a future turn of the event loop.
         if (self._mutexQueue.length)
@@ -1194,6 +1247,14 @@ FolderStorage.prototype = {
     this._dirty = true;
     this._bodyBlocks[blockId] = block;
     this._dirtyBodyBlocks[blockId] = block;
+
+    if (this._folderImpl.nextBodyBlock %
+          $sync.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS === 0 &&
+        !this._messagePurgeScheduled) {
+      this._messagePurgeScheduled = true;
+      this._account.scheduleMessagePurge(this.folderId);
+    }
+
     return blockInfo;
   },
 
@@ -1288,14 +1349,54 @@ FolderStorage.prototype = {
   },
 
   /**
-   * Flush cached blocks that are unlikely to be used again soon.
+   * Flush cached blocks that are unlikely to be used again soon.  Our
+   * heuristics for deciding what to keep is simple:
+   * - Dirty blocks are always kept; this is required for correctness.
+   * - Blocks that overlap with live `MailSlice` instances are kept.
+   *
+   * It could also make sense to support some type of MRU tracking, but the
+   * complexity is not currently justified since the live `MailSlice` should
+   * lead to a near-perfect hit rate on immediate actions and the UI's
+   * pre-emptive slice growing should insulate it from any foolish discards
+   * we might make.
    */
   flushExcessCachedBlocks: function() {
+    var slices = this._slices;
+    function blockIntersectsAnySlice(blockInfo) {
+      for (var i = 0; i < slices.length; i++) {
+        var slice = slices[i];
+        if (tupleRangeIntersectsTupleRange(slice, blockInfo))
+          return true;
+      }
+      return false;
+    }
+    function maybeDiscard(blockType, blockInfoList, loadedBlockInfos,
+                          blockMap, dirtyMap) {
+      for (var i = 0; i < loadedBlockInfos.length; i++) {
+        var blockInfo = loadedBlockInfos[i];
+        // do not discard dirty blocks
+        if (dirtyMap.hasOwnProperty(blockInfo.blockId))
+          continue;
+        // do not discard blocks that overlap mail slices
+        if (blockIntersectsAnySlice(blockInfo))
+          continue;
+        console.log('discarding', blockType, 'block', blockInfo.blockId);
+        delete blockMap[blockInfo.blockId];
+        loadedBlockInfos.splice(i--, 1);
+      }
+    }
+
+    maybeDiscard(
+      'header', this._headerBlockInfos, this._loadedHeaderBlockInfos,
+      this._headerBlocks, this._dirtyHeaderBlocks);
+    maybeDiscard(
+      'body', this._bodyBlockInfos, this._loadedBodyBlockInfos,
+      this._bodyBlocks, this._dirtyBodyBlocks);
   },
 
   /**
-   * Purge blocks from disk storage for size and/or time reasons.  This is only
-   * used for IMAP folders and we fast-path out if invoked on ActiveSync.
+   * Purge messages from disk storage for size and/or time reasons.  This is
+   * only used for IMAP folders and we fast-path out if invoked on ActiveSync.
    *
    * This method is invoked as a result of new block allocation as a job /
    * operation run inside a mutex.  This means that we won't be run unless a
@@ -1352,7 +1453,8 @@ FolderStorage.prototype = {
    *   ]]
    * ]
    */
-  purgeExcessBlocks: function(callback) {
+  purgeExcessMessages: function(callback) {
+    this._messagePurgeScheduled = false;
     var cutTS = Math.max(
       this._purge_findLastAccessCutPoint(),
       this._purge_findHardBlockCutPoint(this._headerBlockInfos),
@@ -1695,10 +1797,11 @@ FolderStorage.prototype = {
    */
   _insertIntoBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
       type, date, uid, srvid, estSizeCost, thing, blockPickedCallback) {
-    var blockInfoList, blockMap, makeBlock, insertInBlock, splitBlock,
-        serverIdBlockMapping;
+    var blockInfoList, loadedBlockInfoList, blockMap, makeBlock, insertInBlock,
+        splitBlock, serverIdBlockMapping;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
+      loadedBlockInfoList = this._loadedHeaderBlockInfos;
       blockMap = this._headerBlocks;
       serverIdBlockMapping = this._serverIdHeaderBlockMapping;
       makeBlock = this._bound_makeHeaderBlock;
@@ -1707,6 +1810,7 @@ FolderStorage.prototype = {
     }
     else {
       blockInfoList = this._bodyBlockInfos;
+      loadedBlockInfoList = this._loadedBodyBlockInfos;
       blockMap = this._bodyBlocks;
       serverIdBlockMapping = null; // only headers have the mapping
       makeBlock = this._bound_makeBodyBlock;
@@ -1725,6 +1829,7 @@ FolderStorage.prototype = {
       if (blockInfoList.length === 0) {
         info = makeBlock(date, uid, date, uid);
         blockInfoList.splice(iInfo, 0, info);
+        loadedBlockInfoList.push(info);
       }
       // - Is there a trailing/older dude and we fit?
       else if (iInfo < blockInfoList.length &&
@@ -1820,6 +1925,7 @@ FolderStorage.prototype = {
         var olderInfo;
         olderInfo = splitBlock(info, block, firstBlockTarget);
         blockInfoList.splice(iInfo + 1, 0, olderInfo);
+        loadedBlockInfoList.push(olderInfo);
 
         // - figure which of the blocks our insertion went in
         if (BEFORE(date, olderInfo.endTS) ||
@@ -1911,15 +2017,17 @@ FolderStorage.prototype = {
   },
 
   _deleteFromBlock: function ifs__deleteFromBlock(type, date, uid, callback) {
-    var blockInfoList, blockMap, deleteFromBlock;
+    var blockInfoList, loadedBlockInfoList, blockMap, deleteFromBlock;
     this._LOG.deleteFromBlock(type, date, uid);
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
+      loadedBlockInfoList = this._loadedHeaderBlockInfos;
       blockMap = this._headerBlocks;
       deleteFromBlock = this._bound_deleteHeaderFromBlock;
     }
     else {
       blockInfoList = this._bodyBlockInfos;
+      loadedBlockInfoList = this._loadedBodyBlockInfos;
       blockMap = this._bodyBlocks;
       deleteFromBlock = this._bound_deleteBodyFromBlock;
     }
@@ -1943,6 +2051,7 @@ FolderStorage.prototype = {
       if (info.count === 0) {
         blockInfoList.splice(iInfo, 1);
         delete blockMap[info.blockId];
+        loadedBlockInfoList.splice(loadedBlockInfoList.indexOf(info), 1);
 
         this._dirty = true;
         if (type === 'header')
@@ -3224,6 +3333,70 @@ FolderStorage.prototype = {
                                  this, header, bodyInfo, callback));
       return;
     }
+
+    // crappy size estimates where we assume the world is ASCII and so a UTF-8
+    // encoding will take exactly 1 byte per character.
+    var sizeEst = OBJ_OVERHEAD_EST + NUM_ATTR_OVERHEAD_EST +
+                    4 * NULL_ATTR_OVERHEAD_EST;
+    function sizifyAddrs(addrs) {
+      sizeEst += LIST_ATTR_OVERHEAD_EST;
+      for (var i = 0; i < addrs.length; i++) {
+        var addrPair = addrs[i];
+        sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                     (addrPair.name ? addrPair.name.length : 0) +
+                     (addrPair.address ? addrPair.address.length : 0);
+      }
+    }
+    function sizifyAttachments(atts) {
+      sizeEst += LIST_ATTR_OVERHEAD_EST;
+      for (var i = 0; i < atts.length; i++) {
+        var att = atts[i];
+        sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                     att.name.length + att.type.length +
+                     NUM_ATTR_OVERHEAD_EST;
+      }
+    }
+    function sizifyStr(str) {
+      sizeEst += STR_ATTR_OVERHEAD_EST + str.length;
+    }
+    function sizifyStringList(strings) {
+      sizeEst += LIST_OVERHEAD_EST;
+      for (var i = 0; i < strings.length; i++) {
+        sizeEst += STR_ATTR_OVERHEAD_EST + strings[i].length;
+      }
+    }
+    function sizifyBodyRep(rep) {
+      sizeEst += LIST_OVERHEAD_EST +
+                   NUM_OVERHEAD_EST * (rep.length / 2) +
+                   STR_OVERHEAD_EST * (rep.length / 2);
+      for (var i = 1; i < rep.length; i += 2) {
+        if (rep[i])
+          sizeEst += rep[i].length;
+      }
+    };
+    function sizifyBodyReps(reps) {
+      sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
+      for (var i = 0; i < reps.length; i += 2) {
+        var type = reps[i], rep = reps[i + 1];
+        if (type === 'html')
+          sizeEst += STR_OVERHEAD_EST + rep.length;
+        else
+          sizifyBodyRep(rep);
+      }
+    };
+
+    if (bodyInfo.to)
+      sizifyAddrs(bodyInfo.to);
+    if (bodyInfo.cc)
+      sizifyAddrs(bodyInfo.cc);
+    if (bodyInfo.bcc)
+      sizifyAddrs(bodyInfo.bcc);
+    if (bodyInfo.replyTo)
+      sizifyStr(bodyInfo.replyTo);
+    sizifyAttachments(bodyInfo.attachments);
+    sizifyAttachments(bodyInfo.relatedParts);
+    sizifyBodyReps(bodyInfo.bodyReps);
+    bodyInfo.size = sizeEst;
 
     this._insertIntoBlockUsingDateAndUID(
       'body', header.date, header.id, header.srvid, bodyInfo.size, bodyInfo,

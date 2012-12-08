@@ -2,6 +2,15 @@
  * Test FolderStorage's logic focusing on dealing with the impact of async
  * I/O, range edge-cases, block splitting and merging, and forgetting data as
  * needed.
+ *
+ * This file is partially converted from a straight-up xpcshell test.  Most
+ * tests use do_check_eq which does not generate any logging output and so if
+ * you want to see what went wrong, you need to check
+ * test_folder_storage.js.log.  The ArbPL UI will properly indicate in its
+ * summary view that the tests failed, but if you look at the log, you will
+ * be potentially misled, although the XPConnect error code killing the test
+ * case can be seen in the first failing test.  (Subsequent tests get skipped
+ * because do_check_eq kills the event loop when it fails.)
  **/
 
 load('resources/loggest_test_framework.js');
@@ -182,7 +191,7 @@ const BIG5 = 18 * 1024;
  * Create messages distributed so that we have 5 headers per header block and
  * 3 bodies per body blocks.
  */
-function injectSomeMessages(ctx, count, headerSize, bodySize) {
+function injectSomeMessages(ctx, count, bodySize) {
   var headers = makeDummyHeaders(count),
       BS = BIG3;
 
@@ -199,6 +208,71 @@ function injectSomeMessages(ctx, count, headerSize, bodySize) {
   }
   return headers;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Test helper functions
+
+TD.commonSimple('tuple range intersection', function test_tuple_range_isect() {
+  var intersect = $_mailslice.tupleRangeIntersectsTupleRange;
+
+  function checkBoth(a, b, result) {
+    do_check_eq(intersect(a, b), result);
+    do_check_eq(intersect(b, a), result);
+  }
+
+  // -- non-intersecting variants
+  // date-wise
+  checkBoth(
+    { startTS: 200, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 0, endTS: 100, endUID: 0 },
+    false);
+  // uid-wise
+  checkBoth(
+    { startTS: 200, startUID: 1, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    false);
+
+  // -- intersecting variants
+  // completely contained date-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 0 },
+    true);
+  // completely contained uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 0, endUID: 40 },
+    { startTS: 0, startUID: 10, endTS: 0, endUID: 20 },
+    true);
+  // completely contained date/uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 1, endTS: 200, endUID: 0 },
+    true);
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 20 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 10 },
+    true);
+
+  // partially contained date-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 300, endUID: 0 },
+    true);
+  // partially contained uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 0, endUID: 30 },
+    { startTS: 0, startUID: 20, endTS: 0, endUID: 40 },
+    true);
+  // partially contained date/uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 100, endUID: 0 },
+    { startTS: 0, startUID: 20, endTS: 200, endUID: 0 },
+    true);
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 40 },
+    true);
+});
 
 ////////////////////////////////////////////////////////////////////////////////
 // Sync accuracy regions.
@@ -638,15 +712,15 @@ TD.commonSimple('insertion in block that will overflow',
 TD.commonSimple('header block splitting',
                 function test_header_block_splitting() {
   var ctx = makeTestContext(),
-      expectedHeadersPerBlock = 246, // Math.ceil(48 * 1024 / 200)
-      numHeaders = 492,
+      expectedHeadersPerBlock = 115, // Math.ceil(48 * 1024 / 430)
+      numHeaders = 230,
       // returned header list has numerically decreasing time/uid
       bigHeaders = makeDummyHeaders(numHeaders),
       bigUids = bigHeaders.map(function (x) { return x.id; }),
       bigInfo = ctx.storage._makeHeaderBlock(
         bigHeaders[numHeaders-1].date, bigHeaders[numHeaders-1].id,
         bigHeaders[0].date, bigHeaders[0].id,
-        numHeaders * 200, bigUids.concat(), bigHeaders.concat()),
+        numHeaders * 430, bigUids.concat(), bigHeaders.concat()),
       bigBlock = ctx.storage._headerBlocks[bigInfo.blockId];
 
   var olderInfo = ctx.storage._splitHeaderBlock(bigInfo, bigBlock, 48 * 1024),
@@ -656,8 +730,8 @@ TD.commonSimple('header block splitting',
   do_check_eq(newerInfo.count, expectedHeadersPerBlock);
   do_check_eq(olderInfo.count, numHeaders - expectedHeadersPerBlock);
 
-  do_check_eq(newerInfo.estSize, newerInfo.count * 200);
-  do_check_eq(olderInfo.estSize, olderInfo.count * 200);
+  do_check_eq(newerInfo.estSize, newerInfo.count * 430);
+  do_check_eq(olderInfo.estSize, olderInfo.count * 430);
 
 
   do_check_eq(newerInfo.startTS,
@@ -1093,6 +1167,75 @@ TD.commonSimple('header iteration', function test_header_iteration() {
 ////////////////////////////////////////////////////////////////////////////////
 // Discard blocks from in-memory cache
 
+TD.commonSimple('block cache flushing', function() {
+  var ctx = makeTestContext();
+
+  // no blocks should be loaded before stuff starts
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+
+  $_syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+  var headers = injectSomeMessages(ctx, 9, BIG3);
+
+  // check that we have the expected number of blocks and they are all dirty
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('1'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('3'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('1'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('3'));
+
+  // - flush and see nothing discarded because everything is dirty
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
+
+  // - clear the dirty bit of some stuff and see flushes happen
+  // (use different blocks to expose dumb typo bugs)
+  delete ctx.storage._dirtyHeaderBlocks['3'];
+  delete ctx.storage._dirtyBodyBlocks['2'];
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 3);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('3'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+
+  // - clear all dirty bits, keep alive via mail slices
+  delete ctx.storage._dirtyHeaderBlocks['0'];
+  delete ctx.storage._dirtyHeaderBlocks['1'];
+  delete ctx.storage._dirtyHeaderBlocks['2'];
+  delete ctx.storage._dirtyBodyBlocks['0'];
+  delete ctx.storage._dirtyBodyBlocks['1'];
+  delete ctx.storage._dirtyBodyBlocks['3'];
+
+  var startHeader = headers[4], endHeader = headers[0];
+  ctx.storage._slices.push({
+    startTS: startHeader.date, startUID: startHeader.id,
+    endTS: endHeader.date, endUID: endHeader.id,
+  });
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 2);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 2);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('2'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
+
+  // clear slices, all blocks should be collected
+  ctx.storage._slices.pop();
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+});
+
 ////////////////////////////////////////////////////////////////////////////////
 // Purge messages from disk
 
@@ -1112,7 +1255,7 @@ TD.commonCase('message purging', function test_message_purging(T, RT) {
       });
       var ctx = makeTestContext();
       var headers =
-            injectSomeMessages(ctx, args.count, args.headerSize, args.bodySize);
+            injectSomeMessages(ctx, args.count, args.bodySize);
 
       console.log('PRE: header block count:',
                   ctx.storage._headerBlockInfos.length);
@@ -1155,7 +1298,7 @@ TD.commonCase('message purging', function test_message_purging(T, RT) {
       eCheck.expect_namedValue('arange count', args.aranges);
 
       // this should complete synchronously
-      ctx.storage.purgeExcessBlocks(function(numDeleted, cutTS) {
+      ctx.storage.purgeExcessMessages(function(numDeleted, cutTS) {
         eCheck.namedValue('messagesPurged', numDeleted);
         eCheck.namedValue('cutTS', cutTS);
         eCheck.namedValue('oldestAccuracyStart',

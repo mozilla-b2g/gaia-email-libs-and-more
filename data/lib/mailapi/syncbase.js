@@ -81,6 +81,16 @@ exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX = 6 * $date.HOUR_MILLIS;
 // the values way up.
 
 /**
+ * Every time we create this many new body blocks, queue a purge job for the
+ * folder.
+ *
+ * Body sizes are most variable and should usually take up more space than their
+ * owning header blocks, so it makes sense for this to be the proxy we use for
+ * disk space usage/growth.
+ */
+exports.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS = 4;
+
+/**
  * How much time must have elapsed since the given messages were last
  * synchronized before purging?  Our accuracy ranges are updated whenever we are
  * online and we attempt to display messages.  So before we purge messages, we
@@ -180,8 +190,29 @@ exports.TOO_MANY_MESSAGES = 2000;
  * The estimated size of a `HeaderInfo` structure.  We are using a constant
  * since there is not a lot of variability in what we are storing and this
  * is probably good enough.
+ *
+ * Our estimate is based on guesses based on presumed structured clone encoding
+ * costs for each field using a reasonable upper bound for length.  Our
+ * estimates are trying not to factor in compressability too much since our
+ * block size targets are based on the uncompressed size.
+ * - id: 4: integer less than 64k
+ * - srvid: 40: 38 char uuid with {}'s, (these are uuid's on hotmail)
+ * - suid: 13: 'xx/xx/xxxxx' (11)
+ * - guid: 80: 66 character (unquoted) message-id from gmail, 48 from moco.
+ *         This is unlikely to compress well and there could be more entropy
+ *         out there, so guess high.
+ * - author: 70: 32 for the e-mail address covers to 99%, another 32 for the
+ *           display name which will usually be shorter than 32 but could
+ *           involve encoded characters that bloat the utf8 persistence.
+ * - date: 9: double that will be largely used)
+ * - flags: 32: list which should normally top out at ['\Seen', '\Flagged'], but
+ *              could end up with non-junk markers, etc. so plan for at least
+ *              one extra.
+ * - hasAttachments: 2: boolean
+ * - subject: 80
+ * - snippet: 100 (we target 100, it will come in under)
  */
-exports.HEADER_EST_SIZE_IN_BYTES = 200;
+exports.HEADER_EST_SIZE_IN_BYTES = 430;
 
 
 ////////////////////////////////////////////////////////////////////////////////

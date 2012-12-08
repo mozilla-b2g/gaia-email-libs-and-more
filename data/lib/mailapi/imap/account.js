@@ -944,6 +944,11 @@ ImapAccount.prototype = {
       callbacks.trash(null);
   },
 
+  scheduleMessagePurge: function(folderId, callback) {
+    this.universe.purgeExcessMessages(this.compositeAccount, folderId,
+                                      callback);
+  },
+
   //////////////////////////////////////////////////////////////////////////////
 
   runOp: $acctmixins.runOp,

@@ -976,6 +976,11 @@ ImapFolderSyncer.prototype = {
    * blocks out so actual memory usage (after GC) is commensurate with the
    * number of (still-)existing messages.  And those are what this method uses
    * to determine when it is done.
+   *
+   * In the cases where we are synchronizing a ton of messages on a single day,
+   * we could perform checkpoints during the process, but realistically any
+   * device we are operating on should probably have enough memory to deal with
+   * these surges, so we're not doing that yet.
    */
   onSyncCompleted: function ifs_onSyncCompleted(err, bisectInfo, messagesSeen) {
     // In the event the time range had to be bisected, update our info so if

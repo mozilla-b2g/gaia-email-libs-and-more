@@ -31,9 +31,9 @@ else {
  *
  * Explanation of most recent bump:
  *
- * Bumping to 15 because IMAP folder names were not properly mutf-7 decoded.
+ * Bumping to 16 because header/body size estimates have been adjusted.
  */
-const CUR_VERSION = exports.CUR_VERSION = 15;
+const CUR_VERSION = exports.CUR_VERSION = 16;
 
 /**
  * What is the lowest database version that we are capable of performing a

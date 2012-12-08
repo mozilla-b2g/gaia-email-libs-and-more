@@ -60,12 +60,19 @@ var TestUniverseMixins = {
     // Of course, we don't want to future-date things and have servers be
     // mad at us either, so let's have yesterday be our current time.  We use
     // our time-warp functionality on the server to make this okay.
-    if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
+    if (!checkFlagDefault(opts, 'realDate', false)) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+    }
+    else {
+      self._useDate = new Date();
+      $date.TEST_LetsDoTheTimewarpAgain(null);
+    }
+
+    if (!checkFlagDefault(opts, 'stockDefaults', false)) {
       // These are all the default values that tests code against by default.
       // If a test wants to use different values,
       $sync.TEST_adjustSyncValues({
@@ -84,10 +91,7 @@ var TestUniverseMixins = {
         useRangeInbox: DISABLE_THRESH_USING_FUTURE
       });
     }
-    else {
-      self._useDate = new Date();
-      $date.TEST_LetsDoTheTimewarpAgain(null);
-    }
+
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
@@ -932,8 +936,8 @@ var TestImapAccountMixins = {
                           extraFlags, _saveToThing) {
     var self = this,
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
-    this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
-                  function() {
+    var testStep = this.T.action(this, desc, testFolder, 'using',
+                                 testFolder.connActor, function() {
       self._expect_storage_mutexed(testFolder.storageActor, 'sync');
       // In the bisect case, we may end up actually generating a first sync
       // mutex for a refresh followed by a second one once the bisect converts
@@ -995,7 +999,10 @@ var TestImapAccountMixins = {
           slice.die();
         }
       };
-    }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
+    });
+    // (varies with N)
+    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
+    return testStep;
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,

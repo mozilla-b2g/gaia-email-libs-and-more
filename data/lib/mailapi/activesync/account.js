@@ -669,7 +669,15 @@ ActiveSyncAccount.prototype = {
     // XXX I am assuming ActiveSync servers are smart enough to already come
     // with these folders.  If not, we should move IMAP's ensureEssentialFolders
     // into the mixins class.
-    callback();
+    if (callback)
+      callback();
+  },
+
+  scheduleMessagePurge: function(callback) {
+    // ActiveSync servers have no incremental folder growth, so message purging
+    // makes no sense for them.
+    if (callback)
+      callback();
   },
 
   runOp: $acctmixins.runOp,

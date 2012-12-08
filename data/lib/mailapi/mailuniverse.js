@@ -1351,6 +1351,29 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Schedule a purge of the excess messages from the given folder.  This
+   * currently only makes sense for IMAP accounts and will automatically be
+   * called by the FolderStorage and its owning account when a sufficient
+   * number of blocks have been allocated by the storage.
+   */
+  purgeExcessMessages: function(account, folderId, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'purgeExcessMessages',
+        // no need to track this in the mutations list
+        longtermId: 'internal',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
+        tryCount: 0,
+        humanOp: 'purgeExcessMessages',
+        folderId: folderId
+      },
+      callback);
+  },
+
+  /**
    * Download one or more related-part or attachments from a message.
    * Attachments are named by their index because the indices are stable and
    * flinging around non-authoritative copies of the structures might lead to

@@ -536,7 +536,7 @@ ActiveSyncFolderConn.prototype = {
 
       body = {
         date: null,
-        size: null,
+        size: 0,
         to: null,
         cc: null,
         bcc: null,
