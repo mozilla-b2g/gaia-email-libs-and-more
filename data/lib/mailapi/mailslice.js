@@ -312,6 +312,8 @@ MailSlice.prototype = {
       this.endTS = firstHeader.date;
       this.endUID = firstHeader.id;
     }
+
+    this._storage.sliceShrunk(this);
   },
 
   reqGrow: function(dirMagnitude, userRequestsGrowth) {
@@ -1027,7 +1029,7 @@ FolderStorage.prototype = {
     this._dirtyHeaderBlocks = {};
     this._dirtyBodyBlocks = {};
     this._dirty = false;
-    this.flushExcessCachedBlocks();
+    this.flushExcessCachedBlocks('persist');
     return pinfo;
   },
 
@@ -1049,7 +1051,7 @@ FolderStorage.prototype = {
           return;
         }
         self._mutexQueue.shift();
-        self.flushExcessCachedBlocks();
+        self.flushExcessCachedBlocks('mutex');
         // Although everything should be async, avoid stack explosions by
         // deferring the execution to a future turn of the event loop.
         if (self._mutexQueue.length)
@@ -1360,27 +1362,39 @@ FolderStorage.prototype = {
    * pre-emptive slice growing should insulate it from any foolish discards
    * we might make.
    */
-  flushExcessCachedBlocks: function() {
+  flushExcessCachedBlocks: function(debugLabel) {
     var slices = this._slices;
     function blockIntersectsAnySlice(blockInfo) {
       for (var i = 0; i < slices.length; i++) {
         var slice = slices[i];
-        if (tupleRangeIntersectsTupleRange(slice, blockInfo))
+        if (tupleRangeIntersectsTupleRange(slice, blockInfo)) {
+          // Here is some useful debug you can uncomment!
+          /*
+          console.log('  slice intersect. slice:',
+                      slice.startTS, slice.startUID,
+                      slice.endTS, slice.endUID, '  block:',
+                      blockInfo.startTS, blockInfo.startUID,
+                      blockInfo.endTS, blockInfo.endUID);
+           */
           return true;
+        }
       }
       return false;
     }
     function maybeDiscard(blockType, blockInfoList, loadedBlockInfos,
                           blockMap, dirtyMap) {
+      // console.warn('!! flushing', blockType, 'blocks because:', debugLabel);
       for (var i = 0; i < loadedBlockInfos.length; i++) {
         var blockInfo = loadedBlockInfos[i];
         // do not discard dirty blocks
-        if (dirtyMap.hasOwnProperty(blockInfo.blockId))
+        if (dirtyMap.hasOwnProperty(blockInfo.blockId)) {
+          // console.log('  dirty block:', blockInfo.blockId);
           continue;
+        }
         // do not discard blocks that overlap mail slices
         if (blockIntersectsAnySlice(blockInfo))
           continue;
-        console.log('discarding', blockType, 'block', blockInfo.blockId);
+        // console.log('discarding', blockType, 'block', blockInfo.blockId);
         delete blockMap[blockInfo.blockId];
         loadedBlockInfos.splice(i--, 1);
       }
@@ -1507,7 +1521,7 @@ FolderStorage.prototype = {
         // - load the last header block if not currently loaded
         var blockInfo = headerBlockInfos[headerBlockInfos.length - 1];
         if (!this._headerBlocks.hasOwnProperty(blockInfo.blockId)) {
-          this.__loadBlock('header', blockInfo.blockId, deleteNextHeader);
+          this._loadBlock('header', blockInfo, deleteNextHeader);
           return;
         }
         // - get the last header, check it
@@ -1949,7 +1963,7 @@ FolderStorage.prototype = {
     if (blockMap.hasOwnProperty(info.blockId))
       processBlock.call(this, blockMap[info.blockId]);
     else
-      this._loadBlock(type, info.blockId, processBlock.bind(this));
+      this._loadBlock(type, info, processBlock.bind(this));
   },
 
   runAfterDeferredCalls: function(callback) {
@@ -1970,13 +1984,27 @@ FolderStorage.prototype = {
     }
   },
 
+  _findBlockInfoFromBlockId: function(type, blockId) {
+    var blockInfoList;
+    if (type === 'header')
+      blockInfoList = this._headerBlockInfos;
+    else
+      blockInfoList = this._bodyBlockInfos;
+
+    for (var i = 0; i < blockInfoList.length; i++) {
+      var blockInfo = blockInfoList[i];
+      if (blockInfo.blockId === blockId)
+        return blockInfo;
+    }
+    return null;
+  },
+
   /**
    * Request the load of the given block and the invocation of the callback with
    * the block when the load completes.
    */
-  _loadBlock: function ifs__loadBlock(type, blockId, callback) {
-    if (blockId == null)
-      throw new Error('Bad block id!');
+  _loadBlock: function ifs__loadBlock(type, blockInfo, callback) {
+    var blockId = blockInfo.blockId;
     var aggrId = type + blockId;
     if (this._pendingLoads.indexOf(aggrId) !== -1) {
       this._pendingLoadListeners[aggrId].push(callback);
@@ -1992,10 +2020,14 @@ FolderStorage.prototype = {
       if (!block)
         self._LOG.badBlockLoad(type, blockId);
       self._LOG.loadBlock_end(type, blockId, block);
-      if (type === 'header')
+      if (type === 'header') {
         self._headerBlocks[blockId] = block;
-      else
+        self._loadedHeaderBlockInfos.push(blockInfo);
+      }
+      else {
         self._bodyBlocks[blockId] = block;
+        self._loadedBodyBlockInfos.push(blockInfo);
+      }
       self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
@@ -2068,7 +2100,7 @@ FolderStorage.prototype = {
     if (blockMap.hasOwnProperty(info.blockId))
       processBlock.call(this, blockMap[info.blockId]);
     else
-      this._loadBlock(type, info.blockId, processBlock.bind(this));
+      this._loadBlock(type, info, processBlock.bind(this));
   },
 
   /**
@@ -2355,6 +2387,16 @@ FolderStorage.prototype = {
   },
 
   /**
+   * A notification from a slice that it is has reduced the span of time that it
+   * covers.  We use this to run a cache eviction if there is not currently a
+   * mutex held.
+   */
+  sliceShrunk: function fs_sliceShrunk(slice) {
+    if (this._mutexQueue.length === 0)
+      this.flushExcessCachedBlocks('shrunk');
+  },
+
+  /**
    * Refresh our understanding of the time range covered by the messages
    * contained in the slice, plus expansion to the bounds of our known sync
    * date boundaries if the messages are the first/last known message.
@@ -2635,7 +2677,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -2753,7 +2795,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -2831,7 +2873,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -3013,7 +3055,7 @@ FolderStorage.prototype = {
     }
     var headerBlockInfo = posInfo[1], self = this;
     if (!(this._headerBlocks.hasOwnProperty(headerBlockInfo.blockId))) {
-      this._loadBlock('header', headerBlockInfo.blockId, function(headerBlock) {
+      this._loadBlock('header', headerBlockInfo, function(headerBlock) {
           var idx = headerBlock.uids.indexOf(id);
           var headerInfo = headerBlock.headers[idx] || null;
           if (!headerInfo)
@@ -3198,7 +3240,7 @@ FolderStorage.prototype = {
                         date + ' id: ' + id);
     }
     else if (!this._headerBlocks.hasOwnProperty(info.blockId))
-      this._loadBlock('header', info.blockId, doUpdateHeader);
+      this._loadBlock('header', info, doUpdateHeader);
     else
       doUpdateHeader(this._headerBlocks[info.blockId]);
   },
@@ -3234,10 +3276,13 @@ FolderStorage.prototype = {
       }
     }.bind(this);
 
-    if (this._headerBlocks.hasOwnProperty(blockId))
+    if (this._headerBlocks.hasOwnProperty(blockId)) {
       findInBlock(this._headerBlocks[blockId]);
-    else
-      this._loadBlock('header', blockId, findInBlock);
+    }
+    else {
+      var blockInfo = this._findBlockInfoFromBlockId('header', blockId);
+      this._loadBlock('header', blockInfo, findInBlock);
+    }
   },
 
   /**
@@ -3319,10 +3364,13 @@ FolderStorage.prototype = {
       }
     }.bind(this);
 
-    if (this._headerBlocks.hasOwnProperty(blockId))
+    if (this._headerBlocks.hasOwnProperty(blockId)) {
       findInBlock(this._headerBlocks[blockId]);
-    else
-      this._loadBlock('header', blockId, findInBlock);
+    }
+    else {
+      var blockInfo = this._findBlockInfoFromBlockId('header', blockId);
+      this._loadBlock('header', blockInfo, findInBlock);
+    }
   },
 
   /**
@@ -3430,7 +3478,7 @@ FolderStorage.prototype = {
     }
     var bodyBlockInfo = posInfo[1], self = this;
     if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.blockId))) {
-      this._loadBlock('body', bodyBlockInfo.blockId, function(bodyBlock) {
+      this._loadBlock('body', bodyBlockInfo, function(bodyBlock) {
           var bodyInfo = bodyBlock.bodies[id] || null;
           if (!bodyInfo)
             self._LOG.bodyNotFound();
