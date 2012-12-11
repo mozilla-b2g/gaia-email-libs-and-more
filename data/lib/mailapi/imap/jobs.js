@@ -916,7 +916,10 @@ ImapJobDriver.prototype = {
     this._accessFolderForMutation(
       op.folderId, false,
       function withMutex(_ignoredConn, storage) {
-        storage.purgeExcessMessages(doneCallback);
+        storage.purgeExcessMessages(function(numDeleted, cutTS) {
+          // Indicate that we want a save performed if any messages got deleted.
+          doneCallback(null, null, numDeleted > 0);
+        });
       },
       null,
       'purgeExcessMessages');

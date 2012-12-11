@@ -132,7 +132,8 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('non-null relpart 0', true);
     eCheck.expect_namedValue('non-null relpart 1', true);
 
-    testAccount.expect_runOp('download', /* save account */ true);
+    testAccount.expect_runOp('download',
+                             { local: true, server: true, save: 'server' });
 
     fancyBody.downloadEmbeddedImages(function() {
       eCheck.event('downloaded');

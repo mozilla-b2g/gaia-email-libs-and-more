@@ -78,8 +78,8 @@ TD.commonCase('account persistence', function(T) {
 
     // (this is low-level IMAP Deletion and is just a flag change)
     for (var i = 0; i < 1; i++) {
-      TA3.eImapAccount.expect_runOp_begin('do', 'modtags');
-      TA3.eImapAccount.expect_runOp_end('do', 'modtags');
+      TA3.expect_runOp('modtags',
+                       { local: false, server: true, save: false });
     }
 
     // update our test's idea of what messages exist where.
@@ -116,9 +116,8 @@ TD.commonCase('account persistence', function(T) {
     s1subject = slice.items[1].subject;
     slice.items[1].setStarred(true);
     for (var i = 0; i < 2; i++) {
-      // we had to latch TA2 because testAccount is updated statically
-      TA4.eImapAccount.expect_runOp_begin('do', 'modtags');
-      TA4.eImapAccount.expect_runOp_end('do', 'modtags');
+      TA4.expect_runOp('modtags',
+                       { local: false, server: true, save: false });
     }
   });
   var TV4 = testAccount.do_openFolderView(

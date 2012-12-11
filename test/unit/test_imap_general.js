@@ -145,8 +145,8 @@ TD.commonCase('folder sync', function(T) {
     slice.items[4].setStarred(true);
 
     for (var i = 0; i < 4; i++) {
-      testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+      testAccount.expect_runOp('modtags',
+                               { local: false, server: true, save: false });
     }
 
     // update our test's idea of what messages exist where.

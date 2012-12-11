@@ -34,7 +34,8 @@ TD.commonCase('obliterate', function(T) {
       expectFunc: function() {
         // This will generate so much write traffic that a purgeExcessMessages
         // job will be scheduled and run after the sync.
-        testAccount.expect_runOp('purgeExcessMessages', false);
+        testAccount.expect_runOp('purgeExcessMessages',
+                                 { local: true, server: true, save: false });
         testFolder.storageActor.expect_mutexedCall_begin('purgeExcessMessages');
         testFolder.storageActor.expect_mutexedCall_end('purgeExcessMessages');
       }

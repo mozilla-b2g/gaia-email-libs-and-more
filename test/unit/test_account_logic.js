@@ -156,8 +156,8 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
       numDeletes += delCount;
     };
 
-    testAccount.expect_runOp('syncFolderList', true,
-                             { local: false, conn: true });
+    testAccount.expect_runOp('syncFolderList',
+                             { local: false, server: true, conn: true });
     eSync.expect_event('roundtripped');
     testUniverse.universe.syncFolderList(testAccount.account, function() {
       testUniverse.MailAPI.ping(function() {

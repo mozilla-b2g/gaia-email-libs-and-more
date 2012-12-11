@@ -285,12 +285,14 @@ ImapAccount.prototype = {
       if (folderStuff)
         perFolderStuff.push(folderStuff);
     }
-    this._LOG.saveAccountState_begin();
+    this._LOG.saveAccountState();
     var trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff,
       this._deadFolderIds,
       function stateSaved() {
-        self._LOG.saveAccountState_end();
+        // NB: we used to log when the save completed, but it ended up being
+        // annoying to the unit tests since we don't block our actions on
+        // the completion of the save at this time.
         if (callback)
           callback();
       },
@@ -979,6 +981,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       deadConnection: {},
       connectionMismatch: {},
 
+      saveAccountState: {},
+
       /**
        * The maximum connection limit has been reached, we are intentionally
        * not creating an additional one.
@@ -1002,7 +1006,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: {},
     },
     TEST_ONLY_asyncJobs: {
     },

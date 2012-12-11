@@ -173,11 +173,10 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin(reason);
+    this._LOG.saveAccountState(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -691,10 +690,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: {},
       deleteFolder: {},
       recreateFolder: { id: false },
+      saveAccountState: { reason: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: { reason: false },
     },
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },

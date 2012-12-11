@@ -314,8 +314,9 @@ function MailUniverse(callAfterBigBang, testOptions) {
   // We used to try and use navigator.connection, but it's not supported on B2G,
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
-  window.addEventListener('online', this._onConnectionChange.bind(this));
-  window.addEventListener('offline', this._onConnectionChange.bind(this));
+  this._bound_onConnectionChange = this._onConnectionChange.bind(this);
+  window.addEventListener('online', this._bound_onConnectionChange);
+  window.addEventListener('offline', this._bound_onConnectionChange);
   this._onConnectionChange();
 
   this._testModeDisablingLocalOps = false;
@@ -879,6 +880,9 @@ MailUniverse.prototype = {
       var account = this.accounts[iAcct];
       account.shutdown();
     }
+
+    window.removeEventListener('online', this._bound_onConnectionChange);
+    window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
     this._LOG.__die();
@@ -1040,6 +1044,11 @@ MailUniverse.prototype = {
           op.localStatus = 'undone';
           break;
       }
+
+      // This is a suggestion; in the event of high-throughput on operations,
+      // we probably don't want to save the account every tick, etc.
+      if (accountSaveSuggested)
+        account.saveAccountState();
     }
     if (removeFromServerQueue) {
       var idx = serverQueue.indexOf(op);
