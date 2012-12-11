@@ -192,7 +192,8 @@ function ImapConnection (options) {
     }
   };
   this._options = extend(true, this._options, options);
-  this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, null) : null);
+  // The Date.now thing is to assign a random/unique value as a logging stop-gap
+  this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, Date.now() % 1000) : null);
   if (this._LOG) this._LOG.created();
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };

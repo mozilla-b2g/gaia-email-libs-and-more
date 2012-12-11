@@ -252,17 +252,6 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   };
 };
 
-// What do we think the post-snappy compression overhead of the structured clone
-// persistence rep will be for various things?  These are total guesses right
-// now.  Keep in mind we do want the pre-compression size of the data in all
-// cases and we just hope it will compress a bit.  For the attributes we are
-// including the attribute name as well as any fixed-overhead for its payload,
-// especially numbers which may or may not be zig-zag encoded/etc.
-const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
-      NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
-      NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
-      NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
-
 const DESIRED_SNIPPET_LENGTH = 100;
 
 /**
@@ -340,68 +329,18 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
   };
 
 
-  // crappy size estimates where we assume the world is ASCII and so a UTF-8
-  // encoding will take exactly 1 byte per character.
-  var sizeEst = OBJ_OVERHEAD_EST + NUM_ATTR_OVERHEAD_EST +
-                  4 * NULL_ATTR_OVERHEAD_EST;
-  function sizifyAddrs(addrs) {
-    sizeEst += LIST_ATTR_OVERHEAD_EST;
-    for (var i = 0; i < addrs.length; i++) {
-      var addrPair = addrs[i];
-      sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
-                   (addrPair.name ? addrPair.name.length : 0) +
-                   (addrPair.address ? addrPair.address.length : 0);
-    }
-    return addrs;
-  }
-  function sizifyAttachments(atts) {
-    sizeEst += LIST_ATTR_OVERHEAD_EST;
-    for (var i = 0; i < atts.length; i++) {
-      var att = atts[i];
-      sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
-                   att.name.length + att.type.length +
-                   NUM_ATTR_OVERHEAD_EST;
-    }
-    return atts;
-  }
-  function sizifyStr(str) {
-    sizeEst += STR_ATTR_OVERHEAD_EST + str.length;
-    return str;
-  }
-  function sizifyBodyRep(rep) {
-    sizeEst += LIST_OVERHEAD_EST +
-                 NUM_OVERHEAD_EST * (rep.length / 2) +
-                 STR_OVERHEAD_EST * (rep.length / 2);
-    for (var i = 1; i < rep.length; i += 2) {
-      if (rep[i])
-        sizeEst += rep[i].length;
-    }
-    return rep;
-  };
-  function sizifyBodyReps(reps) {
-    sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
-    for (var i = 0; i < reps.length; i += 2) {
-      var type = reps[i], rep = reps[i + 1];
-      if (type === 'html')
-        sizeEst += STR_OVERHEAD_EST + rep.length;
-      else
-        sizeEst += sizifyBodyRep(rep);
-    }
-    return reps;
-  };
-
   rep.bodyInfo = {
     date: rep.msg.date,
-    size: sizeEst,
-    to: ('to' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.to) : null,
-    cc: ('cc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.cc) : null,
-    bcc: ('bcc' in rep.msg.msg) ? sizifyAddrs(rep.msg.msg.bcc) : null,
+    size: 0,
+    to: ('to' in rep.msg.msg) ? rep.msg.msg.to : null,
+    cc: ('cc' in rep.msg.msg) ? rep.msg.msg.cc : null,
+    bcc: ('bcc' in rep.msg.msg) ? rep.msg.msg.bcc : null,
     replyTo: ('reply-to' in rep.msg.msg.parsedHeaders) ?
-               sizifyStr(rep.msg.msg.parsedHeaders['reply-to']) : null,
-    attachments: sizifyAttachments(rep.attachments),
-    relatedParts: sizifyAttachments(rep.relatedParts),
+               rep.msg.msg.parsedHeaders['reply-to'] : null,
+    attachments: rep.attachments,
+    relatedParts: rep.relatedParts,
     references: rep.msg.msg.meta.references,
-    bodyReps: sizifyBodyReps(bodyReps),
+    bodyReps: bodyReps,
   };
 
   return true;

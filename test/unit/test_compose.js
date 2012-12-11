@@ -233,6 +233,11 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       });
     },
   });
+
+  T.group('cleanup');
+  // Make sure the append operation's success gets persisted; this is a testing
+  // hack until we ensure that the operation log gets persisted more frequently.
+  testUniverse.do_saveState();
 });
 
 
@@ -371,6 +376,11 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       });
     }
   });
+
+  T.group('cleanup');
+  // Make sure the append operation's success gets persisted; this is a testing
+  // hack until we ensure that the operation log gets persisted more frequently.
+  testUniverse.do_saveState();
 });
 
 /**

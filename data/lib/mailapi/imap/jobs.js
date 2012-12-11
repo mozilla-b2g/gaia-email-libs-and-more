@@ -910,6 +910,39 @@ ImapJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // purgeExcessMessages
+
+  local_do_purgeExcessMessages: function(op, doneCallback) {
+    this._accessFolderForMutation(
+      op.folderId, false,
+      function withMutex(_ignoredConn, storage) {
+        storage.purgeExcessMessages(function(numDeleted, cutTS) {
+          // Indicate that we want a save performed if any messages got deleted.
+          doneCallback(null, null, numDeleted > 0);
+        });
+      },
+      null,
+      'purgeExcessMessages');
+  },
+
+  do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  check_purgeExcessMessages: function(op, doneCallback) {
+    // this is a local-only modification, so this doesn't really matter
+    return UNCHECKED_IDEMPOTENT;
+  },
+
+  local_undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 function HighLevelJobDriver() {

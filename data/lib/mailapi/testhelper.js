@@ -60,12 +60,19 @@ var TestUniverseMixins = {
     // Of course, we don't want to future-date things and have servers be
     // mad at us either, so let's have yesterday be our current time.  We use
     // our time-warp functionality on the server to make this okay.
-    if (!opts.hasOwnProperty('realDate') || opts.realDate === false) {
+    if (!checkFlagDefault(opts, 'realDate', false)) {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
       var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
+    }
+    else {
+      self._useDate = new Date();
+      $date.TEST_LetsDoTheTimewarpAgain(null);
+    }
+
+    if (!checkFlagDefault(opts, 'stockDefaults', false)) {
       // These are all the default values that tests code against by default.
       // If a test wants to use different values,
       $sync.TEST_adjustSyncValues({
@@ -84,10 +91,7 @@ var TestUniverseMixins = {
         useRangeInbox: DISABLE_THRESH_USING_FUTURE
       });
     }
-    else {
-      self._useDate = new Date();
-      $date.TEST_LetsDoTheTimewarpAgain(null);
-    }
+
 
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
@@ -473,22 +477,45 @@ var TestCommonAccountMixins = {
     storageActor.ignore_deleteFromBlock();
   },
 
-  expect_runOp: function(jobName, accountSave, flags) {
-    this.RT.reportActiveActorThisStep(this.eOpAccount);
-    if (checkFlagDefault(flags, 'local', true)) {
-      this.eOpAccount.expect_runOp_begin('local_do', jobName);
-      this.eOpAccount.expect_runOp_end('local_do', jobName);
+  expect_runOp: function(jobName, flags) {
+    var mode = checkFlagDefault(flags, 'mode', 'do'), localMode;
+    switch (mode) {
+      case 'do':
+      case 'undo':
+        localMode = 'local_' + mode;
+        break;
     }
-    this.eOpAccount.expect_runOp_begin('do', jobName);
-    // activesync does not care about connections
+
+    this.RT.reportActiveActorThisStep(this.eOpAccount);
+    // - local
+    if (checkFlagDefault(flags, 'local', !!localMode)) {
+      this.eOpAccount.expect_runOp_begin(localMode, jobName);
+      this.eOpAccount.expect_runOp_end(localMode, jobName);
+    }
+    // - save (local)
+    if (checkFlagDefault(flags, 'save', false) === true)
+      this.eOpAccount.expect_saveAccountState();
+    // - server (begin)
+    if (checkFlagDefault(flags, 'server', true))
+      this.eOpAccount.expect_runOp_begin(mode, jobName);
+    // - conn, (conn) release
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('expect_connection' in this)) {
       this.expect_connection();
+      // (release is expected by default if we open a conn)
+      if (checkFlagDefault(flags, 'release', true))
+        this.eOpAccount.expect_releaseConnection();
+    }
+    // - release (without conn)
+    else if (checkFlagDefault(flags, 'release', false)) {
       this.eOpAccount.expect_releaseConnection();
     }
-    this.eOpAccount.expect_runOp_end('do', jobName);
-    if (accountSave)
-      this.expect_saveState();
+    // - server (end)
+    if (checkFlagDefault(flags, 'server', true))
+      this.eOpAccount.expect_runOp_end(mode, jobName);
+    // - save (local)
+    if (checkFlagDefault(flags, 'save', false) === 'server')
+      this.eOpAccount.expect_saveAccountState();
   },
 };
 
@@ -538,8 +565,7 @@ var TestImapAccountMixins = {
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
-    this.eImapAccount.expect_saveAccountState_begin();
-    this.eImapAccount.expect_saveAccountState_end();
+    this.eImapAccount.expect_saveAccountState();
   },
 
   expect_connection: function() {
@@ -602,8 +628,7 @@ var TestImapAccountMixins = {
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_runOp_end('do', 'syncFolderList');
       // we expect the account state to be saved after syncing folders
-      self.eImapAccount.expect_saveAccountState_begin();
-      self.eImapAccount.expect_saveAccountState_end();
+      self.eImapAccount.expect_saveAccountState();
 
       self.MailAPI.tryToCreateAccount(
         {
@@ -665,7 +690,7 @@ var TestImapAccountMixins = {
         gAllFoldersSlice.onsplice = null;
         self._logger.deletionNotified(howMany);
       };
-      MailUniverse.accounts[0].deleteFolder(existingFolder.id);
+      self.universe.accounts[0].deleteFolder(existingFolder.id);
     });
 
     this.T.convenienceSetup(self.eImapAccount, 'create test folder', testFolder,
@@ -687,7 +712,7 @@ var TestImapAccountMixins = {
         self._logger.creationNotified(added.length);
         testFolder.mailFolder = added[0];
       };
-      MailUniverse.createFolder(self.accountId, null, folderName, false,
+      self.universe.createFolder(self.accountId, null, folderName, false,
         function createdFolder(err, folderMeta) {
         if (err) {
           self._logger.folderCreationError(err);
@@ -772,12 +797,10 @@ var TestImapAccountMixins = {
       self.universe._testModeDisablingLocalOps = true;
 
       // the append will need to check out and check back-in a connection
-      self.eImapAccount.expect_runOp_begin('do', 'append');
-      if (testFolder._liveSliceThings.length === 0) {
-        self.expect_connection();
-        self.eImapAccount.expect_releaseConnection();
-      }
-      self.eImapAccount.expect_runOp_end('do', 'append');
+      self.expect_runOp(
+        'append',
+        { local: false, server: true, save: false,
+          conn: testFolder._liveSliceThings.length === 0 });
       self.expect_appendNotified();
 
       var messageBodies;
@@ -809,8 +832,8 @@ var TestImapAccountMixins = {
           testFolder.messages.splice(idx, 0, messageBodies[i]);
         }
       }
-      MailUniverse.appendMessages(testFolder.id, messageBodies);
-      MailUniverse.waitForAccountOps(self.compositeAccount, function() {
+      self.universe.appendMessages(testFolder.id, messageBodies);
+      self.universe.waitForAccountOps(self.compositeAccount, function() {
         self._logger.appendNotified();
         self.universe._testModeDisablingLocalOps = false;
       });
@@ -859,7 +882,7 @@ var TestImapAccountMixins = {
         // Only wait on the operations completing after we are sure the bridge
         // has heard about them.
         self.MailAPI.ping(function() {
-          MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+          self.universe.waitForAccountOps(self.universe.accounts[0], function(){
             // Only kill the slice after the ops complete so the slice stays
             // alive and so there is less connection reuse flapping.
             slice.ondead = function() {
@@ -883,7 +906,7 @@ var TestImapAccountMixins = {
       self.expect_manipulationNotified();
       manipFunc(viewThing.slice);
       self.MailAPI.ping(function() {
-        MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+        self.universe.waitForAccountOps(self.universe.accounts[0], function() {
           self._logger.manipulationNotified();
           if (noLocal)
             self.universe._testModeDisablingLocalOps = false;
@@ -895,11 +918,12 @@ var TestImapAccountMixins = {
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
+    var totalMessageCount = 0;
+
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
         expectedValues = [expectedValues];
 
-      var totalMessageCount = 0;
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
@@ -912,8 +936,7 @@ var TestImapAccountMixins = {
     }
     if (this.universe.online &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
-      this.eImapAccount.expect_saveAccountState_begin();
-      this.eImapAccount.expect_saveAccountState_end();
+      this.eImapAccount.expect_saveAccountState();
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
@@ -932,8 +955,8 @@ var TestImapAccountMixins = {
                           extraFlags, _saveToThing) {
     var self = this,
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
-    this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
-                  function() {
+    var testStep = this.T.action(this, desc, testFolder, 'using',
+                                 testFolder.connActor, function() {
       self._expect_storage_mutexed(testFolder.storageActor, 'sync');
       // In the bisect case, we may end up actually generating a first sync
       // mutex for a refresh followed by a second one once the bisect converts
@@ -995,7 +1018,10 @@ var TestImapAccountMixins = {
           slice.die();
         }
       };
-    }).timeoutMS = 1000 + 400 * testFolder._approxMessageCount; // (varies with N)
+    });
+    // (varies with N)
+    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
+    return testStep;
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
@@ -1279,7 +1305,7 @@ var TestActiveSyncAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.expect_accountCreated();
-      self.expect_runOp('syncFolderList', true, { local: false });
+      self.expect_runOp('syncFolderList', { local: false, save: 'server' });
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
@@ -1319,8 +1345,7 @@ var TestActiveSyncAccountMixins = {
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eAccount);
-    this.eAccount.expect_saveAccountState_begin();
-    this.eAccount.expect_saveAccountState_end();
+    this.eAccount.expect_saveAccountState();
   },
 
   _expect_restore: function() {
@@ -1341,9 +1366,9 @@ var TestActiveSyncAccountMixins = {
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.messages = testFolder.serverFolder.messages;
-      self.expect_runOp('syncFolderList', true, { local: false });
-      MailUniverse.syncFolderList(self.account, function() {
-        MailAPI.ping(function() {
+      self.expect_runOp('syncFolderList', { local: false, save: 'server' });
+      self.universe.syncFolderList(self.account, function() {
+        self.MailAPI.ping(function() {
           testFolder.mailFolder = self.testUniverse.allFoldersSlice
                                       .getFirstFolderWithName(folderName);
           self._logger.foundFolder(!!testFolder.mailFolder,
@@ -1400,10 +1425,10 @@ var TestActiveSyncAccountMixins = {
                   function() {
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
                                                  extraFlags);
+      self.expect_messagesReported(totalExpected);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
-        self.expect_messagesReported(totalExpected);
         if (totalExpected) {
           self.expect_messageSubject(
             0, testFolder.messages[0].subject);
@@ -1411,9 +1436,9 @@ var TestActiveSyncAccountMixins = {
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].subject);
         }
-        self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                               expectedFlags.grow, 'synced');
       }
+      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.grow, 'synced');
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
@@ -1439,11 +1464,12 @@ var TestActiveSyncAccountMixins = {
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
+
+    var totalMessageCount = 0;
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
         expectedValues = [expectedValues];
 
-      var totalMessageCount = 0;
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
@@ -1458,8 +1484,7 @@ var TestActiveSyncAccountMixins = {
     }
     if (this.universe.online &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
-      this.eAccount.expect_saveAccountState_begin();
-      this.eAccount.expect_saveAccountState_end();
+      this.eAccount.expect_saveAccountState();
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
