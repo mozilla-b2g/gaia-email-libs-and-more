@@ -373,6 +373,28 @@ ActiveSyncJobDriver.prototype = {
 
   undo_download: $jobmixins.undo_download,
 
+  //////////////////////////////////////////////////////////////////////////////
+  // purgeExcessMessages is a NOP for activesync
+
+  local_do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  check_purgeExcessMessages: function(op, doneCallback) {
+    return 'idempotent';
+  },
+
+  local_undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
 
   //////////////////////////////////////////////////////////////////////////////
 };

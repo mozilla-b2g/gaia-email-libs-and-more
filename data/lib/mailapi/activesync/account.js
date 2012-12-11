@@ -173,11 +173,10 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin(reason);
+    this._LOG.saveAccountState(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -669,7 +668,15 @@ ActiveSyncAccount.prototype = {
     // XXX I am assuming ActiveSync servers are smart enough to already come
     // with these folders.  If not, we should move IMAP's ensureEssentialFolders
     // into the mixins class.
-    callback();
+    if (callback)
+      callback();
+  },
+
+  scheduleMessagePurge: function(callback) {
+    // ActiveSync servers have no incremental folder growth, so message purging
+    // makes no sense for them.
+    if (callback)
+      callback();
   },
 
   runOp: $acctmixins.runOp,
@@ -683,10 +690,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: {},
       deleteFolder: {},
       recreateFolder: { id: false },
+      saveAccountState: { reason: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: { reason: false },
     },
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },

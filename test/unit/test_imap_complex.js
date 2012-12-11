@@ -499,8 +499,8 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
   testAccount.do_manipulateFolder(testFolder, 'delete 1', function(slice) {
     // we don't want to expunge this guy
     testAccount.imapAccount._TEST_doNotCloseFolder = true;
-    testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
-    testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+    testAccount.expect_runOp('modtags',
+                             { local: false, server: true, save: false });
 
     MailAPI.modifyMessageTags([slice.items[0]], ['\\Deleted'], null, 'delete');
     testFolder.messages.splice(0, 1);

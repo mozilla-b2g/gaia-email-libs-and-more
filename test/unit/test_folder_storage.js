@@ -2,6 +2,15 @@
  * Test FolderStorage's logic focusing on dealing with the impact of async
  * I/O, range edge-cases, block splitting and merging, and forgetting data as
  * needed.
+ *
+ * This file is partially converted from a straight-up xpcshell test.  Most
+ * tests use do_check_eq which does not generate any logging output and so if
+ * you want to see what went wrong, you need to check
+ * test_folder_storage.js.log.  The ArbPL UI will properly indicate in its
+ * summary view that the tests failed, but if you look at the log, you will
+ * be potentially misled, although the XPConnect error code killing the test
+ * case can be seen in the first failing test.  (Subsequent tests get skipped
+ * because do_check_eq kills the event loop when it fails.)
  **/
 
 load('resources/loggest_test_framework.js');
@@ -17,6 +26,12 @@ MockDB.prototype = {
 function MockAccount() {
 }
 MockAccount.prototype = {
+  accountDef: {
+    syncRange: 'auto',
+  },
+  tzOffset: 0,
+  scheduleMessagePurge: function() {
+  },
 };
 
 /**
@@ -58,7 +73,7 @@ function makeTestContext() {
       var bodyInfo = {
         date: date, size: size,
         to: null, cc: null, bcc: null, replyTo: null,
-        attachments: null, bodyReps: null
+        attachments: [], relatedParts: [], references: [], bodyReps: [],
       };
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, 'S' + uid, size, bodyInfo,
@@ -130,19 +145,137 @@ function makeTestContext() {
 }
 
 function makeDummyHeaders(count) {
-  var headers = [], uid = 100, date = DateUTC(2010, 0, 1);
+  var dayNum = 1, monthNum = 0;
+  var headers = [], uid = 100;
   while (count--) {
     headers.push({
       id: uid,
-      suid: 'H/1/' + uid++,
+      srvid: uid,
+      suid: 'H/1/' + uid,
+      guid: 'message-' + uid++,
       author: null,
-      date: date++,
+      date: Date.UTC(2010, monthNum, dayNum++),
       flags: null, hasAttachments: null, subject: null, snippet: null,
     });
+    // rather limited rollover support
+    if (monthNum === 0 && dayNum === 32) {
+      monthNum = 1;
+      dayNum = 1;
+    }
   }
   headers.reverse();
   return headers;
 }
+
+function thunkConsole(T) {
+  var lazyConsole = T.lazyLogger('console');
+
+  gConsoleLogFunc = function(msg) {
+    lazyConsole.value(msg);
+  };
+}
+
+/**
+ * Byte size so that 2 fit in a block, but 3 will not.
+ */
+const BIG2 = 36 * 1024;
+/**
+ * Byte size so that 3 fit in a block, but 4 will not.
+ */
+const BIG3 = 28 * 1024;
+/**
+ * Byte size so that 5 fit in a block, but 6 will not.
+ */
+const BIG5 = 18 * 1024;
+
+
+/**
+ * Create messages distributed so that we have 5 headers per header block and
+ * 3 bodies per body blocks.
+ */
+function injectSomeMessages(ctx, count, bodySize) {
+  var headers = makeDummyHeaders(count),
+      BS = BIG3;
+
+  // headers are ordered newest[0] to oldest[n-1]
+  for (var i = 0; i < headers.length; i++) {
+    var header = headers[i];
+    ctx.storage.addMessageHeader(header);
+    var bodyInfo = {
+      date: header.date, get size() { return bodySize; },
+      set size(val) {},
+      to: null, cc: null, bcc: null, replyTo: null,
+      attachments: null, relatedParts: null, bodyReps: null
+    };
+    ctx.storage.addMessageBody(header, bodyInfo);
+  }
+  return headers;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Test helper functions
+
+TD.commonSimple('tuple range intersection', function test_tuple_range_isect() {
+  var intersect = $_mailslice.tupleRangeIntersectsTupleRange;
+
+  function checkBoth(a, b, result) {
+    do_check_eq(intersect(a, b), result);
+    do_check_eq(intersect(b, a), result);
+  }
+
+  // -- non-intersecting variants
+  // date-wise
+  checkBoth(
+    { startTS: 200, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 0, endTS: 100, endUID: 0 },
+    false);
+  // uid-wise
+  checkBoth(
+    { startTS: 200, startUID: 1, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    false);
+
+  // -- intersecting variants
+  // completely contained date-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 0 },
+    true);
+  // completely contained uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 0, endUID: 40 },
+    { startTS: 0, startUID: 10, endTS: 0, endUID: 20 },
+    true);
+  // completely contained date/uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 300, endUID: 0 },
+    { startTS: 0, startUID: 1, endTS: 200, endUID: 0 },
+    true);
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 20 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 10 },
+    true);
+
+  // partially contained date-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 300, endUID: 0 },
+    true);
+  // partially contained uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 0, endUID: 30 },
+    { startTS: 0, startUID: 20, endTS: 0, endUID: 40 },
+    true);
+  // partially contained date/uid-wise
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 100, endUID: 0 },
+    { startTS: 0, startUID: 20, endTS: 200, endUID: 0 },
+    true);
+  checkBoth(
+    { startTS: 0, startUID: 0, endTS: 200, endUID: 0 },
+    { startTS: 100, startUID: 0, endTS: 200, endUID: 40 },
+    true);
+});
 
 ////////////////////////////////////////////////////////////////////////////////
 // Sync accuracy regions.
@@ -412,15 +545,6 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
 // UIDs are in the 100's to make equivalence failure types more obvious.
 
 /**
- * Byte size so that 2 fit in a block, but 3 will not.
- */
-const BIG2 = 36 * 1024;
-/**
- * Byte size so that 3 fit in a block, but 4 will not.
- */
-const BIG3 = 28 * 1024;
-
-/**
  * Helper to check the values in a block info structure.
  */
 function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
@@ -591,15 +715,15 @@ TD.commonSimple('insertion in block that will overflow',
 TD.commonSimple('header block splitting',
                 function test_header_block_splitting() {
   var ctx = makeTestContext(),
-      expectedHeadersPerBlock = 246, // Math.ceil(48 * 1024 / 200)
-      numHeaders = 492,
+      expectedHeadersPerBlock = 115, // Math.ceil(48 * 1024 / 430)
+      numHeaders = 230,
       // returned header list has numerically decreasing time/uid
       bigHeaders = makeDummyHeaders(numHeaders),
       bigUids = bigHeaders.map(function (x) { return x.id; }),
       bigInfo = ctx.storage._makeHeaderBlock(
         bigHeaders[numHeaders-1].date, bigHeaders[numHeaders-1].id,
         bigHeaders[0].date, bigHeaders[0].id,
-        numHeaders * 200, bigUids.concat(), bigHeaders.concat()),
+        numHeaders * 430, bigUids.concat(), bigHeaders.concat()),
       bigBlock = ctx.storage._headerBlocks[bigInfo.blockId];
 
   var olderInfo = ctx.storage._splitHeaderBlock(bigInfo, bigBlock, 48 * 1024),
@@ -609,8 +733,8 @@ TD.commonSimple('header block splitting',
   do_check_eq(newerInfo.count, expectedHeadersPerBlock);
   do_check_eq(olderInfo.count, numHeaders - expectedHeadersPerBlock);
 
-  do_check_eq(newerInfo.estSize, newerInfo.count * 200);
-  do_check_eq(olderInfo.estSize, olderInfo.count * 200);
+  do_check_eq(newerInfo.estSize, newerInfo.count * 430);
+  do_check_eq(olderInfo.estSize, olderInfo.count * 430);
 
 
   do_check_eq(newerInfo.startTS,
@@ -806,6 +930,75 @@ TD.commonSimple('insertion differing only by UIDs',
   run_next_test();
 });
 
+// Expect, where 'first' is first reported, and 'last' is last reported,
+// with no explicit time constraints.  For new-to-old, this means that
+// firstDate >= lastDate.
+function chexpect(firstDate, firstUID, lastDate, lastUID) {
+  var seen = [];
+  return function(headers, moreExpected) {
+    console.log(
+      "headers!", headers.length, ":",
+      headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+    // zero message case
+    if (!headers.length) {
+      if (moreExpected)
+        return;
+      do_check_eq(firstDate, null);
+      do_check_eq(firstUID, null);
+      do_check_eq(lastDate, null);
+      do_check_eq(lastUID, null);
+      return;
+    }
+
+    if (!seen.length) {
+      do_check_eq(firstDate, headers[0].date);
+      do_check_eq(firstUID, headers[0].id);
+    }
+    seen = seen.concat(headers);
+    if (!moreExpected) {
+      var last = seen.length - 1;
+      do_check_eq(lastUID, seen[last].id);
+      do_check_eq(lastDate, seen[last].date);
+    }
+  };
+}
+
+// The time ordering of the headers is always the same (most recent in
+// a group at index 0, least recent at the last index) in a block, but
+// this requires different logic than chexpect...
+function rexpect(firstDate, firstUID, lastDate, lastUID) {
+  var seen = [];
+  return function(headers, moreExpected) {
+    console.log(
+      "headers!", headers.length, ":",
+      headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
+
+    // zero message case
+    if (!headers.length) {
+      if (moreExpected)
+        return;
+      do_check_eq(firstDate, null);
+      do_check_eq(firstUID, null);
+      do_check_eq(lastDate, null);
+      do_check_eq(lastUID, null);
+      return;
+    }
+
+    if (!seen.length) {
+      var last = headers.length - 1;
+      do_check_eq(lastUID, headers[last].id);
+      do_check_eq(lastDate, headers[last].date);
+    }
+    seen = headers.concat(seen);
+    if (!moreExpected) {
+      do_check_eq(firstDate, headers[0].date);
+      do_check_eq(firstUID, headers[0].id);
+    }
+  };
+}
+
+
 /**
  * We have 3 header retrieval helper functions: getMessagesInImapDateRange
  * keys off IMAP-style date ranges, getMessagesBeforeMessage iterates over the
@@ -833,7 +1026,7 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split to [B's, A's]
   var olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_syncbase.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.push(olderBlockInfo);
 
   ctx.insertHeader(dC, uidC1);
@@ -843,44 +1036,10 @@ TD.commonSimple('header iteration', function test_header_iteration() {
   // split [C's and B's, A's] to [C's, B's, A's]
   olderBlockInfo = ctx.storage._splitHeaderBlock(
     ctx.storage._headerBlockInfos[0], ctx.storage._headerBlocks[0],
-    3 * $_mailslice.HEADER_EST_SIZE_IN_BYTES);
+    3 * $_syncbase.HEADER_EST_SIZE_IN_BYTES);
   ctx.storage._headerBlockInfos.splice(1, 0, olderBlockInfo);
 
   console.log(JSON.stringify(ctx.storage._headerBlockInfos));
-
-  // Expect, where 'first' is first reported, and 'last' is last reported,
-  // with no explicit time constraints.  For new-to-old, this means that
-  // firstDate >= lastDate.
-  function chexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-      seen = seen.concat(headers);
-      if (!moreExpected) {
-        var last = seen.length - 1;
-        do_check_eq(lastUID, seen[last].id);
-        do_check_eq(lastDate, seen[last].date);
-      }
-    };
-  }
 
   // -- getMessagesInImapDateRange
   // Effectively unconstrained date range, no limit
@@ -968,39 +1127,6 @@ TD.commonSimple('header iteration', function test_header_iteration() {
 
 
   // -- getMessagesAfterMessage
-  // The time ordering of the headers is always the same (most recent in
-  // a group at index 0, least recent at the last index) in a block, but
-  // this requires different logic than chexpect...
-  function rexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        var last = headers.length - 1;
-        do_check_eq(lastUID, headers[last].id);
-        do_check_eq(lastDate, headers[last].date);
-      }
-      seen = headers.concat(seen);
-      if (!moreExpected) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-    };
-  }
   // start from first message, no limit
   ctx.storage.getMessagesAfterMessage(
     dA, uidA1, null,
@@ -1057,40 +1183,6 @@ TD.commonSimple('future headers', function test_future_headers() {
   ctx.insertHeader(dA, uidA2);
   ctx.insertHeader(dA, uidA3);
 
-  // Expect, where 'first' is first reported, and 'last' is last reported,
-  // with no explicit time constraints.  For new-to-old, this means that
-  // firstDate >= lastDate.
-  function chexpect(firstDate, firstUID, lastDate, lastUID) {
-    var seen = [];
-    return function(headers, moreExpected) {
-      console.log(
-        "headers!", headers.length, ":",
-        headers.map(function(x) { return "(" + x.date + ", " + x.id + ")"; }));
-
-      // zero message case
-      if (!headers.length) {
-        if (moreExpected)
-          return;
-        do_check_eq(firstDate, null);
-        do_check_eq(firstUID, null);
-        do_check_eq(lastDate, null);
-        do_check_eq(lastUID, null);
-        return;
-      }
-
-      if (!seen.length) {
-        do_check_eq(firstDate, headers[0].date);
-        do_check_eq(firstUID, headers[0].id);
-      }
-      seen = seen.concat(headers);
-      if (!moreExpected) {
-        var last = seen.length - 1;
-        do_check_eq(lastUID, seen[last].id);
-        do_check_eq(lastDate, seen[last].date);
-      }
-    };
-  }
-
   // -- getMessagesInImapDateRange
   // Effectively unconstrained date range, no limit
   ctx.storage.getMessagesInImapDateRange(
@@ -1099,7 +1191,266 @@ TD.commonSimple('future headers', function test_future_headers() {
 });
 
 ////////////////////////////////////////////////////////////////////////////////
+// Discard blocks from in-memory cache
+
+TD.commonSimple('block cache flushing', function() {
+  var ctx = makeTestContext();
+
+  // no blocks should be loaded before stuff starts
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+
+  $_syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+  var headers = injectSomeMessages(ctx, 9, BIG3);
+
+  // check that we have the expected number of blocks and they are all dirty
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('1'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._dirtyHeaderBlocks.hasOwnProperty('3'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('1'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._dirtyBodyBlocks.hasOwnProperty('3'));
+
+  // - flush and see nothing discarded because everything is dirty
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
+
+  // - clear the dirty bit of some stuff and see flushes happen
+  // (use different blocks to expose dumb typo bugs)
+  delete ctx.storage._dirtyHeaderBlocks['3'];
+  delete ctx.storage._dirtyBodyBlocks['2'];
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 3);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('3'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+
+  // - clear all dirty bits, keep alive via mail slices
+  delete ctx.storage._dirtyHeaderBlocks['0'];
+  delete ctx.storage._dirtyHeaderBlocks['1'];
+  delete ctx.storage._dirtyHeaderBlocks['2'];
+  delete ctx.storage._dirtyBodyBlocks['0'];
+  delete ctx.storage._dirtyBodyBlocks['1'];
+  delete ctx.storage._dirtyBodyBlocks['3'];
+
+  var startHeader = headers[4], endHeader = headers[0];
+  ctx.storage._slices.push({
+    startTS: startHeader.date, startUID: startHeader.id,
+    endTS: endHeader.date, endUID: endHeader.id,
+  });
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 2);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 2);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('2'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
+
+  // clear slices, all blocks should be collected
+  ctx.storage._slices.pop();
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+});
+
+////////////////////////////////////////////////////////////////////////////////
+// Purge messages from disk
+
+TD.commonCase('message purging', function test_message_purging(T, RT) {
+  thunkConsole(T);
+
+  var eCheck = T.lazyLogger('check');
+
+  var testSitch = function testSitch(name, args) {
+    T.action(eCheck, name, function() {
+      var useNow = Date.UTC(2010, 0, args.count + 1).valueOf();
+      $_date.TEST_LetsDoTheTimewarpAgain(useNow);
+      $_syncbase.TEST_adjustSyncValues({
+        HEADER_EST_SIZE_IN_BYTES: args.headerSize,
+        BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS: 14 * $_date.DAY_MILLIS,
+        BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT: args.maxBlocks,
+      });
+      var ctx = makeTestContext();
+      var headers =
+            injectSomeMessages(ctx, args.count, args.bodySize);
+
+      console.log('PRE: header block count:',
+                  ctx.storage._headerBlockInfos.length);
+      console.log('PRE: body block count:',
+                  ctx.storage._bodyBlockInfos.length);
+
+      var getOldestAccuracyStart = function () {
+        var aranges = ctx.storage._accuracyRanges;
+        if (!aranges.length)
+          return null;
+        return aranges[aranges.length - 1].startTS;
+      };
+
+      // (older range first)
+      ctx.storage.markSyncRange(
+        headers[headers.length - 1].date, // (oldest header)
+        headers[args.accuracyRange0StartsOn].date, // (middle-age header)
+        'abba', useNow - (args.accuracyAge1_days * $_date.DAY_MILLIS));
+      ctx.storage.markSyncRange(
+        headers[args.accuracyRange0StartsOn].date, // (middle-age header)
+        // add an extra day because the end part of the range is exclusive...
+        headers[0].date + $_date.DAY_MILLIS, // (youngest header)
+        'abba', useNow - (args.accuracyAge0_days * $_date.DAY_MILLIS));
+
+      ctx.account.accountDef.syncRange = args.syncRange;
+
+      eCheck.expect_namedValue('messagesPurged', args.purged);
+
+      if (args.purged) {
+        var lastRemainingHeader = headers[args.count - args.purged - 1];
+        eCheck.expect_namedValue('cutTS', lastRemainingHeader.date);
+        eCheck.expect_namedValue('oldestAccuracyStart',
+                                 lastRemainingHeader.date);
+      }
+      else {
+        eCheck.expect_namedValue('cutTS', 0);
+        eCheck.expect_namedValue('oldestAccuracyStart',
+                                 getOldestAccuracyStart());
+      }
+      eCheck.expect_namedValue('arange count', args.aranges);
+
+      // this should complete synchronously
+      ctx.storage.purgeExcessMessages(function(numDeleted, cutTS) {
+        eCheck.namedValue('messagesPurged', numDeleted);
+        eCheck.namedValue('cutTS', cutTS);
+        eCheck.namedValue('oldestAccuracyStart',
+                          getOldestAccuracyStart());
+
+        // dump the accuracy ranges for introspection for my sanity
+        var aranges = ctx.storage._accuracyRanges;
+        eCheck.namedValue('arange count', aranges.length);
+        for (var i = 0; i < aranges.length; i++) {
+          console.log('arange', i, '[', aranges[i].startTS,
+                      aranges[i].endTS, ')');
+        }
+      });
+    });
+  };
+
+  // Note that because of the quantization
+
+
+  testSitch(
+    'accuracy range protects all',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range won't be protecting us here
+      syncRange: '1d',
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 2,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 0,
+      aranges: 2,
+    });
+
+  testSitch(
+    'accuracy range protects some',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range won't be protecting us here
+      syncRange: '1d',
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      // the accuracy range is more than 14 days old, so we will purge
+      accuracyAge1_days: 20,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 7,
+      aranges: 1,
+    });
+
+  testSitch(
+    'sync range protects',
+    {
+      count: 14,
+      headerSize: BIG5,
+      bodySize: BIG3,
+
+      // the sync range will protect 1 week's worth of messages
+      syncRange: '1w',
+      // both accuracy ranges are old, so won't be protected
+      accuracyAge0_days: 19,
+      accuracyRange0StartsOn: 4,
+      accuracyAge1_days: 20,
+      // the block limit won't kick in
+      maxBlocks: 100,
+
+      purged: 7,
+      aranges: 2,
+    });
+
+  testSitch(
+    'block range culls headers',
+    {
+      count: 15,
+      // we will have 6 blocks of headers (we would have 5 fully filled, but our
+      // split logic slightly biases)
+      headerSize: BIG3,
+      // and 4 blocks of bodies (we would have 3 fully filled, but biasing)
+      bodySize: BIG5,
+
+      // the sync range should be trying to protect everything
+      syncRange: '1m',
+      // the accuracy ranges should be trying to protect everything
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 2,
+      // the block limit will kick in
+      maxBlocks: 3,
+
+      purged: 5,
+      aranges: 2
+    });
+
+  testSitch(
+    'block range culls bodies',
+    {
+      count: 15,
+      // we will have 4 blocks of headers
+      headerSize: BIG5,
+      // and 6 blocks of bodies
+      bodySize: BIG3,
+
+      // the sync range should be trying to protect everything
+      syncRange: '1m',
+      // the accuracy ranges should be trying to protect everything
+      accuracyAge0_days: 1,
+      accuracyRange0StartsOn: 7,
+      accuracyAge1_days: 1,
+      // the block limit will kick in
+      maxBlocks: 3,
+
+      purged: 5,
+      aranges: 1
+    });
+});
+
+////////////////////////////////////////////////////////////////////////////////
 
 function run_test() {
-  runMyTests(3);
+  runMyTests(5);
 }
