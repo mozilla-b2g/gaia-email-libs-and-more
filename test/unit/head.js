@@ -280,3 +280,9 @@ function populateTestParams() {
   }
 }
 populateTestParams();
+
+const gPrefs = Cc["@mozilla.org/preferences-service;1"]
+                 .getService(Ci.nsIPrefBranch);
+// Make our IndexedDB writes go waaaay faster by turning off fsync.  Our unit
+// tests do not need to survive power outages!
+gPrefs.setIntPref('toolkit.storage.synchronous', 0);
