@@ -148,11 +148,17 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
+      // Reset the SyncKey, just in case we don't see a sync key in the
+      // response.
+      folderConn.syncKey = '0';
+
       let e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
                          function(node) {
         folderConn.syncKey = node.children[0].textContent;
       });
+
+      e.onerror = function() {}; // Ignore errors.
       e.run(aResponse);
 
       if (folderConn.syncKey === '0') {
@@ -210,10 +216,19 @@ ActiveSyncFolderConn.prototype = {
                          function(node) {
         estimate = parseInt(node.children[0].textContent);
       });
-      e.run(aResponse);
+
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing GetItemEstimate response', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
-        console.log('Error getting item estimate:', status);
+        console.error('Error getting item estimate:', status);
         callback('unknown');
       }
       else {
@@ -432,9 +447,7 @@ ActiveSyncFolderConn.prototype = {
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
                          function(node) {
-        let id;
-        let guid;
-        let msg;
+        let id, guid, msg;
 
         for (let [,child] in Iterator(node.children)) {
           switch (child.tag) {
@@ -442,7 +455,14 @@ ActiveSyncFolderConn.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderConn._parseMessage(child, node.tag === as.Add);
+            try {
+              msg = folderConn._parseMessage(child, node.tag === as.Add);
+            }
+            catch (ex) {
+              // If we get an error, just log it and skip this message.
+              console.error('Failed to parse a message:', ex, '\n', ex.stack);
+              return;
+            }
             break;
           }
         }
@@ -474,7 +494,14 @@ ActiveSyncFolderConn.prototype = {
         deleted.push(guid);
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status === asEnum.Status.Success) {
         console.log('Sync completed: added ' + added.length + ', changed ' +
@@ -799,13 +826,13 @@ ActiveSyncFolderConn.prototype = {
     if (this._account.conn.currentVersion.lt('12.1'))
           w.tag(as.Class, 'Email');
 
-          w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
-           .tag(as.CollectionId, this._storage.folderMeta.serverId)
+          w.tag(as.SyncKey, this.syncKey)
+           .tag(as.CollectionId, this.serverId)
            // DeletesAsMoves defaults to true, so we can omit it
            // GetChanges defaults to true, so we must explicitly disable it to
            // avoid hearing about changes.
            .tag(as.GetChanges, '0')
-             .stag(as.Commands);
+           .stag(as.Commands);
 
     try {
       invokeWithWriter(w);
@@ -842,9 +869,16 @@ ActiveSyncFolderConn.prototype = {
 
       //console.warn('COMMAND RESULT:\n', aResponse.dump());
       //aResponse.rewind();
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing Sync reponse:', ex, '\n', ex.stack);
+        callWhenDone('unknown');
+        return;
+      }
 
-      if (status === '1') {
+      if (status === $ascp.AirSync.Enums.Status.Success) {
         folderConn.syncKey = syncKey;
         if (callWhenDone)
           callWhenDone(null);

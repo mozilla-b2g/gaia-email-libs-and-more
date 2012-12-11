@@ -250,7 +250,15 @@ ActiveSyncAccount.prototype = {
         }
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderSync response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       // It's possible we got some folders in an inconvenient order (i.e. child
       // folders before their parents). Keep trying to add folders until we're
@@ -516,7 +524,15 @@ ActiveSyncAccount.prototype = {
         serverId = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderCreate response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status === fhStatus.Success) {
         let folderMeta = account._addedFolder(serverId, parentFolderServerId,
@@ -574,7 +590,17 @@ ActiveSyncAccount.prototype = {
         account.meta.syncKey = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderDelete response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
+
       if (status === fhStatus.Success) {
         account._deletedFolder(folderMeta.serverId);
         callback(null, folderMeta);
