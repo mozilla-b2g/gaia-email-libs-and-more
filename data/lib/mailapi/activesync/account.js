@@ -698,7 +698,7 @@ ActiveSyncAccount.prototype = {
       callback();
   },
 
-  scheduleMessagePurge: function(callback) {
+  scheduleMessagePurge: function(folderId, callback) {
     // ActiveSync servers have no incremental folder growth, so message purging
     // makes no sense for them.
     if (callback)
