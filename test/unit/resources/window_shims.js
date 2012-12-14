@@ -42,6 +42,7 @@ var __blobLogFunc = function() {
 var __deviceStorageLogFunc = function() {
 };
 
+
 var _window_mixin = {
   // - indexed db
   indexedDB: indexedDB,

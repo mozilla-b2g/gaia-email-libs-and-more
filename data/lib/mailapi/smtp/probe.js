@@ -1,5 +1,5 @@
 /**
- *
+ * SMTP probe logic.
  **/
 
 define(
@@ -12,6 +12,31 @@ define(
     exports
   ) {
 
+var setTimeoutFunc = window.setTimeout.bind(window),
+    clearTimeoutFunc = window.clearTimeout.bind(window);
+
+exports.TEST_useTimeoutFuncs = function(setFunc, clearFunc) {
+  setTimeoutFunc = setFunc;
+  clearTimeoutFunc = clearFunc;
+};
+
+/**
+ * How many milliseconds should we wait before giving up on the connection?
+ *
+ * I have a whole essay on the rationale for this in the IMAP prober.  Us, we
+ * just want to use the same value as the IMAP prober.  This is a candidate for
+ * centralization.
+ */
+exports.CONNECT_TIMEOUT_MS = 30000;
+
+/**
+ * Validate that we find an SMTP server using the connection info and that it
+ * seems to like our credentials.
+ *
+ * Because the SMTP client has no connection timeout support, use our own timer
+ * to decide when to give up on the SMTP connection.  We use the timer for the
+ * whole process, including even after the connection is established.
+ */
 function SmtpProber(credentials, connInfo) {
   console.log("PROBE:SMTP attempting to connect to", connInfo.hostname);
   this._conn = $simplesmtp(
@@ -22,33 +47,53 @@ function SmtpProber(credentials, connInfo) {
       auth: { user: credentials.username, pass: credentials.password },
       debug: false,
     });
-  this._conn.on('idle', this.onIdle.bind(this));
-  this._conn.on('error', this.onBadness.bind(this));
-  this._conn.on('end', this.onBadness.bind(this));
+  // onIdle happens after successful login, and so is what our probing uses.
+  this._conn.on('idle', this.onResult.bind(this, null));
+  this._conn.on('error', this.onResult.bind(this));
+  this._conn.on('end', this.onResult.bind(this, 'unknown'));
+
+  this.timeoutId = setTimeoutFunc(
+                     this.onResult.bind(this, 'unresponsive-server'),
+                     exports.CONNECT_TIMEOUT_MS);
 
   this.onresult = null;
+  this.error = null;
 }
 exports.SmtpProber = SmtpProber;
 SmtpProber.prototype = {
-  /**
-   * onIdle happens after successful login, and so is what our probing uses.
-   */
-  onIdle: function() {
-    console.log('onIdle!');
-    if (this.onresult) {
-      console.log('PROBE:SMTP happy');
-      this.onresult(true);
-      this.onresult = null;
+  onResult: function(err) {
+    if (!this.onresult)
+      return;
+    if (err && typeof(err) === 'object') {
+      // detect an nsISSLStatus instance by an unusual property.
+      if ('isNotValidAtThisTime' in err) {
+        err = 'bad-security';
+      }
+      else {
+        switch (err.name) {
+          case 'AuthError':
+            err = 'bad-user-or-pass';
+            break;
+          case 'UnknownAuthError':
+          default:
+            err = 'server-problem';
+            break;
+        }
+      }
     }
-    this._conn.close();
-  },
 
-  onBadness: function(err) {
-    if (this.onresult) {
+    this.error = err;
+    if (err)
       console.warn('PROBE:SMTP sad. error: |' + err + '|');
-      this.onresult(false);
-      this.onresult = null;
-    }
+    else
+      console.log('PROBE:SMTP happy');
+
+    clearTimeoutFunc(this.timeoutId);
+
+    this.onresult(this.error);
+    this.onresult = null;
+
+    this._conn.close();
   },
 };
 
