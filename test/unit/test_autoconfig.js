@@ -57,6 +57,8 @@ const goodActivesyncXML =
     '</incomingServer>' +
   '</emailProvider></clientConfig>';
 
+const MXtext = 'mx-xampl.tld';
+
 const goodActivesyncConfig = {
   type: 'activesync',
   incoming: {
@@ -312,24 +314,140 @@ TD.commonCase('successful ISPDB IMAP', function(T, RT) {
  * local XML config file tells us activesync after checking MX.
  */
 TD.commonCase('successful MX local activesync', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        data: goodActivesyncXML },
+    ],
+    {
+      error: null,
+      config: goodActivesyncConfig,
+      errorDetails: null,
+    });
 });
 
 /**
  * local XML config file tells us IMAP after checking MX.
  */
 TD.commonCase('successful MX local IMAP', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        data: goodImapXML },
+    ],
+    {
+      error: null,
+      config: goodImapConfig,
+      errorDetails: null,
+    });
 });
 
 /**
  * ISPDB lookup found the MX-resolved domain
  */
 TD.commonCase('successful MX ISPDB IMAP', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
+        data: goodImapXML },
+    ],
+    {
+      error: null,
+      config: goodImapConfig,
+      errorDetails: null,
+    });
 });
 
 TD.commonCase('everything fails, get no-config-info', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
+        status: 404 },
+    ],
+    {
+      error: 'no-config-info',
+      config: null,
+      errorDetails: { status: 404 },
+    });
 });
 
 TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
+        data: unsafeImapXML },
+    ],
+    {
+      error: 'no-config-info',
+      config: null,
+      errorDetails: { status: 'unsafe' },
+    });
 });
 
 
