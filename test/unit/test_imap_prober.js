@@ -123,17 +123,19 @@ function cannedLoginTest(T, RT, opts) {
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
+    if (opts.loginErrorString) {
+      eCheck.expect_event('imap:clearTimeout');
+      eCheck.expect_event('imap:clearTimeout');
+    }
     eCheck.expect_namedValue('probe result', opts.expectResult);
     FawltySocketFactory.precommand(
       HOST, PORT,
       {
         cmd: 'fake',
-        data: OPEN_RESPONSE,
+        data: opts.openResponse || OPEN_RESPONSE,
       },
       [
-        CAPABILITY_RESPONSE,
+        opts.capabilityResponse || CAPABILITY_RESPONSE,
         'A2 ' + opts.loginErrorString + '\r\n',
       ]);
     prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
@@ -164,6 +166,18 @@ TD.commonCase('gmail IMAP domain disabled error', function(T, RT) {
     expectResult: 'imap-disabled',
   });
 });
+
+TD.commonCase('server maintenance', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    openResponse: OPEN_RESPONSE.replace('AUTH=PLAIN', 'LOGINDISABLED'),
+    capabilityResponse: CAPABILITY_RESPONSE.replace('AUTH=PLAIN',
+                                                    'LOGINDISABLED'),
+    // we won't get to the login string
+    loginErrorString: null,
+    expectResult: 'server-maintenance',
+  });
+});
+
 
 function run_test() {
   runMyTests(15);

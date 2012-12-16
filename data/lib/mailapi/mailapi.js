@@ -1501,6 +1501,9 @@ MailAPI.prototype = {
    *   }
    *   @case['no-dns-entry']{
    *     We couldn't find the domain name in question, full stop.
+   *
+   *     Not currently generated; eventually desired because it suggests a typo
+   *     and so a specialized error message is useful.
    *   }
    *   @case['no-config-info']{
    *     We were unable to locate configuration information for the domain.
@@ -1512,18 +1515,16 @@ MailAPI.prototype = {
    *   @case['port-not-listening']{
    *     Attempts to connect to the given port on the server failed.  We got
    *     packets back rejecting our connection.
+   *
+   *     Not currently generated; primarily desired because it is very useful if
+   *     we are domain guessing.  Also desirable for error messages because it
+   *     suggests a user typo or the less likely server outage.
    *   }
    *   @case['bad-security']{
    *     We were able to connect to the port and initiate TLS, but we didn't
    *     like what we found.  This could be a mismatch on the server domain,
    *     a self-signed or otherwise invalid certificate, insufficient crypto,
    *     or a vulnerable server implementation.
-   *   }
-   *   @case['not-an-imap-server']{
-   *     Whatever is there isn't actually an IMAP server.
-   *   }
-   *   @case['sucky-imap-server']{
-   *     The IMAP server is too bad for us to use.
    *   }
    *   @case['bad-user-or-pass']{
    *     The username and password didn't check out.  We don't know which one

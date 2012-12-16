@@ -57,6 +57,7 @@ function ImapProber(credentials, connInfo, _LOG) {
 
   this.onresult = null;
   this.error = null;
+  this.errorDetails = { server: connInfo.hostname };
 }
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
@@ -103,7 +104,7 @@ ImapProber.prototype = {
     }
     this._conn = null;
 
-    this.onresult(this.error, null);
+    this.onresult(this.error, null, this.errorDetails);
     // we could potentially see many errors...
     this.onresult = false;
   },

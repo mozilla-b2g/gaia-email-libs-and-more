@@ -362,7 +362,7 @@ Configurators['imap+smtp'] = {
       ['imap', 'smtp'],
       function probesDone(results) {
         // -- both good?
-        if (results.imap[0] === null && results.smtp === null) {
+        if (results.imap[0] === null && results.smtp[0] === null) {
           var account = self._defineImapAccount(
             universe,
             userDetails, credentials,
@@ -376,9 +376,9 @@ Configurators['imap+smtp'] = {
           if (results.imap[0] === null) {
             results.imap[1].die();
             // Failure was caused by SMTP, but who knows why
-            callback('smtp-unknown', null);
+            callback(results.smtp[0], null, results.smtp[1]);
           } else {
-            callback(results.imap[0], null); // Pass imap error type back
+            callback(results.imap[0], null, results.imap[2]);
           }
           return;
         }

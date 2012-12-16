@@ -58,6 +58,7 @@ function SmtpProber(credentials, connInfo) {
 
   this.onresult = null;
   this.error = null;
+  this.errorDetails = { server: connInfo.hostname };
 }
 exports.SmtpProber = SmtpProber;
 SmtpProber.prototype = {
@@ -90,7 +91,7 @@ SmtpProber.prototype = {
 
     clearTimeoutFunc(this.timeoutId);
 
-    this.onresult(this.error);
+    this.onresult(this.error, this.errorDetails);
     this.onresult = null;
 
     this._conn.close();
