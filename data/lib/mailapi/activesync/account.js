@@ -611,7 +611,7 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  sendMessage: function asa_sendMessage(composedMessage, callback) {
+  sendMessage: function asa_sendMessage(composer, callback) {
     let account = this;
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
@@ -619,65 +619,60 @@ ActiveSyncAccount.prototype = {
           callback('unknown');
           return;
         }
-        account.sendMessage(composedMessage, callback);
+        account.sendMessage(composer, callback);
       });
       return;
     }
 
-    // XXX: This is very hacky and gross. Fix it to use pipes later.
-    composedMessage._cacheOutput = true;
-    process.immediate = true;
-    composedMessage._processBufferedOutput = function() {
-      // we are stopping the DKIM logic from firing.
-    };
-    composedMessage._composeMessage();
-    process.immediate = false;
+    // we want the bcc included because that's how we tell the server the bcc
+    // results.
+    composer.withMessageBuffer({ includeBcc: true }, function(mimeBuffer) {
+      // ActiveSync 14.0 has a completely different API for sending email. Make
+      // sure we format things the right way.
+      if (this.conn.currentVersion.gte('14.0')) {
+        const cm = $ascp.ComposeMail.Tags;
+        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        w.stag(cm.SendMail)
+           .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
+           .tag(cm.SaveInSentItems)
+           .stag(cm.Mime)
+             .opaque(mimeBuffer)
+           .etag()
+         .etag();
 
-    // ActiveSync 14.0 has a completely different API for sending email. Make
-    // sure we format things the right way.
-    if (this.conn.currentVersion.gte('14.0')) {
-      const cm = $ascp.ComposeMail.Tags;
-      let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-      w.stag(cm.SendMail)
-         .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
-         .tag(cm.SaveInSentItems)
-         .stag(cm.Mime)
-           .opaque(composedMessage._outputBuffer)
-         .etag()
-       .etag();
+        this.conn.postCommand(w, function(aError, aResponse) {
+          if (aError) {
+            console.error(aError);
+            callback('unknown');
+            return;
+          }
 
-      this.conn.postCommand(w, function(aError, aResponse) {
-        if (aError) {
-          console.error(aError);
-          callback('unknown');
-          return;
-        }
+          if (aResponse === null) {
+            console.log('Sent message successfully!');
+            callback(null);
+          }
+          else {
+            console.error('Error sending message. XML dump follows:\n' +
+                          aResponse.dump());
+            callback('unknown');
+          }
+        });
+      }
+      else { // ActiveSync 12.x and lower
+        this.conn.postData('SendMail', 'message/rfc822',
+                           mimeBuffer,
+                           function(aError, aResponse) {
+          if (aError) {
+            console.error(aError);
+            callback('unknown');
+            return;
+          }
 
-        if (aResponse === null) {
           console.log('Sent message successfully!');
           callback(null);
-        }
-        else {
-          console.error('Error sending message. XML dump follows:\n' +
-                        aResponse.dump());
-          callback('unknown');
-        }
-      });
-    }
-    else { // ActiveSync 12.x and lower
-      this.conn.postData('SendMail', 'message/rfc822',
-                         composedMessage._outputBuffer,
-                         function(aError, aResponse) {
-        if (aError) {
-          console.error(aError);
-          callback('unknown');
-          return;
-        }
-
-        console.log('Sent message successfully!');
-        callback(null);
-      }, { SaveInSent: 'T' });
-    }
+        }, { SaveInSent: 'T' });
+      }
+    }.bind(this));
   },
 
   getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
