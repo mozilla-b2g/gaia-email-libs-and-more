@@ -311,13 +311,13 @@ function MailUniverse(callAfterBigBang, testOptions) {
 
   this._bridges = [];
 
-  // hookup network status indication
-  var connection = window.navigator.connection ||
-                     window.navigator.mozConnection ||
-                     window.navigator.webkitConnection;
+  // We used to try and use navigator.connection, but it's not supported on B2G,
+  // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
+  this._bound_onConnectionChange = this._onConnectionChange.bind(this);
+  window.addEventListener('online', this._bound_onConnectionChange);
+  window.addEventListener('offline', this._bound_onConnectionChange);
   this._onConnectionChange();
-  connection.addEventListener('change', this._onConnectionChange.bind(this));
 
   this._testModeDisablingLocalOps = false;
 
@@ -530,29 +530,37 @@ MailUniverse.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
   _onConnectionChange: function() {
-    var connection = window.navigator.connection ||
-                       window.navigator.mozConnection ||
-                       window.navigator.webkitConnection;
     var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
-     * This should ideally be false behind a captive portal.
+     * This should ideally be false behind a captive portal.  This might also
+     * end up temporarily false if we move to a 2-phase startup process.
      */
-    this.online = connection.bandwidth > 0;
+    this.online = navigator.onLine;
+    // Knowing when the app thinks it is online/offline is going to be very
+    // useful for our console.log debug spew.
+    console.log('Email knows that it is:', this.online ? 'online' : 'offline',
+                'and previously was:', wasOnline ? 'online' : 'offline');
     /**
      * Do we want to minimize network usage?  Right now, this is the same as
      * metered, but it's conceivable we might also want to set this if the
      * battery is low, we want to avoid stealing network/cpu from other
      * apps, etc.
+     *
+     * NB: We used to get this from navigator.connection.metered, but we can't
+     * depend on that.
      */
-    this.minimizeNetworkUsage = connection.metered;
+    this.minimizeNetworkUsage = true;
     /**
      * Is there a marginal cost to network usage?  This is intended to be used
      * for UI (decision) purposes where we may want to prompt before doing
      * things when bandwidth is metered, but not when the user is on comparably
      * infinite wi-fi.
+     *
+     * NB: We used to get this from navigator.connection.metered, but we can't
+     * depend on that.
      */
-    this.networkCostsMoney = connection.metered;
+    this.networkCostsMoney = true;
 
     if (!wasOnline && this.online) {
       // - check if we have any pending actions to run and run them if so.
@@ -872,6 +880,9 @@ MailUniverse.prototype = {
       var account = this.accounts[iAcct];
       account.shutdown();
     }
+
+    window.removeEventListener('online', this._bound_onConnectionChange);
+    window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
     this._LOG.__die();
@@ -1033,6 +1044,11 @@ MailUniverse.prototype = {
           op.localStatus = 'undone';
           break;
       }
+
+      // This is a suggestion; in the event of high-throughput on operations,
+      // we probably don't want to save the account every tick, etc.
+      if (accountSaveSuggested)
+        account.saveAccountState();
     }
     if (removeFromServerQueue) {
       var idx = serverQueue.indexOf(op);
@@ -1339,6 +1355,29 @@ MailUniverse.prototype = {
         serverStatus: null,
         tryCount: 0,
         humanOp: 'syncFolderList'
+      },
+      callback);
+  },
+
+  /**
+   * Schedule a purge of the excess messages from the given folder.  This
+   * currently only makes sense for IMAP accounts and will automatically be
+   * called by the FolderStorage and its owning account when a sufficient
+   * number of blocks have been allocated by the storage.
+   */
+  purgeExcessMessages: function(account, folderId, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'purgeExcessMessages',
+        // no need to track this in the mutations list
+        longtermId: 'internal',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
+        tryCount: 0,
+        humanOp: 'purgeExcessMessages',
+        folderId: folderId
       },
       callback);
   },

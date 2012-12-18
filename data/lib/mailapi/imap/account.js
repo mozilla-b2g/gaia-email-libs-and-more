@@ -55,6 +55,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.universe = universe;
   this.compositeAccount = compositeAccount;
   this.id = accountId;
+  this.accountDef = compositeAccount.accountDef;
 
   this.enabled = true;
 
@@ -275,7 +276,7 @@ ImapAccount.prototype = {
    * that ever ends up not being the case that we need to cause mutating
    * operations to defer until after that snapshot has occurred.
    */
-  saveAccountState: function(reuseTrans) {
+  saveAccountState: function(reuseTrans, callback) {
     var perFolderStuff = [], self = this;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -284,12 +285,16 @@ ImapAccount.prototype = {
       if (folderStuff)
         perFolderStuff.push(folderStuff);
     }
-    this._LOG.saveAccountState_begin();
+    this._LOG.saveAccountState();
     var trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff,
       this._deadFolderIds,
       function stateSaved() {
-        self._LOG.saveAccountState_end();
+        // NB: we used to log when the save completed, but it ended up being
+        // annoying to the unit tests since we don't block our actions on
+        // the completion of the save at this time.
+        if (callback)
+          callback();
       },
       reuseTrans);
     this._deadFolderIds = null;
@@ -590,9 +595,13 @@ ImapAccount.prototype = {
           case 'NO':
           case 'no':
             // XXX: Should we check if it's GMail first?
-            if (err.serverResponse.indexOf('[ALERT] Application-specific password required') !== -1)
+            if (!err.serverResponse)
+              errName = 'unknown';
+            else if (err.serverResponse.indexOf(
+                '[ALERT] Application-specific password required') !== -1)
               errName = 'needs-app-pass';
-            else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') !== -1)
+            else if (err.serverResponse.indexOf(
+                 '[ALERT] Your account is not enabled for IMAP use.') !== -1)
               errName = 'imap-disabled';
             else
               errName = 'bad-user-or-pass';
@@ -937,6 +946,11 @@ ImapAccount.prototype = {
       callbacks.trash(null);
   },
 
+  scheduleMessagePurge: function(folderId, callback) {
+    this.universe.purgeExcessMessages(this.compositeAccount, folderId,
+                                      callback);
+  },
+
   //////////////////////////////////////////////////////////////////////////////
 
   runOp: $acctmixins.runOp,
@@ -967,6 +981,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       deadConnection: {},
       connectionMismatch: {},
 
+      saveAccountState: {},
+
       /**
        * The maximum connection limit has been reached, we are intentionally
        * not creating an additional one.
@@ -990,7 +1006,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: {},
     },
     TEST_ONLY_asyncJobs: {
     },

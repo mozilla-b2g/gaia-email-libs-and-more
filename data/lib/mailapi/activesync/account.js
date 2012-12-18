@@ -173,11 +173,10 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin(reason);
+    this._LOG.saveAccountState(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -251,7 +250,15 @@ ActiveSyncAccount.prototype = {
         }
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderSync response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       // It's possible we got some folders in an inconvenient order (i.e. child
       // folders before their parents). Keep trying to add folders until we're
@@ -517,7 +524,15 @@ ActiveSyncAccount.prototype = {
         serverId = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderCreate response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status === fhStatus.Success) {
         let folderMeta = account._addedFolder(serverId, parentFolderServerId,
@@ -575,7 +590,17 @@ ActiveSyncAccount.prototype = {
         account.meta.syncKey = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderDelete response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
+
       if (status === fhStatus.Success) {
         account._deletedFolder(folderMeta.serverId);
         callback(null, folderMeta);
@@ -669,7 +694,15 @@ ActiveSyncAccount.prototype = {
     // XXX I am assuming ActiveSync servers are smart enough to already come
     // with these folders.  If not, we should move IMAP's ensureEssentialFolders
     // into the mixins class.
-    callback();
+    if (callback)
+      callback();
+  },
+
+  scheduleMessagePurge: function(folderId, callback) {
+    // ActiveSync servers have no incremental folder growth, so message purging
+    // makes no sense for them.
+    if (callback)
+      callback();
   },
 
   runOp: $acctmixins.runOp,
@@ -683,10 +716,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: {},
       deleteFolder: {},
       recreateFolder: { id: false },
+      saveAccountState: { reason: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: { reason: false },
     },
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },

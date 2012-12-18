@@ -74,6 +74,48 @@ exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX = 7 * $date.DAY_MILLIS;
 exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX = 6 * $date.HOUR_MILLIS;
 
 ////////////////////////////////////////////////////////////////////////////////
+// Block Purging Constants (IMAP only)
+//
+// These values are all intended for resource-constrained mobile devices.  A
+// more powerful tablet-class or desktop-class app would probably want to crank
+// the values way up.
+
+/**
+ * Every time we create this many new body blocks, queue a purge job for the
+ * folder.
+ *
+ * Body sizes are most variable and should usually take up more space than their
+ * owning header blocks, so it makes sense for this to be the proxy we use for
+ * disk space usage/growth.
+ */
+exports.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS = 4;
+
+/**
+ * How much time must have elapsed since the given messages were last
+ * synchronized before purging?  Our accuracy ranges are updated whenever we are
+ * online and we attempt to display messages.  So before we purge messages, we
+ * make sure that the accuracy range covering the messages was updated at least
+ * this long ago before deciding to purge.
+ */
+exports.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS = 14 * $date.DAY_MILLIS;
+
+/**
+ * What is the absolute maximum number of blocks we will store per folder for
+ * each block type?  If we have more blocks than this, we will discard them
+ * regardless of any time considerations.
+ *
+ * The hypothetical upper bound for disk uage per folder is:
+ *  X 'number of blocks' * 2 'types of blocks' * 96k 'maximum block size'.
+ *
+ * So for the current value of 128 we are looking at 24 megabytes, which is
+ * a lot.
+ *
+ * This is intended to protect people who have ridiculously high message
+ * densities from time-based heuristics not discarding things fast enough.
+ */
+exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT = 128;
+
+////////////////////////////////////////////////////////////////////////////////
 // General Sync Constants
 
 /**
@@ -90,6 +132,8 @@ exports.INITIAL_FILL_SIZE = 15;
 
 /**
  * How many days in the past should we first look for messages.
+ *
+ * IMAP only.
  */
 exports.INITIAL_SYNC_DAYS = 3;
 
@@ -98,6 +142,8 @@ exports.INITIAL_SYNC_DAYS = 3;
  * a sync and don't find any messages?  There are upper bounds in
  * `FolderStorage.onSyncCompleted` that cap this and there's more comments
  * there.
+ *
+ * IMAP only.
  */
 exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = 1.6;
 
@@ -105,6 +151,8 @@ exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = 1.6;
  * What is the furthest back in time we are willing to go?  This is an
  * arbitrary choice to avoid our logic going crazy, not to punish people with
  * comprehensive mail collections.
+ *
+ * IMAP only.
  */
 exports.OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
 
@@ -115,6 +163,8 @@ exports.OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
  * a smaller number of messages.  This will result in some wasted traffic
  * but better a small wasted amount (for UIDs) than a larger wasted amount
  * (to get the dates for all the messages.)
+ *
+ * IMAP only.
  */
 exports.BISECT_DATE_AT_N_MESSAGES = 50;
 
@@ -127,8 +177,43 @@ exports.BISECT_DATE_AT_N_MESSAGES = 50;
  * This could be eliminated by adjusting time ranges when we know the
  * density is high (from our block indices) or by re-issuing search results
  * when the server is telling us more than we can handle.
+ *
+ * IMAP only.
  */
 exports.TOO_MANY_MESSAGES = 2000;
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Size Estimate Constants
+
+/**
+ * The estimated size of a `HeaderInfo` structure.  We are using a constant
+ * since there is not a lot of variability in what we are storing and this
+ * is probably good enough.
+ *
+ * Our estimate is based on guesses based on presumed structured clone encoding
+ * costs for each field using a reasonable upper bound for length.  Our
+ * estimates are trying not to factor in compressability too much since our
+ * block size targets are based on the uncompressed size.
+ * - id: 4: integer less than 64k
+ * - srvid: 40: 38 char uuid with {}'s, (these are uuid's on hotmail)
+ * - suid: 13: 'xx/xx/xxxxx' (11)
+ * - guid: 80: 66 character (unquoted) message-id from gmail, 48 from moco.
+ *         This is unlikely to compress well and there could be more entropy
+ *         out there, so guess high.
+ * - author: 70: 32 for the e-mail address covers to 99%, another 32 for the
+ *           display name which will usually be shorter than 32 but could
+ *           involve encoded characters that bloat the utf8 persistence.
+ * - date: 9: double that will be largely used)
+ * - flags: 32: list which should normally top out at ['\Seen', '\Flagged'], but
+ *              could end up with non-junk markers, etc. so plan for at least
+ *              one extra.
+ * - hasAttachments: 2: boolean
+ * - subject: 80
+ * - snippet: 100 (we target 100, it will come in under)
+ */
+exports.HEADER_EST_SIZE_IN_BYTES = 430;
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Error / Retry Constants
@@ -183,6 +268,24 @@ exports.CHECK_INTERVALS_ENUMS_TO_MS = {
  */
 exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 
+const DAY_MILLIS = 24 * 60 * 60 * 1000;
+
+/**
+ * Map the ActiveSync-limited list of sync ranges to milliseconds.  Do NOT
+ * add additional values to this mapping unless you make sure that our UI
+ * properly limits ActiveSync accounts to what the protocol supports.
+ */
+exports.SYNC_RANGE_ENUMS_TO_MS = {
+  // This choice is being made for IMAP.
+  'auto': 30 * DAY_MILLIS,
+    '1d': 1 * DAY_MILLIS,
+    '3d': 3 * DAY_MILLIS,
+    '1w': 7 * DAY_MILLIS,
+    '2w': 14 * DAY_MILLIS,
+    '1m': 30 * DAY_MILLIS,
+   'all': 30 * 365 * DAY_MILLIS,
+};
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Unit test support
@@ -225,6 +328,17 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
   if (syncValues.hasOwnProperty('useRangeInbox'))
     exports.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX =
       syncValues.useRangeInbox;
+
+  if (syncValues.hasOwnProperty('HEADER_EST_SIZE_IN_BYTES'))
+    exports.HEADER_EST_SIZE_IN_BYTES =
+      syncValues.HEADER_EST_SIZE_IN_BYTES;
+
+  if (syncValues.hasOwnProperty('BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS'))
+    exports.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS =
+      syncValues.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS;
+  if (syncValues.hasOwnProperty('BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT'))
+    exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT =
+      syncValues.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT;
 
   if (syncValues.hasOwnProperty('MAX_OP_TRY_COUNT'))
     exports.MAX_OP_TRY_COUNT = syncValues.MAX_OP_TRY_COUNT;
