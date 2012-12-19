@@ -1597,6 +1597,12 @@ MailAPI.prototype = {
     req.callback.call(null, msg.error);
   },
 
+  cancelAccountCreation: function ma_cancelAccountCreation() {
+    this.__bridgeSend({
+      type: 'cancelAccountCreation',
+    });
+  },
+
   _clearAccountProblems: function ma__clearAccountProblems(account) {
     this.__bridgeSend({
       type: 'clearAccountProblems',

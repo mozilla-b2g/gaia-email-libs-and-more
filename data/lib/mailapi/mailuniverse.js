@@ -333,6 +333,7 @@ function MailUniverse(callAfterBigBang, testOptions) {
   this._logBacklog = null;
 
   this._LOG = null;
+  this._configurator = null;
   this._db = new $maildb.MailDB(testOptions);
   this._cronSyncer = new $cronsync.CronSyncer(this);
   var self = this;
@@ -413,6 +414,7 @@ function MailUniverse(callAfterBigBang, testOptions) {
       }
     }
     self._initFromConfig();
+    self._configurator = new $acctcommon.Autoconfigurator(self._LOG);
     callAfterBigBang();
   });
 }
@@ -655,11 +657,12 @@ MailUniverse.prototype = {
                                              callback, this._LOG);
     }
     else {
-      // XXX: store configurator on this object so we can abort the connections
-      // if necessary.
-      var configurator = new $acctcommon.Autoconfigurator(this._LOG);
-      configurator.tryToCreateAccount(this, userDetails, callback);
+      this._configurator.tryToCreateAccount(this, userDetails, callback);
     }
+  },
+
+  cancelAccountCreation: function mu_cancelAccountCreation() {
+    this._configurator.abort();
   },
 
   /**
