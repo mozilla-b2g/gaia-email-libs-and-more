@@ -956,6 +956,27 @@ var TestImapAccountMixins = {
     });
   },
 
+  /**
+   * Locally delete the message like we heard it was deleted on the server; but
+   * we won't have actually heard it from the server.  We do this outside a
+   * mutex because we're a unit test hack and nothing should be going on.
+   */
+  fakeServerMessageDeletion: function(mailHeader) {
+    var self = this;
+    this.RT.reportActiveActorThisStep(this);
+
+    var folderStorage =
+          this.universe.getFolderStorageForMessageSuid(mailHeader.id);
+    this.expect_deletionNotified(1);
+    folderStorage.getMessageHeader(
+      mailHeader.id, mailHeader.date,
+      function(header) {
+        folderStorage.deleteMessageHeaderAndBody(header, function() {
+          self._logger.deletionNotified(1);
+        });
+      });
+  },
+
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
