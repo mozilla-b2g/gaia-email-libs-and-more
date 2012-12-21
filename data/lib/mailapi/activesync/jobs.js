@@ -264,10 +264,8 @@ ActiveSyncJobDriver.prototype = {
               let srvid = serverIds[i];
               // If the header is somehow an offline header, it will be null and
               // there is nothing we can really do for it.
-              if (!srvid) {
-                console.log('AS message', namers[i].suid, 'lacks srvid!');
+              if (!srvid)
                 continue;
-              }
 
               w.stag(as.Delete)
                   .tag(as.ServerId, srvid)
