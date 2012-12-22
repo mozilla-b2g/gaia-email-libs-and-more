@@ -35,9 +35,13 @@ function NetSocket(port, host, crypto) {
   this._actualSock.onerror = this._onerror.bind(this);
   this._actualSock.ondata = this._ondata.bind(this);
   this._actualSock.onclose = this._onclose.bind(this);
+
+  this.destroyed = false;
 }
 exports.NetSocket = NetSocket;
 util.inherits(NetSocket, EventEmitter);
+NetSocket.prototype.setTimeout = function() {
+};
 NetSocket.prototype.setKeepAlive = function(shouldKeepAlive) {
 };
 NetSocket.prototype.write = function(buffer) {
@@ -45,6 +49,7 @@ NetSocket.prototype.write = function(buffer) {
 };
 NetSocket.prototype.end = function() {
   this._actualSock.close();
+  this.destroyed = true;
 };
 
 NetSocket.prototype._onconnect = function(event) {

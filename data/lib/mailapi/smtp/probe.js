@@ -20,6 +20,8 @@ exports.TEST_useTimeoutFuncs = function(setFunc, clearFunc) {
   clearTimeoutFunc = clearFunc;
 };
 
+exports.TEST_USE_DEBUG_MODE = false;
+
 /**
  * How many milliseconds should we wait before giving up on the connection?
  *
@@ -45,7 +47,7 @@ function SmtpProber(credentials, connInfo) {
       secureConnection: connInfo.crypto === true,
       ignoreTLS: connInfo.crypto === false,
       auth: { user: credentials.username, pass: credentials.password },
-      debug: false,
+      debug: exports.TEST_USE_DEBUG_MODE,
     });
   // onIdle happens after successful login, and so is what our probing uses.
   this._conn.on('idle', this.onResult.bind(this, null));

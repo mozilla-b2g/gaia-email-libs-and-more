@@ -13,6 +13,8 @@ load('resources/fault_injecting_socket.js');
 
 var $_smtpprobe = require('mailapi/smtp/probe');
 
+$_smtpprobe.TEST_USE_DEBUG_MODE = true;
+
 var TD = $tc.defineTestsFor(
   { id: 'test_smtp_prober' }, null, [$th_imap.TESTHELPER], ['app']);
 
@@ -100,8 +102,8 @@ TD.commonCase('SSL failure', function(T, RT) {
   });
 });
 
-const SMTP_GREETING = '220 localhsot ESMTP Fake';
-const SMTP_EHLO_RESPONSE = '250 AUTH PLAIN';
+const SMTP_GREETING = '220 localhsot ESMTP Fake\r\n';
+const SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
 
 
 function cannedLoginTest(T, RT, opts) {
@@ -135,16 +137,16 @@ function cannedLoginTest(T, RT, opts) {
 
 TD.commonCase('bad username or password', function(T, RT) {
   cannedLoginTest(T, RT, {
-    loginErrorString: '535 Authentication DENIED',
+    loginErrorString: '535 Authentication DENIED\r\n',
     expectResult: 'bad-user-or-pass',
   });
 });
 
 TD.commonCase('angry server', function(T, RT) {
   cannedLoginTest(T, RT, {
-    ehloResponse: '500 go away!',
+    ehloResponse: '500 go away!\r\n',
     // it will then say HELO, which we also hate, because we are angry.
-    loginErrorString: '500 I said go away!',
+    loginErrorString: '500 I said go away!\r\n',
     expectResult: 'server-problem',
   });
 });
