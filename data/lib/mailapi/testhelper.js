@@ -517,9 +517,50 @@ var TestCommonAccountMixins = {
     if (checkFlagDefault(flags, 'save', false) === 'server')
       this.eOpAccount.expect_saveAccountState();
   },
+
+  /**
+   * Wait for a message with the given subject to show up in the account.
+   *
+   * For now we repeatedly poll for the arrival of the message
+   */
+  do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
+    var self = this;
+    var testStep =
+          this.T.action(this, 'wait for message', expectSubject, function() {
+      self.expect_messageSubject(null, expectSubject);
+      var foundIt = false;
+      if (funcOpts.expect)
+        funcOpts.expect();
+
+      viewThing.slice.onadd = function(header) {
+        if (header.subject !== expectSubject)
+          return;
+        self._logger.messageSubject(null, header.subject);
+        foundIt = true;
+        // Trigger the withMessage handler only once the slice completes so that
+        // we don't try and overlap with the slice's refresh.
+        if (funcOpts.withMessage)
+          viewThing.slice.oncomplete =
+            funcOpts.withMessage.bind(funcOpts, header);
+      };
+      function completeFunc() {
+        if (foundIt)
+          return;
+        setTimeout(function() {
+          viewThing.slice.oncomplete = completeFunc;
+          viewThing.slice.refresh();
+        }, 150);
+      };
+      viewThing.slice.oncomplete = completeFunc;
+      viewThing.slice.refresh();
+    });
+    testStep.timeoutMS = 5000;
+    return testStep;
+  },
 };
 
 var TestImapAccountMixins = {
+  exactAttachmentSizes: false,
   __constructor: function(self, opts) {
     self.eImapAccount = self.eOpAccount =
       self.T.actor('ImapAccount', self.__name, null, self);
@@ -915,6 +956,27 @@ var TestImapAccountMixins = {
     });
   },
 
+  /**
+   * Locally delete the message like we heard it was deleted on the server; but
+   * we won't have actually heard it from the server.  We do this outside a
+   * mutex because we're a unit test hack and nothing should be going on.
+   */
+  fakeServerMessageDeletion: function(mailHeader) {
+    var self = this;
+    this.RT.reportActiveActorThisStep(this);
+
+    var folderStorage =
+          this.universe.getFolderStorageForMessageSuid(mailHeader.id);
+    this.expect_deletionNotified(1);
+    folderStorage.getMessageHeader(
+      mailHeader.id, mailHeader.date,
+      function(header) {
+        folderStorage.deleteMessageHeaderAndBody(header, function() {
+          self._logger.deletionNotified(1);
+        });
+      });
+  },
+
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
@@ -1129,43 +1191,6 @@ var TestImapAccountMixins = {
       viewThing.slice.requestShrinkage(useLow, useHigh);
     });
   },
-
-  /**
-   * Wait for a message with the given subject to show up in the account.
-   *
-   * For now we repeatedly poll for the arrival of the message
-   */
-  do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
-    var self = this;
-    this.T.action(this, 'wait for message', expectSubject, function() {
-      self.expect_messageSubject(null, expectSubject);
-      var foundIt = false;
-      if (funcOpts.expect)
-        funcOpts.expect();
-
-      viewThing.slice.onadd = function(header) {
-        if (header.subject !== expectSubject)
-          return;
-        self._logger.messageSubject(null, header.subject);
-        foundIt = true;
-        // Trigger the withMessage handler only once the slice completes so that
-        // we don't try and overlap with the slice's refresh.
-        if (funcOpts.withMessage)
-          viewThing.slice.oncomplete =
-            funcOpts.withMessage.bind(funcOpts, header);
-      };
-      function completeFunc() {
-        if (foundIt)
-          return;
-        setTimeout(function() {
-          viewThing.slice.oncomplete = completeFunc;
-          viewThing.slice.refresh();
-        }, 150);
-      };
-      viewThing.slice.oncomplete = completeFunc;
-      viewThing.slice.refresh();
-    }).timeoutMS = 5000;
-  },
 };
 
 /**
@@ -1236,6 +1261,7 @@ var TestActiveSyncServerMixins = {
 };
 
 var TestActiveSyncAccountMixins = {
+  exactAttachmentSizes: true,
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
@@ -1251,11 +1277,19 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
+    if (opts.realAccountNeeded) {
+      if (TEST_PARAMS_ARE_DEFAULTS)
+        throw new Error('This test needs a real activesync account!');
+      if (opts.realAccountNeeded === 'append')
+        throw new Error(
+          'This test will not work on real ActiveSync; need APPEND');
+      self.testServer = null;
+    }
     // If a server was not explicitly provided, then create one that should
     // have a lifetime of this current test step.  We use the blackboard
     // instead of the universe because a freshly started universe currently
     // does not know about the universe it is replacing.
-    if (!opts.server) {
+    else if (!opts.server) {
       if (!self.RT.blackboard.testActiveSyncServer) {
         self.RT.blackboard.testActiveSyncServer =
           self.T.actor('testActiveSyncServer', 'S',
@@ -1300,7 +1334,7 @@ var TestActiveSyncAccountMixins = {
      * all accounts and folders, advancing to the next test when both slices are
      * populated.
      */
-    self.T.convenienceSetup(self, 'creates test account', function() {
+    var step= self.T.convenienceSetup(self, 'creates test account', function() {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eAccount);
@@ -1312,9 +1346,13 @@ var TestActiveSyncAccountMixins = {
 
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: 'test',
-          emailAddress: 'test@aslocalhost',
-          password: 'test',
+          displayName:
+            self._opts.realAccountNeeded ? TEST_PARAMS.name : 'test',
+          emailAddress:
+            self._opts.realAccountNeeded ? TEST_PARAMS.emailAddress
+                                          : 'test@aslocalhost',
+          password:
+            self._opts.realAccountNeeded ? TEST_PARAMS.password : 'test',
           accountName: self._opts.name || null,
         },
         null,
@@ -1336,6 +1374,8 @@ var TestActiveSyncAccountMixins = {
           });
         });
     });
+    if (self._opts.realAccountNeeded)
+      step.timeoutMS = 10000;
   },
 
   expect_shutdown: function() {
@@ -1398,9 +1438,15 @@ var TestActiveSyncAccountMixins = {
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.getFirstFolderWithType(
-        folderType);
-      testFolder.messages = testFolder.serverFolder.messages;
+      if (self.testServer) {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+                                    folderType);
+        testFolder.messages = testFolder.serverFolder.messages;
+      }
+      else {
+        testFolder.serverFolder = null;
+        testFolder.messages = null;
+      }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
       self._logger.foundFolder(!!testFolder.mailFolder, testFolder.mailFolder);
@@ -1420,13 +1466,15 @@ var TestActiveSyncAccountMixins = {
   // properly unify things.
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
                           extraFlags, _saveToThing) {
-    var self = this;
-    this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
+    var self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
+    var testStep =
+      this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
       var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
                                                  extraFlags);
-      self.expect_messagesReported(totalExpected);
       if (expectedValues) {
+        self.expect_messagesReported(totalExpected);
         // Generate overall count expectation and first and last message
         // expectations by subject.
         if (totalExpected) {
@@ -1436,9 +1484,10 @@ var TestActiveSyncAccountMixins = {
             totalExpected - 1,
             testFolder.messages[totalExpected - 1].subject);
         }
+        self.expect_sliceFlags(
+          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          isFailure ? 'syncfailed' : 'synced');
       }
-      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.grow, 'synced');
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
       slice.oncomplete = function() {
@@ -1459,6 +1508,8 @@ var TestActiveSyncAccountMixins = {
         }
       };
     });
+    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
+    return testStep;
   },
 
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {

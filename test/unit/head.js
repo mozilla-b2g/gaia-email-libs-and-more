@@ -251,20 +251,29 @@ const ENVIRON_MAPPINGS = [
   {
     name: 'emailAddress',
     envVar: 'GELAM_TEST_ACCOUNT',
+    coerce: function (x) { return x; },
   },
   {
     name: 'password',
     envVar: 'GELAM_TEST_PASSWORD',
+    coerce: function (x) { return x; },
   },
   {
     name: 'type',
-    envVar: 'GELAM_TEST_ACCOUNT_TYPE'
+    envVar: 'GELAM_TEST_ACCOUNT_TYPE',
+    coerce: function (x) { return x; },
+  },
+  {
+    name: 'slow',
+    envVar: 'GELAM_TEST_ACCOUNT_SLOW',
+    coerce: Boolean
   }
 ];
 var TEST_PARAMS = {
   name: 'Baron von Testendude',
   emailAddress: 'testy@localhost',
   password: 'testy',
+  slow: false,
   type: 'imap'
 };
 var TEST_PARAMS_ARE_DEFAULTS = true;
@@ -272,9 +281,9 @@ var TEST_PARAMS_ARE_DEFAULTS = true;
 function populateTestParams() {
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
-  for each (let [, {name, envVar}] in Iterator(ENVIRON_MAPPINGS)) {
+  for each (let [, {name, envVar, coerce}] in Iterator(ENVIRON_MAPPINGS)) {
     if (environ.exists(envVar)) {
-      TEST_PARAMS[name] = environ.get(envVar);
+      TEST_PARAMS[name] = coerce(environ.get(envVar));
       console.log('environment:', name, TEST_PARAMS[name]);
       TEST_PARAMS_ARE_DEFAULTS = false;
     }

@@ -1718,7 +1718,11 @@ function parseFetch(str, literalData, fetchData) {
       fetchData.date = parseImapDateTime(result[i+1]);
     }
     else if (result[i] === 'FLAGS') {
-      fetchData.flags = result[i+1].filter(isNotEmpty);
+      // filter out empty flags and \Recent.  As RFC 3501 makes clear, the
+      // \Recent flag is effectively useless because its semantics are that
+      // only one connection will see it.  Accordingly, there's no need to
+      // trouble consumers with it.
+      fetchData.flags = result[i+1].filter(isNotEmptyOrRecent);
       // simplify comparison for downstream logic by sorting.
       fetchData.flags.sort();
     }
@@ -1960,6 +1964,12 @@ function stringExplode(string, delimiter, limit) {
 
 function isNotEmpty(str) {
   return str.trim().length > 0;
+}
+
+const RE_RECENT = /^\\Recent$/i;
+function isNotEmptyOrRecent(str) {
+  var s = str.trim();
+  return s.length > 0 && !RE_RECENT.test(s);
 }
 
 function escape(str) {
