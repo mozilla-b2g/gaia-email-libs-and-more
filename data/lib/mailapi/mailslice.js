@@ -206,13 +206,19 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
 exports.MailSlice = MailSlice;
 MailSlice.prototype = {
   set atTop(val) {
-    this._bridgeHandle.atTop = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.atTop = val;
+    return val;
   },
   set atBottom(val) {
-    this._bridgeHandle.atBottom = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.atBottom = val;
+    return val;
   },
   set userCanGrowDownwards(val) {
-    this._bridgeHandle.userCanGrowDownwards = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.userCanGrowDownwards = val;
+    return val;
   },
 
   _updateSliceFlags: function() {
@@ -241,6 +247,9 @@ MailSlice.prototype = {
    * ]
    */
   _resetHeadersBecauseOfRefreshExplosion: function() {
+    if (!this._bridgeHandle)
+      return;
+
     if (this.headers.length) {
       // If we're accumulating, we were starting from zero to begin with, so
       // there is no need to send a nuking splice.
@@ -263,6 +272,9 @@ MailSlice.prototype = {
   },
 
   reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {
+    if (!this._bridgeHandle)
+      return;
+
     var i;
     // - Fixup indices if required
     if (firstIndex >= this.headers.length ||
@@ -370,6 +382,9 @@ MailSlice.prototype = {
   },
 
   batchAppendHeaders: function(headers, insertAt, moreComing) {
+    if (!this._bridgeHandle)
+      return;
+
     this._LOG.headersAppended(headers);
     if (insertAt === -1)
       insertAt = this.headers.length;
