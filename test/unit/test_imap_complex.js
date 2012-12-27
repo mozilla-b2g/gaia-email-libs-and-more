@@ -267,6 +267,27 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
     { extraMutex: 'sync' });
 
   T.group('free growth to previously synced message bounds');
+  // This previously triggered a bisection because the sync range suggested by
+  // the messages in the database that we know about tells us about 21 messages
+  // which is more than our threshold of 15.  This bisection was dangerous,
+  // however, because it was forbidden from growing and could accordingly result
+  // in telling us about 0 messages.
+  //
+  // As a stop-gap, https://bugzilla.mozilla.org/show_bug.cgi?id=824196 makes
+  // us no longer bisect.  The short-term planned fixes are
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=822882 and
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=823384 which will address
+  // the issue by means of refresh and partial day syncs, with new/revised tests
+  // for refresh.
+  //
+  // But we do care about not losing coverage like this so:
+  // XXX make sure the growth case using refresh encounters an overload-like
+  // scenario that does not result in a loss of correctness.
+  testAccount.do_growFolderView(
+    f2View, 9, false, 9,
+    [{ count: 21, full: 12, flags: 9, deleted: 0 }],
+    { top: true, bottom: true, grow: false });
+  /*
   testAccount.do_growFolderView(
     f2View, 9, false, 9,
     // this will explode into a bisect covering 20 messages, it will guess 8
@@ -280,6 +301,7 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
     f2View, 12, false, 17,
     [{ count: 13, full: 4, flags: 9, deleted: 0 }],
     { top: true, bottom: true, grow: false });
+   */
 
   testAccount.do_closeFolderView(f2View);
 

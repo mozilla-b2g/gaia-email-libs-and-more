@@ -191,6 +191,7 @@ var normalizeError = exports.normalizeError = function normalizeError(err) {
     reachable = true;
     retry = false;
     break;
+  case 'unresponsive-server':
   case 'timeout':
     errName = 'unresponsive-server';
     break;

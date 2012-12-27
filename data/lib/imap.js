@@ -749,7 +749,7 @@ ImapConnection.prototype.connect = function(loginCb) {
   };
   this._state.conn.onerror = function(evt) {
     try {
-      var err = evt.data, errType = 'unknown';
+      var err = evt.data, errType;
       // (only do error probing on things we can safely use 'in' on)
       if (err && typeof(err) === 'object') {
         // detect an nsISSLStatus instance by an unusual property.
@@ -761,7 +761,7 @@ ImapConnection.prototype.connect = function(loginCb) {
       clearTimeoutFunc(self._state.tmrConn);
       if (self._state.status === STATES.NOCONNECT) {
         var connErr = new Error('Unable to connect. Reason: ' + err);
-        connErr.type = errType;
+        connErr.type = errType || 'unresponsive-server';
         connErr.serverResponse = '';
         loginCb(connErr);
       }
