@@ -35,6 +35,21 @@ function FawltySocket(host, port, options, cmdDict) {
         // or at least allow changing the defaults right now.
         return;
 
+      case 'bad-security':
+        // Fake an nsISSLStatus object, which is what bad crypto engenders
+        var fakeSslError = {
+          serverCert: {},
+          cipherName: 'zob',
+          keyLength: 2048,
+          secretKeyLength: 2048,
+          isDomainMismatch: false,
+          isNotValidAtThisTime: false,
+          isUntrusted: false,
+          isExtendedValidation: false
+        };
+        this._queueEvent('onerror', fakeSslError);
+        return;
+
       case 'fake':
         // We are only going to send fake data, so don't bother establishing
         // a connection.

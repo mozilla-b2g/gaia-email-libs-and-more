@@ -1501,6 +1501,12 @@ MailAPI.prototype = {
    *   }
    *   @case['no-dns-entry']{
    *     We couldn't find the domain name in question, full stop.
+   *
+   *     Not currently generated; eventually desired because it suggests a typo
+   *     and so a specialized error message is useful.
+   *   }
+   *   @case['no-config-info']{
+   *     We were unable to locate configuration information for the domain.
    *   }
    *   @case['unresponsive-server']{
    *     Requests to the server timed out.  AKA we sent packets into a black
@@ -1509,18 +1515,16 @@ MailAPI.prototype = {
    *   @case['port-not-listening']{
    *     Attempts to connect to the given port on the server failed.  We got
    *     packets back rejecting our connection.
+   *
+   *     Not currently generated; primarily desired because it is very useful if
+   *     we are domain guessing.  Also desirable for error messages because it
+   *     suggests a user typo or the less likely server outage.
    *   }
    *   @case['bad-security']{
    *     We were able to connect to the port and initiate TLS, but we didn't
    *     like what we found.  This could be a mismatch on the server domain,
    *     a self-signed or otherwise invalid certificate, insufficient crypto,
    *     or a vulnerable server implementation.
-   *   }
-   *   @case['not-an-imap-server']{
-   *     Whatever is there isn't actually an IMAP server.
-   *   }
-   *   @case['sucky-imap-server']{
-   *     The IMAP server is too bad for us to use.
    *   }
    *   @case['bad-user-or-pass']{
    *     The username and password didn't check out.  We don't know which one
@@ -1536,6 +1540,11 @@ MailAPI.prototype = {
    *   @case['not-authorized']{
    *     The username and password are correct, but the user isn't allowed to
    *     access the mail server.
+   *   }
+   *   @case['server-problem']{
+   *     We were able to talk to the "server" named in the details object, but
+   *     we encountered some type of problem.  The details object will also
+   *     include a "status" value.
    *   }
    *   @case['server-maintenance']{
    *     The server appears to be undergoing maintenance, at least for this
@@ -1564,6 +1573,17 @@ MailAPI.prototype = {
    *   @param[callback @func[
    *     @args[
    *       @param[err AccountCreationError]
+   *       @param[errDetails @dict[
+   *         @key[server #:optional String]{
+   *           The server we had trouble talking to.
+   *         }
+   *         @key[status #:optional @oneof[Number String]]{
+   *           The HTTP status code number, or "timeout", or something otherwise
+   *           providing detailed additional information about the error.  This
+   *           is usually too technical to be presented to the user, but is
+   *           worth encoding with the error name proper if possible.
+   *         }
+   *       ]]
    *     ]
    *   ]
    * ]
@@ -1594,7 +1614,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    req.callback.call(null, msg.error);
+    req.callback.call(null, msg.error, msg.errorDetails);
   },
 
   _clearAccountProblems: function ma__clearAccountProblems(account) {

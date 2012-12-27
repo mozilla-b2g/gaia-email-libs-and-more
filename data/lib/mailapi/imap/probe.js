@@ -57,6 +57,7 @@ function ImapProber(credentials, connInfo, _LOG) {
 
   this.onresult = null;
   this.error = null;
+  this.errorDetails = { server: connInfo.hostname };
 }
 exports.ImapProber = ImapProber;
 ImapProber.prototype = {
@@ -92,30 +93,9 @@ ImapProber.prototype = {
       return;
     console.warn('PROBE:IMAP sad', err);
 
-    switch (err.type) {
-      case 'NO':
-      case 'no':
-        if (!err.serverResponse)
-          this.error = 'unknown';
-        else if (err.serverResponse.indexOf(
-            '[ALERT] Application-specific password required') != -1)
-          this.error = 'needs-app-pass';
-        else if (err.serverResponse.indexOf(
-            '[ALERT] Your account is not enabled for IMAP use.') != -1)
-          this.error = 'imap-disabled';
-        else
-          this.error = 'bad-user-or-pass';
-        break;
-      case 'timeout':
-        this.error = 'timeout';
-        break;
-      // XXX we currently don't have a string for server maintenance, so go
-      // with unknown.  But it's also a very unlikely thing.
-      case 'server-maintenance':
-      default:
-        this.error = 'unknown';
-        break;
-    }
+    var normErr = normalizeError(err);
+    this.error = normErr.name;
+
     // we really want to make sure we clean up after this dude.
     try {
       this._conn.die();
@@ -124,10 +104,108 @@ ImapProber.prototype = {
     }
     this._conn = null;
 
-    this.onresult(this.error, null);
+    this.onresult(this.error, null, this.errorDetails);
     // we could potentially see many errors...
     this.onresult = false;
   },
+};
+
+/**
+ * Convert error objects from the IMAP connection to our internal error codes
+ * as defined in `MailApi.js` for tryToCreateAccount.  This is used by the
+ * probe during account creation and by `ImapAccount` during general connection
+ * establishment.
+ *
+ * @return[@dict[
+ *   @key[name String]
+ *   @key[reachable Boolean]{
+ *     Does this error indicate the server was reachable?  This is to be
+ *     reported to the `BackoffEndpoint`.
+ *   }
+ *   @key[retry Boolean]{
+ *     Should we retry the connection?  The answer is no for persistent problems
+ *     or transient problems that are expected to be longer lived than the scale
+ *     of our automatic retries.
+ *   }
+ *   @key[reportProblem Boolean]{
+ *     Should we report this as a problem on the account?  We should do this
+ *     if we expect this to be a persistent problem that requires user action
+ *     to resolve and we expect `MailUniverse.__reportAccountProblem` to
+ *     generate a specific user notification for the error.  If we're not going
+ *     to bother the user with a popup, then we probably want to return false
+ *     for this and leave it for the connection failure to cause the
+ *     `BackoffEndpoint` to cause a problem to be logged via the listener
+ *     mechanism.
+ *   }
+ * ]]
+ */
+var normalizeError = exports.normalizeError = function normalizeError(err) {
+  var errName, reachable = false, retry = true, reportProblem = false;
+  // We want to produce error-codes as defined in `MailApi.js` for
+  // tryToCreateAccount.  We have also tried to make imap.js produce
+  // error codes of the right type already, but for various generic paths
+  // (like saying 'NO'), there isn't currently a good spot for that.
+  switch (err.type) {
+    // dovecot says after a delay and does not terminate the connection:
+    //   NO [AUTHENTICATIONFAILED] Authentication failed.
+    // zimbra 7.2.x says after a delay and DOES terminate the connection:
+    //   NO LOGIN failed
+    //   * BYE Zimbra IMAP server terminating connection
+    // yahoo says after a delay and does not terminate the connection:
+    //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
+  case 'NO':
+  case 'no':
+    reachable = true;
+    if (!err.serverResponse) {
+      errName = 'unknown';
+      reportProblem = false;
+    }
+    else {
+      // All of these require user action to resolve.
+      reportProblem = true;
+      retry = false;
+      if (err.serverResponse.indexOf(
+        '[ALERT] Application-specific password required') !== -1)
+        errName = 'needs-app-pass';
+      else if (err.serverResponse.indexOf(
+            '[ALERT] Your account is not enabled for IMAP use.') !== -1 ||
+          err.serverResponse.indexOf(
+            '[ALERT] IMAP access is disabled for your domain.') !== -1)
+        errName = 'imap-disabled';
+      else
+        errName = 'bad-user-or-pass';
+    }
+    break;
+  case 'server-maintenance':
+    errName = err.type;
+    reachable = true;
+    // do retry
+    break;
+  // An SSL error is either something we just want to report (probe), or
+  // something that is currently probably best treated as a network failure.  We
+  // could tell the user they may be experiencing a MITM attack, but that's not
+  // really something they can do anything about and we have protected them from
+  // it currently.
+  case 'bad-security':
+    errName = err.type;
+    reachable = true;
+    retry = false;
+    break;
+  case 'unresponsive-server':
+  case 'timeout':
+    errName = 'unresponsive-server';
+    break;
+  default:
+    errName = 'unknown';
+    break;
+  }
+
+  return {
+    name: errName,
+    reachable: reachable,
+    retry: retry,
+    reportProblem: reportProblem,
+  };
 };
 
 

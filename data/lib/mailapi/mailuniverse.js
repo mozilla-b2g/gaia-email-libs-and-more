@@ -763,7 +763,8 @@ MailUniverse.prototype = {
    * Self-reporting by an account that it is experiencing difficulties.
    *
    * We mutate its state for it, and generate a notification if this is a new
-   * problem.
+   * problem.  For problems that require user action, we additionally generate
+   * a bad login notification.
    */
   __reportAccountProblem: function(account, problem) {
     // nothing to do if the problem is already known
