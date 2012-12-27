@@ -184,6 +184,7 @@ require({
     "url": "data/lib/nop3",
     "fs": "data/lib/nop4",
     "child_process": "data/lib/nop5",
+    "xoauth2": "data/lib/nop6",
 
     "q": "data/lib/q",
     "text": "data/lib/text",

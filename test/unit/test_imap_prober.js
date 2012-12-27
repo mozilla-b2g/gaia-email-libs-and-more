@@ -72,10 +72,33 @@ TD.commonCase('timeout failure', function(T, RT) {
   });
   T.action(eCheck, 'trigger timeout', function() {
     eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'timeout');
+    eCheck.expect_namedValue('probe result', 'unresponsive-server');
     fireTimeout(0);
   });
 });
+
+TD.commonCase('SSL failure', function(T, RT) {
+  thunkConsole(T);
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkImapTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  T.action(eCheck, 'create prober, see SSL error', function() {
+    FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
+    eCheck.expect_namedValue('imap:setTimeout', $_probe.CONNECT_TIMEOUT_MS);
+    prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
+                                    eCheck._logger);
+    prober.onresult = function(err) {
+      eCheck.namedValue('probe result', err);
+    };
+    eCheck.expect_event('imap:clearTimeout');
+    eCheck.expect_event('imap:clearTimeout');
+    eCheck.expect_namedValue('probe result', 'bad-security');
+  });
+});
+
 
 const OPEN_RESPONSE =
   '* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE STARTTLS AUTH=PLAIN] Dovecot ready.\r\n';
@@ -100,17 +123,19 @@ function cannedLoginTest(T, RT, opts) {
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
+    if (opts.loginErrorString) {
+      eCheck.expect_event('imap:clearTimeout');
+      eCheck.expect_event('imap:clearTimeout');
+    }
     eCheck.expect_namedValue('probe result', opts.expectResult);
     FawltySocketFactory.precommand(
       HOST, PORT,
       {
         cmd: 'fake',
-        data: OPEN_RESPONSE,
+        data: opts.openResponse || OPEN_RESPONSE,
       },
       [
-        CAPABILITY_RESPONSE,
+        opts.capabilityResponse || CAPABILITY_RESPONSE,
         'A2 ' + opts.loginErrorString + '\r\n',
       ]);
     prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
@@ -128,12 +153,31 @@ TD.commonCase('gmail 2-factor auth error', function(T, RT) {
   });
 });
 
-TD.commonCase('gmail IMAP disabled error', function(T, RT) {
+TD.commonCase('gmail IMAP user disabled error', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: 'NO [ALERT] Your account is not enabled for IMAP use.',
     expectResult: 'imap-disabled',
   });
 });
+
+TD.commonCase('gmail IMAP domain disabled error', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: 'NO [ALERT] IMAP access is disabled for your domain.',
+    expectResult: 'imap-disabled',
+  });
+});
+
+TD.commonCase('server maintenance', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    openResponse: OPEN_RESPONSE.replace('AUTH=PLAIN', 'LOGINDISABLED'),
+    capabilityResponse: CAPABILITY_RESPONSE.replace('AUTH=PLAIN',
+                                                    'LOGINDISABLED'),
+    // we won't get to the login string
+    loginErrorString: null,
+    expectResult: 'server-maintenance',
+  });
+});
+
 
 function run_test() {
   runMyTests(15);

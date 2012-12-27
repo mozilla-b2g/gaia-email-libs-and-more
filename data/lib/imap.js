@@ -749,17 +749,19 @@ ImapConnection.prototype.connect = function(loginCb) {
   };
   this._state.conn.onerror = function(evt) {
     try {
-      var err = evt.data;
+      var err = evt.data, errType;
       // (only do error probing on things we can safely use 'in' on)
       if (err && typeof(err) === 'object') {
         // detect an nsISSLStatus instance by an unusual property.
-        if ('isNotValidAtThisTime' in err)
-          err = 'bad-security';
+        if ('isNotValidAtThisTime' in err) {
+          err = new Error('SSL error');
+          errType = err.type = 'bad-security';
+        }
       }
       clearTimeoutFunc(self._state.tmrConn);
       if (self._state.status === STATES.NOCONNECT) {
         var connErr = new Error('Unable to connect. Reason: ' + err);
-        connErr.type = 'unknown';
+        connErr.type = errType || 'unresponsive-server';
         connErr.serverResponse = '';
         loginCb(connErr);
       }

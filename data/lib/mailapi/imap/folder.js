@@ -916,7 +916,11 @@ ImapFolderSyncer.prototype = {
 
       // Perform a limited synchronization; do not issue additional syncs!
       syncCallback('limsync', iFirstNotToSend);
-      this._startSync(syncStartTS, syncEndTS, doneCallback, progressCallback);
+      // Because we are refreshing a known time interval and growth is not
+      // particularly likely, we really do not want bisection to happen, so
+      // pass a super-high limit for the bisection cap.
+      this._startSync(syncStartTS, syncEndTS, doneCallback, progressCallback,
+                      $sync.TOO_MANY_MESSAGES);
       return true;
     }
     // If growth was requested/is allowed or our accuracy range already covers
@@ -931,7 +935,7 @@ ImapFolderSyncer.prototype = {
   },
 
   _startSync: function ifs__startSync(startTS, endTS, doneCallback,
-                                      progressCallback) {
+                                      progressCallback, useBisectLimit) {
     if (startTS === null)
       startTS = endTS - ($sync.INITIAL_SYNC_DAYS * DAY_MILLIS);
     this._curSyncAccuracyStamp = NOW();
@@ -941,7 +945,8 @@ ImapFolderSyncer.prototype = {
     this._curSyncDoneCallback = doneCallback;
 
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  null, this.onSyncCompleted.bind(this),
+                                  useBisectLimit,
+                                  this.onSyncCompleted.bind(this),
                                   progressCallback);
   },
 
