@@ -1009,6 +1009,13 @@ ActiveSyncFolderSyncer.prototype = {
     return this.folderConn.serverId !== null;
   },
 
+  /**
+   * Can we grow this sync range?  Not in ActiveSync land!
+   */
+  get canGrowSync() {
+    return false;
+  },
+
   syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
                           progressCallback) {
     syncCallback('sync', false, true);
