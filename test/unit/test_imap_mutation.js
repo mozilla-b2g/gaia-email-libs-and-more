@@ -13,6 +13,10 @@
  * - Are no-ops from a server perspective when undone before being played to the
  *   server.
  *
+ * - Gracefully handle the disappearance of messages, both in changes
+ *   originating from the server (presumably from another client), as well as
+ *   local manipulations like moving a message.
+ *
  * Our mutation logic is also somewhat tested by `test_imap_general.js` which
  * relies on it to effect mutations to test the sync logic.  However, those
  * tests do not perform local database changes since then the sync logic might
@@ -419,7 +423,37 @@ TD.commonCase('mutate flags', function(T) {
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false });
 
+
+  /**
+   * Create a situation for modtags where by the time the online 'do' operation
+   * runs, the message has disappeared from the local database.  Note that this
+   * is different from the case where our own 'move' or 'delete' logic has
+   * caused the message to disappear, since that leaves behind the server id
+   * information for us that the 'do' job needs in the suidToServerId map.
+   */
+  T.group('modtags gracefully handles missing messages');
+  testUniverse3.do_pretendToBeOffline(true);
+  var purgeStarredHeader;
+  T.action('star message', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    purgeStarredHeader = folderView3.slice.items[0];
+    purgeStarredHeader.setStarred(true);
+  });
+  T.action('fake delete the header', function() {
+    testAccount3.fakeServerMessageDeletion(purgeStarredHeader);
+  });
+  T.action('go online, see the job run to completion', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    window.navigator.connection.TEST_setOffline(false);
+  });
+
   T.group('cleanup');
+  // save our state so the next unit test doesn't try and re-run our ops
+  testUniverse3.do_saveState();
 });
 
 /**
@@ -457,7 +491,7 @@ TD.commonCase('move/trash messages', function(T) {
     { count: 5, full: 5, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
   var targetView = testAccount.do_openFolderView(
-    'sourceView', targetFolder,
+    'targetView', targetFolder,
     { count: 0, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
   // open the trash but don't care what's in there, we just care about deltas
@@ -527,6 +561,61 @@ TD.commonCase('move/trash messages', function(T) {
     });
   });
 
+  /**
+   * While offline, queue a local tag mutation followed by a move.  Then, go
+   * online and ensure that when the message ends up in the target folder after
+   * the ops have run that it has the altered state.
+   */
+  T.group('move does not interfere with online ops');
+  testUniverse.do_pretendToBeOffline(true);
+  var moveStarMailHeader;
+  T.action('tag message then move', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+
+    // use the 0th message in source; chronologically it will end up 0 in the
+    // target folder too.
+    moveStarMailHeader = sourceView.slice.items[0];
+    moveStarMailHeader.setStarred(true);
+    moveStarMailHeader.moveMessage(targetFolder.mailFolder);
+  });
+  T.action('go online, wait for ops to complete', eSync, function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: false });
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+  // Refresh the folder to make sure the current state of the target folder
+  // matches our expectation.  This will fail if the flags on the message are
+  // not what they are locally.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 2, full: 0, flags: 2, deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // And this is an extra sanity check on that delta-check.
+  T.check(eSync, 'moved message is starred', function() {
+    eSync.expect_namedValue('moved message subject',
+                            moveStarMailHeader.subject);
+    eSync.expect_namedValue('starred', true);
+
+    var actualHeader = targetView.slice.items[0];
+    eSync.namedValue('moved message subject', actualHeader.subject);
+    eSync.namedValue('starred', actualHeader.isStarred);
+  });
 });
 
 function run_test() {

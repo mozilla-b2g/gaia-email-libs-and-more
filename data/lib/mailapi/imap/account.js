@@ -13,6 +13,7 @@ define(
     '../mailslice',
     '../searchfilter',
     '../util',
+    './probe',
     './folder',
     './jobs',
     'module',
@@ -28,6 +29,7 @@ define(
     $mailslice,
     $searchfilter,
     $util,
+    $imapprobe,
     $imapfolder,
     $imapjobs,
     $module,
@@ -579,61 +581,22 @@ ImapAccount.prototype = {
       connectCallbackTriggered = true;
       this._pendingConn = null;
       if (err) {
-        var errName, reachable = false, maybeRetry = true;
-        // We want to produce error-codes as defined in `MailApi.js` for
-        // tryToCreateAccount.  We have also tried to make imap.js produce
-        // error codes of the right type already, but for various generic paths
-        // (like saying 'NO'), there isn't currently a good spot for that.
-        switch (err.type) {
-          // dovecot says after a delay and does not terminate the connection:
-          //   NO [AUTHENTICATIONFAILED] Authentication failed.
-          // zimbra 7.2.x says after a delay and DOES terminate the connection:
-          //   NO LOGIN failed
-          //   * BYE Zimbra IMAP server terminating connection
-          // yahoo says after a delay and does not terminate the connection:
-          //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
-          case 'NO':
-          case 'no':
-            // XXX: Should we check if it's GMail first?
-            if (!err.serverResponse)
-              errName = 'unknown';
-            else if (err.serverResponse.indexOf(
-                '[ALERT] Application-specific password required') !== -1)
-              errName = 'needs-app-pass';
-            else if (err.serverResponse.indexOf(
-                 '[ALERT] Your account is not enabled for IMAP use.') !== -1)
-              errName = 'imap-disabled';
-            else
-              errName = 'bad-user-or-pass';
-            reachable = true;
-            // go directly to the broken state; no retries
-            maybeRetry = false;
-            // tell the higher level to disable our account until we fix our
-            // credentials problem and ideally generate a UI prompt.
-            this.universe.__reportAccountProblem(this.compositeAccount,
-                                                 errName);
-            break;
-          // errors we can pass through directly:
-          case 'server-maintenance':
-            errName = err.type;
-            reachable = true;
-            break;
-          case 'timeout':
-            errName = 'unresponsive-server';
-            break;
-          default:
-            errName = 'unknown';
-            break;
-        }
-        console.error('Connect error:', errName, 'formal:', err, 'on',
+        var normErr = $imapprobe.normalizeError(err);
+        console.error('Connect error:', normErr.name, 'formal:', err, 'on',
                       this._connInfo.hostname, this._connInfo.port);
+        if (normErr.reportProblem)
+          this.universe.__reportAccountProblem(this.compositeAccount,
+                                               normErr.name);
+
+
         if (listener)
-          listener(errName);
+          listener(normErr.name);
         conn.die();
 
         // track this failure for backoff purposes
-        if (maybeRetry) {
-          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
+        if (normErr.retry) {
+          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
+                                      normErr.reachable))
             this._makeConnectionIfPossible();
           else
             this._killDieOnConnectFailureDemands();

@@ -9,6 +9,7 @@
     "https": "data/lib/nop2",
     "url": "data/lib/nop3",
     "fs": "data/lib/nop4",
+    "xoauth2": "data/lib/nop6",
 
     "q": "data/lib/q",
     "text": "data/lib/text",

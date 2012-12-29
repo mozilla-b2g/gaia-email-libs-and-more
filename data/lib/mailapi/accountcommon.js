@@ -191,39 +191,31 @@ CompositeAccount.prototype = {
     return this._receivePiece.syncFolderList(callback);
   },
 
-  sendMessage: function(composedMessage, callback) {
-    // Render the message to its output buffer.
-    composedMessage._cacheOutput = true;
-    process.immediate = true;
-    composedMessage._processBufferedOutput = function() {
-      // we are stopping the DKIM logic from firing.
-    };
-    composedMessage._composeMessage();
-    process.immediate = false;
-
+  sendMessage: function(composer, callback) {
     return this._sendPiece.sendMessage(
-      composedMessage,
+      composer,
       function(err, errDetails) {
         // We need to append the message to the sent folder if we think we sent
         // the message okay and this is not gmail.  gmail automatically crams
         // the message in the sent folder for us, so if we do it, we're just
         // going to create duplicates.
         if (!err && !this._receivePiece.isGmail) {
-          var message = {
-            messageText: composedMessage._outputBuffer,
-            // do not specify date; let the server use its own timestamping
-            // since we want the approximate value of 'now' anyways.
-            flags: ['Seen'],
-          };
+          composer.withMessageBuffer({ includeBcc: true }, function(buffer) {
+            var message = {
+              messageText: buffer,
+              // do not specify date; let the server use its own timestamping
+              // since we want the approximate value of 'now' anyways.
+              flags: ['Seen'],
+            };
 
-          var sentFolder = this.getFirstFolderWithType('sent');
-          if (sentFolder)
-            this.universe.appendMessages(sentFolder.id,
-                                         [message]);
+            var sentFolder = this.getFirstFolderWithType('sent');
+            if (sentFolder)
+              this.universe.appendMessages(sentFolder.id,
+                                           [message]);
+          }.bind(this));
         }
-        callback(err, errDetails);
+        callback(err, errDetails, null);
       }.bind(this));
-
   },
 
   getFolderStorageForFolderId: function(folderId) {
@@ -362,23 +354,23 @@ Configurators['imap+smtp'] = {
       ['imap', 'smtp'],
       function probesDone(results) {
         // -- both good?
-        if (!results.imap[0] && results.smtp) {
+        if (results.imap[0] === null && results.smtp[0] === null) {
           var account = self._defineImapAccount(
             universe,
             userDetails, credentials,
             imapConnInfo, smtpConnInfo, results.imap[1],
             results.imap[2]);
-          callback(null, account);
+          callback(null, account, null);
         }
         // -- either/both bad
         else {
           // clean up the imap connection if it was okay but smtp failed
-          if (!results.imap[0]) {
+          if (results.imap[0] === null) {
             results.imap[1].die();
             // Failure was caused by SMTP, but who knows why
-            callback('smtp-unknown', null);
+            callback(results.smtp[0], null, results.smtp[1]);
           } else {
-            callback(results.imap[0], null); // Pass imap error type back
+            callback(results.imap[0], null, results.imap[2]);
           }
           return;
         }
@@ -434,7 +426,7 @@ Configurators['imap+smtp'] = {
 
     var account = this._loadAccount(universe, accountDef,
                                     oldAccountInfo.folderInfo);
-    callback(null, account);
+    callback(null, account, null);
   },
 
   /**
@@ -538,7 +530,7 @@ Configurators['fake'] = {
     };
 
     var account = this._loadAccount(universe, accountDef);
-    callback(null, account);
+    callback(null, account, null);
   },
 
   recreateAccount: function cfg_fake_ra(universe, oldVersion, oldAccountInfo,
@@ -568,7 +560,7 @@ Configurators['fake'] = {
     };
 
     var account = this._loadAccount(universe, accountDef);
-    callback(null, account);
+    callback(null, account, null);
   },
 
   /**
@@ -603,18 +595,34 @@ Configurators['activesync'] = {
     conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
     conn.connect(function(error, options) {
-      // XXX: Think about what to do with this error handling, since it's
-      // replicated in the autoconfig code.
       if (error) {
-        var failureType = 'unknown';
+        // This error is basically an indication of whether we were able to
+        // call getOptions or not.  If the XHR request completed, we get an
+        // HttpError.  If we timed out or an XHR error occurred, we get a
+        // general Error.
+        var failureType,
+            failureDetails = { server: domainInfo.incoming.server };
 
         if (error instanceof $asproto.HttpError) {
-          if (error.status === 401)
+          if (error.status === 401) {
             failureType = 'bad-user-or-pass';
-          else if (error.status === 403)
+          }
+          else if (error.status === 403) {
             failureType = 'not-authorized';
+          }
+          // Treat any other errors where we talked to the server as a problem
+          // with the server.
+          else {
+            failureType = 'server-problem';
+            failureDetails.status = error.status;
+          }
         }
-        callback(failureType, null);
+        else {
+          // We didn't talk to the server, so let's call it an unresponsive
+          // server.
+          failureType = 'unresponsive-server';
+        }
+        callback(failureType, null, failureDetails);
         return;
       }
 
@@ -644,7 +652,7 @@ Configurators['activesync'] = {
       };
 
       var account = self._loadAccount(universe, accountDef, conn);
-      callback(null, account);
+      callback(null, account, null);
     });
   },
 
@@ -673,7 +681,7 @@ Configurators['activesync'] = {
     };
 
     var account = this._loadAccount(universe, accountDef, null);
-    callback(null, account);
+    callback(null, account, null);
   },
 
   /**
@@ -760,6 +768,20 @@ function Autoconfigurator(_LOG) {
 }
 exports.Autoconfigurator = Autoconfigurator;
 Autoconfigurator.prototype = {
+  /**
+   * The list of fatal error codes.
+   *
+   * What's fatal and why:
+   * - bad-user-or-pass: We found a server, it told us the credentials were
+   *     bogus.  There is no point going on.
+   * - not-authorized: We found a server, it told us the credentials are fine
+   *     but the access rights are insufficient.  There is no point going on.
+   *
+   * Non-fatal and why:
+   * - unknown: If something failed we should keep checking other info sources.
+   * - no-config-info: The specific source had no details; we should keep
+   *     checking other sources.
+   */
   _fatalErrors: ['bad-user-or-pass', 'not-authorized'],
 
   /**
@@ -791,7 +813,9 @@ Autoconfigurator.prototype = {
 
     xhr.onload = function() {
       if (xhr.status < 200 || xhr.status >= 300) {
-        callback('unknown');
+        // Non-fatal failure to get the config info.  While a 404 is the
+        // expected case, this is the appropriate error for weirder cases too.
+        callback('no-config-info', null, { status: xhr.status });
         return;
       }
       // XXX: For reasons which are currently unclear (possibly a platform
@@ -823,19 +847,36 @@ Autoconfigurator.prototype = {
           config.type = 'imap+smtp';
           for (let [,child] in Iterator(outgoing.children))
             config.outgoing[child.tagName] = child.textContent;
+
+          // We do not support unencrypted connections outside of unit tests.
+          if (config.incoming.socketType !== 'SSL' ||
+              config.outgoing.socketType !== 'SSL') {
+            callback('no-config-info', null, { status: 'unsafe' });
+            return;
+          }
         }
         else {
-          callback('unknown');
+          callback('no-config-info', null, { status: 'no-outgoing' });
+          return;
         }
 
-        callback(null, config);
+        callback(null, config, null);
       }
       else {
-        callback('unknown');
+        callback('no-config-info', null, { status: 'no-incoming' });
       }
     };
 
-    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
+    xhr.ontimeout = xhr.onerror = function() {
+      // The effective result is a failure to get configuration info, but make
+      // sure the status conveys that a timeout occurred.
+      callback('no-config-info', null, { status: 'timeout' });
+    };
+    xhr.onerror = function() {
+      // The effective result is a failure to get configuration info, but make
+      // sure the status conveys that a timeout occurred.
+      callback('no-config-info', null, { status: 'error' });
+    };
 
     xhr.send();
   },
@@ -864,15 +905,18 @@ Autoconfigurator.prototype = {
     $asproto.autodiscover(userDetails.emailAddress, userDetails.password,
                           this.timeout, function(error, config) {
       if (error) {
-        var failureType = 'unknown';
+        var failureType = 'no-config-info',
+            failureDetails = {};
 
         if (error instanceof $asproto.HttpError) {
           if (error.status === 401)
             failureType = 'bad-user-or-pass';
           else if (error.status === 403)
             failureType = 'not-authorized';
+          else
+            failureDetails.status = error.status;
         }
-        callback(failureType);
+        callback(failureType, null, failureDetails);
         return;
       }
 
@@ -884,7 +928,7 @@ Autoconfigurator.prototype = {
           username: config.user.email
         },
       };
-      callback(null, autoconfig);
+      callback(null, autoconfig, null);
     });
   },
 
@@ -905,15 +949,19 @@ Autoconfigurator.prototype = {
     let url = 'http://autoconfig.' + domain + suffix;
     let self = this;
 
-    this._getXmlConfig(url, function(error, config) {
-      if (self._isSuccessOrFatal(error))
-        return callback(error, config);
+    this._getXmlConfig(url, function(error, config, errorDetails) {
+      if (self._isSuccessOrFatal(error)) {
+        callback(error, config, errorDetails);
+        return;
+      }
 
       // See <http://tools.ietf.org/html/draft-nottingham-site-meta-04>.
       let url = 'http://' + domain + '/.well-known/autoconfig' + suffix;
-      self._getXmlConfig(url, function(error, config) {
-        if (self._isSuccessOrFatal(error))
-          return callback(error, config);
+      self._getXmlConfig(url, function(error, config, errorDetails) {
+        if (self._isSuccessOrFatal(error)) {
+          callback(error, config, errorDetails);
+          return;
+        }
 
         console.log('  Trying domain autodiscover');
         self._getConfigFromAutodiscover(userDetails, callback);
@@ -949,12 +997,17 @@ Autoconfigurator.prototype = {
 
     xhr.onload = function() {
       if (xhr.status === 200)
-        callback(null, xhr.responseText.split('\n')[0]);
+        callback(null, xhr.responseText.split('\n')[0], null);
       else
-        callback('unknown');
+        callback('no-config-info', null, { status: 'mx' + xhr.status });
     };
 
-    xhr.ontimeout = xhr.onerror = function() { callback('unknown'); };
+    xhr.ontimeout = function() {
+      callback('no-config-info', null, { status: 'mxtimeout' });
+    };
+    xhr.onerror = function() {
+      callback('no-config-info', null, { status: 'mxerror' });
+    };
 
     xhr.send();
   },
@@ -969,9 +1022,9 @@ Autoconfigurator.prototype = {
    */
   _getConfigFromMX: function getConfigFromMX(domain, callback) {
     let self = this;
-    this._getMX(domain, function(error, mxDomain) {
+    this._getMX(domain, function(error, mxDomain, errorDetails) {
       if (error)
-        return callback(error);
+        return callback(error, null, errorDetails);
 
       // XXX: We need to normalize the domain here to get the base domain, but
       // that's complicated because people like putting dots in TLDs. For now,
@@ -980,15 +1033,19 @@ Autoconfigurator.prototype = {
       console.log('  Found MX for', mxDomain);
 
       if (domain === mxDomain)
-        return callback('unknown');
+        return callback('no-config-info', null, { status: 'mxsame' });
 
       // If we found a different domain after MX lookup, we should look in our
       // local file store (mostly to support Google Apps domains) and, if that
       // doesn't work, the Mozilla ISPDB.
       console.log('  Looking in local file store');
-      self._getConfigFromLocalFile(mxDomain, function(error, config) {
-        if (!error)
-          return callback(error, config);
+      self._getConfigFromLocalFile(mxDomain, function(error, config,
+                                                      errorDetails) {
+        // (Local XML lookup should not have any fatal errors)
+        if (!error) {
+          callback(error, config, errorDetails);
+          return;
+        }
 
         console.log('  Looking in the Mozilla ISPDB');
         self._getConfigFromDB(mxDomain, callback);
@@ -1022,7 +1079,7 @@ Autoconfigurator.prototype = {
                   .replace('%REALNAME%', userDetails.displayName);
     }
 
-    function onComplete(error, config) {
+    function onComplete(error, config, errorDetails) {
       console.log(error ? 'FAILURE' : 'SUCCESS');
 
       // Fill any placeholder strings in the configuration object we retrieved.
@@ -1039,7 +1096,7 @@ Autoconfigurator.prototype = {
         }
       }
 
-      callback(error, config);
+      callback(error, config, errorDetails);
     }
 
     console.log('  Looking in GELAM');
@@ -1050,19 +1107,26 @@ Autoconfigurator.prototype = {
 
     let self = this;
     console.log('  Looking in local file store');
-    this._getConfigFromLocalFile(domain, function(error, config) {
-      if (self._isSuccessOrFatal(error))
-        return onComplete(error, config);
+    this._getConfigFromLocalFile(domain, function(error, config, errorDetails) {
+      if (self._isSuccessOrFatal(error)) {
+        onComplete(error, config, errorDetails);
+        return;
+      }
 
       console.log('  Looking at domain');
-      self._getConfigFromDomain(userDetails, domain, function(error, config) {
-        if (self._isSuccessOrFatal(error))
-          return onComplete(error, config);
+      self._getConfigFromDomain(userDetails, domain, function(error, config,
+                                                              errorDetails) {
+        if (self._isSuccessOrFatal(error)) {
+          onComplete(error, config, errorDetails);
+          return;
+        }
 
         console.log('  Looking in the Mozilla ISPDB');
-        self._getConfigFromDB(domain, function(error, config) {
-          if (self._isSuccessOrFatal(error))
-            return onComplete(error, config);
+        self._getConfigFromDB(domain, function(error, config, errorDetails) {
+          if (self._isSuccessOrFatal(error)) {
+            onComplete(error, config, errorDetails);
+            return;
+          }
 
           console.log('  Looking up MX');
           self._getConfigFromMX(domain, onComplete);
@@ -1084,9 +1148,9 @@ Autoconfigurator.prototype = {
    */
   tryToCreateAccount: function(universe, userDetails, callback) {
     let self = this;
-    this.getConfig(userDetails, function(error, config) {
+    this.getConfig(userDetails, function(error, config, errorDetails) {
       if (error)
-        return callback(error);
+        return callback(error, null, errorDetails);
 
       var configurator = Configurators[config.type];
       configurator.tryToCreateAccount(universe, userDetails, config,

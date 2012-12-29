@@ -310,10 +310,15 @@ ImapJobDriver.prototype = {
         var uids = [];
         for (var i = 0; i < serverIds.length; i++) {
           var srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be zero and
-          // there is nothing we can really do for it.
+          // The header may have disappeared from the server, in which case the
+          // header is moot.
           if (srvid)
             uids.push(srvid);
+        }
+        // Be done if all of the headers were moot.
+        if (!uids.length) {
+          callWhenDone();
+          return;
         }
         if (addTags) {
           modsToGo++;
@@ -617,9 +622,23 @@ ImapJobDriver.prototype = {
             perFolderDone();
           }
 
-          for (var i = 0; i < namers.length; i++) {
+          // Build a guid-to-namer map and deal with any messages that no longer
+          // exist on the server.  Do it backwards so we can splice.
+          for (var i = namers.length - 1; i >= 0; i--) {
+            var srvid = serverIds[i];
+            if (!srvid) {
+              serverIds.splice(i, 1);
+              namers.splice(i, 1);
+              continue;
+            }
             var namer = namers[i];
             guidToNamer[namer.guid] = namer;
+          }
+          // it's possible all the messages could be gone, in which case we
+          // are done with this folder already!
+          if (serverIds.length === 0) {
+            perFolderDone();
+            return;
           }
 
           folderConn._conn.copy(
