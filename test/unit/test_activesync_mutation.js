@@ -126,7 +126,7 @@ TD.commonCase('mutate flags', function(T) {
 
   T.group('undo while offline; released to server');
   testUniverse.do_pretendToBeOffline(true);
-  T.action('undo!', testAccount.eImapAccount, eSync, function() {
+  T.action('undo!', testAccount.eAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
         'modtags',
@@ -140,7 +140,7 @@ TD.commonCase('mutate flags', function(T) {
       undoHeaderExps.changes.length);
   });
 
-  T.action('go online, see undos happen for', testAccount.eImapAccount,
+  T.action('go online, see undos happen for', testAccount.eAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
@@ -163,8 +163,282 @@ TD.commonCase('mutate flags', function(T) {
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false });
 
-  T.group('cleanup');
+
+  /**
+   * If we undo an operation without having told it to the server, it should be
+   * locally and remotely as if it never happened.
+   */
+  T.group('offline manipulation undone while offline (never online)');
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('manipulate flags, hear local changes',
+           testAccount, testAccount.eAccount, function() {
+    applyManips();
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
+    }
+    testAccount.expect_headerChanges(
+      folderView, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      doHeaderExps.changes.length);
+  });
+  T.action('trigger undo ops, hear local changes',
+           testAccount, testAccount.eAccount, function() {
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: true, server: false, save: true });
+    }
+
+    undoOps.forEach(function(x) { x.undo(); });
+    testAccount.expect_headerChanges(
+      folderView, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      undoHeaderExps.changes.length);
+  });
+  T.action('go online, see nothing happen',
+           testAccount.eAccount, eSync, function() {
+    // eAccount is listed so we complain if we see ops run
+    eSync.expect_event('ops-clear');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-clear');
+    });
+  });
+  // The refresh should result in us refreshing our flags but not hearing about
+  // any changes because nothing should have happened!
+  testAccount.do_refreshFolderView(
+    folderView,
+    { count: numMessages, full: 0, flags: 0, deleted: 0 },
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+
+
+  /**
+   * Verify that mutations and their undos survive a restart.
+   */
+  T.group('offline manipulation, shutdown, startup, go online, see mutations');
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('manipulate flags, hear local changes',
+           testAccount, testAccount.eAccount, function() {
+    applyManips();
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
+    }
+    testAccount.expect_headerChanges(
+      folderView, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      doHeaderExps.changes.length);
+  });
   testAccount.do_closeFolderView(folderView);
+  testUniverse.do_saveState();
+  testUniverse.do_shutdown();
+  var testUniverse2 = T.actor('testUniverse', 'U2'),
+      testAccount2 = T.actor('testAccount', 'A2',
+                             { universe: testUniverse2, restored: true }),
+      testFolder2 = testAccount2.do_useExistingFolder(
+                      'test_mutation_flags', '#2', testFolder),
+      folderView2 = testAccount2.do_openFolderView(
+        'folderView2', testFolder2,
+        { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+        { top: true, bottom: true, grow: false });
+  T.action('go online, see changes happen for', testAccount2.eAccount,
+           eSync, function() {
+    var created = false;
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount2.expect_runOp(
+        'modtags',
+        { mode: 'check' });
+      testAccount2.expect_runOp(
+        'modtags',
+        // We will acquire a connection for the first operation because the
+        // slice was created when we were offline and so did not acquire a
+        // connection.  The connection will not be released once the operations
+        // complete because the slice is still open.
+        { local: false, server: true, conn: !created, release: false });
+      created = true;
+    }
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+
+  T.group('offline undo, shutdown, startup, go online, see undos');
+  testUniverse2.do_pretendToBeOffline(true);
+  T.action('undo!', testAccount2.eAccount, eSync, function() {
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount2.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: true, server: false, save: true });
+    }
+
+    // NB: our undoOps did not usefully survive the restart; they are still
+    // hooked up to the old universe/bridge, and so are not useful.  However,
+    // their longterm identifiers are still valid, so we can just directly
+    // issue the undo requests against the universe.  (If we issued new
+    // mutations without restarting, we could have those be alive and use them,
+    // but we don't need coverage for that.
+    undoOps.forEach(function(x) {
+      MailUniverse.undoMutation(x._longtermIds);
+    });
+    testAccount2.expect_headerChanges(
+      folderView2, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      undoHeaderExps.changes.length);
+  });
+  testUniverse2.do_saveState();
+  testUniverse2.do_shutdown();
+  var testUniverse3 = T.actor('testUniverse', 'U3'),
+      testAccount3 = T.actor('testAccount', 'A3',
+                             { universe: testUniverse3, restored: true }),
+      testFolder3 = testAccount3.do_useExistingFolder(
+        'test_mutation_flags', '#3', testFolder2),
+      folderView3 = testAccount3.do_openFolderView(
+        'folderView3', testFolder3,
+        { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+        { top: true, bottom: true, grow: false });
+
+  T.action('go online, see undos happen for', testAccount3.eAccount,
+           eSync, function() {
+    var created = false;
+    for (var nOps = undoOps.length; nOps > 0; nOps--) {
+      testAccount3.expect_runOp(
+        'modtags',
+        { mode: 'check' });
+      testAccount3.expect_runOp(
+        'modtags',
+        // We will acquire a connection for the first operation because the
+        // slice was created when we were offline and so did not acquire a
+        // connection.  The connection will not be released once the operations
+        // complete because the slice is still open.
+        { mode: 'undo', local: false, server: true,
+          conn: !created, release: false, save: false });
+      created = true;
+    }
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+
+  /**
+   * Do a single manipulation and its undo while online, cases we haven't tried
+   * yet.  By doing a single manipulation we avoid any races between local_do
+   * and do events (which could happen).
+   */
+  T.group('online manipulation and undo');
+  T.action('star the 0th dude', testAccount3, testAccount3.eAccount, eSync,
+           function() {
+    // - expectations
+    var toStar = folderView3.slice.items[0];
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: true, server: true, save: true });
+    eSync.expect_event('ops-done');
+
+    doHeaderExps = {
+      changes: [
+        [toStar, 'isStarred', true],
+      ],
+      deletions: [],
+    };
+    undoHeaderExps = {
+      changes: [
+        [toStar, 'isStarred', false],
+      ],
+      deletions: [],
+    };
+
+    // - do it!
+    undoOps = [toStar.setStarred(true)];
+
+    testAccount3.expect_headerChanges(
+      folderView3, doHeaderExps,
+      { top: true, bottom: true, grow: false },
+      doHeaderExps.changes.length);
+    // We need to roundtrip before waiting on the ops because the latter does
+    // not cross the bridge itself.
+    MailAPI.ping(function() {
+      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+        eSync.event('ops-done');
+      });
+    });
+  });
+  // Sync should find no changes from our predictive changes
+  testAccount3.do_refreshFolderView(
+    folderView3,
+    { count: numMessages, full: 0, flags: 0, deleted: 0 },
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  T.action('undo the starring', testAccount3, testAccount3.eAccount, eSync,
+           function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { mode: 'undo', local: true, server: true, save: true });
+    eSync.expect_event('ops-done');
+
+    undoOps[0].undo();
+    testAccount3.expect_headerChanges(
+      folderView3, undoHeaderExps,
+      { top: true, bottom: true, grow: false },
+      undoHeaderExps.changes.length);
+    // We need to roundtrip before waiting on the ops because the latter does
+    // not cross the bridge itself.
+    MailAPI.ping(function() {
+      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+        eSync.event('ops-done');
+      });
+    });
+  });
+  // And again, sync should find no changes
+  testAccount3.do_refreshFolderView(
+    folderView3,
+    { count: numMessages, full: 0, flags: 0, deleted: 0 },
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+
+
+  /**
+   * Create a situation for modtags where by the time the online 'do' operation
+   * runs, the message has disappeared from the local database.  Note that this
+   * is different from the case where our own 'move' or 'delete' logic has
+   * caused the message to disappear, since that leaves behind the server id
+   * information for us that the 'do' job needs in the suidToServerId map.
+   */
+  T.group('modtags gracefully handles missing messages');
+  testUniverse3.do_pretendToBeOffline(true);
+  var purgeStarredHeader;
+  T.action('star message', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    purgeStarredHeader = folderView3.slice.items[0];
+    purgeStarredHeader.setStarred(true);
+  });
+  T.action('fake delete the header', function() {
+    testAccount3.fakeServerMessageDeletion(purgeStarredHeader);
+  });
+  T.action('go online, see the job run to completion', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    window.navigator.connection.TEST_setOffline(false);
+  });
+
+  T.group('cleanup');
+  // save our state so the next unit test doesn't try and re-run our ops
+  testUniverse3.do_saveState();
 });
 
 function run_test() {

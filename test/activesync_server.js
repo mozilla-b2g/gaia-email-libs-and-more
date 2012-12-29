@@ -629,6 +629,20 @@ ActiveSyncServer.prototype = {
   },
 
   /**
+   * Find a folder object by its server ID.
+   *
+   * @param id the CollectionId for the folder
+   * @return the ActiveSyncFolder object, or null if no folder was found
+   */
+  findFolderByName: function(name) {
+    for (let folder of this._folders) {
+      if (folder.name === name)
+        return folder;
+    }
+    return null;
+  },
+
+  /**
    * Write the WBXML for an individual message.
    *
    * @param w the WBXML writer
