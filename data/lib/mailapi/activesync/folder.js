@@ -794,6 +794,9 @@ ActiveSyncFolderConn.prototype = {
       messagesSeen += added.length + changed.length + deleted.length;
 
       if (!moreAvailable) {
+        // Note: For the second argument here, we report the number of messages
+        // we saw that *changed*. This differs from IMAP, which reports the
+        // number of messages it *saw*.
         folderConn._LOG.syncDateRange_end(added.length, changed.length,
                                           deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);

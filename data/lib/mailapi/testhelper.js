@@ -463,6 +463,22 @@ var TestCommonAccountMixins = {
     });
   },
 
+  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
+                                 expectedFlags) {
+    var self = this;
+    this.T.action(this, 'refreshes', viewThing, function() {
+      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
+                                                 expectedValues);
+      self.expect_messagesReported(totalExpected);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
+                                   'refresh');
+
+      viewThing.slice.refresh();
+    });
+  },
+
   /**
    * Expect that a mutex operation will be run on the provided storageActor of
    * the given type.  Ignore block load and deletion notifications during this
@@ -1084,22 +1100,6 @@ var TestImapAccountMixins = {
     // (varies with N)
     testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
     return testStep;
-  },
-
-  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
-                                 expectedFlags) {
-    var self = this;
-    this.T.action(this, 'refreshes', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
-                                                 expectedValues);
-      self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
-
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
-                                   'refresh');
-
-      viewThing.slice.refresh();
-    });
   },
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
