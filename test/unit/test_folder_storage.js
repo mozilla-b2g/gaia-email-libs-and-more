@@ -90,7 +90,7 @@ function makeTestContext() {
           if (!block.bodies.hasOwnProperty(uid))
             do_throw('body was not inserted!');
         });
-      return blockInfo;
+      return bodyInfo;
     },
     deleteBody: function(date, uid) {
       storage._deleteFromBlock('body', date, uid, function blockDeleted() {
@@ -187,6 +187,11 @@ const BIG3 = 28 * 1024;
  * Byte size so that 5 fit in a block, but 6 will not.
  */
 const BIG5 = 18 * 1024;
+
+/**
+ * Byte size that exceeds our target block size.
+ */
+const TOOBIG = 128 * 1024;
 
 
 /**
@@ -314,8 +319,6 @@ TD.commonSimple('accuracy base case', function test_accuracy_base_case() {
   var aranges = ctx.storage._accuracyRanges;
   do_check_eq(aranges.length, 1);
   check_arange_eq(aranges[0], d1, d2, '1', dSync);
-
-  run_next_test();
 });
 /**
  * Accuracy range does not overlap existing ranges.
@@ -357,8 +360,6 @@ TD.commonSimple('accuracy non-overlapping',
   check_arange_eq(aranges[2], d3, d4, '3', dSync3);
   check_arange_eq(aranges[3], d2, d3, '5', dSync5);
   check_arange_eq(aranges[4], d1, d2, '2', dSync2);
-
-  run_next_test();
 });
 /**
  * Accuracy range completely contains one or more existing ranges with no
@@ -425,8 +426,6 @@ TD.commonSimple('accuracy contains', function test_accuracy_contains() {
 
   do_check_eq(aranges.length, 1);
   check_arange_eq(aranges[0], d2, dC, '7', dSync7);
-
-  run_next_test();
 });
 
 /**
@@ -485,8 +484,6 @@ TD.commonSimple('accuracy overlapping', function test_accuracy_overlap() {
   check_arange_eq(aranges[0], d9, dA, '3', dSync3);
   check_arange_eq(aranges[1], d4, d9, '5', dSync5);
   check_arange_eq(aranges[2], d3, d4, '2', dSync2);
-
-  run_next_test();
 });
 
 /**
@@ -535,8 +532,6 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
 
   do_check_eq(aranges.length, 1);
   check_arange_eq(aranges[0], d4, dB, '1', dSync1);
-
-  run_next_test();
 });
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -549,11 +544,20 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
  */
 function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
   do_check_eq(blockInfo.count, count);
-  do_check_eq(blockInfo.estSize, size);
   do_check_eq(blockInfo.startTS, startTS);
   do_check_eq(blockInfo.startUID, startUID);
   do_check_eq(blockInfo.endTS, endTS);
   do_check_eq(blockInfo.endUID, endUID);
+  do_check_eq(blockInfo.estSize, size);
+}
+
+function check_body_block_contents(bodyBlock, uids, bodies) {
+  do_check_neq(bodyBlock, undefined);
+  do_check_eq(uids.length, bodyBlock.uids.length);
+  for (var i = 0; i < uids.length; i++){
+    do_check_eq(uids[i], bodyBlock.uids[i]);
+    do_check_eq(bodies[i], bodyBlock.bodies[uids[i]]);
+  }
 }
 
 /**
@@ -575,7 +579,6 @@ TD.commonSimple('insertion: no existing blocks',
   check_block(bodyBlocks[0], 1, BS, d5, uid1, d5, uid1);
 
   ctx.checkDirtyBodyBlocks([0]);
-  run_next_test();
 });
 
 /**
@@ -630,8 +633,6 @@ TD.commonSimple('insertion: adjacent simple',
   ctx.insertBody(d7, uid6, BS, 1);
   check_block(bodyBlocks[0], 2, 2 * BS, d8, uid4, d9, uid5);
   check_block(bodyBlocks[1], 4, 4 * BS, d5, uid1, d7, uid6);
-
-  run_next_test();
 });
 
 /**
@@ -657,8 +658,84 @@ TD.commonSimple('insertion in existing block',
 
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 3, 3 * BS, d5, uid1, d7, uid2);
+});
 
-  run_next_test();
+/**
+ * If we insert an item that's bigger than our threshold as the first item,
+ * we don't want that to break by trying to split a block with 1 item into
+ * 2 blocks.  We also want to make sure that oversized items don't break our
+ * splitting logic by causing us to try and split before the first item or
+ * after the last item.
+ */
+TD.commonSimple('inserting larger-than-block items',
+                function test_insertion_oversized_items() {
+  var ctx = makeTestContext(),
+      d3 = DateUTC(2010, 0, 3),
+      d4 = DateUTC(2010, 0, 4),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      d9 = DateUTC(2010, 0, 9),
+      dA = DateUTC(2010, 0, 10),
+      uid3 = 103, size3 = 3,
+      uid4 = 104,
+      uid5 = 105, size5 = 5,
+      uid6 = 106,
+      uid7 = 107, size7 = 7,
+      uid8 = 108,
+      uid9 = 109, size9 = 9,
+      uidA = 110, sizeA = 10,
+      bodyBlockInfos = ctx.storage._bodyBlockInfos,
+      // this is a cache that won't get flushed during the test
+      bodyBlockMap = ctx.storage._bodyBlocks;
+
+  // - insert oversized into empty
+  var b6 = ctx.insertBody(d6, uid6, TOOBIG, 0);
+  do_check_eq(bodyBlockInfos.length, 1);
+  check_block(bodyBlockInfos[0], 1, TOOBIG, d6, uid6, d6, uid6);
+
+  // - insert younger oversized
+  var b8 = ctx.insertBody(d8, uid8, TOOBIG, 0);
+  do_check_eq(bodyBlockInfos.length, 2);
+  check_block(bodyBlockInfos[0], 1, TOOBIG, d8, uid8, d8, uid8);
+  check_block(bodyBlockInfos[1], 1, TOOBIG, d6, uid6, d6, uid6);
+
+  // - insert older oversized
+  var b4 = ctx.insertBody(d4, uid4, TOOBIG, 2);
+  do_check_eq(bodyBlockInfos.length, 3);
+  check_block(bodyBlockInfos[0], 1, TOOBIG, d8, uid8, d8, uid8);
+  check_block(bodyBlockInfos[1], 1, TOOBIG, d6, uid6, d6, uid6);
+  check_block(bodyBlockInfos[2], 1, TOOBIG, d4, uid4, d4, uid4);
+
+  // - insert youngest smalls
+  var b9 = ctx.insertBody(d9, uid9, size9, 0),
+      bA = ctx.insertBody(dA, uidA, sizeA, 0);
+  do_check_eq(bodyBlockInfos.length, 4);
+  check_block(bodyBlockInfos[0], 2, size9 + sizeA, d9, uid9, dA, uidA);
+  check_block(bodyBlockInfos[1], 1, TOOBIG, d8, uid8, d8, uid8);
+  check_block(bodyBlockInfos[2], 1, TOOBIG, d6, uid6, d6, uid6);
+  check_block(bodyBlockInfos[3], 1, TOOBIG, d4, uid4, d4, uid4);
+
+  // - insert oldest smalls
+  var b3 = ctx.insertBody(d3, uid3, size3, 4);
+  do_check_eq(bodyBlockInfos.length, 5);
+  check_block(bodyBlockInfos[0], 2, size9 + sizeA, d9, uid9, dA, uidA);
+  check_block(bodyBlockInfos[1], 1, TOOBIG, d8, uid8, d8, uid8);
+  check_block(bodyBlockInfos[2], 1, TOOBIG, d6, uid6, d6, uid6);
+  check_block(bodyBlockInfos[3], 1, TOOBIG, d4, uid4, d4, uid4);
+  check_block(bodyBlockInfos[4], 1, size3, d3, uid3, d3, uid3);
+
+  // - insert small between bigs
+  var b7 = ctx.insertBody(d7, uid7, size7, 2);
+  do_check_eq(bodyBlockInfos.length, 6);
+  check_block(bodyBlockInfos[0], 2, size9 + sizeA, d9, uid9, dA, uidA);
+  check_block(bodyBlockInfos[1], 1, TOOBIG, d8, uid8, d8, uid8);
+  check_block(bodyBlockInfos[2], 1, size7, d7, uid7, d7, uid7);
+  check_block(bodyBlockInfos[3], 1, TOOBIG, d6, uid6, d6, uid6);
+  check_block(bodyBlockInfos[4], 1, TOOBIG, d4, uid4, d4, uid4);
+  check_block(bodyBlockInfos[5], 1, size3, d3, uid3, d3, uid3);
+
 });
 
 /**
@@ -671,42 +748,66 @@ TD.commonSimple('insertion in block that will overflow',
       d6 = DateUTC(2010, 0, 6),
       d7 = DateUTC(2010, 0, 7),
       d8 = DateUTC(2010, 0, 8),
-      uid1 = 101,
-      uid2 = 102,
-      uid3 = 103,
-      uid4 = 104,
+      uid1 = 101, size1 = BIG2 + 1,
+      uid2 = 102, size2 = BIG2 + 2,
+      uid3 = 103, size3 = BIG2 + 3,
+      uid4 = 104, size4 = BIG2 + 4,
       BS = 512,
-      bodyBlocks = ctx.storage._bodyBlockInfos;
+      bodyBlockInfos = ctx.storage._bodyBlockInfos,
+      // this is a cache that won't get flushed during the test
+      bodyBlockMap = ctx.storage._bodyBlocks;
 
-  ctx.insertBody(d5, uid1, BIG2, 0);
-  ctx.insertBody(d8, uid2, BIG2, 0);
-  check_block(bodyBlocks[0], 2, 2 * BIG2, d5, uid1, d8, uid2);
+  var b1 = ctx.insertBody(d5, uid1, size1, 0);
+  var b2 = ctx.insertBody(d8, uid2, size2, 0);
+  check_block(bodyBlockInfos[0], 2, size1 + size2, d5, uid1, d8, uid2);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[0].blockId],
+    [uid2, uid1],
+    [b2, b1]);
 
   ctx.checkDirtyBodyBlocks([0]);
   ctx.resetDirtyBlocks();
 
   // - Split prefers the older block
-  ctx.insertBody(d7, uid3, BIG2, 1);
+  var b3 = ctx.insertBody(d7, uid3, size3, 1);
 
-  do_check_eq(bodyBlocks.length, 2);
-  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
-  check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+  do_check_eq(bodyBlockInfos.length, 2);
+  check_block(bodyBlockInfos[0], 1, size2, d8, uid2, d8, uid2);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[0].blockId],
+    [uid2],
+    [b2]);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[1].blockId],
+    [uid3, uid1],
+    [b3, b1]);
+  check_block(bodyBlockInfos[1], 2, size3 + size1, d5, uid1, d7, uid3);
 
   ctx.checkDirtyBodyBlocks([0, 1]);
   ctx.resetDirtyBlocks();
 
   // - Split prefers the newer block
   // splits [1] into [1, 2]
-  ctx.insertBody(d6, uid4, BIG2, 1);
+  var b4 = ctx.insertBody(d6, uid4, size4, 1);
 
-  do_check_eq(bodyBlocks.length, 3);
-  check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
-  check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid3);
-  check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
+  do_check_eq(bodyBlockInfos.length, 3);
+  check_block(bodyBlockInfos[0], 1, size2, d8, uid2, d8, uid2);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[0].blockId],
+    [uid2],
+    [b2]);
+  check_block(bodyBlockInfos[1], 2, size3 + size4, d6, uid4, d7, uid3);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[1].blockId],
+    [uid3, uid4],
+    [b3, b4]);
+  check_block(bodyBlockInfos[2], 1, size1, d5, uid1, d5, uid1);
+  check_body_block_contents(
+    bodyBlockMap[bodyBlockInfos[2].blockId],
+    [uid1],
+    [b1]);
 
   ctx.checkDirtyBodyBlocks([1, 2]);
-
-  run_next_test();
 });
 
 /**
@@ -760,8 +861,6 @@ TD.commonSimple('header block splitting',
   do_check_eq(olderBlock.uids.length, olderInfo.count);
   do_check_true(olderBlock.headers[numHeaders - expectedHeadersPerBlock - 1] ===
                 bigHeaders[numHeaders - 1]);
-
-  run_next_test();
 });
 
 
@@ -819,8 +918,6 @@ TD.commonSimple('deletion', function test_deletion() {
   // - Delete the d7 block entirely
   ctx.deleteBody(d7, uid3);
   do_check_eq(bodyBlocks.length, 0);
-
-  run_next_test();
 });
 
 /**
@@ -876,8 +973,6 @@ TD.commonSimple('insertion outside existing blocks',
   check_block(bodyBlocks[0], 2, 2 * BIG2, d7, uid3, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid0);
   check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
-
-  run_next_test();
 });
 
 /**
@@ -926,8 +1021,6 @@ TD.commonSimple('insertion differing only by UIDs',
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
   check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
-
-  run_next_test();
 });
 
 // Expect, where 'first' is first reported, and 'last' is last reported,
