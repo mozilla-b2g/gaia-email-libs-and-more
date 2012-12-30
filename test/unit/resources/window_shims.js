@@ -281,6 +281,7 @@ function Blob(parts, properties) {
   this.endings = properties.endings;
 
   this.str = parts[0].toString();
+  this.size = this.str.length;
 
   __blobLogFunc('createBlob', this.str);
 }
