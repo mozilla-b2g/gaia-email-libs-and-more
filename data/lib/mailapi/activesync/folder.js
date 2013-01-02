@@ -479,7 +479,7 @@ ActiveSyncFolderConn.prototype = {
         collection.push(msg);
       });
 
-      e.addEventListener(base.concat(as.Commands, [as.Delete, as.SoftDelete]),
+      e.addEventListener(base.concat(as.Commands, [[as.Delete, as.SoftDelete]]),
                          function(node) {
         let guid;
 
@@ -1010,6 +1010,13 @@ ActiveSyncFolderSyncer.prototype = {
    */
   get syncable() {
     return this.folderConn.serverId !== null;
+  },
+
+  /**
+   * Can we grow this sync range?  Not in ActiveSync land!
+   */
+  get canGrowSync() {
+    return false;
   },
 
   syncDateRange: function(startTS, endTS, syncCallback, doneCallback,

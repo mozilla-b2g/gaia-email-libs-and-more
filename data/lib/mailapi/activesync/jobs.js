@@ -329,11 +329,9 @@ ActiveSyncJobDriver.prototype = {
     // have active slices displaying the contents of the folder.  (No server id
     // means the sync will not happen.)
     var inboxFolder = account.getFirstFolderWithType('inbox'),
-        inboxStorage, inboxNeedsResync = false;
-    if (inboxFolder && inboxFolder.serverId === null) {
+        inboxStorage;
+    if (inboxFolder && inboxFolder.serverId === null)
       inboxStorage = account.getFolderStorageForFolderId(inboxFolder.id);
-      inboxNeedsResync = inboxStorage.hasActiveSlices;
-    }
 
     account.syncFolderList(function(err) {
       if (!err)
@@ -341,8 +339,10 @@ ActiveSyncJobDriver.prototype = {
       // save if it worked
       doneCallback(err ? 'aborted-retry' : null, null, !err);
 
-      if (inboxNeedsResync)
+      if (inboxStorage && inboxStorage.hasActiveSlices) {
+        console.log("Refreshing fake inbox");
         inboxStorage.resetAndRefreshActiveSlices();
+      }
     });
   },
 

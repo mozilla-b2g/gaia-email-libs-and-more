@@ -145,6 +145,13 @@ function ImapFolderConn(account, storage, _parentLog) {
 }
 ImapFolderConn.prototype = {
   /**
+   * Can we grow this sync range?  IMAP always lets us do this.
+   */
+  get canGrowSync() {
+    return true;
+  },
+
+  /**
    * Acquire a connection and invoke the callback once we have it and we have
    * entered the folder.  This method should only be called when running
    * inside `runMutexed`.
