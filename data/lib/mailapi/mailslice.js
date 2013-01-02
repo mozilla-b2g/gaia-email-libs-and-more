@@ -2621,7 +2621,13 @@ FolderStorage.prototype = {
     return syncTS;
   },
 
+  /**
+   * Are we synchronized as far back in time as we are able to synchronize?
+   */
   syncedToDawnOfTime: function() {
+    if (!this.folderSyncer.canGrowSync)
+      return true;
+
     var oldestSyncTS = this.getOldestFullSyncDate();
     return ON_OR_BEFORE(oldestSyncTS, $sync.OLDEST_SYNC_DATE);
   },
