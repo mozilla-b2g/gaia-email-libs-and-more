@@ -20,9 +20,9 @@ function encodeWBXML(wbxml) {
  * @return the WBXML Reader
  */
 function decodeWBXML(stream) {
-  let str = NetUtil.readInputStreamToString(stream, stream.available());
-  if (str.length === 0)
+  if (!stream.available())
     return null;
+  let str = NetUtil.readInputStreamToString(stream, stream.available());
 
   let bytes = new Uint8Array(str.length);
   for (let i = 0; i < str.length; i++)
@@ -111,6 +111,20 @@ ActiveSyncFolder.prototype = {
     return newMessages;
   },
 
+  changeMessage: function(message, changes) {
+    if ('read' in changes)
+      message.metaState.read = changes.read;
+    if ('flag' in changes)
+      message.metaState.flag = changes.flag;
+
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      // TODO: Handle the case where we already have this message in the command
+      // list.
+      if (this._messageInFilterRange(syncState.filterType, message))
+        syncState.commands.push({ type: 'change', changes: changes });
+    }
+  },
+
   _createSyncKey: function() {
     return 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
   },
@@ -133,20 +147,28 @@ ActiveSyncFolder.prototype = {
     return syncKey;
   },
 
+  recreateSyncState: function(syncState) {
+    let syncKey = this._createSyncKey();
+    this._messageSyncStates[syncKey] = syncState;
+    return syncKey;
+  },
+
   takeSyncState: function(syncKey) {
     let syncState = this._messageSyncStates[syncKey];
     delete this._messageSyncStates[syncKey];
     return syncState;
   },
 
-  peekSyncState: function(syncKey) {
-    return this._messageSyncStates[syncKey];
+  hasSyncState: function(syncKey) {
+    return this._messageSyncStates.hasOwnProperty(syncKey);
   },
 
-  restoreSyncState: function(syncState) {
-    let syncKey = this._createSyncKey();
-    this._mesageSyncStates[syncKey] = syncState;
-    return syncKey;
+  filterTypeForSyncState: function(syncKey) {
+    return this._messageSyncStates[syncKey].filterType;
+  },
+
+  numCommandsForSyncState: function(syncKey) {
+    return this._messageSyncStates[syncKey].commands.length;
   },
 };
 
@@ -407,44 +429,58 @@ ActiveSyncServer.prototype = {
     // Now it's time to actually perform the sync operation!
 
     let folder = this._findFolderById(collectionId),
-        syncState = folder.takeSyncState(syncKey),
-        nextSyncKey, status;
+        syncState = null, nextSyncKey, status;
 
     if (syncKey === '0') {
       nextSyncKey = folder.createSyncState(filterType, 'initial');
       status = asEnum.Status.Success;
     }
-    else if (!syncState ||
-             (filterType && filterType !== syncState.filterType)) {
+    else if (!folder.hasSyncState(syncKey) ||
+             (filterType &&
+              filterType !== folder.filterTypeForSyncState(syncKey))) {
       nextSyncKey = '0';
       status = asEnum.Status.InvalidSyncKey;
     }
     else {
-      // Run any commands the client sent.
-      for (let command of clientCommands) {
-        let message = folder.findMessageById(command.serverId);
-        if (command.type === 'change')
-          this._changeEmail(message, command.data);
-      }
+      if (clientCommands.length) {
+        // Save off the sync state so that our commands don't touch it.
+        syncState = folder.takeSyncState(syncKey);
 
-      if (getChanges) {
-        // Create a fresh sync state.
-        nextSyncKey = folder.createSyncState(syncState.filterType);
-      }
-      else if (clientCommands.length) {
-        // Create a new state with the old one's command list, and clear out our
-        // syncState so we don't return any changes.
-        nextSyncKey = folder.createSyncState(syncState.filterType,
-                                             syncState.commands);
-        syncState = null;
+        // Run any commands the client sent.
+        for (let command of clientCommands) {
+          let message = folder.findMessageById(command.serverId);
+          if (command.type === 'change')
+            this._changeEmail(folder, message, command.data);
+        }
+
+        // Create the next sync state, with a new SyncKey.
+        if (getChanges) {
+          // Create a fresh sync state.
+          nextSyncKey = folder.createSyncState(syncState.filterType);
+        }
+        else {
+          // Create a new state with the old one's command list, and clear out
+          // our syncState so we don't return any changes.
+          nextSyncKey = folder.recreateSyncState(syncState);
+          syncState = null;
+        }
       }
       else {
-        // There are no changes, so cache the sync request and return an empty
-        // response.
-        response.setStatusLine('1.1', 200, 'OK');
-        reader.rewind();
-        this._cachedSyncRequest = reader;
-        return;
+        // GetChanges must be true here, so don't bother checking.
+
+        if (folder.numCommandsForSyncState(syncKey)) {
+          // There are pending changes, so create a fresh sync state.
+          syncState = folder.takeSyncState(syncKey);
+          nextSyncKey = folder.createSyncState(syncState.filterType);
+        }
+        else {
+          // There are no changes, so cache the sync request and return an empty
+          // response.
+          response.setStatusLine('1.1', 200, 'OK');
+          reader.rewind();
+          this._cachedSyncRequest = reader;
+          return;
+        }
       }
 
       status = asEnum.Status.Success;
@@ -590,11 +626,11 @@ ActiveSyncServer.prototype = {
       status = ieStatus.InvalidCollection;
     else if (syncKey === '0')
       status = ieStatus.NoSyncState;
-    else if (!(syncState = folder.peekSyncState(syncKey)))
+    else if (!folder.hasSyncState(syncKey))
       status = ieStatus.InvalidSyncKey;
     else {
       status = ieStatus.Success;
-      estimate = syncState.commands.length;
+      estimate = folder.numCommandsForSyncState(syncKey);
     }
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
@@ -670,7 +706,10 @@ ActiveSyncServer.prototype = {
      .tag(em.Subject, message.subject)
      .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, message.metaState.read ? '1' : '0');
+     .tag(em.Read, message.metaState.read ? '1' : '0')
+     .stag(em.Flag)
+       .tag(em.Status, message.metaState.flag || '0')
+     .etag();
 
     if (attachments.length) {
       w.stag(asb.Attachments);
@@ -701,15 +740,27 @@ ActiveSyncServer.prototype = {
      .etag();
   },
 
-  _changeEmail: function(message, node) {
+  _changeEmail: function(folder, message, node) {
     const em = $_ascp.Email.Tags;
+    let changes = {};
 
     for (let child of node.children) {
       switch (child.tag) {
       case em.Read:
-        message.metaState.read = child.children[0].textContent === '1';
+        changes.read = child.children[0].textContent === '1';
+        break;
+      case em.Flag:
+        for (let grandchild of child.children) {
+          switch (grandchild.tag) {
+          case em.Status:
+            changes.flag = grandchild.children[0].textContent;
+            break;
+          }
+        }
         break;
       }
     }
+
+    folder.changeMessage(message, changes);
   },
 };

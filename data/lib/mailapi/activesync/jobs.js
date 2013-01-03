@@ -121,17 +121,21 @@ ActiveSyncJobDriver.prototype = {
           if (--modsToGo === 0)
             callWhenDone();
         }
+
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         folderConn.performMutation(
           function withWriter(w) {
             for (let i = 0; i < serverIds.length; i++) {
-              let srvid = serverIds[i];
-              // If the header is somehow an offline header, it will be null and
-              // there is nothing we can really do for it.
-              if (!srvid)
-                continue;
-
               w.stag(as.Change)
-                 .tag(as.ServerId, srvid)
+                 .tag(as.ServerId, serverIds[i])
                  .stag(as.ApplicationData);
 
               if (markRead !== undefined)
