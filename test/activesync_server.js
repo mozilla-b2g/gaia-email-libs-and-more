@@ -389,6 +389,7 @@ ActiveSyncServer.prototype = {
     const asEnum = $_ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId, getChanges,
+        deletesAsMoves = true,
         filterType = asEnum.FilterType.NoFilter,
         clientCommands = [];
 
@@ -400,6 +401,10 @@ ActiveSyncServer.prototype = {
     });
     e.addEventListener(base.concat(as.CollectionId), function(node) {
       collectionId = node.children[0].textContent;
+    });
+    e.addEventListener(base.concat(as.DeletesAsMoves), function(node) {
+      deletesAsMoves = node.children.length === 0 ||
+                       node.children[0].textContent === '1';
     });
     e.addEventListener(base.concat(as.GetChanges), function(node) {
       getChanges = node.children.length === 0 ||
@@ -486,8 +491,8 @@ ActiveSyncServer.prototype = {
           }
           else if (command.type === 'delete') {
             let message = folder.removeMessageById(command.serverId);
-            // TODO: Only do this if DeltesAsMoves is true.
-            this.foldersByType['trash'][0].addMessage(message);
+            if (deletesAsMoves)
+              this.foldersByType['trash'][0].addMessage(message);
           }
         }
 
