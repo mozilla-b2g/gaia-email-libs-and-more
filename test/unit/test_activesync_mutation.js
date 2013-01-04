@@ -598,6 +598,13 @@ TD.commonCase('move/trash messages', function(T) {
     eSync.namedValue('moved message subject', actualHeader.subject);
     eSync.namedValue('starred', actualHeader.isStarred);
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 1, full: 0, flags: 0, deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 });
 
 function run_test() {

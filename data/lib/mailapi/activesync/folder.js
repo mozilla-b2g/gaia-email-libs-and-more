@@ -795,18 +795,25 @@ ActiveSyncFolderConn.prototype = {
         // XXX: update bodies
       }
 
+      let deletedMessages = 0;
       for (let [,messageGuid] in Iterator(deleted)) {
+        // If we don't know about this message, it's probably because we already
+        // deleted it.
+        if (!storage.hasMessageWithServerId(messageGuid))
+          continue;
+
         storage.deleteMessageByServerId(messageGuid);
+        deletedMessages++;
       }
 
-      messagesSeen += addedMessages + changed.length + deleted.length;
+      messagesSeen += addedMessages + changed.length + deletedMessages;
 
       if (!moreAvailable) {
         // Note: For the second argument here, we report the number of messages
         // we saw that *changed*. This differs from IMAP, which reports the
         // number of messages it *saw*.
         folderConn._LOG.syncDateRange_end(addedMessages, changed.length,
-                                          deleted.length, startTS, endTS);
+                                          deletedMessages, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, null, messagesSeen);
       }
