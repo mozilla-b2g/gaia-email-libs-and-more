@@ -878,7 +878,12 @@ Autoconfigurator.prototype = {
       callback('no-config-info', null, { status: 'error' });
     };
 
-    xhr.send();
+    try {
+      xhr.send();
+    }
+    catch(e) {
+      callback('no-config-info', null, { status: 404 });
+    }
   },
 
   /**
