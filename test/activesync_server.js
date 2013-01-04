@@ -501,13 +501,29 @@ ActiveSyncServer.prototype = {
       for (let command of syncState.commands) {
         if (command.type === 'add') {
           w.stag(as.Add)
-            .tag(as.ServerId, command.message.messageId)
-            .stag(as.ApplicationData);
+             .tag(as.ServerId, command.message.messageId)
+             .stag(as.ApplicationData);
 
           this._writeEmail(w, command.message);
 
           w  .etag(as.ApplicationData)
             .etag(as.Add);
+        }
+        else if (command.type === 'change') {
+          w.stag(as.Change)
+             .tag(as.ServerId, command.message.messageId)
+             .stag(as.ApplicationData);
+
+          if ('read' in changes)
+            w.tag(em.Read, changes.read ? '1' : '0');
+
+          if ('flag' in changes)
+            w.stag(em.Flag)
+               .tag(em.Status, changes.flag)
+             .etag();
+
+          w  .etag(as.ApplicationData)
+            .etag(as.Changes);
         }
       }
 
