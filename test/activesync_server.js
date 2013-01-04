@@ -71,6 +71,34 @@ ActiveSyncFolder.prototype = {
             message.date);
   },
 
+  addMessage: function(args) {
+    let newMessage = args instanceof SyntheticPart ? args :
+                     this.server.msgGen.makeMessage(args);
+    this.messages.unshift(newMessage);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
+
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      if (this._messageInFilterRange(syncState.filterType, newMessage))
+        syncState.commands.push({ type: 'add', message: newMessage });
+    }
+
+    return newMessage;
+  },
+
+  addMessages: function(args) {
+    let newMessages = Array.isArray(args) ? args :
+                      this.server.msgGen.makeMessages(args);
+    this.messages.unshift.apply(this.messages, newMessages);
+    this.messages.sort(function(a, b) { return a.date < b.date; });
+
+    for (let [,syncState] in Iterator(this._messageSyncStates)) {
+      for (let message of newMessages)
+        syncState.commands.push({ type: 'add', message: message });
+    }
+
+    return newMessages;
+  },
+
   /**
    * Find a message object by its server ID.
    *
@@ -85,32 +113,6 @@ ActiveSyncFolder.prototype = {
     return null;
   },
 
-  addMessage: function(args) {
-    let newMessage = this.server.msgGen.makeMessage(args);
-    this.messages.unshift(newMessage);
-    this.messages.sort(function(a, b) { return a.date < b.date; });
-
-    for (let [,syncState] in Iterator(this._messageSyncStates)) {
-      if (this._messageInFilterRange(syncState.filterType, message))
-        syncState.commands.push({ type: 'add', message: newMessage });
-    }
-
-    return newMessage;
-  },
-
-  addMessages: function(args) {
-    let newMessages = this.server.msgGen.makeMessages(args);
-    this.messages.unshift.apply(this.messages, newMessages);
-    this.messages.sort(function(a, b) { return a.date < b.date; });
-
-    for (let [,syncState] in Iterator(this._messageSyncStates)) {
-      for (let message of newMessages)
-        syncState.commands.push({ type: 'add', message: message });
-    }
-
-    return newMessages;
-  },
-
   changeMessage: function(message, changes) {
     if ('read' in changes)
       message.metaState.read = changes.read;
@@ -121,8 +123,26 @@ ActiveSyncFolder.prototype = {
       // TODO: Handle the case where we already have this message in the command
       // list.
       if (this._messageInFilterRange(syncState.filterType, message))
-        syncState.commands.push({ type: 'change', changes: changes });
+        syncState.commands.push({ type: 'change', messageId: message.messageId,
+                                  changes: changes });
     }
+  },
+
+  removeMessageById: function(id) {
+    for (let [i, message] in Iterator(this.messages)) {
+      if (message.messageId === id) {
+        this.messages.splice(i, 1);
+
+        for (let [,syncState] in Iterator(this._messageSyncStates)) {
+          if (this._messageInFilterRange(syncState.filterType, message))
+            syncState.commands.push({ type: 'delete',
+                                      messageId: message.messageId });
+        }
+
+        return message;
+      }
+    }
+    return null;
   },
 
   _createSyncKey: function() {
@@ -195,6 +215,7 @@ function ActiveSyncServer(startDate) {
 
   this.addFolder('Inbox', folderType.DefaultInbox);
   this.addFolder('Sent Mail', folderType.DefaultSent, null, {count: 5});
+  this.addFolder('Trash', folderType.DefaultDeleted, null, {count: 0});
 
   this.logRequest = null;
   this.logRequestBody = null;
@@ -401,6 +422,17 @@ ActiveSyncServer.prototype = {
       }
       clientCommands.push(command);
     });
+    e.addEventListener(base.concat(as.Commands, as.Delete), function(node) {
+      let command = { type: 'delete' };
+      for (let child of node.children) {
+        switch(child.tag) {
+        case as.ServerId:
+          command.serverId = child.children[0].textContent;
+          break;
+        }
+      }
+      clientCommands.push(command);
+    });
 
     let reader = decodeWBXML(request.bodyInputStream) ||
                  this._cachedSyncRequest;
@@ -448,9 +480,15 @@ ActiveSyncServer.prototype = {
 
         // Run any commands the client sent.
         for (let command of clientCommands) {
-          let message = folder.findMessageById(command.serverId);
-          if (command.type === 'change')
+          if (command.type === 'change') {
+            let message = folder.findMessageById(command.serverId);
             this._changeEmail(folder, message, command.data);
+          }
+          else if (command.type === 'delete') {
+            let message = folder.removeMessageById(command.serverId);
+            // TODO: Only do this if DeltesAsMoves is true.
+            this.foldersByType['trash'][0].addMessage(message);
+          }
         }
 
         // Create the next sync state, with a new SyncKey.
@@ -511,19 +549,24 @@ ActiveSyncServer.prototype = {
         }
         else if (command.type === 'change') {
           w.stag(as.Change)
-             .tag(as.ServerId, command.message.messageId)
+             .tag(as.ServerId, command.messageId)
              .stag(as.ApplicationData);
 
-          if ('read' in changes)
-            w.tag(em.Read, changes.read ? '1' : '0');
+          if ('read' in command.changes)
+            w.tag(em.Read, command.changes.read ? '1' : '0');
 
-          if ('flag' in changes)
+          if ('flag' in command.changes)
             w.stag(em.Flag)
-               .tag(em.Status, changes.flag)
+               .tag(em.Status, command.changes.flag)
              .etag();
 
           w  .etag(as.ApplicationData)
-            .etag(as.Changes);
+            .etag(as.Change);
+        }
+        else if (command.type === 'delete') {
+          w.stag(as.Delete)
+             .tag(as.ServerId, command.messageId)
+           .etag(as.Delete);
         }
       }
 
@@ -666,6 +709,81 @@ ActiveSyncServer.prototype = {
     return w;
   },
 
+  _handleCommand_MoveItems: function(request, query, response) {
+    const mo = $_ascp.Move.Tags;
+    const moStatus = $_ascp.Move.Enums.Status;
+
+    let moves = [];
+    let e = new $_wbxml.EventParser();
+    e.addEventListener([mo.MoveItems, mo.Move], function(node) {
+      let move = {};
+
+      for (let child of node.children) {
+        let textContent = child.children[0].textContent;
+
+        switch (child.tag) {
+        case mo.SrcMsgId:
+          move.srcMessageId = textContent;
+          break;
+        case mo.SrcFldId:
+          move.srcFolderId = textContent;
+          break;
+        case mo.DstFldId:
+          move.destFolderId = textContent;
+          break;
+        }
+      }
+
+      moves.push(move);
+    });
+    let reader = decodeWBXML(request.bodyInputStream);
+    if (this.logRequestBody)
+      this.logRequestBody(reader);
+    e.run(reader);
+
+    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(mo.MoveItems);
+
+    for (let move of moves) {
+      let srcFolder = this._findFolderById(move.srcFolderId),
+          destFolder = this._findFolderById(move.destFolderId),
+          status;
+
+      if (!srcFolder) {
+        status = moStatus.InvalidSourceId;
+      }
+      else if (!destFolder) {
+        status = moStatus.InvalidDestId;
+      }
+      else if (srcFolder === destFolder) {
+        status = moStatus.SourceIsDest;
+      }
+      else {
+        let message = srcFolder.removeMessageById(move.srcMessageId);
+
+        if (!message) {
+          status = moStatus.InvalidSourceId;
+        }
+        else {
+          status = moStatus.Success;
+          destFolder.addMessage(message);
+        }
+      }
+
+      w.stag(mo.Response)
+         .tag(mo.SrcMsgId, move.srcMessageId)
+         .tag(mo.Status, status);
+
+      if (status === moStatus.Success)
+        w.tag(mo.DstMsgId, move.srcMessageId)
+
+      w.etag(mo.Response);
+    }
+
+    w.etag(mo.MoveItems);
+    return w;
+  },
+
   /**
    * Find a folder object by its server ID.
    *
@@ -777,6 +895,8 @@ ActiveSyncServer.prototype = {
       }
     }
 
+    if (!message)
+      throw new Error(folder.messages.map(function (x) x.messageId).join(", "));
     folder.changeMessage(message, changes);
   },
 };

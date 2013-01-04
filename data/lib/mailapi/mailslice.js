@@ -3319,6 +3319,19 @@ FolderStorage.prototype = {
       this._curSyncSlice.onHeaderAdded(header, true, false);
   },
 
+  hasMessageWithServerId: function(srvid) {
+    if (!this._serverIdHeaderBlockMapping)
+      throw new Error('Server ID mapping not supported for this storage!');
+
+    var blockId = this._serverIdHeaderBlockMapping[srvid];
+    if (srvid === undefined) {
+      this._LOG.serverIdMappingMissing(srvid);
+      return false;
+    }
+
+    return !!blockId;
+  },
+
   deleteMessageHeaderAndBody: function(header, callback) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(

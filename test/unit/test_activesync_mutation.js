@@ -22,13 +22,12 @@
 load('resources/loggest_test_framework.js');
 const $wbxml = require('wbxml');
 const $ascp = require('activesync/codepages');
+const FilterType = $ascp.AirSync.Enums.FilterType;
 
 var TD = $tc.defineTestsFor(
   { id: 'test_activesync_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('mutate flags', function(T) {
-  const FilterType = $ascp.AirSync.Enums.FilterType;
-
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
@@ -439,6 +438,166 @@ TD.commonCase('mutate flags', function(T) {
   T.group('cleanup');
   // save our state so the next unit test doesn't try and re-run our ops
   testUniverse3.do_saveState();
+});
+
+
+
+/**
+ * Create a source folder and a target folder with some messages in the source
+ * folder.
+ */
+TD.commonCase('move/trash messages', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  var sourceFolder = testAccount.do_createTestFolder(
+    'test_move_source',
+    { count: 5, age_incr: { days: 1 } });
+  var targetFolder = testAccount.do_createTestFolder(
+    'test_move_target',
+    { count: 0 });
+  var blindTargetFolder = testAccount.do_createTestFolder(
+    'test_move_blind_target',
+    { count: 0 });
+  var trashFolder = testAccount.do_createTestFolder(
+    'Trash',
+    { count: 0 });
+
+  var sourceView = testAccount.do_openFolderView(
+    'sourceView', sourceFolder,
+    { count: 5, full: 5, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false });
+  var targetView = testAccount.do_openFolderView(
+    'targetView', targetFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false });
+  // open the trash but don't care what's in there, we just care about deltas
+  var trashView = testAccount.do_openFolderView('trashView', trashFolder, null);
+
+  T.group('offline manipulation; released to server');
+
+  var undoMoveBlind = null, undoMoveVisible = null, undoDelete = null;
+
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('move/trash messages',
+           testAccount, testAccount.eAccount, function() {
+    // by mentioning testAccount we ensure that we will assert if we see a
+    // reuseConnection from it.
+    var headers = sourceView.slice.items,
+        toMoveBlind = headers[1],
+        toMoveVisible = headers[2],
+        toDelete = headers[3];
+
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'delete',
+      { local: true, server: false, save: true });
+
+    testAccount.expect_headerChanges(
+      targetView,
+      { additions: [toMoveVisible], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
+    // While the removal of toMove actually happens before the target hears
+    // about it, since we are waiting for 2 events, we will see it happen here
+    // once the toDelete removal fires.
+    testAccount.expect_headerChanges(
+      sourceView,
+      { additions: [], changes: [],
+        deletions: [toMoveBlind, toMoveVisible, toDelete] },
+      null, /* done after 3 events: */ 3);
+    testAccount.expect_headerChanges(
+      trashView,
+      { additions: [toDelete], changes: [], deletions: [] },
+      null, /* done after 1 event: */ 1);
+
+    undoMoveBlind = toMoveBlind.moveMessage(blindTargetFolder.mailFolder);
+    undoMoveVisible = toMoveVisible.moveMessage(targetFolder.mailFolder);
+    undoDelete = toDelete.deleteMessage();
+  });
+  T.action('go online, see changes happen for', testAccount.eAccount,
+           eSync, function() {
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: 'server', conn: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: 'server' });
+    testAccount.expect_runOp(
+      'delete',
+      { local: false, server: true, save: 'server' });
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
+  /**
+   * While offline, queue a local tag mutation followed by a move.  Then, go
+   * online and ensure that when the message ends up in the target folder after
+   * the ops have run that it has the altered state.
+   */
+  T.group('move does not interfere with online ops');
+  testUniverse.do_pretendToBeOffline(true);
+  var moveStarMailHeader;
+  T.action('tag message then move', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+
+    // use the 0th message in source; chronologically it will end up 0 in the
+    // target folder too.
+    moveStarMailHeader = sourceView.slice.items[0];
+    moveStarMailHeader.setStarred(true);
+    moveStarMailHeader.moveMessage(targetFolder.mailFolder);
+  });
+  T.action('go online, wait for ops to complete', eSync, function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: 'server' });
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+  // Refresh the folder to make sure the current state of the target folder
+  // matches our expectation.  This will fail if the flags on the message are
+  // not what they are locally.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 2, full: 0, flags: 0, deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // And this is an extra sanity check on that delta-check.
+  T.check(eSync, 'moved message is starred', function() {
+    eSync.expect_namedValue('moved message subject',
+                            moveStarMailHeader.subject);
+    eSync.expect_namedValue('starred', true);
+
+    var actualHeader = targetView.slice.items[0];
+    eSync.namedValue('moved message subject', actualHeader.subject);
+    eSync.namedValue('starred', actualHeader.isStarred);
+  });
 });
 
 function run_test() {

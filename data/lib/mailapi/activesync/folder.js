@@ -773,9 +773,17 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
+      let addedMessages = 0;
       for (let [,message] in Iterator(added)) {
+        // If we already have this message, it's probably because we moved it as
+        // part of a local op, so let's assume that the data we already have is
+        // ok. XXX: We might want to verify this, to be safe.
+        if (storage.hasMessageWithServerId(message.header.srvid))
+          continue;
+
         storage.addMessageHeader(message.header);
         storage.addMessageBody(message.header, message.body);
+        addedMessages++;
       }
 
       for (let [,message] in Iterator(changed)) {
@@ -791,13 +799,13 @@ ActiveSyncFolderConn.prototype = {
         storage.deleteMessageByServerId(messageGuid);
       }
 
-      messagesSeen += added.length + changed.length + deleted.length;
+      messagesSeen += addedMessages + changed.length + deleted.length;
 
       if (!moreAvailable) {
         // Note: For the second argument here, we report the number of messages
         // we saw that *changed*. This differs from IMAP, which reports the
         // number of messages it *saw*.
-        folderConn._LOG.syncDateRange_end(added.length, changed.length,
+        folderConn._LOG.syncDateRange_end(addedMessages, changed.length,
                                           deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, null, messagesSeen);
@@ -876,7 +884,7 @@ ActiveSyncFolderConn.prototype = {
         e.run(aResponse);
       }
       catch (ex) {
-        console.error('Error parsing Sync reponse:', ex, '\n', ex.stack);
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
         callWhenDone('unknown');
         return;
       }

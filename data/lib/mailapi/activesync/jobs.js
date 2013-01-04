@@ -198,8 +198,6 @@ ActiveSyncJobDriver.prototype = {
     let aggrErr = null, account = this.account,
         targetFolderStorage = this.account.getFolderStorageForFolderId(
                                 op.targetFolder);
-    const as = $ascp.AirSync.Tags;
-    const em = $ascp.Email.Tags;
     const mo = $ascp.Move.Tags;
 
     this._partitionAndAccessFoldersSequentially(
@@ -208,17 +206,21 @@ ActiveSyncJobDriver.prototype = {
         let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(mo.MoveItems);
 
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         for (let i = 0; i < serverIds.length; i++) {
-          let srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be null and
-          // there is nothing we can really do for it.
-          if (!srvid)
-            continue;
           w.stag(mo.Move)
-              .tag(mo.SrcMsgId, srvid)
-              .tag(mo.SrcFldId, storage.folderMeta.serverId)
-              .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
-            .etag(mo.Move);
+             .tag(mo.SrcMsgId, serverIds[i])
+             .tag(mo.SrcFldId, storage.folderMeta.serverId)
+             .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
+           .etag(mo.Move);
         }
         w.etag(mo.MoveItems);
 
