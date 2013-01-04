@@ -389,6 +389,7 @@ ActiveSyncServer.prototype = {
     const asEnum = $_ascp.AirSync.Enums;
 
     let syncKey, nextSyncKey, collectionId, getChanges,
+        server = this,
         deletesAsMoves = true,
         filterType = asEnum.FilterType.NoFilter,
         clientCommands = [];
@@ -421,7 +422,7 @@ ActiveSyncServer.prototype = {
           command.serverId = child.children[0].textContent;
           break;
         case as.ApplicationData:
-          command.data = child;
+          command.changes = server._parseEmailChange(child);
           break;
         }
       }
@@ -487,7 +488,7 @@ ActiveSyncServer.prototype = {
         for (let command of clientCommands) {
           if (command.type === 'change') {
             let message = folder.findMessageById(command.serverId);
-            this._changeEmail(folder, message, command.data);
+            folder.changeMessage(message, command.changes);
           }
           else if (command.type === 'delete') {
             let message = folder.removeMessageById(command.serverId);
@@ -879,7 +880,7 @@ ActiveSyncServer.prototype = {
      .etag();
   },
 
-  _changeEmail: function(folder, message, node) {
+  _parseEmailChange: function(node) {
     const em = $_ascp.Email.Tags;
     let changes = {};
 
@@ -900,8 +901,6 @@ ActiveSyncServer.prototype = {
       }
     }
 
-    if (!message)
-      throw new Error(folder.messages.map(function (x) x.messageId).join(", "));
-    folder.changeMessage(message, changes);
+    return changes;
   },
 };
