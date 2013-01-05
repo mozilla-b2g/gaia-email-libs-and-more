@@ -451,83 +451,87 @@ ActiveSyncServer.prototype = {
     if (getChanges === undefined)
       getChanges = syncKey !== '0';
 
-    // Check for invalid states in the request:
-    //   1) If the SyncKey is 0, the client can't request changes or run
-    //      commands.
-    //   2) If the SyncKey is not 0, the client must request changes or run
-    //      commands.
-    if ((syncKey === '0') === (getChanges || clientCommands.length)) {
-      let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
-      w.stag(as.Sync)
-         .tag(as.Status, asEnum.Status.ProtocolError)
-        .etag();
-      return w;
-    }
-
     // Now it's time to actually perform the sync operation!
 
     let folder = this._findFolderById(collectionId),
         syncState = null, nextSyncKey, status;
 
+    // - Get an initial sync key.
     if (syncKey === '0') {
+      // Initial sync can't change anything, in either direction.
+      if (getChanges || clientCommands.length) {
+        let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+        w.stag(as.Sync)
+           .tag(as.Status, asEnum.Status.ProtocolError)
+         .etag();
+       return w;
+      }
+
       nextSyncKey = folder.createSyncState(filterType, 'initial');
       status = asEnum.Status.Success;
     }
+    // - Check for invalid sync keys.
     else if (!folder.hasSyncState(syncKey) ||
              (filterType &&
               filterType !== folder.filterTypeForSyncState(syncKey))) {
       nextSyncKey = '0';
       status = asEnum.Status.InvalidSyncKey;
     }
-    else {
-      if (clientCommands.length) {
-        // Save off the sync state so that our commands don't touch it.
-        syncState = folder.takeSyncState(syncKey);
+    // - Perform a sync operation where the client has requested some changes.
+    else if (clientCommands.length) {
+      // Save off the sync state so that our commands don't touch it.
+      syncState = folder.takeSyncState(syncKey);
 
-        // Run any commands the client sent.
-        for (let command of clientCommands) {
-          if (command.type === 'change') {
-            let message = folder.findMessageById(command.serverId);
-            folder.changeMessage(message, command.changes);
-          }
-          else if (command.type === 'delete') {
-            let message = folder.removeMessageById(command.serverId);
-            if (deletesAsMoves)
-              this.foldersByType['trash'][0].addMessage(message);
-          }
+      // Run any commands the client sent.
+      for (let command of clientCommands) {
+        if (command.type === 'change') {
+          let message = folder.findMessageById(command.serverId);
+          folder.changeMessage(message, command.changes);
         }
-
-        // Create the next sync state, with a new SyncKey.
-        if (getChanges) {
-          // Create a fresh sync state.
-          nextSyncKey = folder.createSyncState(syncState.filterType);
-        }
-        else {
-          // Create a new state with the old one's command list, and clear out
-          // our syncState so we don't return any changes.
-          nextSyncKey = folder.recreateSyncState(syncState);
-          syncState = null;
+        else if (command.type === 'delete') {
+          let message = folder.removeMessageById(command.serverId);
+          if (deletesAsMoves)
+            this.foldersByType['trash'][0].addMessage(message);
         }
       }
-      else {
-        // GetChanges must be true here, so don't bother checking.
 
-        if (folder.numCommandsForSyncState(syncKey)) {
-          // There are pending changes, so create a fresh sync state.
-          syncState = folder.takeSyncState(syncKey);
-          nextSyncKey = folder.createSyncState(syncState.filterType);
-        }
-        else {
-          // There are no changes, so cache the sync request and return an empty
-          // response.
-          response.setStatusLine('1.1', 200, 'OK');
-          reader.rewind();
-          this._cachedSyncRequest = reader;
-          return;
-        }
+      // Create the next sync state, with a new SyncKey.
+      if (getChanges) {
+        // Create a fresh sync state.
+        nextSyncKey = folder.createSyncState(syncState.filterType);
+      }
+      else {
+        // Create a new state with the old one's command list, and clear out
+        // our syncState so we don't return any changes.
+        nextSyncKey = folder.recreateSyncState(syncState);
+        syncState = null;
       }
 
       status = asEnum.Status.Success;
+    }
+    else if (getChanges) {
+      if (folder.numCommandsForSyncState(syncKey)) {
+        // There are pending changes, so create a fresh sync state.
+        syncState = folder.takeSyncState(syncKey);
+        nextSyncKey = folder.createSyncState(syncState.filterType);
+        status = asEnum.Status.Success;
+      }
+      else {
+        // There are no changes, so cache the sync request and return an empty
+        // response.
+        response.setStatusLine('1.1', 200, 'OK');
+        reader.rewind();
+        this._cachedSyncRequest = reader;
+        return;
+      }
+    }
+    // - A sync without changes requested and no commands to run -> error!
+    else {
+      let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(as.Sync)
+         .tag(as.Status, asEnum.Status.ProtocolError)
+       .etag();
+      return w;
     }
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
