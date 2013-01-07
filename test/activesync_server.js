@@ -31,6 +31,17 @@ function decodeWBXML(stream) {
   return new $_wbxml.Reader(bytes, $_ascp);
 }
 
+/**
+ * Create a new ActiveSync folder.
+ *
+ * @param server the ActiveSyncServer object to associate this folder with
+ * @param name the folder's name
+ * @param type (optional) the folder's type, as an enum from
+ *        FolderHierarchy.Enums.Type
+ * @param parent (optional) the folder to contain this folder
+ * @param args (optional) arguments to pass to makeMessages() to generate
+ *        initial messages for this folder
+ */
 function ActiveSyncFolder(server, name, type, parent, args) {
   this.server = server;
   this.name = name;
@@ -51,6 +62,7 @@ function ActiveSyncFolder(server, name, type, parent, args) {
   }
 
   this.messages = this.server.msgGen.makeMessages(args);
+  this.messages.sort(function(a, b) { return b.date - a.date; });
 
   this._nextMessageSyncId = 1;
   this._messageSyncStates = {};
@@ -65,17 +77,31 @@ ActiveSyncFolder.prototype = {
     5: 30 * 86400 * 1000,
   },
 
+  /**
+   * Check if a message is in a given filter range.
+   *
+   * @param filterType the filter type to check
+   * @param message a message object, created by messageGenerator.js
+   * @return true if the message is in the filter range, false otherwise
+   */
   _messageInFilterRange: function(filterType, message) {
     return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
            (this.server._clock - this.filterTypeToMS[filterType] <=
             message.date);
   },
 
+  /**
+   * Add a single message to this folder.
+   *
+   * @param args either a message object created by messageGenerator.js, or
+   *        an object of arguments to pass to makeMessage()
+   * @return the newly-added message
+   */
   addMessage: function(args) {
     let newMessage = args instanceof SyntheticPart ? args :
                      this.server.msgGen.makeMessage(args);
     this.messages.unshift(newMessage);
-    this.messages.sort(function(a, b) { return a.date < b.date; });
+    this.messages.sort(function(a, b) { return b.date - a.date; });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       if (this._messageInFilterRange(syncState.filterType, newMessage))
@@ -85,11 +111,19 @@ ActiveSyncFolder.prototype = {
     return newMessage;
   },
 
+  /**
+   * Add an array of messages to this folder.
+   *
+   * @param args either an array of message objects created by
+   *        messageGenerator.js, or an object of arguments to pass to
+   *        makeMessages()
+   * @return the newly-added messages
+   */
   addMessages: function(args) {
     let newMessages = Array.isArray(args) ? args :
                       this.server.msgGen.makeMessages(args);
     this.messages.unshift.apply(this.messages, newMessages);
-    this.messages.sort(function(a, b) { return a.date < b.date; });
+    this.messages.sort(function(a, b) { return b.date - a.date; });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       for (let message of newMessages)
@@ -113,6 +147,13 @@ ActiveSyncFolder.prototype = {
     return null;
   },
 
+  /**
+   * Modify a message in this folder.
+   *
+   * @param message the message to modify
+   * @param changes an object of changes to make; currently supports |read| (a
+   *        boolean), and |flag| (a string)
+   */
   changeMessage: function(message, changes) {
     if ('read' in changes)
       message.metaState.read = changes.read;
@@ -128,6 +169,12 @@ ActiveSyncFolder.prototype = {
     }
   },
 
+  /**
+   * Remove a message in this folder by its id.
+   *
+   * @param id the message's id
+   * @return the deleted message, or null if the message wasn't found
+   */
   removeMessageById: function(id) {
     for (let [i, message] in Iterator(this.messages)) {
       if (message.messageId === id) {
@@ -145,16 +192,41 @@ ActiveSyncFolder.prototype = {
     return null;
   },
 
+  /**
+   * Create a unique SyncKey.
+   */
   _createSyncKey: function() {
     return 'messages-' + (this._nextMessageSyncId++) + '/' + this.id;
   },
 
+  /**
+   * Create a new sync state for this folder. Sync states keep track of the
+   * changes in the folder that occur since the creation of the sync state.
+   * These changes are filtered by the |filterType|, which limits the date
+   * range of changes to listen for.
+   *
+   * A sync state can also be populated with an initial array of commands, or
+   * "initial" to add all the messages in the folder to the state (subject to
+   * |filterType|).
+   *
+   * Commands are ordered in the sync state from oldest to newest, to mimic
+   * Hotmail's behavior. However, this implementation doesn't currently coalesce
+   * multiple changes into a single command.
+   *
+   * @param filterType the filter type for this sync state
+   * @param commands (optional) an array of commands to add to the sync state
+   *        immediately, or the string "initial" to add all the current messages
+   *        in the folder
+   * @return the SyncKey associated with this sync state
+   */
   createSyncState: function(filterType, commands) {
     if (commands === 'initial') {
       commands = [];
-      for (let message of this.messages) {
-        if (this._messageInFilterRange(filterType, message))
-          commands.push({ type: 'add', message: message });
+      // Go in reverse, since messages are stored in descending date order, but
+      // we want ascending date order.
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        if (this._messageInFilterRange(filterType, this.messages[i]))
+          commands.push({ type: 'add', message: this.messages[i] });
       }
     }
 
@@ -167,31 +239,69 @@ ActiveSyncFolder.prototype = {
     return syncKey;
   },
 
+  /**
+   * Recreate a sync state by giving it a new SyncKey and adding it back to our
+   * list of tracked states.
+   *
+   * @param syncState the old sync state to add back in
+   * @return the SyncKey associated with this sync state
+   */
   recreateSyncState: function(syncState) {
     let syncKey = this._createSyncKey();
     this._messageSyncStates[syncKey] = syncState;
     return syncKey;
   },
 
+  /**
+   * Remove a sync state from our list (thus causing it to stop listening for
+   * new changes) and return it.
+   *
+   * @param syncKey the SyncKey associated with the sync state
+   * @return the sync state
+   */
   takeSyncState: function(syncKey) {
     let syncState = this._messageSyncStates[syncKey];
     delete this._messageSyncStates[syncKey];
     return syncState;
   },
 
+  /**
+   * Check if the folder knows about a particular sync state.
+   *
+   * @param syncKey the SyncKey associated with the sync state
+   * @return true if the folder knows about this sycn state, false otherwise
+   */
   hasSyncState: function(syncKey) {
     return this._messageSyncStates.hasOwnProperty(syncKey);
   },
 
+  /**
+   * Get the filter type for a given sync state.
+   *
+   * @param syncKey the SyncKey associated with the sync state
+   * @return the filter type
+   */
   filterTypeForSyncState: function(syncKey) {
     return this._messageSyncStates[syncKey].filterType;
   },
 
+  /**
+   * Get the number of pending commands for a given sync state.
+   *
+   * @param syncKey the SyncKey associated with the sync state
+   * @return the number of commands
+   */
   numCommandsForSyncState: function(syncKey) {
     return this._messageSyncStates[syncKey].commands.length;
   },
 };
 
+/**
+ * Create a new ActiveSync server instance. Currently, this server only supports
+ * one user.
+ *
+ * @param startDate (optional) a timestamp to set the server's clock to
+ */
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
   this.msgGen = new MessageGenerator();
@@ -253,6 +363,16 @@ ActiveSyncServer.prototype = {
     12: 'normal', // Mail
   },
 
+  /**
+   * Create a new folder on this server.
+   *
+   * @param name the folder's name
+   * @param type (optional) the folder's type, as an enum from
+   *        FolderHierarchy.Enums.Type
+   * @param parent (optional) the folder to contain this folder
+   * @param args (optional) arguments to pass to makeMessages() to generate
+   *        initial messages for this folder
+   */
   addFolder: function(name, type, parent, args) {
     if (type && !this._folderTypes.hasOwnProperty(type))
       throw new Error('Invalid folder type');
@@ -267,6 +387,12 @@ ActiveSyncServer.prototype = {
     return folder;
   },
 
+  /**
+   * Handle incoming requests.
+   *
+   * @param request the nsIHttpRequest
+   * @param response the nsIHttpResponse
+   */
   _commandHandler: function(request, response) {
     if (this.logRequest)
       this.logRequest(request);
@@ -307,6 +433,13 @@ ActiveSyncServer.prototype = {
     }
   },
 
+  /**
+   * Handle the OPTIONS request, returning our list of supported commands, and
+   * other useful details.
+   *
+   * @param request the nsIHttpRequest
+   * @param response the nsIHttpResponse
+   */
   _options: function(request, response) {
     response.setStatusLine('1.1', 200, 'OK');
     response.setHeader('Public', 'OPTIONS,POST');
@@ -325,6 +458,14 @@ ActiveSyncServer.prototype = {
       this.logResponse(request, response);
   },
 
+  /**
+   * Handle the FolderSync command. This entails keeping track of which folders
+   * the client knows about using folder SyncKeys.
+   *
+   * @param request the nsIHttpRequest
+   * @param query an object of URL query parameters
+   * @param response the nsIHttpResponse
+   */
   _handleCommand_FolderSync: function(request, query, response) {
     const fh = $_ascp.FolderHierarchy.Tags;
     const folderType = $_ascp.FolderHierarchy.Enums.Type;
@@ -384,11 +525,21 @@ ActiveSyncServer.prototype = {
     return w;
   },
 
+  /**
+   * Handle the Sync command. This is the meat of the ActiveSync server. We need
+   * to keep track of SyncKeys for each folder (handled in ActiveSyncFolder),
+   * respond to commands from the client, and update clients with any changes
+   * we know about.
+   *
+   * @param request the nsIHttpRequest
+   * @param query an object of URL query parameters
+   * @param response the nsIHttpResponse
+   */
   _handleCommand_Sync: function(request, query, response) {
     const as = $_ascp.AirSync.Tags;
     const asEnum = $_ascp.AirSync.Enums;
 
-    let syncKey, nextSyncKey, collectionId, getChanges,
+    let syncKey, collectionId, getChanges,
         server = this,
         deletesAsMoves = true,
         filterType = asEnum.FilterType.NoFilter,
@@ -454,7 +605,7 @@ ActiveSyncServer.prototype = {
     // Now it's time to actually perform the sync operation!
 
     let folder = this._findFolderById(collectionId),
-        syncState = null, nextSyncKey, status;
+        syncState = null, status, nextSyncKey;
 
     // - Get an initial sync key.
     if (syncKey === '0') {
@@ -605,6 +756,14 @@ ActiveSyncServer.prototype = {
     return w;
   },
 
+  /**
+   * Handle the ItemOperations command. Mainly, this is used to get message
+   * bodies and attachments.
+   *
+   * @param request the nsIHttpRequest
+   * @param query an object of URL query parameters
+   * @param response the nsIHttpResponse
+   */
   _handleCommand_ItemOperations: function(request, query, response) {
     const io = $_ascp.ItemOperations.Tags;
     const as = $_ascp.AirSync.Tags;
@@ -662,6 +821,14 @@ ActiveSyncServer.prototype = {
     return w;
   },
 
+  /**
+   * Handle the GetItemEstimate command. This gives the client the number of
+   * changes to expect from a Sync request.
+   *
+   * @param request the nsIHttpRequest
+   * @param query an object of URL query parameters
+   * @param response the nsIHttpResponse
+   */
   _handleCommand_GetItemEstimate: function(request, query, response) {
     const ie = $_ascp.ItemEstimate.Tags;
     const as = $_ascp.AirSync.Tags;
@@ -719,6 +886,15 @@ ActiveSyncServer.prototype = {
     return w;
   },
 
+  /**
+   * Handle the MoveItems command. This lets clients move messages between
+   * folders. Note that they'll have to get up-to-date via a Sync request
+   * afterward.
+   *
+   * @param request the nsIHttpRequest
+   * @param query an object of URL query parameters
+   * @param response the nsIHttpResponse
+   */
   _handleCommand_MoveItems: function(request, query, response) {
     const mo = $_ascp.Move.Tags;
     const moStatus = $_ascp.Move.Enums.Status;
@@ -884,6 +1060,12 @@ ActiveSyncServer.prototype = {
      .etag();
   },
 
+  /**
+   * Parse the WBXML for a client-side email change command.
+   *
+   * @param node the (fully-parsed) ApplicationData node and its children
+   * @return an object enumerating the changes requested
+   */
   _parseEmailChange: function(node) {
     const em = $_ascp.Email.Tags;
     let changes = {};
