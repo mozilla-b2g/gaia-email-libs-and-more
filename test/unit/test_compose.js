@@ -100,6 +100,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       eLazy.expect_namedValue('addNamed:pictures', 'foo.png');
       eLazy.expect_namedValue('get:pictures', 'foo.png');
       eLazy.expect_namedValue(
+        'attachment[0].size', 256);
+      eLazy.expect_namedValue(
         'attachment[0].data', attachmentData.concat());
     },
     withMessage: function(header) {
@@ -122,6 +124,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
                 for (var i = 0; i < data.length; i++) {
                   dataArr.push(data[i]);
                 }
+                eLazy.namedValue('attachment[' + iAtt + '].size',
+                                 body.attachments[iAtt].sizeEstimateInBytes);
                 eLazy.namedValue('attachment[' + iAtt + '].data',
                                  dataArr);
                 __deviceStorageLogFunc = function() {};
