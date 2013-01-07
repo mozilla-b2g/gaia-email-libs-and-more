@@ -978,7 +978,7 @@ MailUniverse.prototype = {
    * and transferred across to the non-deferred queue at account-load time.
    */
   _deferOp: function(account, op) {
-    this._opsByAccount[account.id].push(op.longtermId);
+    this._opsByAccount[account.id].deferred.push(op.longtermId);
     if (this._deferredOpTimeout !== null)
       this._deferredOpTimeout = window.setTimeout(
         this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
