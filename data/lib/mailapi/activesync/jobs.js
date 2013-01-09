@@ -346,8 +346,15 @@ ActiveSyncJobDriver.prototype = {
       doneCallback(err ? 'aborted-retry' : null, null, !err);
 
       if (inboxStorage && inboxStorage.hasActiveSlices) {
-        console.log("Refreshing fake inbox");
-        inboxStorage.resetAndRefreshActiveSlices();
+        if (!err) {
+          console.log("Refreshing fake inbox");
+          inboxStorage.resetAndRefreshActiveSlices();
+        }
+        // XXX: If we do have an error here, we should probably report
+        // syncfailed on the slices to let the user retry. However, what needs
+        // retrying is syncFolderList, not syncing the messages in a folder.
+        // Since that's complicated to handle, and syncFolderList will retry
+        // automatically, we can ignore that case for now.
       }
     });
   },
