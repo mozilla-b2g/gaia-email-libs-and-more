@@ -2242,6 +2242,7 @@ FolderStorage.prototype = {
     // If the folder can't be synchronized right now, just report the sync as
     // blocked. We'll update it soon enough.
     else if (!this.folderSyncer.syncable) {
+      console.log('Synchronization is currently blocked; waiting...');
       slice.setStatus('syncblocked', false, true, false, 0.0);
       releaseMutex();
       return;
