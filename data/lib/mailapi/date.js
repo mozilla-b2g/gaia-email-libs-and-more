@@ -110,6 +110,38 @@ const IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
   return testDate >= startTS && testDate < endTS;
 };
 
+const PASTWARDS = 1, FUTUREWARDS = -1;
+const TIME_DIR_CMP = exports.TIME_DIR_CMP =
+        function TIME_DIR_CMP(dir, testDate, comparisonDate) {
+  if (dir === PASTWARDS)
+    return testDate < comparisonDate;
+  else
+    return testDate >= comparisonDate;
+};
+/**
+ * Compute the delta of the `testDate` relative to the `comparisonDate` where
+ * a positive value indicates `testDate` is beyond the `comparisonDate` in
+ * the given direction and a negative value indicates it is before it.
+ */
+const TIME_DIR_DELTA = exports.TIME_DIR_DELTA =
+        function TIME_DIR_DELTA(dir, testDate, comparisonDate) {
+  if (dir === PASTWARDS)
+    return testDate - comparisonDate;
+  else
+    return comparisonDate - testDate;
+};
+/**
+ * Add `time` to the `baseDate` in the given direction.  So if the direction
+ * is `PASTWARDS`, then we add the date, otherwise we subtract it.
+ */
+const TIME_DIR_ADD = exports.TIME_DIR_ADD =
+        function TIME_DIR_ADD(dir, baseDate, time) {
+  if (dir === PASTWARDS)
+    return baseDate + time;
+  else
+    return baseDate - time;
+};
+
 //function DATE_RANGES_OVERLAP(A_startTS, A_endTS, B_startTS, B_endTS) {
 //}
 

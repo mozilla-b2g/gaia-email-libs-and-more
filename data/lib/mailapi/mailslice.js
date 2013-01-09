@@ -215,6 +215,11 @@ MailSlice.prototype = {
       this._bridgeHandle.atBottom = val;
     return val;
   },
+  set userCanGrowUpwards(val) {
+    if (this._bridgeHandle)
+      this._bridgeHandle.userCanGrowUpwards = val;
+    return val;
+  },
   set userCanGrowDownwards(val) {
     if (this._bridgeHandle)
       this._bridgeHandle.userCanGrowDownwards = val;
@@ -227,26 +232,21 @@ MailSlice.prototype = {
                                                            this.endUID);
     flagHolder.atBottom = this._storage.headerIsOldestKnown(this.startTS,
                                                             this.startUID);
-    if (flagHolder.atBottom) {
-      flagHolder.userCanGrowDownwards =
-        !this._storage.syncedToDawnOfTime();
-    }
-    else {
+    if (flagHolder.atTop)
+      flagHolder.userCanGrowUpwards = !this._storage.syncedToToday();
+    else
+      flagHolder.userCanGrowUpwards = false;
+
+    if (flagHolder.atBottom)
+      flagHolder.userCanGrowDownwards = !this._storage.syncedToDawnOfTime();
+    else
       flagHolder.userCanGrowDownwards = false;
-    }
   },
 
   /**
-   * Clear out any known headers because a refresh went wrong and so we are
-   * converting our refresh into a sync.
-   *
-   * @args[
-   *   @param[resetRanges Boolean]{
-   *     True if the start/end timestamps/UIDs should also be reset
-   *   }
-   * ]
+   * Reset the state of the slice, clearing out any known headers.
    */
-  _resetHeadersBecauseOfRefreshExplosion: function() {
+  reset: function() {
     if (!this._bridgeHandle)
       return;
 
@@ -316,6 +316,7 @@ MailSlice.prototype = {
     }
     if (firstIndex > 0) {
       this.atTop = false;
+      this.userCanGrowUpwards = false;
       this.desiredHeaders -= firstIndex;
       if (!this._accumulating)
         this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
@@ -1019,7 +1020,7 @@ FolderStorage.prototype = {
     // will occur, but we don't care.)
     for (var i = this._slices.length - 1; i >= 0; i--) {
       var slice = this._slices[i];
-      slice._resetHeadersBecauseOfRefreshExplosion();
+      slice.reset();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
       this._resetAndResyncSlice(slice, false, null);
     }
@@ -2133,98 +2134,26 @@ FolderStorage.prototype = {
       this._loadBlock(type, info, processBlock.bind(this));
   },
 
-  /**
-   * Track a new slice that wants to start from 'now'.  We will provide it with
-   * messages once we have a "sufficiently recent" set of data on the messages.
-   *
-   * There are three core strategies we can use, listed in order of immediacy
-   * of results:
-   *
-   * 1) Immediately display the most recent messages we have in the folder and
-   *    then trigger a refresh over the time range covering 'now' through the
-   *    oldest message we displayed which may add/modify/remove messages from
-   *    the displayed list.
-   *
-   * 2) Use our knowledge of the messages in the folder to issue a sync request
-   *    over the time range that we think will net us a reasonable number of
-   *    messages, only displaying any messages once the sync over that time
-   *    range completes.
-   *
-   * 3) (Act like) we know nothing about the messages in the folder, issuing
-   *    an initial sync request over `daysDesired`/`INITIAL_SYNC_DAYS`, and
-   *    issuing successive sync requests back further in time as we go,
-   *    adjusting the size of the sync requests as we go.
-   *
-   * If we are offline, we basically do #1 but without triggering a refresh.
-   *
-   * The strategies we use are controlled via constants that are documented in
-   * the "Display Heuristic Time Values" group in this file and which elaborate
-   * on these strategies a bit more.  Also, the comments in the method may be
-   * informative.
-   */
-  sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired,
-                                                  forceDeepening) {
+  sliceOpenMostRecent: function ifs_sliceOpenMostRecent(slice) {
     // Set the status immediately so that the UI will convey that the request is
     // being processed, even though it might take a little bit to acquire the
     // mutex.
     slice.setStatus('synchronizing', false, true, false, 0.0);
-    // by definition, we must be at the top
-    slice.atTop = true;
     this.runMutexed(
       'sync',
-      this._sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening));
+      this._sliceOpenMostRecent.bind(this, slice));
   },
-  _sliceOpenFromNow: function ifs__sliceOpenFromNowfunction(
+  _sliceOpenMostRecent: function ifs__sliceOpenMostRecent(
       slice, daysDesired, forceDeepening, releaseMutex) {
-    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
-
     // We only put the slice in the list of slices now that we have the mutex
     // in order to avoid having the slice have data fed into it if there were
     // other synchronizations already in progress.
     this._slices.push(slice);
 
-    // -- Check if we have sufficiently useful data on hand.
-    // For checking accuracy ranges, the first accuracy range is authoritative
-    // for at least all of what `sliceOpenFromNow` returned last time, so we can
-    // just check against it.  (It may have been bisected by subsequent scrolled
-    // refreshes, but they will be more recent and thus won't affect the least
-    // accurate data, which is what we care about.)
-    var now = NOW(),
-        futureNow = FUTURE(),
-        pastDate = makeDaysAgo(daysDesired),
-        iAcc, iHeadBlock, ainfo,
-        // What is the startTS fullSync data we have for the time range?
-        worstGoodData = 0,
-        existingDataGood = false;
-
-    var syncCallback = function syncCallback(syncMode, accumulateMode,
-                                             ignoreHeaders) {
-      slice.waitingOnData = syncMode;
-      if (accumulateMode && slice.headers.length === 0) {
-        slice._accumulating = true;
-      }
-      if (ignoreHeaders) {
-        slice.ignoreHeaders = true;
-      }
-      this._curSyncSlice = slice;
-    }.bind(this);
-
     var reportSyncStatusAs = 'synced';
     var doneCallback = function doneSyncCallback(err) {
-      if (err) {
-        // If we encountered an error in synchronization, then we want to
-        // convert to displaying what we have from our cache.
-        slice._resetHeadersBecauseOfRefreshExplosion();
-        slice.waitingOnData = 'db';
-        slice._accumulating = false;
-        slice.ignoreHeaders = false;
+      if (err)
         reportSyncStatusAs = 'syncfailed';
-        this.getMessagesInImapDateRange(
-          0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
-          this.onFetchDBHeaders.bind(
-            this, slice, /* no refresh */ false, doneCallback, null));
-        return;
-      }
 
       slice.waitingOnData = false;
       slice.setStatus(reportSyncStatusAs, true, false, true);
@@ -2233,52 +2162,9 @@ FolderStorage.prototype = {
       releaseMutex();
     }.bind(this);
 
-    var progressCallback = slice.setSyncProgress.bind(slice);
 
-    // If we're offline or the folder can't be synchronized right now, then
-    // there's nothing to look into; use the DB.
-    if (!this._account.universe.online ||
-        !this.folderSyncer.syncable) {
-      existingDataGood = true;
-    }
-    else if (this._accuracyRanges.length && !forceDeepening) {
-      ainfo = this._accuracyRanges[0];
-      var newestMessage = this.getYoungestMessageTimestamp();
-      var refreshThresh;
-      if (this.folderMeta.type === 'inbox')
-        refreshThresh = $sync.REFRESH_USABLE_DATA_TIME_THRESH_INBOX;
-      else if (ON_OR_BEFORE(newestMessage,
-                            now - $sync.REFRESH_USABLE_DATA_OLD_IS_SAFE_THRESH))
-        refreshThresh = $sync.REFRESH_USABLE_DATA_TIME_THRESH_OLD;
-      else
-        refreshThresh = $sync.REFRESH_USABLE_DATA_TIME_THRESH_NON_INBOX;
-
-      // We can do the refresh thing if we have updated more recently than
-      // the cutoff threshold.
-      if (ainfo.fullSync &&
-          SINCE(ainfo.fullSync.updated, now - refreshThresh)) {
-        existingDataGood = true;
-      }
-      // Look into using an adjusted date range.
-      else {
-        var rangeThresh;
-        if (this.folderMeta.type === 'inbox')
-          rangeThresh = $sync.USE_KNOWN_DATE_RANGE_TIME_THRESH_INBOX;
-        else
-          rangeThresh = $sync.USE_KNOWN_DATE_RANGE_TIME_THRESH_NON_INBOX;
-
-        var updateThresh = now - rangeThresh;
-        if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
-          this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
-                                                  syncCallback, doneCallback,
-                                                  progressCallback);
-          return;
-        }
-      }
-    }
-
-    // -- Good existing data, fill the slice from the DB
-    if (existingDataGood) {
+    // -- grab from database if we have ever synchronized this folder
+    if (this._accuracyRanges.length) {
       // We can adjust our start time to the dawn of time since we have a
       // limit in effect.
       slice.waitingOnData = 'db';
@@ -2292,20 +2178,72 @@ FolderStorage.prototype = {
       );
       return;
     }
+    // (we have never synchronized this folder)
 
-    // -- Bad existing data, issue a sync and have the slice
-    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback,
-                                    doneCallback, progressCallback);
+    // -- issue a failure if we/the folder are offline
+    if (!this._account.universe.online ||
+        !this.folderSyncer.syncable) {
+      doneCallback('offline');
+      return;
+    }
+
+    // -- Bad existing data, issue a sync
+    var now = NOW(),
+        futureNow = FUTURE(),
+        pastDate = makeDaysAgo($sync.INITIAL_SYNC_DAYS),
+        iAcc, iHeadBlock, ainfo;
+
+    var progressCallback = slice.setSyncProgress.bind(slice);
+    var syncCallback = function syncCallback(syncMode, accumulateMode,
+                                             ignoreHeaders) {
+      slice.waitingOnData = syncMode;
+      if (accumulateMode && slice.headers.length === 0) {
+        slice._accumulating = true;
+      }
+      if (ignoreHeaders) {
+        slice.ignoreHeaders = true;
+      }
+      this._curSyncSlice = slice;
+    }.bind(this);
+    this.folderSyncer.initialSync($sync.INITIAL_SYNC_DAYS,
+                                  syncCallback,
+                                  doneCallback, progressCallback);
   },
 
   /**
    * The slice wants more headers.  Grab from the database and/or sync as
-   * appropriate to get more headers.  If there is a cost, require a user
-   * request to perform the sync.  When growing in the more recent (negative)
-   * direction, we never issue a sync because our sync is always started from
-   * 'now' and everything in that direction is inherently recently sync'ed.
+   * appropriate to get more headers.  If there is a cost, require an explicit
+   * request to perform the sync.
    *
-   * There are two primary steps here, and they are short-circuiting:
+   * We can think of there existing ~2 classes of headers that we might return
+   * and our returned headers will always consist of only 1 of these classes at
+   * a time.
+   *
+   * 1a) Headers from the database that are known to be up-to-date because they
+   * were recently synchronized or refreshed.
+   *
+   * 1b) Headers from the database that need to be refreshed because our
+   * information is old enough that we might be out of sync with the server.
+   * For ActiveSync, no messages will ever be in this state.  For IMAP, this
+   * is determined by checking the accuracy ranges and the REFRESH_THRESH_MS
+   * constant.  Logic related to this lives in `ImapFolderSyncer`.
+   *
+   * 2) Headers that we need to synchronize with a growSync.  This only exists
+   * for IMAP.
+   *
+   *
+   * The steps we actually perform:
+   *
+   * - Try and get messages from the database.  If the database knows about
+   * any, we will add them to the slice.
+   *
+   * - If there were any messages and `FolderSyncer.canGrowSync` is true, check
+   * the time-span covered by the messages from the database.  If any of the
+   * time-span is not sufficiently recently refreshed, issue a refresh.
+   *
+   * - Return if there were any headers.
+   *
+   * - Issue a grow request.
    *
    * 1) Figure out what we already have synchronized "in the can".  Count out
    * the requested number of headers (or as many as we have), then issue a sync
@@ -2489,20 +2427,6 @@ FolderStorage.prototype = {
       function refreshDoneCallback(err, bisectInfo, numMessages) {
         var reportSyncStatusAs = 'synced';
         switch (err) {
-          // If a bisection occurred then this can no longer be a refresh and
-          // instead we need to retract all known messages and instead convert
-          // this into a synchronization.
-          case 'bisect':
-            slice._resetHeadersBecauseOfRefreshExplosion();
-            return 'abort';
-          // If we returned abort, then we should now be called with...
-          case 'bisect-aborted':
-            // This is going to be converted into a new sliceOpenFromNow, so
-            // we want to release our mutex.
-            releaseMutex();
-            this._resetAndResyncSlice(slice, true);
-            return undefined;
-
           case 'aborted':
           case 'unknown':
             reportSyncStatusAs = 'syncfailed';
@@ -2522,9 +2446,9 @@ FolderStorage.prototype = {
   _resetAndResyncSlice: function(slice, forceDeepening, releaseMutex) {
     this._slices.splice(this._slices.indexOf(slice), 1);
     if (releaseMutex)
-      this._sliceOpenFromNow(slice, null, forceDeepening, releaseMutex);
+      this._sliceOpenMostRecent(slice, null, forceDeepening, releaseMutex);
     else
-      this.sliceOpenFromNow(slice, null, forceDeepening);
+      this.sliceOpenMostRecent(slice, null, forceDeepening);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2615,6 +2539,18 @@ FolderStorage.prototype = {
   },
 
   /**
+   * What is the most recent date we have fully synchronized through?
+   */
+  getNewestFullSyncDate: function() {
+    // If we have any accuracy range, it should be what we want.
+    if (this._accuracyRanges.length)
+      return this._accuracyRanges[0].endTS;
+    // If we have no accuracy ranges, then 0 at least safely indicates we are
+    // not up-to-date.
+    return 0;
+  },
+
+  /**
    * What is the oldest date we have fully synchronized through per our
    * accuracy information?
    */
@@ -2634,6 +2570,19 @@ FolderStorage.prototype = {
     else
       syncTS = NOW();
     return syncTS;
+  },
+
+  /**
+   * Are we synchronized close enough to 'now' so that a refresh of the time
+   * interval will include new message received today?  This relies on our
+   * IMAP sync generally operating on day granularities.
+   */
+  syncedToToday: function() {
+    if (!this.folderSyncer.canGrowSync)
+      return true;
+
+    var newestSyncTS = this.getNewestFullSyncDate();
+    return SINCE(newestSyncTS, quantizeDate(NOW()));
   },
 
   /**

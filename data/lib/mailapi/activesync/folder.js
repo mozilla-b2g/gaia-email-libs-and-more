@@ -753,13 +753,13 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             doneCallback, progressCallback) {
+  sync: function asfc_syncDateRange(accuracyStamp, doneCallback,
+                                    progressCallback) {
     let storage = this._storage;
     let folderConn = this;
     let messagesSeen = 0;
 
-    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
+    this._LOG.sync_begin(null, null, null);
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
       if (error === 'badkey') {
@@ -794,9 +794,9 @@ ActiveSyncFolderConn.prototype = {
       messagesSeen += added.length + changed.length + deleted.length;
 
       if (!moreAvailable) {
-        folderConn._LOG.syncDateRange_end(added.length, changed.length,
-                                          deleted.length, startTS, endTS);
-        storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
+        folderConn._LOG.sync_end(added.length, changed.length, deleted.length);
+        storage.markSyncRange(accuracyStamp, accuracyStamp, 'XXX',
+                              accuracyStamp);
         doneCallback(null, null, messagesSeen);
       }
     },
@@ -1016,30 +1016,23 @@ ActiveSyncFolderSyncer.prototype = {
     return false;
   },
 
-  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                          progressCallback) {
+  initialSync: function(initialDays, syncCallback, doneCallback,
+                        progressCallback) {
     syncCallback('sync', false, true);
-    this.folderConn.syncDateRange(
-      startTS, endTS, $date.NOW(),
+    this.folderConn.sync(
+      $date.NOW(),
       this.onSyncCompleted.bind(this, doneCallback),
       progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                                  progressCallback) {
-    // ActiveSync doesn't adjust date ranges. Just do a normal sync.
-    this.syncDateRange(startTS, endTS, syncCallback, doneCallback,
-                       progressCallback);
-  },
-
   refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
                         progressCallback) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  doneCallback, progressCallback);
+    this.folderConn.sync($date.NOW(), doneCallback, progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+  growSync: function(growthDirection, anchorTS, batchHeaders,
+                     userRequestsGrowth, syncCallback,
                      doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
@@ -1098,9 +1091,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       inferFilterType: { filterType: false },
     },
     asyncJobs: {
-      syncDateRange: {
+      sync: {
         newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false,
       },
     },
   },

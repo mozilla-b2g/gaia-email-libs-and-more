@@ -768,6 +768,7 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
+  this.userCanGrowUpwards = false;
   this.userCanGrowDownwards = false;
 }
 SliceBridgeProxy.prototype = {
@@ -788,6 +789,7 @@ SliceBridgeProxy.prototype = {
       progress: this.progress,
       atTop: this.atTop,
       atBottom: this.atBottom,
+      userCanGrowUpwards: this.userCanGrowUpwards,
       userCanGrowDownwards: this.userCanGrowDownwards,
     });
   },

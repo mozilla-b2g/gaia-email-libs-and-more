@@ -434,7 +434,7 @@ ActiveSyncAccount.prototype = {
                                      self._LOG);
       for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
         slice._storage = newStorage;
-        slice._resetHeadersBecauseOfRefreshExplosion(true);
+        slice.reset();
         newStorage.sliceOpenFromNow(slice);
       }
       self._folderStorages[folderId]._slices = [];

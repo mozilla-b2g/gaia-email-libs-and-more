@@ -33,8 +33,12 @@ const allbackMaker = $allback.allbackMaker,
       BEFORE = $date.BEFORE,
       ON_OR_BEFORE = $date.ON_OR_BEFORE,
       SINCE = $date.SINCE,
+      TIME_DIR_CMP = $date.TIME_DIR_CMP,
+      TIME_DIR_ADD = $date.TIME_DIR_ADD,
+      TIME_DIR_DELTA = $date.TIME_DIR_DELTA,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
+const PASTWARDS = 1, FUTUREWARDS = -1;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -801,21 +805,48 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
    */
   this._curSyncAccuracyStamp = null;
   /**
-   * The start range of the (backward-moving) sync time range.
+   * @oneof[
+   *   @case[1]{
+   *     Growing older/into the past.
+   *   }
+   *   @case[-1]{
+   *     Growing into the present/future.
+   *   }
+   * ]{
+   *   Sync growth direction.  Numeric values chosen to be consistent with
+   *   slice semantics (which are oriented like they are because the slices
+   *   display messages from newest to oldest).
+   * }
    */
-  this._curSyncStartTS = null;
+  this._curSyncDir = 1;
+  /**
+   * Synchronization is either 'grow' or 'refresh'.  Growth is when we just
+   * want to learn about some new messages.  Refresh is when we know we have
+   * already synchronized a time region and want to fully update it and so will
+   * keep going until we hit our `syncThroughTS` threshold.
+   */
+  this._curSyncIsGrow = null;
+  /**
+   * The timestamp that will anchor the next synchronization.
+   */
+  this._nextSyncAnchorTS = null;
+  /**
+   * The farthest timestamp that we should synchronize through.  The value
+   * null is potentially meaningful if we are synchronizing FUTUREWARDS.
+   */
+  this._syncThroughTS = null;
   /**
    * The number of days we are looking into the past in the current sync step.
    */
   this._curSyncDayStep = null;
   /**
-   * If non-null, then we must reach a sync start date of the provided date
+   * If non-null, then we must synchronize all the way through the provided date
    * before we begin increasing _curSyncDayStep.  This helps us avoid
    * oscillation where we make the window too large, shrink it, but then find
    * find nothing.  Since we know that there are going to be a lot of messages
    * before we hit this date, it makes sense to keep taking smaller sync steps.
    */
-  this._curSyncDoNotGrowWindowBefore = null;
+  this._curSyncDoNotGrowBoundary = null;
   /**
    * The callback to invoke when we complete the sync, regardless of success.
    */
@@ -831,61 +862,51 @@ ImapFolderSyncer.prototype = {
    */
   syncable: true,
 
-  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                          progressCallback) {
+  /**
+   * Perform an initial synchronization of a folder from now into the past,
+   * starting with the specified step size.
+   */
+  initialSync: function(initialDays, syncCallback, doneCallback,
+                        progressCallback) {
+    this._curSyncDayStep = initialDays;
     syncCallback('sync', false);
-    this._startSync(startTS, endTS, doneCallback, progressCallback);
+    this._startSync(
+      PASTWARDS, // sync into the past
+      'grow',
+      FUTURE(), // start syncing from the (unconstrained) future
+      $sync.OLDEST_SYNC_DATE, // sync no further back than this constant
+      initialDays * DAY_MILLIS,
+      $sync.doneCallback, progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                                  progressCallback) {
-    // We need to iterate over the headers to figure out the right
-    // date to use.  We can't just use the accuracy range because it may
-    // have been bisected by the user scrolling into the past and
-    // triggering a refresh.
-    this.folderStorage.getMessagesBeforeMessage(
-      // Use one less than the fill range because this style of request will
-      // start from the 0th element, so we have effectively already traversed
-      // 1 message this way.
-      null, null, $sync.INITIAL_FILL_SIZE - 1,
-      function(headers, moreExpected) {
-        if (moreExpected)
-          return;
-
-        if (headers.length) {
-          var header = headers[headers.length - 1];
-          // The timezone issues with internaldate get tricky here.  We know the
-          // UTC date of the oldest message here, but that is not necessarily
-          // the INTERNALDATE the message will show up on.  So we need to apply
-          // the timezone offset to find the day we want our search to cover.
-          // (We use UTC dates as our normalized date-without-time
-          // representation for talking to the IMAP layer right now.)  The
-          // syncDateRange call will also do some timezone compensation, but
-          // that is just to make sure it loads the right headers to cover the
-          // date we ended up asking it for.
-          //
-          // We add the timezone offset because we are interested in the date of
-          // the message in its own timezone (as opposed to the date in UTC-0).
-          startTS = quantizeDate(header.date + this._account.tzOffset);
-        }
-        syncCallback('sync', true);
-        this._startSync(startTS, endTS, doneCallback, progressCallback);
-      }.bind(this)
-    );
-  },
-
+  /**
+   * Perform a refresh synchronization covering the requested time range.  This
+   * may be converted into multiple smaller synchronizations, but the completion
+   * notification will only be generated once the entire time span has been
+   * synchronized.
+   */
   refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
                         progressCallback) {
-    this._curSyncAccuracyStamp = NOW();
     // timezone compensation happens in the caller
-    this.folderConn.syncDateRange(
-      startTS, endTS, this._curSyncAccuracyStamp, useBisectLimit,
-      doneCallback, progressCallback);
+    this._startSync(
+      PASTWARDS, // bias towards learning about new stuff first
+      'refresh', // this is a refresh, not a grow!
+      startTS, endTS, doneCallback, progressCallback);
   },
 
-  // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+  /**
+   * Synchronize into a time period not currently covered.  Growth has an
+   * explicit direction and explicit origin timestamp.
+   *
+   * @return[Boolean]{
+   *   Returns false if no sync is necessary.
+   * }
+   */
+  growSync: function(growthDirection, anchorTS, batchHeaders,
+                     userRequestsGrowth, syncCallback,
                      doneCallback, progressCallback) {
+
+
     // The sync wants to be BEFORE the earliest day (which we are assuming
     // is fully synced based on our day granularity).
     var syncEndTS = quantizeDate(endTS);
@@ -941,14 +962,39 @@ ImapFolderSyncer.prototype = {
     return false;
   },
 
-  _startSync: function ifs__startSync(startTS, endTS, doneCallback,
+  _startSync: function ifs__startSync(dir, syncTypeStr,
+                                      originTS, syncThroughTS, syncStepDays,
+                                      doneCallback,
                                       progressCallback, useBisectLimit) {
+    var startTS, endTS;
     if (startTS === null)
       startTS = endTS - ($sync.INITIAL_SYNC_DAYS * DAY_MILLIS);
     this._curSyncAccuracyStamp = NOW();
-    this._curSyncStartTS = startTS;
-    this._curSyncDayStep = $sync.INITIAL_SYNC_DAYS;
-    this._curSyncDoNotGrowWindowBefore = null;
+    this._curSyncDir = dir;
+    this._curSyncIsGrow = (syncTypeStr === 'grow');
+    if (dir === PASTWARDS) {
+      endTS = originTS;
+      if (syncStepDays) {
+        this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
+      }
+      else {
+        startTS = syncThroughTS;
+        this._nextSyncAnchorTS = null;
+      }
+    }
+    else {
+      startTS = originTS;
+      if (syncStepDays) {
+        this._nextSyncAnchorTS = endTS = startTS + syncStepDays * DAY_MILLIS;
+      }
+      else {
+        endTS = syncThroughTS;
+        this._nextSyncAnchorTS = null;
+      }
+    }
+    this._syncThroughTS = syncThroughTS;
+    this._curSyncDayStep = syncStepDays;
+    this._curSyncDoNotGrowBoundary = null;
     this._curSyncDoneCallback = doneCallback;
 
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
@@ -966,9 +1012,11 @@ ImapFolderSyncer.prototype = {
     this._account.__checkpointSyncCompleted();
 
     this._curSyncAccuracyStamp = null;
-    this._curSyncStartTS = null;
+    this._curSyncDir = null;
+    this._nextSyncAnchorTS = null;
+    this._syncthroughTS = null;
     this._curSyncDayStep = null;
-    this._curSyncDoNotGrowWindowBefore = null;
+    this._curSyncDoNotGrowBoundary = null;
     this._curSyncDoneCallback = null;
   },
 
@@ -998,7 +1046,11 @@ ImapFolderSyncer.prototype = {
     // In the event the time range had to be bisected, update our info so if
     // we need to take another step we do the right thing.
     if (err === 'bisect') {
-      this._curSyncDoNotGrowWindowBefore = bisectInfo.oldStartTS;
+      if (this._curSyncDir === PASTWARDS) {
+      }
+      else {
+      }
+      this._curSyncDoNotGrowBoundary = bisectInfo.oldStartTS;
       this._curSyncDayStep = bisectInfo.dayStep;
       this._curSyncStartTS = bisectInfo.newStartTS;
       // We return now without calling _doneSync because we are not done; the
@@ -1045,11 +1097,14 @@ console.log("folder message count", folderMessageCount,
       // expand the accuracy range to cover everybody
       this.folderStorage.markSyncedEntireFolder();
     }
-    // If our slice has now gone to the dawn of time, we can decide we have
-    // enough headers.
-    else if (this._curSyncStartTS &&
-             ON_OR_BEFORE(this._curSyncStartTS,
-                          $sync.OLDEST_SYNC_DATE)) {
+    // If we've synchronized to the limits of syncing in the given direction,
+    // we're done.
+    else if ((this._curSyncDir === PASTWARDS &&
+              this._nextSyncAnchorTS &&
+              ON_OR_BEFORE(this._nextSyncAnchorTS, $sync.OLDEST_SYNC_DATE)) ||
+             (this._curSyncDir === FUTUREWARDS &&
+              // (we will have set it to FUTURE once the value would cross NOW)
+              this._nextSyncAnchorTS === FUTURE())) {
       this.folderStorage._curSyncSlice.desiredHeaders =
         this.folderStorage._curSyncSlice.headers.length;
     }
@@ -1087,12 +1142,13 @@ console.log("folder message count", folderMessageCount,
     // also should not increase the size if we explicitly shrank the window and
     // left a do-not-expand-until marker.
     if (messagesSeen || (this._curSyncDoNotGrowWindowBefore !== null &&
-         SINCE(this._curSyncStartTS, this._curSyncDoNotGrowWindowBefore))) {
+         TIME_DIR_CMP(this._curSyncDir, this._nextSyncAnchorTS,
+                      this._curSyncDoNotGrowWindowBefore))) {
       daysToSearch = this._curSyncDayStep;
     }
     else {
       // This may be a fractional value because of DST
-      lastSyncDaysInPast = ((quantizeDate(NOW())) - this._curSyncStartTS) /
+      lastSyncDaysInPast = ((quantizeDate(NOW())) - this._nextSyncAnchorTS) /
                            DAY_MILLIS;
       daysToSearch = Math.ceil(this._curSyncDayStep *
                                $sync.TIME_SCALE_FACTOR_ON_NO_MESSAGES);
