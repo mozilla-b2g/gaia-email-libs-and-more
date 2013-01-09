@@ -346,8 +346,13 @@ ActiveSyncJobDriver.prototype = {
       doneCallback(err ? 'aborted-retry' : null, null, !err);
 
       if (inboxStorage && inboxStorage.hasActiveSlices) {
-        console.log("Refreshing fake inbox");
-        inboxStorage.resetAndRefreshActiveSlices();
+        if (!err) {
+          console.log("Refreshing fake inbox");
+          inboxStorage.resetAndRefreshActiveSlices();
+        }
+        else {
+          // XXX: Close out all the active slices
+        }
       }
     });
   },

@@ -2235,11 +2235,16 @@ FolderStorage.prototype = {
 
     var progressCallback = slice.setSyncProgress.bind(slice);
 
-    // If we're offline or the folder can't be synchronized right now, then
-    // there's nothing to look into; use the DB.
-    if (!this._account.universe.online ||
-        !this.folderSyncer.syncable) {
+    // If we're offline, then there's nothing to look into; use the DB.
+    if (!this._account.universe.online) {
       existingDataGood = true;
+    }
+    // If the folder can't be synchronized right now, just report the sync as
+    // blocked. We'll update it soon enough.
+    else if (!this.folderSyncer.syncable) {
+      slice.setStatus('syncblocked', false, true, false, 0.0);
+      releaseMutex();
+      return;
     }
     else if (this._accuracyRanges.length && !forceDeepening) {
       ainfo = this._accuracyRanges[0];
