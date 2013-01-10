@@ -734,7 +734,7 @@ var TestImapAccountMixins = {
             self._logger.accountCreated();
           });
         });
-    }).timeoutMS = 5000; // there can be slow startups...
+    }).timeoutMS = 10000; // there can be slow startups...
   },
 
   /**
