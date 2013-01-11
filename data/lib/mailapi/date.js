@@ -111,10 +111,20 @@ const IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
 };
 
 const PASTWARDS = 1, FUTUREWARDS = -1;
-const TIME_DIR_CMP = exports.TIME_DIR_CMP =
-        function TIME_DIR_CMP(dir, testDate, comparisonDate) {
+/**
+ * Check if `testDate` is "beyond" the comparison date given the `dir`.  If
+ * the direction is pastwards, we will return true if testDate happened
+ * chronologically before comparisonDate.  If the direction is futurewards,
+ * we will return true if testDate happened chronologically after
+ * comparisonDate.
+ */
+const TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
+        function TIME_DIR_AT_OR_BEYOND(dir, testDate, comparisonDate) {
   if (dir === PASTWARDS)
-    return testDate < comparisonDate;
+    return testDate <= comparisonDate;
+  // we use null as a sentinel value for 'the future'/'now'
+  else if (comparisonDate === null)
+    return testDate === null;
   else
     return testDate >= comparisonDate;
 };

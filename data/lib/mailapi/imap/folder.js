@@ -33,9 +33,10 @@ const allbackMaker = $allback.allbackMaker,
       BEFORE = $date.BEFORE,
       ON_OR_BEFORE = $date.ON_OR_BEFORE,
       SINCE = $date.SINCE,
-      TIME_DIR_CMP = $date.TIME_DIR_CMP,
+      TIME_DIR_AT_OR_BEYOND = $date.TIME_DIR_AT_OR_BEYOND,
       TIME_DIR_ADD = $date.TIME_DIR_ADD,
       TIME_DIR_DELTA = $date.TIME_DIR_DELTA,
+      makeDaysAgo = $date.makeDaysAgo,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
 const PASTWARDS = 1, FUTUREWARDS = -1;
@@ -286,13 +287,12 @@ ImapFolderConn.prototype = {
    *
    * ]
    */
-  syncDateRange: function(startTS, endTS, accuracyStamp, useBisectLimit,
+  syncDateRange: function(startTS, endTS, accuracyStamp,
                           doneCallback, progressCallback) {
 console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
-    if (!useBisectLimit)
-      useBisectLimit = $sync.BISECT_DATE_AT_N_MESSAGES;
+    var useBisectLimit = $sync.BISECT_DATE_AT_N_MESSAGES;
     if (startTS)
       searchOptions.push(['SINCE', startTS]);
     if (endTS)
@@ -314,24 +314,13 @@ console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
 
 console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           if (curDaysDelta > 1) {
-            // Sanity check the time delta; if we grew the bounds to the dawn
-            // of time, then our interpolation is useless and it's better for
-            // us to crank things way down, even if it's erroneously so.
-            if (curDaysDelta > 1000)
-              curDaysDelta = 30;
-
-            // - Interpolate better time bounds.
-            // Assume a linear distribution of messages, but overestimated by
-            // a factor of two so we undershoot.
-            var shrinkScale = $sync.BISECT_DATE_AT_N_MESSAGES /
-                                (serverUIDs.length * 2),
-                backDays = Math.max(1,
-                                    Math.ceil(shrinkScale * curDaysDelta));
             // mark the bisection abort...
             self._LOG.syncDateRange_end(null, null, null, startTS, endTS);
             var bisectInfo = {
               oldStartTS: startTS,
-              dayStep: backDays,
+              oldEndTS: endTS,
+              numHeaders: serverUIDs.length,
+              curDaysDelta: curDaysDelta,
               newStartTS: makeDaysBefore(effEndTS, backDays),
             };
             startTS = bisectInfo.newStartTS;
@@ -341,10 +330,9 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               doneCallback('bisect-aborted', null);
               return null;
             }
-console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
-            "startTS", startTS, "endTS", endTS, "backDays", backDays);
-            return self.syncDateRange(startTS, endTS, accuracyStamp, null,
-                                      doneCallback, progressCallback);
+            return self.syncDateRange(
+              bisectInfo.newStartTS, bisectInfo.newEndTS, accuracyStamp,
+              doneCallback, progressCallback);
           }
         }
 
@@ -797,11 +785,13 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
 
   this._LOG = LOGFAB.ImapFolderSyncer(this, _parentLog, folderStorage.folderId);
 
+
+  this._syncSlice = null;
   /**
    * The timestamp to use for `markSyncRange` for all syncs in this higher
    * level sync.  Accuracy time-info does not need high precision, so this
    * results in fewer accuracy structures and simplifies our decision logic
-   * in `sliceOpenFromNow`.
+   * in `sliceOpenMostRecent`.
    */
   this._curSyncAccuracyStamp = null;
   /**
@@ -866,17 +856,17 @@ ImapFolderSyncer.prototype = {
    * Perform an initial synchronization of a folder from now into the past,
    * starting with the specified step size.
    */
-  initialSync: function(initialDays, syncCallback, doneCallback,
-                        progressCallback) {
+  initialSync: function(slice, initialDays, syncCallback,
+                        doneCallback, progressCallback) {
     this._curSyncDayStep = initialDays;
     syncCallback('sync', false);
     this._startSync(
-      PASTWARDS, // sync into the past
+      slice, PASTWARDS, // sync into the past
       'grow',
       FUTURE(), // start syncing from the (unconstrained) future
       $sync.OLDEST_SYNC_DATE, // sync no further back than this constant
-      initialDays * DAY_MILLIS,
-      $sync.doneCallback, progressCallback);
+      initialDays,
+      doneCallback, progressCallback);
   },
 
   /**
@@ -885,13 +875,13 @@ ImapFolderSyncer.prototype = {
    * notification will only be generated once the entire time span has been
    * synchronized.
    */
-  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
-                        progressCallback) {
+  refreshSync: function(slice, startTS, endTS,
+                        doneCallback, progressCallback) {
     // timezone compensation happens in the caller
     this._startSync(
-      PASTWARDS, // bias towards learning about new stuff first
+      slice, PASTWARDS, // bias towards learning about new stuff first
       'refresh', // this is a refresh, not a grow!
-      startTS, endTS, doneCallback, progressCallback);
+      endTS, startTS, null, doneCallback, progressCallback);
   },
 
   /**
@@ -902,7 +892,7 @@ ImapFolderSyncer.prototype = {
    *   Returns false if no sync is necessary.
    * }
    */
-  growSync: function(growthDirection, anchorTS, batchHeaders,
+  growSync: function(slice, growthDirection, anchorTS, batchHeaders,
                      userRequestsGrowth, syncCallback,
                      doneCallback, progressCallback) {
 
@@ -962,20 +952,21 @@ ImapFolderSyncer.prototype = {
     return false;
   },
 
-  _startSync: function ifs__startSync(dir, syncTypeStr,
+  _startSync: function ifs__startSync(slice, dir, syncTypeStr,
                                       originTS, syncThroughTS, syncStepDays,
-                                      doneCallback,
-                                      progressCallback, useBisectLimit) {
+                                      doneCallback, progressCallback) {
     var startTS, endTS;
-    if (startTS === null)
-      startTS = endTS - ($sync.INITIAL_SYNC_DAYS * DAY_MILLIS);
+    this._syncSlice = slice;
     this._curSyncAccuracyStamp = NOW();
     this._curSyncDir = dir;
     this._curSyncIsGrow = (syncTypeStr === 'grow');
     if (dir === PASTWARDS) {
       endTS = originTS;
       if (syncStepDays) {
-        this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
+        if (endTS && endTS !== FUTURE())
+          this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
+        else
+          this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays);
       }
       else {
         startTS = syncThroughTS;
@@ -998,12 +989,21 @@ ImapFolderSyncer.prototype = {
     this._curSyncDoneCallback = doneCallback;
 
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  useBisectLimit,
                                   this.onSyncCompleted.bind(this),
                                   progressCallback);
   },
 
   _doneSync: function ifs__doneSync(err) {
+    // The desired number of headers is always a rough request value which is
+    // intended to be a new thing for each request.  So we don't want extra
+    // desire building up, so we set it to what we have every time.
+    //
+    // We don't want to affect this value in accumulating mode, however, since
+    // it could result in sending more headers than actually requested over the
+    // wire.
+    if (!this._syncSlice._accumulating)
+      this._syncSlice.desiredHeaders = this._syncSlice.headers.length;
+
     if (this._curSyncDoneCallback)
       this._curSyncDoneCallback(err);
 
@@ -1011,10 +1011,11 @@ ImapFolderSyncer.prototype = {
     // some partial state.
     this._account.__checkpointSyncCompleted();
 
+    this._syncSlice = null;
     this._curSyncAccuracyStamp = null;
     this._curSyncDir = null;
     this._nextSyncAnchorTS = null;
-    this._syncthroughTS = null;
+    this._syncThroughTS = null;
     this._curSyncDayStep = null;
     this._curSyncDoNotGrowBoundary = null;
     this._curSyncDoneCallback = null;
@@ -1046,13 +1047,37 @@ ImapFolderSyncer.prototype = {
     // In the event the time range had to be bisected, update our info so if
     // we need to take another step we do the right thing.
     if (err === 'bisect') {
+      var curDaysDelta = bisectInfo.curDaysDelta,
+          numHeaders = bisectInfo.numHeaders;
+
+      // Sanity check the time delta; if we grew the bounds to the dawn
+      // of time, then our interpolation is useless and it's better for
+      // us to crank things way down, even if it's erroneously so.
+      if (curDaysDelta > 1000)
+        curDaysDelta = 30;
+
+      // - Interpolate better time bounds.
+      // Assume a linear distribution of messages, but overestimated by
+      // a factor of two so we undershoot.
+      var shrinkScale = $sync.BISECT_DATE_AT_N_MESSAGES /
+                          (numHeaders * 2),
+          dayStep = Math.max(1,
+                             Math.ceil(shrinkScale * curDaysDelta));
+      this._curDayStep = dayStep;
+
       if (this._curSyncDir === PASTWARDS) {
+        bisectInfo.newEndTS = bisectInfo.oldEndTS;
+        this._nextSyncAnchorTS = bisectInfo.newStartTS =
+          makeDaysBefore(bisectInfo.newEndTS, dayStep);
+        this._curSyncDoNotGrowBoundary = bisectInfo.oldStartTS;
       }
-      else {
+      else { // FUTUREWARDS
+        bisectInfo.newStartTS = bisectInfo.oldStartTS;
+        this._nextSyncAnchorTS = bisectInfo.newEndTS =
+          makeDaysBefore(bisectInfo.newStartTS, -dayStep);
+        this._curSyncDoNotGrowBoundary = bisectInfo.oldEndTS;
       }
-      this._curSyncDoNotGrowBoundary = bisectInfo.oldStartTS;
-      this._curSyncDayStep = bisectInfo.dayStep;
-      this._curSyncStartTS = bisectInfo.newStartTS;
+
       // We return now without calling _doneSync because we are not done; the
       // caller (syncDateRange) will re-trigger itself and keep going.
       return;
@@ -1064,6 +1089,12 @@ ImapFolderSyncer.prototype = {
 
     console.log("Sync Completed!", this._curSyncDayStep, "days",
                 messagesSeen, "messages synced");
+
+    // - Slice is dead = we are done
+    if (this._syncSlice.isDead) {
+      this._doneSync();
+      return;
+    }
 
     // If it now appears we know about all the messages in the folder, then we
     // are done syncing and can mark the entire folder as synchronized.  This
@@ -1085,53 +1116,42 @@ ImapFolderSyncer.prototype = {
 console.log("folder message count", folderMessageCount,
             "dbCount", dbCount,
             "oldest known", this.folderStorage.headerIsOldestKnown(
-              this.folderStorage._curSyncSlice.startTS,
-              this.folderStorage._curSyncSlice.startUID));
+              this._syncSlice.startTS,
+              this._syncSlice.startUID));
     if (folderMessageCount === dbCount &&
         this.folderStorage.headerIsOldestKnown(
-          this.folderStorage._curSyncSlice.startTS,
-          this.folderStorage._curSyncSlice.startUID)) {
-      // (do not desire more headers)
-      this.folderStorage._curSyncSlice.desiredHeaders =
-        this.folderStorage._curSyncSlice.headers.length;
+          this._syncSlice.startTS,
+          this._syncSlice.startUID)) {
       // expand the accuracy range to cover everybody
       this.folderStorage.markSyncedEntireFolder();
-    }
-    // If we've synchronized to the limits of syncing in the given direction,
-    // we're done.
-    else if ((this._curSyncDir === PASTWARDS &&
-              this._nextSyncAnchorTS &&
-              ON_OR_BEFORE(this._nextSyncAnchorTS, $sync.OLDEST_SYNC_DATE)) ||
-             (this._curSyncDir === FUTUREWARDS &&
-              // (we will have set it to FUTURE once the value would cross NOW)
-              this._nextSyncAnchorTS === FUTURE())) {
-      this.folderStorage._curSyncSlice.desiredHeaders =
-        this.folderStorage._curSyncSlice.headers.length;
-    }
-
-    // - Done if we don't want any more headers.
-    if (this.folderStorage._curSyncSlice.headers.length >=
-          this.folderStorage._curSyncSlice.desiredHeaders ||
-        // (limited syncs aren't allowed to expand themselves)
-        (this.folderStorage._curSyncSlice.waitingOnData === 'limsync')) {
-      console.log("SYNCDONE Enough headers retrieved.",
-                  "have", this.folderStorage._curSyncSlice.headers.length,
-                  "want", this.folderStorage._curSyncSlice.desiredHeaders,
-                  "conn knows about", this.folderConn.box.messages.total,
-                  "sync date", this._curSyncStartTS,
-                  "[oldest defined as", $sync.OLDEST_SYNC_DATE, "]");
-      // If we are accumulating, we don't want to adjust our count upwards;
-      // the release will slice the excess off for us.
-      if (!this.folderStorage._curSyncSlice._accumulating) {
-        this.folderStorage._curSyncSlice.desiredHeaders =
-          this.folderStorage._curSyncSlice.headers.length;
-      }
       this._doneSync();
       return;
     }
-    else if (this.folderStorage._curSyncSlice._accumulating) {
-      this.folderStorage._curSyncSlice.setStatus(
-        'synchronizing', true, true, true);
+    // If we've synchronized to the limits of syncing in the given direction,
+    // we're done.
+    if (!this._nextSyncAnchorTS ||
+        TIME_DIR_AT_OR_BEYOND(this._curSyncDir, this._nextSyncAnchorTS,
+                              this._syncThroughTS)) {
+      this._doneSync();
+      return;
+    }
+
+    // - Done if we don't want any more headers.
+    if (this._syncSlice.headers.length >=
+          this._syncSlice.desiredHeaders) {
+        // (limited syncs aren't allowed to expand themselves)
+      console.log("SYNCDONE Enough headers retrieved.",
+                  "have", this._syncSlice.headers.length,
+                  "want", this._syncSlice.desiredHeaders,
+                  "conn knows about", this.folderConn.box.messages.total,
+                  "sync date", this._curSyncStartTS,
+                  "[oldest defined as", $sync.OLDEST_SYNC_DATE, "]");
+      this._doneSync();
+      return;
+    }
+    else if (this._syncSlice._accumulating) {
+      // flush the accumulated results thus far
+      this._syncSlice.setStatus('synchronizing', true, true, true);
     }
 
     // - Increase our search window size if we aren't finding anything
@@ -1141,12 +1161,13 @@ console.log("folder message count", folderMessageCount,
     // If we saw messages, there is no need to increase the window size.  We
     // also should not increase the size if we explicitly shrank the window and
     // left a do-not-expand-until marker.
-    if (messagesSeen || (this._curSyncDoNotGrowWindowBefore !== null &&
-         TIME_DIR_CMP(this._curSyncDir, this._nextSyncAnchorTS,
-                      this._curSyncDoNotGrowWindowBefore))) {
+    if (messagesSeen || (this._curSyncDoNotGrowBoundary !== null &&
+         !TIME_DIR_AT_OR_BEYOND(this._curSyncDir, this._nextSyncAnchorTS,
+                                this._curSyncDoNotGrowBoundary))) {
       daysToSearch = this._curSyncDayStep;
     }
     else {
+      this._curSyncDoNotGrowBoundary = null;
       // This may be a fractional value because of DST
       lastSyncDaysInPast = ((quantizeDate(NOW())) - this._nextSyncAnchorTS) /
                            DAY_MILLIS;
@@ -1184,11 +1205,17 @@ console.log("folder message count", folderMessageCount,
     }
 
     // - Move the time range back in time more.
-    var startTS = makeDaysBefore(this._curSyncStartTS, daysToSearch),
-        endTS = this._curSyncStartTS;
-    this._curSyncStartTS = startTS;
+    var startTS, endTS;
+    if (this._curSyncDir === PASTWARDS) {
+      endTS = this._nextSyncAnchorTS;
+      this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch);
+    }
+    else {
+      startTS = this._nextSyncAnchorTS;
+      this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch);
+    }
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
-                                  null, this.onSyncCompleted.bind(this));
+                                  this.onSyncCompleted.bind(this));
   },
 
   /**

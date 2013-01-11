@@ -1022,7 +1022,8 @@ var TestImapAccountMixins = {
       self._expect_storage_mutexed(testFolder.storageActor, 'sync');
       // In the bisect case, we may end up actually generating a first sync
       // mutex for a refresh followed by a second one once the bisect converts
-      // to a traditional sliceOpenFromNow.  We need the caller to tell us this.
+      // to a traditional sliceOpenMostRecent.  We need the caller to tell us
+      // this.
       if (extraFlags && extraFlags.extraMutex)
         self._expect_storage_mutexed(testFolder.storageActor,
                                      extraFlags.extraMutex);

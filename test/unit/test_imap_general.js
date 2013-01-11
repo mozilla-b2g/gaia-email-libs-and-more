@@ -97,9 +97,12 @@ TD.commonCase('folder sync', function(T) {
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
+  // this is a refresh now, so we only refresh the date range covered by
+  // initial fill.  This used to be a day-based sync for the 5 sync days,
+  // so 15 flags instead of 12.
   testAccount.do_viewFolder(
     'resyncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 15, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: INITIAL_FILL_SIZE, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   /**
@@ -123,11 +126,10 @@ TD.commonCase('folder sync', function(T) {
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
+  // this used to be [5, 5, 2] like the initial sync.  Now it's just a refresh.
   testAccount.do_viewFolder(
     'resyncs', msearchFolder,
-    [{ count: 5, full: 0, flags: 5, deleted: 0 },
-     { count: 5, full: 0, flags: 5, deleted: 0 },
-     { count: 2, full: 0, flags: 3, deleted: 0 }],
+    [{ count: 12, full: 0, flags: 12, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
   /**
@@ -160,12 +162,15 @@ TD.commonCase('folder sync', function(T) {
     msearchFolder,
     { count: 7, age: { days: 2 }, age_incr: { days: 1 } });
   // - open view, checking refresh, and _leave it open_ for the next group
+  // the refresh will see everything at once; this used to be: 7/4/3/2,
+  // 7/3/4/1.  The refresh will fully span all known messages because the
+  // 7 new messages are interspersed among the known messages and this is a
+  // refresh that does not overflow, not a deepening sync.
   var msearchView = testAccount.do_openFolderView(
     'msearch', msearchFolder,
     // because the new messages are interleaved rather than at the end, we will
     // end up with more than 12/INITIAL_FILL_SIZE in the second case.
-    [{ count:  7, full: 4, flags: 3, deleted: 2 },
-     { count:  7, full: 3, flags: 4, deleted: 1 }],
+    [{ count: 16, full: 7, flags: 9, deleted: 3 }],
     { top: true, bottom: false, grow: false });
 
   /**
@@ -200,7 +205,7 @@ TD.commonCase('folder sync', function(T) {
     msearchView,
     // Our expectations happen in a single go here because the refresh covers
     // the entire date range in question.
-    { count: 12, full: 0, flags: 12, deleted: 2 },
+    { count: 14, full: 0, flags: 14, deleted: 2 },
     expectedRefreshChanges,
     { top: true, bottom: false, grow: false });
 
