@@ -203,8 +203,14 @@ ActiveSyncJobDriver.prototype = {
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
-        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-        w.stag(mo.MoveItems);
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
 
         // Filter out any offline headers, since the server naturally can't do
         // anything for them. If this means we have no headers at all, just bail
@@ -215,6 +221,8 @@ ActiveSyncJobDriver.prototype = {
           return;
         }
 
+        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        w.stag(mo.MoveItems);
         for (let i = 0; i < serverIds.length; i++) {
           w.stag(mo.Move)
              .tag(mo.SrcMsgId, serverIds[i])
@@ -264,18 +272,21 @@ ActiveSyncJobDriver.prototype = {
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         folderConn.performMutation(
           function withWriter(w) {
             for (let i = 0; i < serverIds.length; i++) {
-              let srvid = serverIds[i];
-              // If the header is somehow an offline header, it will be null and
-              // there is nothing we can really do for it.
-              if (!srvid)
-                continue;
-
               w.stag(as.Delete)
-                  .tag(as.ServerId, srvid)
-                .etag(as.Delete);
+                 .tag(as.ServerId, srvid)
+               .etag(as.Delete);
             }
           },
           function mutationPerformed(err) {
