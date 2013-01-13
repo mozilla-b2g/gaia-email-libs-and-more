@@ -285,7 +285,7 @@ ActiveSyncJobDriver.prototype = {
           function withWriter(w) {
             for (let i = 0; i < serverIds.length; i++) {
               w.stag(as.Delete)
-                 .tag(as.ServerId, srvid)
+                 .tag(as.ServerId, serverIds[i])
                .etag(as.Delete);
             }
           },
