@@ -561,6 +561,34 @@ TD.commonCase('move/trash messages', function(T) {
     });
   });
 
+  testUniverse.do_pretendToBeOffline(true);
+  T.action('delete from trash', testAccount, testAccount.eImapAccount,
+           function() {
+    var headers = trashView.slice.items,
+        toDelete = headers[0];
+
+    testAccount.expect_runOp(
+      'delete',
+      { local: true, server: false, save: true });
+    testAccount.expect_headerChanges(
+      trashView,
+      { additions: [], changes: [], deletions: [toDelete] },
+      null, /* done after 1 event: */ 1);
+    toDelete.deleteMessage();
+  });
+  T.action('go online, see changes happen for', testAccount.eImapAccount,
+           eSync, function() {
+    testAccount.expect_runOp(
+      'delete',
+      { local: false, server: true, save: false });
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+
   /**
    * While offline, queue a local tag mutation followed by a move.  Then, go
    * online and ensure that when the message ends up in the target folder after
