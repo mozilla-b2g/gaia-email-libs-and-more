@@ -562,6 +562,68 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
   check_arange_eq(aranges[0], d4, dB, '1', dSync1);
 });
 
+/**
+ * Check accuracy range stuff; generate a static set of accuracy ranges that
+ * should cover all permutations (except for being first/last, but we are
+ * reusing our range-finding helpers that have coverage)
+ *
+ *
+ * XXX THIS STILL NEEDS TO BE UPDATED FOR THIS PATCH.
+ */
+TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
+  var ctx = makeTestContext(),
+      d4 = DateUTC(2010, 0, 4),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      d9 = DateUTC(2010, 0, 9),
+      dA = DateUTC(2010, 0, 10),
+      dB = DateUTC(2010, 0, 11),
+      dSync1 = DateUTC(2010, 1, 1),
+      dSync2 = DateUTC(2010, 1, 2),
+      aranges = ctx.storage._accuracyRanges;
+
+  // -- weant range that:
+  // - sufficient, fully be contained by/overlap on both sides into nothing
+  // - insufficent, fully be contained by/overlap on both sides into nothing
+  // - insufficient, overlap on both sides into something so range is reduced
+  
+
+  // STOCK:
+
+  // - blatant overlap
+  ctx.storage.markSyncRange(d5, d7, '1', dSync1);
+  ctx.storage.markSyncRange(d6, d8, '1', dSync1);
+
+  do_check_eq(aranges.length, 1);
+  check_arange_eq(aranges[0], d5, d8, '1', dSync1);
+
+  // - adjacent (exclusion lines up), both sides (single sided)
+  ctx.storage.markSyncRange(d8, d9, '1', dSync1);
+  ctx.storage.markSyncRange(d4, d5, '1', dSync1);
+
+  do_check_eq(aranges.length, 1);
+  check_arange_eq(aranges[0], d4, d9, '1', dSync1);
+
+  // - adjacent merge, both-sides
+  // other range
+  ctx.storage.markSyncRange(dA, dB, '1', dSync1);
+  // thing that should merge on both sides
+  ctx.storage.markSyncRange(d9, dA, '1', dSync1);
+
+  do_check_eq(aranges.length, 1);
+  check_arange_eq(aranges[0], d4, dB, '1', dSync1);
+
+  // - re-merge after split
+  ctx.storage.markSyncRange(d6, d9, '2', dSync2);
+  ctx.storage.markSyncRange(d6, d9, '1', dSync1);
+
+  do_check_eq(aranges.length, 1);
+  check_arange_eq(aranges[0], d4, dB, '1', dSync1);
+});
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Header/body insertion/deletion into/out of blocks.
 //

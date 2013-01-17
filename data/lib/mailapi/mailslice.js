@@ -2246,18 +2246,6 @@ FolderStorage.prototype = {
    * - Return if there were any headers.
    *
    * - Issue a grow request.
-   *
-   * 1) Figure out what we already have synchronized "in the can".  Count out
-   * the requested number of headers (or as many as we have), then issue a sync
-   * to cover the time range that includes that message.  This will be faster
-   * than growing our time range since it is largely a delta check.  We then
-   * stop, and leave the caller to re-issue a request to trigger #2.
-   *
-   * 2) Issue a sync request for a fresh new time range, leaving it to
-   * `onSyncCompleted` to keep searching further back in time as needed.
-   *
-   * Because IMAP sync happens on day boundaries, we do explicitly exclude any
-   * date overlap from sync activity.
    */
   growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
     // If the user requested synchronization, provide UI feedback immediately,
@@ -2272,6 +2260,66 @@ FolderStorage.prototype = {
   _growSlice: function ifs__growSlice(slice, dirMagnitude, userRequestsGrowth,
                                       releaseMutex) {
     var dir, desiredCount;
+
+    var batchHeaders = [];
+    // Process the oldest traversed message
+    var gotMessages = function gotMessages(headers, moreExpected) {
+      batchHeaders = batchHeaders.concat(headers);
+      if (moreExpected)
+        return;
+
+      var growingSync = false;
+
+      var syncCallback = (function syncCallback(syncMode, firstNotToSend) {
+        if (syncMode) {
+          if (firstNotToSend)
+            slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
+                                     -1, true);
+          slice.desiredHeaders += desiredCount;
+          // (we are did this if userRequestsGrowth is true in `growSlice`)
+          if (!userRequestsGrowth)
+            slice.setStatus('synchronizing', false, true, false, 0.0);
+          slice.waitingOnData = syncMode;
+          this._curSyncSlice = slice;
+        }
+      }).bind(this);
+
+      var doneCallback = function doneGrowCallback(err) {
+        slice.waitingOnData = false;
+        slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
+        this._curSyncSlice = null;
+
+        releaseMutex();
+      }.bind(this);
+
+      var progressCallback = slice.setSyncProgress.bind(slice);
+
+      // We can only grow if we are online and the account is enabled.  Of
+      // course, the account being disabled is usually something that can be
+      // resolved by us trying to talk to the server (either we end up with a
+      // connection or the user gets a UI action), so allow it in that case
+      // too.
+      if (this._account.universe.online &&
+          (this._account.enabled || userRequestsGrowth)) {
+        growingSync = this.folderSyncer.growSync(
+          slice, dir, slice.startTS, batchHeaders, userRequestsGrowth,
+          syncCallback, doneCallback, progressCallback);
+      }
+
+      if (!growingSync) {
+        // If a refresh is not actually required / going to happen, generate
+        // our slice events and cleanup the mutex.
+        if (batchHeaders.length) {
+          slice.batchAppendHeaders(batchHeaders, -1, false);
+          slice.desiredHeaders = slice.headers.length;
+        }
+        else {
+          slice.sendEmptyCompletion();
+        }
+        releaseMutex();
+      }
+    }.bind(this);
+
     if (dirMagnitude < 0) {
       dir = -1;
       desiredCount = -dirMagnitude;
@@ -2289,71 +2337,14 @@ FolderStorage.prototype = {
     else {
       dir = 1;
       desiredCount = dirMagnitude;
-
-      var batchHeaders = [];
-      // Process the oldest traversed message
-      var gotMessages = function gotMessages(headers, moreExpected) {
-        batchHeaders = batchHeaders.concat(headers);
-        if (moreExpected)
-          return;
-
-        var growingSync = false;
-
-        var syncCallback = (function syncCallback(syncMode, firstNotToSend) {
-          if (syncMode) {
-            if (firstNotToSend)
-              slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
-                                       -1, true);
-            slice.desiredHeaders += desiredCount;
-            // (we are did this if userRequestsGrowth is true in `growSlice`)
-            if (!userRequestsGrowth)
-              slice.setStatus('synchronizing', false, true, false, 0.0);
-            slice.waitingOnData = syncMode;
-            this._curSyncSlice = slice;
-          }
-        }).bind(this);
-
-        var doneCallback = function doneGrowCallback(err) {
-          slice.waitingOnData = false;
-          slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
-          this._curSyncSlice = null;
-
-          releaseMutex();
-        }.bind(this);
-
-        var progressCallback = slice.setSyncProgress.bind(slice);
-
-        // We can only grow if we are online and the account is enabled.  Of
-        // course, the account being disabled is usually something that can be
-        // resolved by us trying to talk to the server (either we end up with a
-        // connection or the user gets a UI action), so allow it in that case
-        // too.
-        if (this._account.universe.online &&
-            (this._account.enabled || userRequestsGrowth)) {
-          growingSync = this.folderSyncer.growSync(
-            slice, slice.startTS, batchHeaders, userRequestsGrowth,
-            syncCallback, doneCallback, progressCallback);
-        }
-
-        if (!growingSync) {
-          // If a refresh is not actually required / going to happen, generate
-          // our slice events and cleanup the mutex.
-          if (batchHeaders.length) {
-            slice.batchAppendHeaders(batchHeaders, -1, false);
-            slice.desiredHeaders = slice.headers.length;
-          }
-          else {
-            slice.sendEmptyCompletion();
-          }
-          releaseMutex();
-        }
-      }.bind(this);
+      slice.desiredHeaders += desiredCount;
 
       // Iterate up to 'desiredCount' messages into the past, compute the sync
       // range, subtracting off the already known sync'ed range.
       this.getMessagesBeforeMessage(slice.startTS, slice.startUID,
                                     desiredCount, gotMessages.bind(this));
     }
+
   },
 
   /**
@@ -3017,6 +3008,65 @@ FolderStorage.prototype = {
     // the exception is desired.)
     aranges[0].startTS = $sync.OLDEST_SYNC_DATE - 1;
     aranges.splice(1, aranges.length - 1);
+  },
+
+  /**
+   * Given a time range, check if we have fully-synchronized data covering
+   * that range or part of that range.  Return the smallest possible single
+   * range covering all areas that are unsynchronized or were not synchronized
+   * recently enough.
+   *
+   * We only return one range, so in the event the range is fully contained.
+   *
+   * @args[
+   *   @param[startTS DateMS]{
+   *     Inclusive range start.
+   *   }
+   *   @param[endTS DateMS]{
+   *     Exclusive range start; consistent with accuracy range rep.
+   *   }
+   * ]
+   * @return[@oneof[
+   *   @case[null]{
+   *     Everything is sufficiently up-to-date.  No refresh required.
+   *   }
+   *   @case[@dict[
+   *     @key[startTS DateMS]{
+   *       Inclusive start date.
+   *     }
+   *     @key[endTS DateMS]{
+   *       Exclusive end date.
+   *     }
+   *   ]]
+   * ]]
+   */
+  checkAccuracyCoverageNeedingRefresh: function(startTS, endTS) {
+    var aranges = this._accuracyRanges, arange,
+        newInfo = this._findFirstObjIndexForDateRange(aranges, startTS, endTS),
+        oldInfo = this._findLastObjIndexForDateRange(aranges, startTS, endTS),
+        recencyCutoff = NOW() - $sync.REFRESH_THRESH_MS;
+    var result = { startTS: startTS, endTS: endTS };
+    if (newInfo[1]) {
+      // iterate from the front, trying to push things as far as we can go.
+      var i;
+      for (i = newInfo[0]; i <= oldInfo[0]; i++) {
+        arange = aranges[i];
+        // skip out if this range would cause a gap (will not happen in base
+        // case.)
+        if (BEFORE(arange.endTS, result.endTS))
+          break;
+        // skip out if this range was not fully updated or the data is too old
+        if (!arange.fullSync ||
+            BEFORE(arange.fullSync.updated, recencyCutoff))
+          break;
+        // if the range covers all of us or further than we need, we are done.
+        if (ON_OR_BEFORE(arange.startTS, result.startTS))
+          return null;
+        // the range only partially covers us; shrink our range and keep going
+        result.endTS = result.startTS;
+      }
+    }
+    return result;
   },
 
   /**
