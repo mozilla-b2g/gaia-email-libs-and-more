@@ -852,7 +852,9 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, this.syncKey)
            .tag(as.CollectionId, this.serverId)
-           // DeletesAsMoves defaults to true, so we can omit it
+           // Use DeletesAsMoves in non-trash folders. Don't use it in trash
+           // folders because that doesn't make any sense.
+           .tag(as.DeletesAsMoves, this.folderMeta.type === 'trash' ? '0' : '1')
            // GetChanges defaults to true, so we must explicitly disable it to
            // avoid hearing about changes.
            .tag(as.GetChanges, '0')
@@ -891,8 +893,6 @@ ActiveSyncFolderConn.prototype = {
         status = node.children[0].textContent;
       });
 
-      //console.warn('COMMAND RESULT:\n', aResponse.dump());
-      //aResponse.rewind();
       try {
         e.run(aResponse);
       }

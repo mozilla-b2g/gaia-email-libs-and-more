@@ -522,20 +522,22 @@ ImapJobDriver.prototype = {
     var state = this._state, stateDelta = this._stateDelta, aggrErr = null;
     if (!stateDelta.serverIdMap)
       stateDelta.serverIdMap = {};
-    // resolve the target folder again
-    this._accessFolderForMutation(
-      targetFolderId || op.targetFolder, true,
-      function gotTargetConn(targetConn, targetStorage) {
-        var uidnext = targetConn.box._uidnext;
+    if (!targetFolderId)
+      targetFolderId = op.targetFolder;
 
-      this._partitionAndAccessFoldersSequentially(
-        op.messages, true,
-        function perFolder(folderConn, sourceStorage, serverIds, namers,
-                           perFolderDone){
-          // - copies are done, find the UIDs
-          // XXX process UIDPLUS output when present, avoiding this step.
-          var guidToNamer = {}, waitingOnHeaders = namers.length,
-              reportedHeaders = 0, retriesLeft = 3;
+    this._partitionAndAccessFoldersSequentially(
+      op.messages, true,
+      function perFolder(folderConn, sourceStorage, serverIds, namers,
+                         perFolderDone){
+        // XXX process UIDPLUS output when present, avoiding this step.
+        var guidToNamer = {}, waitingOnHeaders = namers.length,
+            reportedHeaders = 0, retriesLeft = 3, targetConn;
+
+        // - got the target folder conn, now do the copies
+        function gotTargetConn(targetConn, targetStorage) {
+          var uidnext = targetConn.box._uidnext;
+          folderConn._conn.copy(serverIds, targetStorage.folderMeta.path,
+                                copiedMessages_reselect);
 
           function copiedMessages_reselect() {
             // Force a re-select of the folder to try and force the server to
@@ -549,6 +551,7 @@ ImapJobDriver.prototype = {
             // selection and lose.
             targetConn.reselectBox(copiedMessages_findNewUIDs);
           }
+          // - copies are done, find the UIDs
           function copiedMessages_findNewUIDs() {
             var fetcher = targetConn._conn.fetch(
               uidnext + ':*',
@@ -612,54 +615,61 @@ ImapJobDriver.prototype = {
                 return true;
               });
           }
-          function foundUIDs_deleteOriginals() {
-            folderConn._conn.addFlags(serverIds, ['\\Deleted'],
-                                      deletedMessages);
-          }
-          function deletedMessages(err) {
-            if (err)
-              aggrErr = true;
-            perFolderDone();
-          }
+        }
 
-          // Build a guid-to-namer map and deal with any messages that no longer
-          // exist on the server.  Do it backwards so we can splice.
-          for (var i = namers.length - 1; i >= 0; i--) {
-            var srvid = serverIds[i];
-            if (!srvid) {
-              serverIds.splice(i, 1);
-              namers.splice(i, 1);
-              continue;
-            }
-            var namer = namers[i];
-            guidToNamer[namer.guid] = namer;
-          }
-          // it's possible all the messages could be gone, in which case we
-          // are done with this folder already!
-          if (serverIds.length === 0) {
-            perFolderDone();
-            return;
-          }
+        function foundUIDs_deleteOriginals() {
+          folderConn._conn.addFlags(serverIds, ['\\Deleted'],
+                                    deletedMessages);
+        }
+        function deletedMessages(err) {
+          if (err)
+            aggrErr = true;
+          perFolderDone();
+        }
 
-          folderConn._conn.copy(
-            serverIds,
-            targetStorage.folderMeta.path,
-            copiedMessages_reselect);
-        },
-        function() {
-          jobDoneCallback(aggrErr);
-        },
-        null,
-        false,
-        'local move source');
-      // get a connection in the source folder, uid validity is asserted
-      // issue the (potentially bulk) copy
-      // wait for copy success
-      // mark the source messages deleted
-    }.bind(this),
-    function targetFolderDead() {
-    },
-    'move target');
+        // Build a guid-to-namer map and deal with any messages that no longer
+        // exist on the server.  Do it backwards so we can splice.
+        for (var i = namers.length - 1; i >= 0; i--) {
+          var srvid = serverIds[i];
+          if (!srvid) {
+            serverIds.splice(i, 1);
+            namers.splice(i, 1);
+            continue;
+          }
+          var namer = namers[i];
+          guidToNamer[namer.guid] = namer;
+        }
+        // it's possible all the messages could be gone, in which case we
+        // are done with this folder already!
+        if (serverIds.length === 0) {
+          perFolderDone();
+          return;
+        }
+
+        if (sourceStorage.folderId === targetFolderId) {
+          if (op.type === 'move') {
+            // A move from a folder to itself is a no-op.
+            processNext();
+          }
+          else { // op.type === 'delete'
+            // If the op is a delete and the source and destination folders
+            // match, we're deleting from trash, so just perma-delete it.
+            foundUIDs_deleteOriginals();
+          }
+        }
+        else {
+          // Resolve the target folder again.
+          this._accessFolderForMutation(targetFolderId, true, gotTargetConn,
+                                        function targetFolderDead() {},
+                                        'move target');
+        }
+      }.bind(this),
+      function() {
+        jobDoneCallback(aggrErr);
+      },
+      null,
+      false,
+      'local move source');
   },
 
   /**
