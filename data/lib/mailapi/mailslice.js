@@ -3084,7 +3084,7 @@ FolderStorage.prototype = {
         recencyCutoff = NOW() - $sync.REFRESH_THRESH_MS;
     var result = { startTS: startTS, endTS: endTS };
     if (newInfo[1]) {
-      // iterate from the front, trying to push things as far as we can go.
+      // - iterate from the 'end', trying to push things as far as we can go.
       var i;
       for (i = newInfo[0]; i <= oldInfo[0]; i++) {
         arange = aranges[i];
@@ -3100,7 +3100,21 @@ FolderStorage.prototype = {
         if (ON_OR_BEFORE(arange.startTS, result.startTS))
           return null;
         // the range only partially covers us; shrink our range and keep going
-        result.endTS = result.startTS;
+        result.endTS = arange.startTS;
+      }
+      // - iterate from the 'start', trying to push things as far as we can go.
+      // (if we are here, we must not completely cover the range.)
+      for (i = oldInfo[0]; i >= 0; i--) {
+        arange = aranges[i];
+        // skip out if this range would cause a gap
+        if (STRICTLY_AFTER(arange.startTS, result.startTS))
+          break;
+        // skip out if this range was not fully updated or the data is too old
+        if (!arange.fullSync ||
+            BEFORE(arange.fullSync.updated, recencyCutoff))
+          break;
+        // the range only partially covers us; shrink our range and keep going
+        result.startTS = arange.endTS;
       }
     }
     return result;

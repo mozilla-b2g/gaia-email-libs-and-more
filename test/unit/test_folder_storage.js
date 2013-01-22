@@ -169,6 +169,14 @@ function makeTestContext() {
        }
       }
     },
+
+    checkNeedsRefresh: function(checkStart, checkEnd,
+                                expectedStart, expectedEnd) {
+      var result = storage.checkAccuracyCoverageNeedingRefresh(checkStart,
+                                                               checkEnd);
+      do_check_eq(expectedStart, result && result.startTS);
+      do_check_eq(expectedEnd, result && result.endTS);
+    },
   };
 }
 
@@ -572,6 +580,9 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
  */
 TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
   var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      d3 = DateUTC(2010, 0, 3),
       d4 = DateUTC(2010, 0, 4),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -580,47 +591,59 @@ TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
       d9 = DateUTC(2010, 0, 9),
       dA = DateUTC(2010, 0, 10),
       dB = DateUTC(2010, 0, 11),
-      dSync1 = DateUTC(2010, 1, 1),
-      dSync2 = DateUTC(2010, 1, 2),
-      aranges = ctx.storage._accuracyRanges;
+      dC = DateUTC(2010, 0, 12),
+      dD = DateUTC(2010, 0, 13),
+      dE = DateUTC(2010, 0, 14),
+      dF = DateUTC(2010, 0, 15),
+      d10 = DateUTC(2010, 0, 16),
+      d11 = DateUTC(2010, 0, 17),
+      d12 = DateUTC(2010, 0, 18),
+      dSyncRecent = $_date.NOW() - $_syncbase.REFRESH_THRESH_MS / 2,
+      dSyncOld = $_date.NOW() - $_syncbase.REFRESH_THRESH_MS * 2;
 
-  // -- weant range that:
+  // -- build ranges
   // - sufficient, fully be contained by/overlap on both sides into nothing
-  // - insufficent, fully be contained by/overlap on both sides into nothing
+  ctx.storage.markSyncRange(d2, d5, 'x', dSyncRecent);
+
+  // - insufficient, fully be contained by/overlap on both sides into nothing
+  ctx.storage.markSyncRange(d7, dA, 'x', dSyncOld);
+
   // - insufficient, overlap on both sides into something so range is reduced
-  
+  ctx.storage.markSyncRange(dC, dD, 'x', dSyncRecent);
+  ctx.storage.markSyncRange(dD, d10, 'x', dSyncOld);
+  ctx.storage.markSyncRange(d10, d11, 'x', dSyncRecent);
 
-  // STOCK:
+  // -- check ranges
+  // (We defer the checks until after the accuracy ranges are fully populated to
+  //  make debugging simpler.)
 
-  // - blatant overlap
-  ctx.storage.markSyncRange(d5, d7, '1', dSync1);
-  ctx.storage.markSyncRange(d6, d8, '1', dSync1);
+  // - sufficient, fully be contained by/overlap on both sides into nothing
+  // fully contained is good
+  ctx.checkNeedsRefresh(d3, d4, null, null);
+  // up to the limits is good
+  ctx.checkNeedsRefresh(d2, d5, null, null);
+  // check range exceeds/fully contains recent-enough; can't reduce the range
+  ctx.checkNeedsRefresh(d1, d6, d1, d6);
 
-  do_check_eq(aranges.length, 1);
-  check_arange_eq(aranges[0], d5, d8, '1', dSync1);
+  // - insufficient, fully be contained by/overlap on both sides into nothing
+  // fully contained in too-old does nothing for us
+  ctx.checkNeedsRefresh(d8, d9, d8, d9);
+  // at limits too-old does nothing for us
+  ctx.checkNeedsRefresh(d7, dA, d7, dA);
+  // check range exceeds/fully contains too-old does nothing for us
+  ctx.checkNeedsRefresh(d6, dB, d6, dB);
 
-  // - adjacent (exclusion lines up), both sides (single sided)
-  ctx.storage.markSyncRange(d8, d9, '1', dSync1);
-  ctx.storage.markSyncRange(d4, d5, '1', dSync1);
-
-  do_check_eq(aranges.length, 1);
-  check_arange_eq(aranges[0], d4, d9, '1', dSync1);
-
-  // - adjacent merge, both-sides
-  // other range
-  ctx.storage.markSyncRange(dA, dB, '1', dSync1);
-  // thing that should merge on both sides
-  ctx.storage.markSyncRange(d9, dA, '1', dSync1);
-
-  do_check_eq(aranges.length, 1);
-  check_arange_eq(aranges[0], d4, dB, '1', dSync1);
-
-  // - re-merge after split
-  ctx.storage.markSyncRange(d6, d9, '2', dSync2);
-  ctx.storage.markSyncRange(d6, d9, '1', dSync1);
-
-  do_check_eq(aranges.length, 1);
-  check_arange_eq(aranges[0], d4, dB, '1', dSync1);
+  // - insufficient, overlap on both sides into something so range is reduced
+  // fully contained in too-old does nothing for us
+  ctx.checkNeedsRefresh(dE, dF, dE, dF);
+  // at limits of too-old does nothing for us
+  ctx.checkNeedsRefresh(dD, d10, dD, d10);
+  // recent enough truncates range before/after/both
+  ctx.checkNeedsRefresh(dC, d10, dD, d10);
+  ctx.checkNeedsRefresh(dD, d11, dD, d10);
+  ctx.checkNeedsRefresh(dC, d11, dD, d10);
+  // going outside the recent range loses us the truncation
+  ctx.checkNeedsRefresh(dB, d12, dB, d12);
 });
 
 
