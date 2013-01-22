@@ -135,6 +135,14 @@ const MAX_BLOCK_SIZE = 96 * 1024,
       BLOCK_SPLIT_LARGE_PART = 64 * 1024;
 
 /**
+ * How much progress in the range [0.0, 1.0] should we report for just having
+ * started the synchronization process?  The idea is that by having this be
+ * greater than 0, our progress bar indicates that we are doing something or
+ * at least know we should be doing something.
+ */
+const SYNC_START_MINIMUM_PROGRESS = 0.02;
+
+/**
  * Book-keeping and limited agency for the slices.
  *
  * === Batching ===
@@ -2142,11 +2150,40 @@ FolderStorage.prototype = {
       this._loadBlock(type, info, processBlock.bind(this));
   },
 
+  /**
+   * Track a new slice that wants to start from the most recent messages we know
+   * about in the folder.
+   *
+   * If we have previously synchronized the folder, we will return the known
+   * messages from the database.  If we are also online, we will trigger a
+   * refresh covering the time range of the messages.
+   *
+   * If we have not previously synchronized the folder, we will initiate
+   * synchronization starting from 'now'.
+   *
+   * For IMAP, an important ramification is that merely opening a slice may not
+   * cause us to synchronize all the way up to 'now'.  The slice's consumer will
+   * need to keep checking 'atTop' and 'userCanGrowUpwards' and trigger
+   * synchronizations until they both go false.  For consumers that really only
+   * want us to synchronize the most recent messages, they should either
+   * consider purging our storage first or creating a new API that deals with
+   * the change in invariants so that gaps in synchronized intervals can exist.
+   *
+   * Note: previously, we had a function called "sliceOpenFromNow" that would
+   * provide guarantees that the slice was accurate and grown from 'now'
+   * backwards, but at the very high cost of potentially requiring the user to
+   * wait until some amount of synchronization was required.  This resulted in
+   * bad UX from a latency perspective and also actually increased
+   * synchronization complexity because we had to implement multiple sync
+   * heuristics.  Our new approach is much better from a latency perspective but
+   * may result in UI complications since we can be so far behind 'now'.
+   */
   sliceOpenMostRecent: function ifs_sliceOpenMostRecent(slice) {
     // Set the status immediately so that the UI will convey that the request is
     // being processed, even though it might take a little bit to acquire the
     // mutex.
-    slice.setStatus('synchronizing', false, true, false, 0.0);
+    slice.setStatus('synchronizing', false, true, false,
+                    SYNC_START_MINIMUM_PROGRESS);
     this.runMutexed(
       'sync',
       this._sliceOpenMostRecent.bind(this, slice));

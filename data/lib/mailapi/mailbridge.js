@@ -768,6 +768,17 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
+  /**
+   * Can we potentially grow the slice in the negative direction if explicitly
+   * desired by the user or UI desires to be up-to-date?  For example,
+   * triggering an IMAP sync.
+   *
+   * This is only really meaningful when `atTop` is true; if we are not at the
+   * top then this value will be false.
+   *
+   * For messages, the implication is that we are not synchronized through 'now'
+   * if this value is true (and atTop is true).
+   */
   this.userCanGrowUpwards = false;
   this.userCanGrowDownwards = false;
 }
