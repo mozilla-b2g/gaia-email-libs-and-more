@@ -1,10 +1,6 @@
 /**
- * Test more complicated IMAP sync scenarios.  Currently, this means testing
- * the #1 and #2 heuristics of `sliceOpenFromNow` do the right thing under
- * "nothing has changed since last time", "minimal changes which we expected
- * have happened", and "oh no, lots of new messages showed up and our
- * heuristic has been off more than it can chew, I hope it does the right thing"
- * cases.
+ * Test more complicated IMAP sync scenarios, primarily nuances of growth and
+ * refresh, but also covering edge cases.
  **/
 
 load('resources/loggest_test_framework.js');
@@ -19,13 +15,18 @@ const INITIAL_SYNC_DAYS = 7,
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 15;
 
-TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
+TD.commonCase('sliceOpenMostRecent', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   /**
+   * NB: This test originally tested our much more complicated sync logic,
+   * and has been simplified, but not re-written from scratch.  So some things
+   * like time-warps that seem like they have real intent behind them are no
+   * longer of great concern.
+   *
    * General setup:
    *
    * - Create Nsync messages spread over 3 sync intervals, the first of which is
@@ -41,26 +42,15 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
    * "nothing has changed since last time"
    *
    * - Perform an initial open sync which does our deepening strategy.
-   * - Perform an open sync within the #1 time interval, verifying that it
-   *   manifests as a #1 refresh.
-   * - Perform an open sync outside the #1 time interval but within the #2
-   *   time interval, verifying that it manifests as a known date range sync.
-   * - Perform an open sync outside both time intervals, verifying that it
-   *   manifests as our standard deepening probe.
-   * - Warp time so that the messages fall under the "old" threshold, perform
-   *   an open sync, verify that the #1 refresh strategy happens.
+   * - Perform an open sync, verifying that it manifests as a refresh.
+   * - Big time jump, perform an open sync, verifying this is still a refresh
+   *   too.
    *
    * "minimal changes we expected have happened"
    *
-   * - Add a message, verify a #1 open refresh with the new message coming
-   *   last.  This will be an 'old' message.
-   * - Add another message, verify a #1 open refresh with one less message
-   *   off the 'old' side and the new message coming last.
-   * - Add another message, verify a #2 date sync with the new message coming
-   *   first because it is newest and this was a sync.
-   * - Add another message, verify a #2 date sync with the new message first
-   *   and one less message on the 'old' side.
-   * (No need to check that the deepening fallback happens.)
+   * - Add a message, verify a refresh with the new message coming last.
+   * - Add another message, verify a sync refresh with still only fill-size
+   *   retrieved and the new message coming last.
    *
    *
    * "oh no, lots of new messages"
@@ -105,15 +95,6 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
     scaleFactor: 1,
     bisectThresh: 15,
     tooMany: 2000,
-    // The exact thresholds do not matter...
-    refreshNonInbox: 2 * HOUR_MILLIS,
-    refreshInbox: 2 * HOUR_MILLIS,
-    // But this does; be older than our #1 and #2 triggering cases
-    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
-    refreshOld: 2 * DAY_MILLIS,
-
-    useRangeNonInbox: 4 * HOUR_MILLIS,
-    useRangeInbox: 4 * HOUR_MILLIS,
   });
 
   T.group('no change: setup');
@@ -136,75 +117,41 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 }],
     { top: true, bottom: true, grow: true });
 
-  T.group('no change: #1 refresh');
+  T.group('no change: refresh');
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
-    '#1 refresh sync', c1Folder,
+    'sync refresh', c1Folder,
     { count: 9, full: 0, flags: 9, deleted: 0 },
     { top: true, bottom: true, grow: true });
 
-  T.group('no change: #2 date range');
-  staticNow += 3 * HOUR_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '+3 hours');
-  testAccount.do_viewFolder(
-    '#2 date range sync', c1Folder,
-    { count: 9, full: 0, flags: 9, deleted: 0 },
-    { top: true, bottom: true, grow: true });
-
-  T.group('no change: deepening fallback');
+  T.group('no change: still refresh after timewarp');
   // Jump time so that the messages are just under the old threshold.  They
   // are already 6 time intervals in the past, but we want them at 15, so
   // add 9 TSYNCI less 0.5 days.
   staticNow = createdAt +
-              (9 * TSYNCI) * DAY_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 0.5 days out');
-  testAccount.do_viewFolder(
-    'syncs', c1Folder,
-    [{ count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 3, full: 0, flags: 3, deleted: 0 },
-     { count: 3, full: 0, flags: 3, deleted: 0 },
-     { count: 3, full: 0, flags: 3, deleted: 0 }],
-    { top: true, bottom: true, grow: true });
-
-  T.group('no change: #1 old thresh');
-  staticNow = createdAt +
               ((9 * TSYNCI) + 1.5) * DAY_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '9 TSYNCI + 1.5 days out');
-  // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
-    '#1 refresh sync', c1Folder,
+    'sync refresh', c1Folder,
     { count: 9, full: 0, flags: 9, deleted: 0 },
     { top: true, bottom: true, grow: true });
 
-  T.group('minimal changes: add, #1 (old) refresh');
+
+  T.group('minimal changes: add, sync refresh');
   testAccount.do_addMessagesToFolder(
     c1Folder,
     { count: 1, age: { days: 1 } });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   testAccount.do_viewFolder(
-    '#1 refresh sync', c1Folder,
+    'sync refresh', c1Folder,
     { count: 10, full: 1, flags: 9, deleted: 0 },
     { top: true, bottom: true, grow: true });
-  // (no longer qualifies as 'old' now)
 
-  T.group('minimal changes: add, #2 date range');
+
+  T.group('minimal changes: add, sync refresh, still 9 base');
   testAccount.do_addMessagesToFolder(
     c1Folder,
     { count: 1, age: { days: 1 } });
@@ -212,22 +159,11 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   testUniverse.do_timewarpNow(staticNow, '+3 hours');
   testAccount.do_viewFolder(
     '#2 date range sync', c1Folder,
-    { count: 9, full: 1, flags: 9, deleted: 0 },
-    { top: true, bottom: false, grow: false });
-
-  T.group('minimal changes: add, #2 date range falloff');
-  testAccount.do_addMessagesToFolder(
-    c1Folder,
-    { count: 1, age: { days: 1 } });
-  staticNow += 3 * HOUR_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '+3 hours');
-  testAccount.do_viewFolder(
-    '#2 date range sync', c1Folder,
-    { count: 9, full: 1, flags: 9, deleted: 0 },
+    { count: 10, full: 1, flags: 9, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
 
-  T.group('lots of messages: setup for #1');
+  T.group('lots of messages: setup');
   // May 28th, intentionally staying far away from daylight savings time.
   staticNow = new Date(2012, 4, 28, 12, 0, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'May 28th noon-ish');
@@ -256,10 +192,11 @@ TD.commonCase('sliceOpenFromNow #1 and #2', function(T) {
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   var f2View = testAccount.do_openFolderView(
-    '#1 refresh sync', c2Folder,
+    'bisecting sync refresh', c2Folder,
     // the aborted refresh manifests as this...
     [{ count: 0, full: null, flags: null, deleted: null },
-    // and then we get a normal deepening sync sequence
+    // and then becomes a series of deepening syncs within the 1 larger sync
+    // that goes on to cover the entire date range requested
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 }],

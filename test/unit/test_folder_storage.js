@@ -574,9 +574,6 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
  * Check accuracy range stuff; generate a static set of accuracy ranges that
  * should cover all permutations (except for being first/last, but we are
  * reusing our range-finding helpers that have coverage)
- *
- *
- * XXX THIS STILL NEEDS TO BE UPDATED FOR THIS PATCH.
  */
 TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
   var ctx = makeTestContext(),

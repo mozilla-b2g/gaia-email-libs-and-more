@@ -83,12 +83,8 @@ var TestUniverseMixins = {
         // crank it way up so we don't ever accidentally run into this.
         bisectThresh: 2000,
         tooMany: 2000,
-        refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
-        refreshInbox: DISABLE_THRESH_USING_FUTURE,
-        oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
-        refreshOld: DISABLE_THRESH_USING_FUTURE,
-        useRangeNonInbox: DISABLE_THRESH_USING_FUTURE,
-        useRangeInbox: DISABLE_THRESH_USING_FUTURE
+
+        refreshThresh: 24 * 60 * 60 * 1000,
       });
     }
 

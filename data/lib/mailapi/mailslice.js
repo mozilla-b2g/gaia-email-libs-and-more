@@ -88,6 +88,8 @@ const bsearchForInsert = $util.bsearchForInsert,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
 
+const PASTWARDS = 1, FUTUREWARDS = -1;
+
 // What do we think the post-snappy compression overhead of the structured clone
 // persistence rep will be for various things?  These are total guesses right
 // now.  Keep in mind we do want the pre-compression size of the data in all
@@ -394,6 +396,20 @@ MailSlice.prototype = {
     this._bridgeHandle.sendSyncProgress(value);
   },
 
+  /**
+   * @args[
+   *   @param[headers @listof[MailHeader]]
+   *   @param[insertAt @oneof[
+   *     @case[-1]{
+   *       Append to the end of the list
+   *     }
+   *     @case[Number]{
+   *       Insert the headers at the given index.
+   *     }
+   *   ]]
+   *   @param[moreComing Boolean]
+   * ]
+   */
   batchAppendHeaders: function(headers, insertAt, moreComing) {
     if (!this._bridgeHandle)
       return;
@@ -2278,7 +2294,8 @@ FolderStorage.prototype = {
    *
    * - If there were any messages and `FolderSyncer.canGrowSync` is true, check
    * the time-span covered by the messages from the database.  If any of the
-   * time-span is not sufficiently recently refreshed, issue a refresh.
+   * time-span is not sufficiently recently refreshed, issue a refresh over the
+   * required time interval to bring those messages up-to-date.
    *
    * - Return if there were any headers.
    *
@@ -2289,7 +2306,8 @@ FolderStorage.prototype = {
     // otherwise, let the method set this state if/when we actually decide to
     // talk to the server.
     if (userRequestsGrowth)
-      slice.setStatus('synchronizing', false, true, false, 0.0);
+      slice.setStatus('synchronizing', false, true, false,
+                      SYNC_START_MINIMUM_PROGRESS);
     this.runMutexed(
       'grow',
       this._growSlice.bind(this, slice, dirMagnitude, userRequestsGrowth));
@@ -2299,28 +2317,22 @@ FolderStorage.prototype = {
     var dir, desiredCount;
 
     var batchHeaders = [];
-    // Process the oldest traversed message
+    // --- process messages
     var gotMessages = function gotMessages(headers, moreExpected) {
-      batchHeaders = batchHeaders.concat(headers);
+      if (headers.length === 0) {
+        // no array manipulation required
+      }
+      if (dir === PASTWARDS) {
+        batchHeaders = batchHeaders.concat(headers);
+      }
+      else { // dir === FUTUREWARDS
+        batchHeaders = headers.concat(batchHeaders);
+      }
+
       if (moreExpected)
         return;
 
-      var growingSync = false;
-
-      var syncCallback = (function syncCallback(syncMode, firstNotToSend) {
-        if (syncMode) {
-          if (firstNotToSend)
-            slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
-                                     -1, true);
-          slice.desiredHeaders += desiredCount;
-          // (we are did this if userRequestsGrowth is true in `growSlice`)
-          if (!userRequestsGrowth)
-            slice.setStatus('synchronizing', false, true, false, 0.0);
-          slice.waitingOnData = syncMode;
-          this._curSyncSlice = slice;
-        }
-      }).bind(this);
-
+      // -- callbacks which may or may not get used
       var doneCallback = function doneGrowCallback(err) {
         slice.waitingOnData = false;
         slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
@@ -2331,57 +2343,92 @@ FolderStorage.prototype = {
 
       var progressCallback = slice.setSyncProgress.bind(slice);
 
-      // We can only grow if we are online and the account is enabled.  Of
-      // course, the account being disabled is usually something that can be
-      // resolved by us trying to talk to the server (either we end up with a
-      // connection or the user gets a UI action), so allow it in that case
-      // too.
-      if (this._account.universe.online &&
-          (this._account.enabled || userRequestsGrowth)) {
-        growingSync = this.folderSyncer.growSync(
-          slice, dir, slice.startTS, batchHeaders, userRequestsGrowth,
-          syncCallback, doneCallback, progressCallback);
-      }
+      // -- Handle already-known headers
+      if (batchHeaders.length) {
+        var refreshInterval;
 
-      if (!growingSync) {
-        // If a refresh is not actually required / going to happen, generate
-        // our slice events and cleanup the mutex.
-        if (batchHeaders.length) {
-          slice.batchAppendHeaders(batchHeaders, -1, false);
-          slice.desiredHeaders = slice.headers.length;
+        // - compute refresh interval, if needed
+            // offline? don't need a refresh!
+        if (!this._account.universe.online ||
+            // disabled account? don't need a refresh!
+            !this._account.enabled ||
+            // can't incrementally refresh? don't need a refresh!
+            !this.folderSyncer.canGrowSync) {
+          refreshInterval = null;
         }
         else {
-          slice.sendEmptyCompletion();
+          // (time ordering is always youngest to oldest)
+          var oldestHeader = batchHeaders[batchHeaders.length - 1],
+              youngestHeader = batchHeaders[0];
+          // Quantize to whole dates, but compensate for server timezones
+          // so that our refresh actually lines up with the messages we are
+          // interested in.  (We want the date in the server's timezone, so we
+          // add the timezone to be relative to that timezone.)
+          refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
+            quantizeDate(oldestHeader.date + this._account.tzOffset),
+            quantizeDate(youngestHeader.date + this._account.tzOffset));
         }
-        releaseMutex();
+
+        // We could also send the headers in as they come across the wire,
+        // but we expect to be dealing in bite-sized requests, so that could
+        // be overkill.
+        slice.batchAppendHeaders(batchHeaders,
+                                 dir === PASTWARDS ? -1 : 0,
+                                 !!refreshInterval);
+
+        if (refreshInterval) {
+          // If growth was not requested, make sure we convey server traffic is
+          // happening.
+          if (!userRequestsGrowth)
+            slice.setStatus('synchronizing', false, true, false,
+                            SYNC_START_MINIMUM_PROGRESS);
+
+          this.folderSyncer.refreshSync(
+            slice, dir,
+            refreshInterval.startTS, refreshInterval.endTS,
+            doneCallback, progressCallback);
+        }
+
+        return;
       }
+
+      // -- grow!
+      // - do not grow if offline / no support / no user request
+      if (!this._account.universe.online ||
+          !this.folderSyncer.canGrowSync ||
+          (!this._account.enabled && !userRequestsGrowth)) {
+        slice.sendEmptyCompletion();
+        releaseMutex();
+        return;
+      }
+
+      if (!userRequestsGrowth)
+        slice.setStatus('synchronizing', false, true, false,
+                        SYNC_START_MINIMUM_PROGRESS);
+      this._curSyncSlice = slice;
+      slice.waitingOnData = 'grow';
+      this.folderSyncer.growSync(slice, dir, slice.startTS,
+                                 $sync.INITIAL_SYNC_GROWTH_DAYS,
+                                 doneCallback, progressCallback);
     }.bind(this);
 
+    // --- request messages
     if (dirMagnitude < 0) {
-      dir = -1;
+      dir = FUTUREWARDS;
       desiredCount = -dirMagnitude;
       slice.desiredHeaders += desiredCount;
 
-      // Request 'desiredCount' messages, provide them in a batch.
       this.getMessagesAfterMessage(
-        slice.endTS, slice.endUID, desiredCount,
-        function(headers, moreExpected) {
-          slice.batchAppendHeaders(headers, 0, moreExpected);
-          slice.desiredHeaders = slice.headers.length;
-          releaseMutex();
-        });
+        slice.endTS, slice.endUID, desiredCount, gotMessages);
     }
     else {
-      dir = 1;
+      dir = PASTWARDS;
       desiredCount = dirMagnitude;
       slice.desiredHeaders += desiredCount;
 
-      // Iterate up to 'desiredCount' messages into the past, compute the sync
-      // range, subtracting off the already known sync'ed range.
-      this.getMessagesBeforeMessage(slice.startTS, slice.startUID,
-                                    desiredCount, gotMessages.bind(this));
+      this.getMessagesBeforeMessage(
+        slice.startTS, slice.startUID, desiredCount, gotMessages);
     }
-
   },
 
   /**
@@ -2452,7 +2499,7 @@ FolderStorage.prototype = {
       startTS = quantizeDate(startTS);
 
     this.folderSyncer.refreshSync(
-      slice, startTS, endTS,
+      slice, PASTWARDS, startTS, endTS,
       function refreshDoneCallback(err, bisectInfo, numMessages) {
         var reportSyncStatusAs = 'synced';
         switch (err) {

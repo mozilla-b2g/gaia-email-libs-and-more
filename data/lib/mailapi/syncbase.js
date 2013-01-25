@@ -84,6 +84,12 @@ exports.INITIAL_FILL_SIZE = 15;
 exports.INITIAL_SYNC_DAYS = 3;
 
 /**
+ * When growing our synchronization range, what should be the initial number of
+ * days we should scan?
+ */
+exports.INITIAL_SYNC_GROWTH_DAYS = 3;
+
+/**
  * What should be multiple the current number of sync days by when we perform
  * a sync and don't find any messages?  There are upper bounds in
  * `FolderStorage.onSyncCompleted` that cap this and there's more comments

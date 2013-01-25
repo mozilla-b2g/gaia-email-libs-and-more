@@ -875,11 +875,11 @@ ImapFolderSyncer.prototype = {
    * notification will only be generated once the entire time span has been
    * synchronized.
    */
-  refreshSync: function(slice, startTS, endTS,
+  refreshSync: function(slice, dir, startTS, endTS,
                         doneCallback, progressCallback) {
     // timezone compensation happens in the caller
     this._startSync(
-      slice, PASTWARDS, // bias towards learning about new stuff first
+      slice, dir,
       'refresh', // this is a refresh, not a grow!
       endTS, startTS, null, doneCallback, progressCallback);
   },
@@ -892,64 +892,19 @@ ImapFolderSyncer.prototype = {
    *   Returns false if no sync is necessary.
    * }
    */
-  growSync: function(slice, growthDirection, anchorTS, batchHeaders,
-                     userRequestsGrowth, syncCallback,
+  growSync: function(slice, growthDirection, anchorTS, syncStepDays,
                      doneCallback, progressCallback) {
-
-
-    // The sync wants to be BEFORE the earliest day (which we are assuming
-    // is fully synced based on our day granularity).
-    var syncEndTS = quantizeDate(endTS);
-    var syncStartTS = null;
-    if (batchHeaders.length)
-      syncStartTS = batchHeaders[batchHeaders.length - 1].date;
-
-    if (syncStartTS) {
-      // We are computing a SINCE value, so adjust the date to be the effective
-      // date in the server's timezone and quantize to canonicalize it to be
-      // our date (sans time) rep.  (We add the timezone to be relative to that
-      // timezone.)
-      syncStartTS = quantizeDate(syncStartTS + this._account.tzOffset);
-      // If we're not syncing at least one day, flag to give up.
-      if (syncStartTS === syncEndTS)
-        syncStartTS = null;
+    var syncThroughTS;
+    if (growthDirection === PASTWARDS) {
+      syncThroughTS = $sync.OLDEST_SYNC_DATE;
+    }
+    else {
+      syncThroughTS = FUTURE();
     }
 
-    // Perform the sync if there is a range.
-    if (syncStartTS) {
-      // We intentionally quantized syncEndTS to avoid re-synchronizing messages
-      // that got us to our last sync.  So we want to send those excluded
-      // headers in a batch since the sync will not report them for us.
-      //
-      // We need to subtract off our timezone offset since we are trying to
-      // imitate the database logic here, and this compensation happens using
-      // timestamps in UTC-0.  Also note we are doing this to the end-stamp, not
-      // the start stamp, so there is no interaction with the above.
-      var iFirstNotToSend = 0,
-          localSyncEndTS = syncEndTS - this._account.tzOffset;
-      for (; iFirstNotToSend < batchHeaders.length; iFirstNotToSend++) {
-        if (BEFORE(batchHeaders[iFirstNotToSend].date, localSyncEndTS))
-          break;
-      }
-
-      // Perform a limited synchronization; do not issue additional syncs!
-      syncCallback('limsync', iFirstNotToSend);
-      // Because we are refreshing a known time interval and growth is not
-      // particularly likely, we really do not want bisection to happen, so
-      // pass a super-high limit for the bisection cap.
-      this._startSync(syncStartTS, syncEndTS, doneCallback, progressCallback,
-                      $sync.TOO_MANY_MESSAGES);
-      return true;
-    }
-    // If growth was requested/is allowed or our accuracy range already covers
-    // as far back as we go, issue a (potentially expanding) sync.
-    else if (batchHeaders.length === 0 && userRequestsGrowth) {
-      syncCallback('sync', 0);
-      this._startSync(null, syncEndTS, doneCallback, progressCallback);
-      return true;
-    }
-
-    return false;
+    this._startSync(slice, growthDirection, 'grow',
+                    anchorTS, syncThroughTS, syncStepDays,
+                    doneCallback, progressCallback);
   },
 
   _startSync: function ifs__startSync(slice, dir, syncTypeStr,
