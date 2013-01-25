@@ -73,69 +73,90 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
   op.guids = {};
   const nukeServerIds = !this.resilientServerIds;
 
-  var stateDelta = this._stateDelta, addWait = 0;
+  var stateDelta = this._stateDelta, addWait = 0, self = this;
   if (!stateDelta.moveMap)
     stateDelta.moveMap = {};
   if (!stateDelta.serverIdMap)
     stateDelta.serverIdMap = {};
-  var perSourceFolder = function perSourceFolder(ignoredConn, targetStorage) {
-    this._partitionAndAccessFoldersSequentially(
-      op.messages, false,
-      function perFolder(ignoredConn, sourceStorage, headers, namers,
-                         perFolderDone) {
-        // -- get the body for the next header (or be done)
-        function processNext() {
-          if (iNextHeader >= headers.length) {
-            perFolderDone();
-            return;
+  if (!targetFolderId)
+    targetFolderId = op.targetFolder;
+
+  this._partitionAndAccessFoldersSequentially(
+    op.messages, false,
+    function perFolder(ignoredConn, sourceStorage, headers, namers,
+                       perFolderDone) {
+      // -- get the body for the next header (or be done)
+      function processNext() {
+        if (iNextHeader >= headers.length) {
+          perFolderDone();
+          return;
+        }
+        header = headers[iNextHeader++];
+        sourceStorage.getMessageBody(header.suid, header.date,
+                                     gotBody_nowDelete);
+      }
+      // -- delete the header and body from the source
+      function gotBody_nowDelete(_body) {
+        body = _body;
+
+        // We need an entry in the server id map if we are moving/deleting it.
+        // We don't need this if we're moving a message to the folder it's
+        // already in, but it doesn't hurt anything.
+        if (header.srvid)
+          stateDelta.serverIdMap[header.suid] = header.srvid;
+
+        if (sourceStorage.folderId === targetFolderId) {
+          if (op.type === 'move') {
+            // A move from a folder to itself is a no-op.
+            processNext();
           }
-          header = headers[iNextHeader++];
-          sourceStorage.getMessageBody(header.suid, header.date,
-                                       gotBody_nowDelete);
+          else { // op.type === 'delete'
+            // If the op is a delete and the source and destination folders
+            // match, we're deleting from trash, so just perma-delete it.
+            sourceStorage.deleteMessageHeaderAndBody(header, processNext);
+          }
         }
-        // -- delete the header and body from the source
-        function gotBody_nowDelete(_body) {
-          body = _body;
-          sourceStorage.deleteMessageHeaderAndBody(header, deleted_nowAdd);
+        else {
+          sourceStorage.deleteMessageHeaderAndBody(
+            header, deleted_nowOpenTarget);
         }
-        // -- add the header/body to the target folder
-        function deleted_nowAdd() {
-          var sourceSuid = header.suid;
+      }
+      // -- open the target folder
+      function deleted_nowOpenTarget() {
+        self._accessFolderForMutation(targetFolderId, false,
+                                      targetOpened_nowAdd, null,
+                                      'local move target');
+      }
+      // -- add the header/body to the target folder
+      function targetOpened_nowAdd(ignoredConn, targetStorage) {
+        var sourceSuid = header.suid;
 
-          // We need an entry in the server id map if we are moving it.
-          if (header.srvid)
-            stateDelta.serverIdMap[sourceSuid] = header.srvid;
+        // - update id fields
+        header.id = targetStorage._issueNewHeaderId();
+        header.suid = targetStorage.folderId + '/' + header.id;
+        if (nukeServerIds)
+          header.srvid = null;
 
-          // - update id fields
-          header.id = targetStorage._issueNewHeaderId();
-          header.suid = targetStorage.folderId + '/' + header.id;
-          if (nukeServerIds)
-            header.srvid = null;
+        stateDelta.moveMap[sourceSuid] = header.suid;
 
-          stateDelta.moveMap[sourceSuid] = header.suid;
-
-          addWait = 2;
-          targetStorage.addMessageHeader(header, added);
-          targetStorage.addMessageBody(header, body, added);
-        }
-        function added() {
-          if (--addWait !== 0)
-            return;
-          processNext();
-        }
-        var iNextHeader = 0, header = null, body = null, addWait = 0;
+        addWait = 2;
+        targetStorage.addMessageHeader(header, added);
+        targetStorage.addMessageBody(header, body, added);
+      }
+      function added() {
+        if (--addWait !== 0)
+          return;
         processNext();
-      },
-      function() {
-        doneCallback(null, null, true);
-      },
-      null,
-      false,
-      'local move source');
-  }.bind(this);
-  this._accessFolderForMutation(
-    targetFolderId || op.targetFolder, false,
-    perSourceFolder, null, 'local move target');
+      }
+      var iNextHeader = 0, header = null, body = null, addWait = 0;
+      processNext();
+    },
+    function() {
+      doneCallback(null, null, true);
+    },
+    null,
+    false,
+    'local move source');
 };
 
 // XXX implement!

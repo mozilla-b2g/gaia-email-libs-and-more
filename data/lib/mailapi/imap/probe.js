@@ -226,8 +226,8 @@ var extractTZFromHeaders = exports._extractTZFromHeaders =
     var tzMatch = /([+-]\d{4})/.exec(hpair.value);
     if (tzMatch) {
       var tz =
-        parseInt(tzMatch[1].substring(1, 3)) * 60 * 60 * 1000+
-        parseInt(tzMatch[1].substring(3, 5)) * 60 * 1000;
+        parseInt(tzMatch[1].substring(1, 3), 10) * 60 * 60 * 1000 +
+        parseInt(tzMatch[1].substring(3, 5), 10) * 60 * 1000;
       if (tzMatch[1].substring(0, 1) === '-')
         tz *= -1;
       return tz;

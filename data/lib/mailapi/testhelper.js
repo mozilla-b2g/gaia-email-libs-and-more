@@ -459,6 +459,22 @@ var TestCommonAccountMixins = {
     });
   },
 
+  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
+                                 expectedFlags) {
+    var self = this;
+    this.T.action(this, 'refreshes', viewThing, function() {
+      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
+                                                 expectedValues);
+      self.expect_messagesReported(totalExpected);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
+                                   'refresh');
+
+      viewThing.slice.refresh();
+    });
+  },
+
   /**
    * Expect that a mutex operation will be run on the provided storageActor of
    * the given type.  Ignore block load and deletion notifications during this
@@ -552,6 +568,27 @@ var TestCommonAccountMixins = {
     });
     testStep.timeoutMS = 5000;
     return testStep;
+  },
+
+  /**
+   * Locally delete the message like we heard it was deleted on the server; but
+   * we won't have actually heard it from the server.  We do this outside a
+   * mutex because we're a unit test hack and nothing should be going on.
+   */
+  fakeServerMessageDeletion: function(mailHeader) {
+    var self = this;
+    this.RT.reportActiveActorThisStep(this);
+
+    var folderStorage =
+          this.universe.getFolderStorageForMessageSuid(mailHeader.id);
+    this.expect_deletionNotified(1);
+    folderStorage.getMessageHeader(
+      mailHeader.id, mailHeader.date,
+      function(header) {
+        folderStorage.deleteMessageHeaderAndBody(header, function() {
+          self._logger.deletionNotified(1);
+        });
+      });
   },
 };
 
@@ -693,7 +730,7 @@ var TestImapAccountMixins = {
             self._logger.accountCreated();
           });
         });
-    }).timeoutMS = 5000; // there can be slow startups...
+    }).timeoutMS = 10000; // there can be slow startups...
   },
 
   /**
@@ -952,27 +989,6 @@ var TestImapAccountMixins = {
     });
   },
 
-  /**
-   * Locally delete the message like we heard it was deleted on the server; but
-   * we won't have actually heard it from the server.  We do this outside a
-   * mutex because we're a unit test hack and nothing should be going on.
-   */
-  fakeServerMessageDeletion: function(mailHeader) {
-    var self = this;
-    this.RT.reportActiveActorThisStep(this);
-
-    var folderStorage =
-          this.universe.getFolderStorageForMessageSuid(mailHeader.id);
-    this.expect_deletionNotified(1);
-    folderStorage.getMessageHeader(
-      mailHeader.id, mailHeader.date,
-      function(header) {
-        folderStorage.deleteMessageHeaderAndBody(header, function() {
-          self._logger.deletionNotified(1);
-        });
-      });
-  },
-
   _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
@@ -1081,22 +1097,6 @@ var TestImapAccountMixins = {
     // (varies with N)
     testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
     return testStep;
-  },
-
-  do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
-                                 expectedFlags) {
-    var self = this;
-    this.T.action(this, 'refreshes', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
-                                                 expectedValues);
-      self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
-
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
-                                   'refresh');
-
-      viewThing.slice.refresh();
-    });
   },
 
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
@@ -1254,6 +1254,10 @@ var TestActiveSyncServerMixins = {
   getFirstFolderWithType: function(folderType) {
     var folders = this.server.foldersByType[folderType];
     return folders[0];
+  },
+
+  getFirstFolderWithName: function(folderName) {
+    return this.server.findFolderByName(folderName);
   },
 };
 
@@ -1422,6 +1426,39 @@ var TestActiveSyncAccountMixins = {
     return testFolder;
   },
 
+  do_useExistingFolder: function(folderName, suffix, oldFolder) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName + suffix);
+    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+    testFolder.messages = null;
+    testFolder._approxMessageCount = 30;
+    testFolder._liveSliceThings = [];
+    this.T.convenienceSetup('find test folder', testFolder, function() {
+      if (self.testServer) {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
+                                    folderName);
+        testFolder.messages = testFolder.serverFolder.messages;
+      }
+      else {
+        testFolder.serverFolder = null;
+        testFolder.messages = null;
+      }
+      testFolder.mailFolder =
+        self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder)
+        testFolder.messages = oldFolder.messages;
+
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
+
+
   // copy-paste-modify of the IMAP by-name variant
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
@@ -1434,7 +1471,6 @@ var TestActiveSyncAccountMixins = {
     testFolder._approxMessageCount = 30;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
-      self.expect_foundFolder(true);
       if (self.testServer) {
         testFolder.serverFolder = self.testServer.getFirstFolderWithType(
                                     folderType);
@@ -1446,7 +1482,6 @@ var TestActiveSyncAccountMixins = {
       }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
-      self._logger.foundFolder(!!testFolder.mailFolder, testFolder.mailFolder);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder)
         testFolder.messages = oldFolder.messages;

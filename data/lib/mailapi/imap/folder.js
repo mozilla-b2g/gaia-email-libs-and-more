@@ -150,13 +150,6 @@ function ImapFolderConn(account, storage, _parentLog) {
 }
 ImapFolderConn.prototype = {
   /**
-   * Can we grow this sync range?  IMAP always lets us do this.
-   */
-  get canGrowSync() {
-    return true;
-  },
-
-  /**
    * Acquire a connection and invoke the callback once we have it and we have
    * entered the folder.  This method should only be called when running
    * inside `runMutexed`.
@@ -851,6 +844,13 @@ ImapFolderSyncer.prototype = {
    * synchronize.  The errbackoff is just a question of when we will retry.
    */
   syncable: true,
+
+  /**
+   * Can we grow this sync range?  IMAP always lets us do this.
+   */
+  get canGrowSync() {
+    return true;
+  },
 
   /**
    * Perform an initial synchronization of a folder from now into the past,

@@ -87,6 +87,27 @@ TD.commonCase('folder sync', function(T) {
     { count:  5, full: 1, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
+  T.group('sync detects deletions');
+  T.action('blah', testAccount, eSync, function() {
+    var headers = folderView.slice.items,
+        toDelete = headers[0],
+        toDeleteId = fullSyncFolder.messages[0].messageId,
+        expectedValues = { count: 4, full: 0, flags: 0, deleted: 1 },
+        checkExpected = { changes: [], deletions: [toDelete] },
+        expectedFlags = { top: true, bottom: true, grow: false };
+
+    fullSyncFolder.serverFolder.removeMessageById(toDeleteId);
+    var totalExpected = testAccount._expect_dateSyncs(folderView.testFolder,
+                                                      expectedValues);
+    testAccount.expect_messagesReported(totalExpected);
+    testAccount.expect_headerChanges(folderView, checkExpected, expectedFlags);
+
+    testAccount._expect_storage_mutexed(folderView.testFolder.storageActor,
+                                        'refresh');
+
+    folderView.slice.refresh();
+  });
+
   /**
    * Perform a folder sync where our initial time fetch window contains more
    * messages than we want and there are even more messages beyond.

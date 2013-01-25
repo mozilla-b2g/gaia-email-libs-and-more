@@ -214,7 +214,7 @@ ActiveSyncFolderConn.prototype = {
       });
       e.addEventListener(base.concat(ie.Collection, ie.Estimate),
                          function(node) {
-        estimate = parseInt(node.children[0].textContent);
+        estimate = parseInt(node.children[0].textContent, 10);
       });
 
       try {
@@ -711,7 +711,7 @@ ActiveSyncFolderConn.prototype = {
               break;
             case asb.EstimatedDataSize:
             case em.AttSize:
-              attachment.sizeEstimate = parseInt(attachDataText);
+              attachment.sizeEstimate = parseInt(attachDataText, 10);
               break;
             case asb.ContentId:
               attachment.contentId = attachDataText;
@@ -773,28 +773,53 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
+      let addedMessages = 0;
       for (let [,message] in Iterator(added)) {
+        // If we already have this message, it's probably because we moved it as
+        // part of a local op, so let's assume that the data we already have is
+        // ok. XXX: We might want to verify this, to be safe.
+        if (storage.hasMessageWithServerId(message.header.srvid))
+          continue;
+
         storage.addMessageHeader(message.header);
         storage.addMessageBody(message.header, message.body);
+        addedMessages++;
       }
 
+      let changedMessages = 0;
       for (let [,message] in Iterator(changed)) {
+        // If we don't know about this message, just bail out.
+        if (!storage.hasMessageWithServerId(message.header.srvid))
+          continue;
+
         storage.updateMessageHeaderByServerId(message.header.srvid, true,
                                               function(oldHeader) {
           message.header.mergeInto(oldHeader);
           return true;
         });
+        changedMessages++;
         // XXX: update bodies
       }
 
+      let deletedMessages = 0;
       for (let [,messageGuid] in Iterator(deleted)) {
+        // If we don't know about this message, it's probably because we already
+        // deleted it.
+        if (!storage.hasMessageWithServerId(messageGuid))
+          continue;
+
         storage.deleteMessageByServerId(messageGuid);
+        deletedMessages++;
       }
 
-      messagesSeen += added.length + changed.length + deleted.length;
+      messagesSeen += addedMessages + changedMessages + deletedMessages;
 
       if (!moreAvailable) {
-        folderConn._LOG.sync_end(added.length, changed.length, deleted.length);
+        // Note: For the second argument here, we report the number of messages
+        // we saw that *changed*. This differs from IMAP, which reports the
+        // number of messages it *saw*.
+        folderConn._LOG.sync_end(addedMessages, changedMessages,
+                                 deletedMessages);
         storage.markSyncRange(accuracyStamp, accuracyStamp, 'XXX',
                               accuracyStamp);
         doneCallback(null, null, messagesSeen);
@@ -828,7 +853,9 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, this.syncKey)
            .tag(as.CollectionId, this.serverId)
-           // DeletesAsMoves defaults to true, so we can omit it
+           // Use DeletesAsMoves in non-trash folders. Don't use it in trash
+           // folders because that doesn't make any sense.
+           .tag(as.DeletesAsMoves, this.folderMeta.type === 'trash' ? '0' : '1')
            // GetChanges defaults to true, so we must explicitly disable it to
            // avoid hearing about changes.
            .tag(as.GetChanges, '0')
@@ -867,13 +894,11 @@ ActiveSyncFolderConn.prototype = {
         status = node.children[0].textContent;
       });
 
-      //console.warn('COMMAND RESULT:\n', aResponse.dump());
-      //aResponse.rewind();
       try {
         e.run(aResponse);
       }
       catch (ex) {
-        console.error('Error parsing Sync reponse:', ex, '\n', ex.stack);
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
         callWhenDone('unknown');
         return;
       }
@@ -1092,7 +1117,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       sync: {
-        newMessages: true, existingMessages: true, deletedMessages: true,
+        newMessages: true, changedMessages: true, deletedMessages: true,
       },
     },
   },

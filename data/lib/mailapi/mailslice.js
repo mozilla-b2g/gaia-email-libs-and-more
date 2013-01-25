@@ -2210,10 +2210,13 @@ FolderStorage.prototype = {
     // other synchronizations already in progress.
     this._slices.push(slice);
 
-    var reportSyncStatusAs = 'synced';
-    var doneCallback = function doneSyncCallback(err) {
-      if (err)
-        reportSyncStatusAs = 'syncfailed';
+    var doneCallback = function doneSyncCallback(err, reportSyncStatusAs) {
+      if (!reportSyncStatusAs) {
+        if (err)
+          reportSyncStatusAs = 'syncfailed';
+        else
+          reportSyncStatusAs = 'synchronized';
+      }
 
       slice.waitingOnData = false;
       slice.setStatus(reportSyncStatusAs, true, false, true);
@@ -2221,7 +2224,6 @@ FolderStorage.prototype = {
 
       releaseMutex();
     }.bind(this);
-
 
     // -- grab from database if we have ever synchronized this folder
     if (this._accuracyRanges.length) {
@@ -2243,7 +2245,14 @@ FolderStorage.prototype = {
     // -- issue a failure if we/the folder are offline
     if (!this._account.universe.online ||
         !this.folderSyncer.syncable) {
-      doneCallback('offline');
+      doneCallback();
+      return;
+    }
+    // If the folder can't be synchronized right now, just report the sync as
+    // blocked. We'll update it soon enough.
+    if (!this.folderSyncer.syncable) {
+      console.log('Synchronization is currently blocked; waiting...');
+      doneCallback(null, 'syncblocked');
       return;
     }
 
@@ -3428,6 +3437,19 @@ FolderStorage.prototype = {
     // (no block update required)
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
       this._curSyncSlice.onHeaderAdded(header, true, false);
+  },
+
+  hasMessageWithServerId: function(srvid) {
+    if (!this._serverIdHeaderBlockMapping)
+      throw new Error('Server ID mapping not supported for this storage!');
+
+    var blockId = this._serverIdHeaderBlockMapping[srvid];
+    if (srvid === undefined) {
+      this._LOG.serverIdMappingMissing(srvid);
+      return false;
+    }
+
+    return !!blockId;
   },
 
   deleteMessageHeaderAndBody: function(header, callback) {
