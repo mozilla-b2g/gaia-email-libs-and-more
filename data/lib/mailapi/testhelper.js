@@ -1561,10 +1561,46 @@ var TestActiveSyncAccountMixins = {
         totalMessageCount += einfo.count;
         if (this.universe.online) {
           testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+          // TODO: have filterType and recreateFolder be specified in extraFlags
+          // for consistency with IMAP.
           if (einfo.filterType)
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
-          testFolder.connActor.expect_syncDateRange_end(
-            einfo.full, einfo.flags, einfo.deleted);
+          if (einfo.recreateFolder) {
+            this.eAccount.expect_recreateFolder(testFolder.id);
+            this.eAccount.expect_saveAccountState();
+
+            var oldConnActor = testFolder.connActor;
+            oldConnActor.expect_syncDateRange_end(null, null, null);
+
+            // Give the new actor a good name.
+            var existingActorMatch =
+                  /^([^#]+)(?:#(\d+))?$/.exec(oldConnActor.__name),
+                newActorName;
+            if (existingActorMatch[2])
+              newActorName = existingActorMatch[1] + '#' +
+                               (parseInt(existingActorMatch[2], 10) + 1);
+            else
+              newActorName = existingActorMatch[1] + '#2';
+            // Because only one actor will be created in this process, we don't
+            // need to reach into the 'soup' to establish the link and the test
+            // infrastructure will do it automatically for us.
+            var newConnActor = this.T.actor('ActiveSyncFolderConn',
+                                            newActorName),
+                newStorageActor = this.T.actor('FolderStorage', newActorName);
+            this.RT.reportActiveActorThisStep(newConnActor);
+            this.RT.reportActiveActorThisStep(newStorageActor);
+
+            newConnActor.expect_syncDateRange_begin(null, null, null);
+            newConnActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted);
+
+            testFolder.connActor = newConnActor;
+            testFolder.storageActor = newStorageActor;
+          }
+          else {
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted);
+          }
         }
       }
     }
