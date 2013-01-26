@@ -333,10 +333,6 @@ ActiveSyncAccount.prototype = {
         existingInboxMeta.name = displayName;
         existingInboxMeta.path = path;
         existingInboxMeta.depth = depth;
-        // Its folder connection needs to know the updated server id since it
-        // copied it out.
-        let folderStorage = this._folderStorages[existingInboxMeta.id];
-        folderStorage.folderSyncer.folderConn.serverId = serverId;
         return existingInboxMeta;
       }
     }
@@ -421,6 +417,7 @@ ActiveSyncAccount.prototype = {
     folderInfo.accuracy = [];
     folderInfo.headerBlocks = [];
     folderInfo.bodyBlocks = [];
+    folderInfo.serverIdHeaderBlockMapping = {};
 
     if (this._deadFolderIds === null)
       this._deadFolderIds = [];

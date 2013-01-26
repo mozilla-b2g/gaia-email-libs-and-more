@@ -1563,8 +1563,28 @@ var TestActiveSyncAccountMixins = {
           testFolder.connActor.expect_syncDateRange_begin(null, null, null);
           if (einfo.filterType)
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
-          testFolder.connActor.expect_syncDateRange_end(
-            einfo.full, einfo.flags, einfo.deleted);
+          if (einfo.recreateFolder) {
+            this.eAccount.expect_recreateFolder(testFolder.id);
+            this.eAccount.expect_saveAccountState();
+            testFolder.connActor.expect_syncDateRange_end(null, null, null);
+
+            // Recreating the folder implies making new a storage and
+            // connection.  Wait until we get those.
+            this.MailAPI.ping(function() {
+              testFolder.connActor.__attachToLogger(
+                self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+              testFolder.storageActor.__attachToLogger(
+                self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+
+              testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+              testFolder.connActor.expect_syncDateRange_end(
+                einfo.full, einfo.flags, einfo.deleted);
+            }.bind(this));
+          }
+          else {
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted);
+          }
         }
       }
     }
