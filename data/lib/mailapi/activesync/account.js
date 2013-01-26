@@ -349,6 +349,7 @@ ActiveSyncAccount.prototype = {
         lastSyncedAt: 0,
         syncKey: '0',
       },
+      // any changes to the structure here must be reflected in _recreateFolder!
       $impl: {
         nextId: 0,
         nextHeaderBlock: 0,
@@ -414,6 +415,11 @@ ActiveSyncAccount.prototype = {
   _recreateFolder: function asa__recreateFolder(folderId, callback) {
     this._LOG.recreateFolder(folderId);
     let folderInfo = this._folderInfos[folderId];
+    folderInfo.$impl = {
+      nextId: 0,
+      nextHeaderBlock: 0,
+      nextBodyBlock: 0,
+    };
     folderInfo.accuracy = [];
     folderInfo.headerBlocks = [];
     folderInfo.bodyBlocks = [];
