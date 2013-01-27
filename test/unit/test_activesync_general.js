@@ -168,6 +168,11 @@ TD.commonCase('folder sync', function(T) {
       eSync.event('roundtrip');
     });
   });
+  testAccount.do_viewFolder(
+    'syncs', partialSyncFolder,
+    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, deleted: 0,
+      recreateFolder: true },
+    { top: true, bottom: false, grow: false });
 
   T.group('manual sync range');
   var manualRangeFolder = testAccount.do_createTestFolder(
