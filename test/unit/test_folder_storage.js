@@ -172,8 +172,8 @@ function makeTestContext() {
 
     checkNeedsRefresh: function(checkStart, checkEnd,
                                 expectedStart, expectedEnd) {
-      var result = storage.checkAccuracyCoverageNeedingRefresh(checkStart,
-                                                               checkEnd);
+      var result = storage.checkAccuracyCoverageNeedingRefresh(
+                     checkStart, checkEnd, $_syncbase.OPEN_REFRESH_THRESH_MS);
       do_check_eq(expectedStart, result && result.startTS);
       do_check_eq(expectedEnd, result && result.endTS);
     },
@@ -595,8 +595,8 @@ TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
       d10 = DateUTC(2010, 0, 16),
       d11 = DateUTC(2010, 0, 17),
       d12 = DateUTC(2010, 0, 18),
-      dSyncRecent = $_date.NOW() - $_syncbase.REFRESH_THRESH_MS / 2,
-      dSyncOld = $_date.NOW() - $_syncbase.REFRESH_THRESH_MS * 2;
+      dSyncRecent = $_date.NOW() - $_syncbase.OPEN_REFRESH_THRESH_MS / 2,
+      dSyncOld = $_date.NOW() - $_syncbase.OPEN_REFRESH_THRESH_MS * 2;
 
   // -- build ranges
   // - sufficient, fully be contained by/overlap on both sides into nothing

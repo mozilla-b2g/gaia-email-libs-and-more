@@ -1054,7 +1054,7 @@ FolderStorage.prototype = {
       var slice = this._slices[i];
       slice.reset();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
-      this._resetAndResyncSlice(slice, false, null);
+      this._resetAndResyncSlice(slice, true, null);
     }
   },
 
@@ -2193,8 +2193,16 @@ FolderStorage.prototype = {
    * synchronization complexity because we had to implement multiple sync
    * heuristics.  Our new approach is much better from a latency perspective but
    * may result in UI complications since we can be so far behind 'now'.
+   *
+   * @args[
+   *   @param[forceRefresh #:optional Boolean]{
+   *     Should we ensure that we try and perform a refresh if we are online?
+   *     Without this flag, we may decide not to attempt to trigger a refresh
+   *     if our data is sufficiently recent.
+   *   }
+   * ]
    */
-  sliceOpenMostRecent: function ifs_sliceOpenMostRecent(slice) {
+  sliceOpenMostRecent: function ifs_sliceOpenMostRecent(slice, forceRefresh) {
     // Set the status immediately so that the UI will convey that the request is
     // being processed, even though it might take a little bit to acquire the
     // mutex.
@@ -2202,9 +2210,10 @@ FolderStorage.prototype = {
                     SYNC_START_MINIMUM_PROGRESS);
     this.runMutexed(
       'sync',
-      this._sliceOpenMostRecent.bind(this, slice));
+      this._sliceOpenMostRecent.bind(this, slice, forceRefresh));
   },
-  _sliceOpenMostRecent: function ifs__sliceOpenMostRecent(slice, releaseMutex) {
+  _sliceOpenMostRecent: function ifs__sliceOpenMostRecent(slice, forceRefresh,
+                                                          releaseMutex) {
     // We only put the slice in the list of slices now that we have the mutex
     // in order to avoid having the slice have data fed into it if there were
     // other synchronizations already in progress.
@@ -2215,7 +2224,7 @@ FolderStorage.prototype = {
         if (err)
           reportSyncStatusAs = 'syncfailed';
         else
-          reportSyncStatusAs = 'synchronized';
+          reportSyncStatusAs = 'synced';
       }
 
       slice.waitingOnData = false;
@@ -2227,15 +2236,26 @@ FolderStorage.prototype = {
 
     // -- grab from database if we have ever synchronized this folder
     if (this._accuracyRanges.length) {
-      // We can adjust our start time to the dawn of time since we have a
-      // limit in effect.
+      // We can only trigger a refresh if we are online.  Our caller may want to
+      // force the refresh, ignoring recency data.  (This logic was too ugly as
+      // a straight-up boolean/ternarny combo.)
+      var triggerRefresh;
+      if (this._account.universe.online && this.folderSyncer.syncable) {
+        if (forceRefresh)
+          triggerRefresh = 'force';
+        else
+          triggerRefresh = true;
+      }
+      else {
+        triggerRefresh = false;
+      }
+
       slice.waitingOnData = 'db';
       this.getMessagesInImapDateRange(
         0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
-          this, slice,
-          this._account.universe.online && this.folderSyncer.syncable,
+          this, slice, triggerRefresh,
           doneCallback, releaseMutex)
       );
       return;
@@ -2375,7 +2395,8 @@ FolderStorage.prototype = {
           // add the timezone to be relative to that timezone.)
           refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
             quantizeDate(oldestHeader.date + this._account.tzOffset),
-            quantizeDate(youngestHeader.date + this._account.tzOffset));
+            quantizeDate(youngestHeader.date + this._account.tzOffset,
+            $sync.REFRESH_THRESH_MS));
         }
 
         // We could also send the headers in as they come across the wire,
@@ -2470,9 +2491,10 @@ FolderStorage.prototype = {
     slice.setStatus('synchronizing', false, true, false, 0.0);
     this.runMutexed(
       'refresh',
-      this._refreshSlice.bind(this, slice));
+      this._refreshSlice.bind(this, slice, false));
   },
-  _refreshSlice: function ifs__refreshSlice(slice, releaseMutex) {
+  _refreshSlice: function ifs__refreshSlice(slice, releaseMutex,
+                                            checkOpenRecency) {
     slice.waitingOnData = 'refresh';
 
     var startTS = slice.startTS, endTS = slice.endTS;
@@ -2507,31 +2529,49 @@ FolderStorage.prototype = {
     if (startTS)
       startTS = quantizeDate(startTS);
 
+    var doneCallback = function refreshDoneCallback(err, bisectInfo,
+                                                    numMessages) {
+      var reportSyncStatusAs = 'synced';
+      switch (err) {
+        case 'aborted':
+        case 'unknown':
+          reportSyncStatusAs = 'syncfailed';
+          break;
+      }
+
+      releaseMutex();
+      slice.waitingOnData = false;
+      slice.setStatus(reportSyncStatusAs, true, false);
+      return undefined;
+    }.bind(this);
+
+
+    // In the initial open case, we support a constant that allows us to
+    // fast-path out without bothering the server.
+    if (checkOpenRecency) {
+      // We use now less the refresh threshold as the accuracy range end-post;
+      // since markSyncRange uses NOW() when 'null' is provided (which it will
+      // be for a sync through now), this all works out consistently.
+      if (this.checkAccuracyCoverageNeedingRefresh(
+             startTS,
+             endTS || NOW() - $sync.OPEN_REFRESH_THRESH_MS,
+             $sync.OPEN_REFRESH_THRESH_MS) === null) {
+        doneCallback();
+        return;
+      }
+    }
+
     this.folderSyncer.refreshSync(
       slice, PASTWARDS, startTS, endTS,
-      function refreshDoneCallback(err, bisectInfo, numMessages) {
-        var reportSyncStatusAs = 'synced';
-        switch (err) {
-          case 'aborted':
-          case 'unknown':
-            reportSyncStatusAs = 'syncfailed';
-            break;
-        }
-
-        releaseMutex();
-        slice.waitingOnData = false;
-        slice.setStatus(reportSyncStatusAs, true, false);
-        return undefined;
-      }.bind(this),
-      slice.setSyncProgress.bind(slice));
+      doneCallback, slice.setSyncProgress.bind(slice));
   },
 
-  _resetAndResyncSlice: function(slice, forceDeepening, releaseMutex) {
+  _resetAndResyncSlice: function(slice, forceRefresh, releaseMutex) {
     this._slices.splice(this._slices.indexOf(slice), 1);
     if (releaseMutex)
-      this._sliceOpenMostRecent(slice, null, forceDeepening, releaseMutex);
+      this._sliceOpenMostRecent(slice, forceRefresh, releaseMutex);
     else
-      this.sliceOpenMostRecent(slice, null, forceDeepening);
+      this.sliceOpenMostRecent(slice, forceRefresh);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2571,9 +2611,10 @@ FolderStorage.prototype = {
       //    and this is keyed off of whether the slice is the current sync
       //    slice.
       this._curSyncSlice = null;
-      // We do want to use the bisection limit so that the refresh gets
-      // converted to a sync in the event of an overflow.
-      this._refreshSlice(slice, releaseMutex);
+      // We want to have the refresh check its refresh recency range unless we
+      // have been explicitly told to force a refresh.
+      var checkOpenRecency = triggerRefresh !== 'force';
+      this._refreshSlice(slice, releaseMutex, checkOpenRecency);
     }
   },
 
@@ -2597,8 +2638,8 @@ FolderStorage.prototype = {
     // found by search.
     if (!this._headerBlockInfos.length)
       return (date === null && uid === null);
-
     var blockInfo = this._headerBlockInfos[0];
+
     return (date === blockInfo.endTS &&
             uid === blockInfo.endUID);
   },
@@ -3118,6 +3159,10 @@ FolderStorage.prototype = {
    *   @param[endTS DateMS]{
    *     Exclusive range start; consistent with accuracy range rep.
    *   }
+   *   @param[threshMS Number]{
+   *     The number of milliseconds to use as the threshold value for
+   *     determining if a time-range is recent enough.
+   *   }
    * ]
    * @return[@oneof[
    *   @case[null]{
@@ -3133,11 +3178,11 @@ FolderStorage.prototype = {
    *   ]]
    * ]]
    */
-  checkAccuracyCoverageNeedingRefresh: function(startTS, endTS) {
+  checkAccuracyCoverageNeedingRefresh: function(startTS, endTS, threshMS) {
     var aranges = this._accuracyRanges, arange,
         newInfo = this._findFirstObjIndexForDateRange(aranges, startTS, endTS),
         oldInfo = this._findLastObjIndexForDateRange(aranges, startTS, endTS),
-        recencyCutoff = NOW() - $sync.REFRESH_THRESH_MS;
+        recencyCutoff = NOW() - threshMS;
     var result = { startTS: startTS, endTS: endTS };
     if (newInfo[1]) {
       // - iterate from the 'end', trying to push things as far as we can go.

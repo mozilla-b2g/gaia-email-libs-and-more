@@ -84,7 +84,10 @@ var TestUniverseMixins = {
         bisectThresh: 2000,
         tooMany: 2000,
 
-        refreshThresh: 24 * 60 * 60 * 1000,
+        // For consistency with our original tests where we would always
+        // generate network traffic when opening a slice, set the threshold so
+        // that it is always exceeded.
+        refreshThresh: -1,
       });
     }
 
@@ -379,6 +382,7 @@ var TestCommonAccountMixins = {
     this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
     if (expectedFlags)
       this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.growUp || false,
                              expectedFlags.grow, 'synced');
 
     // - listen for the changes
@@ -414,6 +418,7 @@ var TestCommonAccountMixins = {
       self._logger.changesReported(additionRep, changeRep, deletionRep);
       if (expectedFlags)
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                                viewThing.slice.userCanGrowUpwards,
                                 viewThing.slice.userCanGrowDownwards,
                                 viewThing.slice.status);
 
@@ -1024,6 +1029,28 @@ var TestImapAccountMixins = {
    * Perform a one-shot viewing of the contents of the folder to see that we
    * get back the right thing.  Use do_openFolderView if you want to open it
    * and keep it open and detect changes, etc.
+   *
+   * @args[
+   *   @param[extraFlags @dict[
+   *     @key[expectFunc #:optional Function]{
+   *       A function to invoke inside our action step after we have expected
+   *       the mutexed call (without enabling set matching), but before doing
+   *       anything else.
+   *     }
+   *     @key[nosave #:default false Boolean]{
+   *       Used by _expect_dateSyncs to determine whether a call to
+   *       expect_saveAccountState should be issued when we are in the online
+   *       state.
+   *     }
+   *     @key[failure #:default false Boolean]{
+   *       If true, indicates that we should expect a 'syncfailed' result.
+   *     }
+   *     @key[nonet #:default false Boolean]{
+   *       Indicate that no network traffic is expected.  This is only relevant
+   *       if we think we are online.
+   *     }
+   *   ]]
+   * ]
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
                           extraFlags, _saveToThing) {
@@ -1032,13 +1059,6 @@ var TestImapAccountMixins = {
     var testStep = this.T.action(this, desc, testFolder, 'using',
                                  testFolder.connActor, function() {
       self._expect_storage_mutexed(testFolder.storageActor, 'sync');
-      // In the bisect case, we may end up actually generating a first sync
-      // mutex for a refresh followed by a second one once the bisect converts
-      // to a traditional sliceOpenMostRecent.  We need the caller to tell us
-      // this.
-      if (extraFlags && extraFlags.extraMutex)
-        self._expect_storage_mutexed(testFolder.storageActor,
-                                     extraFlags.extraMutex);
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
@@ -1047,7 +1067,8 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        if (!isFailure) {
+        if (!isFailure &&
+            !checkFlagDefault(extraFlags, 'nonet', false)) {
           self.expect_connection();
           if (!_saveToThing)
             self.eImapAccount.expect_releaseConnection();
@@ -1071,7 +1092,8 @@ var TestImapAccountMixins = {
             testFolder.messages[totalExpected - 1].headerInfo.subject);
         }
         self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          expectedFlags.top, expectedFlags.bottom,
+          expectedFlags.growUp || false, expectedFlags.grow,
           isFailure ? 'syncfailed' : 'synced');
       }
 
@@ -1084,6 +1106,7 @@ var TestImapAccountMixins = {
             totalExpected - 1, slice.items[totalExpected - 1].subject);
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
@@ -1099,6 +1122,18 @@ var TestImapAccountMixins = {
     return testStep;
   },
 
+  /**
+   * @args[
+   *   @param[extraFlags @dict[
+   *     @see[do_viewFolder extraFlags]
+   *     @key[willFail #:default false Boolean]{
+   *       Do we expect the grow to fail?  This is used to indicate whether we
+   *       expect the grow sync to return messages that the testhelper knows
+   *       about or whetehr it expects an empoty result.
+   *     }
+   *   ]]
+   * ]
+   */
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
                               extraFlags) {
@@ -1164,6 +1199,7 @@ var TestImapAccountMixins = {
         useHigh - useLow,
         viewThing.testFolder.messages[idxHighMessage].headerInfo.subject);
       self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.growUp || false,
                              expectedFlags.grow, 'synced');
 
 
@@ -1517,7 +1553,8 @@ var TestActiveSyncAccountMixins = {
             testFolder.messages[totalExpected - 1].subject);
         }
         self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          expectedFlags.top, expectedFlags.bottom,
+          expectedFlags.growUp || false, expectedFlags.grow,
           isFailure ? 'syncfailed' : 'synced');
       }
 
@@ -1638,7 +1675,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       manipulationNotified: {},
 
       splice: { index: true, howMany: true },
-      sliceFlags: { top: true, bottom: true, grow: true, status: true },
+      sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
+                    status: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
 

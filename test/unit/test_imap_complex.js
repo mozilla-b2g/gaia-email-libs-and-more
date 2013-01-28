@@ -15,6 +15,18 @@ const INITIAL_SYNC_DAYS = 7,
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 15;
 
+/**
+ * In the new only-refresh world view, the key things to check:
+ * - We do/don't refresh if our time threshold says we should/shouldn't when
+ *   opening a slice.
+ * - We do/don't refresh when growing based on our time threshold.
+ * - When growing with refresh to cover known messages, we still check days
+ *   that we didn't have any messages in one of our refreshes.  (So if we are
+ *   showing Wednesday, our first previous messages are on Monday, our grow's
+ *   refresh will cover Tuesday and not result in a gap.)
+ * - When our refresh is confronted with too many messages, the bisection logic
+ *   properly kicks in to cover the entire range.
+ */
 TD.commonCase('sliceOpenMostRecent', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
@@ -42,13 +54,21 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
    * "nothing has changed since last time"
    *
    * - Perform an initial open sync which does our deepening strategy.
-   * - Perform an open sync, verifying that it manifests as a refresh.
+   * - Perform an open without having exceeded the refresh threshold; verify
+   *   that we get the contents of the folder without using our network
+   *   connection.
+   * - Time jump, perform an open, verify that a refresh happens.
    * - Big time jump, perform an open sync, verifying this is still a refresh
-   *   too.
+   *   too.  (This is largely a holdover from our old tests, but does help
+   *   ensure our old heuristics are dead.)
    *
    * "minimal changes we expected have happened"
    *
-   * - Add a message, verify a refresh with the new message coming last.
+   * - Add a message.
+   * - Verify that a slice open without having crossed the threshold only tells
+   *   us about what we already know about and there is no network traffic.
+   * - Timewarp so we want to refres, open the slice, verify a refresh with the
+   *   new message coming last.
    * - Add another message, verify a sync refresh with still only fill-size
    *   retrieved and the new message coming last.
    *
@@ -86,7 +106,8 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   // run.
   var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
 
-  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  const MINUTE_MILLIS = 60 * 1000, HOUR_MILLIS = 60 * MINUTE_MILLIS,
+        DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
   testUniverse.do_adjustSyncValues({
     fillSize: 3 * TSYNCI,
@@ -95,6 +116,10 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     scaleFactor: 1,
     bisectThresh: 15,
     tooMany: 2000,
+
+    // set the refresh threshold at 30 minutes so advancing an hour will
+    // cause a refresh to trigger.
+    refreshThresh: 30 * MINUTE_MILLIS,
   });
 
   T.group('no change: setup');
@@ -118,9 +143,13 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     { top: true, bottom: true, grow: true });
 
   T.group('no change: refresh');
+  testAccount.do_viewFolder(
+    'show no refresh', c1Folder,
+    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true },
+    { nonet: true });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
-  // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
     'sync refresh', c1Folder,
     { count: 9, full: 0, flags: 9, deleted: 0 },
@@ -143,6 +172,11 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testAccount.do_addMessagesToFolder(
     c1Folder,
     { count: 1, age: { days: 1 } });
+  testAccount.do_viewFolder(
+    'show no refresh', c1Folder,
+    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { top: true, bottom: true, grow: true },
+    { nonet: true });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   testAccount.do_viewFolder(
@@ -158,7 +192,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   staticNow += 3 * HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+3 hours');
   testAccount.do_viewFolder(
-    '#2 date range sync', c1Folder,
+    'sync refresh', c1Folder,
     { count: 10, full: 1, flags: 9, deleted: 0 },
     { top: true, bottom: false, grow: false });
 

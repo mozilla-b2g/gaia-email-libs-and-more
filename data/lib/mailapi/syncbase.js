@@ -13,11 +13,19 @@ define(
 
 /**
  * How recently synchronized does a time range have to be for us to decide that
- * we don't need to refresh the contents of the time range?  If the last
- * full synchronization is more than this many milliseconds old, we will trigger
- * a refresh, otherwise we will skip it.
+ * we don't need to refresh the contents of the time range when opening a slice?
+ * If the last full synchronization is more than this many milliseconds old, we
+ * will trigger a refresh, otherwise we will skip it.
  */
-exports.REFRESH_THRESH_MS = 60 * 60 * 1000;
+exports.OPEN_REFRESH_THRESH_MS = 10 * 60 * 1000;
+
+/**
+ * How recently synchronized does a time range have to be for us to decide that
+ * we don't need to refresh the contents of the time range when growing a slice?
+ * If the last full synchronization is more than this many milliseconds old, we
+ * will trigger a refresh, otherwise we will skip it.
+ */
+exports.GROW_REFRESH_THRESH_MS = 60 * 60 * 1000;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Block Purging Constants (IMAP only)

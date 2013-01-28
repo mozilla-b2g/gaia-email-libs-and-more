@@ -761,8 +761,11 @@ var TestActorProtoBase = {
           (entries.length > this._iEntry)) ||
          (!this._expectations.length &&
           this._expectNothing))) {
-      this._expectationsMetSoFar = false;
-      this._logger.__unexpectedEntry(this._iEntry, entries[this._iEntry]);
+      // Only get upset if this is not an ignored event.
+      if (!this._ignore || !this._ignore.hasOwnProperty(entry[0])) {
+        this._expectationsMetSoFar = false;
+        this._logger.__unexpectedEntry(this._iEntry, entries[this._iEntry]);
+      }
       // We intentionally increment iEntry because otherwise we'll keep marking
       // the same entry as unexpected when that is in fact not what we desire.
       // In previous parts of this function it made sense not to increment, but
