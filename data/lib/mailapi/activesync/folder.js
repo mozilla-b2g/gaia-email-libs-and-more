@@ -75,7 +75,6 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._LOG = LOGFAB.ActiveSyncFolderConn(this, _parentLog, storage.folderId);
 
   this.folderMeta = storage.folderMeta;
-  this.serverId = this.folderMeta.serverId;
 
   if (!this.syncKey)
     this.syncKey = '0';
@@ -87,6 +86,10 @@ ActiveSyncFolderConn.prototype = {
 
   set syncKey(value) {
     return this.folderMeta.syncKey = value;
+  },
+
+  get serverId() {
+    return this.folderMeta.serverId;
   },
 
   /**
@@ -753,18 +756,23 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  sync: function asfc_syncDateRange(accuracyStamp, doneCallback,
-                                    progressCallback) {
-    let storage = this._storage;
-    let folderConn = this;
-    let messagesSeen = 0;
+  sync: function asfc_sync(accuracyStamp, doneCallback, progressCallback) {
+    let folderConn = this,
+        addedMessages = 0,
+        changedMessages = 0,
+        deletedMessages = 0;
 
     this._LOG.sync_begin(null, null, null);
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
+      let storage = folderConn._storage;
+
       if (error === 'badkey') {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
-          folderConn.storage = s;
+          // If we got a bad sync key, we'll end up creating a new connection,
+          // so just clear out the old storage to make this connection unusable.
+          folderConn._storage = null;
+          folderConn._LOG.sync_end(null, null, null);
         });
         return;
       }
@@ -773,7 +781,6 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      let addedMessages = 0;
       for (let [,message] in Iterator(added)) {
         // If we already have this message, it's probably because we moved it as
         // part of a local op, so let's assume that the data we already have is
@@ -786,7 +793,6 @@ ActiveSyncFolderConn.prototype = {
         addedMessages++;
       }
 
-      let changedMessages = 0;
       for (let [,message] in Iterator(changed)) {
         // If we don't know about this message, just bail out.
         if (!storage.hasMessageWithServerId(message.header.srvid))
@@ -801,7 +807,6 @@ ActiveSyncFolderConn.prototype = {
         // XXX: update bodies
       }
 
-      let deletedMessages = 0;
       for (let [,messageGuid] in Iterator(deleted)) {
         // If we don't know about this message, it's probably because we already
         // deleted it.
@@ -812,9 +817,9 @@ ActiveSyncFolderConn.prototype = {
         deletedMessages++;
       }
 
-      messagesSeen += addedMessages + changedMessages + deletedMessages;
-
       if (!moreAvailable) {
+        let messagesSeen = addedMessages + changedMessages + deletedMessages;
+
         // Note: For the second argument here, we report the number of messages
         // we saw that *changed*. This differs from IMAP, which reports the
         // number of messages it *saw*.
