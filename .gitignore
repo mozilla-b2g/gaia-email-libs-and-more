@@ -2,6 +2,7 @@ data/deps/
 node-transformed-deps/
 jetpack-tcp-imap-demo.xpi
 gaia-email-opt.js
+gaia-email-opt.min.js
 gaia-symlink
 b2g-builddir-symlink
 b2g-srcdir-symlink

@@ -34,6 +34,11 @@ OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/ima
 gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/r.js -o scripts/gaia-email-opt.build.js
 
+# the uglify minifier in r.js chokes on some of the ActiveSync code's ES6 and
+#  JS1.7+-isms, so we use node-jsmin2.
+gaia-email-opt.min.js: gaia-email-opt.js
+	node scripts/run-jsmin2.js gaia-email-opt.js gaia-email-opt.min.js
+
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
@@ -41,8 +46,8 @@ clean-install-gaia-email-opt:
 	rm gaia-email-opt.js
 	$(MAKE) install-gaia-email-opt
 
-install-gaia-email-opt: gaia-email-opt.js gaia-symlink
-	cp gaia-email-opt.js gaia-symlink/apps/email/js/ext
+install-gaia-email-opt: gaia-email-opt.min.js gaia-symlink
+	cp gaia-email-opt.min.js gaia-symlink/apps/email/js/ext/gaia-email-opt.js
 
 PYTHON=python
 B2GSD=b2g-srcdir-symlink
