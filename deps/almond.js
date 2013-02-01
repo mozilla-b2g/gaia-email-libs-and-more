@@ -20,6 +20,30 @@ var requirejs, require, define;
         return;
     }
 
+    const NEXT_TICK = 'almond-next-tick';
+    var nextTickStack = [];
+
+    /**
+     * Very similar to node's nextTick.
+     * Much faster then setTimeout.
+     */
+    function nextTick(callback) {
+      nextTickStack.push(callback);
+      window.postMessage(NEXT_TICK, '*');
+    }
+
+    /**
+     * next tick inspired by http://dbaron.org/log/20100309-faster-timeouts.
+     */
+    window.addEventListener('message', function handleNextTick(event) {
+      if (event.source === window && event.data == NEXT_TICK) {
+        event.stopPropagation();
+        if (nextTickStack.length) {
+          (nextTickStack.shift())();
+        }
+      }
+    });
+
     /**
      * Given a relative module name, like ./something, normalize it to
      * a real name that can be mapped to a path.
@@ -230,9 +254,9 @@ var requirejs, require, define;
         if (forceSync) {
             main(undef, deps, callback, relName);
         } else {
-            setTimeout(function () {
-                main(undef, deps, callback, relName);
-            }, 15);
+          nextTick(function () {
+              main(undef, deps, callback, relName);
+          });
         }
 
         return req;
