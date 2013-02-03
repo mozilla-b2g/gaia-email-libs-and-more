@@ -1095,7 +1095,8 @@ ActiveSyncFolderSyncer.prototype = {
 
     storage.getMessagesInImapDateRange(
       0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
-      // Don't trigger a refresh; we just synced.
+      // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
+      // be null.
       storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
                                     doneCallback, null)
     );

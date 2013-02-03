@@ -119,7 +119,8 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
 
     // set the refresh threshold at 30 minutes so advancing an hour will
     // cause a refresh to trigger.
-    refreshThresh: 30 * MINUTE_MILLIS,
+    openRefreshThresh: 30 * MINUTE_MILLIS,
+    growRefreshThresh: 30 * MINUTE_MILLIS,
   });
 
   T.group('no change: setup');

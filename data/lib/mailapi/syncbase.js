@@ -269,8 +269,10 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
   if (syncValues.hasOwnProperty('scaleFactor'))
     exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = syncValues.scaleFactor;
 
-  if (syncValues.hasOwnProperty('refreshThresh'))
-    exports.REFRESH_THRESH_MS = syncValues.refreshThresh;
+  if (syncValues.hasOwnProperty('openRefreshThresh'))
+    exports.OPEN_REFRESH_THRESH_MS = syncValues.openRefreshThresh;
+  if (syncValues.hasOwnProperty('growRefreshThresh'))
+    exports.GROW_REFRESH_THRESH_MS = syncValues.growRefreshThresh;
 
   if (syncValues.hasOwnProperty('HEADER_EST_SIZE_IN_BYTES'))
     exports.HEADER_EST_SIZE_IN_BYTES =

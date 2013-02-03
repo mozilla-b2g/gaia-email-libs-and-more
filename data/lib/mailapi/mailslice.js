@@ -2202,7 +2202,7 @@ FolderStorage.prototype = {
    *   }
    * ]
    */
-  sliceOpenMostRecent: function ifs_sliceOpenMostRecent(slice, forceRefresh) {
+  sliceOpenMostRecent: function fs_sliceOpenMostRecent(slice, forceRefresh) {
     // Set the status immediately so that the UI will convey that the request is
     // being processed, even though it might take a little bit to acquire the
     // mutex.
@@ -2212,7 +2212,7 @@ FolderStorage.prototype = {
       'sync',
       this._sliceOpenMostRecent.bind(this, slice, forceRefresh));
   },
-  _sliceOpenMostRecent: function ifs__sliceOpenMostRecent(slice, forceRefresh,
+  _sliceOpenMostRecent: function fs__sliceOpenMostRecent(slice, forceRefresh,
                                                           releaseMutex) {
     // We only put the slice in the list of slices now that we have the mutex
     // in order to avoid having the slice have data fed into it if there were
@@ -2484,7 +2484,7 @@ FolderStorage.prototype = {
    * way back to 1990.  And if we have no messages in the slice, then we use the
    * full date bounds.
    */
-  refreshSlice: function ifs_refreshSlice(slice) {
+  refreshSlice: function fs_refreshSlice(slice) {
     // Set the status immediately so that the UI will convey that the request is
     // being processed, even though it might take a little bit to acquire the
     // mutex.
@@ -2493,8 +2493,8 @@ FolderStorage.prototype = {
       'refresh',
       this._refreshSlice.bind(this, slice, false));
   },
-  _refreshSlice: function ifs__refreshSlice(slice, releaseMutex,
-                                            checkOpenRecency) {
+  _refreshSlice: function fs__refreshSlice(slice, checkOpenRecency,
+                                           releaseMutex) {
     slice.waitingOnData = 'refresh';
 
     var startTS = slice.startTS, endTS = slice.endTS;
@@ -2614,7 +2614,7 @@ FolderStorage.prototype = {
       // We want to have the refresh check its refresh recency range unless we
       // have been explicitly told to force a refresh.
       var checkOpenRecency = triggerRefresh !== 'force';
-      this._refreshSlice(slice, releaseMutex, checkOpenRecency);
+      this._refreshSlice(slice, checkOpenRecency, releaseMutex);
     }
   },
 

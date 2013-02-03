@@ -86,8 +86,11 @@ var TestUniverseMixins = {
 
         // For consistency with our original tests where we would always
         // generate network traffic when opening a slice, set the threshold so
-        // that it is always exceeded.
-        refreshThresh: -1,
+        // that it is always exceeded.  Tests that care currently explicitly
+        // set this.
+        openRefreshThresh: -1,
+        // Same deal.
+        growRefreshThresh: -1,
       });
     }
 
@@ -749,7 +752,11 @@ var TestImapAccountMixins = {
 
     testFolder.id = null;
     testFolder.mailFolder = null;
-    testFolder.messages = null;
+    // messages on the server
+    testFolder.serverMessages = null;
+    // messages that should be known to the client based on the sync operations
+    //  we have generated expectations for.
+    testFolder.knownMessages = [];
     testFolder._approxMessageCount = messageSetDef.count;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
@@ -816,7 +823,8 @@ var TestImapAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.messages = null;
+    testFolder.serverMessages = null;
+    testFolder.knownMessages = [];
     testFolder._approxMessageCount = 30;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup('find test folder', testFolder, function() {
@@ -824,7 +832,7 @@ var TestImapAccountMixins = {
                                 folderName);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+        testFolder.serverMessages = oldFolder.serverMessages;
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -840,7 +848,8 @@ var TestImapAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.messages = null;
+    testFolder.serverMessages = null;
+    testFolder.knownMessages = [];
     testFolder._approxMessageCount = 30;
     testFolder._liveSliceThings = [];
     this.T.convenienceSetup('find test folder', testFolder, function() {
@@ -848,7 +857,7 @@ var TestImapAccountMixins = {
                                 folderType);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+        testFolder.serverMessages = oldFolder.serverMessages;
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -894,21 +903,21 @@ var TestImapAccountMixins = {
       if (checkFlagDefault(opts, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
-      else if (!testFolder.messages) {
-        testFolder.messages = messageBodies;
+      else if (!testFolder.serverMessages) {
+        testFolder.serverMessages = messageBodies;
       }
       // messages already in there, need to insert them appropriately
       else {
         for (var i = 0; i < messageBodies.length; i++) {
           var idx = $util.bsearchForInsert(
-            testFolder.messages, messageBodies[i],
+            testFolder.serverMessages, messageBodies[i],
             function (a, b) {
               // we only compare based on date because we require distinct dates
               // for this ordering, but we could track insertion sequence
               // which would correlate with UID and then be viable...
               return b.date - a.date;
             });
-          testFolder.messages.splice(idx, 0, messageBodies[i]);
+          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
         }
       }
       self.universe.appendMessages(testFolder.id, messageBodies);
@@ -994,10 +1003,30 @@ var TestImapAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
+  /**
+   * Propagate messages from serverMessage to knownMessages in a testFolder as
+   * the result of a sync.
+   *
+   * We don't bother with time-stamps, but we do rely on the known/existing
+   * messages
+   *
+   * @args[
+   *   @param[dir @oneof[
+   *     @case[-1]{ Futurewards }
+   *     @case[0]{ It's a refresh! }
+   *     @case[1]{ Pastwards }
+   *   ]
+   * ]
+   */
+  _propagateToKnownMessages: function(viewThing, addCount, delCount, dir) {
+  },
+
+  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags,
+                              syncDir) {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
-    var totalMessageCount = 0;
+    var totalMessageCount = 0,
+        nonet = checkFlagDefault(extraFlags, 'nonet', false);
 
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
@@ -1006,14 +1035,14 @@ var TestImapAccountMixins = {
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
-        if (this.universe.online) {
+        if (this.universe.online && !nonet) {
           testFolder.connActor.expect_syncDateRange_begin(null, null, null);
           testFolder.connActor.expect_syncDateRange_end(
             einfo.full, einfo.flags, einfo.deleted);
         }
       }
     }
-    if (this.universe.online &&
+    if (this.universe.online && !nonet &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eImapAccount.expect_saveAccountState();
     }
@@ -1086,10 +1115,10 @@ var TestImapAccountMixins = {
         self.expect_messagesReported(totalExpected);
         if (totalExpected) {
           self.expect_messageSubject(
-            0, testFolder.messages[0].headerInfo.subject);
+            0, testFolder.knownMessages[0].headerInfo.subject);
           self.expect_messageSubject(
             totalExpected - 1,
-            testFolder.messages[totalExpected - 1].headerInfo.subject);
+            testFolder.knownMessages[totalExpected - 1].headerInfo.subject);
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,
@@ -1768,7 +1797,9 @@ exports.TESTHELPER = {
     testUniverse: TestUniverseMixins,
     testAccount: TestCommonAccountMixins,
     testActiveSyncServer: TestActiveSyncServerMixins,
-  }
+  },
+  thingMixins: {
+  },
 };
 
 });
