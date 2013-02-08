@@ -136,7 +136,8 @@ TestContext.prototype = {
   /**
    * Mix-in contributions from testhelper actorMixins or thingMixins entries.
    */
-  _mixinFromHelperDefs: function(target, what, type) {
+  _mixinFromHelperDefs: function(target, what, type, invokeConstructor,
+                                 constructorArgs) {
     var useDict = what + 'Mixins';
 
     var helperDefs = this.__testCase.definer.__testHelperDefs;
@@ -152,6 +153,9 @@ TestContext.prototype = {
           target[key] = mixyBits[key];
         }
       }
+
+      if (invokeConstructor && '__constructor' in target)
+        target.__constructor.apply(target, constructorArgs);
     }
   },
 
@@ -192,7 +196,7 @@ TestContext.prototype = {
         // (from an efficiency perspective, we might be better off creating a
         //  parameterized prototype descendent during the defineTestsFor call
         //  since we can establish linkages at that point.)
-        this._mixinFromHelperDefs(actor, 'actor', type);
+        this._mixinFromHelperDefs(actor, 'actor', type, false);
 
         // - poke it into our logger for reporting.
         this._log._named[actor._uniqueName] = actor;
@@ -277,7 +281,7 @@ TestContext.prototype = {
    */
   thing: function thing(type, humanName, digitalName) {
     var thang = $log.__makeThing(type, humanName, digitalName);
-    this._mixinFromHelperDefs(thang, 'thing', type);
+    this._mixinFromHelperDefs(thang, 'thing', type, true, []);
     // poke it into our logger for reporting.
     this._log._named[thang._uniqueName] = thang;
     return thang;
@@ -285,7 +289,7 @@ TestContext.prototype = {
 
   ownedThing: function ownedThing(actor, type, humanName, digitalName) {
     var thang = $log.__makeThing(type, humanName, digitalName);
-    this._mixinFromHelperDefs(thang, 'thing', type);
+    this._mixinFromHelperDefs(thang, 'thing', type, true, []);
     if (!actor._logger._named)
       actor._logger._named = {};
     actor._logger._named[thang._uniqueName] = thang;

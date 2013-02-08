@@ -204,7 +204,7 @@ MessageGenerator.prototype = {
                   SUBJECT_SUFFIXES.length;
     return SUBJECT_ADJECTIVES[iAdjective] + " " +
            SUBJECT_NOUNS[iNoun] + " " +
-           SUBJECT_SUFFIXES[iSuffix];
+           SUBJECT_SUFFIXES[iSuffix] + " #" + aSubjectNumber;
   },
 
   /**
@@ -369,7 +369,7 @@ MessageGenerator.prototype = {
     if (aArgs.age) {
       var age = aArgs.age;
       // start from 'now'
-      var ts = this._clock || Date.now();
+      var ts = this._clock.valueOf() || Date.now();
       if (age.seconds)
         ts -= age.seconds * 1000;
       if (age.minutes)

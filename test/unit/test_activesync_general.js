@@ -96,6 +96,7 @@ TD.commonCase('folder sync', function(T) {
         checkExpected = { changes: [], deletions: [toDelete] },
         expectedFlags = { top: true, bottom: true, grow: false };
 
+    fullSyncFolder.beAwareOfDeletion(0);
     fullSyncFolder.serverFolder.removeMessageById(toDeleteId);
     var totalExpected = testAccount._expect_dateSyncs(folderView.testFolder,
                                                       expectedValues);

@@ -152,9 +152,9 @@ TD.commonCase('folder sync', function(T) {
     }
 
     // update our test's idea of what messages exist where.
-    msearchFolder.messages.splice(8, 1);
-    msearchFolder.messages.splice(2, 1);
-    msearchFolder.messages.splice(1, 1);
+    msearchFolder.beAwareOfDeletion(8);
+    msearchFolder.beAwareOfDeletion(2);
+    msearchFolder.beAwareOfDeletion(1);
   });
   // add messages (4, 3) to (5-2=3, 5-1=4) so our fetches become: 7, 7
   // (and we are no longer covering all known messages)
@@ -198,8 +198,8 @@ TD.commonCase('folder sync', function(T) {
       expectedRefreshChanges.changes.push([slice.items[10], 'isStarred', true]);
       slice.items[10].setStarred(true);
 
-      msearchFolder.messages.splice(8, 1);
-      msearchFolder.messages.splice(0, 1);
+      msearchFolder.beAwareOfDeletion(8);
+      msearchFolder.beAwareOfDeletion(0);
     });
   testAccount.do_refreshFolderView(
     msearchView,
@@ -213,7 +213,7 @@ TD.commonCase('folder sync', function(T) {
   T.action(eSync, 'request message body from', msearchView, function() {
     // Pick an index that's not the first one of anything...
     var index = 5,
-        synMessage = msearchView.testFolder.messages[index];
+        synMessage = msearchView.testFolder.knownMessages[index];
     eSync.expect_namedValue(
       'bodyInfo',
       {
