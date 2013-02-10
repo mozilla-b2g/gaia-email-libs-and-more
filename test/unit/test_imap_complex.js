@@ -20,12 +20,12 @@ const INITIAL_SYNC_DAYS = 7,
  * - We do/don't refresh if our time threshold says we should/shouldn't when
  *   opening a slice.
  * - We do/don't refresh when growing based on our time threshold.
+ * - When our refresh is confronted with too many messages, the bisection logic
+ *   properly kicks in to cover the entire range.
  * - When growing with refresh to cover known messages, we still check days
  *   that we didn't have any messages in one of our refreshes.  (So if we are
  *   showing Wednesday, our first previous messages are on Monday, our grow's
  *   refresh will cover Tuesday and not result in a gap.)
- * - When our refresh is confronted with too many messages, the bisection logic
- *   properly kicks in to cover the entire range.
  */
 TD.commonCase('sliceOpenMostRecent', function(T) {
   T.group('setup');
@@ -67,7 +67,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
    * - Add a message.
    * - Verify that a slice open without having crossed the threshold only tells
    *   us about what we already know about and there is no network traffic.
-   * - Timewarp so we want to refres, open the slice, verify a refresh with the
+   * - Timewarp so we want to refresh, open the slice, verify a refresh with the
    *   new message coming last.
    * - Add another message, verify a sync refresh with still only fill-size
    *   retrieved and the new message coming last.
@@ -80,24 +80,10 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
    * - Perform initial deepening sync.
    * - Add enough messages to trigger overflow conditions on the refresh and
    *   a subsequent naive date sync for expanding the range.
-   * - Perform a #1-qualifying open, observe the initial set of messages
-   *   followed by some of the overflow messages, and the retraction of the
-   *   initial set of messages because our sync no longer reaches them.
-   * - (We now have two islands of synchronized data.  The original fully
-   *   synced interval, plus the new deepended interval, with a gap in between.
-   *   This raises semantics issues for atBottom, but we define that the answer
-   *   is we are not at the bottom and we will perform the extra sync required
-   *   to link us up with our friends.  However, a distinct grow request is
-   *   still required to trigger the network traffic.)
-   * - Grow in the older direction, and verify that this appears to result in
-   *   an overflow case that gets bisected down.
-   *
-   * - Create another new folder.
-   * - Perform initial deepening sync.
-   * - Add enough messages to trigger overflow conditions.
-   * - Perform a #2 qualifying open, observe that we get some of the overflow
-   *   messages and never see the older messages.
-   *
+   * - Perform a refreshing open; observe the aborted refresh sync which is
+   *   replaced by a series of smaller syncs along the lines of a deepening
+   *   sync.  The main difference is that our bisection logic is used to
+   *   determine how many days we start out with.
    **/
 
   // Jan 28th, yo.  Intentionally avoiding dalight saving time
@@ -169,7 +155,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     { top: true, bottom: true, grow: true });
 
 
-  T.group('minimal changes: add, sync refresh');
+  T.group('minimal changes: add, no refresh, sync refresh');
   testAccount.do_addMessagesToFolder(
     c1Folder,
     { count: 1, age: { days: 1 } });
@@ -218,9 +204,10 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
-  T.group('lots of messages:  #1 refresh open with overflow');
+  T.group('lots of messages: refresh open with overflow');
   testAccount.do_addMessagesToFolder(
     c2Folder,
     { count: 21, age: { days: 1 }, age_incr: { days: 1 } });
@@ -228,93 +215,35 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   var f2View = testAccount.do_openFolderView(
     'bisecting sync refresh', c2Folder,
-    // the aborted refresh manifests as this...
-    [{ count: 0, full: null, flags: null, deleted: null },
-    // and then becomes a series of deepening syncs within the 1 larger sync
-    // that goes on to cover the entire date range requested
-     { count: 3, full: 3, flags: 0, deleted: 0 },
-     { count: 3, full: 3, flags: 0, deleted: 0 },
-     { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false },
-    { extraMutex: 'sync' });
+    // Because of the overflow, we trigger bisection logic, so this sync
+    // gets aborted which logs all null values:
+    [{ count: 0, full: null, flags: null, deleted: null,
+       startTS: 631152000000, endTS: 1338249600000 },
+    // The bisection logic falls back from the 'all of time ever' case,
+    // dropping down to the hardcoded 30 day limit.
+    // Our shrink scale ends up(BISECT_DATE_AT_N_MESSAGES / (numHeaders * 2))
+    // === (15 / (30 * 2)) === 0.25.  We were scanning 30 days, so we end up
+    // with 7.5 => 8 days of stepping.  Because we generated the messages
+    // offset by 1 day, this means 7 new messages.
+     { count: 7, full: 7, flags: 0, deleted: 0,
+       startTS: 1337558400000, endTS: 1338249600000 },
+    // and then 8 because there is no skipped day in this range
+     { count: 8, full: 8, flags: 0, deleted: 0,
+       startTS: 1336176000000, endTS: 1336867200000 },
+    // and then we overlap with the already known messages.  Note that although
+    // onSyncCompleted can now conclude that it knows about the existence of
+    // all the messages in the folder, it can't conclude that the flags are
+    // up-to-date, so it will be forced to issue an additional search to get
+    // those flags.
+     { count: 8, full: 6, flags: 2, deleted: 0,
+       startTS: 1336176000000, endTS: 1336867200000 },
 
-  T.group('free growth to previously synced message bounds');
-  // This previously triggered a bisection because the sync range suggested by
-  // the messages in the database that we know about tells us about 21 messages
-  // which is more than our threshold of 15.  This bisection was dangerous,
-  // however, because it was forbidden from growing and could accordingly result
-  // in telling us about 0 messages.
-  //
-  // As a stop-gap, https://bugzilla.mozilla.org/show_bug.cgi?id=824196 makes
-  // us no longer bisect.  The short-term planned fixes are
-  // https://bugzilla.mozilla.org/show_bug.cgi?id=822882 and
-  // https://bugzilla.mozilla.org/show_bug.cgi?id=823384 which will address
-  // the issue by means of refresh and partial day syncs, with new/revised tests
-  // for refresh.
-  //
-  // But we do care about not losing coverage like this so:
-  // XXX make sure the growth case using refresh encounters an overload-like
-  // scenario that does not result in a loss of correctness.
-  testAccount.do_growFolderView(
-    f2View, 9, false, 9,
-    [{ count: 21, full: 12, flags: 9, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
-  /*
-  testAccount.do_growFolderView(
-    f2View, 9, false, 9,
-    // this will explode into a bisect covering 20 messages, it will guess 8
-    // because Math.ceil(15 / 42 * 20 = 7.14) = 8.  This will trigger an
-    // automated follow-on for another 8 days because it will use the same
-    // time-window for the follow-on, 4 of which will already be known
-    [{ count: 0, full: null, flags: null, deleted: null },
-     { count: 8, full: 8, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
-  testAccount.do_growFolderView(
-    f2View, 12, false, 17,
-    [{ count: 13, full: 4, flags: 9, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
-   */
-
-  testAccount.do_closeFolderView(f2View);
-
-  T.group('lots of messages: setup for #2');
-  // May 28th, intentionally staying far away from daylight savings time.
-  staticNow = new Date(2012, 4, 30, 12, 0, 0).valueOf();
-  testUniverse.do_timewarpNow(staticNow, 'May 30th noon-ish');
-  createdAt = staticNow;
-
-  var c3Folder = testAccount.do_createTestFolder(
-    'test_complex_old3',
-    // By choosing one more than the fill size(9), we ensure that the time range
-    // won't stretch to the dawn of time and therefore that the interpolation
-    // will not have to exercise its sanity check mode.
-    { count: 10, age: { days: 6 * TSYNCI + 1 }, age_incr: { days: 1 } });
-  testAccount.do_viewFolder(
-    'syncs', c3Folder,
-    [{ count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 3, full: 3, flags: 0, deleted: 0 },
-     { count: 3, full: 3, flags: 0, deleted: 0 },
-     { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: true });
-
-  T.group('lots of messages: #2 date range with overflow');
-  testAccount.do_addMessagesToFolder(
-    c3Folder,
-    { count: 16, age: { days: 1 }, age_incr: { days: 1 } });
-  staticNow += 3 * HOUR_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '+3 hour');
-  testAccount.do_viewFolder(
-    '#2 date range', c3Folder,
-    // this ends up as a bisection with 8 messages
-    [{ count: 0, full: null, flags: null, deleted: null },
-     { count: 8, full: 8, flags: 0, deleted: 0 },
-     { count: 1, full: 8, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+     { count: 7, full: 0, flags: 7, deleted: 0,
+       startTS: 1336176000000, endTS: 1336867200000 }],
+    // This will result in us covering the entire span, so we will be at the
+    // bottom too.
+    { top: true, bottom: true, grow: false },
+    { extraMutex: 'sync', syncedToDawnOfTime: true });
 
   T.group('cleanup');
 });
@@ -371,16 +300,24 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   testAccount.do_viewFolder(
     'syncs', testFolder,
     [{ count: 4, full: 6, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    // This is a deepening; we can tell because endTS-startTS is 4 days
+    { top: true, bottom: false, grow: false,
+      startTS: 1327449600000, endTS: 1327795200000 },
+    { syncedToDawnOfTime: true });
 
-  T.group('no change: #1 refresh');
+  T.group('no change: refresh');
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
-  // XXX need to differentiate refresh and verify
   testAccount.do_viewFolder(
     '#1 refresh sync', testFolder,
     { count: 4, full: 0, flags: 6, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    // This is a refresh; we can tell because the startTS is based on the
+    // oldest message in our slice.  The endTS is no clamped like this because
+    // it expands the refresh range into the future (which is the same future
+    // as we used when we opened the folder, because of quantization.)
+    { top: true, bottom: false, grow: false,
+      startTS: 1327622400000, endTS: 1327795200000},
+    { syncedToDawnOfTime: true });
 
   T.group('cleanup');
 });
@@ -439,7 +376,8 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
   var folderView = testAccount.do_openFolderView(
     'syncs', testFolder,
     [{ count: 3, full: 6, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('grow');
   testAccount.do_growFolderView(
@@ -487,26 +425,18 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
   T.group('make there be 1 unexpunged but deleted message');
   var staticNow = new Date(2000, 0, 1, 12, 0, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 1, 2000');
+  T.setup('disable folder closing', function() {
+    testAccount.imapAccount._TEST_doNotCloseFolder = true;
+  });
   var testFolder = testAccount.do_createTestFolder(
     'test_stop_at_1990',
-    { count: 2, age: { hours: 1 }, age_incr: { hours: 12 } });
-  testAccount.do_manipulateFolder(testFolder, 'delete 1', function(slice) {
-    // we don't want to expunge this guy
-    testAccount.imapAccount._TEST_doNotCloseFolder = true;
-    testAccount.expect_runOp('modtags',
-                             { local: false, server: true, save: false });
-
-    MailAPI.modifyMessageTags([slice.items[0]], ['\\Deleted'], null, 'delete');
-    testFolder.messages.splice(0, 1);
-  });
-
-  T.group('time-warp so no refresh happens');
-  staticNow = new Date(2000, 0, 3, 12, 0, 0).valueOf();
-  testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
+    { count: 1, age: { hours: 1 }, age_incr: { hours: 12 },
+      // have the
+      flags: ['Deleted'] });
 
   T.group('go to 1990 but no further!');
-  const expectedZeroProbes = 38,
-        expectsTo1990 = [{ count: 1, full: 0, flags: 1, deleted: 1 }];
+  const expectedZeroProbes = 40,
+        expectsTo1990 = [];
   for (var iProbe = 0; iProbe < expectedZeroProbes; iProbe++) {
     expectsTo1990.push({ count: 0, full: 0, flags: 0, deleted: 0 });
   }

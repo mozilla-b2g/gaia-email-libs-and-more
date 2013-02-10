@@ -470,7 +470,7 @@ var TestCommonAccountMixins = {
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
-                                 expectedFlags) {
+                                 expectedFlags, extraFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
       var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
@@ -479,7 +479,7 @@ var TestCommonAccountMixins = {
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
 
       self._expect_storage_mutexed(viewThing.testFolder.storageActor,
-                                   'refresh');
+                                   'refresh', extraFlags);
 
       viewThing.slice.refresh();
     });
@@ -490,9 +490,11 @@ var TestCommonAccountMixins = {
    * the given type.  Ignore block load and deletion notifications during this
    * time.
    */
-  _expect_storage_mutexed: function(storageActor, syncType) {
+  _expect_storage_mutexed: function(storageActor, syncType, extraFlags) {
     this.RT.reportActiveActorThisStep(storageActor);
     storageActor.expect_mutexedCall_begin(syncType);
+    if (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false))
+      storageActor.expect_syncedEntireFolder();
     storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
@@ -1066,6 +1068,10 @@ var TestImapAccountMixins = {
    *     The folder view in question; we want this primarily for its testFolder
    *     but also to know what messages it currently knows about.
    *   }
+   *   @param[propState @oneof[null Object]]{
+   *     A state object returned by a prior call to this function for use
+   *     within the same _expect_dateSyncs invocation.
+   *   }
    *   @param[reportCount]{
    *     The 'count' value provided in the expecedValues dicts.  This is the
    *     number of messages that will be reported from the given sync
@@ -1089,24 +1095,28 @@ var TestImapAccountMixins = {
    *   ]
    * ]
    */
-  _propagateToKnownMessages: function(viewThing, reportCount,
+  _propagateToKnownMessages: function(viewThing, propState, reportCount,
                                       addCount, delCount, dir) {
+    if (!propState)
+      propState = { offsetAdjust: 0, itemsAdjust: 0, idx: 0 };
+    else
+      propState.idx++;
     var testFolder = viewThing.testFolder,
         serverMessages = testFolder.serverMessages,
         knownMessages = testFolder.knownMessages,
         serverDeleted = testFolder.serverDeleted,
         seenAdded = 0, seenDeleted = 0,
         // the index of the slice's numerically lowest known message
-        lowKnownIdx = viewThing.offset,
+        lowKnownIdx = viewThing.offset + propState.offsetAdjust,
         // the index of the slice's numerically highest known message
-        highKnownIdx = viewThing.offset +
-          (viewThing.slice ? (viewThing.slice.items.length - 1) : -1);
+        highKnownIdx = lowKnownIdx +
+          (viewThing.slice ?
+             (viewThing.slice.items.length + propState.itemsAdjust - 1) : -1);
 
     function expandDateIndex(idx, array, dir) {
       // no need to adjust gibberish indices
       if (idx < 0 || idx >= array.length)
         return idx;
-//console.log('idx', idx, 'thing', JSON.stringify(array[idx]));
       var thresh = $date.quantizeDate(array[idx].headerInfo.date +
                                       (dir === -1 ? 0 : $date.DAY_MILLIS));
       var i;
@@ -1133,6 +1143,13 @@ var TestImapAccountMixins = {
     function findServerIndex(knownIndex, shrinkAttr, expandDir) {
       if (!serverMessages.length ||
           knownIndex < -1)
+        return 0;
+
+      // If this is the earliest message known to us, then the time heuristics
+      // in sync will clamp the search range to 'now', so we should be using
+      // the first available server message too.  We intentionally do want to
+      // do this prior to calling expandDateIndex.
+      if (knownIndex === 0 && expandDir === -1)
         return 0;
 
       console.log('FSI:', expandDir, knownIndex, 'lowKnown',
@@ -1297,13 +1314,26 @@ console.log('initial');
       // This is a refresh on top of a fetch of INITIAL_FILL_SIZE from the db.
       // reportCount is not the right thing to use because it tells us how
       // many messages we'll hear about after the refresh is all done.
-      else {
+      //
+      // If this is a refresh that takes multiple passes, then the 0th will have
+      // been the bisection abort that did nothing.  The 1st will be the one
+      // that actually decides the server range we are processing, and
+      // everything after that will just be the incremental steps.
+      else if (propState.idx === 0) {
         var useCount = Math.min(knownMessages.length, $sync.INITIAL_FILL_SIZE);
         dir = 0;
         lowKnownIdx = 0;
         highKnownIdx = useCount - 1;
-        mergeIn(findServerIndex(lowKnownIdx, 'above', -1),
-                findServerIndex(highKnownIdx, 'below', 1));
+        propState.highKnownHeader = knownMessages[highKnownIdx];
+        mergeIn(
+          (propState.serverLow = findServerIndex(lowKnownIdx, 'above', -1)),
+          (propState.serverHigh = findServerIndex(highKnownIdx, 'below', 1)));
+      }
+      else {
+        dir = 0;
+        lowKnownIdx = 0;
+        highKnownIdx = knownMessages.indexOf(propState.highKnownHeader);
+        mergeIn(propState.serverLow, propState.serverHigh);
       }
     }
     // --- refresh
@@ -1325,6 +1355,8 @@ console.log('initial');
       mergeIn(findServerIndex(knownMessages.length - 1, 'below', -1) + 1,
               serverMessages.length - 1);
     }
+
+    return propState;
   },
 
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
@@ -1339,17 +1371,28 @@ console.log('initial');
       if (!Array.isArray(expectedValues))
         expectedValues = [expectedValues];
 
+      var propState = null;
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
         if (this.universe.online && !nonet) {
-          this._propagateToKnownMessages(viewThing, einfo.count, einfo.full,
-                                         einfo.deleted,
-                                         syncDir);
+          propState = this._propagateToKnownMessages(
+            viewThing, propState,
+            einfo.count, einfo.full, einfo.deleted, syncDir);
 
-          testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-          testFolder.connActor.expect_syncDateRange_end(
-            einfo.full, einfo.flags, einfo.deleted);
+          if (!einfo.hasOwnProperty('startTS')) {
+            testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted);
+          }
+          // some tests explicitly specify the date-stamps
+          else {
+            testFolder.connActor.expect_syncDateRange_begin(
+              null, null, null, einfo.startTS, einfo.endTS);
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted,
+              einfo.startTS, einfo.endTS);
+          }
         }
       }
     }
@@ -1391,6 +1434,10 @@ console.log('initial');
    *       Indicate that no network traffic is expected.  This is only relevant
    *       if we think we are online.
    *     }
+   *     @key[syncedToDawnOfTime #:optional Boolean]{
+   *       Assert that we are synced to the dawn of time at the end of this
+   *       sync.
+   *     }
    *   ]]
    * ]
    */
@@ -1400,7 +1447,7 @@ console.log('initial');
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
     var testStep = this.T.action(this, desc, testFolder, 'using',
                                  testFolder.connActor, function() {
-      self._expect_storage_mutexed(testFolder.storageActor, 'sync');
+      self._expect_storage_mutexed(testFolder.storageActor, 'sync', extraFlags);
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
@@ -1487,12 +1534,13 @@ console.log('initial');
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
 
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow');
+      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow',
+                                   extraFlags);
 
       var expectedMessages;
       if (dirMagnitude < 0) {
         viewThing.offset += dirMagnitude;
-        expectedMessages = viewThing.testFolder.messages.slice(
+        expectedMessages = viewThing.testFolder.knownMessages.slice(
                              viewThing.offset,
                              viewThing.offset - dirMagnitude);
       }
@@ -1500,7 +1548,7 @@ console.log('initial');
         if (checkFlagDefault(extraFlags, 'willFail', false))
           expectedMessages = [];
         else
-          expectedMessages = viewThing.testFolder.messages.slice(
+          expectedMessages = viewThing.testFolder.knownMessages.slice(
                                viewThing.offset + alreadyExists,
                                viewThing.offset + totalExpected);
       }

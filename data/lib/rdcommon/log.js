@@ -762,7 +762,8 @@ var TestActorProtoBase = {
          (!this._expectations.length &&
           this._expectNothing))) {
       // Only get upset if this is not an ignored event.
-      if (!this._ignore || !this._ignore.hasOwnProperty(entry[0])) {
+      if (!this._ignore ||
+          !this._ignore.hasOwnProperty(entries[this._iEntry][0])) {
         this._expectationsMetSoFar = false;
         this._logger.__unexpectedEntry(this._iEntry, entries[this._iEntry]);
       }

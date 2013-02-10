@@ -47,7 +47,8 @@ TD.commonCase('folder sync', function(T) {
     'test_empty_sync', { count: 0 });
   testAccount.do_viewFolder('syncs', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+                            { top: true, bottom: true, grow: false },
+                            { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 },
@@ -55,7 +56,8 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', emptyFolder,
                             { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+                            { top: true, bottom: true, grow: false },
+                            { syncedToDawnOfTime: true });
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
@@ -67,7 +69,8 @@ TD.commonCase('folder sync', function(T) {
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder('syncs', fullSyncFolder,
                             { count: 4, full: 4, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+                            { top: true, bottom: true, grow: false },
+                            { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
                             { count: 4, full: 0, flags: 0, deleted: 0 },
@@ -75,7 +78,8 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder('resyncs', fullSyncFolder,
                             { count: 4, full: 0, flags: 4, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+                            { top: true, bottom: true, grow: false },
+                            { syncedToDawnOfTime: true });
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
@@ -118,7 +122,8 @@ TD.commonCase('folder sync', function(T) {
     [{ count: 5, full: 5, flags: 0, deleted: 0 },
      { count: 5, full: 5, flags: 0, deleted: 0 },
      { count: 2, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false },
+    { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
@@ -130,7 +135,8 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_viewFolder(
     'resyncs', msearchFolder,
     [{ count: 12, full: 0, flags: 12, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false },
+    { syncedToDawnOfTime: true });
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -171,7 +177,8 @@ TD.commonCase('folder sync', function(T) {
     // because the new messages are interleaved rather than at the end, we will
     // end up with more than 12/INITIAL_FILL_SIZE in the second case.
     [{ count: 16, full: 7, flags: 9, deleted: 3 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false },
+    { syncedToDawnOfTime: true });
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh

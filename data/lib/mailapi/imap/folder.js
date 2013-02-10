@@ -302,7 +302,7 @@ console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
         if (serverUIDs.length > useBisectLimit) {
           var effEndTS = endTS || FUTURE() ||
                          quantizeDate(Date.now() + DAY_MILLIS),
-              curDaysDelta = (effEndTS - startTS) / DAY_MILLIS;
+              curDaysDelta = Math.round((effEndTS - startTS) / DAY_MILLIS);
           // We are searching more than one day, we can shrink our search.
 
 console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
@@ -314,7 +314,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               oldEndTS: endTS,
               numHeaders: serverUIDs.length,
               curDaysDelta: curDaysDelta,
-              newStartTS: makeDaysBefore(effEndTS, backDays),
+              newStartTS: startTS,
+              newEndTS: endTS,
             };
             startTS = bisectInfo.newStartTS;
             // If we were being used for a refresh, they may want us to stop
@@ -1018,7 +1019,7 @@ ImapFolderSyncer.prototype = {
                           (numHeaders * 2),
           dayStep = Math.max(1,
                              Math.ceil(shrinkScale * curDaysDelta));
-      this._curDayStep = dayStep;
+      this._curSyncDayStep = dayStep;
 
       if (this._curSyncDir === PASTWARDS) {
         bisectInfo.newEndTS = bisectInfo.oldEndTS;
@@ -1053,10 +1054,21 @@ ImapFolderSyncer.prototype = {
 
     // If it now appears we know about all the messages in the folder, then we
     // are done syncing and can mark the entire folder as synchronized.  This
-    // requires that the number of messages we know about is the same as the
-    // number the server most recently told us are in the folder, plus that the
-    // slice's oldest know message is the oldest message known to the db,
-    // implying that we have fully synchronized the folder during this session.
+    // requires that:
+    // - The direction is pastwards. (We check the oldest header, so this
+    //   is important.  We don't really need to do a future-wards variant since
+    //   we always use pastwards for refreshes and the future-wards variant
+    //   really does not need a fast-path since the cost of stepping to 'today'
+    //   is much cheaper thana the cost of walking all the way to 1990.)
+    // - The number of messages we know about is the same as the number the
+    //   server most recently told us are in the folder.
+    // - (There are no messages in the folder at all OR)
+    // - We have synchronized past the oldest known message header.  (This,
+    //   in combination with the fact that we always open from the most recent
+    //   set of messages we know about, that we fully synchronize all time
+    //   intervals (for now!), and our pastwards-direction for refreshes means
+    //   that we can conclude we have synchronized across all messages and
+    //   this is a sane conclusion to draw.)
     //
     // NB: If there are any deleted messages, this logic will not save us
     // because we ignored those messages.  This is made less horrible by issuing
@@ -1072,11 +1084,14 @@ console.log("folder message count", folderMessageCount,
             "dbCount", dbCount,
             "oldest known", this.folderStorage.headerIsOldestKnown(
               this._syncSlice.startTS,
-              this._syncSlice.startUID));
-    if (folderMessageCount === dbCount &&
-        this.folderStorage.headerIsOldestKnown(
-          this._syncSlice.startTS,
-          this._syncSlice.startUID)) {
+              this._syncSlice.startUID),
+            "next sync anchor", this._nextSyncAnchorTS);
+    if (this._curSyncDir === PASTWARDS &&
+        folderMessageCount === dbCount &&
+        (!folderMessageCount ||
+         TIME_DIR_AT_OR_BEYOND(this._curSyncDir, this._nextSyncAnchorTS,
+                               this.folderStorage.getOldestMessageTimestamp()))
+       ) {
       // expand the accuracy range to cover everybody
       this.folderStorage.markSyncedEntireFolder();
       this._doneSync();
@@ -1091,9 +1106,9 @@ console.log("folder message count", folderMessageCount,
       return;
     }
 
-    // - Done if we don't want any more headers.
-    if (this._syncSlice.headers.length >=
-          this._syncSlice.desiredHeaders) {
+    // - Done if this is a grow and we don't want/need any more headers.
+    if (this._curSyncIsGrow &&
+        this._syncSlice.headers.length >= this._syncSlice.desiredHeaders) {
         // (limited syncs aren't allowed to expand themselves)
       console.log("SYNCDONE Enough headers retrieved.",
                   "have", this._syncSlice.headers.length,

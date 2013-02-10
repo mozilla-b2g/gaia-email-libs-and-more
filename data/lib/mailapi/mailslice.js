@@ -2041,10 +2041,19 @@ FolderStorage.prototype = {
    * non-zero again.
    */
   _runDeferredCalls: function ifs__runDeferredCalls() {
+console.warn('cleaning out deferred calls!', this._deferredCalls.length,
+             this._pendingLoads.length);
     while (this._deferredCalls.length && this._pendingLoads.length === 0) {
       var toCall = this._deferredCalls.shift();
-      toCall();
+      try {
+        toCall();
+      }
+      catch (ex) {
+        this._LOG.callbackErr(ex);
+      }
     }
+console.warn('done running deferred calls!', this._deferredCalls.length,
+             this._pendingLoads.length);
   },
 
   _findBlockInfoFromBlockId: function(type, blockId) {
@@ -2077,9 +2086,11 @@ FolderStorage.prototype = {
     var index = this._pendingLoads.length;
     this._pendingLoads.push(aggrId);
     this._pendingLoadListeners[aggrId] = [callback];
+console.warn('loading,', aggrId, 'list now:', this._pendingLoads);
 
     var self = this;
     function onLoaded(block) {
+try {
       if (!block)
         self._LOG.badBlockLoad(type, blockId);
       self._LOG.loadBlock_end(type, blockId, block);
@@ -2092,6 +2103,9 @@ FolderStorage.prototype = {
         self._loadedBodyBlockInfos.push(blockInfo);
       }
       self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
+} catch (ex) {
+      console.error('ERROR!', ex, '\n', ex.stack); }
+console.warn('load complete!', aggrId, 'in list', self._pendingLoads);
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
@@ -2103,6 +2117,7 @@ FolderStorage.prototype = {
         }
       }
 
+console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'loads pending');
       if (self._pendingLoads.length === 0)
         self._runDeferredCalls();
     }
@@ -2644,6 +2659,12 @@ FolderStorage.prototype = {
             uid === blockInfo.endUID);
   },
 
+  getOldestMessageTimestamp: function() {
+    if (!this._headerBlockInfos.length)
+      return 0;
+    return this._headerBlockInfos[this._headerBlockInfos.length - 1].startTS;
+  },
+
   /**
    * Return true if the identified header is the oldest known message for this
    * folder as part of our fully-synchronized time-span.  Messages known because
@@ -3135,6 +3156,8 @@ FolderStorage.prototype = {
    * folder.
    */
   markSyncedEntireFolder: function() {
+    this._LOG.syncedEntireFolder();
+
     // We can just expand the first accuracy range structure to stretch to the
     // dawn of time and nuke the rest.
     var aranges = this._accuracyRanges;
@@ -3289,6 +3312,7 @@ FolderStorage.prototype = {
    */
   addMessageHeader: function ifs_addMessageHeader(header, callback) {
     if (this._pendingLoads.length) {
+console.warn('deferring add call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.addMessageHeader.bind(
                                  this, header, callback));
       return;
@@ -3358,6 +3382,7 @@ FolderStorage.prototype = {
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
+console.warn('deferring update call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.updateMessageHeader.bind(
                                  this, date, id, partOfSync,
                                  headerOrMutationFunc, callback));
@@ -3437,6 +3462,7 @@ FolderStorage.prototype = {
   updateMessageHeaderByServerId: function(srvid, partOfSync,
                                           headerOrMutationFunc) {
     if (this._pendingLoads.length) {
+console.warn('deferring update2 call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.updateMessageHeaderByServerId.bind(
         this, srvid, partOfSync, headerOrMutationFunc));
       return;
@@ -3476,6 +3502,7 @@ FolderStorage.prototype = {
    */
   unchangedMessageHeader: function ifs_unchangedMessageHeader(header) {
     if (this._pendingLoads.length) {
+console.warn('deferring unchanged call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
       return;
     }
@@ -3499,6 +3526,7 @@ FolderStorage.prototype = {
 
   deleteMessageHeaderAndBody: function(header, callback) {
     if (this._pendingLoads.length) {
+console.warn('deferring delete call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(
                                  this, header, callback));
       return;
@@ -3542,6 +3570,7 @@ FolderStorage.prototype = {
       throw new Error('Server ID mapping not supported for this storage!');
 
     if (this._pendingLoads.length) {
+console.warn('deferring delete2 call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.deleteMessageByServerId.bind(this, srvid));
       return;
     }
@@ -3578,6 +3607,7 @@ FolderStorage.prototype = {
    */
   addMessageBody: function ifs_addMessageBody(header, bodyInfo, callback) {
     if (this._pendingLoads.length) {
+console.warn('deferring addBody call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.addMessageBody.bind(
                                  this, header, bodyInfo, callback));
       return;
@@ -3773,6 +3803,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // unexpected errors, so this is getting downgraded for now.
       headerNotFound: {},
       bodyNotFound: {},
+
+      syncedEntireFolder: {},
     },
     TEST_ONLY_events: {
     },
