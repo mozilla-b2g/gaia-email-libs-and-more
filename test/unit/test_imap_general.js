@@ -135,8 +135,7 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_viewFolder(
     'resyncs', msearchFolder,
     [{ count: 12, full: 0, flags: 12, deleted: 0 }],
-    { top: true, bottom: false, grow: false },
-    { syncedToDawnOfTime: true });
+    { top: true, bottom: false, grow: false });
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -177,8 +176,7 @@ TD.commonCase('folder sync', function(T) {
     // because the new messages are interleaved rather than at the end, we will
     // end up with more than 12/INITIAL_FILL_SIZE in the second case.
     [{ count: 16, full: 7, flags: 9, deleted: 3 }],
-    { top: true, bottom: false, grow: false },
-    { syncedToDawnOfTime: true });
+    { top: true, bottom: false, grow: false });
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
