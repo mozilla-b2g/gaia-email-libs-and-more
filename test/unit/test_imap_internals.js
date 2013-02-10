@@ -4,7 +4,7 @@
  *
  * - Persistence of account data through setup and teardown.
  * - That teardown kills IMAP connections. (untested right now?)
- * - Sync further back into time on demand.
+ * - Sync further back into time on demand ('grow')
  **/
 
 load('resources/loggest_test_framework.js');

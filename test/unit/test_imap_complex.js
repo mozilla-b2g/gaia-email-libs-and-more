@@ -323,19 +323,14 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
 });
 
 /**
- * When syncing/growing, a sync may return more headers than we want, in which
- * case we do not send them over the wire.  However, when growing, we can
- * assume the headers were synced by that most recent sync, and so can exclude
- * that day from the sync range.  However, we still want to send those headers
- * (and this was indeed a bug), so check for that.
+ * We sync based on day boundaries, but we provide messages to the UI based on
+ * message counts.  Our goal here is to make sure that:
  *
- * This can be duplicated by an initial sync that gets more headers than the
- * fill size where at least one of the excess headers falls on the same day
- * as the oldest header that is returned.  This demonstrates an inefficiency
- * of the current grow algorithm in that it does not check the accuracy range
- * to further reduce the sync range, but that's fine.
+ * - We do not attempt to re-synchronize a just-synchronized date range.
+ * - Those 'remainder' messages that were already synchronized still get
+ *   returned when growth is requested, and do not fall into cracks.
  */
-TD.commonCase('already synced headers are not skipped in grow', function(T) {
+TD.commonCase('just-synced headers returned without re-refresh', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
@@ -382,7 +377,8 @@ TD.commonCase('already synced headers are not skipped in grow', function(T) {
   T.group('grow');
   testAccount.do_growFolderView(
     folderView, 3, false, 3,
-    [{ count: 3, full: 0, flags: 2, deleted: 0 }],
+    // no refresh is required! everything is already synced! 3 from the db.
+    3,
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
@@ -480,20 +476,29 @@ TD.commonCase('repeated refresh is stable', function(T) {
   var testView = testAccount.do_openFolderView(
     'refresher', testFolder,
     { count: fillSize, full: totalCount, flags: 0, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false,
+      // This is a deepening sync that covers everything, so we will have a
+      // wider time span only on this one.
+      startTS: 946339200000, endTS: 947030400000 },
+    { syncedToDawnOfTime: true });
+  var refreshSpanStart = 946771200000,
+      refreshSpanEnd = 947030400000;
   testAccount.do_refreshFolderView(
     testView,
-    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0,
+      startTS: refreshSpanStart, endTS: refreshSpanEnd },
     noChanges,
     { top: true, bottom: false, grow: false });
   testAccount.do_refreshFolderView(
     testView,
-    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0,
+      startTS: refreshSpanStart, endTS: refreshSpanEnd },
     noChanges,
     { top: true, bottom: false, grow: false });
   testAccount.do_refreshFolderView(
     testView,
-    { count: fillSize, full: 0, flags: fillSize, deleted: 0 },
+    { count: fillSize, full: 0, flags: fillSize, deleted: 0,
+      startTS: refreshSpanStart, endTS: refreshSpanEnd },
     noChanges,
     { top: true, bottom: false, grow: false });
 

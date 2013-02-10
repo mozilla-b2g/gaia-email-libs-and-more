@@ -366,7 +366,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             if (completed)
               return;
             completed = true;
-            doneCallback(null, null, newCount + knownCount);
+            doneCallback(null, null, newCount + knownCount,
+                         skewedStartTS, skewedEndTS);
           },
           progressCallback);
       });
@@ -998,8 +999,22 @@ ImapFolderSyncer.prototype = {
    * we could perform checkpoints during the process, but realistically any
    * device we are operating on should probably have enough memory to deal with
    * these surges, so we're not doing that yet.
+   *
+   * @args[
+   *   @param[err]
+   *   @param[bisectInfo]
+   *   @param[messagesSeen Number]
+   *   @param[effStartTS DateMS]{
+   *     Effective start date in UTC after compensating for server tz offset.
+   *   }
+   *   @param[effEndTS @oneof[DateMS null]]{
+   *     Effective end date in UTC after compensating for server tz offset.
+   *     If the end date was open-ended, then null is passed instead.
+   *   }
+   * ]
    */
-  onSyncCompleted: function ifs_onSyncCompleted(err, bisectInfo, messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(err, bisectInfo, messagesSeen,
+                                                effStartTS, effEndTS) {
     // In the event the time range had to be bisected, update our info so if
     // we need to take another step we do the right thing.
     if (err === 'bisect') {
@@ -1079,17 +1094,17 @@ ImapFolderSyncer.prototype = {
     // expunge.)
     var folderMessageCount = this.folderConn && this.folderConn.box &&
                              this.folderConn.box.messages.total,
-        dbCount = this.folderStorage.getKnownMessageCount();
+        dbCount = this.folderStorage.getKnownMessageCount(),
+        syncedThrough =
+          ((this._curSyncDir === PASTWARDS) ? effStartTS : effEndTS);
 console.log("folder message count", folderMessageCount,
             "dbCount", dbCount,
-            "oldest known", this.folderStorage.headerIsOldestKnown(
-              this._syncSlice.startTS,
-              this._syncSlice.startUID),
-            "next sync anchor", this._nextSyncAnchorTS);
+            "syncedThrough", syncedThrough,
+            "oldest know", this.folderStorage.getOldestMessageTimestamp());
     if (this._curSyncDir === PASTWARDS &&
         folderMessageCount === dbCount &&
         (!folderMessageCount ||
-         TIME_DIR_AT_OR_BEYOND(this._curSyncDir, this._nextSyncAnchorTS,
+         TIME_DIR_AT_OR_BEYOND(this._curSyncDir, syncedThrough,
                                this.folderStorage.getOldestMessageTimestamp()))
        ) {
       // expand the accuracy range to cover everybody

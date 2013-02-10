@@ -2417,9 +2417,11 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
         // We could also send the headers in as they come across the wire,
         // but we expect to be dealing in bite-sized requests, so that could
         // be overkill.
-        slice.batchAppendHeaders(batchHeaders,
-                                 dir === PASTWARDS ? -1 : 0,
-                                 !!refreshInterval);
+        slice.batchAppendHeaders(
+          batchHeaders, dir === PASTWARDS ? -1 : 0,
+          // !!refreshInterval is more efficient, but this way we can reuse
+          // doneCallback() below in the else case simply.
+          true);
 
         if (refreshInterval) {
           // If growth was not requested, make sure we convey server traffic is
@@ -2432,6 +2434,9 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
             slice, dir,
             refreshInterval.startTS, refreshInterval.endTS,
             doneCallback, progressCallback);
+        }
+        else {
+          doneCallback();
         }
 
         return;

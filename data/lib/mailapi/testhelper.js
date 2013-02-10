@@ -1513,6 +1513,16 @@ console.log('initial');
 
   /**
    * @args[
+   *   @param[viewThing]
+   *   @param[dirMagnitude Number]
+   *   @param[userRequestsGrowth Boolean]
+   *   @param[alreadyExists Number]{
+   *     How many messages should already be in the slice.
+   *   }
+   *   @param[expectedValues @oneof[Number ExpectedValues]]{
+   *     If a number, it means that no synchronization is expected to occur and
+   *     instead values will be returned from the database.
+   *   }
    *   @param[extraFlags @dict[
    *     @see[do_viewFolder extraFlags]
    *     @key[willFail #:default false Boolean]{
@@ -1528,9 +1538,13 @@ console.log('initial');
                               extraFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(
-                            viewThing, expectedValues, extraFlags,
-                            dirMagnitude < 0 ? -1 : 1) +
+      var totalExpected;
+      if (typeof(expectedValues) === 'number')
+        totalExpected = expectedValues + alreadyExists;
+      else
+        totalExpected = self._expect_dateSyncs(
+                          viewThing, expectedValues, extraFlags,
+                          dirMagnitude < 0 ? -1 : 1) +
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
 
