@@ -80,6 +80,7 @@ var TestUniverseMixins = {
       $sync.TEST_adjustSyncValues({
         fillSize: 15,
         days: 7,
+        growDays: 7,
         scaleFactor: 1.6,
         // We don't want to test this at scale as part of our unit tests, so
         // crank it way up so we don't ever accidentally run into this.
@@ -110,6 +111,11 @@ var TestUniverseMixins = {
         'ActiveSyncFolderConn', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
         'FolderStorage', self.__folderStorageLoggerSoup);
+
+      // Propagate the old universe's message generator so that the subject
+      // numbers don't get reset.
+      if (opts && opts.old && opts.old.messageGenerator)
+        self.messageGenerator = opts.old.messageGenerator;
 
       for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
         var testAccount = self.__restoredAccounts[iAcct];
@@ -446,6 +452,7 @@ var TestCommonAccountMixins = {
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
     viewThing.offset = 0;
+    viewThing.initialSynced = false;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
                        extraFlags, viewThing);
     return viewThing;
@@ -872,8 +879,12 @@ var TestImapAccountMixins = {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
                                 folderName);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
+      if (oldFolder) {
         testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -895,8 +906,12 @@ var TestImapAccountMixins = {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithType(
                                 folderType);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
+      if (oldFolder) {
         testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -1878,8 +1893,11 @@ var TestActiveSyncAccountMixins = {
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -1908,8 +1926,11 @@ var TestActiveSyncAccountMixins = {
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);

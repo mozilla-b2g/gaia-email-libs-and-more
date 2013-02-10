@@ -260,6 +260,8 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
     exports.INITIAL_FILL_SIZE = syncValues.fillSize;
   if (syncValues.hasOwnProperty('days'))
     exports.INITIAL_SYNC_DAYS = syncValues.days;
+  if (syncValues.hasOwnProperty('growDays'))
+    exports.INITIAL_SYNC_GROWTH_DAYS = syncValues.growDays;
 
   if (syncValues.hasOwnProperty('bisectThresh'))
     exports.BISECT_DATE_AT_N_MESSAGES = syncValues.bisectThresh;

@@ -27,7 +27,8 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     'syncs', testFolder,
     { count: 4, full: 4, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('(cleanly) shutdown account, universe');
   testUniverse.do_saveState();
@@ -37,7 +38,7 @@ TD.commonCase('account persistence', function(T) {
   // Universe 2 : add messages
   T.group('U2 [add]: reload account, universe');
   // rebind to new universe / (loaded) account
-  testUniverse = T.actor('testUniverse', 'U2');
+  testUniverse = T.actor('testUniverse', 'U2', { old: testUniverse });
   var TA2 = testAccount = T.actor('testAccount', 'A2',
                         { universe: testUniverse, restored: true });
 
@@ -47,7 +48,8 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 4, full: 0, flags: 4, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('add more messages, verify sync');
   testAccount.do_addMessagesToFolder(
@@ -56,13 +58,14 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 6, full: 2, flags: 4, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   //////////////////////////////////////////////////////////////////////////////
   // Universe 3 : delete messages
   T.group('U3 [delete]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU3 = testUniverse = T.actor('testUniverse', 'U3');
+  var TU3 = testUniverse = T.actor('testUniverse', 'U3', { old: testUniverse });
   var TA3 = testAccount = T.actor('testAccount', 'A3',
                             { universe: testUniverse, restored: true });
 
@@ -83,12 +86,13 @@ TD.commonCase('account persistence', function(T) {
     }
 
     // update our test's idea of what messages exist where.
-    TF3.messages.splice(0, 1);
+    TF3.beAwareOfDeletion(0);
   });
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 1 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('save account state');
   testUniverse.do_saveState();
@@ -101,7 +105,7 @@ TD.commonCase('account persistence', function(T) {
   // Universe 4 : change messages
   T.group('U4 [change]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU4 = testUniverse = T.actor('testUniverse', 'U4');
+  var TU4 = testUniverse = T.actor('testUniverse', 'U4', { old: testUniverse });
   var TA4 = testAccount = T.actor('testAccount', 'A4',
                             { universe: testUniverse, restored: true });
 
@@ -123,7 +127,8 @@ TD.commonCase('account persistence', function(T) {
   var TV4 = testAccount.do_openFolderView(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   T.check('check modified message flags', eSync, function() {
     eSync.expect_namedValue('0:subject', s0subject);
     eSync.expect_namedValue('0:read', true);
@@ -147,7 +152,7 @@ TD.commonCase('account persistence', function(T) {
   //////////////////////////////////////////////////////////////////////////////
   // Universe 5 : checks
   T.group('U5 [check]: reload account, universe');
-  var TU5 = testUniverse = T.actor('testUniverse', 'U5');
+  var TU5 = testUniverse = T.actor('testUniverse', 'U5', { old: testUniverse });
   testAccount = T.actor('testAccount', 'A5',
                         { universe: testUniverse, restored: true });
   var TF5 = testFolder = testAccount.do_useExistingFolder(
@@ -155,7 +160,8 @@ TD.commonCase('account persistence', function(T) {
   var TV5 = testAccount.do_openFolderView(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('verify modified message flags');
   T.check('check modified message flags', eSync, function() {
@@ -199,6 +205,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
   testUniverse.do_adjustSyncValues({
     fillSize: 14,
     days: 7,
+    growDays: 7
   });
 
   T.group('initial sync');

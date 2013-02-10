@@ -2343,7 +2343,12 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
    *
    * - Return if there were any headers.
    *
-   * - Issue a grow request.
+   * - Issue a grow request.  Start with the day adjacent to the furthest known
+   *   message in the direction of growth.  We could alternately try and use
+   *   the accuracy range to start even further away.  However, our growth
+   *   process likes to keep going until it hits a message, and that's when
+   *   it would commit its sync process, so the accuracy range is unlikely
+   *   to buy us anything additional at the current time.
    */
   growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
     // If the user requested synchronization, provide UI feedback immediately,
@@ -2446,7 +2451,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
       // - do not grow if offline / no support / no user request
       if (!this._account.universe.online ||
           !this.folderSyncer.canGrowSync ||
-          (!this._account.enabled && !userRequestsGrowth)) {
+          !userRequestsGrowth) {
         slice.sendEmptyCompletion();
         releaseMutex();
         return;
@@ -2457,9 +2462,12 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
                         SYNC_START_MINIMUM_PROGRESS);
       this._curSyncSlice = slice;
       slice.waitingOnData = 'grow';
-      this.folderSyncer.growSync(slice, dir, slice.startTS,
-                                 $sync.INITIAL_SYNC_GROWTH_DAYS,
-                                 doneCallback, progressCallback);
+      this.folderSyncer.growSync(
+        slice, dir,
+        dir === PASTWARDS ? quantizeDate(slice.startTS)
+                          : quantizeDate(slice.endTS),
+        $sync.INITIAL_SYNC_GROWTH_DAYS,
+        doneCallback, progressCallback);
     }.bind(this);
 
     // --- request messages
