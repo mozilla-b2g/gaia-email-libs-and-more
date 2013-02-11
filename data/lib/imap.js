@@ -241,11 +241,12 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   if (this._LOG) this._LOG.connect(this._options.host, this._options.port);
 
-  this._state.conn = (this._options.crypto ? tls : net).connect(this._options.host, this._options.port);
+  this._state.conn = (this._options.crypto ? tls : net).connect(
+                       this._options.port, this._options.host);
   this._state.tmrConn = setTimeoutFunc(this._fnTmrConn.bind(this, loginCb),
                                        this._options.connTimeout);
 
-  this._state.conn.on("open", function(evt) {
+  this._state.conn.on('connect', function() {
     if (self._LOG) self._LOG.connected();
     clearTimeoutFunc(self._state.tmrConn);
     self._state.status = STATES.NOAUTH;
@@ -266,9 +267,8 @@ ImapConnection.prototype.connect = function(loginCb) {
     */
     fnInit();
   });
-  this._state.conn.on("data", function(evt) {
+  this._state.conn.on('data', function(buffer) {
     try {
-      var buffer = Buffer(evt.data);
       processData(buffer);
     }
     catch (ex) {
@@ -744,14 +744,14 @@ ImapConnection.prototype.connect = function(loginCb) {
     }
   };
 
-  this._state.conn.on("close", function onClose() {
+  this._state.conn.on('close', function onClose() {
     self._reset();
     if (this._LOG) this._LOG.closed();
     self.emit('close');
   });
-  this._state.conn.on("error", function(evt) {
+  this._state.conn.on('error', function(err) {
     try {
-      var err = evt.data, errType;
+      var errType;
       // (only do error probing on things we can safely use 'in' on)
       if (err && typeof(err) === 'object') {
         // detect an nsISSLStatus instance by an unusual property.
@@ -785,8 +785,7 @@ ImapConnection.prototype.die = function() {
   // NB: there's still a lot of events that could happen, but this is only
   // being used by unit tests right now.
   if (this._state.conn) {
-    this._state.conn.on("close", null);
-    this._state.conn.on("error", null);
+    this._state.conn.removeAllListeners();
     this._state.conn.end();
   }
   this._reset();
