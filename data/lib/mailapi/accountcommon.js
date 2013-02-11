@@ -41,10 +41,6 @@ const PIECE_ACCOUNT_TYPE_TO_CLASS = {
   //'gmail-imap': GmailAccount,
 };
 
-// A boring signature that conveys the person was probably typing on a touch
-// screen, helping to explain typos and short replies.
-const DEFAULT_SIGNATURE = exports.DEFAULT_SIGNATURE =
-  'Sent from my Firefox OS device.';
 
 // The number of milliseconds to wait for various (non-ActiveSync) XHRs to
 // complete during the autoconfiguration process. This value is intentionally
@@ -461,7 +457,7 @@ Configurators['imap+smtp'] = {
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
-          signature: DEFAULT_SIGNATURE
+          signature: null
         },
       ],
       tzOffset: tzOffset,
@@ -524,7 +520,7 @@ Configurators['fake'] = {
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
-          signature: DEFAULT_SIGNATURE
+          signature: null
         },
       ]
     };
@@ -646,7 +642,7 @@ Configurators['activesync'] = {
             name: userDetails.displayName || domainInfo.displayName,
             address: userDetails.emailAddress,
             replyTo: null,
-            signature: DEFAULT_SIGNATURE
+            signature: null
           },
         ]
       };
