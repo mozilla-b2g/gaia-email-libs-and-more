@@ -259,7 +259,7 @@ exports.do_download = function(op, callback) {
           storeTo = storePartsTo[i];
 
       if (blob) {
-        partInfo.sizeEstimate = blob.length;
+        partInfo.sizeEstimate = blob.size;
         partInfo.type = blob.type;
         if (storeTo === 'idb')
           partInfo.file = blob;
@@ -454,14 +454,20 @@ exports._partitionAndAccessFoldersSequentially = function(
     var iNextServerId = serverIds.indexOf(null);
     for (var i = 0; i < headers.length; i++) {
       var header = headers[i];
-      if (!header)
-        console.warn('missing header!',
-                     JSON.stringify(folderMessageNamers[iNextServerId]));
-      var srvid = header.srvid;
-      serverIds[iNextServerId] = srvid;
+      // It's possible that by the time this job actually gets a chance to run
+      // that the header is no longer in the folder.  This is rare but not
+      // particularly exceptional.
+      if (header) {
+        var srvid = header.srvid;
+        serverIds[iNextServerId] = srvid;
+        // A header that exists but does not have a server id is exceptional and
+        // bad, although logic should handle it because of the above dead-header
+        // case.  suidToServerId should really have provided this information to
+        // us.
+        if (!srvid)
+          console.warn('Header', headers[i].suid, 'missing server id in job!');
+      }
       iNextServerId = serverIds.indexOf(null, iNextServerId + 1);
-      if (!srvid)
-        console.warn('Header', headers[i].suid, 'missing server id in job!');
     }
     try {
       callInFolder(folderConn, storage, serverIds, folderMessageNamers,

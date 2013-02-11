@@ -4,17 +4,7 @@
  * either manually triggered (at a quiescent time), or based on when we observe
  * some data in the incoming or outgoing stream.
  *
- * Actions currently supported:
- * - instant-close: Emit a close event locally in the next turn of the event
- *   loop, and detach the real socket so that we don't generate any more events
- *   from it.  We will optionally generate an error event with the provided
- *   string.
- *
- * Actions that it would be sweet to support:
- * - alter-data: Change the contents of the buffer that matched.
- *
- * - fake-receive: Pretend that we received some data via an ondata event in a
- *   future turn of the event loop.
+ * Please see the inline switch() case comments for details / docs:
  */
 function FawltySocket(host, port, options, cmdDict) {
   this._sock = null;
@@ -26,9 +16,12 @@ function FawltySocket(host, port, options, cmdDict) {
 
   this._receiveWatches = [];
   this._sendWatches = [];
-  if (cmdDict) {
+  if (cmdDict && cmdDict.onSend)
+    this.doOnSendText(cmdDict.onSend);
+  if (cmdDict && cmdDict.pre) {
     var precmd = cmdDict.pre;
-    switch (precmd) {
+    console.log('FawltySocket: processing pre-command:', precmd.cmd || precmd);
+    switch (precmd.cmd || precmd) {
       case 'no-dns-entry':
         // This currently manifests as a Connection refused error.  Test by using
         // the nonesuch@nonesuch.nonesuch domain mapping...
@@ -42,6 +35,35 @@ function FawltySocket(host, port, options, cmdDict) {
         // or at least allow changing the defaults right now.
         return;
 
+      case 'bad-security':
+        // Fake an nsISSLStatus object, which is what bad crypto engenders
+        var fakeSslError = {
+          serverCert: {},
+          cipherName: 'zob',
+          keyLength: 2048,
+          secretKeyLength: 2048,
+          isDomainMismatch: false,
+          isNotValidAtThisTime: false,
+          isUntrusted: false,
+          isExtendedValidation: false
+        };
+        this._queueEvent('onerror', fakeSslError);
+        return;
+
+      case 'fake':
+        // We are only going to send fake data, so don't bother establishing
+        // a connection.
+        this._queueEvent('onopen');
+        if (precmd.data) {
+          console.log('Fake-receiving:', precmd.data);
+          this._queueEvent('ondata',
+                           new TextEncoder('utf-8').encode(precmd.data));
+        }
+        else {
+          console.log('No fake-receive data!');
+        }
+        return;
+
       case 'port-not-listening':
         this._queueEvent('onerror', 'Connection refused');
         return;
@@ -53,8 +75,6 @@ function FawltySocket(host, port, options, cmdDict) {
       default:
         break;
     }
-    if (cmdDict.onSend)
-      this.doOnSendText(cmdDict.onSend);
   }
 
   // anything we send over the wire will be utf-8
@@ -109,8 +129,12 @@ FawltySocket.prototype = {
     FawltySocketFactory.__deadSocket(this);
   },
 
+  // XXX This is currently a hack and just operates based on the number of
+  // times send() has been called.  I'm not sure it's worth actually finishing
+  // this out; the IMAP fake-server might be better for most of this.
   doOnSendText: function(desc) {
-    this._sendWatches.push(desc);
+    // concat detects arrays/single values
+    this._sendWatches = this._sendWatches.concat(desc);
   },
 
   doOnReceiveText: function(match, actions) {
@@ -137,18 +161,22 @@ FawltySocket.prototype = {
         action = { cmd: action };
       switch (action.cmd) {
         case 'instant-close':
+          // Emit a close event locally in the next turn of the event loop, and
+          // detach the real socket so that we don't generate any more events
+          // from it.  We will optionally generate an error event with the
+          // provided string.
           this._queueEvent('onclose', '');
           this._sock.close();
           this._sock = null;
           break;
-        // stop being connected to the real socket
         case 'detach':
+          // stop being connected to the real socket
           var sock = this._sock;
           this._sock = null;
           sock.close();
           break;
         case 'fake-receive':
-          var encoder = new TextEncoder(action.encoding || 'ASCII');
+          var encoder = new TextEncoder('utf-8');
           this._queueEvent('ondata', encoder.encode(action.data));
           break;
 
@@ -164,10 +192,23 @@ FawltySocket.prototype = {
     this._sock = null;
   },
   send: function(data) {
-    if (!this._sock)
+    var sendText;
+    if (this._sendWatches.length) {
+      sendText = new TextDecoder('utf-8').decode(data);
+      console.log('In response to send of: ', data);
+      var responseText = this._sendWatches.shift();
+      console.log('Fake-receiving:', responseText);
+      var responseData = new TextEncoder('utf-8').encode(responseText);
+      this._queueEvent('ondata', responseData);
+      // it's okay to send more data
+      return true;
+    }
+
+    if (!this._sock) {
+      sendText = new TextDecoder('utf-8').decode(data);
+      console.log('Ignoring send beacuse no sock or watch:', sendText);
       return null;
-
-
+    }
 
     return this._sock.send(data);
   },
@@ -205,7 +246,7 @@ var FawltySocketFactory = {
    *
    * Supported commands are a subset of the AccountCreationErrors documented in
    * `mailapi.js` right now.  Namely: no-dns-entry, unresponsive-server,
-   * port-not-listening, and bad-security.
+   * port-not-listening, and bad-security, plus one bonus: fake.
    *
    */
   precommand: function(host, port, command, onSend) {
@@ -225,8 +266,20 @@ var FawltySocketFactory = {
 
   getMostRecentLiveSocket: function() {
     if (!this._liveSockets.length)
-      throw new Error("No live sockets!");
+      throw new Error('No live sockets!');
     return this._liveSockets[this._liveSockets.length - 1];
+  },
+
+  reset: function() {
+    this._liveSockets = [];
+    this._precommands = {};
+  },
+
+  assertNoPrecommands: function(host, port) {
+    var key = host + port;
+    if (this._precommands.hasOwnProperty(key))
+      throw new Error('There are still ' + this._precommands[key].length +
+                      'precommands pending for: ' + key);
   },
 };
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;

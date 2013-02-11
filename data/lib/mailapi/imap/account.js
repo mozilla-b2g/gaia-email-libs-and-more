@@ -13,6 +13,7 @@ define(
     '../mailslice',
     '../searchfilter',
     '../util',
+    './probe',
     './folder',
     './jobs',
     'module',
@@ -28,6 +29,7 @@ define(
     $mailslice,
     $searchfilter,
     $util,
+    $imapprobe,
     $imapfolder,
     $imapjobs,
     $module,
@@ -55,6 +57,9 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.universe = universe;
   this.compositeAccount = compositeAccount;
   this.id = accountId;
+  this.accountDef = compositeAccount.accountDef;
+
+  this.enabled = true;
 
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
 
@@ -175,7 +180,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   });
 
   this._jobDriver = new $imapjobs.ImapJobDriver(
-                          this, this._folderInfos.$mutationState);
+                          this, this._folderInfos.$mutationState, this._LOG);
 
   /**
    * Flag to allow us to avoid calling closeBox to close a folder.  This avoids
@@ -214,7 +219,8 @@ ImapAccount.prototype = {
         path: path,
         type: type,
         delim: delim,
-        depth: depth
+        depth: depth,
+        lastSyncedAt: 0
       },
       $impl: {
         nextId: 0,
@@ -272,7 +278,7 @@ ImapAccount.prototype = {
    * that ever ends up not being the case that we need to cause mutating
    * operations to defer until after that snapshot has occurred.
    */
-  saveAccountState: function(reuseTrans) {
+  saveAccountState: function(reuseTrans, callback) {
     var perFolderStuff = [], self = this;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -281,12 +287,16 @@ ImapAccount.prototype = {
       if (folderStuff)
         perFolderStuff.push(folderStuff);
     }
-    this._LOG.saveAccountState_begin();
+    this._LOG.saveAccountState();
     var trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff,
       this._deadFolderIds,
       function stateSaved() {
-        self._LOG.saveAccountState_end();
+        // NB: we used to log when the save completed, but it ended up being
+        // annoying to the unit tests since we don't block our actions on
+        // the completion of the save at this time.
+        if (callback)
+          callback();
       },
       reuseTrans);
     this._deadFolderIds = null;
@@ -405,7 +415,7 @@ ImapAccount.prototype = {
    * like Thunderbird uses.  The rationale is that many servers cap the number
    * of connections we are allowed to maintain, plus it's hard to justify
    * locally tying up those resources.  (Thunderbird has more need of watching
-   * multiple folders than ourselves, bu we may still want to synchronize a
+   * multiple folders than ourselves, but we may still want to synchronize a
    * bunch of folders in parallel for latency reasons.)
    *
    * The provided connection will *not* be in the requested folder; it's up to
@@ -429,15 +439,31 @@ ImapAccount.prototype = {
    *     A callback to invoke if the connection dies or we feel compelled to
    *     reclaim it.
    *   }
+   *   @param[dieOnConnectFailure #:optional Boolean]{
+   *     Should we invoke the deathback for this request if we fail to establish
+   *     a connection in a timely manner?  This will be immediately invoked if
+   *     we are offline or if we exhaust our retries for establishing
+   *     connections with the server.
+   *   }
    * ]
    */
-  __folderDemandsConnection: function(folderId, label, callback, deathback) {
-    this._demandedConns.push({
+  __folderDemandsConnection: function(folderId, label, callback, deathback,
+                                      dieOnConnectFailure) {
+    // If we are offline, invoke the deathback soon and don't bother trying to
+    // get a connection.
+    if (dieOnConnectFailure && !this.universe.online) {
+      window.setZeroTimeout(deathback);
+      return;
+    }
+
+    var demand = {
       folderId: folderId,
       label: label,
       callback: callback,
-      deathback: deathback
-    });
+      deathback: deathback,
+      dieOnConnectFailure: Boolean(dieOnConnectFailure)
+    };
+    this._demandedConns.push(demand);
 
     // No line-cutting; bail if there was someone ahead of us.
     if (this._demandedConns.length > 1)
@@ -449,8 +475,32 @@ ImapAccount.prototype = {
 
     // - we need to wait for a new conn or one to free up
     this._makeConnectionIfPossible();
+
+    return;
   },
 
+  /**
+   * Trigger the deathbacks for all connection demands where dieOnConnectFailure
+   * is true.
+   */
+  _killDieOnConnectFailureDemands: function() {
+    for (var i = 0; i < this._demandedConns.length; i++) {
+      var demand = this._demandedConns[i];
+      if (demand.dieOnConnectFailure) {
+        demand.deathback.call(null);
+        this._demandedConns.splice(i--, 1);
+      }
+    }
+  },
+
+  /**
+   * Try and find an available connection and assign it to the first connection
+   * demand.
+   *
+   * @return[Boolean]{
+   *   True if we allocated a demand to a conncetion, false if we did not.
+   * }
+   */
   _allocateExistingConnection: function() {
     if (!this._demandedConns.length)
       return false;
@@ -531,61 +581,29 @@ ImapAccount.prototype = {
       connectCallbackTriggered = true;
       this._pendingConn = null;
       if (err) {
-        var errName, reachable = false, maybeRetry = true;
-        // We want to produce error-codes as defined in `MailApi.js` for
-        // tryToCreateAccount.  We have also tried to make imap.js produce
-        // error codes of the right type already, but for various generic paths
-        // (like saying 'NO'), there isn't currently a good spot for that.
-        switch (err.type) {
-          // dovecot says after a delay and does not terminate the connection:
-          //   NO [AUTHENTICATIONFAILED] Authentication failed.
-          // zimbra 7.2.x says after a delay and DOES terminate the connection:
-          //   NO LOGIN failed
-          //   * BYE Zimbra IMAP server terminating connection
-          // yahoo says after a delay and does not terminate the connection:
-          //   NO [AUTHENTICATIONFAILED] Incorrect username or password.
-          case 'NO':
-          case 'no':
-            // XXX: Should we check if it's GMail first?
-            if (err.serverResponse.indexOf('[ALERT] Application-specific password required') !== -1)
-              errName = 'needs-app-pass';
-            else if(err.serverResponse.indexOf('[ALERT] Your account is not enabled for IMAP use.') !== -1)
-              errName = 'imap-disabled';
-            else
-              errName = 'bad-user-or-pass';
-            reachable = true;
-            // go directly to the broken state; no retries
-            maybeRetry = false;
-            // tell the higher level to disable our account until we fix our
-            // credentials problem and ideally generate a UI prompt.
-            this.universe.__reportAccountProblem(this.compositeAccount,
-                                                 errName);
-            break;
-          // errors we can pass through directly:
-          case 'server-maintenance':
-            errName = err.type;
-            reachable = true;
-            break;
-          case 'timeout':
-            errName = 'unresponsive-server';
-            break;
-          default:
-            errName = 'unknown';
-            break;
-        }
-        console.error('Connect error:', errName, 'formal:', err, 'on',
+        var normErr = $imapprobe.normalizeError(err);
+        console.error('Connect error:', normErr.name, 'formal:', err, 'on',
                       this._connInfo.hostname, this._connInfo.port);
+        if (normErr.reportProblem)
+          this.universe.__reportAccountProblem(this.compositeAccount,
+                                               normErr.name);
+
+
         if (listener)
-          listener(errName);
+          listener(normErr.name);
         conn.die();
 
         // track this failure for backoff purposes
-        if (maybeRetry) {
-          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(reachable))
+        if (normErr.retry) {
+          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
+                                      normErr.reachable))
             this._makeConnectionIfPossible();
+          else
+            this._killDieOnConnectFailureDemands();
         }
         else {
           this._backoffEndpoint.noteBrokenConnection();
+          this._killDieOnConnectFailureDemands();
         }
       }
       else {
@@ -661,6 +679,23 @@ ImapAccount.prototype = {
       }
     }
     this._LOG.connectionMismatch();
+  },
+
+  /**
+   * We receive this notification from our _backoffEndpoint.
+   */
+  onEndpointStateChange: function(state) {
+    switch (state) {
+      case 'healthy':
+        this.universe.__removeAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+      case 'unreachable':
+      case 'broken':
+        this.universe.__reportAccountProblem(this.compositeAccount,
+                                             'connection');
+        break;
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -874,6 +909,11 @@ ImapAccount.prototype = {
       callbacks.trash(null);
   },
 
+  scheduleMessagePurge: function(folderId, callback) {
+    this.universe.purgeExcessMessages(this.compositeAccount, folderId,
+                                      callback);
+  },
+
   //////////////////////////////////////////////////////////////////////////////
 
   runOp: $acctmixins.runOp,
@@ -904,6 +944,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       deadConnection: {},
       connectionMismatch: {},
 
+      saveAccountState: {},
+
       /**
        * The maximum connection limit has been reached, we are intentionally
        * not creating an additional one.
@@ -927,7 +969,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: {},
     },
     TEST_ONLY_asyncJobs: {
     },

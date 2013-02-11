@@ -619,6 +619,7 @@ var TestActorProtoBase = {
     this._expectationsMetSoFar = true;
     // kill all processed entries.
     this._iExpectation = 0;
+    this._ignore = null;
     this._expectations.splice(0, this._expectations.length);
     this._expectNothing = false;
     this._expectDeath = false;
@@ -655,6 +656,9 @@ var TestActorProtoBase = {
         entry = entries[this._iEntry++];
         // ignore meta-entries (which are prefixed with a '!')
         if (entry[0][0] === "!")
+          continue;
+        // ignore ignored entries
+        if (this._ignore && this._ignore.hasOwnProperty(entry[0]))
           continue;
 
         // - try all the expectations for a match
@@ -713,6 +717,9 @@ var TestActorProtoBase = {
 
       // ignore meta-entries (which are prefixed with a '!')
       if (entry[0][0] === "!")
+        continue;
+        // ignore ignored entries
+      if (this._ignore && this._ignore.hasOwnProperty(entry[0]))
         continue;
 
       // Currently, require exact pairwise matching between entries and
@@ -893,6 +900,14 @@ function smartCompareEquiv(a, b, depthLeft) {
 }
 exports.smartCompareEquiv = smartCompareEquiv;
 
+function makeIgnoreFunc(name) {
+  return function ignoreFunc() {
+    if (!this._ignore)
+      this._ignore = {};
+    this._ignore[name] = true;
+  };
+};
+
 /**
  * Builds the logging and testing helper classes for the `register` driver.
  *
@@ -989,6 +1004,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push([name, val]);
       return this;
     };
+    this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(exp, entry) {
       return smartCompareEquiv(exp[1], entry[1], COMPARE_DEPTH);
     };
@@ -1099,6 +1115,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push(exp);
       return this;
     };
+    this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(tupe, entry) {
       // only check arguments we had expectations for.
       for (var iArg = 1; iArg < tupe.length; iArg++) {
@@ -1230,6 +1247,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push(exp);
       return this;
     };
+    this.testActorProto['ignore_' + name_begin] = makeIgnoreFunc(name_begin);
     this.testActorProto['expect_' + name_end] = function() {
       if (!this._activeForTestStep)
         throw new Error("Attempt to set expectations on an actor (" +
@@ -1246,6 +1264,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push(exp);
       return this;
     };
+    this.testActorProto['ignore_' + name_end] = makeIgnoreFunc(name_end);
     this.testActorProto['_verify_' + name_begin] =
         this.testActorProto['_verify_' + name_end] = function(tupe, entry) {
       // only check arguments we had expectations for.
@@ -1396,6 +1415,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push(exp);
       return this;
     };
+    this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(tupe, entry) {
       // report failure if an exception was returned!
       if (entry.length > numLogArgs + numTestOnlyArgs + 6) {
@@ -1457,6 +1477,7 @@ LoggestClassMaker.prototype = {
       this._expectations.push(exp);
       return this;
     };
+    this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(tupe, entry) {
       // only check arguments we had expectations for.
       for (var iArg = 1; iArg < tupe.length; iArg++) {
@@ -1513,6 +1534,7 @@ LoggestClassMaker.prototype = {
       // initially undefined, goes null when we register for pairing, goes to
       //  the logger instance when paired.
       this._logger = undefined;
+      this._ignore = null;
       this._expectations = [];
       this._expectationsMetSoFar = true;
       this._expectNothing = false;

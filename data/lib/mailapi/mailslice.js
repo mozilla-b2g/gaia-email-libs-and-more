@@ -88,6 +88,33 @@ const bsearchForInsert = $util.bsearchForInsert,
       makeDaysBefore = $date.makeDaysBefore,
       quantizeDate = $date.quantizeDate;
 
+// What do we think the post-snappy compression overhead of the structured clone
+// persistence rep will be for various things?  These are total guesses right
+// now.  Keep in mind we do want the pre-compression size of the data in all
+// cases and we just hope it will compress a bit.  For the attributes we are
+// including the attribute name as well as any fixed-overhead for its payload,
+// especially numbers which may or may not be zig-zag encoded/etc.
+const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
+      NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
+      NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
+      NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
+
+/**
+ * Intersects two objects each defining tupled ranges of the type
+ * { startTS, startUID, endTS, endUID }, like block infos and mail slices.
+ * This is exported for unit testing purposes and because no state is closed
+ * over.
+ */
+const tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
+    function tupleRangeIntersectsTupleRange(a, b) {
+  if (BEFORE(a.endTS, b.startTS) ||
+      STRICTLY_AFTER(a.startTS, b.endTS))
+    return false;
+  if ((a.endTS === b.startTS && a.endUID < b.startUID) ||
+      (a.startTS === b.endTS && a.startTS > b.endUID))
+    return false;
+  return true;
+};
 
 /**
  * What is the maximum number of bytes a block should store before we split
@@ -106,13 +133,6 @@ const MAX_BLOCK_SIZE = 96 * 1024,
  * How many bytes should we target for the large part when splitting 1:2?
  */
       BLOCK_SPLIT_LARGE_PART = 64 * 1024;
-
-/**
- * The estimated size of a `HeaderInfo` structure.  We are using a constant
- * since there is not a lot of variability in what we are storing and this
- * is probably good enough.
- */
-const HEADER_EST_SIZE_IN_BYTES = exports.HEADER_EST_SIZE_IN_BYTES = 200;
 
 /**
  * Book-keeping and limited agency for the slices.
@@ -186,13 +206,19 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
 exports.MailSlice = MailSlice;
 MailSlice.prototype = {
   set atTop(val) {
-    this._bridgeHandle.atTop = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.atTop = val;
+    return val;
   },
   set atBottom(val) {
-    this._bridgeHandle.atBottom = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.atBottom = val;
+    return val;
   },
   set userCanGrowDownwards(val) {
-    this._bridgeHandle.userCanGrowDownwards = val;
+    if (this._bridgeHandle)
+      this._bridgeHandle.userCanGrowDownwards = val;
+    return val;
   },
 
   _updateSliceFlags: function() {
@@ -221,6 +247,9 @@ MailSlice.prototype = {
    * ]
    */
   _resetHeadersBecauseOfRefreshExplosion: function() {
+    if (!this._bridgeHandle)
+      return;
+
     if (this.headers.length) {
       // If we're accumulating, we were starting from zero to begin with, so
       // there is no need to send a nuking splice.
@@ -243,6 +272,9 @@ MailSlice.prototype = {
   },
 
   reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {
+    if (!this._bridgeHandle)
+      return;
+
     var i;
     // - Fixup indices if required
     if (firstIndex >= this.headers.length ||
@@ -292,6 +324,8 @@ MailSlice.prototype = {
       this.endTS = firstHeader.date;
       this.endUID = firstHeader.id;
     }
+
+    this._storage.sliceShrunk(this);
   },
 
   reqGrow: function(dirMagnitude, userRequestsGrowth) {
@@ -306,12 +340,16 @@ MailSlice.prototype = {
     this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status, requested, moreExpected, flushAccumulated) {
+  setStatus: function(status, requested, moreExpected, flushAccumulated,
+                      progress) {
     if (!this._bridgeHandle)
       return;
 
-    if (status === 'synced') {
-      this._updateSliceFlags();
+    switch (status) {
+      case 'synced':
+      case 'syncfailed':
+        this._updateSliceFlags();
+        break;
     }
     if (flushAccumulated && this._accumulating) {
       if (this.headers.length > this.desiredHeaders) {
@@ -329,11 +367,24 @@ MailSlice.prototype = {
                                     requested, moreExpected);
     }
     else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected);
+      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
     }
   },
 
+  /**
+   * Update our sync progress with a value in the range [0.0, 1.0].  We leave
+   * it up to the specific protocol to determine how it maps values.
+   */
+  setSyncProgress: function(value) {
+    if (!this._bridgeHandle)
+      return;
+    this._bridgeHandle.sendSyncProgress(value);
+  },
+
   batchAppendHeaders: function(headers, insertAt, moreComing) {
+    if (!this._bridgeHandle)
+      return;
+
     this._LOG.headersAppended(headers);
     if (insertAt === -1)
       insertAt = this.headers.length;
@@ -493,29 +544,76 @@ MailSlice.prototype = {
 };
 
 /**
- * Per-folder message caching/storage named by their UID.  Storage also relies
- * on the IMAP internaldate of the message for efficiency.  Accordingly,
- * when performing a lookup, we either need the exact date of the message or
- * a reasonable bounded time range in which it could fall (which should be a
- * given for date range scans).
+ * Per-folder message caching/storage; issues per-folder `MailSlice`s and keeps
+ * them up-to-date.  Access is mediated through the use of mutexes which must be
+ * acquired for write access and are advisable for read access that requires
+ * access to more than a single message.
+ *
+ * ## Naming and Ordering
+ *
+ * Messages in the folder are named and ordered by the tuple of the message's
+ * received date and a "sufficiently unique identifier" (SUID) we allocate.
+ *
+ * The SUID is actually a concatenation of an autoincrementing per-folder 'id'
+ * to our folder id, which in turn contains the account id.  Internally, we only
+ * care about the 'id' since the rest is constant for the folder.  However, all
+ * APIs layered above us need to deal in SUIDs since we will eventually have
+ * `MailSlice` instances that aggregate the contents so it is important that the
+ * extra information always be passed around.
+ *
+ * Because the SUID has no time component and for performance we want a total
+ * ordering on the messages, messages are first ordered on their 'received'
+ * date.  For IMAP this is the message's INTERNALDATE.  For ActiveSync this is
+ * the email:DateReceived element.  Accordingly, when performing a lookup, we
+ * either need the exact date of the message or a reasonable bounded time range
+ * in which it could fall (which should be a given for date range scans).
+ *
+ * ## Storage, Caching, Cache Flushing
  *
  * Storage is done using IndexedDB, with message header information and message
- * body information stored in separate blocks of information.  Blocks are
- * loaded on demand, although preferably hints are received so we can pre-load
- * information.
+ * body information stored in separate blocks of information.  See the
+ * `maildb.js` file and `MailDB` class for more detailed information.
  *
- * Blocks are discarded from memory (and written back if mutated) when there are
- * no longer live `ImapSlice` instances that care about the time range and we
- * are experiencing memory pressure.  Dirty blocks are periodically written
- * to storage even if there is no memory pressure at notable application and
- * synchronization state milestones.  Since the server is the canonical message
- * store, we are not exceedingly concerned about losing state.
+ * Blocks are loaded from disk on demand and cached, although preferably hints
+ * are received so we can pre-load information.  Blocks are discarded from the
+ * cache automatically when a mutex is released or when explicitly invoked by
+ * the code currently holding the mutex.  Code that can potentially cause a
+ * large number of blocks to be loaded is responsible for periodically
+ * triggering cache evictions and/or writing of dirty blocks to disk so that
+ * cache evictions are possible.
+ *
+ * We avoid automatic cache eviction in order to avoid the class of complex bugs
+ * that might arise.  While well-written code should not run afoul of automatic
+ * cache eviction were it to exist, buggy code happens.  We can more reliably
+ * detect potentially buggy code this way by simply reporting whenever the
+ * number of loaded blocks exceeds some threshold.
+ *
+ * When evicting blocks from cache, we try and keep blocks around that contain
+ * messages referenced by active `MailSlice` instances in order to avoid the
+ * situation where we discard blocks just to reload them with the next user
+ * action, and with added latency.
+ *
+ * If WeakMap were standardized, we would instead move blocks into a WeakMap,
+ * but it's not, so we don't.
+ *
+ * ## Block Purging (IMAP)
+ *
+ * For account types like IMAP where we can incrementally grow the set of
+ * messages we have synchronized from the server, our entire database is
+ * effectively a cache of the server state.  This is in contrast to ActiveSync
+ * where we synchronize a fixed time-window of messages and so the exact set of
+ * messages we should know about is well-defined and bounded.  As a result, we
+ * need to be able to purge old messages that the user no longer appears to
+ * care about so that our disk usage does not grow without bound.
+ *
+ * We currently trigger block purging as the result of block growth in a folder.
+ * Specifically
  *
  * Messages are discarded from storage when experiencing storage pressure.  We
  * figure it's better to cache what we have until it's known useless (deleted
  * messages) or we definitely need the space for something else.
  *
- * == Concurrency and I/O
+ * ## Concurrency and I/O
  *
  * The logic in this class can operate synchronously as long as the relevant
  * header/body blocks are in-memory.  For simplicity, we (asynchronously) defer
@@ -531,11 +629,15 @@ MailSlice.prototype = {
  * we still have some state to synchronize to the server so the user does
  * not power-off their phone quite yet.
  *
- * == Types
+ * ## Types
  *
  * @typedef[AccuracyRangeInfo @dict[
- *   @key[endTS DateMS]
- *   @key[startTS DateMS]
+ *   @key[endTS DateMS]{
+ *     This value is exclusive in keeping with IMAP BEFORE semantics.
+ *   }
+ *   @key[startTS DateMS]{
+ *     This value is inclusive in keeping with IMAP SINCE semantics.
+ *   }
  *   @key[fullSync @dict[
  *     @key[highestModseq #:optional String]{
  *       The highest modseq for this range, if we have one.  This would be the
@@ -558,8 +660,7 @@ MailSlice.prototype = {
  * ]]{
  *   Describes the provenance of the data we have for a given time range.
  *   Tracked independently of the block data because there doesn't really seem
- *   to be an upside to coupling them.  The date ranges are inclusive; other
- *   blocks should differ by at least 1 millisecond.
+ *   to be an upside to coupling them.
  *
  *   This lets us know when we have sufficiently valid data to display messages
  *   without needing to talk to the server, allows us to size checks for
@@ -798,10 +899,36 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._serverIdHeaderBlockMapping =
     persistedFolderInfo.serverIdHeaderBlockMapping;
 
-  /** @dictof[@key[BlockId] @value[HeaderBlock]] */
+  /**
+   * @dictof[@key[BlockId] @value[HeaderBlock]]{
+   *   In-memory cache of header blocks.
+   * }
+   */
   this._headerBlocks = {};
-  /** @dictof[@key[BlockId] @value[BodyBlock]] */
+  /**
+   * @listof[FolderBlockInfo]{
+   *   The block infos of all the header blocks in `_headerBlocks`.  Exists so
+   *   that we don't need to map blocks back to their block infos when we are
+   *   considering flushing things.  This could also be used for most recently
+   *   loaded tracking.
+   * }
+   */
+  this._loadedHeaderBlockInfos = [];
+  /**
+   * @dictof[@key[BlockId] @value[BodyBlock]]{
+   *   In-memory cache of body blocks.
+   * }
+   */
   this._bodyBlocks = {};
+  /**
+   * @listof[FolderBlockInfo]{
+   *   The block infos of all the body blocks in `_bodyBlocks`.  Exists so
+   *   that we don't need to map blocks back to their block infos when we are
+   *   considering flushing things.  This could also be used for most recently
+   *   loaded tracking.
+   * }
+   */
+  this._loadedBodyBlockInfos = [];
 
   this._bound_makeHeaderBlock = this._makeHeaderBlock.bind(this);
   this._bound_insertHeaderInBlock = this._insertHeaderInBlock.bind(this);
@@ -864,24 +991,19 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._slices = [];
   /**
    * The slice that is driving our current synchronization and wants to hear
-   * about all header modifications/notes as they occur.
+   * about all header modifications/notes as they occur.  This will be null
+   * when performing a refresh sync, but `_activeSync` will always be truthy
+   * when a sync is active.
    */
   this._curSyncSlice = null;
+
+  this._messagePurgeScheduled = false;
 
   this.folderSyncer = FolderSyncer && new FolderSyncer(account, this,
                                                        this._LOG);
 }
 exports.FolderStorage = FolderStorage;
 FolderStorage.prototype = {
-  /**
-   * Return true if there is another sync happening in this folder right now.
-   * This allows the `CronSyncer` to avoid starting a sync that will immediately
-   * fail because there is a sync-in-progress.  See its logic for more details.
-   */
-  get syncInProgress() {
-    return this._curSyncSlice !== null;
-  },
-
   get hasActiveSlices() {
     return this._slices.length > 0;
   },
@@ -899,10 +1021,18 @@ FolderStorage.prototype = {
       var slice = this._slices[i];
       slice._resetHeadersBecauseOfRefreshExplosion();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
-      this._resetAndResyncSlice(slice, false);
+      this._resetAndResyncSlice(slice, false, null);
     }
   },
 
+  /**
+   * Called by our owning account to generate lists of dirty blocks to be
+   * persisted to the database if we have any dirty blocks.
+   *
+   * We trigger a cache flush after clearing the set of dirty blocks because
+   * this is the first time we can flush the no-longer-dirty blocks and this is
+   * an acceptable/good time to clear the cache since we must not be in a mutex.
+   */
   generatePersistenceInfo: function() {
     if (!this._dirty)
       return null;
@@ -914,6 +1044,7 @@ FolderStorage.prototype = {
     this._dirtyHeaderBlocks = {};
     this._dirtyBodyBlocks = {};
     this._dirty = false;
+    this.flushExcessCachedBlocks('persist');
     return pinfo;
   },
 
@@ -922,25 +1053,31 @@ FolderStorage.prototype = {
     this._mutexedCallInProgress = true;
     this._LOG.mutexedCall_begin(callInfo.name);
 
-    callInfo.func(function mutexedOpDone() {
-      if (done) {
-        self._LOG.tooManyCallbacks(callInfo.name);
-        return;
-      }
-      self._LOG.mutexedCall_end(callInfo.name);
-      done = true;
-      if (self._mutexQueue[0] !== callInfo) {
-        self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
-        return;
-      }
-      self._mutexQueue.shift();
-      // Although everything should be async, avoid stack explosions by
-      // deferring the execution to a future turn of the event loop.
-      if (self._mutexQueue.length)
-        window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
-      else if (self._slices.length === 0)
-        self.folderSyncer.allConsumersDead();
-    });
+    try {
+      callInfo.func(function mutexedOpDone() {
+        if (done) {
+          self._LOG.tooManyCallbacks(callInfo.name);
+          return;
+        }
+        self._LOG.mutexedCall_end(callInfo.name);
+        done = true;
+        if (self._mutexQueue[0] !== callInfo) {
+          self._LOG.mutexInvariantFail(callInfo.name, self._mutexQueue[0].name);
+          return;
+        }
+        self._mutexQueue.shift();
+        self.flushExcessCachedBlocks('mutex');
+        // Although everything should be async, avoid stack explosions by
+        // deferring the execution to a future turn of the event loop.
+        if (self._mutexQueue.length)
+          window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
+        else if (self._slices.length === 0)
+          self.folderSyncer.allConsumersDead();
+      });
+    }
+    catch (ex) {
+      this._LOG.mutexedOpErr(ex);
+    }
   },
 
   /**
@@ -1043,7 +1180,7 @@ FolderStorage.prototype = {
     // - remove, update counts
     block.uids.splice(idx, 1);
     block.headers.splice(idx, 1);
-    info.estSize -= HEADER_EST_SIZE_IN_BYTES;
+    info.estSize -= $sync.HEADER_EST_SIZE_IN_BYTES;
     info.count--;
 
     this._dirty = true;
@@ -1073,7 +1210,8 @@ FolderStorage.prototype = {
   _splitHeaderBlock: function ifs__splitHeaderBlock(splinfo, splock,
                                                     newerTargetBytes) {
     // We currently assume a fixed size, so this is easy.
-    var numHeaders = Math.ceil(newerTargetBytes / HEADER_EST_SIZE_IN_BYTES);
+    var numHeaders = Math.ceil(newerTargetBytes /
+                               $sync.HEADER_EST_SIZE_IN_BYTES);
     if (numHeaders > splock.headers.length)
       throw new Error("No need to split!");
 
@@ -1086,13 +1224,13 @@ FolderStorage.prototype = {
                       // we change back to inserting after splitting.)
                       splinfo.startTS, splinfo.startUID,
                       olderEndHeader.date, olderEndHeader.id,
-                      olderNumHeaders * HEADER_EST_SIZE_IN_BYTES,
+                      olderNumHeaders * $sync.HEADER_EST_SIZE_IN_BYTES,
                       splock.uids.splice(numHeaders, olderNumHeaders),
                       splock.headers.splice(numHeaders, olderNumHeaders));
 
     var newerStartHeader = splock.headers[numHeaders - 1];
     splinfo.count = numHeaders;
-    splinfo.estSize = numHeaders * HEADER_EST_SIZE_IN_BYTES;
+    splinfo.estSize = numHeaders * $sync.HEADER_EST_SIZE_IN_BYTES;
     splinfo.startTS = newerStartHeader.date;
     splinfo.startUID = newerStartHeader.id;
     // this._dirty is already touched by makeHeaderBlock when it dirties the
@@ -1126,6 +1264,14 @@ FolderStorage.prototype = {
     this._dirty = true;
     this._bodyBlocks[blockId] = block;
     this._dirtyBodyBlocks[blockId] = block;
+
+    if (this._folderImpl.nextBodyBlock %
+          $sync.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS === 0 &&
+        !this._messagePurgeScheduled) {
+      this._messagePurgeScheduled = true;
+      this._account.scheduleMessagePurge(this.folderId);
+    }
+
     return blockInfo;
   },
 
@@ -1177,6 +1323,13 @@ FolderStorage.prototype = {
     }
   },
 
+  /**
+   * Split the contents of the given body block into a newer and older block.
+   * The newer info block will be mutated in place; the older block info will
+   * be created and returned.  The newer block is filled with data until it
+   * first overflows newerTargetBytes.  This method is responsible for updating
+   * the actual containing blocks as well.
+   */
   _splitBodyBlock: function ifs__splitBodyBlock(splinfo, splock,
                                                 newerTargetBytes) {
     // Save off the start timestamp/uid; these may have been extended beyond the
@@ -1185,23 +1338,29 @@ FolderStorage.prototype = {
     var savedStartTS = splinfo.startTS, savedStartUID = splinfo.startUID;
 
     var newerBytes = 0, uids = splock.uids, newDict = {}, oldDict = {},
-        inNew = true, numHeaders = null;
-    for (var i = 0; i < uids.length; i++) {
-      var uid = uids[i],
-          body = splock.bodies[uid];
-      if (inNew) {
-        newerBytes += body.size;
-        newDict[uid] = body;
-        if (newerBytes >= newerTargetBytes) {
-          inNew = false;
-          splinfo.count = numHeaders = i + 1;
-          splinfo.startTS = body.date;
-          splinfo.startUID = uid;
-        }
+        inNew = true, numHeaders = null, i, uid, body,
+        idxLast = uids.length - 1;
+    // loop for new traversal; picking a split-point so that there is at least
+    // one item in each block.
+    for (i = 0; i < idxLast; i++) {
+      uid = uids[i],
+      body = splock.bodies[uid];
+      newerBytes += body.size;
+      newDict[uid] = body;
+      if (newerBytes >= newerTargetBytes) {
+        i++;
+        break;
       }
-      else {
-        oldDict[uid] = body;
-      }
+    }
+    // mark the breakpoint; i is pointing at the first old-block message
+    splinfo.count = numHeaders = i;
+    // and these values are from the last processed new-block message
+    splinfo.startTS = body.date;
+    splinfo.startUID = uid;
+    // loop for old traversal
+    for (; i < uids.length; i++) {
+      uid = uids[i];
+      oldDict[uid] = splock.bodies[uid];
     }
 
     var oldEndUID = uids[numHeaders];
@@ -1209,6 +1368,8 @@ FolderStorage.prototype = {
       savedStartTS, savedStartUID,
       oldDict[oldEndUID].date, oldEndUID,
       splinfo.estSize - newerBytes,
+      // (the older block gets the uids the new/existing block does not want,
+      //  leaving `uids` containing only the d
       uids.splice(numHeaders, uids.length - numHeaders),
       oldDict);
     splinfo.estSize = newerBytes;
@@ -1217,6 +1378,240 @@ FolderStorage.prototype = {
     this._dirtyBodyBlocks[splinfo.blockId] = splock;
 
     return olderInfo;
+  },
+
+  /**
+   * Flush cached blocks that are unlikely to be used again soon.  Our
+   * heuristics for deciding what to keep is simple:
+   * - Dirty blocks are always kept; this is required for correctness.
+   * - Blocks that overlap with live `MailSlice` instances are kept.
+   *
+   * It could also make sense to support some type of MRU tracking, but the
+   * complexity is not currently justified since the live `MailSlice` should
+   * lead to a near-perfect hit rate on immediate actions and the UI's
+   * pre-emptive slice growing should insulate it from any foolish discards
+   * we might make.
+   */
+  flushExcessCachedBlocks: function(debugLabel) {
+    var slices = this._slices;
+    function blockIntersectsAnySlice(blockInfo) {
+      for (var i = 0; i < slices.length; i++) {
+        var slice = slices[i];
+        if (tupleRangeIntersectsTupleRange(slice, blockInfo)) {
+          // Here is some useful debug you can uncomment!
+          /*
+          console.log('  slice intersect. slice:',
+                      slice.startTS, slice.startUID,
+                      slice.endTS, slice.endUID, '  block:',
+                      blockInfo.startTS, blockInfo.startUID,
+                      blockInfo.endTS, blockInfo.endUID);
+           */
+          return true;
+        }
+      }
+      return false;
+    }
+    function maybeDiscard(blockType, blockInfoList, loadedBlockInfos,
+                          blockMap, dirtyMap) {
+      // console.warn('!! flushing', blockType, 'blocks because:', debugLabel);
+      for (var i = 0; i < loadedBlockInfos.length; i++) {
+        var blockInfo = loadedBlockInfos[i];
+        // do not discard dirty blocks
+        if (dirtyMap.hasOwnProperty(blockInfo.blockId)) {
+          // console.log('  dirty block:', blockInfo.blockId);
+          continue;
+        }
+        // do not discard blocks that overlap mail slices
+        if (blockIntersectsAnySlice(blockInfo))
+          continue;
+        // console.log('discarding', blockType, 'block', blockInfo.blockId);
+        delete blockMap[blockInfo.blockId];
+        loadedBlockInfos.splice(i--, 1);
+      }
+    }
+
+    maybeDiscard(
+      'header', this._headerBlockInfos, this._loadedHeaderBlockInfos,
+      this._headerBlocks, this._dirtyHeaderBlocks);
+    maybeDiscard(
+      'body', this._bodyBlockInfos, this._loadedBodyBlockInfos,
+      this._bodyBlocks, this._dirtyBodyBlocks);
+  },
+
+  /**
+   * Purge messages from disk storage for size and/or time reasons.  This is
+   * only used for IMAP folders and we fast-path out if invoked on ActiveSync.
+   *
+   * This method is invoked as a result of new block allocation as a job /
+   * operation run inside a mutex.  This means that we won't be run unless a
+   * synchronization job triggers us and that we won't run until that
+   * synchronization job completes.  This is important because it means that
+   * if a user doesn't use the mail app for a long time it's not like a cron
+   * process will purge our synchronized state for everything so that when they
+   * next use the mail app all the information will be gone.  Likewise, if the
+   * user is disconnected from the net, we won't purge their cached stuff that
+   * they are still looking at.  The non-obvious impact on 'archive' folders
+   * whose first messages are quite some way sin the past is that the accuracy
+   * range for archive folders will have been updated with the current date for
+   * at least whatever the UI needed, so we won't go completely purging archive
+   * folders.
+   *
+   * Our strategy is to pick cut points based on a few heuristics and then go
+   * with the deepest cut.  Cuts are time-based and always quantized to the
+   * subsequent local (timezone compensated) midnight for the server in order to
+   * line up with our sync boundaries.  The cut point defines an exclusive range
+   * of [0, cutTS).
+   *
+   * The heuristics are:
+   *
+   * - Last (online) access: scan accuracy ranges from the oldest until we run
+   *   into one that is less than `$sync.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS`
+   *   milliseconds old.  We clip this against the 'syncRange' interval for the
+   *   account.
+   *
+   * - Hard block limits: If there are more than
+   *   `$sync.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT` header or body blocks, then we
+   *   issue a cut-point of the start date of the block at that index.  The date
+   *   will then be quantized, which may effectively result in more blocks being
+   *   discarded.
+   *
+   * Deletion is performed by asynchronously, iteratively:
+   * - Making sure the oldest header block is loaded.
+   * - Checking the oldest header in the block.  If it is more recent than our
+   *   cut point, then we are done.
+   *
+   * What we *do not* do:
+   * - We do not do anything about attachments saved to DeviceStorage.  We leave
+   *   those around and it's on the user to clean those up from the gallery.
+   * - We do not currently take the size of downloaded embedded images into
+   *   account
+   *
+   * @args[
+   *   @param[callback @func[
+   *     @args[
+   *       @param[numDeleted Number]{
+   *         The number of messages deleted.
+   *       }
+   *       @param[cutTS DateMS]
+   *     ]
+   *   ]]
+   * ]
+   */
+  purgeExcessMessages: function(callback) {
+    this._messagePurgeScheduled = false;
+    var cutTS = Math.max(
+      this._purge_findLastAccessCutPoint(),
+      this._purge_findHardBlockCutPoint(this._headerBlockInfos),
+      this._purge_findHardBlockCutPoint(this._bodyBlockInfos));
+
+    if (cutTS === 0) {
+      callback(0, cutTS);
+      return;
+    }
+
+    // Quantize to the subsequent UTC midnight, then apply the timezone
+    // adjustment that is what our IMAP database lookup does to account for
+    // skew.  (See `ImapFolderConn.syncDateRange`)
+    cutTS = quantizeDate(cutTS + DAY_MILLIS) - this._account.tzOffset;
+
+    // Update the accuracy ranges by nuking accuracy ranges that are no longer
+    // relevant and updating any overlapped range.
+    var aranges = this._accuracyRanges;
+    var splitInfo = this._findFirstObjIndexForDateRange(aranges, cutTS, cutTS);
+    // we only need to update a range if there was in fact some overlap.
+    if (splitInfo[1]) {
+      splitInfo[1].startTS = cutTS;
+      // then be sure not to splice ourselves...
+      aranges.splice(splitInfo[0] + 1, aranges.length - splitInfo[0]);
+    }
+    else {
+      // do splice things at/after
+      aranges.splice(splitInfo[0], aranges.length - splitInfo[0]);
+    }
+
+    var headerBlockInfos = this._headerBlockInfos,
+        headerBlocks = this._headerBlocks,
+        deletionCount = 0,
+        // These variables let us detect if the deletion happened fully
+        // synchronously and thereby avoid blowing up the stack.
+        callActive = false, deleteTriggered = false;
+    var deleteNextHeader = function deleteNextHeader() {
+      // if things are happening synchronously, bail out
+      if (callActive) {
+        deleteTriggered = true;
+        return;
+      }
+
+      while (true) {
+        // - bail if we ran out of blocks somehow
+        if (!headerBlockInfos.length) {
+          callback(deletionCount, cutTS);
+          return;
+        }
+        // - load the last header block if not currently loaded
+        var blockInfo = headerBlockInfos[headerBlockInfos.length - 1];
+        if (!this._headerBlocks.hasOwnProperty(blockInfo.blockId)) {
+          this._loadBlock('header', blockInfo, deleteNextHeader);
+          return;
+        }
+        // - get the last header, check it
+        var headerBlock = this._headerBlocks[blockInfo.blockId],
+            lastHeader = headerBlock.headers[headerBlock.headers.length - 1];
+        if (SINCE(lastHeader.date, cutTS)) {
+          // all done! header is more recent than the cut date
+          callback(deletionCount, cutTS);
+          return;
+        }
+        deleteTriggered = false;
+        callActive = true;
+        deletionCount++;
+        this.deleteMessageHeaderAndBody(lastHeader, deleteNextHeader);
+        callActive = false;
+        if (!deleteTriggered)
+          return;
+      }
+    }.bind(this);
+    deleteNextHeader();
+  },
+
+  _purge_findLastAccessCutPoint: function() {
+    var aranges = this._accuracyRanges,
+        cutoffDate = $date.NOW() - $sync.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS;
+    // When the loop terminates, this is the block we should use to cut, so
+    // start with an invalid value.
+    var iCutRange;
+    for (iCutRange = aranges.length; iCutRange >= 1; iCutRange--) {
+      var arange = aranges[iCutRange - 1];
+      // We can destroy things that aren't fully synchronized.
+      // NB: this case was intended for search-on-server which is not yet
+      // implemented.
+      if (!arange.fullSync)
+        continue;
+      if (arange.fullSync.updated > cutoffDate)
+        break;
+    }
+    if (iCutRange === aranges.length)
+      return 0;
+
+    var cutTS = aranges[iCutRange].endTS,
+        syncRangeMS = $sync.SYNC_RANGE_ENUMS_TO_MS[
+                        this._account.accountDef.syncRange] ||
+                      $sync.SYNC_RANGE_ENUMS_TO_MS['auto'],
+        // Determine the sync horizon, but then subtract an extra day off so
+        // that the quantization does not take a bite out of the sync range
+        syncHorizonTS = $date.NOW() - syncRangeMS - DAY_MILLIS;
+
+    // If the proposed cut is more recent than our sync horizon, use the sync
+    // horizon.
+    if (STRICTLY_AFTER(cutTS, syncHorizonTS))
+      return syncHorizonTS;
+    return cutTS;
+  },
+
+  _purge_findHardBlockCutPoint: function(blockInfoList) {
+    if (blockInfoList.length <= $sync.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT)
+      return 0;
+    return blockInfoList[$sync.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT].startTS;
   },
 
   /**
@@ -1296,7 +1691,8 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object that contains date ranges that overlaps the provided
-   * date range.  Scans from the present into the past.
+   * date range.  Scans from the present into the past.  If endTS is null, get
+   * treat it as being a date infinitely far in the future.
    */
   _findFirstObjIndexForDateRange: function ifs__findFirstObjIndexForDateRange(
       list, startTS, endTS) {
@@ -1318,7 +1714,7 @@ FolderStorage.prototype = {
 
       // nb: SINCE(endTS, info.startTS) is not right here because the equals
       // case does not result in overlap because endTS is exclusive.
-      if (STRICTLY_AFTER(endTS, info.startTS))
+      if (endTS === null || STRICTLY_AFTER(endTS, info.startTS))
         return [i, info];
       // (no overlap yet)
     }
@@ -1361,14 +1757,16 @@ FolderStorage.prototype = {
 
   /**
    * Find the first object in the list whose `date` falls inside the given
-   * IMAP style date range.
+   * IMAP style date range.  If `endTS` is null, find the first object whose
+   * `date` is at least `startTS`.
    */
   _findFirstObjForDateRange: function ifs__findFirstObjForDateRange(
       list, startTS, endTS) {
     var i;
+    var dateComparator = endTS === null ? SINCE : IN_BS_DATE_RANGE;
     for (i = 0; i < list.length; i++) {
       var date = list[i].date;
-      if (IN_BS_DATE_RANGE(date, startTS, endTS))
+      if (dateComparator(date, startTS, endTS))
         return [i, list[i]];
     }
     return [i, null];
@@ -1446,10 +1844,11 @@ FolderStorage.prototype = {
    */
   _insertIntoBlockUsingDateAndUID: function ifs__pickInsertionBlocks(
       type, date, uid, srvid, estSizeCost, thing, blockPickedCallback) {
-    var blockInfoList, blockMap, makeBlock, insertInBlock, splitBlock,
-        serverIdBlockMapping;
+    var blockInfoList, loadedBlockInfoList, blockMap, makeBlock, insertInBlock,
+        splitBlock, serverIdBlockMapping;
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
+      loadedBlockInfoList = this._loadedHeaderBlockInfos;
       blockMap = this._headerBlocks;
       serverIdBlockMapping = this._serverIdHeaderBlockMapping;
       makeBlock = this._bound_makeHeaderBlock;
@@ -1458,6 +1857,7 @@ FolderStorage.prototype = {
     }
     else {
       blockInfoList = this._bodyBlockInfos;
+      loadedBlockInfoList = this._loadedBodyBlockInfos;
       blockMap = this._bodyBlocks;
       serverIdBlockMapping = null; // only headers have the mapping
       makeBlock = this._bound_makeBodyBlock;
@@ -1476,6 +1876,7 @@ FolderStorage.prototype = {
       if (blockInfoList.length === 0) {
         info = makeBlock(date, uid, date, uid);
         blockInfoList.splice(iInfo, 0, info);
+        loadedBlockInfoList.push(info);
       }
       // - Is there a trailing/older dude and we fit?
       else if (iInfo < blockInfoList.length &&
@@ -1554,7 +1955,7 @@ FolderStorage.prototype = {
       insertInBlock(thing, uid, info, block);
 
       // -- split if necessary
-      if (info.estSize >= MAX_BLOCK_SIZE) {
+      if (info.count > 1 && info.estSize >= MAX_BLOCK_SIZE) {
         // - figure the desired resulting sizes
         var firstBlockTarget;
         // big part to the center at the edges (favoring front edge)
@@ -1571,6 +1972,7 @@ FolderStorage.prototype = {
         var olderInfo;
         olderInfo = splitBlock(info, block, firstBlockTarget);
         blockInfoList.splice(iInfo + 1, 0, olderInfo);
+        loadedBlockInfoList.push(olderInfo);
 
         // - figure which of the blocks our insertion went in
         if (BEFORE(date, olderInfo.endTS) ||
@@ -1591,7 +1993,7 @@ FolderStorage.prototype = {
     if (blockMap.hasOwnProperty(info.blockId))
       processBlock.call(this, blockMap[info.blockId]);
     else
-      this._loadBlock(type, info.blockId, processBlock.bind(this));
+      this._loadBlock(type, info, processBlock.bind(this));
   },
 
   runAfterDeferredCalls: function(callback) {
@@ -1612,13 +2014,27 @@ FolderStorage.prototype = {
     }
   },
 
+  _findBlockInfoFromBlockId: function(type, blockId) {
+    var blockInfoList;
+    if (type === 'header')
+      blockInfoList = this._headerBlockInfos;
+    else
+      blockInfoList = this._bodyBlockInfos;
+
+    for (var i = 0; i < blockInfoList.length; i++) {
+      var blockInfo = blockInfoList[i];
+      if (blockInfo.blockId === blockId)
+        return blockInfo;
+    }
+    return null;
+  },
+
   /**
    * Request the load of the given block and the invocation of the callback with
    * the block when the load completes.
    */
-  _loadBlock: function ifs__loadBlock(type, blockId, callback) {
-    if (blockId == null)
-      throw new Error('Bad block id!');
+  _loadBlock: function ifs__loadBlock(type, blockInfo, callback) {
+    var blockId = blockInfo.blockId;
     var aggrId = type + blockId;
     if (this._pendingLoads.indexOf(aggrId) !== -1) {
       this._pendingLoadListeners[aggrId].push(callback);
@@ -1634,15 +2050,24 @@ FolderStorage.prototype = {
       if (!block)
         self._LOG.badBlockLoad(type, blockId);
       self._LOG.loadBlock_end(type, blockId, block);
-      if (type === 'header')
+      if (type === 'header') {
         self._headerBlocks[blockId] = block;
-      else
+        self._loadedHeaderBlockInfos.push(blockInfo);
+      }
+      else {
         self._bodyBlocks[blockId] = block;
+        self._loadedBodyBlockInfos.push(blockInfo);
+      }
       self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
-        listeners[i](block);
+        try {
+          listeners[i](block);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
 
       if (self._pendingLoads.length === 0)
@@ -1657,15 +2082,17 @@ FolderStorage.prototype = {
   },
 
   _deleteFromBlock: function ifs__deleteFromBlock(type, date, uid, callback) {
-    var blockInfoList, blockMap, deleteFromBlock;
+    var blockInfoList, loadedBlockInfoList, blockMap, deleteFromBlock;
     this._LOG.deleteFromBlock(type, date, uid);
     if (type === 'header') {
       blockInfoList = this._headerBlockInfos;
+      loadedBlockInfoList = this._loadedHeaderBlockInfos;
       blockMap = this._headerBlocks;
       deleteFromBlock = this._bound_deleteHeaderFromBlock;
     }
     else {
       blockInfoList = this._bodyBlockInfos;
+      loadedBlockInfoList = this._loadedBodyBlockInfos;
       blockMap = this._bodyBlocks;
       deleteFromBlock = this._bound_deleteBodyFromBlock;
     }
@@ -1689,6 +2116,7 @@ FolderStorage.prototype = {
       if (info.count === 0) {
         blockInfoList.splice(iInfo, 1);
         delete blockMap[info.blockId];
+        loadedBlockInfoList.splice(loadedBlockInfoList.indexOf(info), 1);
 
         this._dirty = true;
         if (type === 'header')
@@ -1702,7 +2130,7 @@ FolderStorage.prototype = {
     if (blockMap.hasOwnProperty(info.blockId))
       processBlock.call(this, blockMap[info.blockId]);
     else
-      this._loadBlock(type, info.blockId, processBlock.bind(this));
+      this._loadBlock(type, info, processBlock.bind(this));
   },
 
   /**
@@ -1736,15 +2164,24 @@ FolderStorage.prototype = {
    */
   sliceOpenFromNow: function ifs_sliceOpenFromNow(slice, daysDesired,
                                                   forceDeepening) {
-    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
-    this._slices.push(slice);
-    if (this._curSyncSlice) {
-      console.error("Trying to open a slice and initiate a sync when there",
-                    "is already an active sync slice!");
-      return;
-    }
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
     // by definition, we must be at the top
     slice.atTop = true;
+    this.runMutexed(
+      'sync',
+      this._sliceOpenFromNow.bind(this, slice, daysDesired, forceDeepening));
+  },
+  _sliceOpenFromNow: function ifs__sliceOpenFromNowfunction(
+      slice, daysDesired, forceDeepening, releaseMutex) {
+    daysDesired = daysDesired || $sync.INITIAL_SYNC_DAYS;
+
+    // We only put the slice in the list of slices now that we have the mutex
+    // in order to avoid having the slice have data fed into it if there were
+    // other synchronizations already in progress.
+    this._slices.push(slice);
 
     // -- Check if we have sufficiently useful data on hand.
     // For checking accuracy ranges, the first accuracy range is authoritative
@@ -1760,9 +2197,8 @@ FolderStorage.prototype = {
         worstGoodData = 0,
         existingDataGood = false;
 
-    var syncCallback = (function syncCallback(syncMode, accumulateMode,
-                                              ignoreHeaders) {
-      slice.setStatus('synchronizing', false, true);
+    var syncCallback = function syncCallback(syncMode, accumulateMode,
+                                             ignoreHeaders) {
       slice.waitingOnData = syncMode;
       if (accumulateMode && slice.headers.length === 0) {
         slice._accumulating = true;
@@ -1771,7 +2207,33 @@ FolderStorage.prototype = {
         slice.ignoreHeaders = true;
       }
       this._curSyncSlice = slice;
-    }).bind(this);
+    }.bind(this);
+
+    var reportSyncStatusAs = 'synced';
+    var doneCallback = function doneSyncCallback(err) {
+      if (err) {
+        // If we encountered an error in synchronization, then we want to
+        // convert to displaying what we have from our cache.
+        slice._resetHeadersBecauseOfRefreshExplosion();
+        slice.waitingOnData = 'db';
+        slice._accumulating = false;
+        slice.ignoreHeaders = false;
+        reportSyncStatusAs = 'syncfailed';
+        this.getMessagesInImapDateRange(
+          0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+          this.onFetchDBHeaders.bind(
+            this, slice, /* no refresh */ false, doneCallback, null));
+        return;
+      }
+
+      slice.waitingOnData = false;
+      slice.setStatus(reportSyncStatusAs, true, false, true);
+      this._curSyncSlice = null;
+
+      releaseMutex();
+    }.bind(this);
+
+    var progressCallback = slice.setSyncProgress.bind(slice);
 
     // If we're offline or the folder can't be synchronized right now, then
     // there's nothing to look into; use the DB.
@@ -1808,7 +2270,8 @@ FolderStorage.prototype = {
         var updateThresh = now - rangeThresh;
         if (ainfo.fullSync && SINCE(ainfo.fullSync.updated, updateThresh)) {
           this.folderSyncer.syncAdjustedDateRange(pastDate, futureNow,
-                                                  syncCallback);
+                                                  syncCallback, doneCallback,
+                                                  progressCallback);
           return;
         }
       }
@@ -1824,13 +2287,15 @@ FolderStorage.prototype = {
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
           this, slice,
-          this._account.universe.online && this.folderSyncer.syncable)
+          this._account.universe.online && this.folderSyncer.syncable,
+          doneCallback, releaseMutex)
       );
       return;
     }
 
     // -- Bad existing data, issue a sync and have the slice
-    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback);
+    this.folderSyncer.syncDateRange(pastDate, futureNow, syncCallback,
+                                    doneCallback, progressCallback);
   },
 
   /**
@@ -1855,6 +2320,17 @@ FolderStorage.prototype = {
    * date overlap from sync activity.
    */
   growSlice: function ifs_growSlice(slice, dirMagnitude, userRequestsGrowth) {
+    // If the user requested synchronization, provide UI feedback immediately,
+    // otherwise, let the method set this state if/when we actually decide to
+    // talk to the server.
+    if (userRequestsGrowth)
+      slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'grow',
+      this._growSlice.bind(this, slice, dirMagnitude, userRequestsGrowth));
+  },
+  _growSlice: function ifs__growSlice(slice, dirMagnitude, userRequestsGrowth,
+                                      releaseMutex) {
     var dir, desiredCount;
     if (dirMagnitude < 0) {
       dir = -1;
@@ -1866,6 +2342,8 @@ FolderStorage.prototype = {
         slice.endTS, slice.endUID, desiredCount,
         function(headers, moreExpected) {
           slice.batchAppendHeaders(headers, 0, moreExpected);
+          slice.desiredHeaders = slice.headers.length;
+          releaseMutex();
         });
     }
     else {
@@ -1887,19 +2365,39 @@ FolderStorage.prototype = {
               slice.batchAppendHeaders(batchHeaders.slice(0, firstNotToSend),
                                        -1, true);
             slice.desiredHeaders += desiredCount;
-            slice.setStatus('synchronizing', false, true);
+            // (we are did this if userRequestsGrowth is true in `growSlice`)
+            if (!userRequestsGrowth)
+              slice.setStatus('synchronizing', false, true, false, 0.0);
             slice.waitingOnData = syncMode;
             this._curSyncSlice = slice;
           }
         }).bind(this);
 
-        // If we're offline, just use what we've got and be done with it.
-        if (this._account.universe.online) {
+        var doneCallback = function doneGrowCallback(err) {
+          slice.waitingOnData = false;
+          slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
+          this._curSyncSlice = null;
+
+          releaseMutex();
+        }.bind(this);
+
+        var progressCallback = slice.setSyncProgress.bind(slice);
+
+        // We can only grow if we are online and the account is enabled.  Of
+        // course, the account being disabled is usually something that can be
+        // resolved by us trying to talk to the server (either we end up with a
+        // connection or the user gets a UI action), so allow it in that case
+        // too.
+        if (this._account.universe.online &&
+            (this._account.enabled || userRequestsGrowth)) {
           growingSync = this.folderSyncer.growSync(
-            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback);
+            slice.startTS, batchHeaders, userRequestsGrowth, syncCallback,
+            doneCallback, progressCallback);
         }
 
         if (!growingSync) {
+          // If a refresh is not actually required / going to happen, generate
+          // our slice events and cleanup the mutex.
           if (batchHeaders.length) {
             slice.batchAppendHeaders(batchHeaders, -1, false);
             slice.desiredHeaders = slice.headers.length;
@@ -1907,6 +2405,7 @@ FolderStorage.prototype = {
           else {
             slice.sendEmptyCompletion();
           }
+          releaseMutex();
         }
       }.bind(this);
 
@@ -1915,6 +2414,16 @@ FolderStorage.prototype = {
       this.getMessagesBeforeMessage(slice.startTS, slice.startUID,
                                     desiredCount, gotMessages.bind(this));
     }
+  },
+
+  /**
+   * A notification from a slice that it is has reduced the span of time that it
+   * covers.  We use this to run a cache eviction if there is not currently a
+   * mutex held.
+   */
+  sliceShrunk: function fs_sliceShrunk(slice) {
+    if (this._mutexQueue.length === 0)
+      this.flushExcessCachedBlocks('shrunk');
   },
 
   /**
@@ -1931,16 +2440,22 @@ FolderStorage.prototype = {
    * full date bounds.
    */
   refreshSlice: function ifs_refreshSlice(slice, useBisectLimit) {
-    // XXX use mutex scheduling to avoid this possibly happening...
-    if (this._curSyncSlice)
-      throw new Error("Can't refresh a slice when there is an existing sync");
-
+    // Set the status immediately so that the UI will convey that the request is
+    // being processed, even though it might take a little bit to acquire the
+    // mutex.
+    slice.setStatus('synchronizing', false, true, false, 0.0);
+    this.runMutexed(
+      'refresh',
+      this._refreshSlice.bind(this, slice, useBisectLimit));
+  },
+  _refreshSlice: function ifs__refreshSlice(slice, useBisectLimit,
+                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
 
     var startTS = slice.startTS, endTS = slice.endTS;
 
     // - Grow endTS
-    // If the endTS lines up with the most recent know message for the folder,
+    // If the endTS lines up with the most recent known message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
@@ -1964,40 +2479,52 @@ FolderStorage.prototype = {
     // of the start message.
     else
       startTS += this._account.tzOffset;
+
     // quantize the start date
     if (startTS)
       startTS = quantizeDate(startTS);
 
-    this._LOG.refreshSlice(startTS, endTS, useBisectLimit);
+    this.folderSyncer.refreshSync(
+      startTS, endTS, useBisectLimit,
+      function refreshDoneCallback(err, bisectInfo, numMessages) {
+        var reportSyncStatusAs = 'synced';
+        switch (err) {
+          // If a bisection occurred then this can no longer be a refresh and
+          // instead we need to retract all known messages and instead convert
+          // this into a synchronization.
+          case 'bisect':
+            slice._resetHeadersBecauseOfRefreshExplosion();
+            return 'abort';
+          // If we returned abort, then we should now be called with...
+          case 'bisect-aborted':
+            // This is going to be converted into a new sliceOpenFromNow, so
+            // we want to release our mutex.
+            releaseMutex();
+            this._resetAndResyncSlice(slice, true);
+            return undefined;
 
-    var self = this;
-    this.folderSyncer.refreshSync(startTS, endTS, useBisectLimit,
-                                  function(bisectInfo, numMessages) {
-      // If a bisection occurred then this can no longer be a refresh and
-      // instead we need to retract all known messages and instead convert
-      // this into a synchronization.
-      if (bisectInfo) {
-        // (The first time through bisectInfo is an object; we return 'abort'
-        // and then get called again with 'aborted'...)
-        if (bisectInfo === 'aborted')
-          self._resetAndResyncSlice(slice, true);
-        else
-          slice._resetHeadersBecauseOfRefreshExplosion();
-        return 'abort';
-      }
+          case 'aborted':
+          case 'unknown':
+            reportSyncStatusAs = 'syncfailed';
+            break;
+        }
 
-      slice.waitingOnData = false;
-      if (self._curSyncSlice === slice)
-        self._curSyncSlice = null;
-      self._account.__checkpointSyncCompleted();
-      slice.setStatus('synced', true, false);
-      return undefined;
-    });
+        releaseMutex();
+        slice.waitingOnData = false;
+        if (!err)
+          this._account.__checkpointSyncCompleted();
+        slice.setStatus(reportSyncStatusAs, true, false);
+        return undefined;
+      }.bind(this),
+      slice.setSyncProgress.bind(slice));
   },
 
-  _resetAndResyncSlice: function(slice, forceDeepening) {
+  _resetAndResyncSlice: function(slice, forceDeepening, releaseMutex) {
     this._slices.splice(this._slices.indexOf(slice), 1);
-    this.sliceOpenFromNow(slice, null, forceDeepening);
+    if (releaseMutex)
+      this._sliceOpenFromNow(slice, null, forceDeepening, releaseMutex);
+    else
+      this.sliceOpenFromNow(slice, null, forceDeepening);
   },
 
   dyingSlice: function ifs_dyingSlice(slice) {
@@ -2011,7 +2538,7 @@ FolderStorage.prototype = {
   /**
    * Receive messages directly from the database (streaming).
    */
-  onFetchDBHeaders: function(slice, triggerRefresh,
+  onFetchDBHeaders: function(slice, triggerRefresh, doneCallback, releaseMutex,
                              headers, moreMessagesComing) {
     var triggerNow = false;
     if (!moreMessagesComing && triggerRefresh) {
@@ -2027,8 +2554,7 @@ FolderStorage.prototype = {
 
     if (!moreMessagesComing) {
       slice.desiredHeaders = slice.headers.length;
-      slice.setStatus('synced', true, false);
-      slice.waitingOnData = false;
+      doneCallback();
     }
     else if (triggerNow) {
       slice.desiredHeaders = slice.headers.length;
@@ -2040,7 +2566,7 @@ FolderStorage.prototype = {
       this._curSyncSlice = null;
       // We do want to use the bisection limit so that the refresh gets
       // converted to a sync in the event of an overflow.
-      this.refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES);
+      this._refreshSlice(slice, $sync.BISECT_DATE_AT_N_MESSAGES, releaseMutex);
     }
   },
 
@@ -2110,7 +2636,13 @@ FolderStorage.prototype = {
     return syncTS;
   },
 
+  /**
+   * Are we synchronized as far back in time as we are able to synchronize?
+   */
   syncedToDawnOfTime: function() {
+    if (!this.folderSyncer.canGrowSync)
+      return true;
+
     var oldestSyncTS = this.getOldestFullSyncDate();
     return ON_OR_BEFORE(oldestSyncTS, $sync.OLDEST_SYNC_DATE);
   },
@@ -2135,10 +2667,11 @@ FolderStorage.prototype = {
    *
    * @args[
    *   @param[startTS DateMS]{
-   *     SINCE-evaluated start timestamp. (inclusive)
+   *     SINCE-evaluated start timestamp (inclusive).
    *   }
    *   @param[endTS DateMS]{
-   *     BEFORE-evaluated end timestamp. (exclusive)
+   *     BEFORE-evaluated end timestamp (exclusive).  If endTS is null, get all
+   *     messages since startTS.
    *   }
    *   @param[minDesired #:optional Number]{
    *     The minimum number of messages to return.  We will keep loading blocks
@@ -2164,8 +2697,6 @@ FolderStorage.prototype = {
         self = this,
         // header block info iteration
         iHeadBlockInfo = null, headBlockInfo;
-    if (endTS == null)
-      endTS = NOW(); // or just use a huge number?
 
     // find the first header block with the data we want
     var headerPair = this._findFirstObjIndexForDateRange(
@@ -2182,7 +2713,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -2300,7 +2831,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -2378,7 +2909,7 @@ FolderStorage.prototype = {
       while (true) {
         // - load the header block if required
         if (!self._headerBlocks.hasOwnProperty(headBlockInfo.blockId)) {
-          self._loadBlock('header', headBlockInfo.blockId, fetchMore);
+          self._loadBlock('header', headBlockInfo, fetchMore);
           return;
         }
         var headerBlock = self._headerBlocks[headBlockInfo.blockId];
@@ -2442,6 +2973,9 @@ FolderStorage.prototype = {
     // If our range was marked open-ended, it's really accurate through now.
     if (!endTS)
       endTS = NOW();
+    if (startTS > endTS)
+      throw new Error('Your timestamps are switched!');
+
     var aranges = this._accuracyRanges;
     function makeRange(start, end, modseq, updated) {
       return {
@@ -2515,6 +3049,11 @@ FolderStorage.prototype = {
     }
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
+
+    this.folderMeta.lastSyncedAt = endTS;
+    if (this._account.universe)
+      this._account.universe.__notifyModifiedFolder(this._account.id,
+                                                    this.folderMeta);
   },
 
   /**
@@ -2542,17 +3081,27 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.headerNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._LOG.callbackErr(ex);
+      }
       return;
     }
     var headerBlockInfo = posInfo[1], self = this;
     if (!(this._headerBlocks.hasOwnProperty(headerBlockInfo.blockId))) {
-      this._loadBlock('header', headerBlockInfo.blockId, function(headerBlock) {
+      this._loadBlock('header', headerBlockInfo, function(headerBlock) {
           var idx = headerBlock.uids.indexOf(id);
           var headerInfo = headerBlock.headers[idx] || null;
           if (!headerInfo)
             self._LOG.headerNotFound();
-          callback(headerInfo);
+          try {
+            callback(headerInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2561,7 +3110,12 @@ FolderStorage.prototype = {
         headerInfo = block.headers[idx] || null;
     if (!headerInfo)
       this._LOG.headerNotFound();
-    callback(headerInfo);
+    try {
+      callback(headerInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -2632,8 +3186,8 @@ FolderStorage.prototype = {
 
 
     this._insertIntoBlockUsingDateAndUID(
-      'header', header.date, header.id, header.srvid, HEADER_EST_SIZE_IN_BYTES,
-      header, callback);
+      'header', header.date, header.id, header.srvid,
+      $sync.HEADER_EST_SIZE_IN_BYTES, header, callback);
   },
 
   /**
@@ -2722,7 +3276,7 @@ FolderStorage.prototype = {
                         date + ' id: ' + id);
     }
     else if (!this._headerBlocks.hasOwnProperty(info.blockId))
-      this._loadBlock('header', info.blockId, doUpdateHeader);
+      this._loadBlock('header', info, doUpdateHeader);
     else
       doUpdateHeader(this._headerBlocks[info.blockId]);
   },
@@ -2758,10 +3312,13 @@ FolderStorage.prototype = {
       }
     }.bind(this);
 
-    if (this._headerBlocks.hasOwnProperty(blockId))
+    if (this._headerBlocks.hasOwnProperty(blockId)) {
       findInBlock(this._headerBlocks[blockId]);
-    else
-      this._loadBlock('header', blockId, findInBlock);
+    }
+    else {
+      var blockInfo = this._findBlockInfoFromBlockId('header', blockId);
+      this._loadBlock('header', blockInfo, findInBlock);
+    }
   },
 
   /**
@@ -2843,10 +3400,13 @@ FolderStorage.prototype = {
       }
     }.bind(this);
 
-    if (this._headerBlocks.hasOwnProperty(blockId))
+    if (this._headerBlocks.hasOwnProperty(blockId)) {
       findInBlock(this._headerBlocks[blockId]);
-    else
-      this._loadBlock('header', blockId, findInBlock);
+    }
+    else {
+      var blockInfo = this._findBlockInfoFromBlockId('header', blockId);
+      this._loadBlock('header', blockInfo, findInBlock);
+    }
   },
 
   /**
@@ -2860,6 +3420,79 @@ FolderStorage.prototype = {
       return;
     }
 
+    // crappy size estimates where we assume the world is ASCII and so a UTF-8
+    // encoding will take exactly 1 byte per character.
+    var sizeEst = OBJ_OVERHEAD_EST + NUM_ATTR_OVERHEAD_EST +
+                    4 * NULL_ATTR_OVERHEAD_EST;
+    function sizifyAddrs(addrs) {
+      sizeEst += LIST_ATTR_OVERHEAD_EST;
+      if (!addrs)
+        return;
+      for (var i = 0; i < addrs.length; i++) {
+        var addrPair = addrs[i];
+        sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                     (addrPair.name ? addrPair.name.length : 0) +
+                     (addrPair.address ? addrPair.address.length : 0);
+      }
+    }
+    function sizifyAttachments(atts) {
+      sizeEst += LIST_ATTR_OVERHEAD_EST;
+      if (!atts)
+        return;
+      for (var i = 0; i < atts.length; i++) {
+        var att = atts[i];
+        sizeEst += OBJ_OVERHEAD_EST + 2 * STR_ATTR_OVERHEAD_EST +
+                     att.name.length + att.type.length +
+                     NUM_ATTR_OVERHEAD_EST;
+      }
+    }
+    function sizifyStr(str) {
+      sizeEst += STR_ATTR_OVERHEAD_EST + str.length;
+    }
+    function sizifyStringList(strings) {
+      sizeEst += LIST_OVERHEAD_EST;
+      if (!strings)
+        return;
+      for (var i = 0; i < strings.length; i++) {
+        sizeEst += STR_ATTR_OVERHEAD_EST + strings[i].length;
+      }
+    }
+    function sizifyBodyRep(rep) {
+      sizeEst += LIST_OVERHEAD_EST +
+                   NUM_OVERHEAD_EST * (rep.length / 2) +
+                   STR_OVERHEAD_EST * (rep.length / 2);
+      for (var i = 1; i < rep.length; i += 2) {
+        if (rep[i])
+          sizeEst += rep[i].length;
+      }
+    };
+    function sizifyBodyReps(reps) {
+      if (!reps)
+        return;
+      sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
+      for (var i = 0; i < reps.length; i += 2) {
+        var type = reps[i], rep = reps[i + 1];
+        if (type === 'html')
+          sizeEst += STR_OVERHEAD_EST + rep.length;
+        else
+          sizifyBodyRep(rep);
+      }
+    };
+
+    if (bodyInfo.to)
+      sizifyAddrs(bodyInfo.to);
+    if (bodyInfo.cc)
+      sizifyAddrs(bodyInfo.cc);
+    if (bodyInfo.bcc)
+      sizifyAddrs(bodyInfo.bcc);
+    if (bodyInfo.replyTo)
+      sizifyStr(bodyInfo.replyTo);
+    sizifyAttachments(bodyInfo.attachments);
+    sizifyAttachments(bodyInfo.relatedParts);
+    sizifyStringList(bodyInfo.references);
+    sizifyBodyReps(bodyInfo.bodyReps);
+    bodyInfo.size = sizeEst;
+
     this._insertIntoBlockUsingDateAndUID(
       'body', header.date, header.id, header.srvid, bodyInfo.size, bodyInfo,
       callback);
@@ -2871,16 +3504,26 @@ FolderStorage.prototype = {
                                                        date, id);
     if (posInfo[1] === null) {
       this._LOG.bodyNotFound();
-      callback(null);
+      try {
+        callback(null);
+      }
+      catch (ex) {
+        this._log.callbackErr(ex);
+      }
       return;
     }
     var bodyBlockInfo = posInfo[1], self = this;
     if (!(this._bodyBlocks.hasOwnProperty(bodyBlockInfo.blockId))) {
-      this._loadBlock('body', bodyBlockInfo.blockId, function(bodyBlock) {
+      this._loadBlock('body', bodyBlockInfo, function(bodyBlock) {
           var bodyInfo = bodyBlock.bodies[id] || null;
           if (!bodyInfo)
             self._LOG.bodyNotFound();
-          callback(bodyInfo);
+          try {
+            callback(bodyInfo);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       return;
     }
@@ -2888,7 +3531,12 @@ FolderStorage.prototype = {
         bodyInfo = block.bodies[id] || null;
     if (!bodyInfo)
       this._LOG.bodyNotFound();
-    callback(bodyInfo);
+    try {
+      callback(bodyInfo);
+    }
+    catch (ex) {
+      this._LOG.callbackErr(ex);
+    }
   },
 
   /**
@@ -2962,8 +3610,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // unexpected errors, so this is getting downgraded for now.
       headerNotFound: {},
       bodyNotFound: {},
-
-      refreshSlice: { startTS: false, endTS: false, useBisectLimit: false },
     },
     TEST_ONLY_events: {
     },
@@ -2975,7 +3621,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       loadBlock: { block: false },
     },
     errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+
       badBlockLoad: { type: false, blockId: false },
+
       // Exposing date/uid at a general level is deemed okay because they are
       // opaque identifiers and the most likely failure models involve the
       // values being ridiculous (and therefore not legal).
@@ -2983,6 +3632,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
       serverIdMappingMissing: { srvid: false },
+
+      mutexedOpErr: { err: $log.EXCEPTION },
 
       tooManyCallbacks: { name: false },
       mutexInvariantFail: { fireName: false, curName: false },

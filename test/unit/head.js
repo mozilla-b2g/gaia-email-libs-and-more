@@ -184,6 +184,7 @@ require({
     "url": "data/lib/nop3",
     "fs": "data/lib/nop4",
     "child_process": "data/lib/nop5",
+    "xoauth2": "data/lib/nop6",
 
     "q": "data/lib/q",
     "text": "data/lib/text",
@@ -250,20 +251,29 @@ const ENVIRON_MAPPINGS = [
   {
     name: 'emailAddress',
     envVar: 'GELAM_TEST_ACCOUNT',
+    coerce: function (x) { return x; },
   },
   {
     name: 'password',
     envVar: 'GELAM_TEST_PASSWORD',
+    coerce: function (x) { return x; },
   },
   {
     name: 'type',
-    envVar: 'GELAM_TEST_ACCOUNT_TYPE'
+    envVar: 'GELAM_TEST_ACCOUNT_TYPE',
+    coerce: function (x) { return x; },
+  },
+  {
+    name: 'slow',
+    envVar: 'GELAM_TEST_ACCOUNT_SLOW',
+    coerce: Boolean
   }
 ];
 var TEST_PARAMS = {
   name: 'Baron von Testendude',
   emailAddress: 'testy@localhost',
   password: 'testy',
+  slow: false,
   type: 'imap'
 };
 var TEST_PARAMS_ARE_DEFAULTS = true;
@@ -271,12 +281,18 @@ var TEST_PARAMS_ARE_DEFAULTS = true;
 function populateTestParams() {
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
-  for each (let [, {name, envVar}] in Iterator(ENVIRON_MAPPINGS)) {
+  for each (let [, {name, envVar, coerce}] in Iterator(ENVIRON_MAPPINGS)) {
     if (environ.exists(envVar)) {
-      TEST_PARAMS[name] = environ.get(envVar);
+      TEST_PARAMS[name] = coerce(environ.get(envVar));
       console.log('environment:', name, TEST_PARAMS[name]);
       TEST_PARAMS_ARE_DEFAULTS = false;
     }
   }
 }
 populateTestParams();
+
+const gPrefs = Cc["@mozilla.org/preferences-service;1"]
+                 .getService(Ci.nsIPrefBranch);
+// Make our IndexedDB writes go waaaay faster by turning off fsync.  Our unit
+// tests do not need to survive power outages!
+gPrefs.setIntPref('toolkit.storage.synchronous', 0);

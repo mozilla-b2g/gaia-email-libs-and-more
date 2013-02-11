@@ -3,24 +3,31 @@ define(
     'wbxml',
     'activesync/codepages',
     'activesync/protocol',
+    'rdcommon/log',
     '../jobmixins',
+    'module',
     'exports'
   ],
   function(
     $wbxml,
     $ascp,
     $activesync,
+    $log,
     $jobmixins,
+    $module,
     exports
   ) {
 'use strict';
 
-function ActiveSyncJobDriver(account, state) {
+function ActiveSyncJobDriver(account, state, _parentLog) {
   this.account = account;
   // XXX for simplicity for now, let's assume that ActiveSync GUID's are
   // maintained across folder moves.
   this.resilientServerIds = true;
   this._heldMutexReleasers = [];
+
+  this._LOG = LOGFAB.ActiveSyncJobDriver(this, _parentLog, this.account.id);
+
   this._state = state;
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
@@ -51,13 +58,22 @@ ActiveSyncJobDriver.prototype = {
 
       var syncer = storage.folderSyncer;
       if (needConn && !self.account.conn.connected) {
-        // XXX will this connection automatically retry?
-        self.account.conn.connect(function(err, config) {
-          callback(syncer.folderConn, storage);
+        self.account.conn.connect(function(error) {
+          try {
+            callback(syncer.folderConn, storage);
+          }
+          catch (ex) {
+            self._LOG.callbackErr(ex);
+          }
         });
       }
       else {
-        callback(syncer.folderConn, storage);
+        try {
+          callback(syncer.folderConn, storage);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
     });
   },
@@ -248,10 +264,8 @@ ActiveSyncJobDriver.prototype = {
               let srvid = serverIds[i];
               // If the header is somehow an offline header, it will be null and
               // there is nothing we can really do for it.
-              if (!srvid) {
-                console.log('AS message', namers[i].suid, 'lacks srvid!');
+              if (!srvid)
                 continue;
-              }
 
               w.stag(as.Delete)
                   .tag(as.ServerId, srvid)
@@ -301,8 +315,8 @@ ActiveSyncJobDriver.prototype = {
     var account = this.account, self = this;
     // establish a connection if we are not already connected
     if (!account.conn.connected) {
-      account.conn.connect(function(err, config) {
-        if (err) {
+      account.conn.connect(function(error) {
+        if (error) {
           doneCallback('aborted-retry');
           return;
         }
@@ -314,12 +328,10 @@ ActiveSyncJobDriver.prototype = {
     // The inbox needs to be resynchronized if there was no server id and we
     // have active slices displaying the contents of the folder.  (No server id
     // means the sync will not happen.)
-    var inboxFolder = this.account.getFirstFolderWithType('inbox'),
-        inboxStorage, inboxNeedsResync = false;
-    if (inboxFolder && inboxFolder.serverId === null) {
-      inboxStorage = this.account.getFolderStorageForFolderId(inboxFolder.id);
-      inboxNeedsResync = inboxStorage.hasActiveSlices;
-    }
+    var inboxFolder = account.getFirstFolderWithType('inbox'),
+        inboxStorage;
+    if (inboxFolder && inboxFolder.serverId === null)
+      inboxStorage = account.getFolderStorageForFolderId(inboxFolder.id);
 
     account.syncFolderList(function(err) {
       if (!err)
@@ -327,8 +339,10 @@ ActiveSyncJobDriver.prototype = {
       // save if it worked
       doneCallback(err ? 'aborted-retry' : null, null, !err);
 
-      if (inboxNeedsResync)
+      if (inboxStorage && inboxStorage.hasActiveSlices) {
+        console.log("Refreshing fake inbox");
         inboxStorage.resetAndRefreshActiveSlices();
+      }
     });
   },
 
@@ -357,8 +371,39 @@ ActiveSyncJobDriver.prototype = {
 
   undo_download: $jobmixins.undo_download,
 
+  //////////////////////////////////////////////////////////////////////////////
+  // purgeExcessMessages is a NOP for activesync
+
+  local_do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  check_purgeExcessMessages: function(op, doneCallback) {
+    return 'idempotent';
+  },
+
+  local_undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
 
   //////////////////////////////////////////////////////////////////////////////
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ActiveSyncJobDriver: {
+    type: $log.DAEMON,
+    errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+    },
+  },
+});
 
 }); // end define

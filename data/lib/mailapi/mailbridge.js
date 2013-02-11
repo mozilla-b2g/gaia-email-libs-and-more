@@ -5,16 +5,16 @@
 define(
   [
     'rdcommon/log',
-    'mailcomposer',
     './mailchew',
+    './composer',
     './util',
     'module',
     'exports'
   ],
   function(
     $log,
-    $mailcomposer,
     $mailchew,
+    $composer,
     $imaputil,
     $module,
     exports
@@ -125,9 +125,7 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
-console.log('received modifyConfig');
     this.universe.modifyConfig(msg.mods);
-console.log('done proc modifyConfig');
   },
 
   notifyConfig: function(config) {
@@ -160,11 +158,12 @@ console.log('done proc modifyConfig');
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
     var self = this;
     this.universe.tryToCreateAccount(msg.details, msg.domainInfo,
-                                     function(error, account) {
+                                     function(error, account, errorDetails) {
         self.__sendMessage({
             type: 'tryToCreateAccountResults',
             handle: msg.handle,
             error: error,
+            errorDetails: errorDetails,
           });
       });
   },
@@ -177,8 +176,8 @@ console.log('done proc modifyConfig');
       // If we succeeded or the problem was not an authentication, assume
       // everything went fine and clear the problems.
       if (!err || (
-          err !== 'bad-user-or-pass' && 
-          err !== 'needs-app-pass' && 
+          err !== 'bad-user-or-pass' &&
+          err !== 'needs-app-pass' &&
           err !== 'imap-disabled'
         )) {
         self.universe.clearAccountProblems(account);
@@ -294,6 +293,24 @@ console.log('done proc modifyConfig');
     }
   },
 
+  /**
+   * Generate modifications for an account.  We only generate this for account
+   * queries proper and not the folder representations of accounts because we
+   * define that there is nothing interesting mutable for the folder
+   * representations.
+   */
+  notifyAccountModified: function(account) {
+    var slices = this._slicesByType['accounts'],
+        accountWireRep = account.toBridgeWire();
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+      var idx = proxy.markers.indexOf(account.id);
+      if (idx !== -1) {
+        proxy.sendUpdate([idx, accountWireRep]);
+      }
+    }
+  },
+
   notifyAccountRemoved: function(accountId) {
     var i, proxy, slices;
     // -- notify account slices
@@ -341,6 +358,20 @@ console.log('done proc modifyConfig');
       var idx = bsearchForInsert(proxy.markers, newMarker, strcmp);
       proxy.sendSplice(idx, 0, [folderMeta], false, false);
       proxy.markers.splice(idx, 0, newMarker);
+    }
+  },
+
+  notifyFolderModified: function(accountId, folderMeta) {
+    var marker = makeFolderSortString(accountId, folderMeta);
+
+    var slices = this._slicesByType['folders'];
+    for (var i = 0; i < slices.length; i++) {
+      var proxy = slices[i];
+
+      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
+      if (idx === null)
+        continue;
+      proxy.sendUpdate([idx, folderMeta]);
     }
   },
 
@@ -697,94 +728,27 @@ console.log('done proc modifyConfig');
       // message and try and execute it.
       return;
     }
-
-    var composer = new $mailcomposer.MailComposer(),
-        wireRep = msg.state;
-    var identity = this.universe.getIdentityForSenderIdentityId(
+    var wireRep = msg.state,
+        identity = this.universe.getIdentityForSenderIdentityId(
                      wireRep.senderId),
         account = this.universe.getAccountForSenderIdentityId(
-                    wireRep.senderId);
-
-    var body = wireRep.body;
-
-    var messageOpts = {
-      from: $imaputil.formatAddresses([identity]),
-      subject: wireRep.subject,
-    };
-    if (body.html) {
-      messageOpts.html = $mailchew.mergeUserTextWithHTML(body.text, body.html);
-    }
-    else {
-      messageOpts.body = body.text;
-    }
-
-    if (identity.replyTo)
-      messageOpts.replyTo = identity.replyTo;
-    if (wireRep.to && wireRep.to.length)
-      messageOpts.to = $imaputil.formatAddresses(wireRep.to);
-    if (wireRep.cc && wireRep.cc.length)
-      messageOpts.cc = $imaputil.formatAddresses(wireRep.cc);
-    if (wireRep.bcc && wireRep.bcc.length)
-      messageOpts.bcc = $imaputil.formatAddresses(wireRep.bcc);
-    composer.setMessageOption(messageOpts);
-
-    if (wireRep.customHeaders) {
-      for (var iHead = 0; iHead < wireRep.customHeaders.length; iHead += 2){
-        composer.addHeader(wireRep.customHeaders[iHead],
-                           wireRep.customHeaders[iHead+1]);
-      }
-    }
-    composer.addHeader('User-Agent', 'Mozilla Gaia Email Client 0.1alpha');
-    var sentDate = new Date();
-    composer.addHeader('Date', sentDate.toUTCString());
-    // we're copying nodemailer here; we might want to include some more...
-    var messageId =
-      '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
-
-    composer.addHeader('Message-Id', messageId);
-    if (wireRep.references)
-      composer.addHeader('References', wireRep.references);
-
+                    wireRep.senderId),
+        composer = new $composer.Composer(msg.command, wireRep,
+                                          account, identity);
 
     if (msg.command === 'send') {
-      var self = this, asyncPending = 0;
+      var self = this;
 
-      if (wireRep.attachments) {
-        wireRep.attachments.forEach(function(attachmentDef) {
-          var reader = new FileReader();
-          reader.onload = function onloaded() {
-            composer.addAttachment({
-              filename: attachmentDef.name,
-              contentType: attachmentDef.blob.type,
-              contents: new Uint8Array(reader.result),
-            });
-            if (--asyncPending === 0)
-              initiateSend();
-          };
-          try {
-            reader.readAsArrayBuffer(attachmentDef.blob);
-            asyncPending++;
-          }
-          catch (ex) {
-            console.error('Problem attaching attachment:', ex, '\n', ex.stack);
-          }
+      account.sendMessage(composer, function(err, badAddresses) {
+        this.__sendMessage({
+          type: 'sent',
+          handle: msg.handle,
+          err: err,
+          badAddresses: badAddresses,
+          messageId: composer.messageId,
+          sentDate: composer.sentDate.valueOf(),
         });
-      }
-
-      var initiateSend = function() {
-        account.sendMessage(composer, function(err, badAddresses) {
-          self.__sendMessage({
-            type: 'sent',
-            handle: msg.handle,
-            err: err,
-            badAddresses: badAddresses,
-            messageId: messageId,
-            sentDate: sentDate.valueOf(),
-          });
-        });
-      };
-      if (asyncPending === 0)
-        initiateSend();
+      }.bind(this));
     }
     else { // (msg.command === draft)
       // XXX save drafts!
@@ -801,6 +765,7 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.__listener = null;
 
   this.status = 'synced';
+  this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
   this.userCanGrowDownwards = false;
@@ -820,6 +785,7 @@ SliceBridgeProxy.prototype = {
       requested: requested,
       moreExpected: moreExpected,
       status: this.status,
+      progress: this.progress,
       atTop: this.atTop,
       atBottom: this.atBottom,
       userCanGrowDownwards: this.userCanGrowDownwards,
@@ -837,9 +803,17 @@ SliceBridgeProxy.prototype = {
     });
   },
 
-  sendStatus: function sbp_sendStatus(status, requested, moreExpected) {
+  sendStatus: function sbp_sendStatus(status, requested, moreExpected,
+                                      progress) {
     this.status = status;
+    if (progress != null)
+      this.progress = progress;
     this.sendSplice(0, 0, [], requested, moreExpected);
+  },
+
+  sendSyncProgress: function(progress) {
+    this.progress = progress;
+    this.sendSplice(0, 0, [], true, true);
   },
 
   die: function sbp_die() {
@@ -856,6 +830,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       send: { type: true },
     },
     TEST_ONLY_events: {
+      send: { msg: false },
     },
     errors: {
       badMessageType: { type: true },

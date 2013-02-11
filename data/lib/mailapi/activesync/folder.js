@@ -44,6 +44,8 @@ const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
  * Map our built-in sync range values to their corresponding ActiveSync
  * FilterType values. We exclude 3 and 6 months, since they aren't valid for
  * email.
+ *
+ * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
  */
 const SYNC_RANGE_TO_FILTER_TYPE = {
   'auto': null,
@@ -111,7 +113,8 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
-   * Get the initial sync key for the folder so we can start getting data
+   * Get the initial sync key for the folder so we can start getting data. We
+   * assume we have already negotiated a connection in the caller.
    *
    * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
@@ -145,11 +148,17 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
+      // Reset the SyncKey, just in case we don't see a sync key in the
+      // response.
+      folderConn.syncKey = '0';
+
       let e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
                          function(node) {
         folderConn.syncKey = node.children[0].textContent;
       });
+
+      e.onerror = function() {}; // Ignore errors.
       e.run(aResponse);
 
       if (folderConn.syncKey === '0') {
@@ -166,7 +175,8 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
-   * Get an estimate of the number of messages to be synced.
+   * Get an estimate of the number of messages to be synced.  We assume we have
+   * already negotiated a connection in the caller.
    *
    * @param {string} filterType The filter type for our estimate
    * @param {function} callback A callback to be run when the operation finishes
@@ -206,10 +216,19 @@ ActiveSyncFolderConn.prototype = {
                          function(node) {
         estimate = parseInt(node.children[0].textContent);
       });
-      e.run(aResponse);
+
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing GetItemEstimate response', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
-        console.log('Error getting item estimate:', status);
+        console.error('Error getting item estimate:', status);
         callback('unknown');
       }
       else {
@@ -298,41 +317,43 @@ ActiveSyncFolderConn.prototype = {
    *
    * @param {function} callback A function to be called when the operation has
    *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {function} progress A function to be called as the operation
+   *   progresses that takes a number in the range [0.0, 1.0] to express
+   *   progress.
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback) {
+  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
+                                                                 progress) {
     let folderConn = this, storage = this._storage;
-    let account = this._account;
 
-    if (!account.conn.connected) {
-      account.conn.connect(function(error, config) {
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
         if (error) {
-          callback('unknown');
-          console.error('Error connecting to ActiveSync:', error);
+          callback('aborted');
+          return;
         }
-        else {
-          folderConn._enumerateFolderChanges(callback);
-        }
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
     if (!this.filterType) {
       this._inferFilterType(function(error, filterType) {
-        if (error)
+        if (error) {
           callback('unknown');
-        else {
-          console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
-          folderConn.folderMeta.filterType = filterType;
-          folderConn._enumerateFolderChanges(callback);
+          return;
         }
+        console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
+        folderConn.folderMeta.filterType = filterType;
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
     if (this.syncKey === '0') {
       this._getSyncKey(this.filterType, function(error) {
-        if (error)
-          callback('unknown');
-        else
-          folderConn._enumerateFolderChanges(callback);
+        if (error) {
+          callback('aborted');
+          return;
+        }
+        folderConn._enumerateFolderChanges(callback, progress);
       });
       return;
     }
@@ -358,7 +379,7 @@ ActiveSyncFolderConn.prototype = {
          .stag(as.Collections)
            .stag(as.Collection);
 
-      if (account.conn.currentVersion.lt('12.1'))
+      if (this._account.conn.currentVersion.lt('12.1'))
             w.tag(as.Class, 'Email');
 
             w.tag(as.SyncKey, this.syncKey)
@@ -370,7 +391,7 @@ ActiveSyncFolderConn.prototype = {
       // XXX: For some servers (e.g. Hotmail), we could be smart and get the
       // native body type (plain text or HTML), but Gmail doesn't seem to let us
       // do this. For now, let's keep it simple and always get HTML.
-      if (account.conn.currentVersion.gte('12.0'))
+      if (this._account.conn.currentVersion.gte('12.0'))
               w.stag(asb.BodyPreference)
                  .tag(asb.Type, asbEnum.Type.HTML)
                .etag();
@@ -383,7 +404,7 @@ ActiveSyncFolderConn.prototype = {
        .etag();
     }
 
-    account.conn.postCommand(w, function(aError, aResponse) {
+    this._account.conn.postCommand(w, function(aError, aResponse) {
       let added   = [];
       let changed = [];
       let deleted = [];
@@ -394,6 +415,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (aError) {
         console.error('Error syncing folder:', aError);
+        callback('aborted');
         return;
       }
 
@@ -425,9 +447,7 @@ ActiveSyncFolderConn.prototype = {
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
                          function(node) {
-        let id;
-        let guid;
-        let msg;
+        let id, guid, msg;
 
         for (let [,child] in Iterator(node.children)) {
           switch (child.tag) {
@@ -435,7 +455,14 @@ ActiveSyncFolderConn.prototype = {
             guid = child.children[0].textContent;
             break;
           case as.ApplicationData:
-            msg = folderConn._parseMessage(child, node.tag === as.Add);
+            try {
+              msg = folderConn._parseMessage(child, node.tag === as.Add);
+            }
+            catch (ex) {
+              // If we get an error, just log it and skip this message.
+              console.error('Failed to parse a message:', ex, '\n', ex.stack);
+              return;
+            }
             break;
           }
         }
@@ -452,7 +479,7 @@ ActiveSyncFolderConn.prototype = {
         collection.push(msg);
       });
 
-      e.addEventListener(base.concat(as.Commands, [as.Delete, as.SoftDelete]),
+      e.addEventListener(base.concat(as.Commands, [[as.Delete, as.SoftDelete]]),
                          function(node) {
         let guid;
 
@@ -467,14 +494,21 @@ ActiveSyncFolderConn.prototype = {
         deleted.push(guid);
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status === asEnum.Status.Success) {
         console.log('Sync completed: added ' + added.length + ', changed ' +
                     changed.length + ', deleted ' + deleted.length);
         callback(null, added, changed, deleted, moreAvailable);
         if (moreAvailable)
-          folderConn._enumerateFolderChanges(callback);
+          folderConn._enumerateFolderChanges(callback, progress);
       }
       else if (status === asEnum.Status.InvalidSyncKey) {
         console.warn('ActiveSync had a bad sync key');
@@ -483,7 +517,17 @@ ActiveSyncFolderConn.prototype = {
       else {
         console.error('Something went wrong during ActiveSync syncing and we ' +
                       'got a status of ' + status);
+        callback('unknown');
       }
+    }, null, null,
+    function progressData(bytesSoFar, totalBytes) {
+      // We get the XHR progress status and convert it into progress in the
+      // range [0.10, 0.80].  The remaining 20% is processing the specific
+      // messages, but we don't bother to generate notifications since that
+      // is done synchronously.
+      if (!totalBytes)
+        totalBytes = Math.max(1000000, bytesSoFar);
+      progress(0.1 + 0.7 * bytesSoFar / totalBytes);
     });
   },
 
@@ -519,7 +563,7 @@ ActiveSyncFolderConn.prototype = {
 
       body = {
         date: null,
-        size: null,
+        size: 0,
         to: null,
         cc: null,
         bcc: null,
@@ -710,7 +754,7 @@ ActiveSyncFolderConn.prototype = {
   },
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             doneCallback) {
+                                             doneCallback, progressCallback) {
     let storage = this._storage;
     let folderConn = this;
     let messagesSeen = 0;
@@ -753,14 +797,26 @@ ActiveSyncFolderConn.prototype = {
         folderConn._LOG.syncDateRange_end(added.length, changed.length,
                                           deleted.length, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
-        doneCallback(null, messagesSeen);
+        doneCallback(null, null, messagesSeen);
       }
-    });
+    },
+    progressCallback);
   },
 
   performMutation: function(invokeWithWriter, callWhenDone) {
-    const as = $ascp.AirSync.Tags,
-          folderConn = this;
+    let folderConn = this;
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        folderConn.performMutation(invokeWithWriter, callWhenDone);
+      });
+      return;
+    }
+
+    const as = $ascp.AirSync.Tags;
 
     let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -770,13 +826,13 @@ ActiveSyncFolderConn.prototype = {
     if (this._account.conn.currentVersion.lt('12.1'))
           w.tag(as.Class, 'Email');
 
-          w.tag(as.SyncKey, this._storage.folderMeta.syncKey)
-           .tag(as.CollectionId, this._storage.folderMeta.serverId)
+          w.tag(as.SyncKey, this.syncKey)
+           .tag(as.CollectionId, this.serverId)
            // DeletesAsMoves defaults to true, so we can omit it
            // GetChanges defaults to true, so we must explicitly disable it to
            // avoid hearing about changes.
            .tag(as.GetChanges, '0')
-             .stag(as.Commands);
+           .stag(as.Commands);
 
     try {
       invokeWithWriter(w);
@@ -813,9 +869,16 @@ ActiveSyncFolderConn.prototype = {
 
       //console.warn('COMMAND RESULT:\n', aResponse.dump());
       //aResponse.rewind();
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing Sync reponse:', ex, '\n', ex.stack);
+        callWhenDone('unknown');
+        return;
+      }
 
-      if (status === '1') {
+      if (status === $ascp.AirSync.Enums.Status.Success) {
         folderConn.syncKey = syncKey;
         if (callWhenDone)
           callWhenDone(null);
@@ -831,6 +894,19 @@ ActiveSyncFolderConn.prototype = {
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+    let folderConn = this;
+    if (!this._account.conn.connected) {
+      this._account.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        folderConn.downloadMessageAttachments(uid, partInfos, callback,
+                                              progress);
+      });
+      return;
+    }
+
     const io = $ascp.ItemOperations.Tags;
     const ioStatus = $ascp.ItemOperations.Enums.Status;
     const asb = $ascp.AirSyncBase.Tags;
@@ -933,25 +1009,42 @@ ActiveSyncFolderSyncer.prototype = {
     return this.folderConn.serverId !== null;
   },
 
-  syncDateRange: function(startTS, endTS, syncCallback) {
+  /**
+   * Can we grow this sync range?  Not in ActiveSync land!
+   */
+  get canGrowSync() {
+    return false;
+  },
+
+  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                          progressCallback) {
     syncCallback('sync', false, true);
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  this.onSyncCompleted.bind(this));
+    this.folderConn.syncDateRange(
+      startTS, endTS, $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback),
+      progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback) {
+  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
+                                  progressCallback) {
     // ActiveSync doesn't adjust date ranges. Just do a normal sync.
-    this.syncDateRange(startTS, endTS, syncCallback);
+    this.syncDateRange(startTS, endTS, syncCallback, doneCallback,
+                       progressCallback);
   },
 
-  refreshSync: function(startTS, endTS, useBisectLimit, callback) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(), callback);
+  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
+                        progressCallback) {
+    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
+                                  doneCallback, progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback) {
+  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+                     doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
+    // (There is no need to invoke the callbacks; by returning false, we
+    // indicate that we did no work.)
     return false;
   },
 
@@ -960,7 +1053,13 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(bisectInfo, messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, err, bisectInfo,
+                                                messagesSeen) {
+    if (err) {
+      doneCallback(err);
+      return;
+    }
+
     let storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");
@@ -974,7 +1073,8 @@ ActiveSyncFolderSyncer.prototype = {
     storage.getMessagesInImapDateRange(
       0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
       // Don't trigger a refresh; we just synced.
-      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false)
+      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                    doneCallback, null)
     );
 
     storage._curSyncSlice = null;

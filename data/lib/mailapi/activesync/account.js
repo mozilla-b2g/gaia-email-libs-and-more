@@ -51,25 +51,13 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this.conn = receiveProtoConn;
   }
   else {
-    this.conn = new $activesync.Connection(accountDef.credentials.username,
-                                           accountDef.credentials.password);
+    this.conn = new $activesync.Connection();
+    this.conn.open(accountDef.connInfo.server, accountDef.credentials.username,
+                   accountDef.credentials.password);
     this.conn.timeout = DEFAULT_TIMEOUT_MS;
 
     // XXX: We should check for errors during connection and alert the user.
-    if (this.accountDef.connInfo) {
-      this.conn.setServer(this.accountDef.connInfo.server);
-      this.conn.connect();
-    }
-    else {
-      // This can happen with an older, broken version of the ActiveSync code.
-      // We can probably remove this eventually.
-      console.warning('ActiveSync connection info not found; ' +
-                      'attempting autodiscovery');
-      this.conn.connect(function (error, config, options) {
-        accountDef.connInfo = { server: config.selectedServer.url };
-        universe.saveAccountDef(accountDef, folderInfos);
-      });
-    }
+    this.conn.connect();
   }
 
   this._db = dbConn;
@@ -185,11 +173,10 @@ ActiveSyncAccount.prototype = {
         perFolderStuff.push(folderStuff);
     }
 
-    this._LOG.saveAccountState_begin(reason);
+    this._LOG.saveAccountState(reason);
     let trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
-        account._LOG.saveAccountState_end(reason);
         if (callback)
          callback();
       }, reuseTrans);
@@ -225,6 +212,8 @@ ActiveSyncAccount.prototype = {
   },
 
   syncFolderList: function asa_syncFolderList(callback) {
+    // We can assume that we already have a connection here, since jobs.js
+    // ensures it.
     let account = this;
 
     const fh = $ascp.FolderHierarchy.Tags;
@@ -261,7 +250,15 @@ ActiveSyncAccount.prototype = {
         }
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderSync response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       // It's possible we got some folders in an inconvenient order (i.e. child
       // folders before their parents). Keep trying to add folders until we're
@@ -353,6 +350,7 @@ ActiveSyncAccount.prototype = {
         path: path,
         type: this._folderTypes[typeNum],
         depth: depth,
+        lastSyncedAt: 0,
         syncKey: '0',
       },
       $impl: {
@@ -485,6 +483,18 @@ ActiveSyncAccount.prototype = {
   createFolder: function asa_createFolder(parentFolderId, folderName,
                                           containOnlyOtherFolders, callback) {
     let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        account.createFolder(parentFolderId, folderName,
+                             containOnlyOtherFolders, callback);
+      });
+      return;
+    }
+
     let parentFolderServerId = parentFolderId ?
       this._folderInfos[parentFolderId] : '0';
 
@@ -514,7 +524,15 @@ ActiveSyncAccount.prototype = {
         serverId = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderCreate response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
 
       if (status === fhStatus.Success) {
         let folderMeta = account._addedFolder(serverId, parentFolderServerId,
@@ -538,6 +556,17 @@ ActiveSyncAccount.prototype = {
    */
   deleteFolder: function asa_deleteFolder(folderId, callback) {
     let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        account.deleteFolder(folderId, callback);
+      });
+      return;
+    }
+
     let folderMeta = this._folderInfos[folderId].$meta;
 
     const fh = $ascp.FolderHierarchy.Tags;
@@ -561,7 +590,17 @@ ActiveSyncAccount.prototype = {
         account.meta.syncKey = node.children[0].textContent;
       });
 
-      e.run(aResponse);
+      try {
+
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing FolderDelete response:', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
+
       if (status === fhStatus.Success) {
         account._deletedFolder(folderMeta.serverId);
         callback(null, folderMeta);
@@ -572,61 +611,68 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  sendMessage: function asa_sendMessage(composedMessage, callback) {
-    // XXX: This is very hacky and gross. Fix it to use pipes later.
-    composedMessage._cacheOutput = true;
-    process.immediate = true;
-    composedMessage._processBufferedOutput = function() {
-      // we are stopping the DKIM logic from firing.
-    };
-    composedMessage._composeMessage();
-    process.immediate = false;
-
-    // ActiveSync 14.0 has a completely different API for sending email. Make
-    // sure we format things the right way.
-    if (this.conn.currentVersion.gte('14.0')) {
-      const cm = $ascp.ComposeMail.Tags;
-      let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-      w.stag(cm.SendMail)
-         .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
-         .tag(cm.SaveInSentItems)
-         .stag(cm.Mime)
-           .opaque(composedMessage._outputBuffer)
-         .etag()
-       .etag();
-
-      this.conn.postCommand(w, function(aError, aResponse) {
-        if (aError) {
-          console.error(aError);
+  sendMessage: function asa_sendMessage(composer, callback) {
+    let account = this;
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
           callback('unknown');
           return;
         }
+        account.sendMessage(composer, callback);
+      });
+      return;
+    }
 
-        if (aResponse === null) {
+    // we want the bcc included because that's how we tell the server the bcc
+    // results.
+    composer.withMessageBuffer({ includeBcc: true }, function(mimeBuffer) {
+      // ActiveSync 14.0 has a completely different API for sending email. Make
+      // sure we format things the right way.
+      if (this.conn.currentVersion.gte('14.0')) {
+        const cm = $ascp.ComposeMail.Tags;
+        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        w.stag(cm.SendMail)
+           .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
+           .tag(cm.SaveInSentItems)
+           .stag(cm.Mime)
+             .opaque(mimeBuffer)
+           .etag()
+         .etag();
+
+        this.conn.postCommand(w, function(aError, aResponse) {
+          if (aError) {
+            console.error(aError);
+            callback('unknown');
+            return;
+          }
+
+          if (aResponse === null) {
+            console.log('Sent message successfully!');
+            callback(null);
+          }
+          else {
+            console.error('Error sending message. XML dump follows:\n' +
+                          aResponse.dump());
+            callback('unknown');
+          }
+        });
+      }
+      else { // ActiveSync 12.x and lower
+        this.conn.postData('SendMail', 'message/rfc822',
+                           mimeBuffer,
+                           function(aError, aResponse) {
+          if (aError) {
+            console.error(aError);
+            callback('unknown');
+            return;
+          }
+
           console.log('Sent message successfully!');
           callback(null);
-        }
-        else {
-          console.error('Error sending message. XML dump follows:\n' +
-                        aResponse.dump());
-          callback('unknown');
-        }
-      });
-    }
-    else { // ActiveSync 12.x and lower
-      this.conn.postData('SendMail', 'message/rfc822',
-                         composedMessage._outputBuffer,
-                         function(aError, aResponse) {
-        if (aError) {
-          console.error(aError);
-          callback('unknown');
-          return;
-        }
-
-        console.log('Sent message successfully!');
-        callback(null);
-      }, { SaveInSent: 'T' });
-    }
+        }, { SaveInSent: 'T' });
+      }
+    }.bind(this));
   },
 
   getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
@@ -643,7 +689,15 @@ ActiveSyncAccount.prototype = {
     // XXX I am assuming ActiveSync servers are smart enough to already come
     // with these folders.  If not, we should move IMAP's ensureEssentialFolders
     // into the mixins class.
-    callback();
+    if (callback)
+      callback();
+  },
+
+  scheduleMessagePurge: function(folderId, callback) {
+    // ActiveSync servers have no incremental folder growth, so message purging
+    // makes no sense for them.
+    if (callback)
+      callback();
   },
 
   runOp: $acctmixins.runOp,
@@ -657,10 +711,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: {},
       deleteFolder: {},
       recreateFolder: { id: false },
+      saveAccountState: { reason: false },
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
-      saveAccountState: { reason: false },
     },
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },

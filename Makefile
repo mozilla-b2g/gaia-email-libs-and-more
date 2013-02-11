@@ -60,45 +60,48 @@ RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
 
 define run-xpc-tests # $(call run-xpc-tests,type)
 	-rm test/unit/all-$(1).log test/unit/*.js.log
-	-GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json $(B2GBD)/dist/bin/xpcshell test/unit
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json $(B2GBD)/dist/bin/xpcshell test/unit
 	cat test/unit/*.js.log > test/unit/all-$(1).log
 endef
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
 define run-one-test
-	GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
+	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
 endef
 
 define run-interactive-test
-	GELAM_TEST_ACCOUNT_TYPE=$(1) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
 endef
 
+######################
+# IMAP test variations
 imap-tests:
-	$(call run-xpc-tests,imap)
+	$(call run-xpc-tests,imap,imap)
 
 one-imap-test:
-	$(call run-one-test,imap)
+	$(call run-one-test,imap,imap)
 
 interactive-imap-test:
-	$(call run-interactive-test,imap)
-
-activesync-tests:
-	$(call run-xpc-tests,activesync)
-
-one-activesync-test:
-	$(call run-one-test,activesync)
-
-interactive-activesync-test:
-	$(call run-interactive-test,activesync)
-
-all-tests: imap-tests activesync-tests
+	$(call run-interactive-test,imap,imap)
 
 post-one-imap-test: one-imap-test
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
 
 post-imap-tests: imap-tests
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-imap.log
+
+
+######################
+# ActiveSync test variations
+activesync-tests:
+	$(call run-xpc-tests,activesync,activesync)
+
+one-activesync-test:
+	$(call run-one-test,activesync,activesync)
+
+interactive-activesync-test:
+	$(call run-interactive-test,activesync,activesync)
 
 post-one-activesync-test: one-activesync-test
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
@@ -107,8 +110,32 @@ post-activesync-tests: activesync-tests
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-activesync.log
 
 
+######################
+# Torture test variations (currently IMAP only)
+torture-tests:
+	$(call run-xpc-tests,torture,imap)
 
-ACTIVESYNC_SERVER_PORT ?= 8080
+one-torture-test:
+	$(call run-one-test,torture,imap)
+
+interactive-torture-test:
+	$(call run-interactive-test,torture,imap)
+
+post-one-torture-test: one-torture-test
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+
+post-torture-tests: torture-tests
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-torture.log
+
+
+######################
+# Bundle up all the tests!
+all-tests: imap-tests activesync-tests
+
+post-all-tests: post-imap-tests post-activesync-tests post-torture-tests
+
+
+ACTIVESYNC_SERVER_PORT ?= 8880
 
 activesync-server:
 	$(PYTHON) $(CURDIR)/test/run_server.py $(B2GSD) $(B2GBD) $(CURDIR) \

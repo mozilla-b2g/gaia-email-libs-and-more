@@ -65,11 +65,15 @@
 
 define(
   [
+    'rdcommon/log',
     '../jobmixins',
+    'module',
     'exports'
   ],
   function(
+    $log,
     $jobmixins,
+    $module,
     exports
   ) {
 
@@ -155,10 +159,13 @@ const UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  * }
  **/
 
-function ImapJobDriver(account, state) {
+function ImapJobDriver(account, state, _parentLog) {
   this.account = account;
   this.resilientServerIds = false;
   this._heldMutexReleasers = [];
+
+  this._LOG = LOGFAB.ImapJobDriver(this, _parentLog, this.account.id);
+
   this._state = state;
   // (we only need to use one as a proxy for initialization)
   if (!state.hasOwnProperty('suidToServerId')) {
@@ -216,7 +223,12 @@ ImapJobDriver.prototype = {
         syncer.folderConn.acquireConn(callback, deathback, label);
       }
       else {
-        callback(syncer.folderConn, storage);
+        try {
+          callback(syncer.folderConn, storage);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       }
     });
   },
@@ -233,14 +245,21 @@ ImapJobDriver.prototype = {
    * there is no need to release it directly.
    */
   _acquireConnWithoutFolder: function(label, callback, deathback) {
+    this._LOG.acquireConnWithoutFolder_begin(label);
     const self = this;
     this.account.__folderDemandsConnection(
       null, label,
       function(conn) {
+        self._LOG.acquireConnWithoutFolder_end(label);
         self._heldMutexReleasers.push(function() {
           self.account.__folderDoneWithConnection(conn, false, false);
         });
-        callback(conn);
+        try {
+          callback(conn);
+        }
+        catch (ex) {
+          self._LOG.callbackErr(ex);
+        }
       },
       deathback
     );
@@ -291,10 +310,15 @@ ImapJobDriver.prototype = {
         var uids = [];
         for (var i = 0; i < serverIds.length; i++) {
           var srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be zero and
-          // there is nothing we can really do for it.
+          // The header may have disappeared from the server, in which case the
+          // header is moot.
           if (srvid)
             uids.push(srvid);
+        }
+        // Be done if all of the headers were moot.
+        if (!uids.length) {
+          callWhenDone();
+          return;
         }
         if (addTags) {
           modsToGo++;
@@ -598,9 +622,23 @@ ImapJobDriver.prototype = {
             perFolderDone();
           }
 
-          for (var i = 0; i < namers.length; i++) {
+          // Build a guid-to-namer map and deal with any messages that no longer
+          // exist on the server.  Do it backwards so we can splice.
+          for (var i = namers.length - 1; i >= 0; i--) {
+            var srvid = serverIds[i];
+            if (!srvid) {
+              serverIds.splice(i, 1);
+              namers.splice(i, 1);
+              continue;
+            }
             var namer = namers[i];
             guidToNamer[namer.guid] = namer;
+          }
+          // it's possible all the messages could be gone, in which case we
+          // are done with this folder already!
+          if (serverIds.length === 0) {
+            perFolderDone();
+            return;
           }
 
           folderConn._conn.copy(
@@ -872,7 +910,10 @@ ImapJobDriver.prototype = {
       if (callback)
         callback(errString, folderMeta);
     }
-    this._acquireConnWithoutFolder('createFolder', gotConn);
+    function deadConn() {
+      callback('aborted-retry');
+    }
+    this._acquireConnWithoutFolder('createFolder', gotConn, deadConn);
   },
 
   check_createFolder: function(op, doneCallback) {
@@ -885,6 +926,39 @@ ImapJobDriver.prototype = {
   // TODO: port deleteFolder to be an op and invoke it here
   undo_createFolder: function(op, doneCallback) {
     doneCallback('moot');
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // purgeExcessMessages
+
+  local_do_purgeExcessMessages: function(op, doneCallback) {
+    this._accessFolderForMutation(
+      op.folderId, false,
+      function withMutex(_ignoredConn, storage) {
+        storage.purgeExcessMessages(function(numDeleted, cutTS) {
+          // Indicate that we want a save performed if any messages got deleted.
+          doneCallback(null, null, numDeleted > 0);
+        });
+      },
+      null,
+      'purgeExcessMessages');
+  },
+
+  do_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  check_purgeExcessMessages: function(op, doneCallback) {
+    // this is a local-only modification, so this doesn't really matter
+    return UNCHECKED_IDEMPOTENT;
+  },
+
+  local_undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  undo_purgeExcessMessages: function(op, doneCallback) {
+    doneCallback(null);
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -932,5 +1006,17 @@ HighLevelJobDriver.prototype = {
   undo_xcopy: function() {
   },
 };
+
+var LOGFAB = exports.LOGFAB = $log.register($module, {
+  ImapJobDriver: {
+    type: $log.DAEMON,
+    asyncJobs: {
+      acquireConnWithoutFolder: { label: false },
+    },
+    errors: {
+      callbackErr: { ex: $log.EXCEPTION },
+    },
+  },
+});
 
 }); // end define

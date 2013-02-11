@@ -80,7 +80,16 @@ exports.TEST_useTimeoutFunc = function(func) {
   }
 };
 
-function BackoffEndpoint(name, listener, _parentLog) {
+/**
+ * @args[
+ *   @param[listener @dict[
+ *     @key[onEndpointStateChange @func[
+ *       @args[state]
+ *     ]]
+ *   ]]
+ * ]
+ */
+function BackoffEndpoint(name, listener, parentLog) {
   /** @oneof[
    *    @case['healthy']
    *    @case['unreachable']
@@ -93,8 +102,7 @@ function BackoffEndpoint(name, listener, _parentLog) {
    */
   this.state = 'healthy';
   this._iNextBackoff = 0;
-
-  this._LOG = LOGFAB.BackoffEndpoint(this, _parentLog, name);
+  this._LOG = LOGFAB.BackoffEndpoint(this, parentLog, name);
   this._LOG.state(this.state);
 
   this._badResources = {};
@@ -102,10 +110,18 @@ function BackoffEndpoint(name, listener, _parentLog) {
   this.listener = listener;
 }
 BackoffEndpoint.prototype = {
+  _setState: function(newState) {
+    if (this.state === newState)
+      return;
+    this.state = newState;
+    this._LOG.state(newState);
+    if (this.listener)
+      this.listener.onEndpointStateChange(newState);
+  },
+
   noteConnectSuccess: function() {
-    this.state = 'healthy';
+    this._setState('healthy');
     this._iNextBackoff = 0;
-    this._LOG.state(this.state);
   },
 
   /**
@@ -118,6 +134,10 @@ BackoffEndpoint.prototype = {
    *     for some reason.
    *   }
    * ]
+   * @return[shouldRetry Boolean]{
+   *   Returns true if we should retry creating the connection, false if we
+   *   should give up.
+   * }
    */
   noteConnectFailureMaybeRetry: function(reachable) {
     this._LOG.connectFailure(reachable);
@@ -125,14 +145,13 @@ BackoffEndpoint.prototype = {
       return false;
 
     if (reachable) {
-      this.state = 'broken';
-      this._LOG.state(this.state);
+      this._setState('broken');
       return false;
     }
 
     if (this._iNextBackoff > 0)
-      this.state = reachable ? 'broken' : 'unreachable';
-    this._LOG.state(this.state);
+      this._setState(reachable ? 'broken' : 'unreachable');
+
     // (Once this saturates, we never perform retries until the connection is
     // healthy again.  We do attempt re-connections when triggered by user
     // activity or synchronization logic; they just won't get retries.)
@@ -152,8 +171,7 @@ BackoffEndpoint.prototype = {
    */
   noteBrokenConnection: function() {
     this._LOG.connectFailure(true);
-    this.state = 'broken';
-    this._LOG.state(this.state);
+    this._setState('broken');
 
     this._iNextBackoff = BACKOFF_DURATIONS.length;
   },
@@ -161,6 +179,14 @@ BackoffEndpoint.prototype = {
   scheduleConnectAttempt: function(connectFunc) {
     if (this.state === 'shutdown')
       return;
+
+    // If we have already saturated our retries then there won't be any
+    // automatic retries and this request is assumed to want us to try and
+    // create a connection right now.
+    if (this._iNextBackoff >= BACKOFF_DURATIONS.length) {
+      connectFunc();
+      return;
+    }
 
     var backoff = BACKOFF_DURATIONS[this._iNextBackoff++],
         delay = backoff.fixedMS +
@@ -184,22 +210,21 @@ BackoffEndpoint.prototype = {
     if (!this._badResources.hasOwnProperty(resourceId))
       return true;
     var info = this._badResources[resourceId], now = $date.NOW();
-
   },
 
   shutdown: function() {
-    this.state = 'shutdown';
-    this._LOG.state(this.state);
+    this._setState('shutdown');
   },
 };
 
-exports.createEndpoint = function(name, listener) {
-  return new BackoffEndpoint(name, listener);
+exports.createEndpoint = function(name, listener, parentLog) {
+  return new BackoffEndpoint(name, listener, parentLog);
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   BackoffEndpoint: {
     type: $log.TASK,
+    subtype: $log.CLIENT,
     stateVars: {
       state: false,
     },

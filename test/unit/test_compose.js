@@ -27,7 +27,9 @@ function makeRandomSubject() {
  */
 TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse,
+                              realAccountNeeded: true });
 
   var uniqueSubject = makeRandomSubject();
 
@@ -79,7 +81,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.event('appended');
       });
     });
-  }).timeoutMS = 5000;
+  }).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
 
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
@@ -93,10 +95,12 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           filename: 'foo.png',
           mimetype: 'image/png',
           // there is some guessing/rounding involved
-          sizeEstimateInBytes: 257,
+          sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
       eLazy.expect_namedValue('addNamed:pictures', 'foo.png');
       eLazy.expect_namedValue('get:pictures', 'foo.png');
+      eLazy.expect_namedValue(
+        'attachment[0].size', 256);
       eLazy.expect_namedValue(
         'attachment[0].data', attachmentData.concat());
     },
@@ -120,6 +124,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
                 for (var i = 0; i < data.length; i++) {
                   dataArr.push(data[i]);
                 }
+                eLazy.namedValue('attachment[' + iAtt + '].size',
+                                 body.attachments[iAtt].sizeEstimateInBytes);
                 eLazy.namedValue('attachment[' + iAtt + '].data',
                                  dataArr);
                 __deviceStorageLogFunc = function() {};
@@ -131,7 +137,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.namedValue('attachments', attachments);
       });
     }
-  });
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
   // - see the new message, start to reply to the message!
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
@@ -167,7 +173,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.namedValue('body html', replyComposer.body.html);
       });
     },
-  });
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+
   // - complete and send the reply
   var replySentDate;
   T.action('reply', eLazy, function() {
@@ -232,7 +239,12 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         eLazy.namedValue('body html', forwardComposer.body.html);
       });
     },
-  });
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+
+  T.group('cleanup');
+  // Make sure the append operation's success gets persisted; this is a testing
+  // hack until we ensure that the operation log gets persisted more frequently.
+  testUniverse.do_saveState();
 });
 
 
@@ -243,7 +255,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
 TD.commonCase('reply/forward html message', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
+                            { universe: testUniverse, restored: true,
+                              realAccountNeeded: 'append' }),
       eCheck = T.lazyLogger('messageCheck');
 
   var
@@ -371,6 +384,11 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       });
     }
   });
+
+  T.group('cleanup');
+  // Make sure the append operation's success gets persisted; this is a testing
+  // hack until we ensure that the operation log gets persisted more frequently.
+  testUniverse.do_saveState();
 });
 
 /**
@@ -389,7 +407,8 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 TD.commonCase('reply all', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
+                            { universe: testUniverse, restored: true,
+                              realAccountNeeded: true }),
       eCheck = T.lazyLogger('messageCheck');
 
 
@@ -482,6 +501,85 @@ TD.commonCase('reply all', function(T, RT) {
   testAccount.do_closeFolderView(testView);
 });
 
+TD.commonCase('bcc self', function(T, RT) {
+  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true,
+                              realAccountNeeded: true });
+
+  var uniqueSubject = makeRandomSubject();
+
+  var composer, eLazy = T.lazyLogger('check');
+  // - open the folder
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', ''),
+      inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
+      sentFolder = testAccount.do_useExistingFolderWithType('sent', ''),
+      sentView = testAccount.do_openFolderView('sent', sentFolder, null),
+      replyComposer, expectedReplyBody;
+
+  // - compose and send
+  T.action('begin composition', eLazy, function() {
+    eLazy.expect_event('compose setup completed');
+    composer = MailAPI.beginMessageComposition(
+      null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
+      eLazy.event.bind(eLazy, 'compose setup completed'));
+  });
+
+  T.action('send', eLazy, function() {
+    eLazy.expect_event('sent');
+    eLazy.expect_event('appended');
+
+    composer.bcc.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
+    composer.subject = uniqueSubject;
+    composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
+
+    composer.finishCompositionSendMessage(function(err, badAddrs) {
+      if (err)
+        eLazy.error(err);
+      else
+        eLazy.event('sent');
+      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+        eLazy.event('appended');
+      });
+    });
+  }).timeoutMS = 5000;
+
+  // - verify sent folder contains message and the message has BCC header
+  testAccount.do_waitForMessage(sentView, uniqueSubject, {
+    expect: function() {
+      __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
+      RT.reportActiveActorThisStep(eLazy);
+      eLazy.expect_namedValue('subject', uniqueSubject);
+      eLazy.expect_namedValue(
+        'bcc',
+        // IMAP (except gmail where we will error) can report BCC addresses,
+        // but ActiveSync can't report BCC contents.
+        TEST_PARAMS.type === 'imap' ?
+          [{ name: 'Myself', address: TEST_PARAMS.emailAddress }] : null);
+    },
+    withMessage: function(header) {
+      eLazy.namedValue('subject', header.subject);
+      header.getBody(function(body) {
+        eLazy.namedValue('bcc', body.bcc);
+      });
+    }
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+
+  // - see the new message, make sure it doesn't have a BCC header
+  testAccount.do_waitForMessage(inboxView, uniqueSubject, {
+    expect: function() {
+      RT.reportActiveActorThisStep(eLazy);
+      eLazy.expect_namedValue('bcc', null);
+    },
+    // trigger the reply composer
+    withMessage: function(header) {
+      header.getBody(function(body) {
+        eLazy.namedValue('bcc', body.bcc);
+      });
+    },
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+});
+
 function run_test() {
-  runMyTests(60);
+  runMyTests(90);
 }

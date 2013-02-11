@@ -23,6 +23,14 @@ const CHARCODE_RBRACE = ('}').charCodeAt(0),
       CHARCODE_ASTERISK = ('*').charCodeAt(0),
       CHARCODE_RPAREN = (')').charCodeAt(0);
 
+var setTimeoutFunc = window.setTimeout.bind(window),
+    clearTimeoutFunc = window.clearTimeout.bind(window);
+
+exports.TEST_useTimeoutFuncs = function(setFunc, clearFunc) {
+  setTimeoutFunc = setFunc;
+  clearTimeoutFunc = clearFunc;
+};
+
 /**
  * A buffer for us to assemble buffers so the back-end doesn't fragment them.
  * This is safe for mozTCPSocket's buffer usage because the buffer is always
@@ -184,7 +192,8 @@ function ImapConnection (options) {
     }
   };
   this._options = extend(true, this._options, options);
-  this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, null) : null);
+  // The Date.now thing is to assign a random/unique value as a logging stop-gap
+  this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, Date.now() % 1000) : null);
   if (this._LOG) this._LOG.created();
   this.delim = null;
   this.namespaces = { personal: [], other: [], shared: [] };
@@ -247,12 +256,12 @@ ImapConnection.prototype.connect = function(loginCb) {
     this._options.host, this._options.port, socketOptions);
 
   // XXX rely on mozTCPSocket for this?
-  this._state.tmrConn = setTimeout(this._fnTmrConn.bind(this, loginCb),
-                                   this._options.connTimeout);
+  this._state.tmrConn = setTimeoutFunc(this._fnTmrConn.bind(this, loginCb),
+                                       this._options.connTimeout);
 
   this._state.conn.onopen = function(evt) {
     if (self._LOG) self._LOG.connected();
-    clearTimeout(self._state.tmrConn);
+    clearTimeoutFunc(self._state.tmrConn);
     self._state.status = STATES.NOAUTH;
     fnInit();
   };
@@ -626,7 +635,7 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
 
       var sendBox = false;
-      clearTimeout(self._state.tmrKeepalive);
+      clearTimeoutFunc(self._state.tmrKeepalive);
       if (self._state.status === STATES.BOXSELECTING) {
         if (data[1] === 'OK') {
           sendBox = true;
@@ -705,7 +714,7 @@ ImapConnection.prototype.connect = function(loginCb) {
           // minutes to avoid disconnection by the server
           self._send('IDLE', null, undefined, undefined, true);
         }
-        self._state.tmrKeepalive = setTimeout(function() {
+        self._state.tmrKeepalive = setTimeoutFunc(function() {
           if (self._state.isIdle) {
             if (self._state.ext.idle.state === IDLE_READY) {
               self._state.ext.idle.timeWaited += self._state.tmoKeepalive;
@@ -740,17 +749,19 @@ ImapConnection.prototype.connect = function(loginCb) {
   };
   this._state.conn.onerror = function(evt) {
     try {
-      var err = evt.data;
+      var err = evt.data, errType;
       // (only do error probing on things we can safely use 'in' on)
       if (err && typeof(err) === 'object') {
         // detect an nsISSLStatus instance by an unusual property.
-        if ('isNotValidAtThisTime' in err)
-          err = 'bad-security';
+        if ('isNotValidAtThisTime' in err) {
+          err = new Error('SSL error');
+          errType = err.type = 'bad-security';
+        }
       }
-      clearTimeout(self._state.tmrConn);
+      clearTimeoutFunc(self._state.tmrConn);
       if (self._state.status === STATES.NOCONNECT) {
         var connErr = new Error('Unable to connect. Reason: ' + err);
-        connErr.type = 'unknown';
+        connErr.type = errType || 'unresponsive-server';
         connErr.serverResponse = '';
         loginCb(connErr);
       }
@@ -1307,8 +1318,10 @@ ImapConnection.prototype._login = function(cb) {
   }
 };
 ImapConnection.prototype._reset = function() {
-  clearTimeout(this._state.tmrKeepalive);
-  clearTimeout(this._state.tmrConn);
+  if (this._state.tmrKeepalive)
+    clearTimeoutFunc(this._state.tmrKeepalive);
+  if (this._state.tmrConn)
+    clearTimeoutFunc(this._state.tmrConn);
   this._state.status = STATES.NOCONNECT;
   this._state.numCapRecvs = 0;
   this._state.requests = [];
@@ -1369,7 +1382,7 @@ ImapConnection.prototype._send = function(cmdstr, cmddata, cb, dispatchFunc,
     var prefix = '', cmd = (bypass ? cmdstr : this._state.requests[0].command),
         data = (bypass ? null : this._state.requests[0].cmddata),
         dispatch = (bypass ? null : this._state.requests[0].dispatch);
-    clearTimeout(this._state.tmrKeepalive);
+    clearTimeoutFunc(this._state.tmrKeepalive);
     // If we are currently in IDLE, we need to exit it before we send the
     // actual command.  We mark it as a bypass so it does't mess with the
     // list of requests.
@@ -1705,7 +1718,11 @@ function parseFetch(str, literalData, fetchData) {
       fetchData.date = parseImapDateTime(result[i+1]);
     }
     else if (result[i] === 'FLAGS') {
-      fetchData.flags = result[i+1].filter(isNotEmpty);
+      // filter out empty flags and \Recent.  As RFC 3501 makes clear, the
+      // \Recent flag is effectively useless because its semantics are that
+      // only one connection will see it.  Accordingly, there's no need to
+      // trouble consumers with it.
+      fetchData.flags = result[i+1].filter(isNotEmptyOrRecent);
       // simplify comparison for downstream logic by sorting.
       fetchData.flags.sort();
     }
@@ -1947,6 +1964,12 @@ function stringExplode(string, delimiter, limit) {
 
 function isNotEmpty(str) {
   return str.trim().length > 0;
+}
+
+const RE_RECENT = /^\\Recent$/i;
+function isNotEmptyOrRecent(str) {
+  var s = str.trim();
+  return s.length > 0 && !RE_RECENT.test(s);
 }
 
 function escape(str) {

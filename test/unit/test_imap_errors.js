@@ -16,7 +16,7 @@
  * - Sync login failure: The server does not like our credentials.
  *
  * We test these things elsewhere:
- * -
+ * - IMAP prober issues: test_imap_prober.js
  *
  * We want tests for the following (somewhere):
  * - Sync connection loss on SELECT. (This is during the opening of the folder
@@ -28,8 +28,9 @@
  *    which theoretically is restartable if the IMAP connection maintains its
  *    state and re-establishes.)
  *
- * - Failures in the (auto)configuration process (covering all the enumerated
- *   failure values we define.)
+ * - A non-refresh non-first synchronization (so that message display is blocked
+ *    pending on the sync) fails to connect to the server and converts itself
+ *    into a display of offline messages.
  **/
 
 load('resources/loggest_test_framework.js');
@@ -54,6 +55,13 @@ function thunkErrbackoffTimer(lazyLogger) {
     }
     backlog = [];
   };
+}
+
+function zeroTimeoutErrbackoffTimer(lazyLogger) {
+  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+    lazyLogger.namedValue('errbackoff:schedule', delay);
+    window.setZeroTimeout(func);
+  });
 }
 
 /**
@@ -156,6 +164,9 @@ TD.commonCase('general reconnect logic', function(T) {
       eCheck.namedValue('accountCheck:err', !!err);
     });
   });
+  T.check('no precommands left', function() {
+    FawltySocketFactory.assertNoPrecommands();
+  });
 
   T.group('recover');
   T.action('healthy connect!', eCheck, testAccount.eBackoff,
@@ -254,6 +265,10 @@ TD.commonCase('bad password login failure', function(T) {
   T.group('use bad password');
   T.action('create connection, should fail, generate MailAPI event', eCheck,
            testAccount.eBackoff, function() {
+    // XXX uh, this bit was written speculatively to make things go faster,
+    // but FawltySocketFactory doesn't support it yet.  May just want to wait
+    // and switch to IMAP fake-server instead.
+    /*
     FawltySocketFactory.precommand(
       testHost, testPort, null,
       {
@@ -266,6 +281,7 @@ TD.commonCase('bad password login failure', function(T) {
           }
         ]
       });
+    */
 
     testAccount.eBackoff.expect_connectFailure(true);
     eCheck.expect_namedValue('accountCheck:err', true);
@@ -336,6 +352,8 @@ TD.commonCase('bad password login failure', function(T) {
 /**
  * Sometimes a server doesn't want to let us into a folder.  For example,
  * Yahoo will do this.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
   T.group('setup');
@@ -368,7 +386,7 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
 
   T.group('SELECT time');
-  T.action('queue up SELECT to result in conncetion loss', function() {
+  T.action('queue up SELECT to result in connection loss', function() {
     FawltySocketFactory.precommand(
       testHost, testPort, null,
       {
@@ -385,7 +403,9 @@ TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
 
 /**
  * Verify that a folder still synchronizes correctly even though we lose the
- * connection in th middle of the synchronization.
+ * connection in the middle of the synchronization.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
   T.group('setup');
@@ -400,6 +420,8 @@ TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
  * Synchronize a folder so growth is possible, have the connection drop, then
  * issue a growth request and make sure we sync the additional messages as
  * expected.
+ *
+ * THIS TEST IS NOT COMPLETE
  */
 TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
   T.group('setup');
@@ -410,6 +432,82 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 
 });
 
+/**
+ * Sync a folder so we have offline copies of the state (and close the view),
+ * add a message to the folder so it's obvious if a sync succeeds when it should
+ * not, do a time-warp so the next sync cannot be a refresh, prime the failure
+ * pump so we end up abandoning the sync, then initiate the sync.  Make sure
+ * the sync only tells us about the offline messages we already knew about.
+ */
+TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  T.action('reset fault injecting socket',
+           FawltySocketFactory.reset.bind(FawltySocketFactory));
+  zeroTimeoutErrbackoffTimer(eCheck);
+
+  // we would ideally extract this in case we are running against other servers
+  var testHost = 'localhost', testPort = 143;
+
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
+  testUniverse.do_adjustSyncValues({
+    refreshNonInbox: 2 * HOUR_MILLIS,
+    refreshInbox: 2 * HOUR_MILLIS,
+  });
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_err_fail_to_offline',
+    { count: 3, age: { days: 1 }, age_incr: { minutes: 1 } });
+
+  T.group('sync to get offline data');
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 3, full: 3, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
+
+  T.group('add messages not to be seen');
+  testAccount.do_addMessagesToFolder(
+    testFolder, { count: 1, age: { days: 1 } }, { doNotExpect: true });
+
+  T.group('failing non-refresh sync becomes offline load');
+  staticNow += DAY_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '1 day later');
+
+  T.action('kill connection, queue up failures', testAccount.eImapAccount,
+           function() {
+    FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
+    testAccount._unusedConnections = 0;
+    testAccount.eImapAccount.expect_deadConnection();
+
+    // immediate retry then 3 timed retries
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+  });
+
+  testAccount.do_viewFolder(
+    'fallback to offline', testFolder,
+    { count: 3, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    {
+      failure: true,
+      expectFunc: function() {
+        RT.reportActiveActorThisStep(testAccount.eImapAccount);
+        // (one create invocation is already expected by do_viewfolder)
+        testAccount.eImapAccount.expect_createConnection();
+        testAccount.eImapAccount.expect_createConnection();
+        testAccount.eImapAccount.expect_createConnection();
+      }
+    });
+
+  T.group('cleanup');
+});
 
 function run_test() {
   runMyTests(15);

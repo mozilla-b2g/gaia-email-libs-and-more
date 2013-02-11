@@ -42,6 +42,7 @@ var __blobLogFunc = function() {
 var __deviceStorageLogFunc = function() {
 };
 
+
 var _window_mixin = {
   // - indexed db
   indexedDB: indexedDB,
@@ -94,8 +95,35 @@ var _window_mixin = {
     FIRST_ORDERED_NODE_TYPE: 9
   },
 
+  _listeners: {
+    offline: [],
+    online: [],
+  },
+  addEventListener: function(eventName, listener) {
+    if (!this._listeners.hasOwnProperty(eventName))
+      return;
+    this._listeners[eventName].push(listener);
+  },
+  removeEventListener: function(eventName, listener) {
+    if (!this._listeners.hasOwnProperty(eventName))
+      return;
+    var listeners = this._listeners[eventName],
+        idx = listeners.indexOf(listener);
+    if (idx !== -1)
+      listeners.splice(idx, 1);
+  },
+  _fireFakeEvent: function(eventName) {
+    var eventObj = {};
+    var listeners = this._listeners[eventName].concat();
+    listeners.forEach(function(listener) {
+      listener(eventObj);
+    });
+  },
   navigator: {
     // - connection status
+    // annoyingly, B2G does not support mozConnection
+    onLine: true,
+
     connection: {
       bandwidth: 1000,
       metered: false,
@@ -107,9 +135,15 @@ var _window_mixin = {
         this._listener = null;
       },
       TEST_setOffline: function(beOffline) {
+        window.navigator.onLine = !beOffline;
+
         this.bandwidth = beOffline ? 0 : 1000;
         if (this._listener)
           this._listener({});
+        if (beOffline)
+          window._fireFakeEvent('offline');
+        else
+          window._fireFakeEvent('online');
       }
     },
     mozApps: {
@@ -247,6 +281,7 @@ function Blob(parts, properties) {
   this.endings = properties.endings;
 
   this.str = parts[0].toString();
+  this.size = this.str.length;
 
   __blobLogFunc('createBlob', this.str);
 }

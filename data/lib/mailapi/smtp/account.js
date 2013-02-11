@@ -118,7 +118,7 @@ SmtpAccount.prototype = {
    *   ]
    * ]
    */
-  sendMessage: function(composedMessage, callback) {
+  sendMessage: function(composer, callback) {
     var conn = this._makeConnection(), bailed = false, sendingMessage = false;
     this._activeConnections.push(conn);
 
@@ -126,15 +126,17 @@ SmtpAccount.prototype = {
     // Send the envelope once the connection is ready (fires again after
     // ready too.)
     conn.once('idle', function() {
-        conn.useEnvelope(composedMessage.getEnvelope());
+        conn.useEnvelope(composer.getEnvelope());
       });
     // Then send the actual message if everything was cool
     conn.on('message', function() {
         if (bailed)
           return;
         sendingMessage = true;
-        conn.write(composedMessage._outputBuffer);
-        conn.end();
+        composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
+          conn.write(buffer);
+          conn.end();
+        });
       });
     // And close the connection and be done once it has been sent
     conn.on('ready', function() {

@@ -63,7 +63,7 @@ ActiveSyncFolder.prototype = {
   },
 
   _messageInFilterRange: function(filterType, message) {
-    return filterType === $ascp.AirSync.Enums.FilterType.NoFilter ||
+    return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
            (this.server._clock - this.filterTypeToMS[filterType] <=
             message.date);
   },
@@ -459,14 +459,14 @@ ActiveSyncServer.prototype = {
   },
 
   _handleCommand_GetItemEstimate: function(request, query, response) {
-    const ie = $ascp.ItemEstimate.Tags;
-    const as = $ascp.AirSync.Tags;
-    const ieStatus = $ascp.ItemEstimate.Enums.Status;
+    const ie = $_ascp.ItemEstimate.Tags;
+    const as = $_ascp.AirSync.Tags;
+    const ieStatus = $_ascp.ItemEstimate.Enums.Status;
 
     let syncKey, collectionId;
 
     let server = this;
-    let e = new $wbxml.EventParser();
+    let e = new $_wbxml.EventParser();
     e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection],
                        function(node) {
       for (let child of node.children) {
@@ -498,7 +498,7 @@ ActiveSyncServer.prototype = {
       estimate = syncState.changes.length;
     }
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Response)
          .tag(ie.Status, status);

@@ -32,11 +32,13 @@ function MailAccount(api, wireRep) {
   this.enabled = wireRep.enabled;
   /**
    * @listof[@oneof[
-   *   @case['login-failed']{
-   *     The login explicitly failed, suggesting that the user's password is
-   *     bad.  Other possible interpretations include the account settings are
-   *     somehow wrong now, the server is experiencing a transient failure,
-   *     or who knows.
+   *   @case['bad-user-or-pass']
+   *   @case['needs-app-pass']
+   *   @case['imap-disabled']
+   *   @case['connection']{
+   *     Generic connection problem; this problem can quite possibly be present
+   *     in conjunction with more specific problems such as a bad username /
+   *     password.
    *   }
    * ]]{
    *   A list of known problems with the account which explain why the account
@@ -69,6 +71,11 @@ MailAccount.prototype = {
       accountType: this.type,
       id: this.id,
     };
+  },
+
+  __update: function(wireRep) {
+    this.enabled = wireRep.enabled;
+    this.problems = wireRep.problems;
   },
 
   /**
@@ -179,6 +186,8 @@ function MailFolder(api, wireRep) {
   // Exchange folder name with the localized version if available
   this.name = this._api.l10n_folder_name(this.name, this.type);
 
+  this.__update(wireRep);
+
   this.selectable = (wireRep.type !== 'account') && (wireRep.type !== 'nomail');
 
   this.onchange = null;
@@ -197,6 +206,11 @@ MailFolder.prototype = {
       type: 'MailFolder',
       path: this.path
     };
+  },
+
+  __update: function(wireRep) {
+    this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
+                                             : null;
   },
 };
 
@@ -500,7 +514,7 @@ MailBody.prototype = {
   /**
    * Synchronously trigger the display of embedded images.
    */
-  showEmbeddedImages: function(htmlNode) {
+  showEmbeddedImages: function(htmlNode, loadCallback) {
     var i, cidToObjectUrl = {},
         // the "|| window" is for our shimmed testing environment and should
         // not happen in production.
@@ -530,6 +544,9 @@ MailBody.prototype = {
         continue;
       // XXX according to an MDN tutorial we can use onload to destroy the
       // URL once the image has been loaded.
+      if (loadCallback) {
+        node.addEventListener('load', loadCallback, false);
+      }
       node.src = cidToObjectUrl[cid];
 
       node.removeAttribute('cid-src');
@@ -556,12 +573,15 @@ MailBody.prototype = {
    * using implementation-specific details subject to change, so don't do this
    * yourself.
    */
-  showExternalImages: function(htmlNode) {
+  showExternalImages: function(htmlNode, loadCallback) {
     // querySelectorAll is not live, whereas getElementsByClassName is; we
     // don't need/want live, especially with our manipulations.
     var nodes = htmlNode.querySelectorAll('.moz-external-image');
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i];
+      if (loadCallback) {
+        node.addEventListener('load', loadCallback, false);
+      }
       node.setAttribute('src', node.getAttribute('ext-src'));
       node.removeAttribute('ext-src');
       node.classList.remove('moz-external-image');
@@ -717,12 +737,20 @@ function BridgedViewSlice(api, ns, handle) {
 
   /**
    * @oneof[
+   *   @case['new']{
+   *     We were just created and have no meaningful state.
+   *   }
    *   @case['synchronizing']{
    *     We are talking to a server to populate/expand the contents of this
    *     list.
    *   }
    *   @case['synced']{
-   *     We are not talking to a server.
+   *     We successfully synchronized with the backing store/server.  If we are
+   *     known to be offline and did not attempt to talk to the server, then we
+   *     will still have this status.
+   *   }
+   *   @case['syncfailed']{
+   *     We tried to synchronize with the server but failed.
    *   }
    * ]{
    *   Quasi-extensible indicator of whether we are synchronizing or not.  The
@@ -730,7 +758,12 @@ function BridgedViewSlice(api, ns, handle) {
    *   at the end of the list of messages.
    * }
    */
-  this.status = 'synced';
+  this.status = 'new';
+
+  /**
+   * A value in the range [0.0, 1.0] expressing our synchronization progress.
+   */
+  this.syncProgress = 0.0;
 
   /**
    * False if we can grow the slice in the negative direction without
@@ -1275,8 +1308,11 @@ MailAPI.prototype = {
     slice.atTop = msg.atTop;
     slice.atBottom = msg.atBottom;
     slice.userCanGrowDownwards = msg.userCanGrowDownwards;
-    if (msg.status && slice.status !== msg.status) {
+    if (msg.status &&
+        (slice.status !== msg.status ||
+         slice.syncProgress !== msg.progress)) {
       slice.status = msg.status;
+      slice.syncProgress = msg.progress;
       if (slice.onstatus)
         slice.onstatus(slice.status);
     }
@@ -1465,6 +1501,12 @@ MailAPI.prototype = {
    *   }
    *   @case['no-dns-entry']{
    *     We couldn't find the domain name in question, full stop.
+   *
+   *     Not currently generated; eventually desired because it suggests a typo
+   *     and so a specialized error message is useful.
+   *   }
+   *   @case['no-config-info']{
+   *     We were unable to locate configuration information for the domain.
    *   }
    *   @case['unresponsive-server']{
    *     Requests to the server timed out.  AKA we sent packets into a black
@@ -1473,18 +1515,16 @@ MailAPI.prototype = {
    *   @case['port-not-listening']{
    *     Attempts to connect to the given port on the server failed.  We got
    *     packets back rejecting our connection.
+   *
+   *     Not currently generated; primarily desired because it is very useful if
+   *     we are domain guessing.  Also desirable for error messages because it
+   *     suggests a user typo or the less likely server outage.
    *   }
    *   @case['bad-security']{
    *     We were able to connect to the port and initiate TLS, but we didn't
    *     like what we found.  This could be a mismatch on the server domain,
    *     a self-signed or otherwise invalid certificate, insufficient crypto,
    *     or a vulnerable server implementation.
-   *   }
-   *   @case['not-an-imap-server']{
-   *     Whatever is there isn't actually an IMAP server.
-   *   }
-   *   @case['sucky-imap-server']{
-   *     The IMAP server is too bad for us to use.
    *   }
    *   @case['bad-user-or-pass']{
    *     The username and password didn't check out.  We don't know which one
@@ -1500,6 +1540,11 @@ MailAPI.prototype = {
    *   @case['not-authorized']{
    *     The username and password are correct, but the user isn't allowed to
    *     access the mail server.
+   *   }
+   *   @case['server-problem']{
+   *     We were able to talk to the "server" named in the details object, but
+   *     we encountered some type of problem.  The details object will also
+   *     include a "status" value.
    *   }
    *   @case['server-maintenance']{
    *     The server appears to be undergoing maintenance, at least for this
@@ -1528,6 +1573,17 @@ MailAPI.prototype = {
    *   @param[callback @func[
    *     @args[
    *       @param[err AccountCreationError]
+   *       @param[errDetails @dict[
+   *         @key[server #:optional String]{
+   *           The server we had trouble talking to.
+   *         }
+   *         @key[status #:optional @oneof[Number String]]{
+   *           The HTTP status code number, or "timeout", or something otherwise
+   *           providing detailed additional information about the error.  This
+   *           is usually too technical to be presented to the user, but is
+   *           worth encoding with the error name proper if possible.
+   *         }
+   *       ]]
    *     ]
    *   ]
    * ]
@@ -1558,7 +1614,7 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    req.callback.call(null, msg.error);
+    req.callback.call(null, msg.error, msg.errorDetails);
   },
 
   _clearAccountProblems: function ma__clearAccountProblems(account) {

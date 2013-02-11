@@ -13,6 +13,10 @@
  * - Are no-ops from a server perspective when undone before being played to the
  *   server.
  *
+ * - Gracefully handle the disappearance of messages, both in changes
+ *   originating from the server (presumably from another client), as well as
+ *   local manipulations like moving a message.
+ *
  * Our mutation logic is also somewhat tested by `test_imap_general.js` which
  * relies on it to effect mutations to test the sync logic.  However, those
  * tests do not perform local database changes since then the sync logic might
@@ -57,7 +61,7 @@ TD.commonCase('mutate flags', function(T) {
   T.group('offline manipulation; released to server');
   testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes, no network use by',
-           testAccount, testAccount.eImapAccount, function() {
+           testAccount, testAccount.eOpAccount, function() {
     // by mentioning testAccount we ensure that we will assert if we see a
     // reuseConnection from it.
     var headers = folderView.slice.items,
@@ -83,8 +87,9 @@ TD.commonCase('mutate flags', function(T) {
     };
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
     }
 
     doHeaderExps = {
@@ -114,11 +119,12 @@ TD.commonCase('mutate flags', function(T) {
       { top: true, bottom: true, grow: false },
       6);
   });
-  T.action('go online, see changes happen for', testAccount.eImapAccount,
+  T.action('go online, see changes happen for', testAccount.eOpAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('do', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('do', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { local: false, server: true });
     }
     eSync.expect_event('ops-done');
 
@@ -140,8 +146,9 @@ TD.commonCase('mutate flags', function(T) {
   testUniverse.do_pretendToBeOffline(true);
   T.action('undo!', testAccount.eImapAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('local_undo', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: true, server: false, save: true });
     }
 
     undoOps.forEach(function(x) { x.undo(); });
@@ -154,8 +161,9 @@ TD.commonCase('mutate flags', function(T) {
   T.action('go online, see undos happen for', testAccount.eImapAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('undo', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('undo', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: false, server: true });
     }
     eSync.expect_event('ops-done');
 
@@ -183,8 +191,9 @@ TD.commonCase('mutate flags', function(T) {
            testAccount, testAccount.eImapAccount, function() {
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
     }
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
@@ -194,8 +203,9 @@ TD.commonCase('mutate flags', function(T) {
   T.action('trigger undo ops, hear local changes',
            testAccount, testAccount.eImapAccount, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('local_undo', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: true, server: false, save: true });
     }
 
     undoOps.forEach(function(x) { x.undo(); });
@@ -231,8 +241,9 @@ TD.commonCase('mutate flags', function(T) {
            testAccount, testAccount.eImapAccount, function() {
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount.eImapAccount.expect_runOp_begin('local_do', 'modtags');
-      testAccount.eImapAccount.expect_runOp_end('local_do', 'modtags');
+      testAccount.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
     }
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
@@ -255,18 +266,17 @@ TD.commonCase('mutate flags', function(T) {
            eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount2.eImapAccount.expect_runOp_begin('check', 'modtags');
-      testAccount2.eImapAccount.expect_runOp_end('check', 'modtags');
-      testAccount2.eImapAccount.expect_runOp_begin('do', 'modtags');
-      // We will acquire a connection for the first operation because the slice
-      // was created when we were offline and so did not acquire a conncetion.
-      // The connection will not be released once the operations complete
-      // because the slice is still open.
-      if (!created) {
-        testAccount2.expect_connection();
-        created = true;
-      }
-      testAccount2.eImapAccount.expect_runOp_end('do', 'modtags');
+      testAccount2.expect_runOp(
+        'modtags',
+        { mode: 'check' });
+      testAccount2.expect_runOp(
+        'modtags',
+        // We will acquire a connection for the first operation because the
+        // slice was created when we were offline and so did not acquire a
+        // connection.  The connection will not be released once the operations
+        // complete because the slice is still open.
+        { local: false, server: true, conn: !created, release: false });
+      created = true;
     }
     eSync.expect_event('ops-done');
 
@@ -280,8 +290,9 @@ TD.commonCase('mutate flags', function(T) {
   testUniverse2.do_pretendToBeOffline(true);
   T.action('undo!', testAccount2.eImapAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount2.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
-      testAccount2.eImapAccount.expect_runOp_end('local_undo', 'modtags');
+      testAccount2.expect_runOp(
+        'modtags',
+        { mode: 'undo', local: true, server: false, save: true });
     }
 
     // NB: our undoOps did not usefully survive the restart; they are still
@@ -314,14 +325,18 @@ TD.commonCase('mutate flags', function(T) {
            eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
-      testAccount3.eImapAccount.expect_runOp_begin('check', 'modtags');
-      testAccount3.eImapAccount.expect_runOp_end('check', 'modtags');
-      testAccount3.eImapAccount.expect_runOp_begin('undo', 'modtags');
-      if (!created) {
-        testAccount3.expect_connection();
-        created = true;
-      }
-      testAccount3.eImapAccount.expect_runOp_end('undo', 'modtags');
+      testAccount3.expect_runOp(
+        'modtags',
+        { mode: 'check' });
+      testAccount3.expect_runOp(
+        'modtags',
+        // We will acquire a connection for the first operation because the
+        // slice was created when we were offline and so did not acquire a
+        // connection.  The connection will not be released once the operations
+        // complete because the slice is still open.
+        { mode: 'undo', local: false, server: true,
+          conn: !created, release: false, save: false });
+      created = true;
     }
     eSync.expect_event('ops-done');
 
@@ -342,10 +357,9 @@ TD.commonCase('mutate flags', function(T) {
            function() {
     // - expectations
     var toStar = folderView3.slice.items[0];
-    testAccount3.eImapAccount.expect_runOp_begin('local_do', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_end('local_do', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_begin('do', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_end('do', 'modtags');
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: true, server: true, save: true });
     eSync.expect_event('ops-done');
 
     doHeaderExps = {
@@ -384,10 +398,9 @@ TD.commonCase('mutate flags', function(T) {
     { top: true, bottom: true, grow: false });
   T.action('undo the starring', testAccount3, testAccount3.eImapAccount, eSync,
            function() {
-    testAccount3.eImapAccount.expect_runOp_begin('local_undo', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_end('local_undo', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_begin('undo', 'modtags');
-    testAccount3.eImapAccount.expect_runOp_end('undo', 'modtags');
+    testAccount3.expect_runOp(
+      'modtags',
+      { mode: 'undo', local: true, server: true, save: true });
     eSync.expect_event('ops-done');
 
     undoOps[0].undo();
@@ -410,7 +423,37 @@ TD.commonCase('mutate flags', function(T) {
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false });
 
+
+  /**
+   * Create a situation for modtags where by the time the online 'do' operation
+   * runs, the message has disappeared from the local database.  Note that this
+   * is different from the case where our own 'move' or 'delete' logic has
+   * caused the message to disappear, since that leaves behind the server id
+   * information for us that the 'do' job needs in the suidToServerId map.
+   */
+  T.group('modtags gracefully handles missing messages');
+  testUniverse3.do_pretendToBeOffline(true);
+  var purgeStarredHeader;
+  T.action('star message', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    purgeStarredHeader = folderView3.slice.items[0];
+    purgeStarredHeader.setStarred(true);
+  });
+  T.action('fake delete the header', function() {
+    testAccount3.fakeServerMessageDeletion(purgeStarredHeader);
+  });
+  T.action('go online, see the job run to completion', function() {
+    testAccount3.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    window.navigator.connection.TEST_setOffline(false);
+  });
+
   T.group('cleanup');
+  // save our state so the next unit test doesn't try and re-run our ops
+  testUniverse3.do_saveState();
 });
 
 /**
@@ -448,7 +491,7 @@ TD.commonCase('move/trash messages', function(T) {
     { count: 5, full: 5, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
   var targetView = testAccount.do_openFolderView(
-    'sourceView', targetFolder,
+    'targetView', targetFolder,
     { count: 0, full: 0, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
   // open the trash but don't care what's in there, we just care about deltas
@@ -468,12 +511,15 @@ TD.commonCase('move/trash messages', function(T) {
         toMoveVisible = headers[2],
         toDelete = headers[3];
 
-    testAccount.eImapAccount.expect_runOp_begin('local_do', 'move');
-    testAccount.eImapAccount.expect_runOp_end('local_do', 'move');
-    testAccount.eImapAccount.expect_runOp_begin('local_do', 'move');
-    testAccount.eImapAccount.expect_runOp_end('local_do', 'move');
-    testAccount.eImapAccount.expect_runOp_begin('local_do', 'delete');
-    testAccount.eImapAccount.expect_runOp_end('local_do', 'delete');
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'delete',
+      { local: true, server: false, save: true });
 
     testAccount.expect_headerChanges(
       targetView,
@@ -498,14 +544,15 @@ TD.commonCase('move/trash messages', function(T) {
   });
   T.action('go online, see changes happen for', testAccount.eImapAccount,
            eSync, function() {
-    testAccount.eImapAccount.expect_runOp_begin('do', 'move');
-    testAccount.expect_connection();
-    testAccount.eImapAccount.expect_releaseConnection();
-    testAccount.eImapAccount.expect_runOp_end('do', 'move');
-    testAccount.eImapAccount.expect_runOp_begin('do', 'move');
-    testAccount.eImapAccount.expect_runOp_end('do', 'move');
-    testAccount.eImapAccount.expect_runOp_begin('do', 'delete');
-    testAccount.eImapAccount.expect_runOp_end('do', 'delete');
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: false, conn: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: false });
+    testAccount.expect_runOp(
+      'delete',
+      { local: false, server: true, save: false });
     eSync.expect_event('ops-done');
 
     window.navigator.connection.TEST_setOffline(false);
@@ -514,6 +561,61 @@ TD.commonCase('move/trash messages', function(T) {
     });
   });
 
+  /**
+   * While offline, queue a local tag mutation followed by a move.  Then, go
+   * online and ensure that when the message ends up in the target folder after
+   * the ops have run that it has the altered state.
+   */
+  T.group('move does not interfere with online ops');
+  testUniverse.do_pretendToBeOffline(true);
+  var moveStarMailHeader;
+  T.action('tag message then move', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: true });
+    testAccount.expect_runOp(
+      'move',
+      { local: true, server: false, save: true });
+
+    // use the 0th message in source; chronologically it will end up 0 in the
+    // target folder too.
+    moveStarMailHeader = sourceView.slice.items[0];
+    moveStarMailHeader.setStarred(true);
+    moveStarMailHeader.moveMessage(targetFolder.mailFolder);
+  });
+  T.action('go online, wait for ops to complete', eSync, function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: false, server: true, save: false });
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: false });
+    eSync.expect_event('ops-done');
+
+    window.navigator.connection.TEST_setOffline(false);
+    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+      eSync.event('ops-done');
+    });
+  });
+  // Refresh the folder to make sure the current state of the target folder
+  // matches our expectation.  This will fail if the flags on the message are
+  // not what they are locally.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 2, full: 0, flags: 2, deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // And this is an extra sanity check on that delta-check.
+  T.check(eSync, 'moved message is starred', function() {
+    eSync.expect_namedValue('moved message subject',
+                            moveStarMailHeader.subject);
+    eSync.expect_namedValue('starred', true);
+
+    var actualHeader = targetView.slice.items[0];
+    eSync.namedValue('moved message subject', actualHeader.subject);
+    eSync.namedValue('starred', actualHeader.isStarred);
+  });
 });
 
 function run_test() {

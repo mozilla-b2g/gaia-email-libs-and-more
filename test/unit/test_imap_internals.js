@@ -78,8 +78,8 @@ TD.commonCase('account persistence', function(T) {
 
     // (this is low-level IMAP Deletion and is just a flag change)
     for (var i = 0; i < 1; i++) {
-      TA3.eImapAccount.expect_runOp_begin('do', 'modtags');
-      TA3.eImapAccount.expect_runOp_end('do', 'modtags');
+      TA3.expect_runOp('modtags',
+                       { local: false, server: true, save: false });
     }
 
     // update our test's idea of what messages exist where.
@@ -116,9 +116,8 @@ TD.commonCase('account persistence', function(T) {
     s1subject = slice.items[1].subject;
     slice.items[1].setStarred(true);
     for (var i = 0; i < 2; i++) {
-      // we had to latch TA2 because testAccount is updated statically
-      TA4.eImapAccount.expect_runOp_begin('do', 'modtags');
-      TA4.eImapAccount.expect_runOp_end('do', 'modtags');
+      TA4.expect_runOp('modtags',
+                       { local: false, server: true, save: false });
     }
   });
   var TV4 = testAccount.do_openFolderView(
@@ -195,85 +194,92 @@ TD.commonCase('sync further back in time on demand', function(T) {
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
+  // Use a fill size of 14 messages because it's easy to get 14 in 7 days with
+  // 2 messages per day.
+  testUniverse.do_adjustSyncValues({
+    fillSize: 14,
+    days: 7,
+  });
 
   T.group('initial sync');
   // Create 3 time regions that sync's heuristics will view as sufficient for
-  // initial sync and each growth.  The intervals work out to 7.5 days,
-  // 7 days, and 7 days.  So we pick 11.5 hours to get 16, 15, 15.
+  // initial sync and each growth (14 per week).
   var syncFolder = testAccount.do_createTestFolder(
     'test_sync_grow',
-    { count: 45, age: { days: 0.5 }, age_incr: { hours: 11.4 } });
+    { count: 42, age: { days: 1 }, age_incr: { days: 1 }, age_incr_every: 2 });
   var syncView = testAccount.do_openFolderView(
     'grower', syncFolder,
-    { count: 15, full: 15, flags: 0, deleted: 0 },
+    { count: 14, full: 14, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: true });
 
   T.group('fail to grow older without request');
   testAccount.do_growFolderView(
-    syncView, 1, false, 15,
+    syncView, 1, false, 14,
     [],
-    { top: true, bottom: true, grow: true }, 'nosave');
+    { top: true, bottom: true, grow: true }, { nosave: true });
 
   T.group('fail to grow older when offline');
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_growFolderView(
-    syncView, 1, true, 15,
+    syncView, 1, true, 14,
     [],
-    { top: true, bottom: true, grow: true }, 'nosave');
+    { top: true, bottom: true, grow: true }, { nosave: true });
   testUniverse.do_pretendToBeOffline(false);
 
   T.group('grow older (sync more than requested)');
-  // only ask for 11 messages, but sync 15.
+  // only ask for 11 messages, but sync 14.
   testAccount.do_growFolderView(
-    syncView, 11, true, 15,
-    { count: 11, full: 15, flags: 0, deleted: 0 },
+    syncView, 11, true, 14,
+    { count: 11, full: 14, flags: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   T.group('grow older, get spare from last sync');
-  // We're asking for 15 here, but we should just get a sync on the spare 4
-  // from last time.  We had a bug previously where this date sync would still
-  // have more desiredHeaders left-over and so would accidentally trigger a
-  // further sync without explicit user action which is not cool.
+  // We're asking for 14 here, but we should just get a batch of the spare 3
+  // from last time.  Because 1 of them happens on the oldest day of our time
+  // range, our sync will exclude that day and we will only need to sync 2
+  // headers even though we will hear back about all 3.
   testAccount.do_growFolderView(
-    syncView, 15, false, 26,
-    { count: 4, full: 0, flags: 4, deleted: 0 },
+    syncView, 14, false, 25,
+    { count: 3, full: 0, flags: 2, deleted: 0 },
     { top: true, bottom: true, grow: true });
   T.group('grow older (normal)');
   testAccount.do_growFolderView(
-    syncView, 15, true, 30,
-    { count: 15, full: 15, flags: 0, deleted: 0 },
+    syncView, 14, true, 28,
+    { count: 14, full: 14, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('shrink off new');
   testAccount.do_shrinkFolderView(
-    syncView, 1, null, 44,
+    syncView, 1, null, 41,
     { top: false, bottom: true, grow: false });
   testAccount.do_shrinkFolderView(
-    syncView, 15, null, 29,
+    syncView, 14, null, 27,
     { top: false, bottom: true, grow: false });
 
   T.group('grow younger again');
   testAccount.do_growFolderView(
-    syncView, -8, false, 37,
+    syncView, -7, false, 34,
     [],
-    { top: false, bottom: true, grow: false }, 'nosave');
+    { top: false, bottom: true, grow: false }, { nosave: true });
   testAccount.do_growFolderView(
-    syncView, -8, false, 45,
+    syncView, -8, false, 42,
     [],
-    { top: true, bottom: true, grow: false }, 'nosave');
+    { top: true, bottom: true, grow: false }, { nosave: true });
 
 
   T.group('shrink off old');
   testAccount.do_shrinkFolderView(
-    syncView, 0, -2, 44, // -2 gets rid of 1, because it's inclusive
+    syncView, 0, -2, 41, // -2 gets rid of 1, because it's inclusive
     { top: true, bottom: false, grow: false });
   testAccount.do_shrinkFolderView(
-    syncView, 0, -21, 24, // -21 gets rid of 20, because it's inclusive
+    syncView, 0, -21, 21, // -21 gets rid of 20, because it's inclusive
     { top: true, bottom: false, grow: false });
 
   T.group('grow old again');
+  // we will hear about 21 messages, but only 20 headers will need to be synced
+  // because one of them is already covered by our sync's date range.
   testAccount.do_growFolderView(
-    syncView, 21, false, 24,
-    { count: 21, full: 0, flags: 21, deleted: 0 },
+    syncView, 21, false, 21,
+    { count: 21, full: 0, flags: 20, deleted: 0 },
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
