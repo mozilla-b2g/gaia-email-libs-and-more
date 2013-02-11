@@ -14,7 +14,8 @@ define(
 
 exports.connect = function(port, host, wuh, onconnect) {
   var socky = new $net.NetSocket(port, host, true);
-  socky.on('connect', onconnect);
+  if (onconnect)
+    socky.on('connect', onconnect);
   return socky;
 };
 
