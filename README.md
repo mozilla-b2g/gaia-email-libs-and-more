@@ -112,6 +112,18 @@ this stuff is still in here in various states of workingness, but is not a
 priority or goal and a lot of it has now been removed.  That which remains
 is planned to be deleted or moved to a separate repository.
 
+## Submodules ##
+
+To make sure the submodules are initialized properly, please make sure to
+check out the repository recursively:
+
+git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.git
+
+If you already checked out without the --recursive flag, you can try the
+following command inside the repository directory:
+
+git submodule update --init
+
 ## Unit Tests ##
 
 Unit tests are intended to be run in an xpcshell instance that was built as part
