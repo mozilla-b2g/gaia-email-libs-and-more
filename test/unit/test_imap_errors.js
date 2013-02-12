@@ -468,7 +468,8 @@ TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
   testAccount.do_viewFolder(
     'syncs', testFolder,
     { count: 3, full: 3, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('add messages not to be seen');
   testAccount.do_addMessagesToFolder(

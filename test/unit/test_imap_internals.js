@@ -202,10 +202,16 @@ TD.commonCase('sync further back in time on demand', function(T) {
       eSync = T.lazyLogger('sync');
   // Use a fill size of 14 messages because it's easy to get 14 in 7 days with
   // 2 messages per day.
+  const MINUTE_MILLIS = 60 * 1000;
   testUniverse.do_adjustSyncValues({
     fillSize: 14,
     days: 7,
-    growDays: 7
+    growDays: 7,
+
+    // set the refresh threshold at 30 minutes so advancing an hour will
+    // cause a refresh to trigger.
+    openRefreshThresh: 30 * MINUTE_MILLIS,
+    growRefreshThresh: 30 * MINUTE_MILLIS,
   });
 
   T.group('initial sync');
@@ -241,18 +247,18 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { top: true, bottom: false, grow: false });
   T.group('grow older, get spare from last sync');
   // We're asking for 14 here, but we should just get a batch of the spare 3
-  // from last time.  Because 1 of them happens on the oldest day of our time
-  // range, our sync will exclude that day and we will only need to sync 2
-  // headers even though we will hear back about all 3.
+  // from last time.  We have timely data for all of the headers, so no refresh
+  // is required and they will be directly filled.
   testAccount.do_growFolderView(
     syncView, 14, false, 25,
-    { count: 3, full: 0, flags: 2, deleted: 0 },
+    3,
     { top: true, bottom: true, grow: true });
   T.group('grow older (normal)');
   testAccount.do_growFolderView(
     syncView, 14, true, 28,
     { count: 14, full: 14, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('shrink off new');
   testAccount.do_shrinkFolderView(
@@ -286,7 +292,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
   // because one of them is already covered by our sync's date range.
   testAccount.do_growFolderView(
     syncView, 21, false, 21,
-    { count: 21, full: 0, flags: 20, deleted: 0 },
+    21,
     { top: true, bottom: true, grow: false });
 
   T.group('cleanup');
@@ -326,7 +332,8 @@ TD.commonCase('grow with deepening required', function(T) {
      { count: 0, full: 0, flags: 0, deleted: 0 },
      { count: 11, full: 11, flags: 0, deleted: 0 },
      { count: 4, full: 4, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);

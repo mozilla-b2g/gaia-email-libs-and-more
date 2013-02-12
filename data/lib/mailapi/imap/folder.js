@@ -890,6 +890,14 @@ ImapFolderSyncer.prototype = {
    * Synchronize into a time period not currently covered.  Growth has an
    * explicit direction and explicit origin timestamp.
    *
+   * @args[
+   *   @param[slice]
+   *   @param[growthDirection[
+   *   @param[anchorTS]
+   *   @param[syncStepDays]
+   *   @param[doneCallback]
+   *   @param[progressCallback]
+   * ]
    * @return[Boolean]{
    *   Returns false if no sync is necessary.
    * }
@@ -1100,7 +1108,7 @@ ImapFolderSyncer.prototype = {
 console.log("folder message count", folderMessageCount,
             "dbCount", dbCount,
             "syncedThrough", syncedThrough,
-            "oldest know", this.folderStorage.getOldestMessageTimestamp());
+            "oldest known", this.folderStorage.getOldestMessageTimestamp());
     if (this._curSyncDir === PASTWARDS &&
         folderMessageCount === dbCount &&
         (!folderMessageCount ||
@@ -1122,6 +1130,9 @@ console.log("folder message count", folderMessageCount,
     }
 
     // - Done if this is a grow and we don't want/need any more headers.
+console.log('grow?', this._curSyncIsGrow,
+            'have', this._syncSlice.headers.length,
+            'want', this._syncSlice.desiredHeaders);
     if (this._curSyncIsGrow &&
         this._syncSlice.headers.length >= this._syncSlice.desiredHeaders) {
         // (limited syncs aren't allowed to expand themselves)

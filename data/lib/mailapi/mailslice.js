@@ -2427,6 +2427,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
           // !!refreshInterval is more efficient, but this way we can reuse
           // doneCallback() below in the else case simply.
           true);
+        slice.desiredHeaders = slice.headers.length;
 
         if (refreshInterval) {
           // If growth was not requested, make sure we convey server traffic is
@@ -2462,6 +2463,11 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
                         SYNC_START_MINIMUM_PROGRESS);
       this._curSyncSlice = slice;
       slice.waitingOnData = 'grow';
+      // We only add the desired count now that we are sure we are growing; if
+      // we did it earlier we might boost the desiredHeaders count and then
+      // not sync, resulting in the next time we do grow fetching more than we
+      // want.
+      slice.desiredHeaders += desiredCount;
       this.folderSyncer.growSync(
         slice, dir,
         dir === PASTWARDS ? quantizeDate(slice.startTS)
@@ -2474,7 +2480,6 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
     if (dirMagnitude < 0) {
       dir = FUTUREWARDS;
       desiredCount = -dirMagnitude;
-      slice.desiredHeaders += desiredCount;
 
       this.getMessagesAfterMessage(
         slice.endTS, slice.endUID, desiredCount, gotMessages);
@@ -2482,7 +2487,6 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
     else {
       dir = PASTWARDS;
       desiredCount = dirMagnitude;
-      slice.desiredHeaders += desiredCount;
 
       this.getMessagesBeforeMessage(
         slice.startTS, slice.startUID, desiredCount, gotMessages);

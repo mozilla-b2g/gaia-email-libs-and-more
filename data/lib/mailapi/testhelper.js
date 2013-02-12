@@ -500,8 +500,14 @@ var TestCommonAccountMixins = {
   _expect_storage_mutexed: function(storageActor, syncType, extraFlags) {
     this.RT.reportActiveActorThisStep(storageActor);
     storageActor.expect_mutexedCall_begin(syncType);
-    if (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false))
-      storageActor.expect_syncedEntireFolder();
+    switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
+      case true:
+        storageActor.expect_syncedEntireFolder();
+        break;
+      case 'ignore':
+        storageActor.ignore_syncedEntireFolder();
+        break;
+    }
     storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
@@ -1635,6 +1641,7 @@ console.log('initial');
           viewThing.slice.items.map(function(x) { return x.subject; }));
         self._logger.sliceFlags(
           viewThing.slice.atTop, viewThing.slice.atBottom,
+          viewThing.slice.userCanGrowUpwards,
           viewThing.slice.userCanGrowDownwards,
           viewThing.slice.status);
       };
@@ -1977,6 +1984,7 @@ var TestActiveSyncAccountMixins = {
             slice.items.map(function(x) { return x.subject; }));
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;

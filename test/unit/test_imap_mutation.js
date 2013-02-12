@@ -46,7 +46,8 @@ TD.commonCase('mutate flags', function(T) {
   var folderView = testAccount.do_openFolderView(
     'folderView', testFolder,
     { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   var doHeaderExps = null, undoHeaderExps = null, undoOps = null,
       applyManips = null;
@@ -140,7 +141,8 @@ TD.commonCase('mutate flags', function(T) {
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('undo while offline; released to server');
   testUniverse.do_pretendToBeOffline(true);
@@ -179,7 +181,8 @@ TD.commonCase('mutate flags', function(T) {
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   /**
    * If we undo an operation without having told it to the server, it should be
@@ -230,7 +233,8 @@ TD.commonCase('mutate flags', function(T) {
     folderView,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   /**
    * Verify that mutations and their undos survive a restart.
@@ -395,7 +399,8 @@ TD.commonCase('mutate flags', function(T) {
     folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   T.action('undo the starring', testAccount3, testAccount3.eImapAccount, eSync,
            function() {
     testAccount3.expect_runOp(
@@ -421,7 +426,8 @@ TD.commonCase('mutate flags', function(T) {
     folderView3,
     { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
 
   /**
@@ -489,13 +495,17 @@ TD.commonCase('move/trash messages', function(T) {
   var sourceView = testAccount.do_openFolderView(
     'sourceView', sourceFolder,
     { count: 5, full: 5, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   var targetView = testAccount.do_openFolderView(
     'targetView', targetFolder,
     { count: 0, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   // open the trash but don't care what's in there, we just care about deltas
-  var trashView = testAccount.do_openFolderView('trashView', trashFolder, null);
+  var trashView = testAccount.do_openFolderView(
+    'trashView', trashFolder, null, null,
+    { syncedToDawnOfTime: 'ignore' });
 
   T.group('offline manipulation; released to server');
 
@@ -633,7 +643,8 @@ TD.commonCase('move/trash messages', function(T) {
     { count: 2, full: 0, flags: 2, deleted: 0 },
     // note: the empty changes assertion
     { changes: [], deletions: [] },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   // And this is an extra sanity check on that delta-check.
   T.check(eSync, 'moved message is starred', function() {
     eSync.expect_namedValue('moved message subject',
