@@ -112,6 +112,22 @@ this stuff is still in here in various states of workingness, but is not a
 priority or goal and a lot of it has now been removed.  That which remains
 is planned to be deleted or moved to a separate repository.
 
+## Installing Into Gaia ##
+
+Make sure you have a symlink, gaia-symlink, that points at the root directory
+of your gaia checkout.
+
+For example, to create it:
+```
+ln -s ~/git/gaia gaia-symlink
+```
+
+Then, to run all the build steps and to copy our used files across into gaia,
+run:
+```
+make install-into-gaia
+```
+
 ## Unit Tests ##
 
 Unit tests are intended to be run in an xpcshell instance that was built as part
