@@ -121,17 +121,21 @@ ActiveSyncJobDriver.prototype = {
           if (--modsToGo === 0)
             callWhenDone();
         }
+
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         folderConn.performMutation(
           function withWriter(w) {
             for (let i = 0; i < serverIds.length; i++) {
-              let srvid = serverIds[i];
-              // If the header is somehow an offline header, it will be null and
-              // there is nothing we can really do for it.
-              if (!srvid)
-                continue;
-
               w.stag(as.Change)
-                 .tag(as.ServerId, srvid)
+                 .tag(as.ServerId, serverIds[i])
                  .stag(as.ApplicationData);
 
               if (markRead !== undefined)
@@ -194,27 +198,37 @@ ActiveSyncJobDriver.prototype = {
     let aggrErr = null, account = this.account,
         targetFolderStorage = this.account.getFolderStorageForFolderId(
                                 op.targetFolder);
-    const as = $ascp.AirSync.Tags;
-    const em = $ascp.Email.Tags;
     const mo = $ascp.Move.Tags;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(mo.MoveItems);
-
         for (let i = 0; i < serverIds.length; i++) {
-          let srvid = serverIds[i];
-          // If the header is somehow an offline header, it will be null and
-          // there is nothing we can really do for it.
-          if (!srvid)
-            continue;
           w.stag(mo.Move)
-              .tag(mo.SrcMsgId, srvid)
-              .tag(mo.SrcFldId, storage.folderMeta.serverId)
-              .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
-            .etag(mo.Move);
+             .tag(mo.SrcMsgId, serverIds[i])
+             .tag(mo.SrcFldId, storage.folderMeta.serverId)
+             .tag(mo.DstFldId, targetFolderStorage.folderMeta.serverId)
+           .etag(mo.Move);
         }
         w.etag(mo.MoveItems);
 
@@ -258,18 +272,21 @@ ActiveSyncJobDriver.prototype = {
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
       function perFolder(folderConn, storage, serverIds, namers, callWhenDone) {
+        // Filter out any offline headers, since the server naturally can't do
+        // anything for them. If this means we have no headers at all, just bail
+        // out.
+        serverIds = serverIds.filter(function(srvid) { return !!srvid; });
+        if (!serverIds.length) {
+          callWhenDone();
+          return;
+        }
+
         folderConn.performMutation(
           function withWriter(w) {
             for (let i = 0; i < serverIds.length; i++) {
-              let srvid = serverIds[i];
-              // If the header is somehow an offline header, it will be null and
-              // there is nothing we can really do for it.
-              if (!srvid)
-                continue;
-
               w.stag(as.Delete)
-                  .tag(as.ServerId, srvid)
-                .etag(as.Delete);
+                 .tag(as.ServerId, serverIds[i])
+               .etag(as.Delete);
             }
           },
           function mutationPerformed(err) {
@@ -340,8 +357,15 @@ ActiveSyncJobDriver.prototype = {
       doneCallback(err ? 'aborted-retry' : null, null, !err);
 
       if (inboxStorage && inboxStorage.hasActiveSlices) {
-        console.log("Refreshing fake inbox");
-        inboxStorage.resetAndRefreshActiveSlices();
+        if (!err) {
+          console.log("Refreshing fake inbox");
+          inboxStorage.resetAndRefreshActiveSlices();
+        }
+        // XXX: If we do have an error here, we should probably report
+        // syncfailed on the slices to let the user retry. However, what needs
+        // retrying is syncFolderList, not syncing the messages in a folder.
+        // Since that's complicated to handle, and syncFolderList will retry
+        // automatically, we can ignore that case for now.
       }
     });
   },

@@ -140,6 +140,34 @@ function makeTestContext() {
         guid: uid,
       };
       storage.addMessageHeader(headerInfo);
+      return headerInfo;
+    },
+
+    checkServerIdMapForHeaders: function(headers, expectedBlockId) {
+      var serverIdHeaderBlockMapping = storage._serverIdHeaderBlockMapping,
+          msg;
+      for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (expectedBlockId !== null) {
+          if (!serverIdHeaderBlockMapping.hasOwnProperty(header.srvid) ||
+              serverIdHeaderBlockMapping[header.srvid] !== expectedBlockId) {
+            msg = 'header with server id ' + header.srvid + ' has block id ' +
+                  'of ' + serverIdHeaderBlockMapping[header.srvid] +
+                  ' instead of ' + expectedBlockId;
+            console.error(msg);
+            do_throw(msg);
+          }
+       }
+       else {
+         if (serverIdHeaderBlockMapping.hasOwnProperty(header.srvid)) {
+           msg = 'header with server id ' + header.srvid + ' should not be ' +
+             'present in server id map, but has value: ' +
+             serverIdHeaderBlockMapping[header.srvid];
+           console.error(msg);
+           do_throw(msg);
+         }
+       }
+      }
     },
   };
 }
@@ -150,7 +178,7 @@ function makeDummyHeaders(count) {
   while (count--) {
     headers.push({
       id: uid,
-      srvid: uid,
+      srvid: 'S' + uid,
       suid: 'H/1/' + uid,
       guid: 'message-' + uid++,
       author: null,
@@ -811,7 +839,8 @@ TD.commonSimple('insertion in block that will overflow',
 });
 
 /**
- * Test the header block splitting logic on its own.
+ * Test the header block splitting logic on its own.  Verify the server id
+ * mapping is maintained throughout the split.
  */
 TD.commonSimple('header block splitting',
                 function test_header_block_splitting() {
@@ -861,14 +890,19 @@ TD.commonSimple('header block splitting',
   do_check_eq(olderBlock.uids.length, olderInfo.count);
   do_check_true(olderBlock.headers[numHeaders - expectedHeadersPerBlock - 1] ===
                 bigHeaders[numHeaders - 1]);
+
+  ctx.checkServerIdMapForHeaders(
+    bigHeaders.slice(0, expectedHeadersPerBlock), newerInfo.blockId);
+  ctx.checkServerIdMapForHeaders(
+    bigHeaders.slice(expectedHeadersPerBlock), olderInfo.blockId);
 });
 
 
 /**
- * Test that deleting a header out of a block that does not empty the block
+ * Test that deleting a body out of a block that does not empty the block
  * updates the values appropriately, then empty it and see it go away.
  */
-TD.commonSimple('deletion', function test_deletion() {
+TD.commonSimple('body deletion', function test_body_deletion() {
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d7 = DateUTC(2010, 0, 7),
@@ -918,6 +952,52 @@ TD.commonSimple('deletion', function test_deletion() {
   // - Delete the d7 block entirely
   ctx.deleteBody(d7, uid3);
   do_check_eq(bodyBlocks.length, 0);
+});
+
+
+/**
+ * Check server id mapping maintenance for addition and deletion.  Splitting is
+ * tested via the header block splitting test.
+ */
+TD.commonSimple('srvid mapping for add/del', function test_header_deletion() {
+  // - add header and body.
+  var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      d3 = DateUTC(2010, 0, 3),
+      uid1 = 101, h1, b1,
+      uid2 = 102, h2, b2,
+      uid3 = 103, h3, b3;
+
+  h1 = ctx.insertHeader(d1, uid1);
+  b1 = ctx.insertBody(d1, uid1, BIG3, 0);
+  h2 = ctx.insertHeader(d2, uid2);
+  b2 = ctx.insertBody(d2, uid2, BIG3, 0);
+  h3 = ctx.insertHeader(d3, uid3);
+  b3 = ctx.insertBody(d3, uid3, BIG3, 0);
+
+  // - make sure the server id's got in there
+  ctx.checkServerIdMapForHeaders([h1, h2, h3], '0');
+
+  // - delete h1
+  ctx.storage.deleteMessageHeaderAndBody(h1);
+
+  // - make sure the srvid is gone
+  ctx.checkServerIdMapForHeaders([h1], null);
+  ctx.checkServerIdMapForHeaders([h2, h3], '0');
+
+  // - delete h2 via server id
+  ctx.storage.deleteMessageByServerId(h2.srvid);
+
+  // - make sure h2 got gone
+  ctx.checkServerIdMapForHeaders([h1, h2], null);
+  ctx.checkServerIdMapForHeaders([h3], '0');
+
+  // - delete h3, blocks should now be nuked
+  ctx.storage.deleteMessageHeaderAndBody(h3);
+
+  // - make sure h3 getting gone was not affected by block nukage
+  ctx.checkServerIdMapForHeaders([h1, h2, h3], null);
 });
 
 /**

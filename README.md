@@ -34,17 +34,8 @@ We have working IMAP and ActiveSync implementations.  There are some current
 limitations that we are working to resolve, such as message moves and
 auto-configuration.
 
-Specific project progress tracking happens (a lot of which is tied up with the
-gaia email UI) in a few places:
-
-issues on this repo:
-https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues?state=open
-
-"email" issues on the gaia project:
-https://github.com/mozilla-b2g/gaia/issues?labels=email&state=open
-
-This google doc spreadsheet that tries to break out the UX specs:
-https://docs.google.com/spreadsheet/ccc?key=0AsBxAH-jrP_GdERrWUxrd2lyZW5qMHprYl91VEdMNHc#gid=0
+All bug tracking happens on https://bugzilla.mozilla.org/ under the "Boot2Gecko"
+product and the "Gaia::E-Mail" component.
 
 Find more links from the wiki page at:
 https://wiki.mozilla.org/Gaia/Email
@@ -111,6 +102,22 @@ also an intent to provide a more desktop friendly development UI.  Code for
 this stuff is still in here in various states of workingness, but is not a
 priority or goal and a lot of it has now been removed.  That which remains
 is planned to be deleted or moved to a separate repository.
+
+## Submodules ##
+
+To make sure the submodules are initialized properly, please make sure to
+check out the repository recursively:
+
+```
+git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.git
+```
+
+If you already checked out without the --recursive flag, you can try the
+following command inside the repository directory:
+
+```
+git submodule update --init --recursive
+```
 
 ## Installing Into Gaia ##
 

@@ -75,7 +75,6 @@ function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._LOG = LOGFAB.ActiveSyncFolderConn(this, _parentLog, storage.folderId);
 
   this.folderMeta = storage.folderMeta;
-  this.serverId = this.folderMeta.serverId;
 
   if (!this.syncKey)
     this.syncKey = '0';
@@ -87,6 +86,10 @@ ActiveSyncFolderConn.prototype = {
 
   set syncKey(value) {
     return this.folderMeta.syncKey = value;
+  },
+
+  get serverId() {
+    return this.folderMeta.serverId;
   },
 
   /**
@@ -214,7 +217,7 @@ ActiveSyncFolderConn.prototype = {
       });
       e.addEventListener(base.concat(ie.Collection, ie.Estimate),
                          function(node) {
-        estimate = parseInt(node.children[0].textContent);
+        estimate = parseInt(node.children[0].textContent, 10);
       });
 
       try {
@@ -711,7 +714,7 @@ ActiveSyncFolderConn.prototype = {
               break;
             case asb.EstimatedDataSize:
             case em.AttSize:
-              attachment.sizeEstimate = parseInt(attachDataText);
+              attachment.sizeEstimate = parseInt(attachDataText, 10);
               break;
             case asb.ContentId:
               attachment.contentId = attachDataText;
@@ -755,16 +758,22 @@ ActiveSyncFolderConn.prototype = {
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
                                              doneCallback, progressCallback) {
-    let storage = this._storage;
-    let folderConn = this;
-    let messagesSeen = 0;
+    let folderConn = this,
+        addedMessages = 0,
+        changedMessages = 0,
+        deletedMessages = 0;
 
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
+      let storage = folderConn._storage;
+
       if (error === 'badkey') {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
-          folderConn.storage = s;
+          // If we got a bad sync key, we'll end up creating a new connection,
+          // so just clear out the old storage to make this connection unusable.
+          folderConn._storage = null;
+          folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
         });
         return;
       }
@@ -774,28 +783,49 @@ ActiveSyncFolderConn.prototype = {
       }
 
       for (let [,message] in Iterator(added)) {
+        // If we already have this message, it's probably because we moved it as
+        // part of a local op, so let's assume that the data we already have is
+        // ok. XXX: We might want to verify this, to be safe.
+        if (storage.hasMessageWithServerId(message.header.srvid))
+          continue;
+
         storage.addMessageHeader(message.header);
         storage.addMessageBody(message.header, message.body);
+        addedMessages++;
       }
 
       for (let [,message] in Iterator(changed)) {
+        // If we don't know about this message, just bail out.
+        if (!storage.hasMessageWithServerId(message.header.srvid))
+          continue;
+
         storage.updateMessageHeaderByServerId(message.header.srvid, true,
                                               function(oldHeader) {
           message.header.mergeInto(oldHeader);
           return true;
         });
+        changedMessages++;
         // XXX: update bodies
       }
 
       for (let [,messageGuid] in Iterator(deleted)) {
+        // If we don't know about this message, it's probably because we already
+        // deleted it.
+        if (!storage.hasMessageWithServerId(messageGuid))
+          continue;
+
         storage.deleteMessageByServerId(messageGuid);
+        deletedMessages++;
       }
 
-      messagesSeen += added.length + changed.length + deleted.length;
-
       if (!moreAvailable) {
-        folderConn._LOG.syncDateRange_end(added.length, changed.length,
-                                          deleted.length, startTS, endTS);
+        let messagesSeen = addedMessages + changedMessages + deletedMessages;
+
+        // Note: For the second argument here, we report the number of messages
+        // we saw that *changed*. This differs from IMAP, which reports the
+        // number of messages it *saw*.
+        folderConn._LOG.syncDateRange_end(addedMessages, changedMessages,
+                                          deletedMessages, startTS, endTS);
         storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
         doneCallback(null, null, messagesSeen);
       }
@@ -828,7 +858,9 @@ ActiveSyncFolderConn.prototype = {
 
           w.tag(as.SyncKey, this.syncKey)
            .tag(as.CollectionId, this.serverId)
-           // DeletesAsMoves defaults to true, so we can omit it
+           // Use DeletesAsMoves in non-trash folders. Don't use it in trash
+           // folders because that doesn't make any sense.
+           .tag(as.DeletesAsMoves, this.folderMeta.type === 'trash' ? '0' : '1')
            // GetChanges defaults to true, so we must explicitly disable it to
            // avoid hearing about changes.
            .tag(as.GetChanges, '0')
@@ -867,13 +899,11 @@ ActiveSyncFolderConn.prototype = {
         status = node.children[0].textContent;
       });
 
-      //console.warn('COMMAND RESULT:\n', aResponse.dump());
-      //aResponse.rewind();
       try {
         e.run(aResponse);
       }
       catch (ex) {
-        console.error('Error parsing Sync reponse:', ex, '\n', ex.stack);
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
         callWhenDone('unknown');
         return;
       }
