@@ -833,24 +833,24 @@ MailUniverse.prototype = {
     }
   },
 
-  __notifyAddedFolder: function(accountId, folderMeta) {
+  __notifyAddedFolder: function(account, folderMeta) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
-      bridge.notifyFolderAdded(accountId, folderMeta);
+      bridge.notifyFolderAdded(account, folderMeta);
     }
   },
 
-  __notifyModifiedFolder: function(accountId, folderMeta) {
+  __notifyModifiedFolder: function(account, folderMeta) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
-      bridge.notifyFolderModified(accountId, folderMeta);
+      bridge.notifyFolderModified(account, folderMeta);
     }
   },
 
-  __notifyRemovedFolder: function(accountId, folderMeta) {
+  __notifyRemovedFolder: function(account, folderMeta) {
     for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
       var bridge = this._bridges[iBridge];
-      bridge.notifyFolderRemoved(accountId, folderMeta);
+      bridge.notifyFolderRemoved(account, folderMeta);
     }
   },
 
