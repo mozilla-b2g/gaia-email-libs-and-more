@@ -119,6 +119,22 @@ following command inside the repository directory:
 git submodule update --init --recursive
 ```
 
+## Installing Into Gaia ##
+
+Make sure you have a symlink, gaia-symlink, that points at the root directory
+of your gaia checkout.
+
+For example, to create it:
+```
+ln -s ~/git/gaia gaia-symlink
+```
+
+Then, to run all the build steps and to copy our used files across into gaia,
+run:
+```
+make install-into-gaia
+```
+
 ## Unit Tests ##
 
 Unit tests are intended to be run in an xpcshell instance that was built as part
