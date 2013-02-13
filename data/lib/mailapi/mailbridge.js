@@ -162,6 +162,7 @@ MailBridge.prototype = {
         self.__sendMessage({
             type: 'tryToCreateAccountResults',
             handle: msg.handle,
+            account: account ? account.toBridgeWire() : null,
             error: error,
             errorDetails: errorDetails,
           });

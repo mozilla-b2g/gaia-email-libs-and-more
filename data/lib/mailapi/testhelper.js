@@ -716,16 +716,30 @@ var TestImapAccountMixins = {
           accountName: self._opts.name || null,
         },
         null,
-        function accountMaybeCreated(error) {
-          if (error)
-            do_throw('Failed to create account: ' + TEST_PARAMS.emailAddress +
-                     ': ' + error);
-          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-          self.account = self.compositeAccount =
-            self.universe.accounts[idxAccount];
+        function accountMaybeCreated(error, errorDetails, account) {
+          if (error) {
+            self._logger.accountCreationError(error);
+            return;
+          }
+
+          self.accountId = account.id;
+
+          // Find the account instance in the MailUniverse (back-end) given the
+          // wire rep of the account passed to us via our mailapi (front-end)
+          // callback.
+          for (var i = 0; i < self.universe.accounts.length; i++) {
+            if (self.universe.accounts[i].id === account.id) {
+              self.account = self.compositeAccount = self.universe.accounts[i];
+              break;
+            }
+          }
+
+          if (!self.account)
+            do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
+                     ' (id: ' + self.accountId + ')');
+
           self.imapAccount = self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
-          self.accountId = self.compositeAccount.id;
 
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
@@ -1360,15 +1374,27 @@ var TestActiveSyncAccountMixins = {
           accountName: self._opts.name || null,
         },
         null,
-        function accountMaybeCreated(error) {
+        function accountMaybeCreated(error, errorDetails, account) {
           if (error) {
             self._logger.accountCreationError(error);
             return;
           }
 
-          var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-          self.account = self.universe.accounts[idxAccount];
-          self.accountId = self.account.id;
+          self.accountId = account.id;
+
+          // Find the account instance in the MailUniverse (back-end) given the
+          // wire rep of the account passed to us via our mailapi (front-end)
+          // callback.
+          for (var i = 0; i < self.universe.accounts.length; i++) {
+            if (self.universe.accounts[i].id === account.id) {
+              self.account = self.universe.accounts[i];
+              break;
+            }
+          }
+
+          if (!self.account)
+            do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
+                     ' (id: ' + self.accountId + ')');
 
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
