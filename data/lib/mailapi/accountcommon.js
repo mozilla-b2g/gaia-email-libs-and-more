@@ -9,12 +9,11 @@ define(
     './allback',
     './imap/probe',
     './smtp/probe',
-    'activesync/protocol',
     './accountmixins',
     './imap/account',
     './smtp/account',
     './fake/account',
-    './activesync/account',
+    'require',
     'module',
     'exports'
   ],
@@ -24,15 +23,25 @@ define(
     $allback,
     $imapprobe,
     $smtpprobe,
-    $asproto,
     $acctmixins,
     $imapacct,
     $smtpacct,
     $fakeacct,
-    $asacct,
+    require,
     $module,
     exports
   ) {
+
+// HACK: Somehow this needs to happen, and have the
+// rest of this file work appropriately. It means
+// altering the use of $asproto and $asacct to be async
+var $asacct, $asproto;
+require(['./activesync'], function (activesync) {
+  $asproto = exports.asproto;
+  $asacct = exports.asacct;
+});
+// END HACK
+
 const allbackMaker = $allback.allbackMaker;
 
 const PIECE_ACCOUNT_TYPE_TO_CLASS = {

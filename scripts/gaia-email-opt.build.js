@@ -2,7 +2,7 @@
   baseUrl: "../",
   optimize: "none", //"uglify",
   paths: {
-    "almond": "deps/almond",
+    "alameda": "deps/alameda",
 
     // NOP's
     "http": "data/lib/nop",
@@ -53,7 +53,7 @@
     "mailcomposer": "data/deps/mailcomposer",
   },
   include: ["event-queue", "mailapi/same-frame-setup"],
-  name: "almond",
+  name: "alameda",
   out: "../gaia-email-opt.js",
   wrap: {
     startFile: "optStart.frag",
