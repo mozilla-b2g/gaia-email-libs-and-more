@@ -334,10 +334,11 @@ Autoconfigurator.prototype = {
   _getConfigFromAutodiscover: function getConfigFromAutodiscover(userDetails,
                                                                  callback) {
 
+    var self = this;
     require([Configurators.activesync], function (configurator) {
       var protocol = configurator.protocol;
       protocol.autodiscover(userDetails.emailAddress, userDetails.password,
-                            this.timeout, function(error, config) {
+                            self.timeout, function(error, config) {
         if (error) {
           var failureType = 'no-config-info',
               failureDetails = {};
