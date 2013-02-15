@@ -11,7 +11,7 @@
     "fs": "data/lib/nop4",
     "xoauth2": "data/lib/nop6",
 
-    "q": "data/lib/q",
+    "q": "empty:",
     "text": "data/lib/text",
     // silly shim
     "event-queue": "data/lib/js-shims/event-queue",
