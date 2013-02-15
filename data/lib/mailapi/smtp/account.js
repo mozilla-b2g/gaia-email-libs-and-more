@@ -28,7 +28,7 @@ function SmtpAccount(universe, compositeAccount, accountId, credentials,
 
   this._activeConnections = [];
 }
-exports.SmtpAccount = SmtpAccount;
+exports.Account = exports.SmtpAccount = SmtpAccount;
 SmtpAccount.prototype = {
   type: 'smtp',
   toString: function() {

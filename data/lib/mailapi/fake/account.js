@@ -676,7 +676,7 @@ function FakeAccount(universe, accountDef, folderInfo, receiveProtoConn, _LOG) {
   this.meta = folderInfo.$meta;
   this.mutations = folderInfo.$mutations;
 }
-exports.FakeAccount = FakeAccount;
+exports.Account = exports.FakeAccount = FakeAccount;
 FakeAccount.prototype = {
   toString: function fa_toString() {
     return '[FakeAccount: ' + this.id + ']';

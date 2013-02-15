@@ -798,7 +798,7 @@ var requirejs, require, define;
                             d.map = makeMap(id);
                             load(d.map);
                         } else {
-                            err = new Error('Load failed: ' + id);
+                            err = new Error('Load failed: ' + id + ': ' + script.url);
                             err.requireModules = [id];
                             getDefer(id).reject(err);
                         }

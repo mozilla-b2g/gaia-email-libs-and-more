@@ -1,7 +1,7 @@
 /*jslint node: true, nomen: true, evil: true, indent: 2*/
 'use strict';
 
-var jsPath, indexPath, activeSyncPath,
+var jsPath, currentConfig, indexPath,
   requirejs = require('./r'),
   fs = require('fs'),
   path = require('path'),
@@ -9,14 +9,12 @@ var jsPath, indexPath, activeSyncPath,
   buildOptions = eval(fs.readFileSync(__dirname + '/gaia-email-opt.build.js', 'utf8')),
   oldBuildWrite = buildOptions.onBuildWrite,
   dest = process.argv[2],
-  layerName = 'main',
-  activeSyncText = '',
-  scriptUrls = {
-    main: [],
-    activeSync: []
-  };
+  layerPaths = {},
+  layerTexts = {},
+  scriptUrls = {};
 
-function mkdir(id) {
+
+function mkdir(id, otherPath) {
   var current,
     parts = id.split('/');
 
@@ -24,7 +22,8 @@ function mkdir(id) {
   parts.pop();
 
   parts.forEach(function (part, i) {
-    current = path.join.apply(path, [jsPath].concat(parts.slice(0, i + 1)));
+    current = path.join.apply(path,
+              (otherPath ? [otherPath] : []).concat(parts.slice(0, i + 1)));
     if (!exists(current)) {
       fs.mkdirSync(current, 511);
     }
@@ -41,48 +40,91 @@ jsPath = path.join(dest, 'js', 'ext');
 indexPath = path.join(dest, 'index.html');
 
 // Modify build options to do the file spray
+buildOptions._layerName = 'main';
 buildOptions.baseUrl = path.join(__dirname, '..');
 buildOptions.wrap.startFile = path.join(__dirname, buildOptions.wrap.startFile);
 buildOptions.wrap.endFile = path.join(__dirname, buildOptions.wrap.endFile);
 buildOptions.out = function () { /* ignored */ };
 buildOptions.onBuildWrite = function (id, modulePath, contents) {
-  var finalPath = path.join(jsPath, id + '.js');
+  var finalPath = path.join(jsPath, id + '.js'),
+      layerName = currentConfig._layerName;
 
-  if (id === 'mailapi/activesync') {
-    activeSyncPath = finalPath;
+  if (id === currentConfig.name) {
+    layerPaths[currentConfig._layerName] = finalPath;
+  }
+
+  if (!scriptUrls[layerName]) {
+    scriptUrls[layerName] = [];
   }
 
   scriptUrls[layerName].push('js/ext/' + id + '.js');
 
   contents = oldBuildWrite(id, modulePath, contents);
 
-  if (layerName === 'activeSync') {
-    activeSyncText += contents + '\n';
-  } else {
-    mkdir(id);
+  if (layerName === 'main') {
+    // Just write out the files to be aggregated later by gaia build
+    mkdir(id, jsPath);
     fs.writeFileSync(finalPath, contents, 'utf8');
+  } else {
+    // A rollup secondary layer
+    if (!layerTexts.hasOwnProperty(layerName)) {
+      layerTexts[layerName] = '';
+    }
+    layerTexts[layerName] += contents + '\n';
   }
 
   // No need to return contents, since we are not going to save it to an
   // optimized file.
 };
 
-requirejs.optimize(buildOptions, function () {
+var configs = [
+  // First one is just base buildOptions
+  {},
 
-  // Now generate dynamic layer for activeSync
-  delete buildOptions.name;
-  // Exclude the items specified in gaia-email-opt.build.js
-  buildOptions.exclude = ['event-queue', 'mailapi/same-frame-setup'];
-  buildOptions.include = ['mailapi/activesync'];
-  layerName = 'activeSync';
+  {
+    name: 'mailapi/activesync/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'activesync'
+  },
 
-  requirejs.optimize(buildOptions, function () {
-    console.log('All script urls');
-    console.log(scriptUrls);
+  {
+    name: 'mailapi/composite/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'composite'
+  },
 
-    fs.writeFileSync(activeSyncPath, activeSyncText, 'utf8');
+  {
+    name: 'mailapi/fake/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'fake'
+  }
+];
 
-    // Called after all the writing has completed. Write out the script tags.
+// Function used to mix in buildOptions to a new config target
+function mix(target) {
+  for (var prop in buildOptions) {
+    if (buildOptions.hasOwnProperty(prop) && !target.hasOwnProperty(prop)) {
+      target[prop] = buildOptions[prop];
+    }
+  }
+  return target;
+}
+
+function onError(err) {
+  console.error(err);
+  process.exit(1);
+}
+
+//Create a runner that will run a separate build for each item
+//in the configs array.
+var runner = configs.reduceRight(function (prev, cfg) {
+  return function (buildReportText) {
+    currentConfig = mix(cfg);
+
+    requirejs.optimize(currentConfig, prev, onError);
+  };
+}, function (buildReportText) {
+  try {
     var scriptText,
       indexContents = fs.readFileSync(indexPath, 'utf8'),
       startComment = '<!-- START BACKEND INJECT - do not modify -->',
@@ -91,6 +133,18 @@ requirejs.optimize(buildOptions, function () {
       endIndex = indexContents.indexOf(endComment),
       indent = '  ';
 
+    // To see how the layers were partitioned, uncomment
+    console.log(scriptUrls);
+
+    // Write out secondary rollups to gaia directory.
+    for (var prop in layerPaths) {
+      if (layerPaths.hasOwnProperty(prop) && prop !== 'main') {
+        mkdir(layerPaths[prop]);
+        fs.writeFileSync(layerPaths[prop], layerTexts[prop], 'utf8');
+      }
+    }
+
+    // Write out the script tags in gaia email index.html
     if (startIndex === -1 || endIndex === -1) {
       console.log('Updating email index.html failed. Cannot find insertion comments.');
       process.exit(1);
@@ -113,11 +167,12 @@ requirejs.optimize(buildOptions, function () {
       indexContents.substring(endIndex);
 
     fs.writeFileSync(indexPath, indexContents, 'utf8');
-  }, function (err) {
-    console.error(err);
+
+  } catch (e) {
+    console.error(e);
     process.exit(1);
-  });
-}, function (err) {
-  console.error(err);
-  process.exit(1);
+  }
 });
+
+//Run the builds
+runner();

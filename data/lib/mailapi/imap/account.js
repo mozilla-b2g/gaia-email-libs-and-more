@@ -196,7 +196,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
     this._learnAboutFolder('INBOX', 'INBOX', 'inbox', '/', 0);
   }
 }
-exports.ImapAccount = ImapAccount;
+exports.Account = exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
   type: 'imap',
   toString: function() {
