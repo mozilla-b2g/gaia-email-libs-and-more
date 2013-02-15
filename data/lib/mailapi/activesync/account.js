@@ -333,7 +333,11 @@ ActiveSyncAccount.prototype = {
     if (typeNum === folderType.DefaultInbox) {
       let existingInboxMeta = this.getFirstFolderWithType('inbox');
       if (existingInboxMeta) {
-        // update everything about the folder meta
+        // Update the server ID to folder ID mapping.
+        delete this._serverIdToFolderId[existingInboxMeta.serverId];
+        this._serverIdToFolderId[serverId] = existingInboxMeta.id;
+
+        // Update everything about the folder meta.
         existingInboxMeta.serverId = serverId;
         existingInboxMeta.name = displayName;
         existingInboxMeta.path = path;
