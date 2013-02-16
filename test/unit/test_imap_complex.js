@@ -1,6 +1,7 @@
 /**
  * Test more complicated IMAP sync scenarios, primarily nuances of growth and
- * refresh, but also covering edge cases.
+ * refresh, but also covering edge cases.  test_imap_internals.js also covers a
+ * lot of the growth logic cases.
  **/
 
 load('resources/loggest_test_framework.js');
@@ -132,7 +133,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   T.group('no change: refresh');
   testAccount.do_viewFolder(
     'show no refresh', c1Folder,
-    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { count: 9 },
     { top: true, bottom: true, grow: true },
     { nonet: true });
   staticNow += HOUR_MILLIS;
@@ -161,7 +162,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     { count: 1, age: { days: 1 } });
   testAccount.do_viewFolder(
     'show no refresh', c1Folder,
-    { count: 9, full: 0, flags: 9, deleted: 0 },
+    { count: 9 },
     { top: true, bottom: true, grow: true },
     { nonet: true });
   staticNow += HOUR_MILLIS;
@@ -352,15 +353,8 @@ TD.commonCase('just-synced headers returned without re-refresh', function(T) {
     scaleFactor: 1,
     bisectThresh: 2000,
     tooMany: 2000,
-    // The exact thresholds do not matter...
-    refreshNonInbox: 2 * HOUR_MILLIS,
-    refreshInbox: 2 * HOUR_MILLIS,
-    // But this does; be older than our #1 and #2 triggering cases
-    oldIsSafeForRefresh: 15 * TSYNCI * DAY_MILLIS,
-    refreshOld: 2 * DAY_MILLIS,
-
-    useRangeNonInbox: 4 * HOUR_MILLIS,
-    useRangeInbox: 4 * HOUR_MILLIS,
+    openRefreshThresh: HOUR_MILLIS,
+    growRefreshThresh: HOUR_MILLIS,
   });
 
   T.group('initial sync/view');
@@ -378,11 +372,105 @@ TD.commonCase('just-synced headers returned without re-refresh', function(T) {
   testAccount.do_growFolderView(
     folderView, 3, false, 3,
     // no refresh is required! everything is already synced! 3 from the db.
-    3,
-    { top: true, bottom: true, grow: false });
+    { count: 3 },
+    { top: true, bottom: true, grow: false },
+    { nonet: true });
 
   T.group('cleanup');
 });
+
+/**
+ * Situation, we're showing Wednesday.  We want to grow into the already-synced
+ * past; Monday is the first day in the past with messages.  We will trigger a
+ * refresh covering Monday, but it's also essential that our refresh check
+ * Tuesday too so we notice new messages that might exist there.
+ *
+ * While we are able to explicitly check the sync time span covers Tuesday, we
+ * also put some new messages in there to make sure Sync picks up on them.
+ */
+TD.commonCase('growth into already-synced does not skip any time', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding daylight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+
+  const HOUR_MILLIS = 60 * 60 * 1000;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 3,
+    days: 1,
+    growDays: 3, // for expediency, >= 2 to find the remaining 3 instantly
+    // We want our refresh to not redundantly cover already known messages, so
+    // our open does need to trigger a refresh so that the grow does not
+    // overlap the already-in-slice messages.
+    openRefreshThresh: 0.5 * HOUR_MILLIS,
+    growRefreshThresh: 0.5 * HOUR_MILLIS,
+  });
+
+  T.group('initial sync, grow, close');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon-ish');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_complex_growth_no_skip',
+    { count: 6, age: { days: 0 }, age_incr: { days: 2 }, age_incr_every: 3 });
+  var folderView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    [{ count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+  testAccount.do_growFolderView(
+    folderView, 3, true, 3,
+    [{ count: 3, full: 3, flags: 0, deleted: 0}],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  testAccount.do_closeFolderView(folderView);
+
+  T.group('add new messages on gap day, reopen');
+  testAccount.do_addMessagesToFolder(
+    testFolder,
+    { count: 2, age: { days: 1 } });
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  folderView = testAccount.do_openFolderView(
+    'reopens without refresh', testFolder,
+    { count: 3, full: 0, flags: 3, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('grow');
+  testAccount.do_growFolderView(
+    folderView, 3, false, 3,
+    [{ count: 5, full: 2, flags: 3, deleted: 0}],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  T.group('cleanup');
+});
+
+
+/**
+ * Let's say we sync a folder completely.  We want to make sure that if new
+ * messages appear that are older than the oldest known messages that when
+ * we grow our way up to the oldest message that one of the following is true:
+ * 1) our grow flag returns true and that we can actually go and sync that
+ * 2) the refresh for the oldest time range grows to encompass messages all
+ *   the way back to the dawn of time.
+ *
+ * For our implemenation we have decided on doing #2, so that's what we check
+ * for.  (We do #2 because doing a growing sync window backwards in time can
+ * take quite some time, and for us to know whether there are really messages
+ * in there would depend on the early-termination sync heuristic being 100%
+ * reliable.  It's not because it requires there be no \Deleted messages in
+ * the folder (or that we become aware of \Deleted messages), so the
+ * range expansion is wildly superior for us.
+ */
+/*
+TD.commonCase('newy messages beyond oldest-synced discoverable', function(T) {
+});
+ */
 
 /**
  * We keep going back further in time until we think we know about all the
@@ -456,9 +544,13 @@ TD.commonCase('repeated refresh is stable', function(T) {
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true });
 
-  const fillSize = 3, totalCount = 4;
+  const fillSize = 3, totalCount = 4, HOUR_MILLIS = 60 * 60 * 1000;
   testUniverse.do_adjustSyncValues({
     fillSize: fillSize,
+    // These are all explicit refreshes which should happen regardless of the
+    // refresh thresholds, so make sure they wouldn't help us.
+    openRefreshThresh: HOUR_MILLIS,
+    growRefreshThresh: HOUR_MILLIS,
   });
 
   var staticNow = new Date(2000, 0, 3, 23, 0, 0).valueOf();
@@ -481,8 +573,8 @@ TD.commonCase('repeated refresh is stable', function(T) {
       // wider time span only on this one.
       startTS: 946339200000, endTS: 947030400000 },
     { syncedToDawnOfTime: true });
-  var refreshSpanStart = 946771200000,
-      refreshSpanEnd = 947030400000;
+  var refreshSpanStart = 946771200000, // Jan 2nd midnight UTC
+      refreshSpanEnd = 947030400000; // Jan 5th midnight UTC
   testAccount.do_refreshFolderView(
     testView,
     { count: fillSize, full: 0, flags: fillSize, deleted: 0,

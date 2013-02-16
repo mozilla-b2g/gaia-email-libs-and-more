@@ -67,7 +67,6 @@ var TestUniverseMixins = {
       // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
-      var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
     }
     else {
       self._useDate = new Date();
@@ -90,7 +89,9 @@ var TestUniverseMixins = {
         // For consistency with our original tests where we would always
         // generate network traffic when opening a slice, set the threshold so
         // that it is always exceeded.  Tests that care currently explicitly
-        // set this.
+        // set this.  Note that our choice of -1 assumes that Date.now() is
+        // strictly increasing; this is usually pretty safe but ntpdate can
+        // do angry things, for one.
         openRefreshThresh: -1,
         // Same deal.
         growRefreshThresh: -1,
@@ -1173,8 +1174,8 @@ var TestImapAccountMixins = {
       if (knownIndex === 0 && expandDir === -1)
         return 0;
 
-      console.log('FSI:', expandDir, knownIndex, 'lowKnown',
-                  lowKnownIdx, 'high', highKnownIdx);
+console.log('FSI:', knownIndex, 'lk', lowKnownIdx, 'hk', highKnownIdx);
+
       if (expandDir)
         knownIndex = expandDateIndex(knownIndex, knownMessages, expandDir);
 
@@ -1220,7 +1221,7 @@ var TestImapAccountMixins = {
      *   }
      * ]
      */
-    function mergeIn(srvLowIdx, srvHighIdx) {
+    function mergeIn(useLowIdx, useHighIdx, srvLowIdx, srvHighIdx) {
       var srvIdx, endSrvIdx,
           knownIdx, endKnownIdx, step,
           addOffset, addStep, addEndAdjust, delStep, delEndAdjust;
@@ -1229,15 +1230,15 @@ var TestImapAccountMixins = {
         case 0:
           srvIdx = srvLowIdx;
           endSrvIdx = srvHighIdx + 1;
-          knownIdx = lowKnownIdx;
-          endKnownIdx = highKnownIdx + 1;
+          knownIdx = useLowIdx;
+          endKnownIdx = useHighIdx + 1;
           step = 1;
           break;
         case -1:
           srvIdx = srvHighIdx;
           endSrvIdx = srvLowIdx - 1;
-          knownIdx = highKnownIdx;
-          endKnownIdx = lowKnownIdx - 1;
+          knownIdx = useHighIdx;
+          endKnownIdx = useLowIdx - 1;
           step = -1;
           break;
       }
@@ -1327,9 +1328,11 @@ console.log('initial');
         // The add count should exactly cover what we find out about; no need
         // to do anything with dates.
         dir = 1;
-        lowKnownIdx = knownMessages.length;
-        highKnownIdx = lowKnownIdx - 1;
-        mergeIn(knownMessages.length, knownMessages.length + addCount);
+        mergeIn(
+          knownMessages.length,
+          lowKnownIdx - 1,
+          knownMessages.length,
+          knownMessages.length + addCount);
       }
       // - db already knows stuff
       // This is a refresh on top of a fetch of INITIAL_FILL_SIZE from the db.
@@ -1343,38 +1346,43 @@ console.log('initial');
       else if (propState.idx === 0) {
         var useCount = Math.min(knownMessages.length, $sync.INITIAL_FILL_SIZE);
         dir = 0;
-        lowKnownIdx = 0;
-        highKnownIdx = useCount - 1;
-        propState.highKnownHeader = knownMessages[highKnownIdx];
+        propState.highKnownHeader = knownMessages[useCount - 1];
         mergeIn(
-          (propState.serverLow = findServerIndex(lowKnownIdx, 'above', -1)),
-          (propState.serverHigh = findServerIndex(highKnownIdx, 'below', 1)));
+          0,
+          useCount - 1,
+          (propState.serverLow = findServerIndex(0, 'above', -1)),
+          (propState.serverHigh = findServerIndex(useCount - 1, 'below', 1)));
       }
       else {
         dir = 0;
-        lowKnownIdx = 0;
-        highKnownIdx = knownMessages.indexOf(propState.highKnownHeader);
-        mergeIn(propState.serverLow, propState.serverHigh);
+        mergeIn(
+          0,
+          knownMessages.indexOf(propState.highKnownHeader),
+          propState.serverLow,
+          propState.serverHigh);
       }
     }
     // --- refresh
     else if (dir === 0) {
-      mergeIn(findServerIndex(lowKnownIdx, 'above', -1),
-              findServerIndex(highKnownIdx, 'below', 1));
+      mergeIn(
+        lowKnownIdx,
+        highKnownIdx,
+        findServerIndex(lowKnownIdx, 'above', -1),
+        findServerIndex(highKnownIdx, 'below', 1));
     }
     // --- growth to newer
     else if (dir === -1) {
-      highKnownIdx = 0;
-      lowKnownIdx = 1;
-      mergeIn(0, findServerIndex(lowKnownIdx, 'above', 1));
+      mergeIn(
+        0, lowKnownIdx - 1,
+        0, findServerIndex(lowKnownIdx, 'above', 1) - 1);
     }
     // --- growth to older
     else if (dir === 1) {
-      // no merging required; just cramming
-      lowKnownIdx = knownMessages.length;
-      highKnownIdx = lowKnownIdx - 1;
-      mergeIn(findServerIndex(knownMessages.length - 1, 'below', -1) + 1,
-              serverMessages.length - 1);
+      mergeIn(
+        highKnownIdx + 1,
+        knownMessages.length - 1,
+        findServerIndex(highKnownIdx, 'below', -1) + 1,
+        serverMessages.length - 1);
     }
 
     return propState;

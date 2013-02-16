@@ -2406,17 +2406,39 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
           refreshInterval = null;
         }
         else {
-          // (time ordering is always youngest to oldest)
-          var oldestHeader = batchHeaders[batchHeaders.length - 1],
-              youngestHeader = batchHeaders[0];
+          // - Figure out refresh range.
+          // We want to make sure that our refresh covers any gaps between the
+          // last message in our slice and the first message that we retrieved.
+
+          // NB: endTS is exclusive, so we need to pad it out by a day relative
+          // to a known message if we want to make sure it gets covered by the
+          // sync range.
+          var startTS, endTS;
+
+          if (dir === PASTWARDS) {
+            var oldestHeader = batchHeaders[batchHeaders.length - 1];
+            // If we were always going to sync the entire day, we could
+            // subtract an entire day off of slice.startTS, but we are planning
+            // to start grabbing less than whole days, so we want to leave it
+            // up to checkAccuracyCoverageNeedingRefresh to get rid of any
+            // redundant coverage of what we are currently looking at.
+            endTS = slice.startTS + $date.DAY_MILLIS;
+            startTS = oldestHeader.date;
+          }
+          else {
+            var youngestHeader = batchHeaders[0];
+            startTS = slice.endTS;
+            endTS = youngestHeader.date + $date.DAY_MILLIS;
+          }
+
           // Quantize to whole dates, but compensate for server timezones
           // so that our refresh actually lines up with the messages we are
           // interested in.  (We want the date in the server's timezone, so we
           // add the timezone to be relative to that timezone.)
           refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
-            quantizeDate(oldestHeader.date + this._account.tzOffset),
-            quantizeDate(youngestHeader.date + this._account.tzOffset,
-            $sync.REFRESH_THRESH_MS));
+            quantizeDate(startTS + this._account.tzOffset),
+            quantizeDate(endTS + this._account.tzOffset),
+            $sync.GROW_REFRESH_THRESH_MS);
         }
 
         // We could also send the headers in as they come across the wire,
@@ -2468,10 +2490,14 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
       // not sync, resulting in the next time we do grow fetching more than we
       // want.
       slice.desiredHeaders += desiredCount;
+
+      // TODO: when we support partial day sync, these growth steps will need
+      // to be adjusted by 1-day if day covering the edge message has not been
+      // fully synchronized.
       this.folderSyncer.growSync(
         slice, dir,
         dir === PASTWARDS ? quantizeDate(slice.startTS)
-                          : quantizeDate(slice.endTS),
+                          : quantizeDate(slice.endTS + $date.DAY_MILLIS),
         $sync.INITIAL_SYNC_GROWTH_DAYS,
         doneCallback, progressCallback);
     }.bind(this);
@@ -2593,8 +2619,18 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
       }
     }
 
+    // The choice of PASTWARDS/FUTUREWARDS impacts the direction our chunks
+    // happen if we have to bisect (if that happens) and (eventually) the
+    // direction new bodies are fetched.
+    //
+    // There are arguments for both choices, primarily in the initial slice
+    // open refresh case:
+    // - PASTWARDS: Show the user the newest messages, but at the cost of a
+    //   gap between the known messages and these new messages we are
+    //   synchronizing in.
+    // - FUTUREWARDS: Avoid that gap, having the scrolling make sense.
     this.folderSyncer.refreshSync(
-      slice, PASTWARDS, startTS, endTS,
+      slice, FUTUREWARDS, startTS, endTS,
       doneCallback, slice.setSyncProgress.bind(slice));
   },
 

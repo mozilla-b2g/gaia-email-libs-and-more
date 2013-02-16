@@ -275,9 +275,14 @@ ImapFolderConn.prototype = {
    * mercy to the server.)
    *
    * @args[
-   *   @param[startTS]
-   *   @param[endTS]
-   *
+   *   @param[startTS @oneof[null DateMS]]{
+   *     If non-null, inclusive "SINCE" constraint to use, otherwise the
+   *     constraint is omitted.
+   *   }
+   *   @param[endTS @oneof[null DateMS]]{
+   *     If non-null, exclusive "BEFORE" constraint to use, otherwise the
+   *     constraint is omitted.
+   *   }
    * ]
    */
   syncDateRange: function(startTS, endTS, accuracyStamp,
@@ -860,7 +865,6 @@ ImapFolderSyncer.prototype = {
    */
   initialSync: function(slice, initialDays, syncCallback,
                         doneCallback, progressCallback) {
-    this._curSyncDayStep = initialDays;
     syncCallback('sync', false);
     this._startSync(
       slice, PASTWARDS, // sync into the past
