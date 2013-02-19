@@ -1049,6 +1049,7 @@ ImapFolderSyncer.prototype = {
       // doing a weighted bisection since the distribution might include
       // a number of messages earlier than our fallback startTS.
       if (this._curSyncDir === FUTUREWARDS && this._fallbackOriginTS) {
+        this.folderStorage.clearSyncedEntireFolder(this._fallbackOriginTS);
         bisectInfo.oldStartTS = this._fallbackOriginTS;
         this._fallbackOriginTS = null;
         curDaysDelta = Math.round(((bisectInfo.oldEndTS || FUTURE) -

@@ -2383,6 +2383,10 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
 
       // -- callbacks which may or may not get used
       var doneCallback = function doneGrowCallback(err) {
+        // In a refresh, we may have asked for more than we know about in case
+        // of a refresh at the edge where the database didn't have all the
+        // headers we wanted, so latch it now.
+        slice.desiredHeaders = slice.headers.length;
         slice.waitingOnData = false;
         slice.setStatus(err ? 'syncfailed' : 'synced', true, false, true);
         this._curSyncSlice = null;
@@ -2413,6 +2417,15 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
           // NB: endTS is exclusive, so we need to pad it out by a day relative
           // to a known message if we want to make sure it gets covered by the
           // sync range.
+
+          // NB: We quantize to whole dates, but compensate for server timezones
+          // so that our refresh actually lines up with the messages we are
+          // interested in.  (We want the date in the server's timezone, so we
+          // add the timezone to be relative to that timezone.)  We do adjust
+          // startTS for the timezone offset in here rather than in the
+          // quantization blow below because we do not timezone adjust the oldest
+          // full sync date.
+
           var startTS, endTS;
 
           if (dir === PASTWARDS) {
@@ -2423,20 +2436,19 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
             // up to checkAccuracyCoverageNeedingRefresh to get rid of any
             // redundant coverage of what we are currently looking at.
             endTS = slice.startTS + $date.DAY_MILLIS;
-            startTS = oldestHeader.date;
+            if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id))
+              startTS = this.getOldestFullSyncDate();
+            else
+              startTS = oldestHeader.date + this._account.tzOffset;
           }
           else { // dir === FUTUREWARDS
             var youngestHeader = batchHeaders[0];
-            startTS = slice.endTS;
+            startTS = slice.endTS + this._account.tzOffset;
             endTS = youngestHeader.date + $date.DAY_MILLIS;
           }
 
-          // Quantize to whole dates, but compensate for server timezones
-          // so that our refresh actually lines up with the messages we are
-          // interested in.  (We want the date in the server's timezone, so we
-          // add the timezone to be relative to that timezone.)
           refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
-            quantizeDate(startTS + this._account.tzOffset),
+            quantizeDate(startTS),
             quantizeDate(endTS + this._account.tzOffset),
             $sync.GROW_REFRESH_THRESH_MS);
         }
@@ -2449,7 +2461,9 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
           // !!refreshInterval is more efficient, but this way we can reuse
           // doneCallback() below in the else case simply.
           true);
-        slice.desiredHeaders = slice.headers.length;
+        // If the database had fewer headers than are requested, it's possible
+        // the refresh may give us extras, so allow those to be reported.
+        slice.desiredHeaders = Math.max(slice.headers.length, desiredCount);
 
         if (refreshInterval) {
           // If growth was not requested, make sure we convey server traffic is
@@ -2581,7 +2595,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
     // coverage date.  Keep original date around for bisect per above.
     if (this.headerIsOldestKnown(startTS, slice.startUID)) {
       origStartTS = quantizeDate(startTS + this._account.tzOffset);
-      startTS = this.getOldestFullSyncDate(startTS);
+      startTS = this.getOldestFullSyncDate();
     }
     // If we didn't grow based on the accuracy range, then apply the time-zone
     // adjustment so that our day coverage covers the actual INTERNALDATE day
@@ -2774,17 +2788,22 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
    * accuracy information?
    */
   getOldestFullSyncDate: function() {
-    var idxAR = 0;
-    // Run backward in time until we find one without a fullSync or run out
-    while (idxAR < this._accuracyRanges.length &&
-           this._accuracyRanges[idxAR].fullSync) {
-      idxAR++;
+    // Start at the oldest index and run towards the newest until we find a
+    // fully synced range or run out of ranges.
+    //
+    // We used to start at the newest and move towards the oldest since this
+    // checked our fully-synced-from-now invariant, but that invariant has now
+    // gone by the wayside and is not required for correctness for the purposes
+    // of us/our callers.
+    var idxAR = this._accuracyRanges.length - 1;
+    // Run futurewards in time until we find one without a fullSync or run out
+    while (idxAR >= 0 &&
+           !this._accuracyRanges[idxAR].fullSync) {
+      idxAR--;
     }
-    // Decrement because the point is we went one too far.
-    idxAR--;
     // Sanity-check, use.
     var syncTS;
-    if (idxAR >= 0 && idxAR < this._accuracyRanges.length)
+    if (idxAR >= 0)
       syncTS = this._accuracyRanges[idxAR].startTS;
     else
       syncTS = NOW();
@@ -2806,13 +2825,24 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
 
   /**
    * Are we synchronized as far back in time as we are able to synchronize?
+   *
+   * If true, this means that a refresh of the oldest known message should
+   * result in the refresh also covering through `$sync.OLDEST_SYNC_DATE.`
+   * Once this becomes true for a folder, it will remain true unless we
+   * perform a refresh through the dawn of time that needs to be bisected.  In
+   * that case we will drop the through-the-end-of-time coverage via
+   * `clearSyncedEntireFolder`.
    */
   syncedToDawnOfTime: function() {
     if (!this.folderSyncer.canGrowSync)
       return true;
 
     var oldestSyncTS = this.getOldestFullSyncDate();
-    return ON_OR_BEFORE(oldestSyncTS, $sync.OLDEST_SYNC_DATE);
+    // We add a day to the oldest sync date to allow for some timezone-related
+    // slop.  This is done defensively.  Unit tests ensure that our refresh of
+    // synced-to-the-dawn-of-time does not result in date drift that would cause
+    // the date to slowly move in and escape the slop.
+    return ON_OR_BEFORE(oldestSyncTS, $sync.OLDEST_SYNC_DATE + $date.DAY_MILLIS);
   },
 
   /**
@@ -3237,8 +3267,32 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
     var aranges = this._accuracyRanges;
     // (If aranges is the empty list, there are deep invariant problems and
     // the exception is desired.)
-    aranges[0].startTS = $sync.OLDEST_SYNC_DATE - 1;
+    aranges[0].startTS = $sync.OLDEST_SYNC_DATE;
     aranges.splice(1, aranges.length - 1);
+  },
+
+  /**
+   * Clear our indication that we have synced the entire folder through the dawn
+   * of time, truncating the time coverage of the oldest accuracy range or
+   * dropping it entirely.  It is assumed/required that a call to markSyncRange
+   * will follow this call within the same transaction, so the key thing is that
+   * we lose the dawn-of-time bit without throwing away useful endTS values.
+   */
+  clearSyncedEntireFolder: function(newOldestTS) {
+    var aranges = this._accuracyRanges;
+    if (!aranges.length)
+      return;
+    var lastRange = aranges[aranges.length - 1];
+    // Only update the startTS if it leaves a valid accuracy range
+    if (STRICTLY_AFTER(lastRange.endTS, newOldestTS)) {
+      lastRange.startTS = newOldestTS;
+    }
+    // Otherwise, pop the range to get rid of the info.  This is a defensive
+    // programming thing; we do not expect this case to happen, so we log.
+    else {
+      this._LOG.accuracyRangeSuspect(lastRange);
+      aranges.pop();
+    }
   },
 
   /**
@@ -3404,11 +3458,14 @@ console.warn('deferring add call.', this._pendingLoads.length, 'pending loads');
 
         // (if the slice is empty, it cares about any header!)
         if (slice.startTS !== null) {
-          // We never automatically grow a slice into the past, so bail on that.
-          if (BEFORE(date, slice.startTS))
-            continue;
+          // We never automatically grow a slice into the past if we are full,
+          // but we do allow it if not full.
+          if (BEFORE(date, slice.startTS)) {
+            if (slice.headers.length >= slice.desiredHeaders)
+              continue;
+          }
           // We do grow a slice into the present if it's already up-to-date...
-          if (SINCE(date, slice.endTS)) {
+          else if (SINCE(date, slice.endTS)) {
             // !(covers most recently known message)
             if(!(this._headerBlockInfos.length &&
                  slice.endTS === this._headerBlockInfos[0].endTS &&
@@ -3901,6 +3958,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       badDeletionRequest: { type: false, date: false, uid: false },
       bodyBlockMissing: { uid: false, idx: false, dict: false },
       serverIdMappingMissing: { srvid: false },
+
+      accuracyRangeSuspect: { arange: false },
 
       mutexedOpErr: { err: $log.EXCEPTION },
 

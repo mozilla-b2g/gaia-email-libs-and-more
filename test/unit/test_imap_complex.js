@@ -17,16 +17,17 @@ const INITIAL_SYNC_DAYS = 7,
       INITIAL_FILL_SIZE = 15;
 
 /**
- * In the new only-refresh world view, the key things to check:
+ * In the new only-refresh world view, the key things we check:
  * - We do/don't refresh if our time threshold says we should/shouldn't when
  *   opening a slice.
  * - We do/don't refresh when growing based on our time threshold.
  * - When our refresh is confronted with too many messages, the bisection logic
- *   properly kicks in to cover the entire range.
- * - When growing with refresh to cover known messages, we still check days
- *   that we didn't have any messages in one of our refreshes.  (So if we are
- *   showing Wednesday, our first previous messages are on Monday, our grow's
- *   refresh will cover Tuesday and not result in a gap.)
+ *   properly kicks in to cover the entire range.  Furthermore, if we were
+ *   synced to the dawn of time we only refresh as far back as we know rather
+ *   than trying to sync from 1990.  Because this potentially could leave us
+ *   missing some new messages prior to that, we do put a message in that time
+ *   bucket and make sure we indicate possible growth and that growth can sync
+ *   the message.
  */
 TD.commonCase('sliceOpenMostRecent', function(T) {
   T.group('setup');
@@ -81,6 +82,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
    * - Perform initial deepening sync.
    * - Add enough messages to trigger overflow conditions on the refresh and
    *   a subsequent naive date sync for expanding the range.
+   * - Add an extra message that's older than
    * - Perform a refreshing open; observe the aborted refresh sync which is
    *   replaced by a series of smaller syncs along the lines of a deepening
    *   sync.  The main difference is that our bisection logic is used to
@@ -99,6 +101,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testUniverse.do_adjustSyncValues({
     fillSize: 3 * TSYNCI,
     days: TSYNCI,
+    growDays: TSYNCI,
     // never grow the sync interval!
     scaleFactor: 1,
     bisectThresh: 15,
@@ -212,6 +215,9 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testAccount.do_addMessagesToFolder(
     c2Folder,
     { count: 21, age: { days: 1 }, age_incr: { days: 1 } });
+  testAccount.do_addMessagesToFolder(
+    c2Folder,
+    { count: 4, age: { days: 11 * TSYNCI - 1}, age_incr: { days: 1 } });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   var f2View = testAccount.do_openFolderView(
@@ -233,8 +239,15 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
        startTS: 1337472000000, endTS: 1338422400000 }],
     // This will result in us covering the entire span, so we will be at the
     // bottom too.
-    { top: true, bottom: true, grow: false },
+    { top: true, bottom: true, grow: true },
     { extraMutex: 'sync' });
+
+  testAccount.do_growFolderView(
+    f2View, 15, true, 30,
+    [{ count: 2, full: 2, flags: 0, deleted: 0 },
+     { count: 2, full: 2, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('cleanup');
 });
@@ -426,8 +439,9 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   folderView = testAccount.do_openFolderView(
-    'reopens without refresh', testFolder,
-    { count: 3, full: 0, flags: 3, deleted: 0 },
+    'reopens with refresh', testFolder,
+    { count: 3, full: 0, flags: 3, deleted: 0,
+      startTS: 1327536000000, endTS: 1327708800000 },
     { top: true, bottom: false, grow: false });
 
   T.group('grow');
@@ -456,11 +470,93 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
  * reliable.  It's not because it requires there be no \Deleted messages in
  * the folder (or that we become aware of \Deleted messages), so the
  * range expansion is wildly superior for us.
+ *
+ * We also run a check to make sure that this refresh is stable in terms of
+ * startTS; it would be bad for us if the date slid around.
  */
-/*
 TD.commonCase('newy messages beyond oldest-synced discoverable', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Jan 28th, yo.  Intentionally avoiding daylight saving time
+  // Static in the sense that we vary over the course of this defining function
+  // rather than varying during dynamically during the test functions as they
+  // run.
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+
+  const HOUR_MILLIS = 60 * 60 * 1000;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 3,
+    days: 1,
+    growDays: 3,
+    // we want our open to refresh; we also want the grow low enough to make
+    // sure that the extra-synced but not-reported message shows up without
+    // redundant net traffic
+    openRefreshThresh: 0.5 * HOUR_MILLIS,
+    growRefreshThresh: 0.5 * HOUR_MILLIS,
+  });
+
+  T.group('initial sync, grow, close');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon-ish');
+  var testFolder = testAccount.do_createTestFolder(
+    'test_complex_growth_old_beyond',
+    { count: 6, age: { days: 0 }, age_incr: { days: 2 }, age_incr_every: 3 });
+  var folderView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    [{ count: 3, full: 3, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+  testAccount.do_growFolderView(
+    folderView, 3, true, 3,
+    [{ count: 3, full: 3, flags: 0, deleted: 0}],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  testAccount.do_closeFolderView(folderView);
+
+  T.group('add new messages older than oldest known, reopen');
+  testAccount.do_addMessagesToFolder(
+    testFolder,
+    { count: 2, age: { days: 5 } });
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  folderView = testAccount.do_openFolderView(
+    'reopens with refresh', testFolder,
+    { count: 3, full: 0, flags: 3, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('grow');
+  testAccount.do_growFolderView(
+    // Ask for more headers than are already known so the extra synced headers
+    // can be reported.
+    folderView, 10, false, 3,
+    [{ count: 5, full: 2, flags: 3, deleted: 0,
+       startTS: 631152000000, endTS: 1327708800000 }],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  testAccount.do_closeFolderView(folderView);
+
+  T.group('refresh to ensure stability');
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
+  folderView = testAccount.do_openFolderView(
+    'reopens with refresh', testFolder,
+    { count: 3, full: 0, flags: 3, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+  testAccount.do_growFolderView(
+    // Ask for more headers than are already known so the extra synced headers
+    // can be reported.
+    folderView, 10, false, 3,
+    [{ count: 5, full: 0, flags: 5, deleted: 0,
+       startTS: 631152000000, endTS: 1327708800000 }],
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  testAccount.do_closeFolderView(folderView);
+
+  T.group('cleanup');
 });
- */
+
 
 /**
  * We keep going back further in time until we think we know about all the

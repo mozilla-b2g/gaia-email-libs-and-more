@@ -112,9 +112,12 @@ exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = 1.6;
  * arbitrary choice to avoid our logic going crazy, not to punish people with
  * comprehensive mail collections.
  *
+ * All of our sync range timestamps are quantized UTC days, so we are sure to
+ * use an already UTC-quantized timestamp here.
+ *
  * IMAP only.
  */
-exports.OLDEST_SYNC_DATE = (new Date(1990, 0, 1)).valueOf();
+exports.OLDEST_SYNC_DATE = Date.UTC(1990, 0, 1);
 
 /**
  * If we issued a search for a date range and we are getting told about more
