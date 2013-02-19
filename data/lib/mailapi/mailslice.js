@@ -2425,7 +2425,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
             endTS = slice.startTS + $date.DAY_MILLIS;
             startTS = oldestHeader.date;
           }
-          else {
+          else { // dir === FUTUREWARDS
             var youngestHeader = batchHeaders[0];
             startTS = slice.endTS;
             endTS = youngestHeader.date + $date.DAY_MILLIS;
@@ -2460,7 +2460,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
 
           this.folderSyncer.refreshSync(
             slice, dir,
-            refreshInterval.startTS, refreshInterval.endTS,
+            refreshInterval.startTS, refreshInterval.endTS, null,
             doneCallback, progressCallback);
         }
         else {
@@ -2555,7 +2555,11 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
 
-    var startTS = slice.startTS, endTS = slice.endTS;
+    var startTS = slice.startTS, endTS = slice.endTS,
+        // In the event we grow the startTS to the dawn of time, then we want
+        // to also provide the original startTS so that the bisection does not
+        // need to scan through years of empty space.
+        origStartTS = null;
 
     // - Grow endTS
     // If the endTS lines up with the most recent known message for the folder,
@@ -2569,19 +2573,22 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
       // quantized to midnight, we need to adjust forward a day and then
       // quantize.  We also need to compensate for the timezone; we want this
       // time in terms of server time, so we add the timezone offset.
-      endTS = quantizeDate(endTS - DAY_MILLIS + this._account.tzOffset);
+      endTS = quantizeDate(endTS + DAY_MILLIS + this._account.tzOffset);
     }
 
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
-    // coverage date.
-    if (this.headerIsOldestKnown(startTS, slice.startUID))
+    // coverage date.  Keep original date around for bisect per above.
+    if (this.headerIsOldestKnown(startTS, slice.startUID)) {
+      origStartTS = quantizeDate(startTS + this._account.tzOffset);
       startTS = this.getOldestFullSyncDate(startTS);
+    }
     // If we didn't grow based on the accuracy range, then apply the time-zone
     // adjustment so that our day coverage covers the actual INTERNALDATE day
     // of the start message.
-    else
+    else {
       startTS += this._account.tzOffset;
+    }
 
     // quantize the start date
     if (startTS)
@@ -2623,14 +2630,28 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
     // happen if we have to bisect (if that happens) and (eventually) the
     // direction new bodies are fetched.
     //
-    // There are arguments for both choices, primarily in the initial slice
-    // open refresh case:
+    // There are arguments for both choices:
+    //
+    // Initial slice open refresh:
     // - PASTWARDS: Show the user the newest messages, but at the cost of a
     //   gap between the known messages and these new messages we are
-    //   synchronizing in.
+    //   synchronizing in.  The gap is potentially confusing and ordering could
+    //   also be confusing to the user.
     // - FUTUREWARDS: Avoid that gap, having the scrolling make sense.
+    //   There is a pathological case here where we are ridiculously out-of-date
+    //   and it would take the user a loooong time to sync all the way back up
+    //   to now and it would be better to just restart with an initial deepening
+    //   sync and/or throw things away.  Arguably, these are cases that should
+    //   be explicitly handled outside of us.
+    //
+    // Manual refresh:
+    // - PASTWARDS: Newest first.
+    // - FUTUREWARDS: Have the messages show up in the order they were received.
+    //
+    // We currently choose FUTUREWARDS to avoid the gap and have messages show
+    // up chronologically.
     this.folderSyncer.refreshSync(
-      slice, FUTUREWARDS, startTS, endTS,
+      slice, FUTUREWARDS, startTS, endTS, origStartTS,
       doneCallback, slice.setSyncProgress.bind(slice));
   },
 

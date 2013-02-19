@@ -481,13 +481,14 @@ var TestCommonAccountMixins = {
                                  expectedFlags, extraFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
+      // we want this before _expect_dateSyncs because _expect_dateSyncs updates
+      // testFolder.initialSynced to be true, which affects this method.
+      self._expect_storage_mutexed(viewThing.testFolder, 'refresh', extraFlags);
+
       var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
                                                  null, 0);
       self.expect_messagesReported(totalExpected);
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
-
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
-                                   'refresh', extraFlags);
 
       viewThing.slice.refresh();
     });
@@ -498,12 +499,19 @@ var TestCommonAccountMixins = {
    * the given type.  Ignore block load and deletion notifications during this
    * time.
    */
-  _expect_storage_mutexed: function(storageActor, syncType, extraFlags) {
+  _expect_storage_mutexed: function(testFolder, syncType, extraFlags) {
+    var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
     storageActor.expect_mutexedCall_begin(syncType);
     switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
       case true:
-        storageActor.expect_syncedEntireFolder();
+        // per the comment on do_viewFolder, this flag has no meaning when we are
+        // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
+        // PASTWARDS, comment out this line and things should work.
+console.log('syncType:', syncType, 'initialSynced?', testFolder.initialSynced);
+        if ((syncType === 'sync' && !testFolder.initialSynced) ||
+            (syncType === 'grow'))
+          storageActor.expect_syncedEntireFolder();
         break;
       case 'ignore':
         storageActor.ignore_syncedEntireFolder();
@@ -1465,7 +1473,11 @@ console.log('initial');
    *     }
    *     @key[syncedToDawnOfTime #:optional Boolean]{
    *       Assert that we are synced to the dawn of time at the end of this
-   *       sync.
+   *       sync IFF this is known to be a PASTWARDS-sync.  We've recently
+   *       changed the direction of refreshes to be FUTUREWARDS, in which case
+   *       this heuristic does not apply.  Rather than go change all the test
+   *       cases and make it harder to toggle the heuristic, we are building
+   *       the logic in here.
    *     }
    *   ]]
    * ]
@@ -1476,7 +1488,7 @@ console.log('initial');
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
     var testStep = this.T.action(this, desc, testFolder, 'using',
                                  testFolder.connActor, function() {
-      self._expect_storage_mutexed(testFolder.storageActor, 'sync', extraFlags);
+      self._expect_storage_mutexed(testFolder, 'sync', extraFlags);
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
@@ -1577,8 +1589,7 @@ console.log('initial');
                           alreadyExists;
       self.expect_messagesReported(totalExpected);
 
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow',
-                                   extraFlags);
+      self._expect_storage_mutexed(viewThing.testFolder, 'grow', extraFlags);
 
       var expectedMessages;
       if (dirMagnitude < 0) {

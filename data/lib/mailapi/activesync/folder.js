@@ -1055,7 +1055,7 @@ ActiveSyncFolderSyncer.prototype = {
       progressCallback);
   },
 
-  refreshSync: function(slice, dir, startTS, endTS,
+  refreshSync: function(slice, dir, startTS, endTS, origStartTS,
                         doneCallback, progressCallback) {
     this.folderConn.sync($date.NOW(), doneCallback, progressCallback);
   },

@@ -125,7 +125,7 @@ const TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
   // we use null as a sentinel value for 'the future'/'now'
   else if (comparisonDate === null)
     return testDate === null;
-  else
+  else // FUTUREWARDS
     return testDate >= comparisonDate;
 };
 /**
@@ -137,7 +137,7 @@ const TIME_DIR_DELTA = exports.TIME_DIR_DELTA =
         function TIME_DIR_DELTA(dir, testDate, comparisonDate) {
   if (dir === PASTWARDS)
     return testDate - comparisonDate;
-  else
+  else // FUTUREWARDS
     return comparisonDate - testDate;
 };
 /**
@@ -148,7 +148,7 @@ const TIME_DIR_ADD = exports.TIME_DIR_ADD =
         function TIME_DIR_ADD(dir, baseDate, time) {
   if (dir === PASTWARDS)
     return baseDate + time;
-  else
+  else // FUTUREWARDS
     return baseDate - time;
 };
 

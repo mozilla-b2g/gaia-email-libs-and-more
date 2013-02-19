@@ -821,6 +821,11 @@ function ImapFolderSyncer(account, folderStorage, _parentLog) {
    */
   this._nextSyncAnchorTS = null;
   /**
+   * In the event of a bisection, this is the timestamp to fall back to rather
+   * than continuing from our
+   */
+  this._fallbackOriginTS = null;
+  /**
    * The farthest timestamp that we should synchronize through.  The value
    * null is potentially meaningful if we are synchronizing FUTUREWARDS.
    */
@@ -871,6 +876,7 @@ ImapFolderSyncer.prototype = {
       'grow',
       FUTURE(), // start syncing from the (unconstrained) future
       $sync.OLDEST_SYNC_DATE, // sync no further back than this constant
+      null,
       initialDays,
       doneCallback, progressCallback);
   },
@@ -881,13 +887,16 @@ ImapFolderSyncer.prototype = {
    * notification will only be generated once the entire time span has been
    * synchronized.
    */
-  refreshSync: function(slice, dir, startTS, endTS,
+  refreshSync: function(slice, dir, startTS, endTS, origStartTS,
                         doneCallback, progressCallback) {
     // timezone compensation happens in the caller
     this._startSync(
       slice, dir,
       'refresh', // this is a refresh, not a grow!
-      endTS, startTS, null, doneCallback, progressCallback);
+      dir === PASTWARDS ? endTS : startTS,
+      dir === PASTWARDS ? startTS : endTS,
+      origStartTS,
+      null, doneCallback, progressCallback);
   },
 
   /**
@@ -912,23 +921,25 @@ ImapFolderSyncer.prototype = {
     if (growthDirection === PASTWARDS) {
       syncThroughTS = $sync.OLDEST_SYNC_DATE;
     }
-    else {
+    else { // FUTUREWARDS
       syncThroughTS = FUTURE();
     }
 
     this._startSync(slice, growthDirection, 'grow',
-                    anchorTS, syncThroughTS, syncStepDays,
+                    anchorTS, syncThroughTS, null, syncStepDays,
                     doneCallback, progressCallback);
   },
 
   _startSync: function ifs__startSync(slice, dir, syncTypeStr,
-                                      originTS, syncThroughTS, syncStepDays,
+                                      originTS, syncThroughTS, fallbackOriginTS,
+                                      syncStepDays,
                                       doneCallback, progressCallback) {
     var startTS, endTS;
     this._syncSlice = slice;
     this._curSyncAccuracyStamp = NOW();
     this._curSyncDir = dir;
     this._curSyncIsGrow = (syncTypeStr === 'grow');
+    this._fallbackOriginTS = fallbackOriginTS;
     if (dir === PASTWARDS) {
       endTS = originTS;
       if (syncStepDays) {
@@ -942,7 +953,7 @@ ImapFolderSyncer.prototype = {
         this._nextSyncAnchorTS = null;
       }
     }
-    else {
+    else { // FUTUREWARDS
       startTS = originTS;
       if (syncStepDays) {
         this._nextSyncAnchorTS = endTS = startTS + syncStepDays * DAY_MILLIS;
@@ -1033,10 +1044,22 @@ ImapFolderSyncer.prototype = {
       var curDaysDelta = bisectInfo.curDaysDelta,
           numHeaders = bisectInfo.numHeaders;
 
+      // If we had a fallback TS because we were synced to the dawn of time,
+      // use that and start by just cutting the range in thirds rather than
+      // doing a weighted bisection since the distribution might include
+      // a number of messages earlier than our fallback startTS.
+      if (this._curSyncDir === FUTUREWARDS && this._fallbackOriginTS) {
+        bisectInfo.oldStartTS = this._fallbackOriginTS;
+        this._fallbackOriginTS = null;
+        curDaysDelta = Math.round(((bisectInfo.oldEndTS || FUTURE) -
+                                    bisectInfo.oldStartTS) /
+                                  DAY_MILLIS);
+        numHeaders = $sync.BISECT_DATE_AT_N_MESSAGES * 1.5;
+      }
       // Sanity check the time delta; if we grew the bounds to the dawn
       // of time, then our interpolation is useless and it's better for
       // us to crank things way down, even if it's erroneously so.
-      if (curDaysDelta > 1000)
+      else if (curDaysDelta > 1000)
         curDaysDelta = 30;
 
       // - Interpolate better time bounds.
@@ -1124,6 +1147,8 @@ console.log("folder message count", folderMessageCount,
       this._doneSync();
       return;
     }
+//console.log('nextSyncAnchor', this._nextSyncAnchorTS, 'dir', this._curSyncDir,
+//            'sync through', this._syncThroughTS);
     // If we've synchronized to the limits of syncing in the given direction,
     // we're done.
     if (!this._nextSyncAnchorTS ||
@@ -1210,7 +1235,7 @@ console.log('grow?', this._curSyncIsGrow,
       endTS = this._nextSyncAnchorTS;
       this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch);
     }
-    else {
+    else { // FUTUREWARDS
       startTS = this._nextSyncAnchorTS;
       this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch);
     }

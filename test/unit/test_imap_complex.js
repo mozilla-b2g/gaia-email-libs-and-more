@@ -221,30 +221,20 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     [{ count: 0, full: null, flags: null, deleted: null,
        startTS: 631152000000, endTS: 1338249600000 },
     // The bisection logic falls back from the 'all of time ever' case,
-    // dropping down to the hardcoded 30 day limit.
-    // Our shrink scale ends up(BISECT_DATE_AT_N_MESSAGES / (numHeaders * 2))
-    // === (15 / (30 * 2)) === 0.25.  We were scanning 30 days, so we end up
-    // with 7.5 => 8 days of stepping.  Because we generated the messages
-    // offset by 1 day, this means 7 new messages.
-     { count: 7, full: 7, flags: 0, deleted: 0,
-       startTS: 1337558400000, endTS: 1338249600000 },
-    // and then 8 because there is no skipped day in this range
+    // falling back to the startTS of the actual message coverage and then using
+    // a hard-coded 1/3 divvying.
+    // This is a future-wards bisection, and because of how we added the
+    // messages, the known messages will be seen first.
+     { count: 11, full: 2, flags: 9, deleted: 0,
+       startTS: 1335571200000, endTS: 1336521600000 },
+     { count: 11, full: 11, flags: 0, deleted: 0,
+       startTS: 1336521600000, endTS: 1337472000000 },
      { count: 8, full: 8, flags: 0, deleted: 0,
-       startTS: 1336176000000, endTS: 1336867200000 },
-    // and then we overlap with the already known messages.  Note that although
-    // onSyncCompleted can now conclude that it knows about the existence of
-    // all the messages in the folder, it can't conclude that the flags are
-    // up-to-date, so it will be forced to issue an additional search to get
-    // those flags.
-     { count: 8, full: 6, flags: 2, deleted: 0,
-       startTS: 1336176000000, endTS: 1336867200000 },
-
-     { count: 7, full: 0, flags: 7, deleted: 0,
-       startTS: 1336176000000, endTS: 1336867200000 }],
+       startTS: 1337472000000, endTS: 1338422400000 }],
     // This will result in us covering the entire span, so we will be at the
     // bottom too.
     { top: true, bottom: true, grow: false },
-    { extraMutex: 'sync', syncedToDawnOfTime: true });
+    { extraMutex: 'sync' });
 
   T.group('cleanup');
 });
