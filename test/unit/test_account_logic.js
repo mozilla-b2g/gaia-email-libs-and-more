@@ -177,6 +177,68 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
+TD.commonCase('syncFolderList obeys hierarchy', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testServer = T.actor('testActiveSyncServer', 'S',
+                           { universe: testUniverse }),
+      eSync = T.lazyLogger('sync');
+
+  if (TEST_PARAMS.type === 'activesync') {
+    T.action('create test folders', function() {
+      const folderType = $_ascp.FolderHierarchy.Enums.Type;
+      var inbox = testServer.server.foldersByType['inbox'][0],
+          sent  = testServer.server.foldersByType['sent'][0],
+          trash = testServer.server.foldersByType['trash'][0];
+
+      var subinbox = testServer.server.addFolder(
+        'Subinbox', folderType.Mail, inbox);
+      testServer.server.addFolder(
+        'Subsubinbox', folderType.Inbox, subinbox);
+
+      var subsent = testServer.server.addFolder(
+        'Subsent', folderType.Mail, sent);
+      testServer.server.addFolder(
+        'Subsubsent', folderType.Inbox, subsent);
+
+      var subtrash = testServer.server.addFolder(
+        'Subtrash', folderType.Mail, trash);
+      testServer.server.addFolder(
+        'Subsubtrash', folderType.Inbox, subtrash);
+
+      var folder = testServer.server.addFolder(
+        'Folder', folderType.Mail);
+      testServer.server.addFolder(
+        'Subfolder', folderType.Inbox, folder);
+    });
+  }
+
+  var testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse,
+                              server: testServer});
+
+  T.group('check folder list');
+  T.check('check folder list', testAccount, eSync, function(T) {
+    var myFolderExp = new RegExp('^' + testAccount.accountId + '/');
+    var folders = testUniverse.allFoldersSlice.items.filter(function(x) {
+      return myFolderExp.test(x.id);
+    });
+
+    var hierarchy = [];
+    for (var i = 0; i < folders.length; i++) {
+      if (folders[i].depth < hierarchy.length)
+        hierarchy.length = folders[i].depth;
+      if (folders[i].depth === hierarchy.length)
+        hierarchy.push(folders[i].name);
+
+      eSync.expect_namedValue('path', folders[i].path);
+      eSync.namedValue('path', hierarchy.join('/'));
+    }
+  });
+
+  T.group('cleanup');
+});
+
 function run_test() {
   runMyTests(5);
 }

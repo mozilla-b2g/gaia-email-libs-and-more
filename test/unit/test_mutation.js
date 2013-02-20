@@ -681,5 +681,5 @@ TD.commonCase('move/trash messages', function(T) {
 });
 
 function run_test() {
-  runMyTests(15);
+  runMyTests(20);
 }
