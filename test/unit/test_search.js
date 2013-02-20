@@ -9,8 +9,17 @@ var TD = $tc.defineTestsFor(
 
 var $filters = require('mailapi/searchfilter');
 
+function thunkConsole(T) {
+  var lazyConsole = T.lazyLogger('console');
+
+  gConsoleLogFunc = function(msg) {
+    lazyConsole.value(msg);
+  };
+}
+
 TD.commonCase('author filter', function(T) {
   var eLazy = T.lazyLogger('filter');
+  thunkConsole(T);
 
   var samples = [
     { name: 'no match against empty author',
@@ -97,6 +106,7 @@ TD.commonCase('author filter', function(T) {
 
 TD.commonCase('recipient filter', function(T) {
   var eLazy = T.lazyLogger('filter');
+  thunkConsole(T);
 
   var samples = [
     { name: 'no match against empty to',
@@ -154,6 +164,7 @@ TD.commonCase('recipient filter', function(T) {
 
 TD.commonCase('subject filter', function(T) {
   var eLazy = T.lazyLogger('filter');
+  thunkConsole(T);
 
   var samples = [
     {
@@ -180,6 +191,13 @@ TD.commonCase('subject filter', function(T) {
       name: 'fail to match',
       phrase: /bob/i,
       header: { subject: 'foobar' },
+      result: false,
+      matches: []
+    },
+    {
+      name: 'do not die on null subject',
+      phrase: /bob/i,
+      header: { subject: null },
       result: false,
       matches: []
     }

@@ -156,7 +156,10 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           '> Antelope banana credenza.',
           '>',
           '> Dialog excitement!',
-          '', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          // XXX we used to have a default signature; when we start letting
+          // users configure signatures again, then we will want the test to
+          // use one and put this back.
+          //'', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -215,7 +218,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       expectedForwardBody = {
         text: [
           '', '',
-          '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          // XXX when signatures get enabled/tested:
+          // '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + safeifyTime(replySentDate + ''),
@@ -289,10 +293,12 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
-        '</blockquote>' +
+        '</blockquote>',
+        /* XXX when signatures get put back in/tested:
         '<pre class="moz-signature" cols="72">' +
         $_accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
+        */
       bpartHtml =
         new SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });

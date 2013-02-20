@@ -31,18 +31,11 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 
 OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/lib/mailapi/fake/*.js) $(wildcard data/deps/rdcommon/*.js)
 
-gaia-email-opt.js: scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
-	node scripts/r.js -o scripts/gaia-email-opt.build.js
+install-into-gaia: gaia-symlink scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
+	node scripts/copy-to-gaia.js gaia-symlink/apps/email
 
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
-
-clean-install-gaia-email-opt:
-	rm gaia-email-opt.js
-	$(MAKE) install-gaia-email-opt
-
-install-gaia-email-opt: gaia-email-opt.js gaia-symlink
-	cp gaia-email-opt.js gaia-symlink/apps/email/js/ext
 
 PYTHON=python
 B2GSD=b2g-srcdir-symlink
@@ -145,5 +138,5 @@ clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
 
-.DEFAULT_GOAL=gaia-email-opt.js
-.PHONY: install-gaia-email-opt
+.DEFAULT_GOAL=install-into-gaia
+.PHONY: install-into-gaia
