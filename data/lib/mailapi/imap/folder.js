@@ -1148,8 +1148,6 @@ console.log("folder message count", folderMessageCount,
       this._doneSync();
       return;
     }
-//console.log('nextSyncAnchor', this._nextSyncAnchorTS, 'dir', this._curSyncDir,
-//            'sync through', this._syncThroughTS);
     // If we've synchronized to the limits of syncing in the given direction,
     // we're done.
     if (!this._nextSyncAnchorTS ||
@@ -1160,9 +1158,6 @@ console.log("folder message count", folderMessageCount,
     }
 
     // - Done if this is a grow and we don't want/need any more headers.
-console.log('grow?', this._curSyncIsGrow,
-            'have', this._syncSlice.headers.length,
-            'want', this._syncSlice.desiredHeaders);
     if (this._curSyncIsGrow &&
         this._syncSlice.headers.length >= this._syncSlice.desiredHeaders) {
         // (limited syncs aren't allowed to expand themselves)

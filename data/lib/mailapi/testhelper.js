@@ -514,7 +514,6 @@ var TestCommonAccountMixins = {
           // per the comment on do_viewFolder, this flag has no meaning when we are
           // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
           // PASTWARDS, comment out this line and things should work.
-  console.log('syncType:', syncType, 'initialSynced?', testFolder.initialSynced);
           if ((syncType === 'sync' && !testFolder.initialSynced) ||
               (syncType === 'grow'))
             storageActor.expect_syncedEntireFolder();
@@ -1189,8 +1188,6 @@ var TestImapAccountMixins = {
       if (knownIndex === 0 && expandDir === -1)
         return 0;
 
-console.log('FSI:', knownIndex, 'lk', lowKnownIdx, 'hk', highKnownIdx);
-
       if (expandDir)
         knownIndex = expandDateIndex(knownIndex, knownMessages, expandDir);
 
@@ -1257,8 +1254,8 @@ console.log('FSI:', knownIndex, 'lk', lowKnownIdx, 'hk', highKnownIdx);
           step = -1;
           break;
       }
-console.log('MERGE BEGIN', srvLowIdx, srvHighIdx,
-            'srv', srvIdx, endSrvIdx, 'known', knownIdx, endKnownIdx);
+      //console.log('MERGE BEGIN', srvLowIdx, srvHighIdx,
+      //            'srv', srvIdx, endSrvIdx, 'known', knownIdx, endKnownIdx);
 
       // -- phase 1: delta merge
       // Check the headers in both places, if they don't match, it must either
@@ -1277,7 +1274,7 @@ console.log('MERGE BEGIN', srvLowIdx, srvHighIdx,
           if (idxDeleted === -1) {
             seenAdded++;
             srvIdx += step;
-console.log('MERGE add', knownIdx, serverHeader.headerInfo.subject);
+            //console.log('MERGE add', knownIdx, serverHeader.headerInfo.subject);
             if (dir !== -1) {
               // Add at our current site, displacing the considered header to be
               // be the next header after a normal step.
@@ -1292,7 +1289,7 @@ console.log('MERGE add', knownIdx, serverHeader.headerInfo.subject);
           }
           // - deleted
           else {
-console.log('MERGE del', knownIdx);
+            //console.log('MERGE del', knownIdx);
             seenDeleted++;
             serverDeleted.splice(idxDeleted, 2);
             knownMessages.splice(knownIdx, 1);
@@ -1309,7 +1306,7 @@ console.log('MERGE del', knownIdx);
           }
         }
         else {
-console.log('MERGE same', knownIdx);
+          //console.log('MERGE same', knownIdx);
           srvIdx += step;
           knownIdx += step;
         }
@@ -1321,7 +1318,7 @@ console.log('MERGE same', knownIdx);
       if (srvIdx !== endSrvIdx &&
            seenAdded < addCount) {
         var toAdd = addCount - seenAdded;
-console.log('CRAM add:', toAdd, 'srv', srvIdx, endSrvIdx, 'at known', knownIdx);
+        //console.log('CRAM add:', toAdd, 'srv', srvIdx, endSrvIdx, 'at known', knownIdx);
         if (dir !== -1) {
           knownMessages.splice.apply(knownMessages,
             [knownIdx, 0].concat(serverMessages.slice(srvIdx, srvIdx + toAdd)));
@@ -1339,7 +1336,7 @@ console.log('CRAM add:', toAdd, 'srv', srvIdx, endSrvIdx, 'at known', knownIdx);
     if (dir === null) {
       // - initial sync
       if (!testFolder.initialSynced) {
-console.log('initial');
+        //console.log('initial');
         // The add count should exactly cover what we find out about; no need
         // to do anything with dates.
         dir = 1;

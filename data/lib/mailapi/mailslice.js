@@ -2041,8 +2041,6 @@ FolderStorage.prototype = {
    * non-zero again.
    */
   _runDeferredCalls: function ifs__runDeferredCalls() {
-console.warn('cleaning out deferred calls!', this._deferredCalls.length,
-             this._pendingLoads.length);
     while (this._deferredCalls.length && this._pendingLoads.length === 0) {
       var toCall = this._deferredCalls.shift();
       try {
@@ -2052,8 +2050,6 @@ console.warn('cleaning out deferred calls!', this._deferredCalls.length,
         this._LOG.callbackErr(ex);
       }
     }
-console.warn('done running deferred calls!', this._deferredCalls.length,
-             this._pendingLoads.length);
   },
 
   _findBlockInfoFromBlockId: function(type, blockId) {
@@ -2086,7 +2082,6 @@ console.warn('done running deferred calls!', this._deferredCalls.length,
     var index = this._pendingLoads.length;
     this._pendingLoads.push(aggrId);
     this._pendingLoadListeners[aggrId] = [callback];
-console.warn('loading,', aggrId, 'list now:', this._pendingLoads);
 
     var self = this;
     function onLoaded(block) {
@@ -2105,7 +2100,6 @@ try {
       self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
 } catch (ex) {
       console.error('ERROR!', ex, '\n', ex.stack); }
-console.warn('load complete!', aggrId, 'in list', self._pendingLoads);
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
@@ -2117,7 +2111,6 @@ console.warn('load complete!', aggrId, 'in list', self._pendingLoads);
         }
       }
 
-console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'loads pending');
       if (self._pendingLoads.length === 0)
         self._runDeferredCalls();
     }
@@ -3440,7 +3433,6 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
    */
   addMessageHeader: function ifs_addMessageHeader(header, callback) {
     if (this._pendingLoads.length) {
-console.warn('deferring add call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.addMessageHeader.bind(
                                  this, header, callback));
       return;
@@ -3513,7 +3505,6 @@ console.warn('deferring add call.', this._pendingLoads.length, 'pending loads');
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
-console.warn('deferring update call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.updateMessageHeader.bind(
                                  this, date, id, partOfSync,
                                  headerOrMutationFunc, callback));
@@ -3593,7 +3584,6 @@ console.warn('deferring update call.', this._pendingLoads.length, 'pending loads
   updateMessageHeaderByServerId: function(srvid, partOfSync,
                                           headerOrMutationFunc) {
     if (this._pendingLoads.length) {
-console.warn('deferring update2 call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.updateMessageHeaderByServerId.bind(
         this, srvid, partOfSync, headerOrMutationFunc));
       return;
@@ -3633,7 +3623,6 @@ console.warn('deferring update2 call.', this._pendingLoads.length, 'pending load
    */
   unchangedMessageHeader: function ifs_unchangedMessageHeader(header) {
     if (this._pendingLoads.length) {
-console.warn('deferring unchanged call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.unchangedMessageHeader.bind(this, header));
       return;
     }
@@ -3657,7 +3646,6 @@ console.warn('deferring unchanged call.', this._pendingLoads.length, 'pending lo
 
   deleteMessageHeaderAndBody: function(header, callback) {
     if (this._pendingLoads.length) {
-console.warn('deferring delete call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(
                                  this, header, callback));
       return;
@@ -3701,7 +3689,6 @@ console.warn('deferring delete call.', this._pendingLoads.length, 'pending loads
       throw new Error('Server ID mapping not supported for this storage!');
 
     if (this._pendingLoads.length) {
-console.warn('deferring delete2 call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.deleteMessageByServerId.bind(this, srvid));
       return;
     }
@@ -3738,7 +3725,6 @@ console.warn('deferring delete2 call.', this._pendingLoads.length, 'pending load
    */
   addMessageBody: function ifs_addMessageBody(header, bodyInfo, callback) {
     if (this._pendingLoads.length) {
-console.warn('deferring addBody call.', this._pendingLoads.length, 'pending loads');
       this._deferredCalls.push(this.addMessageBody.bind(
                                  this, header, bodyInfo, callback));
       return;
