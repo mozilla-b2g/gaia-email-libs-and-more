@@ -120,12 +120,12 @@ TD.commonCase('mutate flags', function(T) {
     };
 
     if (TEST_PARAMS.type === 'imap') {
-      doHeaderExps.push(
+      doHeaderExps.changes.push(
         [toMarkRepliedTo, 'isRepliedTo', true],
         [toMarkForwarded, 'isForwarded', true],
         [toMarkJunk, 'isJunk', true]
       );
-      undoHeaderExps.push(
+      undoHeaderExps.changes.push(
         [toMarkRepliedTo, 'isRepliedTo', false],
         [toMarkForwarded, 'isForwarded', false],
         [toMarkJunk, 'isJunk', false]
