@@ -845,9 +845,9 @@ ImapJobDriver.prototype = {
     if (op.parentFolderId) {
       if (!this.account._folderInfos.hasOwnProperty(op.parentFolderId))
         throw new Error("No such folder: " + op.parentFolderId);
-      var parentFolder = this._folderInfos[op.parentFolderId];
-      delim = parentFolder.path;
-      path = parentFolder.path + delim;
+      var parentFolder = this.account._folderInfos[op.parentFolderId];
+      delim = parentFolder.$meta.delim;
+      path = parentFolder.$meta.path + delim;
     }
     else {
       path = '';
