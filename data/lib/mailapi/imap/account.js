@@ -786,7 +786,7 @@ ImapAccount.prototype = {
 
       // heuristic based type assignment based on the name
       if (!type) {
-        switch (path.toUpperCase()) {
+        switch (box.displayName.toUpperCase()) {
           case 'DRAFT':
           case 'DRAFTS':
             type = 'drafts';
