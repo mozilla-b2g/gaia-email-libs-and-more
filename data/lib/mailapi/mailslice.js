@@ -2085,7 +2085,6 @@ FolderStorage.prototype = {
 
     var self = this;
     function onLoaded(block) {
-try {
       if (!block)
         self._LOG.badBlockLoad(type, blockId);
       self._LOG.loadBlock_end(type, blockId, block);
@@ -2098,8 +2097,6 @@ try {
         self._loadedBodyBlockInfos.push(blockInfo);
       }
       self._pendingLoads.splice(self._pendingLoads.indexOf(aggrId), 1);
-} catch (ex) {
-      console.error('ERROR!', ex, '\n', ex.stack); }
       var listeners = self._pendingLoadListeners[aggrId];
       delete self._pendingLoadListeners[aggrId];
       for (var i = 0; i < listeners.length; i++) {
