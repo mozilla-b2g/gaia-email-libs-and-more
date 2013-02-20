@@ -1046,23 +1046,25 @@ ActiveSyncFolderSyncer.prototype = {
     return false;
   },
 
-  initialSync: function(initialDays, syncCallback, doneCallback,
-                        progressCallback) {
+  initialSync: function(slice, initialDays, syncCallback,
+                        doneCallback, progressCallback) {
     syncCallback('sync', false, true);
     this.folderConn.sync(
       $date.NOW(),
-      this.onSyncCompleted.bind(this, doneCallback),
+      this.onSyncCompleted.bind(this, doneCallback, true),
       progressCallback);
   },
 
   refreshSync: function(slice, dir, startTS, endTS, origStartTS,
                         doneCallback, progressCallback) {
-    this.folderConn.sync($date.NOW(), doneCallback, progressCallback);
+    this.folderConn.sync(
+      $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback, false),
+      progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(growthDirection, anchorTS, batchHeaders,
-                     userRequestsGrowth, syncCallback,
+  growSync: function(slice, growthDirection, anchorTS, syncStepDays,
                      doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
@@ -1076,33 +1078,38 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, err, bisectInfo,
-                                                messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, initialSync,
+                                                err, bisectInfo, messagesSeen) {
+    let storage = this.folderStorage;
+    console.log("Sync Completed!", messagesSeen, "messages synced");
+
+    // Expand the accuracy range to cover everybody.
+    if (!err)
+      storage.markSyncedEntireFolder();
+    // Always save state, although as an optimization, we could avoid saving state
+    // if we were sure that our state with the server did not advance.
+    this._account.__checkpointSyncCompleted();
+
     if (err) {
       doneCallback(err);
       return;
     }
 
-    let storage = this.folderStorage;
+    if (initialSync) {
+      storage._curSyncSlice.ignoreHeaders = false;
+      storage._curSyncSlice.waitingOnData = 'db';
 
-    console.log("Sync Completed!", messagesSeen, "messages synced");
-
-    // Expand the accuracy range to cover everybody.
-    storage.markSyncedEntireFolder();
-
-    storage._curSyncSlice.ignoreHeaders = false;
-    storage._curSyncSlice.waitingOnData = 'db';
-
-    storage.getMessagesInImapDateRange(
-      0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
-      // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
-      // be null.
-      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
-                                    doneCallback, null)
-    );
-
-    storage._curSyncSlice = null;
-    this._account.__checkpointSyncCompleted();
+      storage.getMessagesInImapDateRange(
+        0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+        // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
+        // be null.
+        storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                      doneCallback, null)
+      );
+    }
+    else {
+      doneCallback(err);
+    }
   },
 
   allConsumersDead: function() {

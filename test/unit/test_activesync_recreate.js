@@ -49,10 +49,10 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('sync folder list triggers sync');
   TU2.do_restoreQueuedOperationsAndWait(TA2, savedFolderSyncOpList, function() {
-    TA2.expect_messagesReported(inbox2.messages.length);
+    TA2.expect_messagesReported(inbox2.knownMessages.length);
     TA2.expect_headerChanges(
       view2,
-      { additions: inbox2.messages, changes: [], deletions: [] });
+      { additions: inbox2.knownMessages, changes: [], deletions: [] });
   });
   TA2.do_closeFolderView(view2);
 

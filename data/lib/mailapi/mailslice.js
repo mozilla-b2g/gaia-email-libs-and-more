@@ -2228,7 +2228,7 @@ console.warn('going to maybe run deferred calls;', self._pendingLoads.length, 'l
       this._sliceOpenMostRecent.bind(this, slice, forceRefresh));
   },
   _sliceOpenMostRecent: function fs__sliceOpenMostRecent(slice, forceRefresh,
-                                                          releaseMutex) {
+                                                         releaseMutex) {
     // We only put the slice in the list of slices now that we have the mutex
     // in order to avoid having the slice have data fed into it if there were
     // other synchronizations already in progress.

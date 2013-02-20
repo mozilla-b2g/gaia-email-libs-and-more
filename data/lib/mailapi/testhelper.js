@@ -310,6 +310,7 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+    this.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
       mix(TestImapAccountMixins, self);
@@ -503,19 +504,25 @@ var TestCommonAccountMixins = {
     var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
     storageActor.expect_mutexedCall_begin(syncType);
-    switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
-      case true:
-        // per the comment on do_viewFolder, this flag has no meaning when we are
-        // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
-        // PASTWARDS, comment out this line and things should work.
-console.log('syncType:', syncType, 'initialSynced?', testFolder.initialSynced);
-        if ((syncType === 'sync' && !testFolder.initialSynced) ||
-            (syncType === 'grow'))
-          storageActor.expect_syncedEntireFolder();
-        break;
-      case 'ignore':
-        storageActor.ignore_syncedEntireFolder();
-        break;
+    // activesync always syncs the entire folder
+    if (this.type === 'activesync') {
+      storageActor.expect_syncedEntireFolder();
+    }
+    else {
+      switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
+        case true:
+          // per the comment on do_viewFolder, this flag has no meaning when we are
+          // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
+          // PASTWARDS, comment out this line and things should work.
+  console.log('syncType:', syncType, 'initialSynced?', testFolder.initialSynced);
+          if ((syncType === 'sync' && !testFolder.initialSynced) ||
+              (syncType === 'grow'))
+            storageActor.expect_syncedEntireFolder();
+          break;
+        case 'ignore':
+          storageActor.ignore_syncedEntireFolder();
+          break;
+      }
     }
     storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
@@ -1987,7 +1994,7 @@ var TestActiveSyncAccountMixins = {
         if (totalExpected) {
           self.expect_messageSubjects(
             testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.headerInfo.subject; }));
+              .map(function(x) { return x.subject; }));
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,
@@ -2018,7 +2025,9 @@ var TestActiveSyncAccountMixins = {
     return testStep;
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
+  _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
+                              syncDir) {
+    var testFolder = viewThing.testFolder;
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
 
