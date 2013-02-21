@@ -3240,7 +3240,7 @@ FolderStorage.prototype = {
 
     this.folderMeta.lastSyncedAt = endTS;
     if (this._account.universe)
-      this._account.universe.__notifyModifiedFolder(this._account.id,
+      this._account.universe.__notifyModifiedFolder(this._account,
                                                     this.folderMeta);
   },
 

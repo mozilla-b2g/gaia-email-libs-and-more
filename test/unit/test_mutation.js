@@ -29,23 +29,29 @@
  **/
 
 load('resources/loggest_test_framework.js');
+const $ascp = require('activesync/codepages');
+const FilterType = $ascp.AirSync.Enums.FilterType;
 
 var TD = $tc.defineTestsFor(
-  { id: 'test_imap_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('mutate flags', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync'),
-      numMessages = 7;
+      eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
+                                               testAccount.eAccount,
+      numMessages = 7,
+      flagCount = TEST_PARAMS.type === 'imap' ? numMessages : 0;
 
   var testFolder = testAccount.do_createTestFolder(
     'test_mutation_flags',
     { count: numMessages, age_incr: { days: 1 } });
   var folderView = testAccount.do_openFolderView(
     'folderView', testFolder,
-    { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
+    { count: numMessages, full: numMessages, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 
@@ -68,23 +74,27 @@ TD.commonCase('mutate flags', function(T) {
     var headers = folderView.slice.items,
         toMarkRead = headers[1],
         toStar = headers[2],
-        toMarkRepliedTo = headers[3],
-        toMarkForwarded = headers[4],
-        toMarkJunk = headers[5],
-        toStarAndMarkRead = headers[6];
+        toStarAndMarkRead = headers[3],
+        toMarkRepliedTo = headers[4],
+        toMarkForwarded = headers[5],
+        toMarkJunk = headers[6];
 
     applyManips = function applyManips() {
       undoOps = [];
 
       undoOps.push(toMarkRead.setRead(true));
       undoOps.push(toStar.setStarred(true));
-      // these should normally only set by the composition mechanism on send:
-      undoOps.push(toMarkRepliedTo.modifyTags(['\\Answered']));
-      undoOps.push(toMarkForwarded.modifyTags(['$Forwarded']));
-      // This may end up with a custom move-heuristic if it gets better supported
-      undoOps.push(toMarkJunk.modifyTags(['$Junk']));
       // this normally would not be a single transaction...
       undoOps.push(toStarAndMarkRead.modifyTags(['\\Seen', '\\Flagged']));
+
+      if (TEST_PARAMS.type === 'imap') {
+        // these should normally only set by the composition mechanism on send:
+        undoOps.push(toMarkRepliedTo.modifyTags(['\\Answered']));
+        undoOps.push(toMarkForwarded.modifyTags(['$Forwarded']));
+        // This may end up with a custom move-heuristic if it gets better
+        // supported
+        undoOps.push(toMarkJunk.modifyTags(['$Junk']));
+      }
     };
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
@@ -97,9 +107,6 @@ TD.commonCase('mutate flags', function(T) {
       changes: [
         [toStar, 'isStarred', true],
         [toMarkRead, 'isRead', true],
-        [toMarkRepliedTo, 'isRepliedTo', true],
-        [toMarkForwarded, 'isForwarded', true],
-        [toMarkJunk, 'isJunk', true],
         [toStarAndMarkRead, 'isStarred', true, 'isRead', true],
       ],
       deletions: []
@@ -108,17 +115,28 @@ TD.commonCase('mutate flags', function(T) {
       changes: [
         [toStar, 'isStarred', false],
         [toMarkRead, 'isRead', false],
-        [toMarkRepliedTo, 'isRepliedTo', false],
-        [toMarkForwarded, 'isForwarded', false],
-        [toMarkJunk, 'isJunk', false],
         [toStarAndMarkRead, 'isStarred', false, 'isRead', false],
       ],
       deletions: []
     };
+
+    if (TEST_PARAMS.type === 'imap') {
+      doHeaderExps.changes.push(
+        [toMarkRepliedTo, 'isRepliedTo', true],
+        [toMarkForwarded, 'isForwarded', true],
+        [toMarkJunk, 'isJunk', true]
+      );
+      undoHeaderExps.changes.push(
+        [toMarkRepliedTo, 'isRepliedTo', false],
+        [toMarkForwarded, 'isForwarded', false],
+        [toMarkJunk, 'isJunk', false]
+      );
+    }
+
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      doHeaderExps.changes.length);
   });
   T.action('go online, see changes happen for', testAccount.eOpAccount,
            eSync, function() {
@@ -139,14 +157,14 @@ TD.commonCase('mutate flags', function(T) {
   // any changes because our predictions should be 100% accurate.
   testAccount.do_refreshFolderView(
     folderView,
-    { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
+    { count: numMessages, full: 0, flags: flagCount, deleted: 0 },
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 
   T.group('undo while offline; released to server');
   testUniverse.do_pretendToBeOffline(true);
-  T.action('undo!', testAccount.eImapAccount, eSync, function() {
+  T.action('undo!', eAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
         'modtags',
@@ -157,10 +175,10 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      undoHeaderExps.changes.length);
   });
 
-  T.action('go online, see undos happen for', testAccount.eImapAccount,
+  T.action('go online, see undos happen for', eAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
@@ -179,7 +197,7 @@ TD.commonCase('mutate flags', function(T) {
   // any changes because our predictions should be 100% accurate.
   testAccount.do_refreshFolderView(
     folderView,
-    { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
+    { count: numMessages, full: 0, flags: flagCount, deleted: 0 },
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
@@ -191,7 +209,7 @@ TD.commonCase('mutate flags', function(T) {
   T.group('offline manipulation undone while offline (never online)');
   testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes',
-           testAccount, testAccount.eImapAccount, function() {
+           testAccount, eAccount, function() {
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
@@ -201,7 +219,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      doHeaderExps.changes.length);
   });
   T.action('trigger undo ops, hear local changes',
            testAccount, testAccount.eImapAccount, function() {
@@ -215,11 +233,10 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      doHeaderExps.changes.length);
   });
-  T.action('go online, see nothing happen',
-           testAccount.eImapAccount, eSync, function() {
-    // eImapAccount is listed so we complain if we see ops run
+  T.action('go online, see nothing happen', eAccount, eSync, function() {
+    // eAccount is listed so we complain if we see ops run
     eSync.expect_event('ops-clear');
 
     window.navigator.connection.TEST_setOffline(false);
@@ -231,7 +248,7 @@ TD.commonCase('mutate flags', function(T) {
   // any changes because nothing should have happened!
   testAccount.do_refreshFolderView(
     folderView,
-    { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
+    { count: numMessages, full: 0, flags: flagCount, deleted: 0 },
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
@@ -242,7 +259,7 @@ TD.commonCase('mutate flags', function(T) {
   T.group('offline manipulation, shutdown, startup, go online, see mutations');
   testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes',
-           testAccount, testAccount.eImapAccount, function() {
+           testAccount, eAccount, function() {
     applyManips();
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount.expect_runOp(
@@ -252,7 +269,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount.expect_headerChanges(
       folderView, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      doHeaderExps.changes.length);
   });
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_saveState();
@@ -260,13 +277,15 @@ TD.commonCase('mutate flags', function(T) {
   var testUniverse2 = T.actor('testUniverse', 'U2'),
       testAccount2 = T.actor('testAccount', 'A2',
                              { universe: testUniverse2, restored: true }),
+      eAccount2 = TEST_PARAMS.type === 'imap' ? testAccount2.eImapAccount :
+                                               testAccount2.eAccount,
       testFolder2 = testAccount2.do_useExistingFolder(
                       'test_mutation_flags', '#2', testFolder),
       folderView2 = testAccount2.do_openFolderView(
         'folderView2', testFolder2,
         { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
         { top: true, bottom: true, grow: false });
-  T.action('go online, see changes happen for', testAccount2.eImapAccount,
+  T.action('go online, see changes happen for', eAccount2,
            eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
@@ -292,7 +311,7 @@ TD.commonCase('mutate flags', function(T) {
 
   T.group('offline undo, shutdown, startup, go online, see undos');
   testUniverse2.do_pretendToBeOffline(true);
-  T.action('undo!', testAccount2.eImapAccount, eSync, function() {
+  T.action('undo!', eAccount, eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount2.expect_runOp(
         'modtags',
@@ -311,13 +330,15 @@ TD.commonCase('mutate flags', function(T) {
     testAccount2.expect_headerChanges(
       folderView2, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      6);
+      undoHeaderExps.changes.length);
   });
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
   var testUniverse3 = T.actor('testUniverse', 'U3'),
       testAccount3 = T.actor('testAccount', 'A3',
                              { universe: testUniverse3, restored: true }),
+      eAccount3 = TEST_PARAMS.type === 'imap' ? testAccount3.eImapAccount :
+                                               testAccount3.eAccount,
       testFolder3 = testAccount3.do_useExistingFolder(
         'test_mutation_flags', '#3', testFolder2),
       folderView3 = testAccount3.do_openFolderView(
@@ -325,8 +346,7 @@ TD.commonCase('mutate flags', function(T) {
         { count: numMessages, full: numMessages, flags: 0, deleted: 0 },
         { top: true, bottom: true, grow: false });
 
-  T.action('go online, see undos happen for', testAccount3.eImapAccount,
-           eSync, function() {
+  T.action('go online, see undos happen for', eAccount3, eSync, function() {
     var created = false;
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
       testAccount3.expect_runOp(
@@ -357,8 +377,7 @@ TD.commonCase('mutate flags', function(T) {
    * and do events (which could happen).
    */
   T.group('online manipulation and undo');
-  T.action('star the 0th dude', testAccount3, testAccount3.eImapAccount, eSync,
-           function() {
+  T.action('star the 0th dude', testAccount3, eAccount3, eSync, function() {
     // - expectations
     var toStar = folderView3.slice.items[0];
     testAccount3.expect_runOp(
@@ -385,7 +404,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount3.expect_headerChanges(
       folderView3, doHeaderExps,
       { top: true, bottom: true, grow: false },
-      1);
+      doHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -397,7 +416,7 @@ TD.commonCase('mutate flags', function(T) {
   // Sync should find no changes from our predictive changes
   testAccount3.do_refreshFolderView(
     folderView3,
-    { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
+    { count: numMessages, full: 0, flags: flagCount, deleted: 0 },
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
@@ -412,7 +431,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount3.expect_headerChanges(
       folderView3, undoHeaderExps,
       { top: true, bottom: true, grow: false },
-      1);
+      undoHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
     MailAPI.ping(function() {
@@ -424,7 +443,7 @@ TD.commonCase('mutate flags', function(T) {
   // And again, sync should find no changes
   testAccount3.do_refreshFolderView(
     folderView3,
-    { count: numMessages, full: 0, flags: numMessages, deleted: 0 },
+    { count: numMessages, full: 0, flags: flagCount, deleted: 0 },
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
@@ -471,13 +490,17 @@ TD.commonCase('move/trash messages', function(T) {
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
+      eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
+                                               testAccount.eAccount,
       eSync = T.lazyLogger('sync');
 
-  // Our test requires 4 connections because we hold open 3 views at once and
-  // then perform a move to a folder that doesn't have an open view.
-  T.action('set max conns to 4 ', function() {
-    testAccount.imapAccount._maxConnsAllowed = 4;
-  });
+  if (TEST_PARAMS.type === 'imap') {
+    // Our test requires 4 connections because we hold open 3 views at once and
+    // then perform a move to a folder that doesn't have an open view.
+    T.action('set max conns to 4 ', function() {
+      testAccount.imapAccount._maxConnsAllowed = 4;
+    });
+  }
 
   var sourceFolder = testAccount.do_createTestFolder(
     'test_move_source',
@@ -494,12 +517,14 @@ TD.commonCase('move/trash messages', function(T) {
 
   var sourceView = testAccount.do_openFolderView(
     'sourceView', sourceFolder,
-    { count: 5, full: 5, flags: 0, deleted: 0 },
+    { count: 5, full: 5, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
   var targetView = testAccount.do_openFolderView(
     'targetView', targetFolder,
-    { count: 0, full: 0, flags: 0, deleted: 0 },
+    { count: 0, full: 0, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
   // open the trash but don't care what's in there, we just care about deltas
@@ -513,7 +538,7 @@ TD.commonCase('move/trash messages', function(T) {
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('move/trash messages',
-           testAccount, testAccount.eImapAccount, function() {
+           testAccount, eAccount, function() {
     // by mentioning testAccount we ensure that we will assert if we see a
     // reuseConnection from it.
     var headers = sourceView.slice.items,
@@ -552,17 +577,18 @@ TD.commonCase('move/trash messages', function(T) {
     undoMoveVisible = toMoveVisible.moveMessage(targetFolder.mailFolder);
     undoDelete = toDelete.deleteMessage();
   });
-  T.action('go online, see changes happen for', testAccount.eImapAccount,
+  T.action('go online, see changes happen for', eAccount,
            eSync, function() {
+    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
     testAccount.expect_runOp(
       'move',
-      { local: false, server: true, save: false, conn: true });
+      { local: false, server: true, save: save, conn: true });
     testAccount.expect_runOp(
       'move',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: save });
     testAccount.expect_runOp(
       'delete',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
     window.navigator.connection.TEST_setOffline(false);
@@ -572,8 +598,7 @@ TD.commonCase('move/trash messages', function(T) {
   });
 
   testUniverse.do_pretendToBeOffline(true);
-  T.action('delete from trash', testAccount, testAccount.eImapAccount,
-           function() {
+  T.action('delete from trash', testAccount, eAccount, function() {
     var headers = trashView.slice.items,
         toDelete = headers[0];
 
@@ -586,11 +611,11 @@ TD.commonCase('move/trash messages', function(T) {
       null, /* done after 1 event: */ 1);
     toDelete.deleteMessage();
   });
-  T.action('go online, see changes happen for', testAccount.eImapAccount,
-           eSync, function() {
+  T.action('go online, see changes happen for', eAccount, eSync, function() {
+    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
     testAccount.expect_runOp(
       'delete',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
     window.navigator.connection.TEST_setOffline(false);
@@ -640,7 +665,8 @@ TD.commonCase('move/trash messages', function(T) {
   // not what they are locally.
   testAccount.do_refreshFolderView(
     targetView,
-    { count: 2, full: 0, flags: 2, deleted: 0 },
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
     // note: the empty changes assertion
     { changes: [], deletions: [] },
     { top: true, bottom: true, grow: false },
@@ -655,8 +681,16 @@ TD.commonCase('move/trash messages', function(T) {
     eSync.namedValue('moved message subject', actualHeader.subject);
     eSync.namedValue('starred', actualHeader.isStarred);
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 1, full: 0, flags: TEST_PARAMS.type === 'imap' ? 1 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 });
 
 function run_test() {
-  runMyTests(15);
+  runMyTests(20);
 }
