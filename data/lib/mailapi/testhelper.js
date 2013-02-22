@@ -506,7 +506,7 @@ var TestCommonAccountMixins = {
     storageActor.expect_mutexedCall_begin(syncType);
     // activesync always syncs the entire folder
     if (this.type === 'activesync') {
-      storageActor.expect_syncedEntireFolder();
+      storageActor.expect_syncedToDawnOfTime();
     }
     else {
       switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
@@ -516,10 +516,10 @@ var TestCommonAccountMixins = {
           // PASTWARDS, comment out this line and things should work.
           if ((syncType === 'sync' && !testFolder.initialSynced) ||
               (syncType === 'grow'))
-            storageActor.expect_syncedEntireFolder();
+            storageActor.expect_syncedToDawnOfTime();
           break;
         case 'ignore':
-          storageActor.ignore_syncedEntireFolder();
+          storageActor.ignore_syncedToDawnOfTime();
           break;
       }
     }
@@ -1578,10 +1578,7 @@ var TestImapAccountMixins = {
    *   @param[alreadyExists Number]{
    *     How many messages should already be in the slice.
    *   }
-   *   @param[expectedValues @oneof[Number ExpectedValues]]{
-   *     If a number, it means that no synchronization is expected to occur and
-   *     instead values will be returned from the database.
-   *   }
+   *   @param[expectedValues ExpectedValues]
    *   @param[extraFlags @dict[
    *     @see[do_viewFolder extraFlags]
    *     @key[willFail #:default false Boolean]{
@@ -1598,13 +1595,10 @@ var TestImapAccountMixins = {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
       var totalExpected;
-      if (typeof(expectedValues) === 'number')
-        totalExpected = expectedValues + alreadyExists;
-      else
-        totalExpected = self._expect_dateSyncs(
-                          viewThing, expectedValues, extraFlags,
-                          dirMagnitude < 0 ? -1 : 1) +
-                          alreadyExists;
+      totalExpected = self._expect_dateSyncs(
+                        viewThing, expectedValues, extraFlags,
+                        dirMagnitude < 0 ? -1 : 1) +
+                        alreadyExists;
       self.expect_messagesReported(totalExpected);
 
       self._expect_storage_mutexed(viewThing.testFolder, 'grow', extraFlags);

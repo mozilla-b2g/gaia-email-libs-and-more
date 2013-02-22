@@ -83,10 +83,10 @@ const bsearchForInsert = $util.bsearchForInsert,
       HOUR_MILLIS = $date.HOUR_MILLIS,
       DAY_MILLIS = $date.DAY_MILLIS,
       NOW = $date.NOW,
-      FUTURE = $date.FUTURE,
       makeDaysAgo = $date.makeDaysAgo,
       makeDaysBefore = $date.makeDaysBefore,
-      quantizeDate = $date.quantizeDate;
+      quantizeDate = $date.quantizeDate,
+      quantizeDateUp = $date.quantizeDateUp;
 
 const PASTWARDS = 1, FUTUREWARDS = -1;
 
@@ -2257,7 +2257,7 @@ FolderStorage.prototype = {
 
       slice.waitingOnData = 'db';
       this.getMessagesInImapDateRange(
-        0, FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+        0, null, $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
         // trigger a refresh if we are online
         this.onFetchDBHeaders.bind(
           this, slice, triggerRefresh,
@@ -2417,7 +2417,6 @@ FolderStorage.prototype = {
           // full sync date.
 
           var startTS, endTS;
-
           if (dir === PASTWARDS) {
             var oldestHeader = batchHeaders[batchHeaders.length - 1];
             // If we were always going to sync the entire day, we could
@@ -2425,7 +2424,17 @@ FolderStorage.prototype = {
             // to start grabbing less than whole days, so we want to leave it
             // up to checkAccuracyCoverageNeedingRefresh to get rid of any
             // redundant coverage of what we are currently looking at.
+            //
+            // However, we do want to cap the date so that we don't re-refresh
+            // today and any other intervening days spuriously.  When we sync we
+            // only use an endTS of NOW(), so our rounding up can be too
+            // aggressive otherwise and prevent range shrinking.  We call
+            // quantizeDateUp afterwards so that if any part of the day is still
+            // covered we will have our refresh cover it.
+            var highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS;
             endTS = slice.startTS + $date.DAY_MILLIS;
+            if (STRICTLY_AFTER(endTS, highestLegalEndTS))
+              endTS = highestLegalEndTS;
             if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id))
               startTS = this.getOldestFullSyncDate();
             else
@@ -2433,6 +2442,7 @@ FolderStorage.prototype = {
           }
           else { // dir === FUTUREWARDS
             var youngestHeader = batchHeaders[0];
+            // see the PASTWARDS case for why we don't add a day to this
             startTS = slice.endTS + this._account.tzOffset;
             endTS = youngestHeader.date + $date.DAY_MILLIS;
           }
@@ -2464,7 +2474,8 @@ FolderStorage.prototype = {
 
           this.folderSyncer.refreshSync(
             slice, dir,
-            refreshInterval.startTS, refreshInterval.endTS, null,
+            refreshInterval.startTS, quantizeDateUp(refreshInterval.endTS),
+            /* origStartTS */ null,
             doneCallback, progressCallback);
         }
         else {
@@ -2570,7 +2581,7 @@ FolderStorage.prototype = {
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
-      endTS = FUTURE();
+      endTS = null;
     }
     else {
       // We want the range to include the day; since it's an exclusive range
@@ -2821,7 +2832,7 @@ FolderStorage.prototype = {
    * Once this becomes true for a folder, it will remain true unless we
    * perform a refresh through the dawn of time that needs to be bisected.  In
    * that case we will drop the through-the-end-of-time coverage via
-   * `clearSyncedEntireFolder`.
+   * `clearSyncedToDawnOfTime`.
    */
   syncedToDawnOfTime: function() {
     if (!this.folderSyncer.canGrowSync)
@@ -3245,20 +3256,23 @@ FolderStorage.prototype = {
   },
 
   /**
-   * Mark that the most recent sync has now fully synchronized the folder.  We
-   * do this when message counts tell us we know about every message in the
-   * folder.
+   * Mark that the most recent sync is believed to have synced all the messages
+   * in the folder.  For ActiveSync, this always happens and is effectively
+   * meaningless; it's only an artifact of previous hacks that it calls this at
+   * all.  For IMAP, this is an inference that depends on us being up-to-date
+   * with the rest of the folder.  However it is also a self-correcting
+   * inference since it causes our refreshes to include that time range since we
+   * believe it to be safely empty.
    */
-  markSyncedEntireFolder: function() {
-    this._LOG.syncedEntireFolder();
+  markSyncedToDawnOfTime: function() {
+    this._LOG.syncedToDawnOfTime();
 
     // We can just expand the first accuracy range structure to stretch to the
     // dawn of time and nuke the rest.
     var aranges = this._accuracyRanges;
     // (If aranges is the empty list, there are deep invariant problems and
     // the exception is desired.)
-    aranges[0].startTS = $sync.OLDEST_SYNC_DATE;
-    aranges.splice(1, aranges.length - 1);
+    aranges[aranges.length - 1].startTS = $sync.OLDEST_SYNC_DATE;
   },
 
   /**
@@ -3268,7 +3282,7 @@ FolderStorage.prototype = {
    * will follow this call within the same transaction, so the key thing is that
    * we lose the dawn-of-time bit without throwing away useful endTS values.
    */
-  clearSyncedEntireFolder: function(newOldestTS) {
+  clearSyncedToDawnOfTime: function(newOldestTS) {
     var aranges = this._accuracyRanges;
     if (!aranges.length)
       return;
@@ -3291,7 +3305,10 @@ FolderStorage.prototype = {
    * range covering all areas that are unsynchronized or were not synchronized
    * recently enough.
    *
-   * We only return one range, so in the event the range is fully contained.
+   * We only return one range, so in the case we have valid data for Tuesday to
+   * Thursday but the requested range is Monday to Friday, we still have to
+   * return Monday to Friday because 1 range can't capture Monday to Monday and
+   * Friday to Friday at the same time.
    *
    * @args[
    *   @param[startTS DateMS]{
@@ -3918,7 +3935,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       headerNotFound: {},
       bodyNotFound: {},
 
-      syncedEntireFolder: {},
+      syncedToDawnOfTime: {},
     },
     TEST_ONLY_events: {
     },

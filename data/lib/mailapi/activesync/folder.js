@@ -825,7 +825,7 @@ ActiveSyncFolderConn.prototype = {
         // number of messages it *saw*.
         folderConn._LOG.sync_end(addedMessages, changedMessages,
                                  deletedMessages);
-        storage.markSyncRange(accuracyStamp, accuracyStamp, 'XXX',
+        storage.markSyncRange($sync.OLDEST_SYNC_DATE, accuracyStamp, 'XXX',
                               accuracyStamp);
         doneCallback(null, null, messagesSeen);
       }
@@ -1085,7 +1085,7 @@ ActiveSyncFolderSyncer.prototype = {
 
     // Expand the accuracy range to cover everybody.
     if (!err)
-      storage.markSyncedEntireFolder();
+      storage.markSyncedToDawnOfTime();
     // Always save state, although as an optimization, we could avoid saving state
     // if we were sure that our state with the server did not advance.
     this._account.__checkpointSyncCompleted();
@@ -1100,7 +1100,7 @@ ActiveSyncFolderSyncer.prototype = {
       storage._curSyncSlice.waitingOnData = 'db';
 
       storage.getMessagesInImapDateRange(
-        0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+        0, null, $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
         // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
         // be null.
         storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,

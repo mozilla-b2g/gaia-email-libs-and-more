@@ -447,7 +447,8 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
   T.group('grow');
   testAccount.do_growFolderView(
     folderView, 3, false, 3,
-    [{ count: 5, full: 2, flags: 3, deleted: 0}],
+    { count: 5, full: 2, flags: 3, deleted: 0
+      },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 

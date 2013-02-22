@@ -619,6 +619,10 @@ TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
   ctx.checkNeedsRefresh(d3, d4, null, null);
   // up to the limits is good
   ctx.checkNeedsRefresh(d2, d5, null, null);
+  // start-side partial gets reduced (not lining up with accuracy range proper)
+  ctx.checkNeedsRefresh(d3, d7, d5, d7);
+  // end-side partial gets reduced (not lining up with accuracy range proper)
+  ctx.checkNeedsRefresh(d1, d4, d1, d2);
   // check range exceeds/fully contains recent-enough; can't reduce the range
   ctx.checkNeedsRefresh(d1, d6, d1, d6);
 

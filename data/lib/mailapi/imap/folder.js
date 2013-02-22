@@ -29,7 +29,6 @@ const allbackMaker = $allback.allbackMaker,
       cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
       DAY_MILLIS = $date.DAY_MILLIS,
       NOW = $date.NOW,
-      FUTURE = $date.FUTURE,
       BEFORE = $date.BEFORE,
       ON_OR_BEFORE = $date.ON_OR_BEFORE,
       SINCE = $date.SINCE,
@@ -305,8 +304,8 @@ console.log("syncDateRange:", startTS, endTS);
 
 console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
         if (serverUIDs.length > useBisectLimit) {
-          var effEndTS = endTS || FUTURE() ||
-                         quantizeDate(Date.now() + DAY_MILLIS),
+          var effEndTS = endTS ||
+                         quantizeDate(NOW() + DAY_MILLIS),
               curDaysDelta = Math.round((effEndTS - startTS) / DAY_MILLIS);
           // We are searching more than one day, we can shrink our search.
 
@@ -322,7 +321,6 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               newStartTS: startTS,
               newEndTS: endTS,
             };
-            startTS = bisectInfo.newStartTS;
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
             if (doneCallback('bisect', bisectInfo, null) === 'abort') {
@@ -874,7 +872,7 @@ ImapFolderSyncer.prototype = {
     this._startSync(
       slice, PASTWARDS, // sync into the past
       'grow',
-      FUTURE(), // start syncing from the (unconstrained) future
+      null, // start syncing from the (unconstrained) future
       $sync.OLDEST_SYNC_DATE, // sync no further back than this constant
       null,
       initialDays,
@@ -896,7 +894,7 @@ ImapFolderSyncer.prototype = {
       dir === PASTWARDS ? endTS : startTS,
       dir === PASTWARDS ? startTS : endTS,
       origStartTS,
-      null, doneCallback, progressCallback);
+      /* syncStepDays */ null, doneCallback, progressCallback);
   },
 
   /**
@@ -922,7 +920,7 @@ ImapFolderSyncer.prototype = {
       syncThroughTS = $sync.OLDEST_SYNC_DATE;
     }
     else { // FUTUREWARDS
-      syncThroughTS = FUTURE();
+      syncThroughTS = null;
     }
 
     this._startSync(slice, growthDirection, 'grow',
@@ -943,7 +941,7 @@ ImapFolderSyncer.prototype = {
     if (dir === PASTWARDS) {
       endTS = originTS;
       if (syncStepDays) {
-        if (endTS && endTS !== FUTURE())
+        if (endTS)
           this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
         else
           this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays);
@@ -1049,11 +1047,12 @@ ImapFolderSyncer.prototype = {
       // doing a weighted bisection since the distribution might include
       // a number of messages earlier than our fallback startTS.
       if (this._curSyncDir === FUTUREWARDS && this._fallbackOriginTS) {
-        this.folderStorage.clearSyncedEntireFolder(this._fallbackOriginTS);
+        this.folderStorage.clearSyncedToDawnOfTime(this._fallbackOriginTS);
         bisectInfo.oldStartTS = this._fallbackOriginTS;
         this._fallbackOriginTS = null;
-        curDaysDelta = Math.round(((bisectInfo.oldEndTS || FUTURE) -
-                                    bisectInfo.oldStartTS) /
+        var effOldEndTS = bisectInfo.oldEndTS ||
+                          quantizeDate(NOW() + DAY_MILLIS);
+        curDaysDelta = Math.round((effOldEndTS - bisectInfo.oldStartTS) /
                                   DAY_MILLIS);
         numHeaders = $sync.BISECT_DATE_AT_N_MESSAGES * 1.5;
       }
@@ -1144,7 +1143,7 @@ console.log("folder message count", folderMessageCount,
                                this.folderStorage.getOldestMessageTimestamp()))
        ) {
       // expand the accuracy range to cover everybody
-      this.folderStorage.markSyncedEntireFolder();
+      this.folderStorage.markSyncedToDawnOfTime();
       this._doneSync();
       return;
     }

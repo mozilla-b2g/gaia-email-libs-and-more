@@ -124,7 +124,7 @@ const TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
     return testDate <= comparisonDate;
   // we use null as a sentinel value for 'the future'/'now'
   else if (comparisonDate === null)
-    return testDate === null;
+    return testDate >= NOW();
   else // FUTUREWARDS
     return testDate >= comparisonDate;
 };
@@ -161,7 +161,7 @@ const DAY_MILLIS = exports.DAY_MILLIS = 24 * 60 * 60 * 1000;
 /**
  * Testing override that when present replaces use of Date.now().
  */
-var TIME_WARPED_NOW = null, FUTURE_TIME_WARPED_NOW = null;
+var TIME_WARPED_NOW = null;
 
 /**
  * Pretend that 'now' is actually a fixed point in time for the benefit of
@@ -170,24 +170,16 @@ var TIME_WARPED_NOW = null, FUTURE_TIME_WARPED_NOW = null;
 exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
   if (fakeNow === null) {
     TIME_WARPED_NOW = null;
-    FUTURE_TIME_WARPED_NOW = null;
     return;
   }
   if (typeof(fakeNow) !== 'number')
     fakeNow = fakeNow.valueOf();
   TIME_WARPED_NOW = fakeNow;
-  // because of exclusive time comparison ops , we actually want to use the first
-  // day after the TIME_WARPED_NOW...
-  FUTURE_TIME_WARPED_NOW = quantizeDate(fakeNow + DAY_MILLIS);
 };
 
 const NOW = exports.NOW =
       function NOW() {
   return TIME_WARPED_NOW || Date.now();
-};
-const FUTURE = exports.FUTURE =
-      function FUTURE() {
-  return FUTURE_TIME_WARPED_NOW || null;
 };
 
 /**
@@ -197,10 +189,7 @@ const FUTURE = exports.FUTURE =
  */
 const makeDaysAgo = exports.makeDaysAgo =
       function makeDaysAgo(numDays) {
-  var //now = quantizeDate(TIME_WARPED_NOW || Date.now()),
-      //past = now - numDays * DAY_MILLIS;
-      past = (FUTURE_TIME_WARPED_NOW || quantizeDate(Date.now())) -
-               (numDays + 1) * DAY_MILLIS;
+  var past = quantizeDate(TIME_WARPED_NOW || Date.now()) - numDays * DAY_MILLIS;
   return past;
 };
 const makeDaysBefore = exports.makeDaysBefore =
@@ -216,5 +205,20 @@ const quantizeDate = exports.quantizeDate =
     date = new Date(date);
   return date.setUTCHours(0, 0, 0, 0).valueOf();
 };
+
+/**
+ * If a date is already lined up with midnight of its day, then return that,
+ * otherwise round up to the midnight of the next day.
+ */
+const quantizeDateUp = exports.quantizeDateUp =
+      function quantizeDateUp(date) {
+  if (typeof(date) === 'number')
+    date = new Date(date);
+  var truncated = date.setUTCHours(0, 0, 0, 0).valueOf();
+  if (date.valueOf()  === truncated)
+    return truncated;
+  return truncated + DAY_MILLIS;
+};
+
 
 }); // end define

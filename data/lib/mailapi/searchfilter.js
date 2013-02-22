@@ -557,7 +557,7 @@ console.log('sf: creating SearchSlice:', phrase);
   // less than a 100% hit-rate, but there isn't much savings from getting the
   // extra headers now, so punt on those.
   this._storage.getMessagesInImapDateRange(
-    0, $date.FUTURE(), this.desiredHeaders, this.desiredHeaders,
+    0, null, this.desiredHeaders, this.desiredHeaders,
     this._gotMessages.bind(this, 1));
 }
 exports.SearchSlice = SearchSlice;
