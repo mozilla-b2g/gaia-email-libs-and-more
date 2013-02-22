@@ -333,6 +333,12 @@ MailDB.prototype = {
            .put(folderInfo, accountDef.id);
     }
     trans.onerror = this._fatalError;
+
+    // Stamp localStorage with an indicator that there
+    // are accounts. Used for fast load of the no account
+    // screen. It is OK if this is not reset later, as the
+    // main concern for fast load is very first use.
+    localStorage.setItem('mailHasAccounts', 'yes');
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {
