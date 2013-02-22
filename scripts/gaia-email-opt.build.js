@@ -2,7 +2,7 @@
   baseUrl: "../",
   optimize: "none", //"uglify",
   paths: {
-    "almond": "deps/almond",
+    "alameda": "deps/alameda",
 
     // NOP's
     "http": "data/lib/nop",
@@ -11,7 +11,7 @@
     "fs": "data/lib/nop4",
     "xoauth2": "data/lib/nop6",
 
-    "q": "data/lib/q",
+    "q": "empty:",
     "text": "data/lib/text",
     // silly shim
     "event-queue": "data/lib/js-shims/event-queue",
@@ -52,8 +52,10 @@
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
-  include: ["event-queue", "mailapi/same-frame-setup"],
-  name: "almond",
+  include: ["event-queue", "mailapi/same-frame-setup", "mailapi/mailslice",
+            "mailapi/searchfilter", "mailapi/jobmixins",
+            "mailapi/accountmixins"],
+  name: "alameda",
   out: "../gaia-email-opt.js",
   wrap: {
     startFile: "optStart.frag",
