@@ -3,6 +3,7 @@ require.config({
   paths: {
     mailapi: 'js/ext/mailapi'
   },
+  scriptType: 'application/javascript;version=1.8',
   definePrim: 'prim'
 });
 
