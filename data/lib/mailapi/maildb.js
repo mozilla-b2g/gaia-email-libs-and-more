@@ -338,7 +338,7 @@ MailDB.prototype = {
     // are accounts. Used for fast load of the no account
     // screen. It is OK if this is not reset later, as the
     // main concern for fast load is very first use.
-    localStorage.setItem('mailHasAccounts', 'yes');
+    document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT"
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {

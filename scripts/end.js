@@ -18,7 +18,7 @@ define('q', ['prim'], function (prim) {
 // Trigger module resolution for backend to start.
 // If no accounts, load a fake shim that allows
 // bootstrapping to "Enter account" screen faster.
-if (localStorage.getItem('mailHasAccounts')) {
+if ((document.cookie || '').indexOf('mailHasAccounts') !== -1) {
   require(['mailapi/same-frame-setup']);
 } else {
   (function () {
