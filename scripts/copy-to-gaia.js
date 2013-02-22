@@ -1,7 +1,7 @@
 /*jslint node: true, nomen: true, evil: true, indent: 2*/
 'use strict';
 
-var jsPath, indexPath,
+var jsPath, currentConfig, indexPath,
   requirejs = require('./r'),
   fs = require('fs'),
   path = require('path'),
@@ -9,9 +9,12 @@ var jsPath, indexPath,
   buildOptions = eval(fs.readFileSync(__dirname + '/gaia-email-opt.build.js', 'utf8')),
   oldBuildWrite = buildOptions.onBuildWrite,
   dest = process.argv[2],
-  scriptUrls = [];
+  layerPaths = {},
+  layerTexts = {},
+  scriptUrls = {};
 
-function mkdir(id) {
+
+function mkdir(id, otherPath) {
   var current,
     parts = id.split('/');
 
@@ -19,7 +22,8 @@ function mkdir(id) {
   parts.pop();
 
   parts.forEach(function (part, i) {
-    current = path.join.apply(path, [jsPath].concat(parts.slice(0, i + 1)));
+    current = path.join.apply(path,
+              (otherPath ? [otherPath] : []).concat(parts.slice(0, i + 1)));
     if (!exists(current)) {
       fs.mkdirSync(current, 511);
     }
@@ -36,59 +40,139 @@ jsPath = path.join(dest, 'js', 'ext');
 indexPath = path.join(dest, 'index.html');
 
 // Modify build options to do the file spray
+buildOptions._layerName = 'main';
 buildOptions.baseUrl = path.join(__dirname, '..');
 buildOptions.wrap.startFile = path.join(__dirname, buildOptions.wrap.startFile);
 buildOptions.wrap.endFile = path.join(__dirname, buildOptions.wrap.endFile);
-buildOptions.out = function (text) { /* ignored */ };
+buildOptions.out = function () { /* ignored */ };
 buildOptions.onBuildWrite = function (id, modulePath, contents) {
-  var finalPath = path.join(jsPath, id + '.js');
-  mkdir(id);
+  var finalPath = path.join(jsPath, id + '.js'),
+      layerName = currentConfig._layerName;
 
-  scriptUrls.push('js/ext/' + id + '.js');
+  if (id === currentConfig.name) {
+    layerPaths[currentConfig._layerName] = finalPath;
+  }
+
+  if (!scriptUrls[layerName]) {
+    scriptUrls[layerName] = [];
+  }
+
+  scriptUrls[layerName].push('js/ext/' + id + '.js');
 
   contents = oldBuildWrite(id, modulePath, contents);
 
-  fs.writeFileSync(finalPath, contents, 'utf8');
+  if (layerName === 'main') {
+    // Just write out the files to be aggregated later by gaia build
+    mkdir(id, jsPath);
+    fs.writeFileSync(finalPath, contents, 'utf8');
+  } else {
+    // A rollup secondary layer
+    if (!layerTexts.hasOwnProperty(layerName)) {
+      layerTexts[layerName] = '';
+    }
+    layerTexts[layerName] += contents + '\n';
+  }
 
   // No need to return contents, since we are not going to save it to an
   // optimized file.
 };
 
-requirejs.optimize(buildOptions, function (endText) {
+var configs = [
+  // First one is just base buildOptions
+  {},
 
-  // Called after all the writing has completed. Write out the script tags.
-  var scriptText,
-    indexContents = fs.readFileSync(indexPath, 'utf8'),
-    startComment = '<!-- START BACKEND INJECT - do not modify -->',
-    endComment = '<!-- END BACKEND INJECT -->',
-    startIndex = indexContents.indexOf(startComment),
-    endIndex = indexContents.indexOf(endComment),
-    indent = '  ';
+  {
+    name: 'mailapi/activesync/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'activesync'
+  },
 
-  if (startIndex === -1 || endIndex === -1) {
-    console.log('Updating email index.html failed. Cannot find insertion comments.');
-    process.exit(1);
+  {
+    name: 'mailapi/composite/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'composite'
+  },
+
+  {
+    name: 'mailapi/fake/configurator',
+    exclude: buildOptions.include,
+    _layerName: 'fake'
   }
+];
 
-  // Copy over the end tag
-  fs.createReadStream(path.join(__dirname, '/end.js'))
-    .pipe(fs.createWriteStream(path.join(jsPath, 'end.js')));
-  scriptUrls.push('js/ext/end.js');
+// Function used to mix in buildOptions to a new config target
+function mix(target) {
+  for (var prop in buildOptions) {
+    if (buildOptions.hasOwnProperty(prop) && !target.hasOwnProperty(prop)) {
+      target[prop] = buildOptions[prop];
+    }
+  }
+  return target;
+}
 
-  scriptText = startComment + '\n' +
-    scriptUrls.map(function (url) {
-      return indent + '<script type="application/javascript;version=1.8" src="' +
-        url +
-        '"></script>';
-    }).join('\n') + '\n' + indent;
-
-  indexContents = indexContents.substring(0, startIndex) +
-    scriptText +
-    indexContents.substring(endIndex);
-
-  fs.writeFileSync(indexPath, indexContents, 'utf8');
-}, function (err) {
+function onError(err) {
   console.error(err);
   process.exit(1);
+}
+
+//Create a runner that will run a separate build for each item
+//in the configs array.
+var runner = configs.reduceRight(function (prev, cfg) {
+  return function (buildReportText) {
+    currentConfig = mix(cfg);
+
+    requirejs.optimize(currentConfig, prev, onError);
+  };
+}, function (buildReportText) {
+  try {
+    var scriptText,
+      indexContents = fs.readFileSync(indexPath, 'utf8'),
+      startComment = '<!-- START BACKEND INJECT - do not modify -->',
+      endComment = '<!-- END BACKEND INJECT -->',
+      startIndex = indexContents.indexOf(startComment),
+      endIndex = indexContents.indexOf(endComment),
+      indent = '  ';
+
+    // To see how the layers were partitioned, uncomment
+    console.log(scriptUrls);
+
+    // Write out secondary rollups to gaia directory.
+    for (var prop in layerPaths) {
+      if (layerPaths.hasOwnProperty(prop) && prop !== 'main') {
+        mkdir(layerPaths[prop]);
+        fs.writeFileSync(layerPaths[prop], layerTexts[prop], 'utf8');
+      }
+    }
+
+    // Write out the script tags in gaia email index.html
+    if (startIndex === -1 || endIndex === -1) {
+      console.log('Updating email index.html failed. Cannot find insertion comments.');
+      process.exit(1);
+    }
+
+    // Copy over the end tag
+    fs.createReadStream(path.join(__dirname, '/end.js'))
+      .pipe(fs.createWriteStream(path.join(jsPath, 'end.js')));
+    scriptUrls.main.push('js/ext/end.js');
+
+    scriptText = startComment + '\n' +
+      scriptUrls.main.map(function (url) {
+        return indent + '<script type="application/javascript;version=1.8" src="' +
+          url +
+          '"></script>';
+      }).join('\n') + '\n' + indent;
+
+    indexContents = indexContents.substring(0, startIndex) +
+      scriptText +
+      indexContents.substring(endIndex);
+
+    fs.writeFileSync(indexPath, indexContents, 'utf8');
+
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
 });
 
+//Run the builds
+runner();

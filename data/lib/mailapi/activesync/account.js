@@ -115,7 +115,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                       $ascp.FolderHierarchy.Enums.Type.DefaultInbox, true);
   }
 }
-exports.ActiveSyncAccount = ActiveSyncAccount;
+exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
   type: 'activesync',
   toString: function asa_toString() {
