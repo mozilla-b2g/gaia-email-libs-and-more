@@ -40,7 +40,7 @@ jsPath = path.join(dest, 'js', 'ext');
 indexPath = path.join(dest, 'index.html');
 
 // Modify build options to do the file spray
-buildOptions._layerName = 'main';
+buildOptions._layerName = 'same-frame-setup';
 buildOptions.baseUrl = path.join(__dirname, '..');
 buildOptions.wrap.startFile = path.join(__dirname, buildOptions.wrap.startFile);
 buildOptions.wrap.endFile = path.join(__dirname, buildOptions.wrap.endFile);
@@ -61,41 +61,37 @@ buildOptions.onBuildWrite = function (id, modulePath, contents) {
 
   contents = oldBuildWrite(id, modulePath, contents);
 
-  if (layerName === 'main') {
-    // Just write out the files to be aggregated later by gaia build
-    mkdir(id, jsPath);
-    fs.writeFileSync(finalPath, contents, 'utf8');
-  } else {
-    // A rollup secondary layer
-    if (!layerTexts.hasOwnProperty(layerName)) {
-      layerTexts[layerName] = '';
-    }
-    layerTexts[layerName] += contents + '\n';
+  // A rollup secondary layer
+  if (!layerTexts.hasOwnProperty(layerName)) {
+    layerTexts[layerName] = '';
   }
+  layerTexts[layerName] += contents + '\n';
 
   // No need to return contents, since we are not going to save it to an
   // optimized file.
 };
 
+var standardExcludes = ['mailapi/same-frame-setup'].concat(buildOptions.include);
+
 var configs = [
-  // First one is just base buildOptions
+  // First one is same-frame-setup
   {},
 
   {
     name: 'mailapi/activesync/configurator',
-    exclude: buildOptions.include,
+    exclude: standardExcludes,
     _layerName: 'activesync'
   },
 
   {
     name: 'mailapi/composite/configurator',
-    exclude: buildOptions.include,
+    exclude: standardExcludes,
     _layerName: 'composite'
   },
 
   {
     name: 'mailapi/fake/configurator',
-    exclude: buildOptions.include,
+    exclude: standardExcludes,
     _layerName: 'fake'
   }
 ];
@@ -150,15 +146,21 @@ var runner = configs.reduceRight(function (prev, cfg) {
       process.exit(1);
     }
 
-    // Copy over the end tag
-    fs.createReadStream(path.join(__dirname, '/end.js'))
+    // List of tags used in gaia
+    var indexPaths = [
+      'alameda',
+      'end'
+    ];
+    fs.createReadStream(path.join(__dirname, '..', 'deps', 'alameda.js'))
+      .pipe(fs.createWriteStream(path.join(jsPath, 'alameda.js')));
+    fs.createReadStream(path.join(__dirname, 'end.js'))
       .pipe(fs.createWriteStream(path.join(jsPath, 'end.js')));
-    scriptUrls.main.push('js/ext/end.js');
 
     scriptText = startComment + '\n' +
-      scriptUrls.main.map(function (url) {
+      indexPaths.map(function (name) {
+
         return indent + '<script type="application/javascript;version=1.8" src="' +
-          url +
+          'js/ext/' + name + '.js' +
           '"></script>';
       }).join('\n') + '\n' + indent;
 

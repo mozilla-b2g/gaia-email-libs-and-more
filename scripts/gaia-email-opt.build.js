@@ -55,7 +55,7 @@
   include: ["event-queue", "mailapi/same-frame-setup", "mailapi/mailslice",
             "mailapi/searchfilter", "mailapi/jobmixins",
             "mailapi/accountmixins"],
-  name: "alameda",
+  name: "mailapi/same-frame-setup",
   out: "../gaia-email-opt.js",
   wrap: {
     startFile: "optStart.frag",

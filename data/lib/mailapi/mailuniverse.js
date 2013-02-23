@@ -383,6 +383,7 @@ function MailUniverse(callAfterBigBang, testOptions) {
           self._loadAccount(accountInfo.def, accountInfo.folderInfo,
                             null, done);
         }
+
         // return since _loadAccount needs to finish before completing
         // the flow in done().
         return;
