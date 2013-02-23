@@ -44,16 +44,6 @@ const MAX_MUTATIONS_FOR_UNDO = 10;
 const MAX_LOG_BACKLOG = 30;
 
 /**
- *  Sets a cookie indicating where there are accounts to enable fast load
- *  of "add account" screen without loading the email backend. It is OK if
- *  this is not reset later, as the main concern for fast load is very
- *  first use.
- */
-function setAccountCookie() {
-  document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT";
-}
-
-/**
  * The MailUniverse is the keeper of the database, the root logging instance,
  * and the mail accounts.  It loads the accounts from the database on startup
  * asynchronously, so whoever creates it needs to pass a callback for it to
@@ -394,10 +384,6 @@ function MailUniverse(callAfterBigBang, testOptions) {
                             null, done);
         }
 
-        // Set the cookie here in case this is an app upgrade
-        // case and accounts have already been set up.
-        setAccountCookie();
-
         // return since _loadAccount needs to finish before completing
         // the flow in done().
         return;
@@ -730,7 +716,6 @@ MailUniverse.prototype = {
 
   saveAccountDef: function(accountDef, folderInfo) {
     this._db.saveAccountDef(this.config, accountDef, folderInfo);
-    setAccountCookie();
   },
 
   /**
