@@ -1269,6 +1269,16 @@ MailAPI.prototype = {
     var addItems = msg.addItems, transformedItems = [], i, stopIndex;
     switch (slice._ns) {
       case 'accounts':
+        if (addItems.length &&
+            typeof document !== 'undefined' &&
+            (document.cookie || '').indexOf('mailHasAccounts') === -1) {
+          // Sets a cookie indicating where there are accounts to enable fast
+          // load of "add account" screen without loading the email backend. It
+          // is OK if this is not reset later, as the main concern for fast
+          // load is very first use.
+          document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT";
+        }
+
         for (i = 0; i < addItems.length; i++) {
           transformedItems.push(new MailAccount(this, addItems[i]));
         }
