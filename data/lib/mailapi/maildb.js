@@ -299,6 +299,12 @@ MailDB.prototype = {
         accounts[i].folderInfo = folderInfoReq.result[i];
       }
 
+      if (accounts.length) {
+        // Set the cookie here in case this is an app upgrade
+        // case and accounts have already been set up.
+        self.setAccountCookie();
+      }
+
       try {
         configCallback(configObj, accounts);
       }
@@ -334,11 +340,17 @@ MailDB.prototype = {
     }
     trans.onerror = this._fatalError;
 
-    // Stamp localStorage with an indicator that there
-    // are accounts. Used for fast load of the no account
-    // screen. It is OK if this is not reset later, as the
-    // main concern for fast load is very first use.
-    document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT"
+    this.setAccountCookie();
+  },
+
+  /**
+   *  Sets a cookie indicating where there are accounts to enable fast load
+   *  of "add account" screen without loading the email backend. It is OK if
+   *  this is not reset later, as the main concern for fast load is very
+   *  first use.
+   */
+  setAccountCookie: function () {
+    document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT";
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {
