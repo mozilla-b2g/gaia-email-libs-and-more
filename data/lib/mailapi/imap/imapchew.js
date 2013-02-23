@@ -252,7 +252,7 @@ exports.chewHeaderAndBodyStructure = function chewStructure(msg) {
   };
 };
 
-const DESIRED_SNIPPET_LENGTH = 100;
+var DESIRED_SNIPPET_LENGTH = 100;
 
 /**
  * Call once the body parts requested by `chewHeaderAndBodyStructure` have been
