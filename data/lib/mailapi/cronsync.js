@@ -38,19 +38,19 @@ define(
 /**
  * Sanity demands we do not check more frequently than once a minute.
  */
-const MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
+var MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
 
 /**
  * How long should we let a synchronization run before we give up on it and
  * potentially try and kill it (if we can)?
  */
-const MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
+var MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
 
 /**
  * Caps the number of notifications we generate per account.  It would be
  * sitcom funny to let this grow without bound, but would end badly in reality.
  */
-const MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
+var MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
 
 /**
  * Implements the interface of `MailSlice` as presented to `FolderStorage`, but

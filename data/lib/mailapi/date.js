@@ -75,14 +75,14 @@ define(
  *
  * !BEFORE(a, b) === SINCE(a, b)
  */
-const BEFORE = exports.BEFORE =
+var BEFORE = exports.BEFORE =
       function BEFORE(testDate, comparisonDate) {
   // testDate is numerically less than comparisonDate, so it is chronologically
   // before it.
   return testDate < comparisonDate;
 };
 
-const ON_OR_BEFORE = exports.ON_OR_BEFORE =
+var ON_OR_BEFORE = exports.ON_OR_BEFORE =
       function ON_OR_BEFORE(testDate, comparisonDate) {
   return testDate <= comparisonDate;
 };
@@ -93,19 +93,19 @@ const ON_OR_BEFORE = exports.ON_OR_BEFORE =
  *
  * !SINCE(a, b) === BEFORE(a, b)
  */
-const SINCE = exports.SINCE =
+var SINCE = exports.SINCE =
       function SINCE(testDate, comparisonDate) {
   // testDate is numerically greater-than-or-equal-to comparisonDate, so it
   // chronologically after/since it.
   return testDate >= comparisonDate;
 };
 
-const STRICTLY_AFTER = exports.STRICTLY_AFTER =
+var STRICTLY_AFTER = exports.STRICTLY_AFTER =
       function STRICTLY_AFTER(testDate, comparisonDate) {
   return testDate > comparisonDate;
 };
 
-const IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
+var IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
       function IN_BS_DATE_RANGE(testDate, startTS, endTS) {
   return testDate >= startTS && testDate < endTS;
 };
@@ -113,8 +113,8 @@ const IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
 //function DATE_RANGES_OVERLAP(A_startTS, A_endTS, B_startTS, B_endTS) {
 //}
 
-const HOUR_MILLIS = exports.HOUR_MILLIS = 60 * 60 * 1000;
-const DAY_MILLIS = exports.DAY_MILLIS = 24 * 60 * 60 * 1000;
+var HOUR_MILLIS = exports.HOUR_MILLIS = 60 * 60 * 1000;
+var DAY_MILLIS = exports.DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 /**
  * Testing override that when present replaces use of Date.now().
@@ -139,11 +139,11 @@ exports.TEST_LetsDoTheTimewarpAgain = function(fakeNow) {
   FUTURE_TIME_WARPED_NOW = quantizeDate(fakeNow + DAY_MILLIS);
 };
 
-const NOW = exports.NOW =
+var NOW = exports.NOW =
       function NOW() {
   return TIME_WARPED_NOW || Date.now();
 };
-const FUTURE = exports.FUTURE =
+var FUTURE = exports.FUTURE =
       function FUTURE() {
   return FUTURE_TIME_WARPED_NOW || null;
 };
@@ -153,7 +153,7 @@ const FUTURE = exports.FUTURE =
  * that day.  This results in rounding up; if it's noon right now and you
  * ask for 2 days ago, you really get 2.5 days worth of time.
  */
-const makeDaysAgo = exports.makeDaysAgo =
+var makeDaysAgo = exports.makeDaysAgo =
       function makeDaysAgo(numDays) {
   var //now = quantizeDate(TIME_WARPED_NOW || Date.now()),
       //past = now - numDays * DAY_MILLIS;
@@ -161,14 +161,14 @@ const makeDaysAgo = exports.makeDaysAgo =
                (numDays + 1) * DAY_MILLIS;
   return past;
 };
-const makeDaysBefore = exports.makeDaysBefore =
+var makeDaysBefore = exports.makeDaysBefore =
       function makeDaysBefore(date, numDaysBefore) {
   return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 };
 /**
  * Quantize a date to midnight on that day.
  */
-const quantizeDate = exports.quantizeDate =
+var quantizeDate = exports.quantizeDate =
       function quantizeDate(date) {
   if (typeof(date) === 'number')
     date = new Date(date);

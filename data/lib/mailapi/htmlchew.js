@@ -373,13 +373,13 @@ var LEGAL_STYLES = [
  *
  * ignore-case is not required; the value is checked against the lower-cased tag.
  */
-const RE_NODE_NEEDS_TRANSFORM = /^(?:a|area|img)$/;
+var RE_NODE_NEEDS_TRANSFORM = /^(?:a|area|img)$/;
 
-const RE_CID_URL = /^cid:/i;
-const RE_HTTP_URL = /^http(?:s)?/i;
-const RE_MAILTO_URL = /^mailto:/i;
+var RE_CID_URL = /^cid:/i;
+var RE_HTTP_URL = /^http(?:s)?/i;
+var RE_MAILTO_URL = /^mailto:/i;
 
-const RE_IMG_TAG = /^img$/;
+var RE_IMG_TAG = /^img$/;
 
 /**
  * Transforms src tags, ensure that links are http and transform them too so
@@ -456,9 +456,9 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
   return sanitizedNode;
 };
 
-const ELEMENT_NODE = 1, TEXT_NODE = 3;
+var ELEMENT_NODE = 1, TEXT_NODE = 3;
 
-const RE_NORMALIZE_WHITESPACE = /\s+/g;
+var RE_NORMALIZE_WHITESPACE = /\s+/g;
 
 /**
  * Derive snippet text from the already-sanitized HTML representation.
@@ -566,7 +566,7 @@ exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
   return wrapNode.outerHTML;
 };
 
-const RE_QUOTE_CHAR = /"/g;
+var RE_QUOTE_CHAR = /"/g;
 
 /**
  * Make an HTML attribute value safe.

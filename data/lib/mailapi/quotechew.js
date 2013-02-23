@@ -38,90 +38,90 @@ define(
 /**
  * Actual content of the message written by the user.
  */
-const CT_AUTHORED_CONTENT = 0x1;
+var CT_AUTHORED_CONTENT = 0x1;
 /**
  * Niceties like greetings/thanking someone/etc.  These are things that we want to
  * show when displaying the message, but that arguably are of lower importance and
  * might want to be elided for snippet purposes, etc.
  */
-const CT_AUTHORED_NICETIES = 0x11;
+var CT_AUTHORED_NICETIES = 0x11;
 /**
  * The signature of the message author; might contain useful information in it.
  */
-const CT_SIGNATURE = 0x2;
+var CT_SIGNATURE = 0x2;
 
 /**
  * The line that says "Blah wrote:" that precedes a quote.  It's not part of the
  * user content, but it's also not part of the quote.
  */
-const CT_LEADIN_TO_QUOTE = 0x3;
+var CT_LEADIN_TO_QUOTE = 0x3;
 
-const CT_QUOTED_TYPE = 0x4;
+var CT_QUOTED_TYPE = 0x4;
 
 /**
  * A quoted reply; eligible for collapsing.  Depth of quoting will also be
  * encoded in the actual integer value.
  */
-const CT_QUOTED_REPLY = 0x14;
+var CT_QUOTED_REPLY = 0x14;
 /**
  * A quoted forwarded message; we would guess that the user has not previously seen
  * the message and the quote wants to be displayed.
  */
-const CT_QUOTED_FORWARD = 0x24;
+var CT_QUOTED_FORWARD = 0x24;
 /**
  * Quoted content that has not been pruned.  Aspirational!
  */
-const CT_QUOTED_IN_ENTIRETY = 0x40;
+var CT_QUOTED_IN_ENTIRETY = 0x40;
 /**
  * The quote has been subjected to some level of manual intervention. Aspirational!
  */
-const CT_QUOTED_GARDENED = 0x80;
+var CT_QUOTED_GARDENED = 0x80;
 
-const CT_QUOTE_DEPTH_MASK = 0xff00;
+var CT_QUOTE_DEPTH_MASK = 0xff00;
 
 /**
  * Legal-ish boilerplate about how it's only for the recipient, etc. etc.
  * Generally going to be long and boring.
  */
-const CT_BOILERPLATE_DISCLAIMER = 0x5;
+var CT_BOILERPLATE_DISCLAIMER = 0x5;
 /**
  * Boilerplate about the message coming from a mailing list, info about the
  * mailing list.
  */
-const CT_BOILERPLATE_LIST_INFO = 0x6;
+var CT_BOILERPLATE_LIST_INFO = 0x6;
 /**
  * Product branding boilerplate that may or may not indicate that the composing
  * device was a mobile device (which is useful).
  */
-const CT_BOILERPLATE_PRODUCT = 0x7;
+var CT_BOILERPLATE_PRODUCT = 0x7;
 /**
  * Advertising automatically inserted by the mailing list or free e-mailing service,
  * etc.  This is assumed to be boring.
  */
-const CT_BOILERPLATE_ADS = 0x8;
+var CT_BOILERPLATE_ADS = 0x8;
 
-const CHARCODE_GT = ('>').charCodeAt(0),
-      CHARCODE_SPACE = (' ').charCodeAt(0),
-      CHARCODE_NBSP = ('\xa0').charCodeAt(0),
-      CHARCODE_NEWLINE = ('\n').charCodeAt(0);
+var CHARCODE_GT = ('>').charCodeAt(0),
+    CHARCODE_SPACE = (' ').charCodeAt(0),
+    CHARCODE_NBSP = ('\xa0').charCodeAt(0),
+    CHARCODE_NEWLINE = ('\n').charCodeAt(0);
 
-const RE_ORIG_MESAGE_DELIM = /^-{5} Original Message -{5}$/;
+var RE_ORIG_MESAGE_DELIM = /^-{5} Original Message -{5}$/;
 
-const RE_ALL_WS = /^\s+$/;
+var RE_ALL_WS = /^\s+$/;
 
-const RE_SECTION_DELIM = /^[_-]{6,}$/;
+var RE_SECTION_DELIM = /^[_-]{6,}$/;
 
-const RE_LIST_BOILER = /mailing list$/;
+var RE_LIST_BOILER = /mailing list$/;
 
-const RE_WROTE_LINE = /wrote/;
+var RE_WROTE_LINE = /wrote/;
 
-const RE_SIGNATURE_LINE = /^-- $/;
+var RE_SIGNATURE_LINE = /^-- $/;
 
 /**
  * The maximum number of lines that can be in a boilerplate chunk.  We expect
  * disclaimer boilerplate to be what drives this.
  */
-const MAX_BOILERPLATE_LINES = 20;
+var MAX_BOILERPLATE_LINES = 20;
 
 /**
  * Catch various common well-known product branding lines:
@@ -132,9 +132,9 @@ const MAX_BOILERPLATE_LINES = 20;
  *     that match the prefix.
  * - "Sent from Mobile"
  */
-const RE_PRODUCT_BOILER = /^(?:Sent from (?:Mobile|my .+))$/;
+var RE_PRODUCT_BOILER = /^(?:Sent from (?:Mobile|my .+))$/;
 
-const RE_LEGAL_BOILER_START = /^(?:This message|Este mensaje)/;
+var RE_LEGAL_BOILER_START = /^(?:This message|Este mensaje)/;
 
 function indexOfDefault(string, search, startIndex, defVal) {
   var idx = string.indexOf(search, startIndex);
@@ -143,7 +143,7 @@ function indexOfDefault(string, search, startIndex, defVal) {
   return idx;
 }
 
-const NEWLINE = '\n', RE_NEWLINE = /\n/g;
+var NEWLINE = '\n', RE_NEWLINE = /\n/g;
 
 function countNewlinesInRegion(string, startIndex, endIndex) {
   var idx = startIndex - 1, count = 0;
@@ -542,9 +542,9 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
  * whitespace boundary.  If it would take more characters than this, we just
  * do a hard truncation and hope things work out visually.
  */
-const MAX_WORD_SHRINK = 8;
+var MAX_WORD_SHRINK = 8;
 
-const RE_NORMALIZE_WHITESPACE = /\s+/g;
+var RE_NORMALIZE_WHITESPACE = /\s+/g;
 
 /**
  * Derive the snippet for a message from its processed body representation.  We
@@ -584,25 +584,25 @@ exports.generateSnippet = function generateSnippet(rep, desiredLength) {
  * We accept depth levels up to 5 mainly because a quick perusal of mozilla lists
  * shows cases where 5 levels of nesting were used to provide useful context.
  */
-const MAX_QUOTE_REPEAT_DEPTH = 5;
+var MAX_QUOTE_REPEAT_DEPTH = 5;
 // we include a few more than we need for forwarded text regeneration
-const replyQuotePrefixStrings = [
+var replyQuotePrefixStrings = [
   '> ', '>> ', '>>> ', '>>>> ', '>>>>> ', '>>>>>> ', '>>>>>>> ', '>>>>>>>> ',
   '>>>>>>>>> ',
 ];
-const replyQuotePrefixStringsNoSpace = [
+var replyQuotePrefixStringsNoSpace = [
   '>', '>>', '>>>', '>>>>', '>>>>>', '>>>>>>', '>>>>>>>', '>>>>>>>>',
   '>>>>>>>>>',
 ];
-const replyQuoteNewlineReplaceStrings = [
+var replyQuoteNewlineReplaceStrings = [
   '\n> ', '\n>> ', '\n>>> ', '\n>>>> ', '\n>>>>> ', '\n>>>>>> ', '\n>>>>>>> ',
   '\n>>>>>>>> ',
 ];
-const replyQuoteNewlineReplaceStringsNoSpace = [
+var replyQuoteNewlineReplaceStringsNoSpace = [
   '\n>', '\n>>', '\n>>>', '\n>>>>', '\n>>>>>', '\n>>>>>>', '\n>>>>>>>',
   '\n>>>>>>>>',
 ];
-const replyPrefix = '> ', replyNewlineReplace = '\n> ';
+var replyPrefix = '> ', replyNewlineReplace = '\n> ';
 
 function expandQuotedPrefix(s, depth) {
   if (s.charCodeAt(0) === CHARCODE_NEWLINE)
