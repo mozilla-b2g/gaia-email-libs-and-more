@@ -27,6 +27,7 @@ if ((document.cookie || '').indexOf('mailHasAccounts') !== -1) {
     // Create global property too, in case app comes
     // up after the event has fired.
     window.tempMailAPI = evtObject.mailAPI = {
+      _fake: true,
       useLocalizedStrings: function () {},
       viewAccounts: function () {
         var acctSlice = {
