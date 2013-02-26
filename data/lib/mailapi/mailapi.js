@@ -1269,14 +1269,19 @@ MailAPI.prototype = {
     var addItems = msg.addItems, transformedItems = [], i, stopIndex;
     switch (slice._ns) {
       case 'accounts':
-        if (addItems.length &&
-            typeof document !== 'undefined' &&
-            (document.cookie || '').indexOf('mailHasAccounts') === -1) {
-          // Sets a cookie indicating where there are accounts to enable fast
-          // load of "add account" screen without loading the email backend. It
-          // is OK if this is not reset later, as the main concern for fast
-          // load is very first use.
-          document.cookie = "mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT";
+
+        if (typeof document !== 'undefined') {
+          var hasAccountCookie = (document.cookie || '')
+                                   .indexOf('mailHasAccounts') !== -1;
+          if (addItems.length && !hasAccountCookie) {
+            // Sets a cookie indicating where there are accounts to enable fast
+            // load of "add account" screen without loading the email backend.
+            document.cookie = 'mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT';
+          } else if (!addItems.length && hasAccountCookie) {
+            // Reset cookie to indicate no accounts. Important
+            // to allow fast path _fake account guess to guess correctly.
+            document.cookie = '';
+          }
         }
 
         for (i = 0; i < addItems.length; i++) {
