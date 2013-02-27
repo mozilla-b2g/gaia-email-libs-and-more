@@ -11,6 +11,13 @@ define(
   ) {
 
 /**
+ * Helper function to check account flag fast path in a cookie
+ */
+function hasAccountCookie() {
+  return (document.cookie || '').indexOf('mailHasAccounts') !== -1;
+}
+
+/**
  *
  */
 function MailAccount(api, wireRep) {
@@ -1271,16 +1278,17 @@ MailAPI.prototype = {
       case 'accounts':
 
         if (typeof document !== 'undefined') {
-          var hasAccountCookie = (document.cookie || '')
-                                   .indexOf('mailHasAccounts') !== -1;
-          if (addItems.length && !hasAccountCookie) {
+          var hasAccounts = hasAccountCookie();
+          if (addItems.length && !hasAccounts) {
             // Sets a cookie indicating where there are accounts to enable fast
             // load of "add account" screen without loading the email backend.
             document.cookie = 'mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT';
-          } else if (!addItems.length && hasAccountCookie) {
+            this.hasAccounts = true;
+          } else if (!addItems.length && hasAccounts) {
             // Reset cookie to indicate no accounts. Important
             // to allow fast path _fake account guess to guess correctly.
             document.cookie = '';
+            this.hasAccounts = false;
           }
         }
 
@@ -1655,6 +1663,12 @@ MailAPI.prototype = {
       accountId: account.id,
     });
   },
+
+  /**
+   * Shortcut flag to indicate if there are accounts configured.
+   * Only useful in browser environments that have cookies enabled.
+   */
+  hasAccounts: hasAccountCookie(),
 
   /**
    * Get the list of accounts.  This can be used for the list of accounts in

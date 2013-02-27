@@ -16,8 +16,6 @@ define('q', ['prim'], function (prim) {
 });
 
 (function () {
-  var hasAccounts = (document.cookie || '').indexOf('mailHasAccounts') !== -1;
-
   // Send fake API object to allow UI to finish bootstrapping, and finish
   // back-end loading when viewAccounts is called.
   var evtObject = document.createEvent('Event');
@@ -25,9 +23,9 @@ define('q', ['prim'], function (prim) {
   // Create global property too, in case app comes
   // up after the event has fired.
   window.tempMailAPI = evtObject.mailAPI = {
-    _fake: {
-      hasAccounts: hasAccounts
-    },
+    _fake: true,
+    hasAccounts: (document.cookie || '')
+                    .indexOf('mailHasAccounts') !== -1,
     useLocalizedStrings: function () {},
     viewAccounts: function () {
       var acctSlice = {
