@@ -1282,7 +1282,10 @@ MailAPI.prototype = {
           if (addItems.length && !hasAccounts) {
             // Sets a cookie indicating where there are accounts to enable fast
             // load of "add account" screen without loading the email backend.
-            document.cookie = 'mailHasAccounts; expires=Tue, 19 Jan 2038 03:14:07 GMT';
+            // Set to 20 years from now.
+            var expiry = Date.now() + (20 * 365 * 24 * 60 * 60 * 1000);
+            expiry = (new Date(expiry)).toUTCString();
+            document.cookie = 'mailHasAccounts; expires=' + expiry;
             this.hasAccounts = true;
           } else if (!addItems.length && hasAccounts) {
             // Reset cookie to indicate no accounts. Important
