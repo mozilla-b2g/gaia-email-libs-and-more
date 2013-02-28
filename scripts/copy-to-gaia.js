@@ -159,7 +159,8 @@ var runner = configs.reduceRight(function (prev, cfg) {
     scriptText = startComment + '\n' +
       indexPaths.map(function (name) {
 
-        return indent + '<script type="application/javascript;version=1.8" src="' +
+        return indent + '<script type="application/javascript;version=1.8" ' +
+          'defer src="' +
           'js/ext/' + name + '.js' +
           '"></script>';
       }).join('\n') + '\n' + indent;
