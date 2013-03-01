@@ -34,6 +34,9 @@ OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/ima
 install-into-gaia: gaia-symlink scripts/gaia-email-opt.build.js scripts/optStart.frag scripts/optEnd.frag $(DEP_NODE_PKGS) $(OUR_JS_DEPS) deps/almond.js
 	node scripts/copy-to-gaia.js gaia-symlink/apps/email
 
+build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
+
+
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
@@ -69,13 +72,13 @@ endef
 
 ######################
 # IMAP test variations
-imap-tests:
+imap-tests: build
 	$(call run-xpc-tests,imap,imap)
 
-one-imap-test:
+one-imap-test: build
 	$(call run-one-test,imap,imap)
 
-interactive-imap-test:
+interactive-imap-test: build
 	$(call run-interactive-test,imap,imap)
 
 post-one-imap-test: one-imap-test
@@ -87,13 +90,13 @@ post-imap-tests: imap-tests
 
 ######################
 # ActiveSync test variations
-activesync-tests:
+activesync-tests: build
 	$(call run-xpc-tests,activesync,activesync)
 
-one-activesync-test:
+one-activesync-test: build
 	$(call run-one-test,activesync,activesync)
 
-interactive-activesync-test:
+interactive-activesync-test: build
 	$(call run-interactive-test,activesync,activesync)
 
 post-one-activesync-test: one-activesync-test
@@ -105,13 +108,13 @@ post-activesync-tests: activesync-tests
 
 ######################
 # Torture test variations (currently IMAP only)
-torture-tests:
+torture-tests: build
 	$(call run-xpc-tests,torture,imap)
 
-one-torture-test:
+one-torture-test: build
 	$(call run-one-test,torture,imap)
 
-interactive-torture-test:
+interactive-torture-test: build
 	$(call run-interactive-test,torture,imap)
 
 post-one-torture-test: one-torture-test
@@ -139,4 +142,4 @@ clean:
 	rm -rf node-transformed-deps
 
 .DEFAULT_GOAL=install-into-gaia
-.PHONY: install-into-gaia
+.PHONY: build install-into-gaia
