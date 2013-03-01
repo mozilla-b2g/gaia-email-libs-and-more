@@ -532,8 +532,8 @@ Autoconfigurator.prototype = {
             continue;
 
           var server = config[serverType];
-          for (var iter in Iterator(fields)) {
-            var field = iter[1];
+          for (var iter2 in Iterator(fields)) {
+            var field = iter2[1];
             if (server.hasOwnProperty(field))
               server[field] = fillPlaceholder(server[field]);
           }

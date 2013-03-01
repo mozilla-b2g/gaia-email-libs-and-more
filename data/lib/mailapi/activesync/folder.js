@@ -658,15 +658,15 @@ ActiveSyncFolderConn.prototype = {
         flagHeader('\\Seen', childText === '1');
         break;
       case em.Flag:
-        for (var iter in Iterator(child.children)) {
-          var grandchild = iter[1];
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
           if (grandchild.tag === em.Status)
             flagHeader('\\Flagged', grandchild.children[0].textContent !== '0');
         }
         break;
       case asb.Body: // ActiveSync 12.0+
-        for (var iter in Iterator(child.children)) {
-          var grandchild = iter[1];
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
           switch (grandchild.tag) {
           case asb.Type:
             bodyType = grandchild.children[0].textContent;
@@ -683,8 +683,8 @@ ActiveSyncFolderConn.prototype = {
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        for (var iter in Iterator(child.children)) {
-          var attachmentNode = iter[1];
+        for (var iter2 in Iterator(child.children)) {
+          var attachmentNode = iter2[1];
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
             continue;
@@ -700,8 +700,8 @@ ActiveSyncFolderConn.prototype = {
           };
 
           var isInline = false;
-          for (var iter in Iterator(attachmentNode.children)) {
-            var attachData = iter[1];
+          for (var iter3 in Iterator(attachmentNode.children)) {
+            var attachData = iter3[1];
             var dot, ext;
             var attachDataText = attachData.children.length ?
                                  attachData.children[0].textContent : null;
@@ -995,8 +995,8 @@ ActiveSyncFolderConn.prototype = {
           case io.Properties:
             var contentType = null, data = null;
 
-            for (var iter in Iterator(child.children)) {
-              var grandchild = iter[1];
+            for (var iter2 in Iterator(child.children)) {
+              var grandchild = iter2[1];
               var textContent = grandchild.children[0].textContent;
 
               switch (grandchild.tag) {
