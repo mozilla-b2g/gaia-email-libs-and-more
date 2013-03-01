@@ -22,7 +22,7 @@ define(
  * JS coders) ordering which makes it tractable to eyeball an encoded value and
  * not be completely confused/misled.
  */
-const ORDERED_ARBITRARY_BASE64_CHARS = [
+var ORDERED_ARBITRARY_BASE64_CHARS = [
   '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
   'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
@@ -35,7 +35,7 @@ const ORDERED_ARBITRARY_BASE64_CHARS = [
  * Zero padding to get us up to the maximum encoding length of a 64-bit value in
  * our encoding (11) or for decimal re-conversion (16).
  */
-const ZERO_PADDING = '0000000000000000';
+var ZERO_PADDING = '0000000000000000';
 
 /**
  * Encode a JS int in our base64 encoding.
@@ -61,7 +61,7 @@ exports.encodeInt = encodeInt;
  * 10^14 >> 14 so that its 'lowest' binary 1 ends up in the one's place.  It
  * is encoded in 33 bits itself.
  */
-const E10_14_RSH_14 = Math.pow(10, 14) / Math.pow(2, 14),
+var E10_14_RSH_14 = Math.pow(10, 14) / Math.pow(2, 14),
       P2_14 = Math.pow(2, 14),
       P2_22 = Math.pow(2, 22),
       P2_32 = Math.pow(2, 32),

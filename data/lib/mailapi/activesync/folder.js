@@ -29,16 +29,16 @@ define(
   ) {
 'use strict';
 
-const DESIRED_SNIPPET_LENGTH = 100;
+var DESIRED_SNIPPET_LENGTH = 100;
 
 /**
  * This is minimum number of messages we'd like to get for a folder for a given
  * sync range. It's not exact, since we estimate from the number of messages in
  * the past two weeks, but it's close enough.
  */
-const DESIRED_MESSAGE_COUNT = 50;
+var DESIRED_MESSAGE_COUNT = 50;
 
-const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
+var FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
 
 /**
  * Map our built-in sync range values to their corresponding ActiveSync
@@ -47,7 +47,7 @@ const FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
  *
  * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
  */
-const SYNC_RANGE_TO_FILTER_TYPE = {
+var SYNC_RANGE_TO_FILTER_TYPE = {
   'auto': null,
     '1d': FILTER_TYPE.OneDayBack,
     '3d': FILTER_TYPE.ThreeDaysBack,
@@ -60,7 +60,7 @@ const SYNC_RANGE_TO_FILTER_TYPE = {
 /**
  * This mapping is purely for logging purposes.
  */
-const FILTER_TYPE_TO_STRING = {
+var FILTER_TYPE_TO_STRING = {
   0: 'all messages',
   1: 'one day',
   2: 'three days',
@@ -100,9 +100,9 @@ ActiveSyncFolderConn.prototype = {
    * elsewhere (see _inferFilterType()).
    */
   get filterType() {
-    let syncRange = this._account.accountDef.syncRange;
+    var syncRange = this._account.accountDef.syncRange;
     if (SYNC_RANGE_TO_FILTER_TYPE.hasOwnProperty(syncRange)) {
-      let accountFilterType = SYNC_RANGE_TO_FILTER_TYPE[syncRange];
+      var accountFilterType = SYNC_RANGE_TO_FILTER_TYPE[syncRange];
       if (accountFilterType)
         return accountFilterType;
       else
@@ -123,11 +123,11 @@ ActiveSyncFolderConn.prototype = {
    * @param {function} callback A callback to be run when the operation finishes
    */
   _getSyncKey: function asfc__getSyncKey(filterType, callback) {
-    let folderConn = this;
-    let account = this._account;
-    const as = $ascp.AirSync.Tags;
+    var folderConn = this;
+    var account = this._account;
+    var as = $ascp.AirSync.Tags;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection)
@@ -155,7 +155,7 @@ ActiveSyncFolderConn.prototype = {
       // response.
       folderConn.syncKey = '0';
 
-      let e = new $wbxml.EventParser();
+      var e = new $wbxml.EventParser();
       e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
                          function(node) {
         folderConn.syncKey = node.children[0].textContent;
@@ -185,10 +185,10 @@ ActiveSyncFolderConn.prototype = {
    * @param {function} callback A callback to be run when the operation finishes
    */
   _getItemEstimate: function asfc__getItemEstimate(filterType, callback) {
-    const ie = $ascp.ItemEstimate.Tags;
-    const as = $ascp.AirSync.Tags;
+    var ie = $ascp.ItemEstimate.Tags;
+    var as = $ascp.AirSync.Tags;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Collections)
          .stag(ie.Collection)
@@ -208,10 +208,10 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      let e = new $wbxml.EventParser();
-      const base = [ie.GetItemEstimate, ie.Response];
+      var e = new $wbxml.EventParser();
+      var base = [ie.GetItemEstimate, ie.Response];
 
-      let status, estimate;
+      var status, estimate;
       e.addEventListener(base.concat(ie.Status), function(node) {
         status = node.children[0].textContent;
       });
@@ -248,10 +248,10 @@ ActiveSyncFolderConn.prototype = {
    *  picked
    */
   _inferFilterType: function asfc__inferFilterType(callback) {
-    let folderConn = this;
-    const Type = $ascp.AirSync.Enums.FilterType;
+    var folderConn = this;
+    var Type = $ascp.AirSync.Enums.FilterType;
 
-    let getEstimate = function(filterType, onSuccess) {
+    var getEstimate = function(filterType, onSuccess) {
       folderConn._getSyncKey(filterType, function(error) {
         if (error) {
           callback('unknown');
@@ -270,8 +270,8 @@ ActiveSyncFolderConn.prototype = {
     };
 
     getEstimate(Type.TwoWeeksBack, function(estimate) {
-      let messagesPerDay = estimate / 14; // Two weeks. Twoooo weeeeeeks.
-      let filterType;
+      var messagesPerDay = estimate / 14; // Two weeks. Twoooo weeeeeeks.
+      var filterType;
 
       if (estimate < 0)
         filterType = Type.ThreeDaysBack;
@@ -287,7 +287,7 @@ ActiveSyncFolderConn.prototype = {
         filterType = Type.OneMonthBack;
       else {
         getEstimate(Type.NoFilter, function(estimate) {
-          let filterType;
+          var filterType;
           if (estimate > DESIRED_MESSAGE_COUNT) {
             filterType = Type.OneMonthBack;
             // Reset the sync key since we're changing filter types. This avoids
@@ -326,7 +326,7 @@ ActiveSyncFolderConn.prototype = {
    */
   _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
                                                                  progress) {
-    let folderConn = this, storage = this._storage;
+    var folderConn = this, storage = this._storage;
 
     if (!this._account.conn.connected) {
       this._account.conn.connect(function(error) {
@@ -361,12 +361,12 @@ ActiveSyncFolderConn.prototype = {
       return;
     }
 
-    const as = $ascp.AirSync.Tags;
-    const asEnum = $ascp.AirSync.Enums;
-    const asb = $ascp.AirSyncBase.Tags;
-    const asbEnum = $ascp.AirSyncBase.Enums;
+    var as = $ascp.AirSync.Tags;
+    var asEnum = $ascp.AirSync.Enums;
+    var asb = $ascp.AirSyncBase.Tags;
+    var asbEnum = $ascp.AirSyncBase.Enums;
 
-    let w;
+    var w;
 
     // If the last sync was ours and we got an empty response back, we can send
     // an empty request to repeat our request. This saves a little bandwidth.
@@ -408,11 +408,11 @@ ActiveSyncFolderConn.prototype = {
     }
 
     this._account.conn.postCommand(w, function(aError, aResponse) {
-      let added   = [];
-      let changed = [];
-      let deleted = [];
-      let status;
-      let moreAvailable = false;
+      var added   = [];
+      var changed = [];
+      var deleted = [];
+      var status;
+      var moreAvailable = false;
 
       folderConn._account._syncsInProgress--;
 
@@ -433,8 +433,8 @@ ActiveSyncFolderConn.prototype = {
       }
 
       folderConn._account._lastSyncResponseWasEmpty = false;
-      let e = new $wbxml.EventParser();
-      const base = [as.Sync, as.Collections, as.Collection];
+      var e = new $wbxml.EventParser();
+      var base = [as.Sync, as.Collections, as.Collection];
 
       e.addEventListener(base.concat(as.SyncKey), function(node) {
         folderConn.syncKey = node.children[0].textContent;
@@ -450,9 +450,10 @@ ActiveSyncFolderConn.prototype = {
 
       e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
                          function(node) {
-        let id, guid, msg;
+        var id, guid, msg;
 
-        for (let [,child] in Iterator(node.children)) {
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
           switch (child.tag) {
           case as.ServerId:
             guid = child.children[0].textContent;
@@ -478,15 +479,16 @@ ActiveSyncFolderConn.prototype = {
         msg.header.srvid = guid;
         // XXX need to get the message's message-id header value!
 
-        let collection = node.tag === as.Add ? added : changed;
+        var collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
       });
 
       e.addEventListener(base.concat(as.Commands, [[as.Delete, as.SoftDelete]]),
                          function(node) {
-        let guid;
+        var guid;
 
-        for (let [,child] in Iterator(node.children)) {
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
           switch (child.tag) {
           case as.ServerId:
             guid = child.children[0].textContent;
@@ -544,11 +546,11 @@ ActiveSyncFolderConn.prototype = {
    * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfc__parseMessage(node, isAdded) {
-    const em = $ascp.Email.Tags;
-    const asb = $ascp.AirSyncBase.Tags;
-    const asbEnum = $ascp.AirSyncBase.Enums;
+    var em = $ascp.Email.Tags;
+    var asb = $ascp.AirSyncBase.Tags;
+    var asbEnum = $ascp.AirSyncBase.Enums;
 
-    let header, body, flagHeader;
+    var header, body, flagHeader;
 
     if (isAdded) {
       header = {
@@ -587,20 +589,22 @@ ActiveSyncFolderConn.prototype = {
         flags: [],
         mergeInto: function(o) {
           // Merge flags
-          for (let [,flagstate] in Iterator(this.flags)) {
+          for (var iter in Iterator(this.flags)) {
+            var flagstate = iter[1];
             if (flagstate[1]) {
               o.flags.push(flagstate[0]);
             }
             else {
-              let index = o.flags.indexOf(flagstate[0]);
+              var index = o.flags.indexOf(flagstate[0]);
               if (index !== -1)
                 o.flags.splice(index, 1);
             }
           }
 
           // Merge everything else
-          const skip = ['mergeInto', 'suid', 'srvid', 'guid', 'id', 'flags'];
-          for (let [key, value] in Iterator(this)) {
+          var skip = ['mergeInto', 'suid', 'srvid', 'guid', 'id', 'flags'];
+          for (var iter in Iterator(this)) {
+            var key = iter[0], value = iter[1];
             if (skip.indexOf(key) !== -1)
               continue;
 
@@ -611,7 +615,8 @@ ActiveSyncFolderConn.prototype = {
 
       body = {
         mergeInto: function(o) {
-          for (let [key, value] in Iterator(this)) {
+          for (var iter in Iterator(this)) {
+            var key = iter[0], value = iter[1];
             if (key === 'mergeInto') continue;
             o[key] = value;
           }
@@ -623,10 +628,11 @@ ActiveSyncFolderConn.prototype = {
       }
     }
 
-    let bodyType, bodyText;
+    var bodyType, bodyText;
 
-    for (let [,child] in Iterator(node.children)) {
-      let childText = child.children.length ? child.children[0].textContent :
+    for (var iter in Iterator(node.children)) {
+      var child = iter[1];
+      var childText = child.children.length ? child.children[0].textContent :
                                               null;
 
       switch (child.tag) {
@@ -652,13 +658,15 @@ ActiveSyncFolderConn.prototype = {
         flagHeader('\\Seen', childText === '1');
         break;
       case em.Flag:
-        for (let [,grandchild] in Iterator(child.children)) {
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
           if (grandchild.tag === em.Status)
             flagHeader('\\Flagged', grandchild.children[0].textContent !== '0');
         }
         break;
       case asb.Body: // ActiveSync 12.0+
-        for (let [,grandchild] in Iterator(child.children)) {
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
           switch (grandchild.tag) {
           case asb.Type:
             bodyType = grandchild.children[0].textContent;
@@ -675,12 +683,13 @@ ActiveSyncFolderConn.prototype = {
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
-        for (let [,attachmentNode] in Iterator(child.children)) {
+        for (var iter2 in Iterator(child.children)) {
+          var attachmentNode = iter2[1];
           if (attachmentNode.tag !== asb.Attachment &&
               attachmentNode.tag !== em.Attachment)
             continue;
 
-          let attachment = {
+          var attachment = {
             name: null,
             contentId: null,
             type: null,
@@ -690,10 +699,11 @@ ActiveSyncFolderConn.prototype = {
             file: null,
           };
 
-          let isInline = false;
-          for (let [,attachData] in Iterator(attachmentNode.children)) {
-            let dot, ext;
-            let attachDataText = attachData.children.length ?
+          var isInline = false;
+          for (var iter3 in Iterator(attachmentNode.children)) {
+            var attachData = iter3[1];
+            var dot, ext;
+            var attachDataText = attachData.children.length ?
                                  attachData.children[0].textContent : null;
 
             switch (attachData.tag) {
@@ -741,13 +751,13 @@ ActiveSyncFolderConn.prototype = {
 
     // Process the body as needed.
     if (bodyType === asbEnum.Type.PlainText) {
-      let bodyRep = $quotechew.quoteProcessTextBody(bodyText);
+      var bodyRep = $quotechew.quoteProcessTextBody(bodyText);
       header.snippet = $quotechew.generateSnippet(bodyRep,
                                                   DESIRED_SNIPPET_LENGTH);
       body.bodyReps = ['plain', bodyRep];
     }
     else if (bodyType === asbEnum.Type.HTML) {
-      let htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
+      var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
       header.snippet = $htmlchew.generateSnippet(htmlNode,
                                                  DESIRED_SNIPPET_LENGTH);
       body.bodyReps = ['html', htmlNode.innerHTML];
@@ -758,7 +768,7 @@ ActiveSyncFolderConn.prototype = {
 
   syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
                                              doneCallback, progressCallback) {
-    let folderConn = this,
+    var folderConn = this,
         addedMessages = 0,
         changedMessages = 0,
         deletedMessages = 0;
@@ -766,7 +776,7 @@ ActiveSyncFolderConn.prototype = {
     this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
-      let storage = folderConn._storage;
+      var storage = folderConn._storage;
 
       if (error === 'badkey') {
         folderConn._account._recreateFolder(storage.folderId, function(s) {
@@ -782,7 +792,8 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      for (let [,message] in Iterator(added)) {
+      for (var iter in Iterator(added)) {
+        var message = iter[1];
         // If we already have this message, it's probably because we moved it as
         // part of a local op, so let's assume that the data we already have is
         // ok. XXX: We might want to verify this, to be safe.
@@ -794,7 +805,8 @@ ActiveSyncFolderConn.prototype = {
         addedMessages++;
       }
 
-      for (let [,message] in Iterator(changed)) {
+      for (var iter in Iterator(changed)) {
+        var message = iter[1];
         // If we don't know about this message, just bail out.
         if (!storage.hasMessageWithServerId(message.header.srvid))
           continue;
@@ -808,7 +820,8 @@ ActiveSyncFolderConn.prototype = {
         // XXX: update bodies
       }
 
-      for (let [,messageGuid] in Iterator(deleted)) {
+      for (var iter in Iterator(deleted)) {
+        var messageGuid = iter[1];
         // If we don't know about this message, it's probably because we already
         // deleted it.
         if (!storage.hasMessageWithServerId(messageGuid))
@@ -819,7 +832,7 @@ ActiveSyncFolderConn.prototype = {
       }
 
       if (!moreAvailable) {
-        let messagesSeen = addedMessages + changedMessages + deletedMessages;
+        var messagesSeen = addedMessages + changedMessages + deletedMessages;
 
         // Note: For the second argument here, we report the number of messages
         // we saw that *changed*. This differs from IMAP, which reports the
@@ -834,7 +847,7 @@ ActiveSyncFolderConn.prototype = {
   },
 
   performMutation: function(invokeWithWriter, callWhenDone) {
-    let folderConn = this;
+    var folderConn = this;
     if (!this._account.conn.connected) {
       this._account.conn.connect(function(error) {
         if (error) {
@@ -846,9 +859,9 @@ ActiveSyncFolderConn.prototype = {
       return;
     }
 
-    const as = $ascp.AirSync.Tags;
+    var as = $ascp.AirSync.Tags;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection);
@@ -888,10 +901,10 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      let e = new $wbxml.EventParser();
-      let syncKey, status;
+      var e = new $wbxml.EventParser();
+      var syncKey, status;
 
-      const base = [as.Sync, as.Collections, as.Collection];
+      var base = [as.Sync, as.Collections, as.Collection];
       e.addEventListener(base.concat(as.SyncKey), function(node) {
         syncKey = node.children[0].textContent;
       });
@@ -924,7 +937,7 @@ ActiveSyncFolderConn.prototype = {
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
-    let folderConn = this;
+    var folderConn = this;
     if (!this._account.conn.connected) {
       this._account.conn.connect(function(error) {
         if (error) {
@@ -937,13 +950,14 @@ ActiveSyncFolderConn.prototype = {
       return;
     }
 
-    const io = $ascp.ItemOperations.Tags;
-    const ioStatus = $ascp.ItemOperations.Enums.Status;
-    const asb = $ascp.AirSyncBase.Tags;
+    var io = $ascp.ItemOperations.Tags;
+    var ioStatus = $ascp.ItemOperations.Enums.Status;
+    var asb = $ascp.AirSyncBase.Tags;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations);
-    for (let [,part] in Iterator(partInfos)) {
+    for (var iter in Iterator(partInfos)) {
+      var part = iter[1];
       w.stag(io.Fetch)
          .tag(io.Store, 'Mailbox')
          .tag(asb.FileReference, part.part)
@@ -958,18 +972,19 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      let globalStatus;
-      let attachments = {};
+      var globalStatus;
+      var attachments = {};
 
-      let e = new $wbxml.EventParser();
+      var e = new $wbxml.EventParser();
       e.addEventListener([io.ItemOperations, io.Status], function(node) {
         globalStatus = node.children[0].textContent;
       });
       e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
                          function(node) {
-        let part = null, attachment = {};
+        var part = null, attachment = {};
 
-        for (let [,child] in Iterator(node.children)) {
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
           switch (child.tag) {
           case io.Status:
             attachment.status = child.children[0].textContent;
@@ -980,8 +995,9 @@ ActiveSyncFolderConn.prototype = {
           case io.Properties:
             var contentType = null, data = null;
 
-            for (let [,grandchild] in Iterator(child.children)) {
-              let textContent = grandchild.children[0].textContent;
+            for (var iter2 in Iterator(child.children)) {
+              var grandchild = iter2[1];
+              var textContent = grandchild.children[0].textContent;
 
               switch (grandchild.tag) {
               case asb.ContentType:
@@ -1004,9 +1020,10 @@ ActiveSyncFolderConn.prototype = {
       });
       e.run(aResult);
 
-      let error = globalStatus !== ioStatus.Success ? 'unknown' : null;
-      let bodies = [];
-      for (let [,part] in Iterator(partInfos)) {
+      var error = globalStatus !== ioStatus.Success ? 'unknown' : null;
+      var bodies = [];
+      for (var iter in Iterator(partInfos)) {
+        var part = iter[1];
         if (attachments.hasOwnProperty(part.part) &&
             attachments[part.part].status === ioStatus.Success) {
           bodies.push(attachments[part.part].data);
@@ -1090,7 +1107,7 @@ ActiveSyncFolderSyncer.prototype = {
       return;
     }
 
-    let storage = this.folderStorage;
+    var storage = this.folderStorage;
 
     console.log("Sync Completed!", messagesSeen, "messages synced");
 

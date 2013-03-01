@@ -34,7 +34,7 @@ else {
  * Bumping to 17 because we changed the folder representation to store
  * hierarchy.
  */
-const CUR_VERSION = exports.CUR_VERSION = 17;
+var CUR_VERSION = exports.CUR_VERSION = 17;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -44,17 +44,17 @@ const CUR_VERSION = exports.CUR_VERSION = 17;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 5;
+var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 5;
 
 /**
  * The configuration table contains configuration data that should persist
  * despite implementation changes. Global configuration data, and account login
  * info.  Things that would be annoying for us to have to re-type.
  */
-const TBL_CONFIG = 'config',
-      CONFIG_KEY_ROOT = 'config',
-      // key: accountDef:`AccountId`
-      CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
+var TBL_CONFIG = 'config',
+    CONFIG_KEY_ROOT = 'config',
+    // key: accountDef:`AccountId`
+    CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
 
 /**
  * The folder-info table stores meta-data about the known folders for each
@@ -70,7 +70,7 @@ const TBL_CONFIG = 'config',
  *
  * key: `AccountId`
  */
-const TBL_FOLDER_INFO = 'folderInfo';
+var TBL_FOLDER_INFO = 'folderInfo';
 
 /**
  * Stores time-clustered information about messages in folders.  Message bodies
@@ -88,7 +88,7 @@ const TBL_FOLDER_INFO = 'folderInfo';
  * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
  * the info on the message; see `ImapFolderStorage` for details.
  */
-const TBL_HEADER_BLOCKS = 'headerBlocks';
+var TBL_HEADER_BLOCKS = 'headerBlocks';
 /**
  * Stores time-clustered information about message bodies.  Body details include
  * the list of attachments, as well as the body payloads and the embedded inline
@@ -104,7 +104,7 @@ const TBL_HEADER_BLOCKS = 'headerBlocks';
  * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
  * the info on the message; see `ImapFolderStorage` for details.
  */
-const TBL_BODY_BLOCKS = 'bodyBlocks';
+var TBL_BODY_BLOCKS = 'bodyBlocks';
 
 /**
  * DB helper methods for Gecko's IndexedDB implementation.  We are assuming

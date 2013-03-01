@@ -268,7 +268,7 @@ exports.CHECK_INTERVALS_ENUMS_TO_MS = {
  */
 exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 
-const DAY_MILLIS = 24 * 60 * 60 * 1000;
+var DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 /**
  * Map the ActiveSync-limited list of sync ranges to milliseconds.  Do NOT

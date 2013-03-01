@@ -88,7 +88,7 @@ ActiveSyncJobDriver.prototype = {
 
   do_modtags: function(op, jobDoneCallback, undo) {
     // Note: this method is derived from the IMAP implementation.
-    let addTags = undo ? op.removeTags : op.addTags,
+    var addTags = undo ? op.removeTags : op.addTags,
         removeTags = undo ? op.addTags : op.removeTags;
 
     function getMark(tag) {
@@ -99,13 +99,13 @@ ActiveSyncJobDriver.prototype = {
       return undefined;
     }
 
-    let markRead = getMark('\\Seen');
-    let markFlagged = getMark('\\Flagged');
+    var markRead = getMark('\\Seen');
+    var markFlagged = getMark('\\Flagged');
 
-    const as = $ascp.AirSync.Tags;
-    const em = $ascp.Email.Tags;
+    var as = $ascp.AirSync.Tags;
+    var em = $ascp.Email.Tags;
 
-    let aggrErr = null;
+    var aggrErr = null;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
@@ -133,7 +133,7 @@ ActiveSyncJobDriver.prototype = {
 
         folderConn.performMutation(
           function withWriter(w) {
-            for (let i = 0; i < serverIds.length; i++) {
+            for (var i = 0; i < serverIds.length; i++) {
               w.stag(as.Change)
                  .tag(as.ServerId, serverIds[i])
                  .stag(as.ApplicationData);
@@ -195,10 +195,10 @@ ActiveSyncJobDriver.prototype = {
      * disappear and then show up again. XXX we are not currently enforcing this
      * yet.
      */
-    let aggrErr = null, account = this.account,
+    var aggrErr = null, account = this.account,
         targetFolderStorage = this.account.getFolderStorageForFolderId(
                                 op.targetFolder);
-    const mo = $ascp.Move.Tags;
+    var mo = $ascp.Move.Tags;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
@@ -221,9 +221,9 @@ ActiveSyncJobDriver.prototype = {
           return;
         }
 
-        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(mo.MoveItems);
-        for (let i = 0; i < serverIds.length; i++) {
+        for (var i = 0; i < serverIds.length; i++) {
           w.stag(mo.Move)
              .tag(mo.SrcMsgId, serverIds[i])
              .tag(mo.SrcFldId, storage.folderMeta.serverId)
@@ -265,9 +265,9 @@ ActiveSyncJobDriver.prototype = {
   local_do_delete: $jobmixins.local_do_delete,
 
   do_delete: function(op, jobDoneCallback) {
-    let aggrErr = null;
-    const as = $ascp.AirSync.Tags;
-    const em = $ascp.Email.Tags;
+    var aggrErr = null;
+    var as = $ascp.AirSync.Tags;
+    var em = $ascp.Email.Tags;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
@@ -283,7 +283,7 @@ ActiveSyncJobDriver.prototype = {
 
         folderConn.performMutation(
           function withWriter(w) {
-            for (let i = 0; i < serverIds.length; i++) {
+            for (var i = 0; i < serverIds.length; i++) {
               w.stag(as.Delete)
                  .tag(as.ServerId, serverIds[i])
                .etag(as.Delete);

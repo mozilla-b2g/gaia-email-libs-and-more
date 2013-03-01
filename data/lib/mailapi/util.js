@@ -16,7 +16,7 @@ define(
  * and messages with higher UIDs (newer-ish) before those with lower UIDs
  * (when the date is the same.)
  */
-const cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
+var cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
     function cmpHeaderYoungToOld(a, b) {
   var delta = b.date - a.date;
   if (delta)
@@ -35,7 +35,7 @@ const cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
  *   range [0, arr.length].
  * }
  */
-const bsearchForInsert = exports.bsearchForInsert =
+var bsearchForInsert = exports.bsearchForInsert =
     function bsearchForInsert(list, seekVal, cmpfunc) {
   if (!list.length)
     return 0;
