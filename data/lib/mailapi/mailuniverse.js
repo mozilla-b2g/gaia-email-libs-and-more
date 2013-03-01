@@ -35,13 +35,13 @@ define(
  *
  * This limit obviously is not used to discard operations not yet performed!
  */
-const MAX_MUTATIONS_FOR_UNDO = 10;
+var MAX_MUTATIONS_FOR_UNDO = 10;
 
 /**
  * When debug logging is enabled, how many second's worth of samples should
  * we keep?
  */
-const MAX_LOG_BACKLOG = 30;
+var MAX_LOG_BACKLOG = 30;
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,

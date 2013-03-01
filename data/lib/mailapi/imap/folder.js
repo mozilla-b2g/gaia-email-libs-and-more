@@ -23,18 +23,18 @@ define(
     $module,
     exports
   ) {
-const allbackMaker = $allback.allbackMaker,
-      bsearchForInsert = $util.bsearchForInsert,
-      bsearchMaybeExists = $util.bsearchMaybeExists,
-      cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
-      DAY_MILLIS = $date.DAY_MILLIS,
-      NOW = $date.NOW,
-      FUTURE = $date.FUTURE,
-      BEFORE = $date.BEFORE,
-      ON_OR_BEFORE = $date.ON_OR_BEFORE,
-      SINCE = $date.SINCE,
-      makeDaysBefore = $date.makeDaysBefore,
-      quantizeDate = $date.quantizeDate;
+var allbackMaker = $allback.allbackMaker,
+    bsearchForInsert = $util.bsearchForInsert,
+    bsearchMaybeExists = $util.bsearchMaybeExists,
+    cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
+    DAY_MILLIS = $date.DAY_MILLIS,
+    NOW = $date.NOW,
+    FUTURE = $date.FUTURE,
+    BEFORE = $date.BEFORE,
+    ON_OR_BEFORE = $date.ON_OR_BEFORE,
+    SINCE = $date.SINCE,
+    makeDaysBefore = $date.makeDaysBefore,
+    quantizeDate = $date.quantizeDate;
 
 /**
  * Compact an array in-place with nulls so that the nulls are removed.  This
@@ -64,7 +64,7 @@ function compactArray(arr) {
  * us with an upper bound on the messages in the folder since we are blinding
  * ourselves to deleted messages.
  */
-const BASELINE_SEARCH_OPTIONS = ['!DELETED'];
+var BASELINE_SEARCH_OPTIONS = ['!DELETED'];
 
 /**
  * Fetch parameters to get the headers / bodystructure; exists to reuse the
@@ -81,7 +81,7 @@ const BASELINE_SEARCH_OPTIONS = ['!DELETED'];
  * right now either, but that's a lesser issue.  We probably don't want to trust
  * that data, however, if we don't want to trust normal ENVELOPE.
  */
-const INITIAL_FETCH_PARAMS = {
+var INITIAL_FETCH_PARAMS = {
   request: {
     headers: ['FROM', 'TO', 'CC', 'BCC', 'SUBJECT', 'REPLY-TO', 'MESSAGE-ID',
               'REFERENCES'],
@@ -94,7 +94,7 @@ const INITIAL_FETCH_PARAMS = {
  * Fetch parameters to just get the flags, which is no parameters because
  * imap.js always fetches them right now.
  */
-const FLAG_FETCH_PARAMS = {
+var FLAG_FETCH_PARAMS = {
   request: {
     struct: false,
     headers: false,
@@ -449,11 +449,11 @@ console.log("backoff! had", serverUIDs.length, "from", curDaysDelta,
 console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
             knownUIDs.length, 'knownHeaders', knownHeaders.length);
     // See the `ImapFolderConn` block comment for rationale.
-    const KNOWN_HEADERS_AGGR_COST = 20,
-          KNOWN_HEADERS_PER_COST = 1,
-          NEW_HEADERS_AGGR_COST = 20,
-          NEW_HEADERS_PER_COST = 5,
-          NEW_BODIES_PER_COST = 30;
+    var KNOWN_HEADERS_AGGR_COST = 20,
+        KNOWN_HEADERS_PER_COST = 1,
+        NEW_HEADERS_AGGR_COST = 20,
+        NEW_HEADERS_PER_COST = 5,
+        NEW_BODIES_PER_COST = 30;
     var progressCost =
           (knownUIDs.length ? KNOWN_HEADERS_AGGR_COST : 0) +
           KNOWN_HEADERS_PER_COST * knownUIDs.length +
@@ -695,6 +695,7 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
 
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
     var conn = this._conn;
+    var self = this;
     var mparser = new $mailparser.MailParser();
 
     // I actually implemented a usable shim for the checksum purposes, but we

@@ -15,7 +15,7 @@
 	url = git://github.com/asutherland/simplesmtp.git
 [submodule "deps/activesync"]
 	path = deps/activesync
-	url = git://github.com/mozsquib/jsas.git
+	url = git://github.com/mozilla-b2g/jsas.git
 [submodule "deps/bleach.js"]
 	path = deps/bleach.js
 	url = git://github.com/asutherland/bleach.js.git

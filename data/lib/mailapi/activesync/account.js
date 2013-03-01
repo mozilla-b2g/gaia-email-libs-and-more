@@ -37,9 +37,9 @@ define(
   ) {
 'use strict';
 
-const bsearchForInsert = $util.bsearchForInsert;
+var bsearchForInsert = $util.bsearchForInsert;
 
-const DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
+var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                            receiveProtoConn, _parentLog) {
@@ -164,17 +164,18 @@ ActiveSyncAccount.prototype = {
 
   saveAccountState: function asa_saveAccountState(reuseTrans, callback,
                                                   reason) {
-    let account = this;
-    let perFolderStuff = [];
-    for (let [,folder] in Iterator(this.folders)) {
-      let folderStuff = this._folderStorages[folder.id]
+    var account = this;
+    var perFolderStuff = [];
+    for (var iter in Iterator(this.folders)) {
+      var folder = iter[1];
+      var folderStuff = this._folderStorages[folder.id]
                            .generatePersistenceInfo();
       if (folderStuff)
         perFolderStuff.push(folderStuff);
     }
 
     this._LOG.saveAccountState(reason);
-    let trans = this._db.saveAccountFolderStates(
+    var trans = this._db.saveAccountFolderStates(
       this.id, this._folderInfos, perFolderStuff, this._deadFolderIds,
       function stateSaved() {
         if (callback)
@@ -198,7 +199,7 @@ ActiveSyncAccount.prototype = {
 
   sliceFolderMessages: function asa_sliceFolderMessages(folderId,
                                                         bridgeHandle) {
-    let storage = this._folderStorages[folderId],
+    var storage = this._folderStorages[folderId],
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
     storage.sliceOpenFromNow(slice);
@@ -214,10 +215,10 @@ ActiveSyncAccount.prototype = {
   syncFolderList: function asa_syncFolderList(callback) {
     // We can assume that we already have a connection here, since jobs.js
     // ensures it.
-    let account = this;
+    var account = this;
 
-    const fh = $ascp.FolderHierarchy.Tags;
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var fh = $ascp.FolderHierarchy.Tags;
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.SyncKey, this.meta.syncKey)
      .etag();
@@ -227,8 +228,8 @@ ActiveSyncAccount.prototype = {
         callback(aError);
         return;
       }
-      let e = new $wbxml.EventParser();
-      let deferredAddedFolders = [];
+      var e = new $wbxml.EventParser();
+      var deferredAddedFolders = [];
 
       e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
         account.meta.syncKey = node.children[0].textContent;
@@ -236,9 +237,11 @@ ActiveSyncAccount.prototype = {
 
       e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Delete]],
                          function(node) {
-        let folder = {};
-        for (let [,child] in Iterator(node.children))
+        var folder = {};
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
           folder[child.localTagName] = child.children[0].textContent;
+        }
 
         if (node.tag === fh.Add) {
           if (!account._addedFolder(folder.ServerId, folder.ParentId,
@@ -264,8 +267,9 @@ ActiveSyncAccount.prototype = {
       // folders before their parents). Keep trying to add folders until we're
       // done.
       while (deferredAddedFolders.length) {
-        let moreDeferredAddedFolders = [];
-        for (let [,folder] in Iterator(deferredAddedFolders)) {
+        var moreDeferredAddedFolders = [];
+        for (var iter in Iterator(deferredAddedFolders)) {
+          var folder = iter[1];
           if (!account._addedFolder(folder.ServerId, folder.ParentId,
                                     folder.DisplayName, folder.Type))
             moreDeferredAddedFolders.push(folder);
@@ -313,25 +317,25 @@ ActiveSyncAccount.prototype = {
     if (!(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
-    const folderType = $ascp.FolderHierarchy.Enums.Type;
+    var folderType = $ascp.FolderHierarchy.Enums.Type;
 
-    let path = displayName;
-    let parentFolderId = null;
-    let depth = 0;
+    var path = displayName;
+    var parentFolderId = null;
+    var depth = 0;
     if (parentServerId !== '0') {
       parentFolderId = this._serverIdToFolderId[parentServerId];
       // We haven't learned about the parent folder. Just return, and wait until
       // we do.
       if (parentFolderId === undefined)
         return null;
-      let parent = this._folderInfos[parentFolderId];
+      var parent = this._folderInfos[parentFolderId];
       path = parent.$meta.path + '/' + path;
       depth = parent.$meta.depth + 1;
     }
 
     // Handle sentinel Inbox.
     if (typeNum === folderType.DefaultInbox) {
-      let existingInboxMeta = this.getFirstFolderWithType('inbox');
+      var existingInboxMeta = this.getFirstFolderWithType('inbox');
       if (existingInboxMeta) {
         // Update the server ID to folder ID mapping.
         delete this._serverIdToFolderId[existingInboxMeta.serverId];
@@ -346,8 +350,8 @@ ActiveSyncAccount.prototype = {
       }
     }
 
-    let folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
-    let folderInfo = this._folderInfos[folderId] = {
+    var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
+    var folderInfo = this._folderInfos[folderId] = {
       $meta: {
         id: folderId,
         serverId: serverId,
@@ -377,8 +381,8 @@ ActiveSyncAccount.prototype = {
                                    $asfolder.ActiveSyncFolderSyncer, this._LOG);
     this._serverIdToFolderId[serverId] = folderId;
 
-    let folderMeta = folderInfo.$meta;
-    let idx = bsearchForInsert(this.folders, folderMeta, function(a, b) {
+    var folderMeta = folderInfo.$meta;
+    var idx = bsearchForInsert(this.folders, folderMeta, function(a, b) {
       return a.path.localeCompare(b.path);
     });
     this.folders.splice(idx, 0, folderMeta);
@@ -398,7 +402,7 @@ ActiveSyncAccount.prototype = {
    *   listeners of this addition
    */
   _deletedFolder: function asa__deletedFolder(serverId, suppressNotification) {
-    let folderId = this._serverIdToFolderId[serverId],
+    var folderId = this._serverIdToFolderId[serverId],
         folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
 
@@ -428,7 +432,7 @@ ActiveSyncAccount.prototype = {
    */
   _recreateFolder: function asa__recreateFolder(folderId, callback) {
     this._LOG.recreateFolder(folderId);
-    let folderInfo = this._folderInfos[folderId];
+    var folderInfo = this._folderInfos[folderId];
     folderInfo.$impl = {
       nextId: 0,
       nextHeaderBlock: 0,
@@ -443,13 +447,14 @@ ActiveSyncAccount.prototype = {
       this._deadFolderIds = [];
     this._deadFolderIds.push(folderId);
 
-    let self = this;
+    var self = this;
     this.saveAccountState(null, function() {
-      let newStorage =
+      var newStorage =
         new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
                                      $asfolder.ActiveSyncFolderSyncer,
                                      self._LOG);
-      for (let [,slice] in Iterator(self._folderStorages[folderId]._slices)) {
+      for (var iter in Iterator(self._folderStorages[folderId]._slices)) {
+        var slice = iter[1];
         slice._storage = newStorage;
         slice._resetHeadersBecauseOfRefreshExplosion(true);
         newStorage.sliceOpenFromNow(slice);
@@ -499,7 +504,7 @@ ActiveSyncAccount.prototype = {
    */
   createFolder: function asa_createFolder(parentFolderId, folderName,
                                           containOnlyOtherFolders, callback) {
-    let account = this;
+    var account = this;
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
         if (error) {
@@ -512,14 +517,14 @@ ActiveSyncAccount.prototype = {
       return;
     }
 
-    let parentFolderServerId = parentFolderId ?
+    var parentFolderServerId = parentFolderId ?
       this._folderInfos[parentFolderId] : '0';
 
-    const fh = $ascp.FolderHierarchy.Tags;
-    const fhStatus = $ascp.FolderHierarchy.Enums.Status;
-    const folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+    var fh = $ascp.FolderHierarchy.Tags;
+    var fhStatus = $ascp.FolderHierarchy.Enums.Status;
+    var folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderCreate)
        .tag(fh.SyncKey, this.meta.syncKey)
        .tag(fh.ParentId, parentFolderServerId)
@@ -528,8 +533,8 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
-      let e = new $wbxml.EventParser();
-      let status, serverId;
+      var e = new $wbxml.EventParser();
+      var status, serverId;
 
       e.addEventListener([fh.FolderCreate, fh.Status], function(node) {
         status = node.children[0].textContent;
@@ -552,7 +557,7 @@ ActiveSyncAccount.prototype = {
       }
 
       if (status === fhStatus.Success) {
-        let folderMeta = account._addedFolder(serverId, parentFolderServerId,
+        var folderMeta = account._addedFolder(serverId, parentFolderServerId,
                                               folderName, folderType);
         callback(null, folderMeta);
       }
@@ -572,7 +577,7 @@ ActiveSyncAccount.prototype = {
    * Callback is like the createFolder one, why not.
    */
   deleteFolder: function asa_deleteFolder(folderId, callback) {
-    let account = this;
+    var account = this;
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
         if (error) {
@@ -584,21 +589,21 @@ ActiveSyncAccount.prototype = {
       return;
     }
 
-    let folderMeta = this._folderInfos[folderId].$meta;
+    var folderMeta = this._folderInfos[folderId].$meta;
 
-    const fh = $ascp.FolderHierarchy.Tags;
-    const fhStatus = $ascp.FolderHierarchy.Enums.Status;
-    const folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+    var fh = $ascp.FolderHierarchy.Tags;
+    var fhStatus = $ascp.FolderHierarchy.Enums.Status;
+    var folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
 
-    let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderDelete)
        .tag(fh.SyncKey, this.meta.syncKey)
        .tag(fh.ServerId, folderMeta.serverId)
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
-      let e = new $wbxml.EventParser();
-      let status;
+      var e = new $wbxml.EventParser();
+      var status;
 
       e.addEventListener([fh.FolderDelete, fh.Status], function(node) {
         status = node.children[0].textContent;
@@ -629,7 +634,7 @@ ActiveSyncAccount.prototype = {
   },
 
   sendMessage: function asa_sendMessage(composer, callback) {
-    let account = this;
+    var account = this;
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
         if (error) {
@@ -647,8 +652,8 @@ ActiveSyncAccount.prototype = {
       // ActiveSync 14.0 has a completely different API for sending email. Make
       // sure we format things the right way.
       if (this.conn.currentVersion.gte('14.0')) {
-        const cm = $ascp.ComposeMail.Tags;
-        let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        var cm = $ascp.ComposeMail.Tags;
+        var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(cm.SendMail)
            .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
            .tag(cm.SaveInSentItems)

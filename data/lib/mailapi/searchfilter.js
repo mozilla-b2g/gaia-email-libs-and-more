@@ -182,7 +182,7 @@ RecipientFilter.prototype = {
   needsBody: true,
 
   testMessage: function(header, body, match) {
-    const phrase = this.phrase, stopAfter = this.stopAfter;
+    var phrase = this.phrase, stopAfter = this.stopAfter;
     var matches = [];
     function checkRecipList(list) {
       var ret;
@@ -287,16 +287,16 @@ exports.SubjectFilter = SubjectFilter;
 SubjectFilter.prototype = {
   needsBody: false,
   testMessage: function(header, body, match) {
-    const subject = header.subject;
+    var subject = header.subject;
     // Empty subjects can't match *anything*; no empty regexes allowed, etc.
     if (!subject)
       return false;
-    const phrase = this.phrase,
-          slen = subject.length,
-          stopAfter = this.stopAfter,
-          contextBefore = this.contextBefore, contextAfter = this.contextAfter,
-          matches = [];
-    var idx = 0;
+    var phrase = this.phrase,
+        slen = subject.length,
+        stopAfter = this.stopAfter,
+        contextBefore = this.contextBefore, contextAfter = this.contextAfter,
+        matches = [],
+        idx = 0;
 
     while (idx < slen && matches.length < stopAfter) {
       var ret = matchRegexpOrString(phrase, subject, idx);
@@ -320,9 +320,9 @@ SubjectFilter.prototype = {
 };
 
 // stable value from quotechew.js; full export regime not currently required.
-const CT_AUTHORED_CONTENT = 0x1;
+var CT_AUTHORED_CONTENT = 0x1;
 // HTML DOM constants
-const ELEMENT_NODE = 1, TEXT_NODE = 3;
+var ELEMENT_NODE = 1, TEXT_NODE = 3;
 
 /**
  * Searches the body of the message, it can ignore quoted stuff or not.
@@ -345,12 +345,12 @@ exports.BodyFilter = BodyFilter;
 BodyFilter.prototype = {
   needsBody: true,
   testMessage: function(header, body, match) {
-    const phrase = this.phrase,
-          stopAfter = this.stopAfter,
-          contextBefore = this.contextBefore, contextAfter = this.contextAfter,
-          matches = [],
-          matchQuotes = this.matchQuotes;
-    var idx;
+    var phrase = this.phrase,
+        stopAfter = this.stopAfter,
+        contextBefore = this.contextBefore, contextAfter = this.contextAfter,
+        matches = [],
+        matchQuotes = this.matchQuotes,
+        idx;
 
     for (var iBodyRep = 0; iBodyRep < body.bodyReps.length; iBodyRep += 2) {
       var bodyType = body.bodyReps[iBodyRep],
@@ -484,7 +484,7 @@ MessageFilterer.prototype = {
     //console.log('sf: testMessage(', header.suid, header.author.address,
     //            header.subject, 'body?', !!body, ')');
     var matched = false, matchObj = {};
-    const filters = this.filters;
+    var filters = this.filters;
     try {
       for (var i = 0; i < filters.length; i++) {
         var filter = filters[i];
@@ -503,8 +503,8 @@ MessageFilterer.prototype = {
   },
 };
 
-const CONTEXT_CHARS_BEFORE = 16;
-const CONTEXT_CHARS_AFTER = 40;
+var CONTEXT_CHARS_BEFORE = 16;
+var CONTEXT_CHARS_AFTER = 40;
 
 /**
  *

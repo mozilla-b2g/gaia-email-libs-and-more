@@ -71,7 +71,7 @@ exports.local_undo_modtags = function(op, callback) {
 exports.local_do_move = function(op, doneCallback, targetFolderId) {
   // create a scratch field to store the guid's for check purposes
   op.guids = {};
-  const nukeServerIds = !this.resilientServerIds;
+  var nukeServerIds = !this.resilientServerIds;
 
   var stateDelta = this._stateDelta, addWait = 0, self = this;
   if (!stateDelta.moveMap)

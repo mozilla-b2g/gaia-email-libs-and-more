@@ -1074,7 +1074,7 @@ MessageComposition.prototype = {
 };
 
 
-const LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
+var LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
 
 /**
  * Error reporting helper; we will probably eventually want different behaviours

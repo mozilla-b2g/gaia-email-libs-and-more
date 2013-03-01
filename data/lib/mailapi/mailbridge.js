@@ -19,14 +19,14 @@ define(
     $module,
     exports
   ) {
-const bsearchForInsert = $imaputil.bsearchForInsert,
-      bsearchMaybeExists = $imaputil.bsearchMaybeExists;
+var bsearchForInsert = $imaputil.bsearchForInsert,
+    bsearchMaybeExists = $imaputil.bsearchMaybeExists;
 
 function toBridgeWireOn(x) {
   return x.toBridgeWire();
 }
 
-const FOLDER_TYPE_TO_SORT_PRIORITY = {
+var FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
   inbox: 'c',
   starred: 'e',

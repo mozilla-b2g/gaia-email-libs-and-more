@@ -215,7 +215,7 @@ var normalizeError = exports.normalizeError = function normalizeError(err) {
  *
  * XXX DST issue, maybe vary this.
  */
-const DEFAULT_TZ_OFFSET = -7 * 60 * 60 * 1000;
+var DEFAULT_TZ_OFFSET = -7 * 60 * 60 * 1000;
 
 var extractTZFromHeaders = exports._extractTZFromHeaders =
     function extractTZFromHeaders(allHeaders) {
