@@ -362,9 +362,7 @@ CronSyncer.prototype = {
       }
     }.bind(this));
     this._activeSlices.push(slice);
-    // use forceDeepening to ensure that a synchronization happens.
-    storage.sliceOpenFromNow(slice, 3, true);
-
+    storage.sliceOpenMostRecent(slice);
   },
 
   onAlarm: function() {

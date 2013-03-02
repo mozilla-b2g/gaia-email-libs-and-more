@@ -766,14 +766,13 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  syncDateRange: function asfc_syncDateRange(startTS, endTS, accuracyStamp,
-                                             doneCallback, progressCallback) {
+  sync: function asfc_sync(accuracyStamp, doneCallback, progressCallback) {
     var folderConn = this,
         addedMessages = 0,
         changedMessages = 0,
         deletedMessages = 0;
 
-    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
+    this._LOG.sync_begin(null, null, null);
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
       var storage = folderConn._storage;
@@ -783,7 +782,7 @@ ActiveSyncFolderConn.prototype = {
           // If we got a bad sync key, we'll end up creating a new connection,
           // so just clear out the old storage to make this connection unusable.
           folderConn._storage = null;
-          folderConn._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+          folderConn._LOG.sync_end(null, null, null);
         });
         return;
       }
@@ -837,9 +836,10 @@ ActiveSyncFolderConn.prototype = {
         // Note: For the second argument here, we report the number of messages
         // we saw that *changed*. This differs from IMAP, which reports the
         // number of messages it *saw*.
-        folderConn._LOG.syncDateRange_end(addedMessages, changedMessages,
-                                          deletedMessages, startTS, endTS);
-        storage.markSyncRange(startTS, endTS, 'XXX', accuracyStamp);
+        folderConn._LOG.sync_end(addedMessages, changedMessages,
+                                 deletedMessages);
+        storage.markSyncRange($sync.OLDEST_SYNC_DATE, accuracyStamp, 'XXX',
+                              accuracyStamp);
         doneCallback(null, null, messagesSeen);
       }
     },
@@ -1063,30 +1063,25 @@ ActiveSyncFolderSyncer.prototype = {
     return false;
   },
 
-  syncDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                          progressCallback) {
+  initialSync: function(slice, initialDays, syncCallback,
+                        doneCallback, progressCallback) {
     syncCallback('sync', false, true);
-    this.folderConn.syncDateRange(
-      startTS, endTS, $date.NOW(),
-      this.onSyncCompleted.bind(this, doneCallback),
+    this.folderConn.sync(
+      $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback, true),
       progressCallback);
   },
 
-  syncAdjustedDateRange: function(startTS, endTS, syncCallback, doneCallback,
-                                  progressCallback) {
-    // ActiveSync doesn't adjust date ranges. Just do a normal sync.
-    this.syncDateRange(startTS, endTS, syncCallback, doneCallback,
-                       progressCallback);
-  },
-
-  refreshSync: function(startTS, endTS, useBisectLimit, doneCallback,
-                        progressCallback) {
-    this.folderConn.syncDateRange(startTS, endTS, $date.NOW(),
-                                  doneCallback, progressCallback);
+  refreshSync: function(slice, dir, startTS, endTS, origStartTS,
+                        doneCallback, progressCallback) {
+    this.folderConn.sync(
+      $date.NOW(),
+      this.onSyncCompleted.bind(this, doneCallback, false),
+      progressCallback);
   },
 
   // Returns false if no sync is necessary.
-  growSync: function(endTS, batchHeaders, userRequestsGrowth, syncCallback,
+  growSync: function(slice, growthDirection, anchorTS, syncStepDays,
                      doneCallback, progressCallback) {
     // ActiveSync is different, and trying to sync more doesn't work with it.
     // Just assume we've got all we need.
@@ -1100,32 +1095,38 @@ ActiveSyncFolderSyncer.prototype = {
    * either trigger another sync if we still want more data, or close out the
    * current sync.
    */
-  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, err, bisectInfo,
-                                                messagesSeen) {
+  onSyncCompleted: function ifs_onSyncCompleted(doneCallback, initialSync,
+                                                err, bisectInfo, messagesSeen) {
+    var storage = this.folderStorage;
+    console.log("Sync Completed!", messagesSeen, "messages synced");
+
+    // Expand the accuracy range to cover everybody.
+    if (!err)
+      storage.markSyncedToDawnOfTime();
+    // Always save state, although as an optimization, we could avoid saving state
+    // if we were sure that our state with the server did not advance.
+    this._account.__checkpointSyncCompleted();
+
     if (err) {
       doneCallback(err);
       return;
     }
 
-    var storage = this.folderStorage;
+    if (initialSync) {
+      storage._curSyncSlice.ignoreHeaders = false;
+      storage._curSyncSlice.waitingOnData = 'db';
 
-    console.log("Sync Completed!", messagesSeen, "messages synced");
-
-    // Expand the accuracy range to cover everybody.
-    storage.markSyncedEntireFolder();
-
-    storage._curSyncSlice.ignoreHeaders = false;
-    storage._curSyncSlice.waitingOnData = 'db';
-
-    storage.getMessagesInImapDateRange(
-      0, $date.FUTURE(), $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
-      // Don't trigger a refresh; we just synced.
-      storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
-                                    doneCallback, null)
-    );
-
-    storage._curSyncSlice = null;
-    this._account.__checkpointSyncCompleted();
+      storage.getMessagesInImapDateRange(
+        0, null, $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+        // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
+        // be null.
+        storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                      doneCallback, null)
+      );
+    }
+    else {
+      doneCallback(err);
+    }
   },
 
   allConsumersDead: function() {
@@ -1145,9 +1146,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       inferFilterType: { filterType: false },
     },
     asyncJobs: {
-      syncDateRange: {
-        newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false,
+      sync: {
+        newMessages: true, changedMessages: true, deletedMessages: true,
       },
     },
   },

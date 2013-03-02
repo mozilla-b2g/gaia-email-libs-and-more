@@ -42,6 +42,8 @@ var TestUniverseMixins = {
     self.universe = null;
     self.MailAPI = null;
 
+    self.messageGenerator = null;
+
     self._bridgeLog = null;
 
     // self-registered accounts that belong to this universe
@@ -65,7 +67,6 @@ var TestUniverseMixins = {
       // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
-      var DISABLE_THRESH_USING_FUTURE = -60 * 60 * 1000;
     }
     else {
       self._useDate = new Date();
@@ -78,17 +79,22 @@ var TestUniverseMixins = {
       $sync.TEST_adjustSyncValues({
         fillSize: 15,
         days: 7,
+        growDays: 7,
         scaleFactor: 1.6,
         // We don't want to test this at scale as part of our unit tests, so
         // crank it way up so we don't ever accidentally run into this.
         bisectThresh: 2000,
         tooMany: 2000,
-        refreshNonInbox: DISABLE_THRESH_USING_FUTURE,
-        refreshInbox: DISABLE_THRESH_USING_FUTURE,
-        oldIsSafeForRefresh: DISABLE_THRESH_USING_FUTURE,
-        refreshOld: DISABLE_THRESH_USING_FUTURE,
-        useRangeNonInbox: DISABLE_THRESH_USING_FUTURE,
-        useRangeInbox: DISABLE_THRESH_USING_FUTURE
+
+        // For consistency with our original tests where we would always
+        // generate network traffic when opening a slice, set the threshold so
+        // that it is always exceeded.  Tests that care currently explicitly
+        // set this.  Note that our choice of -1 assumes that Date.now() is
+        // strictly increasing; this is usually pretty safe but ntpdate can
+        // do angry things, for one.
+        openRefreshThresh: -1,
+        // Same deal.
+        growRefreshThresh: -1,
       });
     }
 
@@ -106,6 +112,11 @@ var TestUniverseMixins = {
         'ActiveSyncFolderConn', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
         'FolderStorage', self.__folderStorageLoggerSoup);
+
+      // Propagate the old universe's message generator so that the subject
+      // numbers don't get reset.
+      if (opts && opts.old && opts.old.messageGenerator)
+        self.messageGenerator = opts.old.messageGenerator;
 
       for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
         var testAccount = self.__restoredAccounts[iAcct];
@@ -299,6 +310,7 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+    this.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
       mix(TestImapAccountMixins, self);
@@ -383,6 +395,7 @@ var TestCommonAccountMixins = {
     this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
     if (expectedFlags)
       this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.growUp || false,
                              expectedFlags.grow, 'synced');
 
     // - listen for the changes
@@ -418,6 +431,7 @@ var TestCommonAccountMixins = {
       self._logger.changesReported(additionRep, changeRep, deletionRep);
       if (expectedFlags)
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
+                                viewThing.slice.userCanGrowUpwards,
                                 viewThing.slice.userCanGrowDownwards,
                                 viewThing.slice.status);
 
@@ -440,6 +454,7 @@ var TestCommonAccountMixins = {
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
     viewThing.offset = 0;
+    viewThing.initialSynced = false;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
                        extraFlags, viewThing);
     return viewThing;
@@ -464,16 +479,17 @@ var TestCommonAccountMixins = {
   },
 
   do_refreshFolderView: function(viewThing, expectedValues, checkExpected,
-                                 expectedFlags) {
+                                 expectedFlags, extraFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(viewThing.testFolder,
-                                                 expectedValues);
+      // we want this before _expect_dateSyncs because _expect_dateSyncs updates
+      // testFolder.initialSynced to be true, which affects this method.
+      self._expect_storage_mutexed(viewThing.testFolder, 'refresh', extraFlags);
+
+      var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
+                                                 null, 0);
       self.expect_messagesReported(totalExpected);
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
-
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor,
-                                   'refresh');
 
       viewThing.slice.refresh();
     });
@@ -484,9 +500,29 @@ var TestCommonAccountMixins = {
    * the given type.  Ignore block load and deletion notifications during this
    * time.
    */
-  _expect_storage_mutexed: function(storageActor, syncType) {
+  _expect_storage_mutexed: function(testFolder, syncType, extraFlags) {
+    var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
     storageActor.expect_mutexedCall_begin(syncType);
+    // activesync always syncs the entire folder
+    if (this.type === 'activesync') {
+      storageActor.expect_syncedToDawnOfTime();
+    }
+    else {
+      switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
+        case true:
+          // per the comment on do_viewFolder, this flag has no meaning when we are
+          // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
+          // PASTWARDS, comment out this line and things should work.
+          if ((syncType === 'sync' && !testFolder.initialSynced) ||
+              (syncType === 'grow'))
+            storageActor.expect_syncedToDawnOfTime();
+          break;
+        case 'ignore':
+          storageActor.ignore_syncedToDawnOfTime();
+          break;
+      }
+    }
     storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
@@ -593,6 +629,52 @@ var TestCommonAccountMixins = {
           self._logger.deletionNotified(1);
         });
       });
+  },
+};
+
+var TestFolderMixins = {
+  __constructor: function() {
+    this.connActor = null;
+    this.storageActor = null;
+    this.id = null;
+    this.mailFolder = null;
+    // fake-server folder rep, if we are using a fake-server
+    this.serverFolder = null;
+    // messages on the server
+    this.serverMessages = null;
+    this.serverDeleted = [];
+    // messages that should be known to the client based on the sync operations
+    //  we have generated expectations for.
+    this.knownMessages = [];
+    this.initialSynced = false;
+
+    this._approxMessageCount = 0;
+    this._liveSliceThings = [];
+  },
+
+  /**
+   * Used by a unit test to tell us that the (server) message at the given index
+   * is being deleted.  For IMAP, this is accomplished by the IMAP code directly
+   * manipulating flags via using modifyMessageTags, expecting the operation,
+   * then expecting the operation.  We should then be called to be aware of
+   * the change.
+   *
+   * For ActiveSync, a fake-server is currently assumed, and the manipulation
+   * occurs via testFolder.serverFolder.removeMessageById().
+   *
+   * Ideally, in the future, we might just provide a helper method to
+   * bundle all of that up into one call to manipulate the server state, be it
+   * fake-server or real server.  The ActiveSync way is probably what we should
+   * normalize to.
+   */
+  beAwareOfDeletion: function(index) {
+    this.serverDeleted.push(this.serverMessages[index]);
+    this.serverDeleted.push({ below: this.serverMessages[index - 1],
+                              above: this.serverMessages[index + 1] });
+    // ActiveYsnc's removeMessageById method will do this for us; serverMessages
+    // is aliased to serverFolder.messages which gets updated.
+    if (!this.serverFolder)
+      this.serverMessages.splice(index, 1);
   },
 };
 
@@ -760,11 +842,6 @@ var TestImapAccountMixins = {
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
 
-    testFolder.id = null;
-    testFolder.mailFolder = null;
-    testFolder.messages = null;
-    testFolder._approxMessageCount = messageSetDef.count;
-    testFolder._liveSliceThings = [];
     this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
                             function() {
       var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
@@ -815,8 +892,10 @@ var TestImapAccountMixins = {
     });
 
     if (messageSetDef.hasOwnProperty('count') &&
-        messageSetDef.count === 0)
+        messageSetDef.count === 0) {
+      testFolder.serverMessages = [];
       return testFolder;
+    }
 
     this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
                                      messageSetDef);
@@ -829,15 +908,18 @@ var TestImapAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.messages = null;
     testFolder._approxMessageCount = 30;
-    testFolder._liveSliceThings = [];
+
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
                                 folderName);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -853,15 +935,18 @@ var TestImapAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.messages = null;
     testFolder._approxMessageCount = 30;
-    testFolder._liveSliceThings = [];
+
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithType(
                                 folderType);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -900,28 +985,36 @@ var TestImapAccountMixins = {
         messageBodies = messageSetDef();
       }
       else {
-        var generator = new $fakeacct.MessageGenerator(self._useDate, 'body');
+        // We save/reuse our generator so that the subject numbers don't reset.
+        // It was very confusing when we would add a new message with a
+        // duplicate subject.
+        if (!self.testUniverse.messageGenerator) {
+          self.testUniverse.messageGenerator =
+            new $fakeacct.MessageGenerator(self._useDate, 'body');
+        }
+        var generator = self.testUniverse.messageGenerator;
+        generator._clock = new Date(self._useDate);
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
       if (checkFlagDefault(opts, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
-      else if (!testFolder.messages) {
-        testFolder.messages = messageBodies;
+      else if (!testFolder.serverMessages) {
+        testFolder.serverMessages = messageBodies;
       }
       // messages already in there, need to insert them appropriately
       else {
         for (var i = 0; i < messageBodies.length; i++) {
           var idx = $util.bsearchForInsert(
-            testFolder.messages, messageBodies[i],
+            testFolder.serverMessages, messageBodies[i],
             function (a, b) {
               // we only compare based on date because we require distinct dates
               // for this ordering, but we could track insertion sequence
               // which would correlate with UID and then be viable...
               return b.date - a.date;
             });
-          testFolder.messages.splice(idx, 0, messageBodies[i]);
+          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
         }
       }
       self.universe.appendMessages(testFolder.id, messageBodies);
@@ -1007,28 +1100,362 @@ var TestImapAccountMixins = {
     });
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
+  /**
+   * Propagate messages/changes from serverMessages to knownMessages in a
+   * testFolder as the result of a sync.  For places where knownMessages and
+   * serverMessages overlap, we apply parallel traversal to detect additions
+   * and deletions.  Where knownMessages does not yet overlap with
+   * serverMessages, we just directly copy those messages across.  We only
+   * generate the changes identified by `addCount` and `delCount`; we are
+   * leaving it to the test cases themselves to know what is correct, we are
+   * just trying to make the tests less horrible to write.
+   *
+   * We have limited time-stamp awareness; when doing a refresh our index
+   * translation logic will expand appropriately.
+   *
+   * @args[
+   *   @param[viewThing FolderViewThing]{
+   *     The folder view in question; we want this primarily for its testFolder
+   *     but also to know what messages it currently knows about.
+   *   }
+   *   @param[propState @oneof[null Object]]{
+   *     A state object returned by a prior call to this function for use
+   *     within the same _expect_dateSyncs invocation.
+   *   }
+   *   @param[reportCount]{
+   *     The 'count' value provided in the expecedValues dicts.  This is the
+   *     number of messages that will be reported from the given sync
+   *     operation.
+   *   }
+   *   @param[addcount Number]{
+   *
+   *   }
+   *   @param[delCount Number]{
+   *   }
+   *   @param[dir @oneof[
+   *     @case[-1]{
+   *       Futurewards
+   *     }
+   *     @case[0]{
+   *       It's a refresh!
+   *     }
+   *     @case[1]{
+   *       Pastwards
+   *     }
+   *   ]
+   * ]
+   */
+  _propagateToKnownMessages: function(viewThing, propState, reportCount,
+                                      addCount, delCount, dir) {
+    if (!propState)
+      propState = { offsetAdjust: 0, itemsAdjust: 0, idx: 0 };
+    else
+      propState.idx++;
+    var testFolder = viewThing.testFolder,
+        serverMessages = testFolder.serverMessages,
+        knownMessages = testFolder.knownMessages,
+        serverDeleted = testFolder.serverDeleted,
+        seenAdded = 0, seenDeleted = 0,
+        // the index of the slice's numerically lowest known message
+        lowKnownIdx = viewThing.offset + propState.offsetAdjust,
+        // the index of the slice's numerically highest known message
+        highKnownIdx = lowKnownIdx +
+          (viewThing.slice ?
+             (viewThing.slice.items.length + propState.itemsAdjust - 1) : -1);
+
+    function expandDateIndex(idx, array, dir) {
+      // no need to adjust gibberish indices
+      if (idx < 0 || idx >= array.length)
+        return idx;
+      var thresh = $date.quantizeDate(array[idx].headerInfo.date +
+                                      (dir === -1 ? 0 : $date.DAY_MILLIS));
+      var i;
+      if (dir === -1) {
+        for (i = idx - 1; i >= 0; i--) {
+          if ($date.STRICTLY_AFTER(array[idx].headerInfo.date, thresh))
+            break;
+        }
+        return i + 1;
+      }
+      else {
+        for (i = idx + 1; i < array.length; i++) {
+          if ($date.ON_OR_BEFORE(array[idx].headerInfo.date, thresh))
+            break;
+        }
+        return i - 1;
+      }
+    }
+    /**
+     * Translate a known messages index to a server index.  For non-deleted
+     * messages, straight-up indexOf works.  For deleted messages, we must
+     * leverage the `serverDeleted` changelog.
+     */
+    function findServerIndex(knownIndex, shrinkAttr, expandDir) {
+      if (!serverMessages.length ||
+          knownIndex < -1)
+        return 0;
+
+      // If this is the earliest message known to us, then the time heuristics
+      // in sync will clamp the search range to 'now', so we should be using
+      // the first available server message too.  We intentionally do want to
+      // do this prior to calling expandDateIndex.
+      if (knownIndex === 0 && expandDir === -1)
+        return 0;
+
+      if (expandDir)
+        knownIndex = expandDateIndex(knownIndex, knownMessages, expandDir);
+
+      var header = knownMessages[knownIndex],
+          srvIdx = serverMessages.indexOf(header);
+
+      // -- Handle deletions
+      while (srvIdx === -1) {
+        var delIdx = serverDeleted.indexOf(header);
+        if (delIdx === -1)
+          throw new Error('Unable to sync up server/deleted index: ' +
+                          JSON.stringify(header));
+
+        header = serverDeleted[delIdx + 1][shrinkAttr];
+        serverDeleted.splice(delIdx, 2);
+
+        if (++seenDeleted > delCount)
+          throw new Error('more deleted messages than expected!');
+        knownMessages.splice(knownIndex, 1);
+        knownIndex = knownMessages.indexOf(header);
+
+        srvIdx = serverMessages.indexOf(header);
+      }
+      if (expandDir)
+        srvIdx = expandDateIndex(srvIdx, serverMessages, expandDir);
+      return srvIdx;
+    }
+    /**
+     * 2-phase merge logic: 1) handle deltas for where knownMessages already
+     * covers some of the messages, and 2) just chuck in the unknown up to the
+     * limit once we run out of what knownMessages covers.
+     *
+     * Because our growth logic simplifies things by keeping refresh separate
+     * from growth, only 1 of the 2 phases should actually come into play.
+     *
+     * @args[
+     *   @param[srvLowIdx Number]{
+     *     Low inclusive index.
+     *   }
+     *   @param[srvHighIdx Number]{
+     *     High inclusive index.  Use srvLowIdx - 1 to cause instant
+     *     termination.
+     *   }
+     * ]
+     */
+    function mergeIn(useLowIdx, useHighIdx, srvLowIdx, srvHighIdx) {
+      var srvIdx, endSrvIdx,
+          knownIdx, endKnownIdx, step,
+          addOffset, addStep, addEndAdjust, delStep, delEndAdjust;
+      switch(dir) {
+        case 1:
+        case 0:
+          srvIdx = srvLowIdx;
+          endSrvIdx = srvHighIdx + 1;
+          knownIdx = useLowIdx;
+          endKnownIdx = useHighIdx + 1;
+          step = 1;
+          break;
+        case -1:
+          srvIdx = srvHighIdx;
+          endSrvIdx = srvLowIdx - 1;
+          knownIdx = useHighIdx;
+          endKnownIdx = useLowIdx - 1;
+          step = -1;
+          break;
+      }
+      //console.log('MERGE BEGIN', srvLowIdx, srvHighIdx,
+      //            'srv', srvIdx, endSrvIdx, 'known', knownIdx, endKnownIdx);
+
+      // -- phase 1: delta merge
+      // Check the headers in both places, if they don't match, it must either
+      // be a deletion or an addition.  Since we explicitly track deletions in
+      // serverDeleted, we don't need to do any clever diff delta work; we just
+      // look in there.
+      while (srvIdx !== endSrvIdx &&
+             knownIdx !== endKnownIdx &&
+             (seenDeleted < delCount ||
+              seenAdded < addCount)) {
+        var knownHeader = knownMessages[knownIdx],
+            serverHeader = serverMessages[srvIdx];
+        if (knownHeader !== serverHeader) {
+          var idxDeleted = serverDeleted.indexOf(knownHeader);
+          // - added
+          if (idxDeleted === -1) {
+            seenAdded++;
+            srvIdx += step;
+            //console.log('MERGE add', knownIdx, serverHeader.headerInfo.subject);
+            if (dir !== -1) {
+              // Add at our current site, displacing the considered header to be
+              // be the next header after a normal step.
+              knownMessages.splice(knownIdx, 0, serverHeader);
+              endKnownIdx++;
+              knownIdx++;
+            }
+            else {
+              // add the message 'behind' us and do not step; end stays in place
+              knownMessages.splice(knownIdx + 1, 0, serverHeader);
+            }
+          }
+          // - deleted
+          else {
+            //console.log('MERGE del', knownIdx);
+            seenDeleted++;
+            serverDeleted.splice(idxDeleted, 2);
+            knownMessages.splice(knownIdx, 1);
+            if (dir !== -1) {
+              // if we splice something out, the next thing comes to us; no step
+              // if we delete something; our end index comes down to meet us
+              endKnownIdx--;
+            }
+            else {
+              // if we splice something else, we still need to step
+              knownIdx--;
+              // if we delete something; our end index is still in the same spot
+            }
+          }
+        }
+        else {
+          //console.log('MERGE same', knownIdx);
+          srvIdx += step;
+          knownIdx += step;
+        }
+      }
+
+      // -- phase 2: cram leftovers
+      // At this point, knownIdx points at the insertion point and (addCount -
+      // seenAdded) is the number of messages to splice there.
+      if (srvIdx !== endSrvIdx &&
+           seenAdded < addCount) {
+        var toAdd = addCount - seenAdded;
+        //console.log('CRAM add:', toAdd, 'srv', srvIdx, endSrvIdx, 'at known', knownIdx);
+        if (dir !== -1) {
+          knownMessages.splice.apply(knownMessages,
+            [knownIdx, 0].concat(serverMessages.slice(srvIdx, srvIdx + toAdd)));
+        }
+        else {
+          knownMessages.splice.apply(knownMessages,
+            [knownIdx, 0].concat(serverMessages.slice(srvIdx - toAdd + 1,
+                                                      srvIdx + 1)));
+        }
+      }
+    }
+
+
+    // --- open
+    if (dir === null) {
+      // - initial sync
+      if (!testFolder.initialSynced) {
+        //console.log('initial');
+        // The add count should exactly cover what we find out about; no need
+        // to do anything with dates.
+        dir = 1;
+        mergeIn(
+          knownMessages.length,
+          lowKnownIdx - 1,
+          knownMessages.length,
+          knownMessages.length + addCount);
+      }
+      // - db already knows stuff
+      // This is a refresh on top of a fetch of INITIAL_FILL_SIZE from the db.
+      // reportCount is not the right thing to use because it tells us how
+      // many messages we'll hear about after the refresh is all done.
+      //
+      // If this is a refresh that takes multiple passes, then the 0th will have
+      // been the bisection abort that did nothing.  The 1st will be the one
+      // that actually decides the server range we are processing, and
+      // everything after that will just be the incremental steps.
+      else if (propState.idx === 0) {
+        var useCount = Math.min(knownMessages.length, $sync.INITIAL_FILL_SIZE);
+        dir = 0;
+        propState.highKnownHeader = knownMessages[useCount - 1];
+        mergeIn(
+          0,
+          useCount - 1,
+          (propState.serverLow = findServerIndex(0, 'above', -1)),
+          (propState.serverHigh = findServerIndex(useCount - 1, 'below', 1)));
+      }
+      else {
+        dir = 0;
+        mergeIn(
+          0,
+          knownMessages.indexOf(propState.highKnownHeader),
+          propState.serverLow,
+          propState.serverHigh);
+      }
+    }
+    // --- refresh
+    else if (dir === 0) {
+      mergeIn(
+        lowKnownIdx,
+        highKnownIdx,
+        findServerIndex(lowKnownIdx, 'above', -1),
+        findServerIndex(highKnownIdx, 'below', 1));
+    }
+    // --- growth to newer
+    else if (dir === -1) {
+      mergeIn(
+        0, lowKnownIdx - 1,
+        0, findServerIndex(lowKnownIdx, 'above', 1) - 1);
+    }
+    // --- growth to older
+    else if (dir === 1) {
+      mergeIn(
+        highKnownIdx + 1,
+        knownMessages.length - 1,
+        findServerIndex(highKnownIdx, 'below', -1) + 1,
+        serverMessages.length - 1);
+    }
+
+    return propState;
+  },
+
+  _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
+                              syncDir) {
+    var testFolder = viewThing.testFolder;
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
-    var totalMessageCount = 0;
+    var totalMessageCount = 0,
+        nonet = checkFlagDefault(extraFlags, 'nonet', false);
 
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
         expectedValues = [expectedValues];
 
+      var propState = null;
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
-        if (this.universe.online) {
-          testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-          testFolder.connActor.expect_syncDateRange_end(
-            einfo.full, einfo.flags, einfo.deleted);
+        if (this.universe.online && !nonet) {
+          propState = this._propagateToKnownMessages(
+            viewThing, propState,
+            einfo.count, einfo.full, einfo.deleted, syncDir);
+
+          if (!einfo.hasOwnProperty('startTS')) {
+            testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted);
+          }
+          // some tests explicitly specify the date-stamps
+          else {
+            testFolder.connActor.expect_syncDateRange_begin(
+              null, null, null, einfo.startTS, einfo.endTS);
+            testFolder.connActor.expect_syncDateRange_end(
+              einfo.full, einfo.flags, einfo.deleted,
+              einfo.startTS, einfo.endTS);
+          }
         }
       }
     }
-    if (this.universe.online &&
-        !checkFlagDefault(extraFlags, 'nosave', false)) {
-      this.eImapAccount.expect_saveAccountState();
+    if (this.universe.online && !nonet) {
+      testFolder.initialSynced = true;
+
+      if (!checkFlagDefault(extraFlags, 'nosave', false))
+        this.eImapAccount.expect_saveAccountState();
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
@@ -1042,6 +1469,36 @@ var TestImapAccountMixins = {
    * Perform a one-shot viewing of the contents of the folder to see that we
    * get back the right thing.  Use do_openFolderView if you want to open it
    * and keep it open and detect changes, etc.
+   *
+   * @args[
+   *   @param[extraFlags @dict[
+   *     @key[expectFunc #:optional Function]{
+   *       A function to invoke inside our action step after we have expected
+   *       the mutexed call (without enabling set matching), but before doing
+   *       anything else.
+   *     }
+   *     @key[nosave #:default false Boolean]{
+   *       Used by _expect_dateSyncs to determine whether a call to
+   *       expect_saveAccountState should be issued when we are in the online
+   *       state.
+   *     }
+   *     @key[failure #:default false Boolean]{
+   *       If true, indicates that we should expect a 'syncfailed' result.
+   *     }
+   *     @key[nonet #:default false Boolean]{
+   *       Indicate that no network traffic is expected.  This is only relevant
+   *       if we think we are online.
+   *     }
+   *     @key[syncedToDawnOfTime #:optional Boolean]{
+   *       Assert that we are synced to the dawn of time at the end of this
+   *       sync IFF this is known to be a PASTWARDS-sync.  We've recently
+   *       changed the direction of refreshes to be FUTUREWARDS, in which case
+   *       this heuristic does not apply.  Rather than go change all the test
+   *       cases and make it harder to toggle the heuristic, we are building
+   *       the logic in here.
+   *     }
+   *   ]]
+   * ]
    */
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
                           extraFlags, _saveToThing) {
@@ -1049,13 +1506,7 @@ var TestImapAccountMixins = {
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
     var testStep = this.T.action(this, desc, testFolder, 'using',
                                  testFolder.connActor, function() {
-      self._expect_storage_mutexed(testFolder.storageActor, 'sync');
-      // In the bisect case, we may end up actually generating a first sync
-      // mutex for a refresh followed by a second one once the bisect converts
-      // to a traditional sliceOpenFromNow.  We need the caller to tell us this.
-      if (extraFlags && extraFlags.extraMutex)
-        self._expect_storage_mutexed(testFolder.storageActor,
-                                     extraFlags.extraMutex);
+      self._expect_storage_mutexed(testFolder, 'sync', extraFlags);
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
@@ -1064,7 +1515,8 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        if (!isFailure) {
+        if (!isFailure &&
+            !checkFlagDefault(extraFlags, 'nonet', false)) {
           self.expect_connection();
           if (!_saveToThing)
             self.eImapAccount.expect_releaseConnection();
@@ -1074,21 +1526,23 @@ var TestImapAccountMixins = {
       }
 
       // generate expectations for each date sync range
-      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
-                                                 extraFlags);
+      var totalExpected = self._expect_dateSyncs(
+                            _saveToThing ||
+                              { testFolder: testFolder,
+                                offset: 0, slice: null },
+                            expectedValues, extraFlags, null);
       if (expectedValues) {
         // Generate overall count expectation and first and last message
         // expectations by subject.
         self.expect_messagesReported(totalExpected);
         if (totalExpected) {
-          self.expect_messageSubject(
-            0, testFolder.messages[0].headerInfo.subject);
-          self.expect_messageSubject(
-            totalExpected - 1,
-            testFolder.messages[totalExpected - 1].headerInfo.subject);
+          self.expect_messageSubjects(
+            testFolder.knownMessages.slice(0, totalExpected)
+              .map(function(x) { return x.headerInfo.subject; }));
         }
         self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          expectedFlags.top, expectedFlags.bottom,
+          expectedFlags.growUp || false, expectedFlags.grow,
           isFailure ? 'syncfailed' : 'synced');
       }
 
@@ -1096,11 +1550,11 @@ var TestImapAccountMixins = {
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
-          self._logger.messageSubject(0, slice.items[0].subject);
-          self._logger.messageSubject(
-            totalExpected - 1, slice.items[totalExpected - 1].subject);
+          self._logger.messageSubjects(
+            slice.items.map(function(x) { return x.subject; }));
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
@@ -1116,23 +1570,43 @@ var TestImapAccountMixins = {
     return testStep;
   },
 
+  /**
+   * @args[
+   *   @param[viewThing]
+   *   @param[dirMagnitude Number]
+   *   @param[userRequestsGrowth Boolean]
+   *   @param[alreadyExists Number]{
+   *     How many messages should already be in the slice.
+   *   }
+   *   @param[expectedValues ExpectedValues]
+   *   @param[extraFlags @dict[
+   *     @see[do_viewFolder extraFlags]
+   *     @key[willFail #:default false Boolean]{
+   *       Do we expect the grow to fail?  This is used to indicate whether we
+   *       expect the grow sync to return messages that the testhelper knows
+   *       about or whetehr it expects an empoty result.
+   *     }
+   *   ]]
+   * ]
+   */
   do_growFolderView: function(viewThing, dirMagnitude, userRequestsGrowth,
                               alreadyExists, expectedValues, expectedFlags,
                               extraFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
-      var totalExpected = self._expect_dateSyncs(
-                            viewThing.testFolder, expectedValues,
-                            extraFlags) +
-                          alreadyExists;
+      var totalExpected;
+      totalExpected = self._expect_dateSyncs(
+                        viewThing, expectedValues, extraFlags,
+                        dirMagnitude < 0 ? -1 : 1) +
+                        alreadyExists;
       self.expect_messagesReported(totalExpected);
 
-      self._expect_storage_mutexed(viewThing.testFolder.storageActor, 'grow');
+      self._expect_storage_mutexed(viewThing.testFolder, 'grow', extraFlags);
 
       var expectedMessages;
       if (dirMagnitude < 0) {
         viewThing.offset += dirMagnitude;
-        expectedMessages = viewThing.testFolder.messages.slice(
+        expectedMessages = viewThing.testFolder.knownMessages.slice(
                              viewThing.offset,
                              viewThing.offset - dirMagnitude);
       }
@@ -1140,7 +1614,7 @@ var TestImapAccountMixins = {
         if (checkFlagDefault(extraFlags, 'willFail', false))
           expectedMessages = [];
         else
-          expectedMessages = viewThing.testFolder.messages.slice(
+          expectedMessages = viewThing.testFolder.knownMessages.slice(
                                viewThing.offset + alreadyExists,
                                viewThing.offset + totalExpected);
       }
@@ -1174,13 +1648,15 @@ var TestImapAccountMixins = {
       }
 
       self.expect_messagesReported(expectedTotal);
-      self.expect_messageSubject(
-        0, viewThing.testFolder.messages[viewThing.offset].headerInfo.subject);
       var idxHighMessage = viewThing.offset + (useHigh - useLow);
-      self.expect_messageSubject(
-        useHigh - useLow,
-        viewThing.testFolder.messages[idxHighMessage].headerInfo.subject);
+      self.expect_messageSubjects(
+        viewThing.testFolder.knownMessages
+          .slice(viewThing.offset, idxHighMessage + 1)
+          .map(function(x) {
+                 return x.headerInfo.subject;
+               }));
       self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
+                             expectedFlags.growUp || false,
                              expectedFlags.grow, 'synced');
 
 
@@ -1192,12 +1668,11 @@ var TestImapAccountMixins = {
         viewThing.slice.onsplice = null;
 
         self._logger.messagesReported(viewThing.slice.items.length);
-        self._logger.messageSubject(0, viewThing.slice.items[0].subject);
-        self._logger.messageSubject(
-          viewThing.slice.items.length - 1,
-          viewThing.slice.items[viewThing.slice.items.length - 1].subject);
+        self._logger.messageSubjects(
+          viewThing.slice.items.map(function(x) { return x.subject; }));
         self._logger.sliceFlags(
           viewThing.slice.atTop, viewThing.slice.atBottom,
+          viewThing.slice.userCanGrowUpwards,
           viewThing.slice.userCanGrowDownwards,
           viewThing.slice.status);
       };
@@ -1427,15 +1902,12 @@ var TestActiveSyncAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.serverFolder = null;
-    testFolder.messages = null;
-    testFolder._liveSliceThings = [];
 
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
       testFolder.serverFolder = self.testServer.server.addFolder(
         folderName, null, null, messageSetDef);
-      testFolder.messages = testFolder.serverFolder.messages;
+      testFolder.serverMessages = testFolder.serverFolder.messages;
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
       self.universe.syncFolderList(self.account, function() {
         self.MailAPI.ping(function() {
@@ -1460,24 +1932,22 @@ var TestActiveSyncAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.messages = null;
     testFolder._approxMessageCount = 30;
-    testFolder._liveSliceThings = [];
+
     this.T.convenienceSetup('find test folder', testFolder, function() {
       if (self.testServer) {
         testFolder.serverFolder = self.testServer.getFirstFolderWithName(
                                     folderName);
-        testFolder.messages = testFolder.serverFolder.messages;
-      }
-      else {
-        testFolder.serverFolder = null;
-        testFolder.messages = null;
+        testFolder.serverMessages = testFolder.serverFolder.messages;
       }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -1495,25 +1965,22 @@ var TestActiveSyncAccountMixins = {
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder.serverFolder = null;
-    testFolder.messages = null;
     testFolder._approxMessageCount = 30;
-    testFolder._liveSliceThings = [];
+
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
       if (self.testServer) {
         testFolder.serverFolder = self.testServer.getFirstFolderWithType(
                                     folderType);
-        testFolder.messages = testFolder.serverFolder.messages;
-      }
-      else {
-        testFolder.serverFolder = null;
-        testFolder.messages = null;
+        testFolder.serverMessages = testFolder.serverFolder.messages;
       }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
       testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder)
-        testFolder.messages = oldFolder.messages;
+      if (oldFolder) {
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -1532,21 +1999,23 @@ var TestActiveSyncAccountMixins = {
     var testStep =
       this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
                   function() {
-      var totalExpected = self._expect_dateSyncs(testFolder, expectedValues,
-                                                 extraFlags);
+      var totalExpected = self._expect_dateSyncs(
+                            _saveToThing ||
+                              { testFolder: testFolder,
+                                offset: 0, slice: null },
+                            expectedValues, extraFlags, 1);
       if (expectedValues) {
         self.expect_messagesReported(totalExpected);
         // Generate overall count expectation and first and last message
         // expectations by subject.
         if (totalExpected) {
-          self.expect_messageSubject(
-            0, testFolder.messages[0].subject);
-          self.expect_messageSubject(
-            totalExpected - 1,
-            testFolder.messages[totalExpected - 1].subject);
+          self.expect_messageSubjects(
+            testFolder.knownMessages.slice(0, totalExpected)
+              .map(function(x) { return x.subject; }));
         }
         self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom, expectedFlags.grow,
+          expectedFlags.top, expectedFlags.bottom,
+          expectedFlags.growUp || false, expectedFlags.grow,
           isFailure ? 'syncfailed' : 'synced');
       }
 
@@ -1554,11 +2023,11 @@ var TestActiveSyncAccountMixins = {
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
-          self._logger.messageSubject(0, slice.items[0].subject);
-          self._logger.messageSubject(
-            totalExpected - 1, slice.items[totalExpected - 1].subject);
+          self._logger.messageSubjects(
+            slice.items.map(function(x) { return x.subject; }));
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
+                                slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
         if (_saveToThing) {
           _saveToThing.slice = slice;
@@ -1573,7 +2042,9 @@ var TestActiveSyncAccountMixins = {
     return testStep;
   },
 
-  _expect_dateSyncs: function(testFolder, expectedValues, extraFlags) {
+  _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
+                              syncDir) {
+    var testFolder = viewThing.testFolder;
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
 
@@ -1586,7 +2057,13 @@ var TestActiveSyncAccountMixins = {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
         if (this.universe.online) {
-          testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+          // The client should know about all of the messages on the server
+          // after a sync.  If we start modeling the server only telling us
+          // things in chunks, we will want to do something more clever here,
+          // a la _propagateToKnownMessages
+          testFolder.knownMessages = testFolder.serverMessages.concat();
+
+          testFolder.connActor.expect_sync_begin(null, null, null);
           // TODO: have filterType and recreateFolder be specified in extraFlags
           // for consistency with IMAP.
           if (einfo.filterType)
@@ -1596,7 +2073,7 @@ var TestActiveSyncAccountMixins = {
             this.eAccount.expect_saveAccountState();
 
             var oldConnActor = testFolder.connActor;
-            oldConnActor.expect_syncDateRange_end(null, null, null);
+            oldConnActor.expect_sync_end(null, null, null);
 
             // Give the new actor a good name.
             var existingActorMatch =
@@ -1616,15 +2093,15 @@ var TestActiveSyncAccountMixins = {
             this.RT.reportActiveActorThisStep(newConnActor);
             this.RT.reportActiveActorThisStep(newStorageActor);
 
-            newConnActor.expect_syncDateRange_begin(null, null, null);
-            newConnActor.expect_syncDateRange_end(
+            newConnActor.expect_sync_begin(null, null, null);
+            newConnActor.expect_sync_end(
               einfo.full, einfo.flags, einfo.deleted);
 
             testFolder.connActor = newConnActor;
             testFolder.storageActor = newStorageActor;
           }
           else {
-            testFolder.connActor.expect_syncDateRange_end(
+            testFolder.connActor.expect_sync_end(
               einfo.full, einfo.flags, einfo.deleted);
           }
         }
@@ -1703,9 +2180,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       manipulationNotified: {},
 
       splice: { index: true, howMany: true },
-      sliceFlags: { top: true, bottom: true, grow: true, status: true },
+      sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
+                    status: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
+      messageSubjects: { subjects: true },
 
       changesReported: { additions: true, changes: true, deletions: true },
     },
@@ -1759,7 +2238,10 @@ exports.TESTHELPER = {
     testUniverse: TestUniverseMixins,
     testAccount: TestCommonAccountMixins,
     testActiveSyncServer: TestActiveSyncServerMixins,
-  }
+  },
+  thingMixins: {
+    testFolder: TestFolderMixins,
+  },
 };
 
 });

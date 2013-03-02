@@ -36,9 +36,13 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var composer, eLazy = T.lazyLogger('misc');
   // - open the folder
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', ''),
-      inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
+      inboxView = testAccount.do_openFolderView(
+        'inbox', inboxFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
       sentFolder = testAccount.do_useExistingFolderWithType('sent', ''),
-      sentView = testAccount.do_openFolderView('sent', sentFolder, null),
+      sentView = testAccount.do_openFolderView(
+        'sent', sentFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
       replyComposer, expectedReplyBody;
 
   // - compose and send
@@ -314,7 +318,9 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
 
-  var inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null);
+  var inboxView = testAccount.do_openFolderView(
+                    'inbox', inboxFolder, null, null,
+                    { syncedToDawnOfTime: 'ignore' });
 
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
@@ -459,7 +465,8 @@ TD.commonCase('reply all', function(T, RT) {
     });
   var testView = testAccount.do_openFolderView('syncs', testFolder,
     { count: 5, full: 5, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   T.action(eCheck, 'reply composer variants', function() {
     var slice = testView.slice;
     var headerNotIn = slice.items[0],
@@ -518,9 +525,13 @@ TD.commonCase('bcc self', function(T, RT) {
   var composer, eLazy = T.lazyLogger('check');
   // - open the folder
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', ''),
-      inboxView = testAccount.do_openFolderView('inbox', inboxFolder, null),
+      inboxView = testAccount.do_openFolderView(
+        'inbox', inboxFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
       sentFolder = testAccount.do_useExistingFolderWithType('sent', ''),
-      sentView = testAccount.do_openFolderView('sent', sentFolder, null),
+      sentView = testAccount.do_openFolderView(
+        'sent', sentFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
       replyComposer, expectedReplyBody;
 
   // - compose and send

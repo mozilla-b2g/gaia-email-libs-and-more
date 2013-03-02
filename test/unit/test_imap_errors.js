@@ -27,10 +27,6 @@
  * - Sync connection loss on UID FETCH. (This is within the sync process itself,
  *    which theoretically is restartable if the IMAP connection maintains its
  *    state and re-establishes.)
- *
- * - A non-refresh non-first synchronization (so that message display is blocked
- *    pending on the sync) fails to connect to the server and converts itself
- *    into a display of offline messages.
  **/
 
 load('resources/loggest_test_framework.js');
@@ -430,83 +426,6 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
-});
-
-/**
- * Sync a folder so we have offline copies of the state (and close the view),
- * add a message to the folder so it's obvious if a sync succeeds when it should
- * not, do a time-warp so the next sync cannot be a refresh, prime the failure
- * pump so we end up abandoning the sync, then initiate the sync.  Make sure
- * the sync only tells us about the offline messages we already knew about.
- */
-TD.commonCase('convert failed non-refresh sync to offline', function(T, RT) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
-      eCheck = T.lazyLogger('check');
-
-  T.action('reset fault injecting socket',
-           FawltySocketFactory.reset.bind(FawltySocketFactory));
-  zeroTimeoutErrbackoffTimer(eCheck);
-
-  // we would ideally extract this in case we are running against other servers
-  var testHost = 'localhost', testPort = 143;
-
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
-  const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
-  testUniverse.do_adjustSyncValues({
-    refreshNonInbox: 2 * HOUR_MILLIS,
-    refreshInbox: 2 * HOUR_MILLIS,
-  });
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
-  var testFolder = testAccount.do_createTestFolder(
-    'test_err_fail_to_offline',
-    { count: 3, age: { days: 1 }, age_incr: { minutes: 1 } });
-
-  T.group('sync to get offline data');
-  testAccount.do_viewFolder(
-    'syncs', testFolder,
-    { count: 3, full: 3, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
-
-  T.group('add messages not to be seen');
-  testAccount.do_addMessagesToFolder(
-    testFolder, { count: 1, age: { days: 1 } }, { doNotExpect: true });
-
-  T.group('failing non-refresh sync becomes offline load');
-  staticNow += DAY_MILLIS;
-  testUniverse.do_timewarpNow(staticNow, '1 day later');
-
-  T.action('kill connection, queue up failures', testAccount.eImapAccount,
-           function() {
-    FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
-    testAccount._unusedConnections = 0;
-    testAccount.eImapAccount.expect_deadConnection();
-
-    // immediate retry then 3 timed retries
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-  });
-
-  testAccount.do_viewFolder(
-    'fallback to offline', testFolder,
-    { count: 3, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false },
-    {
-      failure: true,
-      expectFunc: function() {
-        RT.reportActiveActorThisStep(testAccount.eImapAccount);
-        // (one create invocation is already expected by do_viewfolder)
-        testAccount.eImapAccount.expect_createConnection();
-        testAccount.eImapAccount.expect_createConnection();
-        testAccount.eImapAccount.expect_createConnection();
-      }
-    });
-
-  T.group('cleanup');
 });
 
 function run_test() {

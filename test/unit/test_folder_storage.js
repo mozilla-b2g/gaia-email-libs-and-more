@@ -169,6 +169,14 @@ function makeTestContext() {
        }
       }
     },
+
+    checkNeedsRefresh: function(checkStart, checkEnd,
+                                expectedStart, expectedEnd) {
+      var result = storage.checkAccuracyCoverageNeedingRefresh(
+                     checkStart, checkEnd, $_syncbase.OPEN_REFRESH_THRESH_MS);
+      do_check_eq(expectedStart, result && result.startTS);
+      do_check_eq(expectedEnd, result && result.endTS);
+    },
   };
 }
 
@@ -561,6 +569,84 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge() {
   do_check_eq(aranges.length, 1);
   check_arange_eq(aranges[0], d4, dB, '1', dSync1);
 });
+
+/**
+ * Check accuracy range stuff; generate a static set of accuracy ranges that
+ * should cover all permutations (except for being first/last, but we are
+ * reusing our range-finding helpers that have coverage)
+ */
+TD.commonSimple('accuracy refresh check', function test_accuracy_refresh() {
+  var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      d3 = DateUTC(2010, 0, 3),
+      d4 = DateUTC(2010, 0, 4),
+      d5 = DateUTC(2010, 0, 5),
+      d6 = DateUTC(2010, 0, 6),
+      d7 = DateUTC(2010, 0, 7),
+      d8 = DateUTC(2010, 0, 8),
+      d9 = DateUTC(2010, 0, 9),
+      dA = DateUTC(2010, 0, 10),
+      dB = DateUTC(2010, 0, 11),
+      dC = DateUTC(2010, 0, 12),
+      dD = DateUTC(2010, 0, 13),
+      dE = DateUTC(2010, 0, 14),
+      dF = DateUTC(2010, 0, 15),
+      d10 = DateUTC(2010, 0, 16),
+      d11 = DateUTC(2010, 0, 17),
+      d12 = DateUTC(2010, 0, 18),
+      dSyncRecent = $_date.NOW() - $_syncbase.OPEN_REFRESH_THRESH_MS / 2,
+      dSyncOld = $_date.NOW() - $_syncbase.OPEN_REFRESH_THRESH_MS * 2;
+
+  // -- build ranges
+  // - sufficient, fully be contained by/overlap on both sides into nothing
+  ctx.storage.markSyncRange(d2, d5, 'x', dSyncRecent);
+
+  // - insufficient, fully be contained by/overlap on both sides into nothing
+  ctx.storage.markSyncRange(d7, dA, 'x', dSyncOld);
+
+  // - insufficient, overlap on both sides into something so range is reduced
+  ctx.storage.markSyncRange(dC, dD, 'x', dSyncRecent);
+  ctx.storage.markSyncRange(dD, d10, 'x', dSyncOld);
+  ctx.storage.markSyncRange(d10, d11, 'x', dSyncRecent);
+
+  // -- check ranges
+  // (We defer the checks until after the accuracy ranges are fully populated to
+  //  make debugging simpler.)
+
+  // - sufficient, fully be contained by/overlap on both sides into nothing
+  // fully contained is good
+  ctx.checkNeedsRefresh(d3, d4, null, null);
+  // up to the limits is good
+  ctx.checkNeedsRefresh(d2, d5, null, null);
+  // start-side partial gets reduced (not lining up with accuracy range proper)
+  ctx.checkNeedsRefresh(d3, d7, d5, d7);
+  // end-side partial gets reduced (not lining up with accuracy range proper)
+  ctx.checkNeedsRefresh(d1, d4, d1, d2);
+  // check range exceeds/fully contains recent-enough; can't reduce the range
+  ctx.checkNeedsRefresh(d1, d6, d1, d6);
+
+  // - insufficient, fully be contained by/overlap on both sides into nothing
+  // fully contained in too-old does nothing for us
+  ctx.checkNeedsRefresh(d8, d9, d8, d9);
+  // at limits too-old does nothing for us
+  ctx.checkNeedsRefresh(d7, dA, d7, dA);
+  // check range exceeds/fully contains too-old does nothing for us
+  ctx.checkNeedsRefresh(d6, dB, d6, dB);
+
+  // - insufficient, overlap on both sides into something so range is reduced
+  // fully contained in too-old does nothing for us
+  ctx.checkNeedsRefresh(dE, dF, dE, dF);
+  // at limits of too-old does nothing for us
+  ctx.checkNeedsRefresh(dD, d10, dD, d10);
+  // recent enough truncates range before/after/both
+  ctx.checkNeedsRefresh(dC, d10, dD, d10);
+  ctx.checkNeedsRefresh(dD, d11, dD, d10);
+  ctx.checkNeedsRefresh(dC, d11, dD, d10);
+  // going outside the recent range loses us the truncation
+  ctx.checkNeedsRefresh(dB, d12, dB, d12);
+});
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Header/body insertion/deletion into/out of blocks.

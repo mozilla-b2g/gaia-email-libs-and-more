@@ -91,19 +91,18 @@ TD.commonCase('folder sync', function(T) {
   T.action('blah', testAccount, eSync, function() {
     var headers = folderView.slice.items,
         toDelete = headers[0],
-        toDeleteId = fullSyncFolder.messages[0].messageId,
+        toDeleteId = fullSyncFolder.knownMessages[0].messageId,
         expectedValues = { count: 4, full: 0, flags: 0, deleted: 1 },
         checkExpected = { changes: [], deletions: [toDelete] },
         expectedFlags = { top: true, bottom: true, grow: false };
 
+    fullSyncFolder.beAwareOfDeletion(0);
     fullSyncFolder.serverFolder.removeMessageById(toDeleteId);
-    var totalExpected = testAccount._expect_dateSyncs(folderView.testFolder,
-                                                      expectedValues);
+    var totalExpected = testAccount._expect_dateSyncs(folderView, expectedValues);
     testAccount.expect_messagesReported(totalExpected);
     testAccount.expect_headerChanges(folderView, checkExpected, expectedFlags);
 
-    testAccount._expect_storage_mutexed(folderView.testFolder.storageActor,
-                                        'refresh');
+    testAccount._expect_storage_mutexed(folderView.testFolder, 'refresh');
 
     folderView.slice.refresh();
   });
