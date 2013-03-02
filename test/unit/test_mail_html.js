@@ -90,7 +90,8 @@ TD.commonCase('embedded and remote images', function(T) {
     'syncs', testFolder,
     { count: testMessages.length, full: testMessages.length, flags: 0,
       deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   // -- check each message in its own step
   // - fancy html
@@ -231,7 +232,8 @@ TD.commonCase('embedded and remote images', function(T) {
     'syncs', testFolder2,
     { count: testMessages.length, full: 0, flags: testMessages.length,
       deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   // THIS IS COPY AND PASTE FROM ABOVE EXCEPT FOR fancyHeader reestablishment
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {

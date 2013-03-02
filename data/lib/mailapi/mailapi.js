@@ -784,6 +784,16 @@ function BridgedViewSlice(api, ns, handle) {
   this.atBottom = false;
 
   /**
+   * Can we potentially grow the slice in the ngative direction if the user
+   * requests it?  For example, triggering an IMAP sync for a part of the
+   * time-range we have not previously synchronized.
+   *
+   * This is only really meaningful when `atTop` is true; if we are not at the
+   * top, this value will be false.
+   */
+  this.userCanGrowUpwards = false;
+
+  /**
    * Can we potentially grow the slice in the positive direction if the user
    * requests it?  For example, triggering an IMAP sync for a part of the
    * time-range we have not previously synchronized.
@@ -1333,6 +1343,7 @@ MailAPI.prototype = {
     // - generate namespace-specific notifications
     slice.atTop = msg.atTop;
     slice.atBottom = msg.atBottom;
+    slice.userCanGrowUpwards = msg.userCanGrowUpwards;
     slice.userCanGrowDownwards = msg.userCanGrowDownwards;
     if (msg.status &&
         (slice.status !== msg.status ||

@@ -4,7 +4,7 @@
  *
  * - Persistence of account data through setup and teardown.
  * - That teardown kills IMAP connections. (untested right now?)
- * - Sync further back into time on demand.
+ * - Sync further back into time on demand ('grow')
  **/
 
 load('resources/loggest_test_framework.js');
@@ -27,7 +27,8 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     'syncs', testFolder,
     { count: 4, full: 4, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('(cleanly) shutdown account, universe');
   testUniverse.do_saveState();
@@ -37,7 +38,7 @@ TD.commonCase('account persistence', function(T) {
   // Universe 2 : add messages
   T.group('U2 [add]: reload account, universe');
   // rebind to new universe / (loaded) account
-  testUniverse = T.actor('testUniverse', 'U2');
+  testUniverse = T.actor('testUniverse', 'U2', { old: testUniverse });
   var TA2 = testAccount = T.actor('testAccount', 'A2',
                         { universe: testUniverse, restored: true });
 
@@ -47,7 +48,8 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 4, full: 0, flags: 4, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('add more messages, verify sync');
   testAccount.do_addMessagesToFolder(
@@ -56,13 +58,14 @@ TD.commonCase('account persistence', function(T) {
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 6, full: 2, flags: 4, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   //////////////////////////////////////////////////////////////////////////////
   // Universe 3 : delete messages
   T.group('U3 [delete]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU3 = testUniverse = T.actor('testUniverse', 'U3');
+  var TU3 = testUniverse = T.actor('testUniverse', 'U3', { old: testUniverse });
   var TA3 = testAccount = T.actor('testAccount', 'A3',
                             { universe: testUniverse, restored: true });
 
@@ -83,12 +86,13 @@ TD.commonCase('account persistence', function(T) {
     }
 
     // update our test's idea of what messages exist where.
-    TF3.messages.splice(0, 1);
+    TF3.beAwareOfDeletion(0);
   });
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 1 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('save account state');
   testUniverse.do_saveState();
@@ -101,7 +105,7 @@ TD.commonCase('account persistence', function(T) {
   // Universe 4 : change messages
   T.group('U4 [change]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU4 = testUniverse = T.actor('testUniverse', 'U4');
+  var TU4 = testUniverse = T.actor('testUniverse', 'U4', { old: testUniverse });
   var TA4 = testAccount = T.actor('testAccount', 'A4',
                             { universe: testUniverse, restored: true });
 
@@ -123,7 +127,8 @@ TD.commonCase('account persistence', function(T) {
   var TV4 = testAccount.do_openFolderView(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   T.check('check modified message flags', eSync, function() {
     eSync.expect_namedValue('0:subject', s0subject);
     eSync.expect_namedValue('0:read', true);
@@ -147,7 +152,7 @@ TD.commonCase('account persistence', function(T) {
   //////////////////////////////////////////////////////////////////////////////
   // Universe 5 : checks
   T.group('U5 [check]: reload account, universe');
-  var TU5 = testUniverse = T.actor('testUniverse', 'U5');
+  var TU5 = testUniverse = T.actor('testUniverse', 'U5', { old: testUniverse });
   testAccount = T.actor('testAccount', 'A5',
                         { universe: testUniverse, restored: true });
   var TF5 = testFolder = testAccount.do_useExistingFolder(
@@ -155,7 +160,8 @@ TD.commonCase('account persistence', function(T) {
   var TV5 = testAccount.do_openFolderView(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('verify modified message flags');
   T.check('check modified message flags', eSync, function() {
@@ -196,17 +202,29 @@ TD.commonCase('sync further back in time on demand', function(T) {
       eSync = T.lazyLogger('sync');
   // Use a fill size of 14 messages because it's easy to get 14 in 7 days with
   // 2 messages per day.
+  const MINUTE_MILLIS = 60 * 1000, HOUR_MILLIS = 60 * MINUTE_MILLIS;
   testUniverse.do_adjustSyncValues({
     fillSize: 14,
     days: 7,
+    growDays: 7,
+
+    // set the refresh threshold at 30 minutes so advancing an hour will
+    // cause a refresh to trigger.
+    openRefreshThresh: 30 * MINUTE_MILLIS,
+    growRefreshThresh: 30 * MINUTE_MILLIS,
   });
+
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
 
   T.group('initial sync');
   // Create 3 time regions that sync's heuristics will view as sufficient for
   // initial sync and each growth (14 per week).
   var syncFolder = testAccount.do_createTestFolder(
     'test_sync_grow',
-    { count: 42, age: { days: 1 }, age_incr: { days: 1 }, age_incr_every: 2 });
+    { count: 42,
+      age: { days: 1, minutes: 1, seconds: 9 },
+      age_incr: { days: 1 }, age_incr_every: 2 });
   var syncView = testAccount.do_openFolderView(
     'grower', syncFolder,
     { count: 14, full: 14, flags: 0, deleted: 0 },
@@ -216,17 +234,19 @@ TD.commonCase('sync further back in time on demand', function(T) {
   testAccount.do_growFolderView(
     syncView, 1, false, 14,
     [],
-    { top: true, bottom: true, grow: true }, { nosave: true });
+    { top: true, bottom: true, grow: true },
+    { nonet: true });
 
   T.group('fail to grow older when offline');
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_growFolderView(
     syncView, 1, true, 14,
     [],
-    { top: true, bottom: true, grow: true }, { nosave: true });
+    { top: true, bottom: true, grow: true },
+    { nonet: true });
   testUniverse.do_pretendToBeOffline(false);
 
-  T.group('grow older (sync more than requested)');
+  T.group('grow older (grow: sync more than requested)');
   // only ask for 11 messages, but sync 14.
   testAccount.do_growFolderView(
     syncView, 11, true, 14,
@@ -234,18 +254,19 @@ TD.commonCase('sync further back in time on demand', function(T) {
     { top: true, bottom: false, grow: false });
   T.group('grow older, get spare from last sync');
   // We're asking for 14 here, but we should just get a batch of the spare 3
-  // from last time.  Because 1 of them happens on the oldest day of our time
-  // range, our sync will exclude that day and we will only need to sync 2
-  // headers even though we will hear back about all 3.
+  // from last time.  We have timely data for all of the headers, so no refresh
+  // is required and they will be directly filled.
   testAccount.do_growFolderView(
     syncView, 14, false, 25,
-    { count: 3, full: 0, flags: 2, deleted: 0 },
-    { top: true, bottom: true, grow: true });
-  T.group('grow older (normal)');
+    { count: 3 },
+    { top: true, bottom: true, grow: true },
+    { nonet: true });
+  T.group('grow older (grow: exactly what was requested)');
   testAccount.do_growFolderView(
     syncView, 14, true, 28,
     { count: 14, full: 14, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('shrink off new');
   testAccount.do_shrinkFolderView(
@@ -255,15 +276,41 @@ TD.commonCase('sync further back in time on demand', function(T) {
     syncView, 14, null, 27,
     { top: false, bottom: true, grow: false });
 
-  T.group('grow younger again');
+  T.group('shrink off old');
+  testAccount.do_shrinkFolderView(
+    syncView, 0, -8, 20, // -8 gets rid of 7, because it's inclusive
+    { top: false, bottom: false, grow: false });
+
+  T.group('grow younger again (cached, no refresh)');
   testAccount.do_growFolderView(
-    syncView, -7, false, 34,
-    [],
-    { top: false, bottom: true, grow: false }, { nosave: true });
+    syncView, -7, false, 20,
+    { count: 7 },
+    { top: false, bottom: false, grow: false },
+    { nonet: true });
+
+  T.group('grow younger again (refresh required)');
+  staticNow += HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow, '+1 hour');
   testAccount.do_growFolderView(
-    syncView, -8, false, 42,
-    [],
-    { top: true, bottom: true, grow: false }, { nosave: true });
+    syncView, -8, false, 27,
+    // We get told about 10 flags here rather than just the 8 we are asking for
+    // because that time warp means that the accuracy range covering our newest
+    // message on Jan 23rd no longer holds and so we will refresh them too.
+    // (We bother considering the same day because, as of this writing, we do
+    // not support partial day sync, but we will soon.)
+    { count: 8, full: 0, flags: 10, deleted: 0,
+      startTS: 1327276800000, endTS: 1327708800000 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('grow older again (refresh required)');
+  // the old data is still an hour stale thanks to the young case above.
+  testAccount.do_growFolderView(
+    syncView, 7, false, 35,
+    // Like the younger case, we get an extra flag refresh because our sync range
+    // includes the oldest message known to us.
+    { count: 7, full : 0, flags: 8, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
 
   T.group('shrink off old');
@@ -274,13 +321,14 @@ TD.commonCase('sync further back in time on demand', function(T) {
     syncView, 0, -21, 21, // -21 gets rid of 20, because it's inclusive
     { top: true, bottom: false, grow: false });
 
-  T.group('grow old again');
-  // we will hear about 21 messages, but only 20 headers will need to be synced
-  // because one of them is already covered by our sync's date range.
+  T.group('grow old again (limited refresh)');
+  // the time range of SINCE 1990 BEFORE Jan 11 is already refreshed, so this
+  // gets clamped to SINCE Jan 11 BEFORE Jan 18.
   testAccount.do_growFolderView(
-    syncView, 21, false, 21,
-    { count: 21, full: 0, flags: 20, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    syncView, 20, false, 21,
+    { count: 20, full: 0, flags: 14, deleted: 0,
+      startTS: 1326240000000, endTS: 1326844800000 },
+    { top: true, bottom: false, grow: false });
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);
@@ -319,7 +367,8 @@ TD.commonCase('grow with deepening required', function(T) {
      { count: 0, full: 0, flags: 0, deleted: 0 },
      { count: 11, full: 11, flags: 0, deleted: 0 },
      { count: 4, full: 4, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false });
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);

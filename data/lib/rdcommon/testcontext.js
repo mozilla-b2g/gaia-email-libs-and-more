@@ -134,6 +134,32 @@ TestContext.prototype = {
   },
 
   /**
+   * Mix-in contributions from testhelper actorMixins or thingMixins entries.
+   */
+  _mixinFromHelperDefs: function(target, what, type, invokeConstructor,
+                                 constructorArgs) {
+    var useDict = what + 'Mixins';
+
+    var helperDefs = this.__testCase.definer.__testHelperDefs;
+    if (helperDefs) {
+      for (var iHelpDef = 0; iHelpDef < helperDefs.length; iHelpDef++) {
+        var helperDef = helperDefs[iHelpDef];
+
+        if (!(useDict in helperDef) ||
+            !helperDef[useDict].hasOwnProperty(type))
+          continue;
+        var mixyBits = helperDef[useDict][type];
+        for (var key in mixyBits) {
+          target[key] = mixyBits[key];
+        }
+      }
+
+      if (invokeConstructor && '__constructor' in target)
+        target.__constructor.apply(target, constructorArgs);
+    }
+  },
+
+  /**
    * A testing stand-in for a player in the test that does stuff; for example, a
    *  client or a server.  An actor correlates with and is associated with
    *  exactly one logger.  You use the actor to specify expectations about
@@ -170,20 +196,7 @@ TestContext.prototype = {
         // (from an efficiency perspective, we might be better off creating a
         //  parameterized prototype descendent during the defineTestsFor call
         //  since we can establish linkages at that point.)
-        var helperDefs = this.__testCase.definer.__testHelperDefs;
-        if (helperDefs) {
-          for (var iHelpDef = 0; iHelpDef < helperDefs.length; iHelpDef++) {
-            var helperDef = helperDefs[iHelpDef];
-
-            if (!("actorMixins" in helperDef) ||
-                !helperDef.actorMixins.hasOwnProperty(type))
-              continue;
-            var mixyBits = helperDef.actorMixins[type];
-            for (var key in mixyBits) {
-              actor[key] = mixyBits[key];
-            }
-          }
-        }
+        this._mixinFromHelperDefs(actor, 'actor', type, false);
 
         // - poke it into our logger for reporting.
         this._log._named[actor._uniqueName] = actor;
@@ -268,6 +281,7 @@ TestContext.prototype = {
    */
   thing: function thing(type, humanName, digitalName) {
     var thang = $log.__makeThing(type, humanName, digitalName);
+    this._mixinFromHelperDefs(thang, 'thing', type, true, []);
     // poke it into our logger for reporting.
     this._log._named[thang._uniqueName] = thang;
     return thang;
@@ -275,6 +289,7 @@ TestContext.prototype = {
 
   ownedThing: function ownedThing(actor, type, humanName, digitalName) {
     var thang = $log.__makeThing(type, humanName, digitalName);
+    this._mixinFromHelperDefs(thang, 'thing', type, true, []);
     if (!actor._logger._named)
       actor._logger._named = {};
     actor._logger._named[thang._uniqueName] = thang;

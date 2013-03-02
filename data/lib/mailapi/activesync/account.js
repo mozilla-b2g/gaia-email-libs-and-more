@@ -202,7 +202,7 @@ ActiveSyncAccount.prototype = {
     var storage = this._folderStorages[folderId],
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
 
-    storage.sliceOpenFromNow(slice);
+    storage.sliceOpenMostRecent(slice);
   },
 
   searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
@@ -456,8 +456,8 @@ ActiveSyncAccount.prototype = {
       for (var iter in Iterator(self._folderStorages[folderId]._slices)) {
         var slice = iter[1];
         slice._storage = newStorage;
-        slice._resetHeadersBecauseOfRefreshExplosion(true);
-        newStorage.sliceOpenFromNow(slice);
+        slice.reset();
+        newStorage.sliceOpenMostRecent(slice);
       }
       self._folderStorages[folderId]._slices = [];
       self._folderStorages[folderId] = newStorage;

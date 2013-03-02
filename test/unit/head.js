@@ -285,7 +285,8 @@ function populateTestParams() {
     if (environ.exists(envVar)) {
       TEST_PARAMS[name] = coerce(environ.get(envVar));
       console.log('environment:', name, TEST_PARAMS[name]);
-      TEST_PARAMS_ARE_DEFAULTS = false;
+      if (name !== 'type')
+        TEST_PARAMS_ARE_DEFAULTS = false;
     }
   }
 }
