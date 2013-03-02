@@ -434,7 +434,7 @@ TestLogProtoBase.__die = function() {
   }
 };
 
-const DIED_EVENTNAME = '(died)', DIED_EXP = [DIED_EVENTNAME];
+var DIED_EVENTNAME = '(died)', DIED_EXP = [DIED_EVENTNAME];
 
 var TestActorProtoBase = {
   toString: function() {
@@ -800,7 +800,7 @@ function simplifyInsaneObjects(obj, dtype, curDepth) {
     return obj;
   if (!curDepth)
     curDepth = 0;
-  const nextDepth = curDepth + 1;
+  var nextDepth = curDepth + 1;
   var limitStrings = 64;
 
   if (dtype) {
@@ -849,7 +849,7 @@ function simplifyInsaneObjects(obj, dtype, curDepth) {
  *  This value gets bumped every time I throw something at it that fails that
  *  still seems reasonable to me.
  */
-const COMPARE_DEPTH = 6;
+var COMPARE_DEPTH = 6;
 function boundedCmpObjs(a, b, depthLeft) {
   var aAttrCount = 0, bAttrCount = 0, key, nextDepth = depthLeft - 1;
 

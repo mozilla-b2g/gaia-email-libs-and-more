@@ -142,7 +142,7 @@ var MAX_BLOCK_SIZE = 96 * 1024,
  * greater than 0, our progress bar indicates that we are doing something or
  * at least know we should be doing something.
  */
-const SYNC_START_MINIMUM_PROGRESS = 0.02;
+var SYNC_START_MINIMUM_PROGRESS = 0.02;
 
 /**
  * Book-keeping and limited agency for the slices.

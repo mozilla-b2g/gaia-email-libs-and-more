@@ -110,7 +110,7 @@ var IN_BS_DATE_RANGE = exports.IN_BS_DATE_RANGE =
   return testDate >= startTS && testDate < endTS;
 };
 
-const PASTWARDS = 1, FUTUREWARDS = -1;
+var PASTWARDS = 1, FUTUREWARDS = -1;
 /**
  * Check if `testDate` is "beyond" the comparison date given the `dir`.  If
  * the direction is pastwards, we will return true if testDate happened
@@ -118,8 +118,8 @@ const PASTWARDS = 1, FUTUREWARDS = -1;
  * we will return true if testDate happened chronologically after
  * comparisonDate.
  */
-const TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
-        function TIME_DIR_AT_OR_BEYOND(dir, testDate, comparisonDate) {
+var TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
+      function TIME_DIR_AT_OR_BEYOND(dir, testDate, comparisonDate) {
   if (dir === PASTWARDS)
     return testDate <= comparisonDate;
   // we use null as a sentinel value for 'the future'/'now'
@@ -133,8 +133,8 @@ const TIME_DIR_AT_OR_BEYOND = exports.TIME_DIR_AT_OR_BEYOND =
  * a positive value indicates `testDate` is beyond the `comparisonDate` in
  * the given direction and a negative value indicates it is before it.
  */
-const TIME_DIR_DELTA = exports.TIME_DIR_DELTA =
-        function TIME_DIR_DELTA(dir, testDate, comparisonDate) {
+var TIME_DIR_DELTA = exports.TIME_DIR_DELTA =
+      function TIME_DIR_DELTA(dir, testDate, comparisonDate) {
   if (dir === PASTWARDS)
     return testDate - comparisonDate;
   else // FUTUREWARDS
@@ -144,8 +144,8 @@ const TIME_DIR_DELTA = exports.TIME_DIR_DELTA =
  * Add `time` to the `baseDate` in the given direction.  So if the direction
  * is `PASTWARDS`, then we add the date, otherwise we subtract it.
  */
-const TIME_DIR_ADD = exports.TIME_DIR_ADD =
-        function TIME_DIR_ADD(dir, baseDate, time) {
+var TIME_DIR_ADD = exports.TIME_DIR_ADD =
+      function TIME_DIR_ADD(dir, baseDate, time) {
   if (dir === PASTWARDS)
     return baseDate + time;
   else // FUTUREWARDS
@@ -210,7 +210,7 @@ var quantizeDate = exports.quantizeDate =
  * If a date is already lined up with midnight of its day, then return that,
  * otherwise round up to the midnight of the next day.
  */
-const quantizeDateUp = exports.quantizeDateUp =
+var quantizeDateUp = exports.quantizeDateUp =
       function quantizeDateUp(date) {
   if (typeof(date) === 'number')
     date = new Date(date);
