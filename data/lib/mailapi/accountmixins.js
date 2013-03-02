@@ -77,7 +77,7 @@ exports.runOp = function runOp(op, mode, callback) {
  * if no such folder exists.
  */
 exports.getFirstFolderWithType = function(type) {
-  const folders = this.folders;
+  var folders = this.folders;
   for (var iFolder = 0; iFolder < folders.length; iFolder++) {
     if (folders[iFolder].type === type)
       return folders[iFolder];

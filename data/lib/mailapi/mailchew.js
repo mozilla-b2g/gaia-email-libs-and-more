@@ -26,7 +26,7 @@ define(
     $htmlchew
   ) {
 
-const RE_RE = /^[Rr][Ee]: /;
+var RE_RE = /^[Rr][Ee]: /;
 
 /**
  * Generate the reply subject for a message given the prior subject.  This is
@@ -235,9 +235,9 @@ exports.generateForwardMessage = function generateForwardMessage(
   };
 };
 
-const HTML_WRAP_TOP =
+var HTML_WRAP_TOP =
   '<html><body><body bgcolor="#FFFFFF" text="#000000">';
-const HTML_WRAP_BOTTOM =
+var HTML_WRAP_BOTTOM =
   '</body></html>';
 
 /**

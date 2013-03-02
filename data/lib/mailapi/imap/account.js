@@ -35,8 +35,8 @@ define(
     $module,
     exports
   ) {
-const bsearchForInsert = $util.bsearchForInsert;
-const allbackMaker = $allback.allbackMaker;
+var bsearchForInsert = $util.bsearchForInsert;
+var allbackMaker = $allback.allbackMaker;
 
 function cmpFolderPubPath(a, b) {
   return a.path.localeCompare(b.path);
@@ -196,7 +196,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
     this._learnAboutFolder('INBOX', 'INBOX', null, 'inbox', '/', 0, true);
   }
 }
-exports.ImapAccount = ImapAccount;
+exports.Account = exports.ImapAccount = ImapAccount;
 ImapAccount.prototype = {
   type: 'imap',
   toString: function() {
@@ -827,7 +827,7 @@ ImapAccount.prototype = {
     }
 
     // - build a map of known existing folders
-    const folderPubsByPath = {};
+    var folderPubsByPath = {};
     var folderPub;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       folderPub = this.folders[iFolder];

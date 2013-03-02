@@ -11,6 +11,13 @@ define(
   ) {
 
 /**
+ * Helper function to check account flag fast path in a cookie
+ */
+function hasAccountCookie() {
+  return (document.cookie || '').indexOf('mailHasAccounts') !== -1;
+}
+
+/**
  *
  */
 function MailAccount(api, wireRep) {
@@ -1077,7 +1084,7 @@ MessageComposition.prototype = {
 };
 
 
-const LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
+var LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
 
 /**
  * Error reporting helper; we will probably eventually want different behaviours
@@ -1279,6 +1286,25 @@ MailAPI.prototype = {
     var addItems = msg.addItems, transformedItems = [], i, stopIndex;
     switch (slice._ns) {
       case 'accounts':
+
+        if (typeof document !== 'undefined') {
+          var hasAccounts = hasAccountCookie();
+          if (addItems.length && !hasAccounts) {
+            // Sets a cookie indicating where there are accounts to enable fast
+            // load of "add account" screen without loading the email backend.
+            // Set to 20 years from now.
+            var expiry = Date.now() + (20 * 365 * 24 * 60 * 60 * 1000);
+            expiry = (new Date(expiry)).toUTCString();
+            document.cookie = 'mailHasAccounts; expires=' + expiry;
+            this.hasAccounts = true;
+          } else if (!addItems.length && hasAccounts) {
+            // Reset cookie to indicate no accounts. Important
+            // to allow fast path _fake account guess to guess correctly.
+            document.cookie = '';
+            this.hasAccounts = false;
+          }
+        }
+
         for (i = 0; i < addItems.length; i++) {
           transformedItems.push(new MailAccount(this, addItems[i]));
         }
@@ -1651,6 +1677,12 @@ MailAPI.prototype = {
       accountId: account.id,
     });
   },
+
+  /**
+   * Shortcut flag to indicate if there are accounts configured.
+   * Only useful in browser environments that have cookies enabled.
+   */
+  hasAccounts: hasAccountCookie(),
 
   /**
    * Get the list of accounts.  This can be used for the list of accounts in

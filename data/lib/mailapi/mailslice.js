@@ -71,24 +71,24 @@ define(
     $module,
     exports
   ) {
-const bsearchForInsert = $util.bsearchForInsert,
-      bsearchMaybeExists = $util.bsearchMaybeExists,
-      cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
-      allbackMaker = $allback.allbackMaker,
-      BEFORE = $date.BEFORE,
-      ON_OR_BEFORE = $date.ON_OR_BEFORE,
-      SINCE = $date.SINCE,
-      STRICTLY_AFTER = $date.STRICTLY_AFTER,
-      IN_BS_DATE_RANGE = $date.IN_BS_DATE_RANGE,
-      HOUR_MILLIS = $date.HOUR_MILLIS,
-      DAY_MILLIS = $date.DAY_MILLIS,
-      NOW = $date.NOW,
-      makeDaysAgo = $date.makeDaysAgo,
-      makeDaysBefore = $date.makeDaysBefore,
-      quantizeDate = $date.quantizeDate,
-      quantizeDateUp = $date.quantizeDateUp;
+var bsearchForInsert = $util.bsearchForInsert,
+    bsearchMaybeExists = $util.bsearchMaybeExists,
+    cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
+    allbackMaker = $allback.allbackMaker,
+    BEFORE = $date.BEFORE,
+    ON_OR_BEFORE = $date.ON_OR_BEFORE,
+    SINCE = $date.SINCE,
+    STRICTLY_AFTER = $date.STRICTLY_AFTER,
+    IN_BS_DATE_RANGE = $date.IN_BS_DATE_RANGE,
+    HOUR_MILLIS = $date.HOUR_MILLIS,
+    DAY_MILLIS = $date.DAY_MILLIS,
+    NOW = $date.NOW,
+    makeDaysAgo = $date.makeDaysAgo,
+    makeDaysBefore = $date.makeDaysBefore,
+    quantizeDate = $date.quantizeDate,
+    quantizeDateUp = $date.quantizeDateUp;
 
-const PASTWARDS = 1, FUTUREWARDS = -1;
+var PASTWARDS = 1, FUTUREWARDS = -1;
 
 // What do we think the post-snappy compression overhead of the structured clone
 // persistence rep will be for various things?  These are total guesses right
@@ -96,10 +96,10 @@ const PASTWARDS = 1, FUTUREWARDS = -1;
 // cases and we just hope it will compress a bit.  For the attributes we are
 // including the attribute name as well as any fixed-overhead for its payload,
 // especially numbers which may or may not be zig-zag encoded/etc.
-const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
-      NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
-      NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
-      NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
+var OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
+    NUM_ATTR_OVERHEAD_EST = 10, LIST_ATTR_OVERHEAD_EST = 4,
+    NULL_ATTR_OVERHEAD_EST = 2, LIST_OVERHEAD_EST = 4,
+    NUM_OVERHEAD_EST = 8, STR_OVERHEAD_EST = 4;
 
 /**
  * Intersects two objects each defining tupled ranges of the type
@@ -107,7 +107,7 @@ const OBJ_OVERHEAD_EST = 2, STR_ATTR_OVERHEAD_EST = 5,
  * This is exported for unit testing purposes and because no state is closed
  * over.
  */
-const tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
+var tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
     function tupleRangeIntersectsTupleRange(a, b) {
   if (BEFORE(a.endTS, b.startTS) ||
       STRICTLY_AFTER(a.startTS, b.endTS))
@@ -122,7 +122,7 @@ const tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
  * What is the maximum number of bytes a block should store before we split
  * it?
  */
-const MAX_BLOCK_SIZE = 96 * 1024,
+var MAX_BLOCK_SIZE = 96 * 1024,
 /**
  * How many bytes should we target for the small part when splitting 1:2?
  */
