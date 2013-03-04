@@ -20,6 +20,8 @@ indexPath = path.join(dest, 'index.html');
 buildOptions = {
   baseUrl: path.join(__dirname, '..'),
   optimize: 'none', //'uglify',
+  //Keep any "use strict" in the built code.
+  useStrict: true,
   paths: {
     'alameda': 'deps/alameda',
 
