@@ -168,6 +168,17 @@ var _window_mixin = {
       getAll: function() {},
       remove: function() {},
     },
+    mozContacts: {
+      find: function(opts) {
+        var req = { onsuccess: null, onerror: null, result: null };
+        window.setZeroTimeout(function() {
+          if (req.onsuccess)
+            req.onsuccess({ target: req });
+        });
+        return req;
+      },
+    },
+
     getDeviceStorage: function(ds) {
       return {
         addNamed: function(blob, name) {

@@ -169,9 +169,17 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.namedValue('image 1 has src', imgs[1].getAttribute('src'));
     eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
   });
-  T.action(eCheck, 'kill body, verify URLs retracted', function() {
+  T.action(eCheck, 'emit image load events, verify URLs retracted', function() {
     eCheck.expect_namedValue('revokeObjectURL', 'url:part1');
     eCheck.expect_namedValue('revokeObjectURL', 'url:part2');
+
+    var imgs = displayElem.querySelectorAll('img');
+    var event = displayElem.ownerDocument.createEvent('Event');
+    event.initEvent('load', false, false);
+    imgs[0].dispatchEvent(event);
+    imgs[1].dispatchEvent(event);
+  });
+  T.action(eCheck, 'kill body, nothing happens really', function() {
     fancyBody.die();
     fancyBody = null;
   });
