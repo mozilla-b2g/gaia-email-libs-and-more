@@ -667,6 +667,14 @@ MailUniverse.prototype = {
       return;
     }
 
+    if (this.accounts.length) {
+      for (var iAcct = 0; iAcct < this.accounts.length; iAcct ++) {
+        if (userDetails.emailAddress === this.accounts[iAcct].identities[0].address) {
+          callback('user-account-exists');
+          return;
+        }
+      }
+    }
     if (domainInfo) {
       $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
                                              callback, this._LOG);
