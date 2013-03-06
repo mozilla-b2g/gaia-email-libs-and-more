@@ -2171,6 +2171,17 @@ MailAPI.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // Contact Support
+
+  resolveEmailAddressToPeep: function(emailAddress, callback) {
+    var peep = ContactCache.resolvePeep({ name: null, address: emailAddress });
+    if (ContactCache.pendingLookups.length)
+      ContactCache.callbacks.push(callback.bind(null, peep));
+    else
+      callback(peep);
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
   // Message Composition
 
   /**
