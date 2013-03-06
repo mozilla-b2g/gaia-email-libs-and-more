@@ -2237,7 +2237,7 @@ MailAPI.prototype = {
       msg.refSuid = options.replyTo.id;
       msg.refDate = options.replyTo.date.valueOf();
       msg.refGuid = options.replyTo.guid;
-      msg.refAuthor = options.replyTo.author;
+      msg.refAuthor = options.replyTo.author.toJSON();
       msg.refSubject = options.replyTo.subject;
     }
     else if (options.hasOwnProperty('forwardOf') && options.forwardOf) {
@@ -2246,7 +2246,7 @@ MailAPI.prototype = {
       msg.refSuid = options.forwardOf.id;
       msg.refDate = options.forwardOf.date.valueOf();
       msg.refGuid = options.forwardOf.guid;
-      msg.refAuthor = options.forwardOf.author;
+      msg.refAuthor = options.forwardOf.author.toJSON();
       msg.refSubject = options.forwardOf.subject;
     }
     else {
