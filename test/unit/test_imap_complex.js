@@ -253,6 +253,54 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
 });
 
 /**
+ * Don't die if we have to bisect on our initial sync.  We previously had a
+ * problem because when syncing PASTWARDS we compute our step date based on our
+ * current endTS.  Since in this case our endTS is null, one can screw up and
+ * compute a negative timestamp.  Another potential glitch is having our time
+ * range never shrink because of how the math works out and/or makeDaysAgo
+ * adding a day because of rounding.
+ *
+ * The specific numbers were 73 messages with a bisect thresh of 50 on a 3 day
+ * sync.  This resulted in a scale factor of 0.34.  3 * 0.34 = 1.02 which rounds
+ * up to 2.  And then the makeDaysAgo in combination with 2 brought us back up
+ * to 3.
+ */
+TD.commonCase('bisect on initial sync', function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eSync = T.lazyLogger('sync');
+
+  // Pick our bisect threshold so that our scale factor would not actually
+  // result in any reduction in days after rounding and the makeDaysAgo glitch.
+  // Bisect of 3, with 4 messages means scale of 0.666 on 3 days gets us back to
+  // 2 after rounding.
+  testUniverse.do_adjustSyncValues({
+    fillSize: 2,
+    days: 3,
+    // never grow the sync interval!
+    scaleFactor: 1,
+    bisectThresh: 3,
+    tooMany: 2000,
+  });
+
+
+  var overfullFolder = testAccount.do_createTestFolder(
+    'test_complex_overfull',
+    { count: 4, age: { days: 1 }, age_incr: { days: 1}, age_incr_every: 2 });
+  testAccount.do_viewFolder('open', overfullFolder,
+    // bisect abort: 4 days => 3
+    [{ count: 0, full: null, flags: null, deleted: null },
+     // bisect abort: 3 days => 2
+     { count: 0, full: null, flags: null, deleted: null },
+     { count: 2, full: 2, flags: 0, deleted: 0 }],
+    { top: true, bottom: true, grow: true });
+
+  T.group('cleanup');
+});
+
+/**
  * If there are more messages in the sync range than the initial fill desires,
  * it's important that the sync routine still gets presented with all the
  * headers covering the time range.  As a real example, our initial sync range
