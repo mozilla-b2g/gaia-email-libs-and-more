@@ -312,7 +312,8 @@ console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
 console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           if (curDaysDelta > 1) {
             // mark the bisection abort...
-            self._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+            self._LOG.syncDateRange_end(null, null, null, startTS, endTS,
+                                        null, null);
             var bisectInfo = {
               oldStartTS: startTS,
               oldEndTS: endTS,
@@ -363,7 +364,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           newUIDs, knownUIDs, headers,
           function(newCount, knownCount) {
             self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
-                                        startTS, endTS);
+                                        startTS, endTS, null, null);
             self._storage.markSyncRange(startTS, endTS, modseq,
                                         accuracyStamp);
             if (completed)
@@ -393,14 +394,15 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
                 skewedStartTS, new Date(skewedStartTS).toUTCString(),
                 'End: ', skewedEndTS,
                 skewedEndTS ? new Date(skewedEndTS).toUTCString() : null);
-    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
+    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS,
+                                  skewedStartTS, skewedEndTS);
     this._timelySyncSearch(
       searchOptions, callbacks.search,
       function abortedSearch() {
         if (completed)
           return;
         completed = true;
-        this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS);
+        this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS, null, null);
         doneCallback('aborted');
       }.bind(this),
       progressCallback);
@@ -1065,11 +1067,15 @@ ImapFolderSyncer.prototype = {
 
       // - Interpolate better time bounds.
       // Assume a linear distribution of messages, but overestimated by
-      // a factor of two so we undershoot.
+      // a factor of two so we undershoot.  Also make sure that we subtract off
+      // at least 2 days at a time.  This is to ensure that in the case where
+      // endTS is null and we end up using makeDaysAgo that we actually shrink
+      // by at least 1 day (because of how rounding works for makeDaysAgo).
       var shrinkScale = $sync.BISECT_DATE_AT_N_MESSAGES /
                           (numHeaders * 2),
           dayStep = Math.max(1,
-                             Math.ceil(shrinkScale * curDaysDelta));
+                             Math.min(curDaysDelta - 2,
+                                      Math.ceil(shrinkScale * curDaysDelta)));
       this._curSyncDayStep = dayStep;
 
       if (this._curSyncDir === PASTWARDS) {
@@ -1285,7 +1291,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     asyncJobs: {
       syncDateRange: {
         newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false,
+        start: false, end: false, skewedStart: false, skewedEnd: false,
       },
     },
   },
