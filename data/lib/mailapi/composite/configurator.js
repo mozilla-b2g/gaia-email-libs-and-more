@@ -9,8 +9,7 @@ define(
     '../a64',
     '../allback',
     './account',
-    '../imap/probe',
-    '../smtp/probe',
+    'require',
     'exports'
   ],
   function(
@@ -19,8 +18,7 @@ define(
     $a64,
     $allback,
     $account,
-    $imapprobe,
-    $smtpprobe,
+    require,
     exports
   ) {
 
@@ -75,13 +73,16 @@ exports.configurator = {
         }
       });
 
-    var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo,
-                                               _LOG);
-    imapProber.onresult = callbacks.imap;
+    require(['../imap/probe', '../smtp/probe',], function ($imapprobe, $smtpprobe) {
 
-    var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo,
-                                               _LOG);
-    smtpProber.onresult = callbacks.smtp;
+      var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo,
+                                                 _LOG);
+      imapProber.onresult = callbacks.imap;
+
+      var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo,
+                                                 _LOG);
+      smtpProber.onresult = callbacks.smtp;
+    });
   },
 
   recreateAccount: function cfg_is_ra(universe, oldVersion, oldAccountInfo,

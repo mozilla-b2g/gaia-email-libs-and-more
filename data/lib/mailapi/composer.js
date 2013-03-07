@@ -74,6 +74,8 @@ function Composer(mode, wireRep, account, identity) {
     }.bind(this));
   }
 }
+exports.mailchew = $mailchew;
+exports.MailComposer = $mailcomposer;
 exports.Composer = Composer;
 Composer.prototype = {
   _buildMailComposer: function() {

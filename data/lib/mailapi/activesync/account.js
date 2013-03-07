@@ -5,41 +5,59 @@
 define(
   [
     'rdcommon/log',
-    'mailcomposer',
-    'wbxml',
-    'activesync/codepages',
-    'activesync/protocol',
     '../a64',
     '../accountmixins',
     '../mailslice',
     '../searchfilter',
+    'activesync/codepages/FolderHierarchy',
+    'activesync/codepages/ComposeMail',
     './folder',
     './jobs',
     '../util',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $mailcomposer,
-    $wbxml,
-    $ascp,
-    $activesync,
     $a64,
     $acctmixins,
     $mailslice,
     $searchfilter,
+    $FolderHierarchy,
+    $ComposeMail,
     $asfolder,
     $asjobs,
     $util,
     $module,
+    require,
     exports
   ) {
 'use strict';
 
+// Lazy loaded vars.
+var $wbxml;
+
 var bsearchForInsert = $util.bsearchForInsert;
 
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
+
+function lazyInit(cbIndex, fn) {
+  return function lazyRun() {
+    var args = [].slice.call(arguments, 0),
+        self = this;
+
+    require(['wbxml'], function (wbxml) {
+      if (!$wbxml) {
+        $wbxml = wbxml;
+      }
+
+      self.withConnection(args[cbIndex], function () {
+        fn.apply(self, args);
+      });
+    });
+  };
+}
 
 function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                            receiveProtoConn, _parentLog) {
@@ -49,15 +67,6 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   if (receiveProtoConn) {
     this.conn = receiveProtoConn;
-  }
-  else {
-    this.conn = new $activesync.Connection();
-    this.conn.open(accountDef.connInfo.server, accountDef.credentials.username,
-                   accountDef.credentials.password);
-    this.conn.timeout = DEFAULT_TIMEOUT_MS;
-
-    // XXX: We should check for errors during connection and alert the user.
-    this.conn.connect();
   }
 
   this._db = dbConn;
@@ -112,7 +121,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   if (!inboxFolder) {
     // XXX localized Inbox string (bug 805834)
     this._addedFolder(null, '0', 'Inbox',
-                      $ascp.FolderHierarchy.Enums.Type.DefaultInbox, true);
+                      $FolderHierarchy.Enums.Type.DefaultInbox, true);
   }
 }
 exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
@@ -120,6 +129,38 @@ ActiveSyncAccount.prototype = {
   type: 'activesync',
   toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
+  },
+
+  /**
+   * Manages connecting, and wiring up initial connection if it is not
+   * initialized yet.
+   */
+  withConnection: function (errback, callback, failString) {
+    if (!this.conn) {
+      require(['activesync/protocol'], function (activesync) {
+        var accountDef = this.accountDef;
+        this.conn = new activesync.Connection();
+        this.conn.open(accountDef.connInfo.server,
+                       accountDef.credentials.username,
+                       accountDef.credentials.password);
+        this.conn.timeout = DEFAULT_TIMEOUT_MS;
+
+        this.withConnection(errback, callback);
+      }.bind(this));
+      return;
+    }
+
+    if (!this.conn.connected) {
+      this.conn.connect(function(error) {
+        if (error) {
+          errback(failString || 'unknown');
+          return;
+        }
+        callback();
+      });
+    } else {
+      callback();
+    }
   },
 
   toBridgeWire: function asa_toBridgeWire() {
@@ -212,12 +253,12 @@ ActiveSyncAccount.prototype = {
     // the slice is self-starting, we don't need to call anything on storage
   },
 
-  syncFolderList: function asa_syncFolderList(callback) {
+  syncFolderList: lazyInit(0, function asa_syncFolderList(callback) {
     // We can assume that we already have a connection here, since jobs.js
     // ensures it.
     var account = this;
 
-    var fh = $ascp.FolderHierarchy.Tags;
+    var fh = $FolderHierarchy.Tags;
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.SyncKey, this.meta.syncKey)
@@ -283,7 +324,7 @@ ActiveSyncAccount.prototype = {
       if (callback)
         callback(null);
     });
-  },
+  }),
 
   // Map folder type numbers from ActiveSync to Gaia's types
   _folderTypes: {
@@ -317,7 +358,7 @@ ActiveSyncAccount.prototype = {
     if (!(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
-    var folderType = $ascp.FolderHierarchy.Enums.Type;
+    var folderType = $FolderHierarchy.Enums.Type;
 
     var path = displayName;
     var parentFolderId = null;
@@ -502,27 +543,18 @@ ActiveSyncAccount.prototype = {
    *   }
    * ]
    */
-  createFolder: function asa_createFolder(parentFolderId, folderName,
-                                          containOnlyOtherFolders, callback) {
+  createFolder: lazyInit(3, function asa_createFolder(parentFolderId,
+                                                      folderName,
+                                                      containOnlyOtherFolders,
+                                                      callback) {
     var account = this;
-    if (!this.conn.connected) {
-      this.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        account.createFolder(parentFolderId, folderName,
-                             containOnlyOtherFolders, callback);
-      });
-      return;
-    }
 
     var parentFolderServerId = parentFolderId ?
       this._folderInfos[parentFolderId] : '0';
 
-    var fh = $ascp.FolderHierarchy.Tags;
-    var fhStatus = $ascp.FolderHierarchy.Enums.Status;
-    var folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+    var fh = $FolderHierarchy.Tags;
+    var fhStatus = $FolderHierarchy.Enums.Status;
+    var folderType = $FolderHierarchy.Enums.Type.Mail;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderCreate)
@@ -568,7 +600,7 @@ ActiveSyncAccount.prototype = {
         callback('unknown');
       }
     });
-  },
+  }),
 
   /**
    * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
@@ -576,24 +608,14 @@ ActiveSyncAccount.prototype = {
    *
    * Callback is like the createFolder one, why not.
    */
-  deleteFolder: function asa_deleteFolder(folderId, callback) {
+  deleteFolder: lazyInit(1, function asa_deleteFolder(folderId, callback) {
     var account = this;
-    if (!this.conn.connected) {
-      this.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        account.deleteFolder(folderId, callback);
-      });
-      return;
-    }
 
     var folderMeta = this._folderInfos[folderId].$meta;
 
-    var fh = $ascp.FolderHierarchy.Tags;
-    var fhStatus = $ascp.FolderHierarchy.Enums.Status;
-    var folderType = $ascp.FolderHierarchy.Enums.Type.Mail;
+    var fh = $FolderHierarchy.Tags;
+    var fhStatus = $FolderHierarchy.Enums.Status;
+    var folderType = $FolderHierarchy.Enums.Type.Mail;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderDelete)
@@ -631,20 +653,10 @@ ActiveSyncAccount.prototype = {
         callback('unknown');
       }
     });
-  },
+  }),
 
-  sendMessage: function asa_sendMessage(composer, callback) {
+  sendMessage: lazyInit(1, function asa_sendMessage(composer, callback) {
     var account = this;
-    if (!this.conn.connected) {
-      this.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        account.sendMessage(composer, callback);
-      });
-      return;
-    }
 
     // we want the bcc included because that's how we tell the server the bcc
     // results.
@@ -652,7 +664,7 @@ ActiveSyncAccount.prototype = {
       // ActiveSync 14.0 has a completely different API for sending email. Make
       // sure we format things the right way.
       if (this.conn.currentVersion.gte('14.0')) {
-        var cm = $ascp.ComposeMail.Tags;
+        var cm = $ComposeMail.Tags;
         var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(cm.SendMail)
            .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
@@ -695,7 +707,7 @@ ActiveSyncAccount.prototype = {
         }, { SaveInSent: 'T' });
       }
     }.bind(this));
-  },
+  }),
 
   getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
                                folderId) {

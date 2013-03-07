@@ -1,26 +1,24 @@
 define(
   [
     'rdcommon/log',
-    'mailparser/mailparser',
     '../a64',
     '../allback',
     '../date',
     '../syncbase',
     '../util',
-    './imapchew',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $mailparser,
     $a64,
     $allback,
     $date,
     $sync,
     $util,
-    $imapchew,
     $module,
+    require,
     exports
   ) {
 var allbackMaker = $allback.allbackMaker,
@@ -450,324 +448,314 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback,
                         progressCallback) {
-    var conn = this._conn, storage = this._storage, self = this;
-console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
-            knownUIDs.length, 'knownHeaders', knownHeaders.length);
-    // See the `ImapFolderConn` block comment for rationale.
-    var KNOWN_HEADERS_AGGR_COST = 20,
-        KNOWN_HEADERS_PER_COST = 1,
-        NEW_HEADERS_AGGR_COST = 20,
-        NEW_HEADERS_PER_COST = 5,
-        NEW_BODIES_PER_COST = 30;
-    var progressCost =
-          (knownUIDs.length ? KNOWN_HEADERS_AGGR_COST : 0) +
-          KNOWN_HEADERS_PER_COST * knownUIDs.length +
-          (newUIDs.length ? NEW_HEADERS_AGGR_COST : 0) +
-          NEW_HEADERS_PER_COST * newUIDs.length +
-          NEW_BODIES_PER_COST * newUIDs.length,
-        progressSoFar = 0;
+    require(['./imapchew'], function ($imapchew) {
+      var conn = this._conn, storage = this._storage, self = this;
+  console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
+              knownUIDs.length, 'knownHeaders', knownHeaders.length);
+      // See the `ImapFolderConn` block comment for rationale.
+      var KNOWN_HEADERS_AGGR_COST = 20,
+          KNOWN_HEADERS_PER_COST = 1,
+          NEW_HEADERS_AGGR_COST = 20,
+          NEW_HEADERS_PER_COST = 5,
+          NEW_BODIES_PER_COST = 30;
+      var progressCost =
+            (knownUIDs.length ? KNOWN_HEADERS_AGGR_COST : 0) +
+            KNOWN_HEADERS_PER_COST * knownUIDs.length +
+            (newUIDs.length ? NEW_HEADERS_AGGR_COST : 0) +
+            NEW_HEADERS_PER_COST * newUIDs.length +
+            NEW_BODIES_PER_COST * newUIDs.length,
+          progressSoFar = 0;
 
-    function updateProgress(newProgress) {
-      progressSoFar += newProgress;
-      if (progressCallback)
-        progressCallback(0.25 + 0.75 * (progressSoFar / progressCost));
-    }
+      function updateProgress(newProgress) {
+        progressSoFar += newProgress;
+        if (progressCallback)
+          progressCallback(0.25 + 0.75 * (progressSoFar / progressCost));
+      }
 
-    var callbacks = allbackMaker(
-      ['newMsgs', 'knownMsgs'],
-      function() {
-        // It is possible that async I/O will be required to add a header or a
-        // body, so we need to defer declaring the synchronization done until
-        // after all of the storage's deferred calls have run because the
-        // header/body affecting calls will have been deferred.
-        storage.runAfterDeferredCalls(
-          doneCallback.bind(null, newUIDs.length, knownUIDs.length));
-      });
-
-    // -- Fetch headers/bodystructures for new UIDs
-    var newChewReps = [];
-    if (newUIDs.length) {
-      var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
-      newFetcher.on('message', function onNewMessage(msg) {
-          msg.on('end', function onNewMsgEnd() {
-console.log('  new fetched, header processing, INTERNALDATE: ', msg.rawDate);
-            newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
-console.log('   header processed');
-          });
+      var callbacks = allbackMaker(
+        ['newMsgs', 'knownMsgs'],
+        function() {
+          // It is possible that async I/O will be required to add a header or a
+          // body, so we need to defer declaring the synchronization done until
+          // after all of the storage's deferred calls have run because the
+          // header/body affecting calls will have been deferred.
+          storage.runAfterDeferredCalls(
+            doneCallback.bind(null, newUIDs.length, knownUIDs.length));
         });
-      newFetcher.on('error', function onNewFetchError(err) {
-          // XXX the UID might have disappeared already?  we might need to have
-          // our initiating command re-do whatever it's up to.  Alternatively,
-          // we could drop back from a bulk fetch to a one-by-one fetch.
-          console.warn('New UIDs fetch error, ideally harmless:', err);
-        });
-      newFetcher.on('end', function onNewFetchEnd() {
-          // the fetch results will be bursty, so just update all at once
-          updateProgress(NEW_HEADERS_AGGR_COST +
-                         NEW_HEADERS_PER_COST * newUIDs.length);
 
-          // sort the messages, endTS to startTS (aka numerically descending)
-          newChewReps.sort(function(a, b) {
-              return b.msg.date - a.msg.date;
+      // -- Fetch headers/bodystructures for new UIDs
+      var newChewReps = [];
+      if (newUIDs.length) {
+        var newFetcher = this._conn.fetch(newUIDs, INITIAL_FETCH_PARAMS);
+        newFetcher.on('message', function onNewMessage(msg) {
+            msg.on('end', function onNewMsgEnd() {
+  console.log('  new fetched, header processing, INTERNALDATE: ', msg.rawDate);
+              newChewReps.push($imapchew.chewHeaderAndBodyStructure(msg));
+  console.log('   header processed');
             });
+          });
+        newFetcher.on('error', function onNewFetchError(err) {
+            // XXX the UID might have disappeared already?  we might need to have
+            // our initiating command re-do whatever it's up to.  Alternatively,
+            // we could drop back from a bulk fetch to a one-by-one fetch.
+            console.warn('New UIDs fetch error, ideally harmless:', err);
+          });
+        newFetcher.on('end', function onNewFetchEnd() {
+          require(['mailparser/mailparser'], function($mailparser) {
+            // the fetch results will be bursty, so just update all at once
+            updateProgress(NEW_HEADERS_AGGR_COST +
+                           NEW_HEADERS_PER_COST * newUIDs.length);
 
-          // - issue the bodypart fetches.
-          // Use mailparser's body parsing capabilities, albeit not entirely in
-          // the way it was intended to be used since it wants to parse full
-          // messages.
-          var mparser = new $mailparser.MailParser();
-          function setupBodyParser(partDef) {
-            mparser._state = 0x2; // body
-            mparser._remainder = '';
-            mparser._currentNode = null;
-            mparser._currentNode = mparser._createMimeNode(null);
-            // nb: mparser._multipartTree is an empty list (always)
-            mparser._currentNode.meta.contentType =
-              partDef.type.toLowerCase() + '/' +
-              partDef.subtype.toLowerCase();
-            mparser._currentNode.meta.charset =
-              partDef.params && partDef.params.charset &&
-              partDef.params.charset.toLowerCase();
-            mparser._currentNode.meta.transferEncoding =
-              partDef.encoding && partDef.encoding.toLowerCase();
-            mparser._currentNode.meta.textFormat =
-              partDef.params && partDef.params.format &&
-              partDef.params.format.toLowerCase();
-          }
-          function bodyParseBuffer(buffer) {
-            process.immediate = true;
-            mparser.write(buffer);
-            process.immediate = false;
-          }
-          function finishBodyParsing() {
-            process.immediate = true;
-            mparser._process(true);
-            process.immediate = false;
-            // We end up having provided an extra newline that we don't
-            // want, so let's cut it off if it exists.
-            var content = mparser._currentNode.content;
-            if (content.charCodeAt(content.length - 1) === 10)
-              content = content.substring(0, content.length - 1);
-            return content;
-          }
+            // sort the messages, endTS to startTS (aka numerically descending)
+            newChewReps.sort(function(a, b) {
+                return b.msg.date - a.msg.date;
+              });
 
-          // XXX imap.js is currently not capable of issuing/parsing multiple
-          // literal results from a single fetch result line.  It's not a
-          // fundamentally hard problem, but I'd rather defer messing with its
-          // parse loop (and internal state tracking) until a future time when
-          // I can do some other cleanup at the same time.  (The subsequent
-          // literals are just on their own lines with an initial space and then
-          // the named literal.  Ex: " BODY[1.2] {2463}".)
-          //
-          // So let's issue one fetch per body part and then be happy when we've
-          // got them all.
-          var pendingFetches = 0;
-          newChewReps.forEach(function(chewRep, iChewRep) {
-            var partsReceived = [];
-            // If there are no parts to process, consume it now.
-            if (chewRep.bodyParts.length === 0) {
-              if ($imapchew.chewBodyParts(chewRep, partsReceived,
-                                          storage.folderId,
-                                          storage._issueNewHeaderId())) {
-                storage.addMessageHeader(chewRep.header);
-                storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
-              }
+            // - issue the bodypart fetches.
+            // Use mailparser's body parsing capabilities, albeit not entirely in
+            // the way it was intended to be used since it wants to parse full
+            // messages.
+            var mparser = new $mailparser.MailParser();
+            function setupBodyParser(partDef) {
+              mparser._state = 0x2; // body
+              mparser._remainder = '';
+              mparser._currentNode = null;
+              mparser._currentNode = mparser._createMimeNode(null);
+              // nb: mparser._multipartTree is an empty list (always)
+              mparser._currentNode.meta.contentType =
+                partDef.type.toLowerCase() + '/' +
+                partDef.subtype.toLowerCase();
+              mparser._currentNode.meta.charset =
+                partDef.params && partDef.params.charset &&
+                partDef.params.charset.toLowerCase();
+              mparser._currentNode.meta.transferEncoding =
+                partDef.encoding && partDef.encoding.toLowerCase();
+              mparser._currentNode.meta.textFormat =
+                partDef.params && partDef.params.format &&
+                partDef.params.format.toLowerCase();
+            }
+            function bodyParseBuffer(buffer) {
+              process.immediate = true;
+              mparser.write(buffer);
+              process.immediate = false;
+            }
+            function finishBodyParsing() {
+              process.immediate = true;
+              mparser._process(true);
+              process.immediate = false;
+              // We end up having provided an extra newline that we don't
+              // want, so let's cut it off if it exists.
+              var content = mparser._currentNode.content;
+              if (content.charCodeAt(content.length - 1) === 10)
+                content = content.substring(0, content.length - 1);
+              return content;
             }
 
-            chewRep.bodyParts.forEach(function(bodyPart) {
-              var opts = {
-                request: {
-                  struct: false,
-                  headers: false,
-                  body: bodyPart.partID
+            // XXX imap.js is currently not capable of issuing/parsing multiple
+            // literal results from a single fetch result line.  It's not a
+            // fundamentally hard problem, but I'd rather defer messing with its
+            // parse loop (and internal state tracking) until a future time when
+            // I can do some other cleanup at the same time.  (The subsequent
+            // literals are just on their own lines with an initial space and then
+            // the named literal.  Ex: " BODY[1.2] {2463}".)
+            //
+            // So let's issue one fetch per body part and then be happy when we've
+            // got them all.
+            var pendingFetches = 0;
+            newChewReps.forEach(function(chewRep, iChewRep) {
+              var partsReceived = [];
+              // If there are no parts to process, consume it now.
+              if (chewRep.bodyParts.length === 0) {
+                if ($imapchew.chewBodyParts(chewRep, partsReceived,
+                                            storage.folderId,
+                                            storage._issueNewHeaderId())) {
+                  storage.addMessageHeader(chewRep.header);
+                  storage.addMessageBody(chewRep.header, chewRep.bodyInfo);
                 }
-              };
-              pendingFetches++;
+              }
 
-console.log('  fetching body for', chewRep.msg.id, bodyPart.partID);
-              var fetcher;
-try {
-              fetcher = conn.fetch(chewRep.msg.id, opts);
-} catch (ex) {
-  console.warn('!failure fetching body', ex);
-  return;
-}
-              setupBodyParser(bodyPart);
-              fetcher.on('error', function(err) {
-                console.warn('body fetch error', err);
-                if (--pendingFetches === 0)
-                  callbacks.newMsgs();
-              });
-              fetcher.on('message', function(msg) {
-                setupBodyParser(bodyPart);
-                msg.on('data', bodyParseBuffer);
-                msg.on('end', function() {
-                  updateProgress(NEW_BODIES_PER_COST);
-                  partsReceived.push(finishBodyParsing());
-console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
-            partsReceived.length, chewRep.bodyParts.length);
-
-                  // -- Process
-                  if (partsReceived.length === chewRep.bodyParts.length) {
-                    try {
-                      if ($imapchew.chewBodyParts(
-                            chewRep, partsReceived, storage.folderId,
-                            storage._issueNewHeaderId())) {
-                        storage.addMessageHeader(chewRep.header);
-                        storage.addMessageBody(chewRep.header,
-                                               chewRep.bodyInfo);
-                      }
-                      else {
-                        self._LOG.bodyChewError(false);
-                        console.error('Failed to process body!');
-                      }
-                    }
-                    catch (ex) {
-                      self._LOG.bodyChewError(ex);
-                      console.error('Failure processing body:', ex, '\n',
-                                    ex.stack);
-                    }
+              chewRep.bodyParts.forEach(function(bodyPart) {
+                var opts = {
+                  request: {
+                    struct: false,
+                    headers: false,
+                    body: bodyPart.partID
                   }
-                  // If this is the last chew rep, then use its completion
-                  // to report our completion.
+                };
+                pendingFetches++;
+
+  console.log('  fetching body for', chewRep.msg.id, bodyPart.partID);
+                var fetcher;
+  try {
+                fetcher = conn.fetch(chewRep.msg.id, opts);
+  } catch (ex) {
+    console.warn('!failure fetching body', ex);
+    return;
+  }
+                setupBodyParser(bodyPart);
+                fetcher.on('error', function(err) {
+                  console.warn('body fetch error', err);
                   if (--pendingFetches === 0)
                     callbacks.newMsgs();
                 });
+                fetcher.on('message', function(msg) {
+                  setupBodyParser(bodyPart);
+                  msg.on('data', bodyParseBuffer);
+                  msg.on('end', function() {
+                    updateProgress(NEW_BODIES_PER_COST);
+                    partsReceived.push(finishBodyParsing());
+  console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
+              partsReceived.length, chewRep.bodyParts.length);
+
+                    // -- Process
+                    if (partsReceived.length === chewRep.bodyParts.length) {
+                      try {
+                        if ($imapchew.chewBodyParts(
+                              chewRep, partsReceived, storage.folderId,
+                              storage._issueNewHeaderId())) {
+                          storage.addMessageHeader(chewRep.header);
+                          storage.addMessageBody(chewRep.header,
+                                                 chewRep.bodyInfo);
+                        }
+                        else {
+                          self._LOG.bodyChewError(false);
+                          console.error('Failed to process body!');
+                        }
+                      }
+                      catch (ex) {
+                        self._LOG.bodyChewError(ex);
+                        console.error('Failure processing body:', ex, '\n',
+                                      ex.stack);
+                      }
+                    }
+                    // If this is the last chew rep, then use its completion
+                    // to report our completion.
+                    if (--pendingFetches === 0)
+                      callbacks.newMsgs();
+                  });
+                });
               });
             });
-          });
-          if (pendingFetches === 0)
-            callbacks.newMsgs();
+            if (pendingFetches === 0)
+              callbacks.newMsgs();
+          }.bind(this));
         });
-    }
-    else {
-      callbacks.newMsgs();
-    }
+      }
+      else {
+        callbacks.newMsgs();
+      }
 
-    // -- Fetch updated flags for known UIDs
-    if (knownUIDs.length) {
-      var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
-      var numFetched = 0;
-      knownFetcher.on('message', function onKnownMessage(msg) {
-          // (Since we aren't requesting headers, we should be able to get
-          // away without registering this next event handler and just process
-          // msg right now, but let's wait on an optimization pass.)
-          msg.on('end', function onKnownMsgEnd() {
-            var i = numFetched++;
-console.log('FETCHED', i, 'known id', knownHeaders[i].id,
-            'known srvid', knownHeaders[i].srvid, 'actual id', msg.id);
-            // RFC 3501 doesn't require that we get results in the order we
-            // request them, so use indexOf if things don't line up.  (In fact,
-            // dovecot sorts them, so we might just want to sort ours too.)
-            if (knownHeaders[i].srvid !== msg.id) {
-              i = knownUIDs.indexOf(msg.id);
-              // If it's telling us about a message we don't know about, run away.
-              if (i === -1) {
-                console.warn("Server fetch reports unexpected message:", msg.id);
-                return;
+      // -- Fetch updated flags for known UIDs
+      if (knownUIDs.length) {
+        var knownFetcher = this._conn.fetch(knownUIDs, FLAG_FETCH_PARAMS);
+        var numFetched = 0;
+        knownFetcher.on('message', function onKnownMessage(msg) {
+            // (Since we aren't requesting headers, we should be able to get
+            // away without registering this next event handler and just process
+            // msg right now, but let's wait on an optimization pass.)
+            msg.on('end', function onKnownMsgEnd() {
+              var i = numFetched++;
+  console.log('FETCHED', i, 'known id', knownHeaders[i].id,
+              'known srvid', knownHeaders[i].srvid, 'actual id', msg.id);
+              // RFC 3501 doesn't require that we get results in the order we
+              // request them, so use indexOf if things don't line up.  (In fact,
+              // dovecot sorts them, so we might just want to sort ours too.)
+              if (knownHeaders[i].srvid !== msg.id) {
+                i = knownUIDs.indexOf(msg.id);
+                // If it's telling us about a message we don't know about, run away.
+                if (i === -1) {
+                  console.warn("Server fetch reports unexpected message:", msg.id);
+                  return;
+                }
               }
-            }
-            var header = knownHeaders[i];
-            // (msg.flags comes sorted and we maintain that invariant)
-            if (header.flags.toString() !== msg.flags.toString()) {
-console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
-             msg.flags.toString() + '"');
-              header.flags = msg.flags;
-              storage.updateMessageHeader(header.date, header.id, true, header);
-            }
-            else {
-              storage.unchangedMessageHeader(header);
-            }
+              var header = knownHeaders[i];
+              // (msg.flags comes sorted and we maintain that invariant)
+              if (header.flags.toString() !== msg.flags.toString()) {
+  console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
+               msg.flags.toString() + '"');
+                header.flags = msg.flags;
+                storage.updateMessageHeader(header.date, header.id, true, header);
+              }
+              else {
+                storage.unchangedMessageHeader(header);
+              }
+            });
           });
+        knownFetcher.on('error', function onKnownFetchError(err) {
+            // XXX the UID might have disappeared already?  we might need to have
+            // our initiating command re-do whatever it's up to.  Alternatively,
+            // we could drop back from a bulk fetch to a one-by-one fetch.
+            console.warn('Known UIDs fetch error, ideally harmless:', err);
+          });
+        knownFetcher.on('end', function() {
+          // the fetch results will be bursty, so just update all at once
+          updateProgress(KNOWN_HEADERS_AGGR_COST +
+                         KNOWN_HEADERS_PER_COST * knownUIDs.length);
+          callbacks.knownMsgs();
         });
-      knownFetcher.on('error', function onKnownFetchError(err) {
-          // XXX the UID might have disappeared already?  we might need to have
-          // our initiating command re-do whatever it's up to.  Alternatively,
-          // we could drop back from a bulk fetch to a one-by-one fetch.
-          console.warn('Known UIDs fetch error, ideally harmless:', err);
-        });
-      knownFetcher.on('end', function() {
-        // the fetch results will be bursty, so just update all at once
-        updateProgress(KNOWN_HEADERS_AGGR_COST +
-                       KNOWN_HEADERS_PER_COST * knownUIDs.length);
+      }
+      else {
         callbacks.knownMsgs();
-      });
-    }
-    else {
-      callbacks.knownMsgs();
-    }
+      }
+    }.bind(this));
   },
 
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
-    var conn = this._conn;
-    var self = this;
-    var mparser = new $mailparser.MailParser();
+    require(['mailparser/mailparser'], function($mailparser) {
+      var conn = this._conn;
+      var self = this;
+      var mparser = new $mailparser.MailParser();
 
-    // I actually implemented a usable shim for the checksum purposes, but we
-    // don't actually care about the checksum, so why bother doing the work?
-    var dummyChecksummer = {
-      update: function() {},
-      digest: function() { return null; },
-    };
-
-    function setupBodyParser(partInfo) {
-      mparser._state = 0x2; // body
-      mparser._remainder = '';
-      mparser._currentNode = null;
-      mparser._currentNode = mparser._createMimeNode(null);
-      mparser._currentNode.attachment = true;
-      mparser._currentNode.checksum = dummyChecksummer;
-      mparser._currentNode.content = undefined;
-      // nb: mparser._multipartTree is an empty list (always)
-      mparser._currentNode.meta.contentType = partInfo.type;
-      mparser._currentNode.meta.transferEncoding = partInfo.encoding;
-      mparser._currentNode.meta.charset = null; //partInfo.charset;
-      mparser._currentNode.meta.textFormat = null; //partInfo.textFormat;
-    }
-    function bodyParseBuffer(buffer) {
-      process.immediate = true;
-      mparser.write(buffer);
-      process.immediate = false;
-    }
-    function finishBodyParsing() {
-      process.immediate = true;
-      mparser._process(true);
-      process.immediate = false;
-      // this is a Buffer!
-      return mparser._currentNode.content;
-    }
-
-    var anyError = null, pendingFetches = 0, bodies = [];
-    partInfos.forEach(function(partInfo) {
-      var opts = {
-        request: {
-          struct: false,
-          headers: false,
-          body: partInfo.part
-        }
+      // I actually implemented a usable shim for the checksum purposes, but we
+      // don't actually care about the checksum, so why bother doing the work?
+      var dummyChecksummer = {
+        update: function() {},
+        digest: function() { return null; },
       };
-      pendingFetches++;
-      var fetcher = conn.fetch(uid, opts);
 
-      setupBodyParser(partInfo);
-      fetcher.on('error', function(err) {
-        if (!anyError)
-          anyError = err;
-        if (--pendingFetches === 0) {
-          try {
-            callback(anyError, bodies);
+      function setupBodyParser(partInfo) {
+        mparser._state = 0x2; // body
+        mparser._remainder = '';
+        mparser._currentNode = null;
+        mparser._currentNode = mparser._createMimeNode(null);
+        mparser._currentNode.attachment = true;
+        mparser._currentNode.checksum = dummyChecksummer;
+        mparser._currentNode.content = undefined;
+        // nb: mparser._multipartTree is an empty list (always)
+        mparser._currentNode.meta.contentType = partInfo.type;
+        mparser._currentNode.meta.transferEncoding = partInfo.encoding;
+        mparser._currentNode.meta.charset = null; //partInfo.charset;
+        mparser._currentNode.meta.textFormat = null; //partInfo.textFormat;
+      }
+      function bodyParseBuffer(buffer) {
+        process.immediate = true;
+        mparser.write(buffer);
+        process.immediate = false;
+      }
+      function finishBodyParsing() {
+        process.immediate = true;
+        mparser._process(true);
+        process.immediate = false;
+        // this is a Buffer!
+        return mparser._currentNode.content;
+      }
+
+      var anyError = null, pendingFetches = 0, bodies = [];
+      partInfos.forEach(function(partInfo) {
+        var opts = {
+          request: {
+            struct: false,
+            headers: false,
+            body: partInfo.part
           }
-          catch (ex) {
-            self._LOG.callbackErr(ex);
-          }
-        }
-      });
-      fetcher.on('message', function(msg) {
+        };
+        pendingFetches++;
+        var fetcher = conn.fetch(uid, opts);
+
         setupBodyParser(partInfo);
-        msg.on('data', bodyParseBuffer);
-        msg.on('end', function() {
-          bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
-
+        fetcher.on('error', function(err) {
+          if (!anyError)
+            anyError = err;
           if (--pendingFetches === 0) {
             try {
               callback(anyError, bodies);
@@ -777,8 +765,24 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
             }
           }
         });
+        fetcher.on('message', function(msg) {
+          setupBodyParser(partInfo);
+          msg.on('data', bodyParseBuffer);
+          msg.on('end', function() {
+            bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
+
+            if (--pendingFetches === 0) {
+              try {
+                callback(anyError, bodies);
+              }
+              catch (ex) {
+                self._LOG.callbackErr(ex);
+              }
+            }
+          });
+        });
       });
-    });
+    }.bind(this));
   },
 
   shutdown: function() {

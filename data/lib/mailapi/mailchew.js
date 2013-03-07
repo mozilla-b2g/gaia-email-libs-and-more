@@ -16,12 +16,14 @@ define(
   [
     'exports',
     './util',
+    './mailchew-strings',
     './quotechew',
     './htmlchew'
   ],
   function(
     exports,
     $util,
+    $mailchewStrings,
     $quotechew,
     $htmlchew
   ) {
@@ -87,6 +89,15 @@ exports.setLocalizedStrings = function(strings) {
 
   l10n_forward_header_labels = strings.forwardHeaderLabels;
 };
+
+// Grab the localized strings, if not available, listen for the event that
+// sets them.
+if ($mailchewStrings.strings) {
+  exports.setLocalizedStrings($mailchewStrings.strings);
+}
+$mailchewStrings.events.on('strings', function (strings) {
+  exports.setLocalizedStrings(strings);
+});
 
 /**
  * Generate the reply body representation given info about the message we are

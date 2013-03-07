@@ -4,11 +4,11 @@
 
 define(
   [
-    'mailcomposer',
+    '../composer',
     'exports'
   ],
   function(
-    $mailcomposer,
+    $composer,
     exports
   ) {
 
@@ -422,7 +422,7 @@ MessageGenerator.prototype = {
       };
     }
     else { // 'rfc822'
-      var composer = new $mailcomposer.MailComposer();
+      var composer = new $composer.MailComposer();
       var messageOpts = {
         from: this._formatAddresses([headerInfo.author]),
         subject: headerInfo.subject,
