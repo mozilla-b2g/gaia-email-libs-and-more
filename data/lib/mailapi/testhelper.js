@@ -526,6 +526,12 @@ var TestCommonAccountMixins = {
     storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
+    // all of these manipulations are interesting, but they're new and we haven't
+    // been generating expectations on these.
+    storageActor.ignore_addMessageHeader();
+    storageActor.ignore_addMessageBody();
+    storageActor.ignore_updateMessageHeader();
+    storageActor.ignore_updateMessageBody();
     storageActor.ignore_deleteFromBlock();
   },
 

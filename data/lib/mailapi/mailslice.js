@@ -3451,6 +3451,7 @@ FolderStorage.prototype = {
                                  this, header, callback));
       return;
     }
+    this._LOG.addMessageHeader(header.date, header.id, header.srvid);
 
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
       this._curSyncSlice.onHeaderAdded(header, true, true);
@@ -3555,6 +3556,8 @@ FolderStorage.prototype = {
       if (header) {
         self._dirty = true;
         self._dirtyHeaderBlocks[info.blockId] = block;
+
+        this._LOG.updateMessageHeader(header.date, header.id, header.srvid);
 
         if (partOfSync && self._curSyncSlice &&
             !self._curSyncSlice.ignoreHeaders)
@@ -3743,6 +3746,7 @@ FolderStorage.prototype = {
                                  this, header, bodyInfo, callback));
       return;
     }
+    this._LOG.addMessageBody(header.date, header.id, header.srvid);
 
     // crappy size estimates where we assume the world is ASCII and so a UTF-8
     // encoding will take exactly 1 byte per character.
@@ -3877,6 +3881,7 @@ FolderStorage.prototype = {
                                                        date, id);
     var bodyBlockInfo = posInfo[1],
         block = this._bodyBlocks[bodyBlockInfo.blockId];
+    this._LOG.updateMessageBody(date, id);
     block.bodies[id] = bodyInfo;
     this._dirty = true;
     this._dirtyBodyBlocks[bodyBlockInfo.blockId] = block;
@@ -3921,6 +3926,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   FolderStorage: {
     type: $log.DATABASE,
     events: {
+      addMessageHeader: { date: false, id: false, srvid: false },
+      addMessageBody: { date: false, id: false, srvid: false },
+
+      updateMessageHeader: { date: false, id: false, srvid: false },
+      updateMessageBody: { date: false, id: false },
+
       // For now, logging date and uid is useful because the general logging
       // level will show us if we are trying to redundantly delete things.
       // Also, date and uid are opaque identifiers with very little entropy

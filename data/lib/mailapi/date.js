@@ -194,6 +194,8 @@ var makeDaysAgo = exports.makeDaysAgo =
 };
 var makeDaysBefore = exports.makeDaysBefore =
       function makeDaysBefore(date, numDaysBefore) {
+  if (date === null)
+    return makeDaysAgo(numDaysBefore);
   return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 };
 /**
@@ -201,6 +203,8 @@ var makeDaysBefore = exports.makeDaysBefore =
  */
 var quantizeDate = exports.quantizeDate =
       function quantizeDate(date) {
+  if (date === null)
+    return null;
   if (typeof(date) === 'number')
     date = new Date(date);
   return date.setUTCHours(0, 0, 0, 0).valueOf();
