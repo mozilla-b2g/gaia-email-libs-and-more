@@ -146,6 +146,8 @@ function ImapFolderConn(account, storage, _parentLog) {
 
   this._conn = null;
   this.box = null;
+
+  this._deathback = null;
 }
 ImapFolderConn.prototype = {
   /**
@@ -173,6 +175,7 @@ ImapFolderConn.prototype = {
    */
   acquireConn: function(callback, deathback, label, dieOnConnectFailure) {
     var self = this;
+    this._deathback = deathback;
     this._account.__folderDemandsConnection(
       this._storage.folderId, label,
       function gotconn(conn) {
@@ -189,8 +192,11 @@ ImapFolderConn.prototype = {
               // hand the connection back, noting a resource problem
               self._account.__folderDoneWithConnection(
                 self._conn, false, true);
-              if (deathback)
+              if (self._deathback) {
+                var deathback = self._deathback;
+                self._deathback = null;
                 deathback();
+              }
               return;
             }
             self.box = box;
@@ -199,8 +205,11 @@ ImapFolderConn.prototype = {
       },
       function deadconn() {
         self._conn = null;
-        if (deathback)
+        if (self._deathback) {
+          var deathback = self._deathback;
+          self._deathback = null;
           deathback();
+        }
       },
       dieOnConnectFailure);
   },
@@ -209,6 +218,7 @@ ImapFolderConn.prototype = {
     if (!this._conn)
       return;
 
+    this._deathback = null;
     this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
   },
@@ -238,6 +248,10 @@ ImapFolderConn.prototype = {
                                     abortedCallback, progressCallback),
         abortedCallback, 'sync', true);
       return;
+    }
+    // We do have a connection, hook-up our abortedCallback
+    else {
+      this._deathback = abortedCallback;
     }
 
     // Having a connection is 10% of the battle
@@ -325,6 +339,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
             if (doneCallback('bisect', bisectInfo, null) === 'abort') {
+              self._deathback = null;
               doneCallback('bisect-aborted', null);
               return null;
             }
@@ -370,6 +385,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             if (completed)
               return;
             completed = true;
+            self._deathback = null;
             doneCallback(null, null, newCount + knownCount,
                          skewedStartTS, skewedEndTS);
           },
