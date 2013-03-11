@@ -236,8 +236,8 @@ exports.do_download = function(op, callback) {
       if (partInfo.file)
         continue;
       partsToDownload.push(partInfo);
-      // right now all attachments go in pictures
-      storePartsTo.push('pictures');
+      // right now all attachments go in sdcard
+      storePartsTo.push('sdcard');
     }
 
     folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
