@@ -257,13 +257,16 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
  * problem because when syncing PASTWARDS we compute our step date based on our
  * current endTS.  Since in this case our endTS is null, one can screw up and
  * compute a negative timestamp.  Another potential glitch is having our time
- * range never shrink because of how the math works out and/or makeDaysAgo
- * adding a day because of rounding.
+ * range never shrink because the makeDaysBefore -> makeDaysAgo transition was
+ * not subtracting off 1 so 1 was basically being added.
  *
- * The specific numbers were 73 messages with a bisect thresh of 50 on a 3 day
- * sync.  This resulted in a scale factor of 0.34.  3 * 0.34 = 1.02 which rounds
- * up to 2.  And then the makeDaysAgo in combination with 2 brought us back up
- * to 3.
+ * We broke in 2 ways, so there's two cases we test, even though they're
+ * effectively the same:
+ * - The overfull on a single day case.  In this case, we need to bisect down to
+ *   1 day of coverage, or 0 days ago.  Previously we kept doing 2 days, 2 days,
+ *   2 days, etc.
+ * - The need to bisect down from our initial coverage range where we stabilized
+ *   at 3 days, never reaching 2 days.
  */
 TD.commonCase('bisect on initial sync', function(T) {
   T.group('setup');
@@ -286,14 +289,26 @@ TD.commonCase('bisect on initial sync', function(T) {
   });
 
 
-  var overfullFolder = testAccount.do_createTestFolder(
+  // imbalance the proportion so that we don't immediately jump down to 1 day
+  var oneFolder = testAccount.do_createTestFolder(
     'test_complex_overfull',
-    { count: 4, age: { days: 1 }, age_incr: { days: 1}, age_incr_every: 2 });
-  testAccount.do_viewFolder('open', overfullFolder,
-    // bisect abort: 4 days => 3
+    { count: 5, age: { days: 0 }, age_incr: { days: 1 }, age_incr_every: 4 });
+
+  var multiFolder = testAccount.do_createTestFolder(
+    'test_complex_overfull_multi',
+    { count: 4, age: { days: 1 }, age_incr: { days: 1 }, age_incr_every: 2 });
+
+  testAccount.do_viewFolder('open', oneFolder,
+    // bisect abort: 4 days => 2 days
     [{ count: 0, full: null, flags: null, deleted: null },
-     // bisect abort: 3 days => 2
+     // bisect abort: 2 days => 1 days
      { count: 0, full: null, flags: null, deleted: null },
+     { count: 2, full: 4, flags: 0, deleted: 0 }],
+    { top: true, bottom: false, grow: false });
+
+  testAccount.do_viewFolder('open', multiFolder,
+    // bisect abort: 4 days => 2 days
+    [{ count: 0, full: null, flags: null, deleted: null },
      { count: 2, full: 2, flags: 0, deleted: 0 }],
     { top: true, bottom: true, grow: true });
 

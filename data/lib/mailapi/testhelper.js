@@ -185,8 +185,31 @@ var TestUniverseMixins = {
     var self = this;
     this.T.convenienceSetup(humanMsg, function() {
       self._useDate = useAsNowTS;
+
+      // -- Timezone compensation horrors!
+      // If we are using a real IMAP server like dovecot, then it will use its
+      // INTERNALDATE logic regardless of what timezone we cram into the
+      // message.  As such, we need to detect a daylight savings time delta
+      // between our current offset and the IMAP server offset and apply a fixup
+      // to our message generator.
+      //
+      // This is a stop-gap solution that currently only affects
+      // test_imap_complex.js's "repeated refresh is stable" unit test which cares
+      // about the edge case.  It needs to be using a fake IMAP server to have the
+      // desired control.  We will predicate that test on using the IMAP fake
+      // server.
+      var thenTzOffset = new Date(useAsNowTS).getTimezoneOffset() * -60000;
       for (var i = 0; i < self.__testAccounts.length; i++) {
-        self.__testAccounts[i]._useDate = useAsNowTS;
+        var testAccount = self.__testAccounts[i];
+        testAccount._useDate = useAsNowTS;
+        if (testAccount.imapAccount) {
+          var nowTzOffset = testAccount.imapAccount.tzOffset;
+          if (nowTzOffset !== thenTzOffset) {
+            console.log('current offset', nowTzOffset, 'versus', thenTzOffset,
+                        'adjusting useDate by', thenTzOffset - nowTzOffset);
+            testAccount._useDate += (thenTzOffset - nowTzOffset);
+          }
+        }
       }
       $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });
