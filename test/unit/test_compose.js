@@ -101,8 +101,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
-      eLazy.expect_namedValue('addNamed:pictures', 'foo.png');
-      eLazy.expect_namedValue('get:pictures', 'foo.png');
+      eLazy.expect_namedValue('addNamed:sdcard', 'foo.png');
+      eLazy.expect_namedValue('get:sdcard', 'foo.png');
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
