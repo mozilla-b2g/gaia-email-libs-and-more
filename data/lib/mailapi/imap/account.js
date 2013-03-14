@@ -953,6 +953,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       reuseConnection: {},
       releaseConnection: {},
       deadConnection: {},
+      unknownDeadConnection: {},
       connectionMismatch: {},
 
       saveAccountState: {},
@@ -973,7 +974,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       connectionMismatch: {},
     },
     errors: {
-      unknownDeadConnection: {},
       connectionError: {},
       folderAlreadyHasConn: { folderId: false },
       opError: { mode: false, type: false, ex: $log.EXCEPTION },
