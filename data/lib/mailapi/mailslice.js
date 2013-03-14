@@ -83,8 +83,6 @@ var bsearchForInsert = $util.bsearchForInsert,
     HOUR_MILLIS = $date.HOUR_MILLIS,
     DAY_MILLIS = $date.DAY_MILLIS,
     NOW = $date.NOW,
-    makeDaysAgo = $date.makeDaysAgo,
-    makeDaysBefore = $date.makeDaysBefore,
     quantizeDate = $date.quantizeDate,
     quantizeDateUp = $date.quantizeDateUp;
 
@@ -2414,7 +2412,12 @@ FolderStorage.prototype = {
           // add the timezone to be relative to that timezone.)  We do adjust
           // startTS for the timezone offset in here rather than in the
           // quantization blow below because we do not timezone adjust the oldest
-          // full sync date.
+          // full sync date because it's already in the right 'units'.
+
+          var highestLegalEndTS;
+          // If we hit the highestLegalEndTS, flag that we should mark endTS as
+          // open-ended if we decide we do need to refresh.
+          var openEndTS = false;
 
           var startTS, endTS;
           if (dir === PASTWARDS) {
@@ -2425,32 +2428,62 @@ FolderStorage.prototype = {
             // up to checkAccuracyCoverageNeedingRefresh to get rid of any
             // redundant coverage of what we are currently looking at.
             //
-            // However, we do want to cap the date so that we don't re-refresh
-            // today and any other intervening days spuriously.  When we sync we
-            // only use an endTS of NOW(), so our rounding up can be too
+            // We do want to cap the date so that we don't re-refresh today and
+            // any other intervening days spuriously.  When we sync we only use
+            // an endTS of tz-adjusted NOW(), so our rounding up can be too
             // aggressive otherwise and prevent range shrinking.  We call
             // quantizeDateUp afterwards so that if any part of the day is still
             // covered we will have our refresh cover it.
-            var highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS;
-            endTS = slice.startTS + $date.DAY_MILLIS;
-            if (STRICTLY_AFTER(endTS, highestLegalEndTS))
-              endTS = highestLegalEndTS;
+            //
+            // NB: We use OPEN_REFRESH_THRESH_MS here because since we are
+            // growing past-wards, we don't really care about refreshing things
+            // in our future.  This is not the case for FUTUREWARDS.
+            highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS +
+                                  this._account.tzOffset;
+            endTS = slice.startTS + $date.DAY_MILLIS + this._account.tzOffset;
+
             if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id))
               startTS = this.getOldestFullSyncDate();
             else
               startTS = oldestHeader.date + this._account.tzOffset;
           }
           else { // dir === FUTUREWARDS
+            // Unlike PASTWARDS, we do want to be more aggressively up-to-date
+            // about the future, so only subtract off the grow range coverage.
+            // (If we didn't subtract anything off, quick scrolling back and
+            // forth could cause us to refresh more frequently than
+            // GROW_REFRESH_THRESH_MS, which is not what we want.)
+            highestLegalEndTS = NOW() - $sync.GROW_REFRESH_THRESH_MS +
+                                  this._account.tzOffset;
+
             var youngestHeader = batchHeaders[0];
             // see the PASTWARDS case for why we don't add a day to this
             startTS = slice.endTS + this._account.tzOffset;
-            endTS = youngestHeader.date + $date.DAY_MILLIS;
+            endTS = youngestHeader.date + $date.DAY_MILLIS +
+                      this._account.tzOffset;
+          }
+          // We do not want this clamped/saturated case quantized, but we do
+          // want all the (other) future-dated endTS cases quantized.
+          if (STRICTLY_AFTER(endTS, highestLegalEndTS)) {
+            endTS = highestLegalEndTS;
+            openEndTS = true;
+          }
+          else {
+            endTS = quantizeDate(endTS);
           }
 
-          refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
-            quantizeDate(startTS),
-            quantizeDate(endTS + this._account.tzOffset),
-            $sync.GROW_REFRESH_THRESH_MS);
+          // Now, it's not super-likely, but it is possible that because of
+          // clock skew or what not that our startTS could end up after our
+          // endTS, which we do not want.  Now, we could just clamp this,
+          // but since we know the result would be a zero-coverage range,
+          // we can just set the refreshInterval to null and be done.
+          if (SINCE(startTS, endTS))
+            refreshInterval = null;
+          else
+            refreshInterval = this.checkAccuracyCoverageNeedingRefresh(
+              quantizeDate(startTS),
+              endTS, // quantized above except when it would go into the future.
+              $sync.GROW_REFRESH_THRESH_MS);
         }
 
         // We could also send the headers in as they come across the wire,
@@ -2465,7 +2498,13 @@ FolderStorage.prototype = {
         // the refresh may give us extras, so allow those to be reported.
         slice.desiredHeaders = Math.max(slice.headers.length, desiredCount);
 
-        if (refreshInterval) {
+        if (refreshInterval &&
+            // If the values are the same, by definition we have nothing to do,
+            // but more importantly, the rounding might not improve the
+            // situation, which could result in pathological sync failure on
+            // gmail where it returns all the messages it knows about.
+            refreshInterval.startTS !== refreshInterval.endTS) {
+
           // If growth was not requested, make sure we convey server traffic is
           // happening.
           if (!userRequestsGrowth)
@@ -2474,7 +2513,12 @@ FolderStorage.prototype = {
 
           this.folderSyncer.refreshSync(
             slice, dir,
-            refreshInterval.startTS, quantizeDateUp(refreshInterval.endTS),
+            quantizeDate(refreshInterval.startTS),
+            // If we didn't shrink the endTS and we flagged to be open-ended, then
+            // use null.  But if we did shrink the range, then there's no need to
+            // go open-ended.
+            (openEndTS && refreshInterval.endTS === highestLegalEndTS) ? null
+              : quantizeDateUp(refreshInterval.endTS),
             /* origStartTS */ null,
             doneCallback, progressCallback);
         }
@@ -2634,7 +2678,8 @@ FolderStorage.prototype = {
       // be for a sync through now), this all works out consistently.
       if (this.checkAccuracyCoverageNeedingRefresh(
              startTS,
-             endTS || NOW() - $sync.OPEN_REFRESH_THRESH_MS,
+             endTS ||
+               NOW() - $sync.OPEN_REFRESH_THRESH_MS + this._account.tzOffset,
              $sync.OPEN_REFRESH_THRESH_MS) === null) {
         doneCallback();
         return;
@@ -2821,7 +2866,7 @@ FolderStorage.prototype = {
       return true;
 
     var newestSyncTS = this.getNewestFullSyncDate();
-    return SINCE(newestSyncTS, quantizeDate(NOW()));
+    return SINCE(newestSyncTS, quantizeDate(NOW() + this._account.tzOffset));
   },
 
   /**
@@ -3159,7 +3204,21 @@ FolderStorage.prototype = {
 
 
   /**
-   * Mark a given time range as synchronized.
+   * Mark a given time range as synchronized.  Timestamps are currently UTC
+   * day-quantized values that indicate the day range that we have fully
+   * synchronized with the server.  The actual time-range of the synchronized
+   * messages will be offset by the effective timezone of the server.
+   *
+   * To re-state in another way: if you take these timestamps and represent them
+   * in UTC-0, that's the date we talk to the IMAP server with in terms of SINCE
+   * and BEFORE.
+   *
+   * Note: I did consider doing timezones the right way where we would compute
+   * things in the time-zone of the server.  The problem with that is that our
+   * timezone for the server is just a guess and the server's timezone can
+   * actually change.  And if the timezone changes, then all the dates would end
+   * up shifted by a day when quantized, which is distinctly not what we want to
+   * happen.
    *
    * @args[
    *   @param[startTS DateMS]
@@ -3170,8 +3229,21 @@ FolderStorage.prototype = {
    */
   markSyncRange: function(startTS, endTS, modseq, updated) {
     // If our range was marked open-ended, it's really accurate through now.
+    // But we don't want true UTC now, we want the now of the server in terms of
+    // IMAP's crazy SINCE/BEFORE quantized date-range.  If it's already tomorrow
+    // as far as the server is concerned date-wise, then we need to reflect that
+    // here.
+    //
+    // To really spell it out, let's say that it's currently daylight savings
+    // time, we live on the east coast (utc-4), and our server is in Europe
+    // (utc+2).
+    //
+    // Let's say it's 7pm, which is 11pm at utc-0 and 1am at utc+2.  NOW() is
+    // going to net us the 11pm value; we need to add the timezone offset of
+    // +2 to get to 1am, which is then what we want to use for markSyncRange.
+    //
     if (!endTS)
-      endTS = NOW();
+      endTS = NOW() + this._account.tzOffset;
     if (startTS > endTS)
       throw new Error('Your timestamps are switched!');
 
