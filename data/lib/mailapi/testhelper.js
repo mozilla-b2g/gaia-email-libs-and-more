@@ -182,6 +182,8 @@ var TestUniverseMixins = {
   },
 
   do_timewarpNow: function(useAsNowTS, humanMsg) {
+    if (!humanMsg)
+      throw new Error('You need to provide a message! The humans like them!');
     var self = this;
     this.T.convenienceSetup(humanMsg, function() {
       self._useDate = useAsNowTS;
@@ -1489,6 +1491,8 @@ var TestImapAccountMixins = {
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
       this.eImapAccount.expectNothing();
+      if (nonet)
+        testFolder.connActor.expectNothing();
     }
 
     return totalMessageCount;

@@ -286,6 +286,12 @@ ImapFolderConn.prototype = {
    */
   syncDateRange: function(startTS, endTS, accuracyStamp,
                           doneCallback, progressCallback) {
+    if (startTS && endTS && SINCE(startTS, endTS)) {
+      this._LOG.illegalSync(startTS, endTS);
+      doneCallback('invariant');
+      return;
+    }
+
 console.log("syncDateRange:", startTS, endTS);
     var searchOptions = BASELINE_SEARCH_OPTIONS.concat(), self = this,
       storage = self._storage;
@@ -305,7 +311,7 @@ console.log("syncDateRange:", startTS, endTS);
 console.log('SERVER UIDS', serverUIDs.length, useBisectLimit);
         if (serverUIDs.length > useBisectLimit) {
           var effEndTS = endTS ||
-                         quantizeDate(NOW() + DAY_MILLIS),
+                         quantizeDate(NOW() + DAY_MILLIS + self._account.tzOffset),
               curDaysDelta = Math.round((effEndTS - startTS) / DAY_MILLIS);
           // We are searching more than one day, we can shrink our search.
 
@@ -947,7 +953,8 @@ ImapFolderSyncer.prototype = {
         if (endTS)
           this._nextSyncAnchorTS = startTS = endTS - syncStepDays * DAY_MILLIS;
         else
-          this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays);
+          this._nextSyncAnchorTS = startTS = makeDaysAgo(syncStepDays,
+                                                         this._account.tzOffset);
       }
       else {
         startTS = syncThroughTS;
@@ -1054,7 +1061,8 @@ ImapFolderSyncer.prototype = {
         bisectInfo.oldStartTS = this._fallbackOriginTS;
         this._fallbackOriginTS = null;
         var effOldEndTS = bisectInfo.oldEndTS ||
-                          quantizeDate(NOW() + DAY_MILLIS);
+                          quantizeDate(NOW() + DAY_MILLIS +
+                                       this._account.tzOffset);
         curDaysDelta = Math.round((effOldEndTS - bisectInfo.oldStartTS) /
                                   DAY_MILLIS);
         numHeaders = $sync.BISECT_DATE_AT_N_MESSAGES * 1.5;
@@ -1081,13 +1089,13 @@ ImapFolderSyncer.prototype = {
       if (this._curSyncDir === PASTWARDS) {
         bisectInfo.newEndTS = bisectInfo.oldEndTS;
         this._nextSyncAnchorTS = bisectInfo.newStartTS =
-          makeDaysBefore(bisectInfo.newEndTS, dayStep);
+          makeDaysBefore(bisectInfo.newEndTS, dayStep, this._account.tzOffset);
         this._curSyncDoNotGrowBoundary = bisectInfo.oldStartTS;
       }
       else { // FUTUREWARDS
         bisectInfo.newStartTS = bisectInfo.oldStartTS;
         this._nextSyncAnchorTS = bisectInfo.newEndTS =
-          makeDaysBefore(bisectInfo.newStartTS, -dayStep);
+          makeDaysBefore(bisectInfo.newStartTS, -dayStep, this._account.tzOffset);
         this._curSyncDoNotGrowBoundary = bisectInfo.oldEndTS;
       }
 
@@ -1196,8 +1204,8 @@ console.log("folder message count", folderMessageCount,
     else {
       this._curSyncDoNotGrowBoundary = null;
       // This may be a fractional value because of DST
-      lastSyncDaysInPast = ((quantizeDate(NOW())) - this._nextSyncAnchorTS) /
-                           DAY_MILLIS;
+      lastSyncDaysInPast = ((quantizeDate(NOW() + this._account.tzOffset)) -
+                           this._nextSyncAnchorTS) / DAY_MILLIS;
       daysToSearch = Math.ceil(this._curSyncDayStep *
                                $sync.TIME_SCALE_FACTOR_ON_NO_MESSAGES);
 
@@ -1235,11 +1243,13 @@ console.log("folder message count", folderMessageCount,
     var startTS, endTS;
     if (this._curSyncDir === PASTWARDS) {
       endTS = this._nextSyncAnchorTS;
-      this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch);
+      this._nextSyncAnchorTS = startTS = makeDaysBefore(endTS, daysToSearch,
+                                                        this._account.tzOffset);
     }
     else { // FUTUREWARDS
       startTS = this._nextSyncAnchorTS;
-      this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch);
+      this._nextSyncAnchorTS = endTS = makeDaysBefore(startTS, -daysToSearch,
+                                                      this._account.tzOffset);
     }
     this.folderConn.syncDateRange(startTS, endTS, this._curSyncAccuracyStamp,
                                   this.onSyncCompleted.bind(this));
@@ -1287,6 +1297,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       callbackErr: { ex: $log.EXCEPTION },
 
       bodyChewError: { ex: $log.EXCEPTION },
+
+      // Attempted to sync with an empty or inverted range.
+      illegalSync: { startTS: false, endTS: false },
     },
     asyncJobs: {
       syncDateRange: {

@@ -253,22 +253,30 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
 });
 
 /**
- * Don't die if we have to bisect on our initial sync.  We previously had a
- * problem because when syncing PASTWARDS we compute our step date based on our
- * current endTS.  Since in this case our endTS is null, one can screw up and
- * compute a negative timestamp.  Another potential glitch is having our time
- * range never shrink because the makeDaysBefore -> makeDaysAgo transition was
- * not subtracting off 1 so 1 was basically being added.
+ * Don't die if we have to bisect on our initial sync.  And don't die if we then
+ * try and grow so that we're growing while still on 'today'.
  *
- * We broke in 2 ways, so there's two cases we test, even though they're
+ * We previously had a problem because when syncing PASTWARDS we compute our
+ * step date based on our current endTS.  Since in this case our endTS is null,
+ * one can screw up and compute a negative timestamp.  Another potential glitch
+ * is having our time range never shrink because the makeDaysBefore ->
+ * makeDaysAgo transition was not subtracting off 1 so 1 was basically being
+ * added.
+ *
+ * We broke in 3 ways, so there's two cases we test, even though they're
  * effectively the same:
  * - The overfull on a single day case.  In this case, we need to bisect down to
  *   1 day of coverage, or 0 days ago.  Previously we kept doing 2 days, 2 days,
  *   2 days, etc.
+ * - The overfull on a single day case with growth afterwards.  There was a bug
+ *   in calculation of the range where we would collapse it to a 0-day range
+ *   that would result in SINCE (day) BEFORE (day).  This is a null set on
+ *   servers like dovecot, but gmail interprets it to mean it should return all
+ *   messages.  This would turn out poorly.
  * - The need to bisect down from our initial coverage range where we stabilized
  *   at 3 days, never reaching 2 days.
  */
-TD.commonCase('bisect on initial sync', function(T) {
+TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
@@ -286,26 +294,98 @@ TD.commonCase('bisect on initial sync', function(T) {
     scaleFactor: 1,
     bisectThresh: 3,
     tooMany: 2000,
+    // we want refreshing to be smart,
+    openRefreshThresh: 60 * 60 * 1000,
+    growRefreshThresh: 3 * 60 * 1000,
   });
 
 
-  // imbalance the proportion so that we don't immediately jump down to 1 day
+  // timewarp to 10 minute ago
+  var staticNow = Date.now() - 20 * 60 * 1000;
+  testUniverse.do_timewarpNow(staticNow, '20 mins ago');
+
+  // Note: 6 messages only differing in age by 1 second!
   var oneFolder = testAccount.do_createTestFolder(
     'test_complex_overfull',
-    { count: 5, age: { days: 0 }, age_incr: { days: 1 }, age_incr_every: 4 });
+    { count: 7, age: { days: 0 }, age_incr: { days: 1 }, age_incr_every: 6 });
 
   var multiFolder = testAccount.do_createTestFolder(
     'test_complex_overfull_multi',
     { count: 4, age: { days: 1 }, age_incr: { days: 1 }, age_incr_every: 2 });
 
-  testAccount.do_viewFolder('open', oneFolder,
-    // bisect abort: 4 days => 2 days
+  // -- bisected down to 1 day
+  // - sync
+  T.group('1 day, open');
+  var oneView = testAccount.do_openFolderView('open', oneFolder,
+    // bisect abort: 4 days => 1 days (because we have so many messages)
     [{ count: 0, full: null, flags: null, deleted: null },
-     // bisect abort: 2 days => 1 days
-     { count: 0, full: null, flags: null, deleted: null },
-     { count: 2, full: 4, flags: 0, deleted: 0 }],
+     { count: 2, full: 6, flags: 0, deleted: 0 }],
     { top: true, bottom: false, grow: false });
 
+  // - grow (pastwards)
+  // This set of additional messages is from the same day that we're displaying
+  // already.  Additionally, that day is 'today', which presents interesting
+  // edge-case issues.
+  //
+  // We start out by setting our end range one day into the future from the start
+  // of our slice, which makes it sometime tomorrow.  We also determine that the
+  // highest legal endTS is actually slightly before now (depending on our
+  // open refresh constant which we set to an hour above.)  So we will clamp the
+  // date down to 1 hour ago.
+  //
+  // We previously had a bug here which was that we would quantize the refresh
+  // range downwards on the way into checkAccuracyCoverageNeedingRefresh after
+  // clamping.  In this case, that would cause the values to become equivalent
+  // and then a quantizeUp would never happen.
+  T.group('1 day, grow pastwards');
+  testAccount.do_growFolderView(
+    oneView, /* dirMagnitude */ 2, /* userRequestsGrowth */ false,
+    /* alreadyExists */ 2,
+    { count: 2 },
+    { top: true, bottom: false, grow: false },
+    { nonet: true });
+
+  T.group('1 day, slice off future');
+  testAccount.do_shrinkFolderView(
+    oneView, 2, 3, 2,
+    { top: false, bottom: false, grow: false });
+
+  T.group('1 day, grow towards future without refresh');
+  testAccount.do_growFolderView(
+    oneView, /* dirMagnitude */ -2, /* userRequestsGrowth */ false,
+    /* alreadyExists */ 2,
+    // this will trigger a refresh!
+    { count: 2  },
+    { top: true, bottom: false, grow: false },
+    { nonet: true });
+  testAccount.do_shrinkFolderView(
+    oneView, 2, 3, 2,
+    { top: false, bottom: false, grow: false });
+
+  T.group('1 day, grow futurewards with refresh');
+  staticNow += 5 * 60 * 1000;
+  testUniverse.do_timewarpNow(staticNow, '5 mins pass');
+  testAccount.do_growFolderView(
+    oneView, /* dirMagnitude */ -2, /* userRequestsGrowth */ false,
+    /* alreadyExists */ 2,
+    // this will trigger a refresh!
+    { count: 2, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: false, grow: false });
+
+  T.group('1 day, grow pastwards with refresh');
+  staticNow += 5 * 60 * 1000;
+  testUniverse.do_timewarpNow(staticNow, '5 mins pass');
+  testAccount.do_growFolderView(
+    oneView, /* dirMagnitude */ 2, /* userRequestsGrowth */ false,
+    /* alreadyExists */ 4,
+    // this will trigger a refresh!
+    { count: 2, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: true, grow: true });
+
+  testAccount.do_closeFolderView(oneView);
+
+  // -- bisected to more than 1 day
+  T.group('>1 day, open');
   testAccount.do_viewFolder('open', multiFolder,
     // bisect abort: 4 days => 2 days
     [{ count: 0, full: null, flags: null, deleted: null },
@@ -507,7 +587,7 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
       startTS: 1327536000000, endTS: 1327708800000 },
     { top: true, bottom: false, grow: false });
 
-  T.group('grow');
+  T.group('grow pastwards');
   testAccount.do_growFolderView(
     folderView, 3, false, 3,
     { count: 5, full: 2, flags: 3, deleted: 0
