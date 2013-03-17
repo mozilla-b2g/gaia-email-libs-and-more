@@ -308,6 +308,8 @@ function MailUniverse(callAfterBigBang, testOptions) {
   this._opCompletionListenersByAccount = {};
   // maps longtermId to a callback that cares. non-persisted.
   this._opCallbacks = {};
+  // counter for session only jobs
+  this._sessionOnlyJobId = 1;
 
   this._bridges = [];
 
@@ -866,6 +868,13 @@ MailUniverse.prototype = {
     }
   },
 
+  __notifyModifiedBody: function(suid, detail, body) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyBodyModified(suid, detail, body);
+    }
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
 
@@ -1262,6 +1271,7 @@ MailUniverse.prototype = {
           callback(err, resultIfAny, account, op);
         }
         catch(ex) {
+          console.log(ex.message, ex.stack);
           this._LOG.opCallbackErr(op.type);
         }
       }
@@ -1306,6 +1316,8 @@ MailUniverse.prototype = {
   _queueAccountOp: function(account, op, optionalCallback) {
     // - Name the op, register callbacks
     if (op.longtermId === null) {
+      // mutation job must be persisted until completed otherwise bad thing
+      // will happen.
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
@@ -1315,6 +1327,11 @@ MailUniverse.prototype = {
         account.mutations.shift();
       }
     }
+
+    if (op.sessionOnly) {
+      op.longtermId = op.type + '/' + this._sessionOnlyJobId++;
+    }
+
     if (optionalCallback)
       this._opCallbacks[op.longtermId] = optionalCallback;
 
@@ -1393,6 +1410,57 @@ MailUniverse.prototype = {
         folderId: folderId
       },
       callback);
+  },
+
+  /**
+   * Download entire bodyRep(s) representation.
+   */
+  downloadMessageBodyReps: function(suid, date, callback) {
+    var account = this.getAccountForMessageSuid(suid);
+    this._queueAccountOp(
+      account,
+      {
+        type: 'downloadBodyReps',
+        sessionOnly: true,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: null,
+        tryCount: 0,
+        humanOp: 'downloadBodyReps',
+        messageSuid: suid,
+        messageDate: date
+      },
+      callback
+    );
+  },
+
+  downloadSnippets: function(messages, callback) {
+    var self = this;
+    var pending = 0;
+
+    function next() {
+      if (!--pending) {
+        callback();
+      }
+    }
+
+    this._partitionMessagesByAccount(messages, null).forEach(function(x) {
+      pending++;
+      self._queueAccountOp(
+        x.account,
+        {
+          type: 'downloadSnippets',
+          sessionOnly: true, // don't persist this job.
+          lifecycle: 'do',
+          localStatus: null,
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'downloadSnippets',
+          messages: x.messages
+        },
+        next
+      );
+    });
   },
 
   /**

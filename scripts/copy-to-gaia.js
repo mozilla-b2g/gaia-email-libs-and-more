@@ -120,6 +120,21 @@ var configs = [
   },
 
   {
+    name: 'mailapi/imap/protocollayer',
+    exclude: standardPlusComposerExcludes.concat(
+      ['mailparser/mailparser', 'mimelib', 'mailapi/imap/imapchew']
+    ),
+    include: [
+      'mailapi/imap/protocol/sync',
+      'mailapi/imap/protocol/bodyfetcher',
+      'mailapi/imap/protocol/textparser',
+      'mailapi/imap/protocol/snippetparser'
+    ],
+    out: jsPath + '/mailapi/imap/protocollayer.js',
+    create: true
+  },
+
+  {
     name: 'mailapi/smtp/probe',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/smtp/probe.js'

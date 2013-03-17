@@ -115,8 +115,8 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
                 l10n_wroteString.replace('{name}', useName) + ':\n',
       htmlMsg = null;
 
-  for (var i = 0; i < reps.length; i += 2) {
-    var repType = reps[i], rep = reps[i + 1];
+  for (var i = 0; i < reps.length; i++) {
+    var repType = reps[i].type, rep = reps[i].content;
 
     if (repType === 'plain') {
       var replyText = $quotechew.generateReplyText(rep);
@@ -169,8 +169,9 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
  * Generate the body of an inline forward message.  XXX we need to generate
  * the header summary which needs some localized strings.
  */
-exports.generateForwardMessage = function generateForwardMessage(
-                                   author, date, subject, bodyInfo, identity) {
+exports.generateForwardMessage = 
+  function(author, date, subject, headerInfo, bodyInfo, identity) {
+
   var textMsg = '\n\n', htmlMsg = null;
 
   if (identity.signature)
@@ -199,18 +200,18 @@ exports.generateForwardMessage = function generateForwardMessage(
   textMsg += l10n_forward_header_labels['from'] + ': ' +
                $util.formatAddresses([author]) + '\n';
   // : reply-to
-  if (bodyInfo.replyTo)
+  if (headerInfo.replyTo)
     textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
-                 $util.formatAddresses([bodyInfo.replyTo]) + '\n';
+                 $util.formatAddresses([headerInfo.replyTo]) + '\n';
   // : organization
   // : to
-  if (bodyInfo.to)
+  if (headerInfo.to)
     textMsg += l10n_forward_header_labels['to'] + ': ' +
-                 $util.formatAddresses(bodyInfo.to) + '\n';
+                 $util.formatAddresses(headerInfo.to) + '\n';
   // : cc
-  if (bodyInfo.cc)
+  if (headerInfo.cc)
     textMsg += l10n_forward_header_labels['cc'] + ': ' +
-                 $util.formatAddresses(bodyInfo.cc) + '\n';
+                 $util.formatAddresses(headerInfo.cc) + '\n';
   // (bcc should never be forwarded)
   // : newsgroups
   // : followup-to
@@ -219,8 +220,8 @@ exports.generateForwardMessage = function generateForwardMessage(
   textMsg += '\n';
 
   var reps = bodyInfo.bodyReps;
-  for (var i = 0; i < reps.length; i += 2) {
-    var repType = reps[i], rep = reps[i + 1];
+  for (var i = 0; i < reps.length; i++) {
+    var repType = reps[i].type, rep = reps[i].content;
 
     if (repType === 'plain') {
       var forwardText = $quotechew.generateForwardBodyText(rep);

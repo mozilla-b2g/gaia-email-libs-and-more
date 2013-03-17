@@ -162,12 +162,16 @@ TD.commonCase('folder sync', function(T) {
       var header = folderView.slice.items[iMsg];
       header.getBody(function(body) {
         var bodyValue;
-        if (!body.bodyReps.length)
+        if (!body.bodyReps.length) {
           bodyValue = '';
-        else if (body.bodyReps[0] === 'plain')
-          bodyValue = body.bodyReps[1][1] || '';
-        else if (body.bodyReps[0] === 'html')
-          bodyValue = body.bodyReps[1];
+        }
+        else if (body.bodyReps[0].type === 'plain') {
+          bodyValue = body.bodyReps[0].content || '';
+        }
+        else if (body.bodyReps[0].type === 'html') {
+          bodyValue = body.bodyReps[0].content;
+        }
+
         eCheck.namedValue('body', bodyValue);
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
