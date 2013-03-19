@@ -150,6 +150,11 @@ CompositeAccount.prototype = {
     this._receivePiece.shutdown();
   },
 
+  accountDeleted: function() {
+    this._sendPiece.accountDeleted();
+    this._receivePiece.accountDeleted();
+  },
+
   deleteFolder: function(folderId, callback) {
     return this._receivePiece.deleteFolder(folderId, callback);
   },
