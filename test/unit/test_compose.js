@@ -26,6 +26,7 @@ function makeRandomSubject() {
  * that we received it (which is also a good test of refresh).
  */
 TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
@@ -261,6 +262,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
  * message into the inbox so that we can reply to it.
  */
 TD.commonCase('reply/forward html message', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,
@@ -515,6 +517,7 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 TD.commonCase('bcc self', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,

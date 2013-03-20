@@ -335,6 +335,7 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+    var TEST_PARAMS = self.RT.envOptions;
     this.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
@@ -821,6 +822,7 @@ var TestImapAccountMixins = {
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState();
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName: TEST_PARAMS.name,
@@ -1803,8 +1805,9 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
+    var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
-      if (TEST_PARAMS_ARE_DEFAULTS)
+      if (TEST_PARAMS.defaultArgs)
         throw new Error('This test needs a real activesync account!');
       if (opts.realAccountNeeded === 'append')
         throw new Error(
@@ -1870,6 +1873,7 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName:

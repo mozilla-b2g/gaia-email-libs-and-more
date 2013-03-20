@@ -35,8 +35,9 @@ const FilterType = $ascp.AirSync.Enums.FilterType;
 var TD = $tc.defineTestsFor(
   { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
-TD.commonCase('mutate flags', function(T) {
+TD.commonCase('mutate flags', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync'),
@@ -485,8 +486,9 @@ TD.commonCase('mutate flags', function(T) {
  * Create a source folder and a target folder with some messages in the source
  * folder.
  */
-TD.commonCase('move/trash messages', function(T) {
+TD.commonCase('move/trash messages', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
@@ -699,8 +701,9 @@ TD.commonCase('move/trash messages', function(T) {
  * Create a source folder and a target folder with some messages in the source
  * folder, and then move them around in batches.
  */
-TD.commonCase('batch move/trash messages', function(T) {
+TD.commonCase('batch move/trash messages', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),

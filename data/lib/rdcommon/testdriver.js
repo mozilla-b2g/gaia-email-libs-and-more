@@ -203,14 +203,16 @@ TestRuntimeContext.prototype = {
 /**
  * Consolidates the logic to run tests.
  */
-function TestDefinerRunner(testDefiner, superDebug, exposeToTestOptions) {
+function TestDefinerRunner(testDefiner, superDebug, exposeToTestOptions,
+                           resultsReporter) {
   if (!testDefiner)
     throw new Error("No test definer provided!");
   this._testDefiner = testDefiner;
   this._exposeToTestOptions = exposeToTestOptions;
+  this._resultsReporter = resultsReporter;
   // created before each test case is run
   this._runtimeContext = null;
-  this._superDebug = Boolean(superDebug);
+  this._superDebug = superDebug;
 
   this._logBadThingsToLogger = null;
 
@@ -238,7 +240,7 @@ TestDefinerRunner.prototype = {
   runTestStep: function(step) {
     const superDebug = this._superDebug;
     if (superDebug)
-      console.log("\n====== Running Step: " + step.log._ident);
+      superDebug("\n====== Running Step: " + step.log._ident);
     var iActor, actor;
 
     this._logBadThingsToLogger = step.log;
@@ -259,7 +261,7 @@ TestDefinerRunner.prototype = {
     // any kind of exception in the function is a failure.
     if (rval instanceof Error) {
       if (superDebug)
-        console.log(" encountered an error in the step func:", rval);
+        superDebug(" encountered an error in the step func:", rval);
       step.log.run_end();
       step.log.result('fail');
       return false;
@@ -267,8 +269,8 @@ TestDefinerRunner.prototype = {
 
     // -- wait on actors' expectations (if any) promise-style
     if (superDebug)
-      console.log(" there are", liveActors.length, "live actors this step",
-                  "up from", step.actors.length, "step-defined actors");
+      superDebug(" there are", liveActors.length, "live actors this step",
+                 "up from", step.actors.length, "step-defined actors");
     var promises = [], allGood = true;
     for (iActor = 0; iActor < liveActors.length; iActor++) {
       actor = liveActors[iActor];
@@ -276,8 +278,8 @@ TestDefinerRunner.prototype = {
       if ($Q.isPromise(waitVal)) {
         promises.push(waitVal);
         if (superDebug)
-          console.log(" actor", actor.__defName, actor.__name,
-                      "generated a promise");
+          superDebug(" actor", actor.__defName, actor.__name,
+                     "generated a promise");
       }
       // if it's not a promise, it must be a boolean
       else if (!waitVal) {
@@ -332,16 +334,16 @@ TestDefinerRunner.prototype = {
       // -- timeout handler
       var countdownTimer = $timers.setTimeout(function() {
         if (self._superDebug)
-          console.error("!! timeout fired, deferred?", deferred !== null);
+          self._superDebug("!! timeout fired, deferred?", deferred !== null);
         if (!deferred) return;
         failStep();
       }, step.timeoutMS || DEFAULT_STEP_TIMEOUT_MS);
       // -- promise resolution/rejection handler
       if (this._superDebug)
-        console.log("waiting on", promises.length, "promises");
+        this._superDebug("waiting on", promises.length, "promises");
       when($Q.all(promises), function passed() {
         if (self._superDebug)
-          console.error("!! all resolved, deferred?", deferred !== null);
+          self._superDebug("!! all resolved, deferred?", deferred !== null);
         if (!deferred) return;
         clearTimeout(countdownTimer);
 
@@ -364,7 +366,7 @@ TestDefinerRunner.prototype = {
         deferred = null;
       }, function failed(expPair) {
         if (self._superDebug)
-          console.error("!! failed, deferred?", deferred !== null);
+          self._superDebug("!! failed, deferred?", deferred !== null);
         if (!deferred) return;
         // XXX we should do something with the failed expectation pair...
         clearTimeout(countdownTimer);
@@ -522,7 +524,7 @@ TestDefinerRunner.prototype = {
     function earlyBailHandler() {
       console.error("IMMINENT EVENT LOOP TERMINATION IMPLYING BAD TEST, " +
                     "DUMPING LOG.");
-      self.dumpLogResultsToConsole(errorTrapper.reliableOutput);
+      self.reportResults();
     }
     errorTrapper.once('exit', earlyBailHandler);
 
@@ -583,13 +585,15 @@ TestDefinerRunner.prototype = {
   },
 
   /**
-   * We use console.error because stderr is never buffered while stdout is.  In
-   *  the event of event loop shutdown due to lack of events stdout reliably
-   *  (in the node 0.4.8 time-frame) fails to output our data before dying.
-   *  As a result, it's really important to make sure stderr gets into the
-   *  output file too.  I suggest using &> for redirection.
+   * Trigger immediate reporting of the results to the result reporter supplied
+   * to our constructor.  This exists at all because in node.js and xpcshell
+   * style modes of operation, it's possible for our event loop to terminate
+   * prematurely in a way that we can't really stop, so we need to get our
+   * results out to stderr and be done.  We don't want to eliminate this
+   * functionality, but it's more generic now and the stream stuff is not
+   * required.
    */
-  dumpLogResultsToConsole: function(reliableOutput) {
+  reportResults: function() {
     var definer = this._testDefiner;
     // - accumulate the schemas of all the (potentially) involved schema dudes.
     var schema = {}, key, rawDef;
@@ -610,29 +614,11 @@ TestDefinerRunner.prototype = {
         schema[key] = rawDef[key];
       }
     }
-
-    // - dump
-    reliableOutput("##### LOGGEST-TEST-RUN-BEGIN #####");
-    try {
-      var dumpObj = {
-        schema: schema,
-        log: definer._log,
-      };
-      reliableOutput(JSON.stringify(dumpObj));
-    }
-    catch (ex) {
-      console.error("JSON problem:", ex.message, ex.stack, ex);
-      try {
-        detectAndReportJsonCycles(definer._log);
-        //console.error($util.inspect(dumpObj, false, 8 /* 12 */));
-      }
-      catch(exx) {
-        console.error("exx y", exx);
-      }
-    }
-    reliableOutput("##### LOGGEST-TEST-RUN-END #####");
-    //console.error("AND FOR THE HUMANS...");
-    //console.error(JSON.stringify(dumpObj, false, 2));
+    var dumpObj = {
+      schema: schema,
+      log: definer._log,
+    };
+    this._resultsReporter(dumpObj);
   }
 };
 
@@ -714,7 +700,7 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
   var runner;
   function itAllGood() {
 //console.error("  itAllGood()");
-    runner.dumpLogResultsToConsole(ErrorTrapper.reliableOutput);
+    runner.reportResults();
     deferred.resolve(true);
   };
 
@@ -763,11 +749,39 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
     // now that it is loaded, run it
     if (runOptions.hasOwnProperty('defaultStepDuration'))
       DEFAULT_STEP_TIMEOUT_MS = runOptions.defaultStepDuration;
-    runner = new TestDefinerRunner(tmod.TD, superDebug, runOptions.exposeToTest);
+    runner = new TestDefinerRunner(
+                   tmod.TD, superDebug, runOptions.exposeToTest,
+                   runOptions.resultsReporter ||
+                     makeStreamResultsReporter(ErrorTrapper.reliableOutput));
     when(runner.runAll(ErrorTrapper), itAllGood, itAllGood);
   });
   return deferred.promise;
 };
+
+/**
+ * Make a result reporting function that logs to the provided output function
+ * (Which should be console.error on node and something dump/print-ish on
+ * xpcshell.)
+ */
+function makeStreamResultsReporter(outputFunc) {
+  return function reportToStream(jsonnableObj) {
+    // - dump
+    outputFunc("##### LOGGEST-TEST-RUN-BEGIN #####");
+    try {
+      outputFunc(JSON.stringify(jsonnableObj));
+    }
+    catch (ex) {
+      console.error("JSON problem:", ex.message, ex.stack, ex);
+      try {
+        detectAndReportJsonCycles(jsonnableObj.log);
+      }
+      catch(exx) {
+        console.error("exx y", exx);
+      }
+    }
+    outputFunc("##### LOGGEST-TEST-RUN-END #####");
+  };
+}
 
 /**
  * How much padding time do we need to give a subprocess to ensure that it has

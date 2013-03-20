@@ -233,8 +233,9 @@ TD.commonCase('general reconnect logic', function(T) {
  * password failure since the server forces a delay that is annoying (if
  * realistic.)
  */
-TD.commonCase('bad password login failure', function(T) {
+TD.commonCase('bad password login failure', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
