@@ -168,11 +168,21 @@ Composer.prototype = {
    * Request that a body be produced as a single buffer with the given options.
    * Multiple calls to this method can be made and they may overlap.
    *
+   * XXX: Currently, the callback is invoked with a String instead of an
+   * ArrayBuffer/node-like Buffer; consumers that do not use TextEncoder to
+   * produce a utf-8 encoding probably need to and we might want to change this
+   * here.
+   *
    * @args[
    *   @param[opts @dict[
    *     @key[includeBcc Boolean]{
    *       Should we include the BCC data in the headers?
    *     }
+   *   ]]
+   *   @param[callback @func[
+   *     @args[
+   *       @param[messageBuffer String]
+   *     ]
    *   ]]
    * ]
    */
