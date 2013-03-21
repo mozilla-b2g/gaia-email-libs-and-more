@@ -17,6 +17,8 @@ define(
 
 var TestDeviceStorageMixins = {
   __constructor: function(self, opts) {
+    if (!opts)
+      throw new Error('opts like { storage: "sdcard" } required');
     if (!opts.storage)
       throw new Error('You must specify the storage to use; ex: "sdcard"');
 
@@ -63,7 +65,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 });
 
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [],
+  LOGFAB_DEPS: [
+    LOGFAB
+  ],
   actorMixins: {
     testDeviceStorage: TestDeviceStorageMixins
   }

@@ -1021,6 +1021,12 @@ HighLevelJobDriver.prototype = {
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {
     type: $log.DAEMON,
+    events: {
+      saveFailure: { storage: false, mimeType: false, error: false },
+    },
+    TEST_ONLY_events: {
+      saveFailure: { filename: false },
+    },
     asyncJobs: {
       acquireConnWithoutFolder: { label: false },
     },

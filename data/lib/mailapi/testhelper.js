@@ -20,9 +20,7 @@ var $log = require('rdcommon/log'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
-    $smtpacct = require('mailapi/smtp/account'),
-    $ascp = require('activesync/codepages'),
-    $wbxml = require('activesync/wbxml/wbxml');
+    $smtpacct = require('mailapi/smtp/account');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -1763,77 +1761,6 @@ var TestImapAccountMixins = {
   },
 };
 
-/**
- * For now, we create at most one server for the lifetime of the xpcshell test.
- * So we spin it up the first time we need it, and we never actually clean up
- * after it.
- */
-var gActiveSyncServer = null;
-var TestActiveSyncServerMixins = {
-  __constructor: function(self, opts) {
-    if (!opts.universe)
-      throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup(self, 'created, listening to get port',
-                            function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
-                                                        self.__name));
-      if (!gActiveSyncServer) {
-        gActiveSyncServer = new ActiveSyncServer(opts.universe._useDate);
-        gActiveSyncServer.start(0);
-      }
-      self.server = gActiveSyncServer;
-      self.server.logRequest = function(request) {
-        self._logger.request(request._method, request._path,
-                             request._headers._headers);
-      };
-      self.server.logRequestBody = function(reader) {
-        self._logger.requestBody(reader.dump());
-        reader.rewind();
-      };
-      self.server.logResponse = function(request, response, writer) {
-        var body;
-        if (writer) {
-          var reader = new $wbxml.Reader(writer.bytes, $ascp);
-          body = reader.dump();
-        }
-        self._logger.response(response._httpCode, response._headers._headers,
-                              body);
-      };
-      self.server.logResponseError = function(error) {
-        self._logger.responseError(error);
-      };
-      var httpServer = self.server.server;
-      var port = httpServer._socket.port;
-      httpServer._port = port;
-      // it had created the identity on port 0, which is not helpful to anyone
-      httpServer._identity._initialize(port, httpServer._host, true);
-      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
-        'http://localhost:' + self.server.server._socket.port;
-      self._logger.started(httpServer._socket.port);
-    });
-    self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
-      // Do not stop, pre the above, but do stop logging stuff to it.
-      self.server.logRequest = null;
-      self.server.logRequestBody = null;
-      self.server.logResponse = null;
-      /*
-      self.server.stop(function() {
-        self._logger.stopped();
-      });
-      */
-    });
-  },
-
-  getFirstFolderWithType: function(folderType) {
-    var folders = this.server.foldersByType[folderType];
-    return folders[0];
-  },
-
-  getFirstFolderWithName: function(folderName) {
-    return this.server.findFolderByName(folderName);
-  },
-};
-
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
   __constructor: function(self, opts) {
@@ -1988,7 +1915,7 @@ var TestActiveSyncAccountMixins = {
 
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.server.addFolder(
+      testFolder.serverFolder = self.testServer.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.serverMessages = testFolder.serverFolder.messages;
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
@@ -2207,6 +2134,7 @@ var TestActiveSyncAccountMixins = {
     this.T.convenienceSetup(this, 'add message to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
       folder.serverFolder.addMessage(messageDef);
+      self.test
     });
   },
 
@@ -2288,28 +2216,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changeMismatch: { field: false, expectedValue: false },
     },
   },
-  testActiveSyncServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      request: { method: false, path: false, headers: false },
-      requestBody: { },
-      response: { status: false, headers: false },
-    },
-    errors: {
-      responseError: { err: false },
-    },
-    // I am putting these under TEST_ONLY_ as a hack to get these displayed
-    // differently since they are walls of text.
-    TEST_ONLY_events: {
-      requestBody: { body: false },
-      response: { body: false },
-    },
-  },
 });
 
 exports.TESTHELPER = {
@@ -2329,7 +2235,6 @@ exports.TESTHELPER = {
   actorMixins: {
     testUniverse: TestUniverseMixins,
     testAccount: TestCommonAccountMixins,
-    testActiveSyncServer: TestActiveSyncServerMixins,
   },
   thingMixins: {
     testFolder: TestFolderMixins,

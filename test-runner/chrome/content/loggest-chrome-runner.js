@@ -3,10 +3,16 @@
  *
  * We:
  * - turn off things that might needlessly mess with the test
- * - use a test runner that can be run from content anywhere
+ * - use a test runner that can be run from content / anywhere
  * - augment the error reporting capabilities of the test runner by listening to
  *   the console service and friends
+ * - use a custom protocol so we get a distinct origin per test file
+ * - ensure permissions are set for our custom origin
+ * - make sure devicestorage uses our profile directory rather than randomly
+ *   touching the FS.
  * - write the test log
+ *
+ * This file is currently a little soupy; various logic is all mixed in here.
  **/
 try {
 
@@ -584,6 +590,84 @@ function grantEmailPermissions(originUrl) {
   }
 }
 
+/**
+ * For time/simplicity reasons, we aren't actually doing any type of async
+ * proxying here but are instead favoring a synchronous API we are able to
+ * expose directly into the content space.
+ *
+ * In a fancy async implementation, TestActiveSyncServerMixins could be made to
+ * generate expectations to cover any async behaviour we started exhibiting.
+ */
+function ActiveSyncServerProxy() {
+  this.server = null;
+
+}
+ActiveSyncServerProxy.prototype = {
+  __exposedProps__: {
+    createServer: 'r',
+    addFolder: 'r',
+    addMessageToFolder: 'r',
+    addMessagesToFolder: 'r',
+    useLoggers: 'r',
+  },
+
+  createServer: function(useDate) {
+    this.server = new ActiveSyncServer(useDate);
+    this.server.start(0);
+
+    var httpServer = this.server.server,
+        port = httpServer._socket.port;
+
+    httpServer._port = port;
+    // it had created the identity on port 0, which is not helpful to anyone
+    httpServer._identity._initialize(port, httpServer._host, true);
+
+    return {
+      id: 'only',
+      port: port
+    };
+  },
+
+  addFolder: function(serverHandle, name, type, parentId, messageSetDef) {
+    var folder = this.server.addFolder(name, type, parentId, messageSetDef);
+    return folder.id;
+  },
+
+  addMessageToFolder: function(serverHandle, folderId, messageDef) {
+    var folder = this.server.foldersById[folderId];
+    folder.addMessage(messageDef);
+  },
+
+  addMessagesToFolder: function(serverHandle, folderId, messageSetDef) {
+    var folder = this.server.foldersById[folderId];
+
+  },
+
+  useLoggers: function(serverHandle, loggers) {
+    this.server.logRequest = loggers.request || null;
+    this.server.logRequestBody = loggers.requestBody || null;
+    this.server.logResponse = loggers.response || null;
+    this.server.logResponseError  = loggers.responseError || null;
+  },
+
+  killServer: function() {
+    if (!this.server)
+      return;
+    try {
+      this.server.stop();
+    }
+    catch (ex) {
+      console.error('Problem shutting down ActiveSync server:\n',
+                    ex, '\n', ex.stack);
+    }
+    this.server = null;
+  },
+
+  cleanup: function() {
+    this.killServer();
+  }
+};
+
 function runTestFile(testFileName) {
   console.log('running', testFileName);
 
@@ -613,8 +697,13 @@ function runTestFile(testFileName) {
 
   var deferred = Promise.defer();
 
+  var cleanupList = [];
   function cleanupWindow() {
     win.removeEventListener('error', errorListener);
+
+    cleanupList.forEach(function(obj) {
+      obj.cleanup();
+    });
   }
 
   var webProgress = gRunnerIframe.webNavigation
@@ -638,6 +727,12 @@ console.log('calling writeTestLog and resolving');
         });
       }
     };
+
+    // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
+    // servers.
+    var asProxy = new ActiveSyncServerProxy();
+    domWin.MAGIC_SERVER_CONTROL = asProxy;
+    cleanupList.push(asProxy);
   });
   webProgress.addProgressListener(progressListener,
                                   Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);

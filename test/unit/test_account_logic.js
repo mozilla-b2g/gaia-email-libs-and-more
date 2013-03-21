@@ -4,11 +4,13 @@
  **/
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
         'activesync/codepages', 'exports'],
-       function($tc, $th_imap, $ascp, exports) {
+       function($tc, $th_imap, $th_as_srv, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_logic' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_account_logic' }, null,
+  [$th_imap.TESTHELPER, $th_as_srv.TESTHELPER], ['app']);
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly
@@ -183,11 +185,12 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
-      testServer = T.actor('testActiveSyncServer', 'S',
-                           { universe: testUniverse }),
+      testServer = null,
       eSync = T.lazyLogger('sync');
 
   if (TEST_PARAMS.type === 'activesync') {
+    testServer = T.actor('testActiveSyncServer', 'S',
+                         { universe: testUniverse });
     T.action('create test folders', function() {
       const folderType = $ascp.FolderHierarchy.Enums.Type;
       var inbox = testServer.server.foldersByType['inbox'][0],

@@ -34,7 +34,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: true }),
-      testStorage = T.actor('testDeviceStorage', { storage: 'sdcard' });
+      testStorage = T.actor('testDeviceStorage', 'sdcard',
+                            { storage: 'sdcard' });
 
   var uniqueSubject = makeRandomSubject();
 
