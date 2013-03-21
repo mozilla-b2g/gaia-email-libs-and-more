@@ -3,10 +3,12 @@
  * permutations and a few failures.
  */
 
-load('resources/loggest_test_framework.js');
-load('resources/fake_xhr.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fake_xhr', 'mailapi/accountcommon',
+        'exports'],
+       function($tc, $th_imap, $fakexhr, $accountcommon, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_autoconfig' }, null, [$th_imap.TESTHELPER], ['app']);
 
 const goodImapXML =
@@ -104,7 +106,7 @@ const gibberishXML = '<xml>I NOT GOOD XML</xml>';
 
 function expectXHRs(lazy, xhrs) {
   var iServiced = 0;
-  gFakeXHRListener = function(req, args) {
+  window.gFakeXHRListener = function(req, args) {
     lazy.namedValue('xhr', args);
     if (iServiced >= xhrs.length)
       return;
@@ -142,14 +144,10 @@ function expectXHRs(lazy, xhrs) {
 }
 
 function cannedTest(T, RT, xhrs, results) {
-  var lazyConsole = T.lazyLogger('console');
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
   var eCheck = T.lazyLogger('check');
   T.action(eCheck, 'autoconfig', function() {
     expectXHRs(eCheck, xhrs);
-    var configurator = new $_accountcommon.Autoconfigurator();
+    var configurator = new $accountcommon.Autoconfigurator();
     var userDetails = {
       emailAddress: 'user@xampl.tld',
       password: 'PASSWORD',
@@ -462,7 +460,4 @@ TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
     });
 });
 
-
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

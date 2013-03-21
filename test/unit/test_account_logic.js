@@ -3,9 +3,11 @@
  * db reuse makes this test unhappy.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'activesync/codepages', 'exports'],
+       function($tc, $th_imap, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_logic' }, null, [$th_imap.TESTHELPER], ['app']);
 
 /**
@@ -177,8 +179,9 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
-TD.commonCase('syncFolderList obeys hierarchy', function(T) {
+TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testServer = T.actor('testActiveSyncServer', 'S',
                            { universe: testUniverse }),
@@ -186,7 +189,7 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T) {
 
   if (TEST_PARAMS.type === 'activesync') {
     T.action('create test folders', function() {
-      const folderType = $_ascp.FolderHierarchy.Enums.Type;
+      const folderType = $ascp.FolderHierarchy.Enums.Type;
       var inbox = testServer.server.foldersByType['inbox'][0],
           sent  = testServer.server.foldersByType['sent'][0],
           trash = testServer.server.foldersByType['trash'][0];
@@ -239,6 +242,4 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T) {
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

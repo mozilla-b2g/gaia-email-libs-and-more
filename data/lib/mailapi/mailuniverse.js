@@ -311,6 +311,11 @@ function MailUniverse(callAfterBigBang, testOptions) {
 
   this._bridges = [];
 
+  this._testModeDisablingLocalOps = false;
+  /** Fake navigator to use for navigator.onLine checks */
+  this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
+                                null;
+
   // We used to try and use navigator.connection, but it's not supported on B2G,
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
@@ -318,11 +323,6 @@ function MailUniverse(callAfterBigBang, testOptions) {
   window.addEventListener('online', this._bound_onConnectionChange);
   window.addEventListener('offline', this._bound_onConnectionChange);
   this._onConnectionChange();
-
-  this._testModeDisablingLocalOps = false;
-  /** Fake navigator to use for navigator.onLine checks */
-  this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
-                                null;
 
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
@@ -902,7 +902,8 @@ MailUniverse.prototype = {
     window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
-    this._LOG.__die();
+    if (this._LOG)
+      this._LOG.__die();
   },
 
   //////////////////////////////////////////////////////////////////////////////

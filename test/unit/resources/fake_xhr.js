@@ -1,4 +1,12 @@
-var gFakeXHRListener = null;
+define(
+  [
+    'exports'
+  ],
+  function(
+    exports
+  ) {
+
+window.gFakeXHRListener = null;
 
 function FakeXHR() {
   this._args = {
@@ -31,8 +39,8 @@ FakeXHR.prototype = {
 
   send: function() {
     this._args.timeout = this.timeout;
-    if (gFakeXHRListener) {
-      gFakeXHRListener(this, this._args);
+    if (window.gFakeXHRListener) {
+      window.gFakeXHRListener(this, this._args);
     }
   },
 
@@ -42,3 +50,5 @@ FakeXHR.prototype = {
 };
 
 window.XMLHttpRequest = FakeXHR;
+
+}); // end define

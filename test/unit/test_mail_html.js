@@ -5,10 +5,13 @@
  * - messages with external links
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/messageGenerator', 'exports'],
+       function($tc, $th_imap, $msggen, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mail_html' }, null, [$th_imap.TESTHELPER], ['app']);
+
 
 TD.commonCase('embedded and remote images', function(T) {
   // -- pieces
@@ -29,7 +32,7 @@ TD.commonCase('embedded and remote images', function(T) {
         '<a ext-href="http://example.com/bar.html" class="moz-external-link">' +
         'link</a>',
       bpartFancyHtml =
-        new SyntheticPartLeaf(
+        new $msggen.SyntheticPartLeaf(
           bstrFancyHtml, { contentType: 'text/html' }),
       relImage_1 = {
           contentType: 'image/png',
@@ -37,16 +40,20 @@ TD.commonCase('embedded and remote images', function(T) {
           contentId: 'part1.foo@bar.com',
           body: 'cGFydDE=' // "part1" in base64
         },
-      partRelImage_1 = new SyntheticPartLeaf(relImage_1.body, relImage_1),
+      size_1 = 5,
+      partRelImage_1 = new $msggen.SyntheticPartLeaf(relImage_1.body,
+                                                     relImage_1),
       relImage_2 = {
           contentType: 'image/png',
           encoding: 'base64', charset: null, format: null,
           contentId: 'part2.foo@bar.com',
-          body: 'cGFydDI=' // "part2" in base64
+          body: 'eWF5Mg===' // "yay2" in base64
         },
-      partRelImage_2 = new SyntheticPartLeaf(relImage_2.body, relImage_2),
+      size_2 = 4,
+      partRelImage_2 = new $msggen.SyntheticPartLeaf(relImage_2.body,
+                                                     relImage_2),
       bpartRelatedHtml =
-        new SyntheticPartMultiRelated(
+        new $msggen.SyntheticPartMultiRelated(
           [bpartFancyHtml, partRelImage_1, partRelImage_2]);
 
   // -- full definitions and expectations
@@ -62,13 +69,24 @@ TD.commonCase('embedded and remote images', function(T) {
                             { universe: TU1 }),
       eCheck = T.lazyLogger('messageCheck');
 
-  __blobLogFunc = eCheck.namedValue.bind(eCheck);
+  // We don't need real object URL's, we just need to know we are calling our
+  // functions.
+  window.URL = {
+    createObjectURL: function(blob) {
+      var fakeURL = 'url:' + blob.size;
+      eCheck.namedValue('createObjectURL', fakeURL);
+      return fakeURL;
+    },
+    revokeObjectURL: function(fakeURL) {
+      eCheck.namedValue('revokeObjectURL', fakeURL);
+    },
+  };
 
   // -- create the folder, append the messages
   var testFolder = testAccount.do_createTestFolder(
     'test_mail_html', function makeMessages() {
     var messageAppends = [],
-        msgGen = new MessageGenerator(TU1._useDate);
+        msgGen = new $msggen.MessageGenerator(TU1._useDate);
 
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];
@@ -127,8 +145,6 @@ TD.commonCase('embedded and remote images', function(T) {
   // (We could verify the HTML rep prior to any transforms, but we already
   // verified the string rep of the HTML.)
   T.action(eCheck, 'download embedded images', function() {
-    eCheck.expect_namedValue('createBlob', 'part1');
-    eCheck.expect_namedValue('createBlob', 'part2');
     eCheck.expect_event('downloaded');
     eCheck.expect_namedValue('non-null relpart 0', true);
     eCheck.expect_namedValue('non-null relpart 1', true);
@@ -145,10 +161,10 @@ TD.commonCase('embedded and remote images', function(T) {
     });
   });
   T.check(eCheck, 'show embedded images', function() {
-    eCheck.expect_namedValue('createObjectURL', 'url:part1');
-    eCheck.expect_namedValue('createObjectURL', 'url:part2');
-    eCheck.expect_namedValue('image 0 has src', 'url:part1');
-    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_1);
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_2);
+    eCheck.expect_namedValue('image 0 has src', 'url:' + size_1);
+    eCheck.expect_namedValue('image 1 has src', 'url:' + size_2);
     // the transform should not affect the external image
     eCheck.expect_namedValue('image 2 has src', null);
 
@@ -159,8 +175,8 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
   });
   T.check(eCheck, 'show external images', function() {
-    eCheck.expect_namedValue('image 0 has src', 'url:part1');
-    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    eCheck.expect_namedValue('image 0 has src', 'url:' + size_1);
+    eCheck.expect_namedValue('image 1 has src', 'url:' + size_2);
     eCheck.expect_namedValue('image 2 has src', 'http://example.com/foo.png');
 
     fancyBody.showExternalImages(displayElem);
@@ -170,8 +186,8 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.namedValue('image 2 has src', imgs[2].getAttribute('src'));
   });
   T.action(eCheck, 'kill body, verify URLs retracted', function() {
-    eCheck.expect_namedValue('revokeObjectURL', 'url:part1');
-    eCheck.expect_namedValue('revokeObjectURL', 'url:part2');
+    eCheck.expect_namedValue('revokeObjectURL', 'url:' + size_1);
+    eCheck.expect_namedValue('revokeObjectURL', 'url:' + size_2);
     fancyBody.die();
     fancyBody = null;
   });
@@ -184,10 +200,10 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('embeddedImageCount', 2);
     eCheck.expect_namedValue('embeddedImagesDownloaded', true);
     eCheck.expect_namedValue('checkForExternalImages', true);
-    eCheck.expect_namedValue('createObjectURL', 'url:part1');
-    eCheck.expect_namedValue('createObjectURL', 'url:part2');
-    eCheck.expect_namedValue('image 0 has src', 'url:part1');
-    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_1);
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_2);
+    eCheck.expect_namedValue('image 0 has src', 'url:' + size_1);
+    eCheck.expect_namedValue('image 1 has src', 'url:' + size_2);
     // the transform should not affect the external image
     eCheck.expect_namedValue('image 2 has src', null);
 
@@ -244,10 +260,10 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('embeddedImageCount', 2);
     eCheck.expect_namedValue('embeddedImagesDownloaded', true);
     eCheck.expect_namedValue('checkForExternalImages', true);
-    eCheck.expect_namedValue('createObjectURL', 'url:part1');
-    eCheck.expect_namedValue('createObjectURL', 'url:part2');
-    eCheck.expect_namedValue('image 0 has src', 'url:part1');
-    eCheck.expect_namedValue('image 1 has src', 'url:part2');
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_1);
+    eCheck.expect_namedValue('createObjectURL', 'url:' + size_2);
+    eCheck.expect_namedValue('image 0 has src', 'url:' + size_1);
+    eCheck.expect_namedValue('image 1 has src', 'url:' + size_2);
     // the transform should not affect the external image
     eCheck.expect_namedValue('image 2 has src', null);
 
@@ -284,6 +300,4 @@ TD.commonCase('embedded and remote images', function(T) {
   TA2.do_closeFolderView(folderView);
 });
 
-function run_test() {
-  runMyTests(10);
-}
+}); // end define

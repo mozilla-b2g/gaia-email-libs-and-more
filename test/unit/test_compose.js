@@ -3,13 +3,16 @@
  * received messages.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_devicestorage',
+        'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
+        'exports'],
+       function($tc, $th_imap, $th_devicestorage,
+                $util, $fakeacct, $accountcommon, exports) {
 
-var $util = require('mailapi/util');
-var $fakeacct = require('mailapi/fake/account');
-
-var TD = $tc.defineTestsFor(
-  { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_compose' }, null,
+  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
@@ -30,7 +33,8 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
-                              realAccountNeeded: true });
+                              realAccountNeeded: true }),
+      testStorage = T.actor('testDeviceStorage', { storage: 'sdcard' });
 
   var uniqueSubject = makeRandomSubject();
 
@@ -93,6 +97,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     expect: function() {
       __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
       RT.reportActiveActorThisStep(eLazy);
+      RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
       eLazy.expect_namedValue(
         'attachments',
@@ -102,8 +107,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
-      eLazy.expect_namedValue('addNamed:sdcard', 'foo.png');
-      eLazy.expect_namedValue('get:sdcard', 'foo.png');
+      testStorage.expect_created('foo.png');
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
@@ -160,7 +164,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // XXX we used to have a default signature; when we start letting
           // users configure signatures again, then we will want the test to
           // use one and put this back.
-          //'', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          //'', '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -220,7 +224,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         text: [
           '', '',
           // XXX when signatures get enabled/tested:
-          // '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + safeifyTime(replySentDate + ''),
@@ -298,7 +302,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '</blockquote>',
         /* XXX when signatures get put back in/tested:
         '<pre class="moz-signature" cols="72">' +
-        $_accountcommon.DEFAULT_SIGNATURE +
+        $accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
         */
       bpartHtml =
@@ -600,6 +604,4 @@ TD.commonCase('bcc self', function(T, RT) {
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 });
 
-function run_test() {
-  runMyTests(90);
-}
+}); // end define

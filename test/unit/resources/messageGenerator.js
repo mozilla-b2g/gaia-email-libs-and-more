@@ -1,6 +1,13 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+define(
+  [
+    'exports'
+  ],
+  function(
+    exports
+  ) {
 
 function Object_extend(proto, mix, propdefs) {
   var obj = Object.create(proto, propdefs);
@@ -98,6 +105,7 @@ function SyntheticPart(aProperties) {
       this._extraHeaders = aProperties.extraHeaders;
   }
 }
+exports.SyntheticPart = SyntheticPart;
 SyntheticPart.prototype = {
   _forceDisposition: null,
   get contentTypeHeaderValue() {
@@ -154,6 +162,7 @@ function SyntheticPartLeaf(aBody, aProperties) {
   SyntheticPart.call(this, aProperties);
   this.body = aBody;
 }
+exports.SyntheticPartLeaf = SyntheticPartLeaf;
 SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'text/plain',
   _charset: 'ISO-8859-1',
@@ -176,6 +185,7 @@ SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {
  */
 function SyntheticDegeneratePartEmpty() {
 }
+exports.SyntheticDegeneratePartEmpty = SyntheticDegeneratePartEmpty;
 SyntheticDegeneratePartEmpty.prototype = {
   prettyString: function SyntheticDegeneratePartEmpty_prettyString(aIndent) {
     return "Degenerate Empty Part";
@@ -192,6 +202,7 @@ function SyntheticPartMulti(aParts, aProperties) {
   this.BOUNDARY_COUNTER_HOME.BOUNDARY_COUNTER += 1;
   this.parts = (aParts != null) ? aParts : [];
 }
+exports.SyntheticPartMulti = SyntheticPartMulti;
 SyntheticPartMulti.prototype = Object_extend(SyntheticPart.prototype, {
   BOUNDARY_COUNTER: 0,
   toMessageString: function() {
@@ -239,6 +250,7 @@ SyntheticPartMulti.prototype.BOUNDARY_COUNTER_HOME = SyntheticPartMulti.prototyp
 function SyntheticPartMultiMixed() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiMixed = SyntheticPartMultiMixed;
 SyntheticPartMultiMixed.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/mixed',
 });
@@ -249,6 +261,7 @@ SyntheticPartMultiMixed.prototype = Object_extend(SyntheticPartMulti.prototype, 
 function SyntheticPartMultiParallel() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiMixed = SyntheticPartMultiMixed;
 SyntheticPartMultiParallel.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/parallel',
 });
@@ -259,6 +272,7 @@ SyntheticPartMultiParallel.prototype = Object_extend(SyntheticPartMulti.prototyp
 function SyntheticPartMultiDigest() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiDigest = SyntheticPartMultiDigest;
 SyntheticPartMultiDigest.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/digest',
 });
@@ -269,6 +283,7 @@ SyntheticPartMultiDigest.prototype = Object_extend(SyntheticPartMulti.prototype,
 function SyntheticPartMultiAlternative() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiAlternative = SyntheticPartMultiAlternative;
 SyntheticPartMultiAlternative.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/alternative',
 });
@@ -279,6 +294,7 @@ SyntheticPartMultiAlternative.prototype = Object_extend(SyntheticPartMulti.proto
 function SyntheticPartMultiRelated() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiRelated = SyntheticPartMultiRelated;
 SyntheticPartMultiRelated.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/related',
 });
@@ -302,6 +318,7 @@ function SyntheticPartMultiSignedSMIME(aPart, aProperties) {
       name: 'smime.p7s',
     }));
 }
+exports.SyntheticPartMultiSignedSMIME = SyntheticPartMultiSignedSMIME;
 SyntheticPartMultiSignedSMIME.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
@@ -328,6 +345,7 @@ function SyntheticPartMultiSignedPGP(aPart, aProperties) {
       contentType: PGP_SIGNATURE_MIME_TYPE,
     }));
 }
+exports.SyntheticPartMultiSignedPGP = SyntheticPartMultiSignedPGP;
 SyntheticPartMultiSignedPGP.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
@@ -367,7 +385,7 @@ function SyntheticMessage(aHeaders, aBodyPart, aMetaState) {
       this.metaState[key] = value;
   }
 }
-
+exports.SyntheticMessage = SyntheticMessage;
 SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'message/rfc822',
   _charset: null,
@@ -665,7 +683,7 @@ function MessageGenerator(startDate) {
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
 }
-
+exports.MessageGenerator = MessageGenerator;
 MessageGenerator.prototype = {
   /**
    * The maximum number of unique names makeName can produce.
@@ -1164,3 +1182,5 @@ function bindMethods(aObj) {
 }
 
 bindMethods(MessageScenarioFactory.prototype);
+
+}); // end define

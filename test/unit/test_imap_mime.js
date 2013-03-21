@@ -8,9 +8,11 @@
  * - the (external) bleach.js lib
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/messageGenerator', 'exports'],
+       function($tc, $th_imap, $msggen, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_mime' }, null, [$th_imap.TESTHELPER], ['app']);
 
 // The example string comes from wikipedia, and it now seems to be a popular
@@ -107,6 +109,9 @@ TD.commonCase('message encodings', function(T) {
  * us, differing from what gloda's time_mime_emitter.js checks.
  */
 TD.commonCase('MIME hierarchies', function(T) {
+  var SyntheticPartLeaf = $msggen.SyntheticPartLeaf,
+      SyntheticPartMultiAlternative = $msggen.SyntheticPartMultiAlternative;
+
   // -- pieces
   var
   // - bodies: text/plain
@@ -371,7 +376,7 @@ TD.commonCase('MIME hierarchies', function(T) {
   var fullSyncFolder = testAccount.do_createTestFolder(
     'test_mime_hier', function makeMessages() {
     var messageAppends = [],
-        msgGen = new MessageGenerator(testUniverse._useDate);
+        msgGen = new $msggen.MessageGenerator(testUniverse._useDate);
 
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];
@@ -437,6 +442,4 @@ TD.commonCase('MIME hierarchies', function(T) {
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

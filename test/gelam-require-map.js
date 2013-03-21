@@ -3,6 +3,8 @@ require({
   catchError: {
     define: true,
   },
+  // test/unit/resources/messageGenerator.js still needs this
+  scriptType: 'text/javascript;version=1.8',
   baseUrl: '../',
   paths: {
     // - test stuff!

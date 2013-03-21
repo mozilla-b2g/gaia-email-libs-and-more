@@ -3,9 +3,10 @@
  * the modified utf-7 decoding test.
  */
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_proto' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonSimple('decodeModifiedUtf7', function(lazy) {
@@ -26,6 +27,4 @@ TD.commonSimple('decodeModifiedUtf7', function(lazy) {
         '~peter/mail/\u53f0\u5317/\u65e5\u672c\u8a9e');
 });
 
-function run_test() {
-  runMyTests(3);
-}
+}); // end define

@@ -7,28 +7,20 @@
  * - Auth failure.
  */
 
-load('resources/loggest_test_framework.js');
-// Use the faulty socket implementation.
-load('resources/fault_injecting_socket.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fault_injecting_socket', 'mailapi/smtp/probe',
+        'exports'],
+       function($tc, $th_imap, $fawlty, $smtpprobe, exports) {
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var $_smtpprobe = require('mailapi/smtp/probe');
+$smtpprobe.TEST_USE_DEBUG_MODE = true;
 
-$_smtpprobe.TEST_USE_DEBUG_MODE = true;
-
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_smtp_prober' }, null, [$th_imap.TESTHELPER], ['app']);
-
-function thunkConsole(T) {
-  var lazyConsole = T.lazyLogger('console');
-
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
-}
 
 function thunkSmtpTimeouts(lazyLogger) {
   var timeouts = [];
-  $_smtpprobe.TEST_useTimeoutFuncs(
+  $smtpprobe.TEST_useTimeoutFuncs(
     function thunkedSetTimeout(func, delay) {
       lazyLogger.namedValue('smtp:setTimeout', delay);
       return timeouts.push(func);
@@ -60,7 +52,6 @@ function makeCredsAndConnInfo() {
 }
 
 TD.commonCase('timeout failure', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -69,8 +60,8 @@ TD.commonCase('timeout failure', function(T, RT) {
 
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
-    eCheck.expect_namedValue('smtp:setTimeout', $_smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $_smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
+    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
+    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
     };
@@ -83,7 +74,6 @@ TD.commonCase('timeout failure', function(T, RT) {
 });
 
 TD.commonCase('SSL failure', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -92,8 +82,8 @@ TD.commonCase('SSL failure', function(T, RT) {
 
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
-    eCheck.expect_namedValue('smtp:setTimeout', $_smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $_smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
+    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
+    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
     };
@@ -107,7 +97,6 @@ const SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
 
 
 function cannedLoginTest(T, RT, opts) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkSmtpTimeouts(eCheck),
@@ -115,7 +104,7 @@ function cannedLoginTest(T, RT, opts) {
       prober;
 
   T.action('connect, get error, return', eCheck, function() {
-    eCheck.expect_namedValue('smtp:setTimeout', $_smtpprobe.CONNECT_TIMEOUT_MS);
+    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', opts.expectResult);
     FawltySocketFactory.precommand(
@@ -128,7 +117,7 @@ function cannedLoginTest(T, RT, opts) {
         opts.ehloResponse || SMTP_EHLO_RESPONSE,
         opts.loginErrorString
       ]);
-    prober = new $_smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
+    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
     };
@@ -151,7 +140,4 @@ TD.commonCase('angry server', function(T, RT) {
   });
 });
 
-
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

@@ -30,15 +30,39 @@ function checkFlagDefault(flags, flag, def) {
   return flags[flag];
 }
 
+function consoleHelper(logFunc) {
+  var msg = '';
+  for (var i = 2; i < arguments.length; i++) {
+    msg += ' ' + arguments[i];
+  }
+  logFunc(msg);
+  dump(arguments[1] + ":" + msg + "\x1b[0m\n");
+}
+function makeConsoleForLogger(logger) {
+  window.console = {
+    log:   consoleHelper.bind(null, logger.log.bind(logger), '\x1b[32mLOG'),
+    error: consoleHelper.bind(null, logger.error.bind(logger), '\x1b[31mERR'),
+    info:  consoleHelper.bind(null, logger.info.bind(logger), '\x1b[36mINF'),
+    warn:  consoleHelper.bind(null, logger.warn.bind(logger), '\x1b[33mWAR'),
+    trace: function() {
+      console.error.apply(null, arguments);
+      try {
+        throw new Error('getting stack...');
+      }
+      catch (ex) {
+        console.warn('STACK!\n' + ex.stack);
+      }
+    },
+  };
+}
+
+
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
-    var lazyConsole = self.T.lazyLogger('console');
-
-    gConsoleLogFunc = function(msg) {
-      lazyConsole.value(msg);
-    };
+    var consoleLogger = LOGFAB.console(null, null, self.__name);
+    makeConsoleForLogger(consoleLogger);
 
     if (!opts)
       opts = {};
@@ -2202,6 +2226,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       apiSend: { type: false, msg: false },
       bridgeSend: { type: false, msg: false },
+    },
+  },
+  console: {
+    type: $log.LOGGING,
+    events: {
+      log: { msg: false },
+      error: { msg: false },
+      info: { msg: false},
+      warn: { msg: false },
     },
   },
   testUniverse: {

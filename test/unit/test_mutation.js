@@ -28,11 +28,12 @@
  *   server.  (While these tests can and should be run against real servers.)
  **/
 
-load('resources/loggest_test_framework.js');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'activesync/codepages', 'exports'],
+       function($tc, $th_imap, $ascp, exports) {
 const FilterType = $ascp.AirSync.Enums.FilterType;
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('mutate flags', function(T, RT) {
@@ -282,7 +283,7 @@ TD.commonCase('mutate flags', function(T, RT) {
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_saveState();
   testUniverse.do_shutdown();
-  var testUniverse2 = T.actor('testUniverse', 'U2'),
+  var testUniverse2 = T.actor('testUniverse', 'U2', { old: testUniverse }),
       testAccount2 = T.actor('testAccount', 'A2',
                              { universe: testUniverse2, restored: true }),
       eAccount2 = TEST_PARAMS.type === 'imap' ? testAccount2.eImapAccount :
@@ -311,9 +312,9 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    testUniverse.pretendToBeOffline(false);
-    testUniverse.universe.waitForAccountOps(
-      testUniverse.universe.accounts[0],
+    testUniverse2.pretendToBeOffline(false);
+    testUniverse2.universe.waitForAccountOps(
+      testUniverse2.universe.accounts[0],
       function() {
         eSync.event('ops-done');
       });
@@ -344,7 +345,7 @@ TD.commonCase('mutate flags', function(T, RT) {
   });
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
-  var testUniverse3 = T.actor('testUniverse', 'U3'),
+  var testUniverse3 = T.actor('testUniverse', 'U3', { old: testUniverse2 }),
       testAccount3 = T.actor('testAccount', 'A3',
                              { universe: testUniverse3, restored: true }),
       eAccount3 = TEST_PARAMS.type === 'imap' ? testAccount3.eImapAccount :
@@ -374,9 +375,9 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    testUniverse.pretendToBeOffline(false);
-    testUniverse.universe.waitForAccountOps(
-      testUniverse.universe.accounts[0],
+    testUniverse3.pretendToBeOffline(false);
+    testUniverse3.universe.waitForAccountOps(
+      testUniverse3.universe.accounts[0],
       function() {
         eSync.event('ops-done');
       });
@@ -419,9 +420,9 @@ TD.commonCase('mutate flags', function(T, RT) {
       doHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    testUniverse.MailAPI.ping(function() {
-      testUniverse.universe.waitForAccountOps(
-        testUniverse.universe.accounts[0],
+    testUniverse3.MailAPI.ping(function() {
+      testUniverse3.universe.waitForAccountOps(
+        testUniverse3.universe.accounts[0],
         function() {
           eSync.event('ops-done');
         });
@@ -448,9 +449,9 @@ TD.commonCase('mutate flags', function(T, RT) {
       undoHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    testUniverse.MailAPI.ping(function() {
-      testUniverse.universe.waitForAccountOps(
-        testUniverse.universe.accounts[0],
+    testUniverse3.MailAPI.ping(function() {
+      testUniverse3.universe.waitForAccountOps(
+        testUniverse3.universe.accounts[0],
         function() {
           eSync.event('ops-done');
         });
@@ -489,7 +490,7 @@ TD.commonCase('mutate flags', function(T, RT) {
     testAccount3.expect_runOp(
       'modtags',
       { local: false, server: true, save: false });
-    testUniverse.pretendToBeOffline(false);
+    testUniverse3.pretendToBeOffline(false);
   });
 
   T.group('cleanup');
@@ -872,6 +873,4 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
   });
 });
 
-function run_test() {
-  runMyTests(20);
-}
+}); // end define

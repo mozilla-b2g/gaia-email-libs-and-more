@@ -8,23 +8,25 @@
  * of IMAP+SMTP we handle either of the two generating failures.
  */
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'mailapi/accountcommon',
+        'mailapi/imap/probe', 'mailapi/smtp/probe', 'activesync/protocol',
+        'exports'],
+       function($tc, $th_imap,
+                $accountcommon, $imapprobe, $smtpprobe, $asproto, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_create_unit' }, null, [$th_imap.TESTHELPER], ['app']);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Stubs!
-
-var $_imapprobe = require('mailapi/imap/probe'),
-    $_smtpprobe = require('mailapi/smtp/probe');
 
 var gNextImapProbeResult = null,
     gNextSmtpProbeResult = null,
     gNextActivesyncResult = null,
     gFakeImapConn = null;
 
-$_imapprobe.ImapProber = function() {
+$imapprobe.ImapProber = function() {
   var self = this;
   this.onresult = null;
   window.setZeroTimeout(function() {
@@ -35,7 +37,7 @@ $_imapprobe.ImapProber = function() {
   });
 };
 
-$_smtpprobe.SmtpProber = function() {
+$smtpprobe.SmtpProber = function() {
   var self = this;
   this.onresult = null;
   window.setZeroTimeout(function() {
@@ -45,12 +47,10 @@ $_smtpprobe.SmtpProber = function() {
   });
 };
 
-var $_asproto = require('activesync/protocol');
-
-$_asproto.Connection = function() {
+$asproto.Connection = function() {
   this.timeout = null;
 };
-$_asproto.Connection.prototype = {
+$asproto.Connection.prototype = {
   open: function() {},
   connect: function(callback) {
     var self = this;
@@ -96,16 +96,7 @@ var FakeActivesyncDomainInfo = {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-function thunkConsole(T) {
-  var lazyConsole = T.lazyLogger('console');
-
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
-}
-
 TD.commonCase('IMAP tryToCreateAccount', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check');
   var errorMixtures = [
     { name: 'imap error only',
@@ -136,7 +127,7 @@ TD.commonCase('IMAP tryToCreateAccount', function(T, RT) {
       eCheck.expect_namedValue('account', null);
       eCheck.expect_namedValue('errServer', mix.server);
 
-      $_accountcommon.tryToManuallyCreateAccount(
+      $accountcommon.tryToManuallyCreateAccount(
         FakeUniverse, FakeUserDetails, FakeImapDomainInfo,
         function (err, account, errDetails) {
           eCheck.namedValue('err', err);
@@ -148,17 +139,16 @@ TD.commonCase('IMAP tryToCreateAccount', function(T, RT) {
 });
 
 TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check');
   var errorMixtures = [
     { name: '401',
-      err: new $_asproto.HttpError('401zies', 401),
+      err: new $asproto.HttpError('401zies', 401),
       reportAs: 'bad-user-or-pass',  server: 'https://m.example.com/' },
     { name: '403',
-      err: new $_asproto.HttpError('403zies', 403),
+      err: new $asproto.HttpError('403zies', 403),
       reportAs: 'not-authorized',  server: 'https://m.example.com/' },
     { name: '500',
-      err: new $_asproto.HttpError('500zies', 500),
+      err: new $asproto.HttpError('500zies', 500),
       reportAs: 'server-problem',  server: 'https://m.example.com/' },
     { name: 'timeout',
       err: new Error('The server did not want to talk to us!'),
@@ -173,7 +163,7 @@ TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
       eCheck.expect_namedValue('account', null);
       eCheck.expect_namedValue('errServer', mix.server);
 
-      $_accountcommon.tryToManuallyCreateAccount(
+      $accountcommon.tryToManuallyCreateAccount(
         FakeUniverse, FakeUserDetails, FakeActivesyncDomainInfo,
         function (err, account, errDetails) {
           eCheck.namedValue('err', err);
@@ -185,6 +175,4 @@ TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
 
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define
