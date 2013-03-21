@@ -23,9 +23,10 @@ define(
 
 var $wbxml;
 
-function lazyInit(cbIndex, fn, failString) {
+function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
     var args = Array.slice(arguments),
+        errback = args[cbIndex],
         self = this;
 
     require(['wbxml'], function (wbxml) {
@@ -33,7 +34,7 @@ function lazyInit(cbIndex, fn, failString) {
         $wbxml = wbxml;
       }
 
-      self.account.withConnection(args[cbIndex], function () {
+      self.account.withConnection(errback, function () {
         fn.apply(self, args);
       }, failString);
     });
@@ -106,7 +107,7 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_modtags: $jobmixins.local_do_modtags,
 
-  do_modtags: lazyInit(1, function(op, jobDoneCallback, undo) {
+  do_modtags: lazyConnection(1, function(op, jobDoneCallback, undo) {
     // Note: this method is derived from the IMAP implementation.
     var addTags = undo ? op.removeTags : op.addTags,
         removeTags = undo ? op.addTags : op.removeTags;
@@ -201,7 +202,7 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_move: $jobmixins.local_do_move,
 
-  do_move: lazyInit(1, function(op, jobDoneCallback) {
+  do_move: lazyConnection(1, function(op, jobDoneCallback) {
     /*
      * The ActiveSync command for this does not produce or consume SyncKeys.
      * As such, we don't need to acquire mutexes for the source folders for
@@ -284,7 +285,7 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_delete: $jobmixins.local_do_delete,
 
-  do_delete: lazyInit(1, function(op, jobDoneCallback) {
+  do_delete: lazyConnection(1, function(op, jobDoneCallback) {
     var aggrErr = null;
     var as = $AirSync.Tags;
     var em = $Email.Tags;
@@ -348,7 +349,7 @@ ActiveSyncJobDriver.prototype = {
     doneCallback(null);
   },
 
-  do_syncFolderList: lazyInit(1, function(op, doneCallback) {
+  do_syncFolderList: lazyConnection(1, function(op, doneCallback) {
     var account = this.account, self = this;
 
     // The inbox needs to be resynchronized if there was no server id and we

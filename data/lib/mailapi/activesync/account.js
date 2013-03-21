@@ -42,9 +42,10 @@ var bsearchForInsert = $util.bsearchForInsert;
 
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
-function lazyInit(cbIndex, fn) {
+function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
     var args = Array.slice(arguments),
+        errback = args[cbIndex],
         self = this;
 
     require(['wbxml'], function (wbxml) {
@@ -52,9 +53,9 @@ function lazyInit(cbIndex, fn) {
         $wbxml = wbxml;
       }
 
-      self.withConnection(args[cbIndex], function () {
+      self.withConnection(errback, function () {
         fn.apply(self, args);
-      });
+      }, failString);
     });
   };
 }
@@ -65,9 +66,10 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
-  if (receiveProtoConn) {
+  if (receiveProtoConn)
     this.conn = receiveProtoConn;
-  }
+  else
+    this.conn = null;
 
   this._db = dbConn;
 
@@ -145,7 +147,7 @@ ActiveSyncAccount.prototype = {
                        accountDef.credentials.password);
         this.conn.timeout = DEFAULT_TIMEOUT_MS;
 
-        this.withConnection(errback, callback);
+        this.withConnection(errback, callback, failString);
       }.bind(this));
       return;
     }
@@ -253,9 +255,7 @@ ActiveSyncAccount.prototype = {
     // the slice is self-starting, we don't need to call anything on storage
   },
 
-  syncFolderList: lazyInit(0, function asa_syncFolderList(callback) {
-    // We can assume that we already have a connection here, since jobs.js
-    // ensures it.
+  syncFolderList: lazyConnection(0, function asa_syncFolderList(callback) {
     var account = this;
 
     var fh = $FolderHierarchy.Tags;
@@ -543,7 +543,7 @@ ActiveSyncAccount.prototype = {
    *   }
    * ]
    */
-  createFolder: lazyInit(3, function asa_createFolder(parentFolderId,
+  createFolder: lazyConnection(3, function asa_createFolder(parentFolderId,
                                                       folderName,
                                                       containOnlyOtherFolders,
                                                       callback) {
@@ -608,7 +608,8 @@ ActiveSyncAccount.prototype = {
    *
    * Callback is like the createFolder one, why not.
    */
-  deleteFolder: lazyInit(1, function asa_deleteFolder(folderId, callback) {
+  deleteFolder: lazyConnection(1, function asa_deleteFolder(folderId,
+                                                            callback) {
     var account = this;
 
     var folderMeta = this._folderInfos[folderId].$meta;
@@ -655,7 +656,7 @@ ActiveSyncAccount.prototype = {
     });
   }),
 
-  sendMessage: lazyInit(1, function asa_sendMessage(composer, callback) {
+  sendMessage: lazyConnection(1, function asa_sendMessage(composer, callback) {
     var account = this;
 
     // we want the bcc included because that's how we tell the server the bcc

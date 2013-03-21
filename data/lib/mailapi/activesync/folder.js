@@ -77,9 +77,10 @@ function initFilterTypes() {
 
 var $wbxml, $mimelib, $quotechew, $htmlchew;
 
-function lazyInit(cbIndex, fn) {
+function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
     var args = Array.slice(arguments),
+        errback = args[cbIndex],
         self = this;
 
     require(['wbxml', 'mimelib', '../quotechew', '../htmlchew'],
@@ -92,9 +93,9 @@ function lazyInit(cbIndex, fn) {
         initFilterTypes();
       }
 
-      self._account.withConnection(args[cbIndex], function () {
+      self._account.withConnection(errback, function () {
         fn.apply(self, args);
-      });
+      }, failString);
     });
   };
 }
@@ -155,7 +156,8 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getSyncKey: lazyInit(1, function asfc__getSyncKey(filterType, callback) {
+  _getSyncKey: lazyConnection(1, function asfc__getSyncKey(filterType,
+                                                           callback) {
     var folderConn = this;
     var account = this._account;
     var as = $AirSync.Tags;
@@ -217,8 +219,8 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our estimate
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getItemEstimate: lazyInit(1, function asfc__getItemEstimate(filterType,
-                                                               callback) {
+  _getItemEstimate: lazyConnection(1, function asfc__getItemEstimate(filterType,
+                                                                     callback) {
     var ie = $ItemEstimate.Tags;
     var as = $AirSync.Tags;
 
@@ -281,7 +283,7 @@ ActiveSyncFolderConn.prototype = {
    *  finishes, taking two arguments: an error (if any), and the filter type we
    *  picked
    */
-  _inferFilterType: lazyInit(0, function asfc__inferFilterType(callback) {
+  _inferFilterType: lazyConnection(0, function asfc__inferFilterType(callback) {
     var folderConn = this;
     var Type = $AirSync.Enums.FilterType;
 
@@ -358,9 +360,8 @@ ActiveSyncFolderConn.prototype = {
    *   progresses that takes a number in the range [0.0, 1.0] to express
    *   progress.
    */
-  _enumerateFolderChanges: lazyInit(0, function asfc__enumerateFolderChanges(
-                                                                 callback,
-                                                                 progress) {
+  _enumerateFolderChanges: lazyConnection(0,
+    function asfc__enumerateFolderChanges(callback, progress) {
     var folderConn = this, storage = this._storage;
 
     if (!this.filterType) {
@@ -792,7 +793,7 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  sync: lazyInit(1, function asfc_sync(accuracyStamp, doneCallback,
+  sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,
                                     progressCallback) {
     var folderConn = this,
         addedMessages = 0,
@@ -873,7 +874,7 @@ ActiveSyncFolderConn.prototype = {
     progressCallback);
   }),
 
-  performMutation: lazyInit(1, function(invokeWithWriter, callWhenDone) {
+  performMutation: lazyConnection(1, function(invokeWithWriter, callWhenDone) {
     var folderConn = this;
 
     var as = $AirSync.Tags;
@@ -953,8 +954,10 @@ ActiveSyncFolderConn.prototype = {
 
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
-  downloadMessageAttachments: lazyInit(2, function(uid, partInfos, callback,
-                                                   progress) {
+  downloadMessageAttachments: lazyConnection(2, function(uid,
+                                                         partInfos,
+                                                         callback,
+                                                         progress) {
     var folderConn = this;
 
     var io = $ItemOperations.Tags;
