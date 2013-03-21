@@ -4,6 +4,9 @@ require.config({
     mailapi: 'js/ext/mailapi',
     mimelib: 'js/ext/mimelib',
 
+    // mailcomposer is in the mailapi/composer layer.
+    mailcomposer: 'js/ext/mailapi/composer',
+
     // Point activesync protocol modules to their layer
     'wbxml': 'js/ext/mailapi/activesync/protocollayer',
     'activesync/codepages': 'js/ext/mailapi/activesync/protocollayer',

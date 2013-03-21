@@ -4,11 +4,11 @@
 
 define(
   [
-    '../composer',
+    'mailcomposer',
     'exports'
   ],
   function(
-    $composer,
+    $mailcomposer,
     exports
   ) {
 
@@ -422,7 +422,7 @@ MessageGenerator.prototype = {
       };
     }
     else { // 'rfc822'
-      var composer = new $composer.MailComposer();
+      var composer = new $mailcomposer.MailComposer();
       var messageOpts = {
         from: this._formatAddresses([headerInfo.author]),
         subject: headerInfo.subject,
@@ -729,6 +729,11 @@ FakeAccount.prototype = {
 
   deleteFolder: function() {
     throw new Error('XXX not implemented');
+  },
+
+  getFolderMetaForFolderId: function(folderId) {
+    // Just always return null
+    return null;
   },
 
   sliceFolderMessages: function fa_sliceFolderMessages(folderId, bridgeHandle) {
