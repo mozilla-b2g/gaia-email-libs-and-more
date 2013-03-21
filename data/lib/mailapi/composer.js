@@ -16,6 +16,11 @@ define(
     exports
   ) {
 
+// Exports to make it easier for other modules to just require
+// this module, but get access to these useful dependencies.
+exports.mailchew = $mailchew;
+exports.MailComposer = $mailcomposer;
+
 /**
  * Abstraction around the mailcomposer helper library that exists to consolidate
  * our hackish uses of it, as well as to deal with our need to create variations

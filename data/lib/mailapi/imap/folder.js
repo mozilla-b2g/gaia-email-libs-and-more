@@ -1,26 +1,24 @@
 define(
   [
     'rdcommon/log',
-    'mailparser/mailparser',
     '../a64',
     '../allback',
     '../date',
     '../syncbase',
     '../util',
-    './imapchew',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $mailparser,
     $a64,
     $allback,
     $date,
     $sync,
     $util,
-    $imapchew,
     $module,
+    require,
     exports
   ) {
 var allbackMaker = $allback.allbackMaker,
@@ -450,6 +448,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    */
   _commonSync: function(newUIDs, knownUIDs, knownHeaders, doneCallback,
                         progressCallback) {
+    require(['./imapchew'], function ($imapchew) {
     var conn = this._conn, storage = this._storage, self = this;
 console.log("_commonSync", 'newUIDs', newUIDs.length, 'knownUIDs',
             knownUIDs.length, 'knownHeaders', knownHeaders.length);
@@ -502,6 +501,7 @@ console.log('   header processed');
           console.warn('New UIDs fetch error, ideally harmless:', err);
         });
       newFetcher.on('end', function onNewFetchEnd() {
+        require(['mailparser/mailparser'], function($mailparser) {
           // the fetch results will be bursty, so just update all at once
           updateProgress(NEW_HEADERS_AGGR_COST +
                          NEW_HEADERS_PER_COST * newUIDs.length);
@@ -638,7 +638,8 @@ console.log('  !fetched body part for', chewRep.msg.id, bodyPart.partID,
           });
           if (pendingFetches === 0)
             callbacks.newMsgs();
-        });
+        }.bind(this));
+      });
     }
     else {
       callbacks.newMsgs();
@@ -696,78 +697,65 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
     else {
       callbacks.knownMsgs();
     }
+  }.bind(this));
   },
 
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
-    var conn = this._conn;
-    var self = this;
-    var mparser = new $mailparser.MailParser();
+    require(['mailparser/mailparser'], function($mailparser) {
+      var conn = this._conn;
+      var self = this;
+      var mparser = new $mailparser.MailParser();
 
-    // I actually implemented a usable shim for the checksum purposes, but we
-    // don't actually care about the checksum, so why bother doing the work?
-    var dummyChecksummer = {
-      update: function() {},
-      digest: function() { return null; },
-    };
-
-    function setupBodyParser(partInfo) {
-      mparser._state = 0x2; // body
-      mparser._remainder = '';
-      mparser._currentNode = null;
-      mparser._currentNode = mparser._createMimeNode(null);
-      mparser._currentNode.attachment = true;
-      mparser._currentNode.checksum = dummyChecksummer;
-      mparser._currentNode.content = undefined;
-      // nb: mparser._multipartTree is an empty list (always)
-      mparser._currentNode.meta.contentType = partInfo.type;
-      mparser._currentNode.meta.transferEncoding = partInfo.encoding;
-      mparser._currentNode.meta.charset = null; //partInfo.charset;
-      mparser._currentNode.meta.textFormat = null; //partInfo.textFormat;
-    }
-    function bodyParseBuffer(buffer) {
-      process.immediate = true;
-      mparser.write(buffer);
-      process.immediate = false;
-    }
-    function finishBodyParsing() {
-      process.immediate = true;
-      mparser._process(true);
-      process.immediate = false;
-      // this is a Buffer!
-      return mparser._currentNode.content;
-    }
-
-    var anyError = null, pendingFetches = 0, bodies = [];
-    partInfos.forEach(function(partInfo) {
-      var opts = {
-        request: {
-          struct: false,
-          headers: false,
-          body: partInfo.part
-        }
+      // I actually implemented a usable shim for the checksum purposes, but we
+      // don't actually care about the checksum, so why bother doing the work?
+      var dummyChecksummer = {
+        update: function() {},
+        digest: function() { return null; },
       };
-      pendingFetches++;
-      var fetcher = conn.fetch(uid, opts);
 
-      setupBodyParser(partInfo);
-      fetcher.on('error', function(err) {
-        if (!anyError)
-          anyError = err;
-        if (--pendingFetches === 0) {
-          try {
-            callback(anyError, bodies);
+      function setupBodyParser(partInfo) {
+        mparser._state = 0x2; // body
+        mparser._remainder = '';
+        mparser._currentNode = null;
+        mparser._currentNode = mparser._createMimeNode(null);
+        mparser._currentNode.attachment = true;
+        mparser._currentNode.checksum = dummyChecksummer;
+        mparser._currentNode.content = undefined;
+        // nb: mparser._multipartTree is an empty list (always)
+        mparser._currentNode.meta.contentType = partInfo.type;
+        mparser._currentNode.meta.transferEncoding = partInfo.encoding;
+        mparser._currentNode.meta.charset = null; //partInfo.charset;
+        mparser._currentNode.meta.textFormat = null; //partInfo.textFormat;
+      }
+      function bodyParseBuffer(buffer) {
+        process.immediate = true;
+        mparser.write(buffer);
+        process.immediate = false;
+      }
+      function finishBodyParsing() {
+        process.immediate = true;
+        mparser._process(true);
+        process.immediate = false;
+        // this is a Buffer!
+        return mparser._currentNode.content;
+      }
+
+      var anyError = null, pendingFetches = 0, bodies = [];
+      partInfos.forEach(function(partInfo) {
+        var opts = {
+          request: {
+            struct: false,
+            headers: false,
+            body: partInfo.part
           }
-          catch (ex) {
-            self._LOG.callbackErr(ex);
-          }
-        }
-      });
-      fetcher.on('message', function(msg) {
+        };
+        pendingFetches++;
+        var fetcher = conn.fetch(uid, opts);
+
         setupBodyParser(partInfo);
-        msg.on('data', bodyParseBuffer);
-        msg.on('end', function() {
-          bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
-
+        fetcher.on('error', function(err) {
+          if (!anyError)
+            anyError = err;
           if (--pendingFetches === 0) {
             try {
               callback(anyError, bodies);
@@ -777,8 +765,24 @@ console.warn('  FLAGS: "' + header.flags.toString() + '" VS "' +
             }
           }
         });
+        fetcher.on('message', function(msg) {
+          setupBodyParser(partInfo);
+          msg.on('data', bodyParseBuffer);
+          msg.on('end', function() {
+            bodies.push(new Blob([finishBodyParsing()], { type: partInfo.type }));
+
+            if (--pendingFetches === 0) {
+              try {
+                callback(anyError, bodies);
+              }
+              catch (ex) {
+                self._LOG.callbackErr(ex);
+              }
+            }
+          });
+        });
       });
-    });
+    }.bind(this));
   },
 
   shutdown: function() {
