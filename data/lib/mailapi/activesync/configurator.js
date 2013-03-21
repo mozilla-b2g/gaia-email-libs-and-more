@@ -7,7 +7,6 @@ define(
     'rdcommon/log',
     '../accountcommon',
     '../a64',
-    'activesync/protocol',
     './account',
     'exports'
   ],
@@ -15,88 +14,88 @@ define(
     $log,
     $accountcommon,
     $a64,
-    $asproto,
     $asacct,
     exports
   ) {
 
 exports.account = $asacct;
-exports.protocol = $asproto;
 exports.configurator = {
   tryToCreateAccount: function cfg_as_ttca(universe, userDetails, domainInfo,
                                            callback, _LOG) {
-    var credentials = {
-      username: domainInfo.incoming.username,
-      password: userDetails.password,
-    };
-
-    var self = this;
-    var conn = new $asproto.Connection();
-    conn.open(domainInfo.incoming.server, credentials.username,
-              credentials.password);
-    conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
-
-    conn.connect(function(error, options) {
-      if (error) {
-        // This error is basically an indication of whether we were able to
-        // call getOptions or not.  If the XHR request completed, we get an
-        // HttpError.  If we timed out or an XHR error occurred, we get a
-        // general Error.
-        var failureType,
-            failureDetails = { server: domainInfo.incoming.server };
-
-        if (error instanceof $asproto.HttpError) {
-          if (error.status === 401) {
-            failureType = 'bad-user-or-pass';
-          }
-          else if (error.status === 403) {
-            failureType = 'not-authorized';
-          }
-          // Treat any other errors where we talked to the server as a problem
-          // with the server.
-          else {
-            failureType = 'server-problem';
-            failureDetails.status = error.status;
-          }
-        }
-        else {
-          // We didn't talk to the server, so let's call it an unresponsive
-          // server.
-          failureType = 'unresponsive-server';
-        }
-        callback(failureType, null, failureDetails);
-        return;
-      }
-
-      var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
-      var accountDef = {
-        id: accountId,
-        name: userDetails.accountName || userDetails.emailAddress,
-
-        type: 'activesync',
-        syncRange: 'auto',
-
-        credentials: credentials,
-        connInfo: {
-          server: domainInfo.incoming.server
-        },
-
-        identities: [
-          {
-            id: accountId + '/' +
-                $a64.encodeInt(universe.config.nextIdentityNum++),
-            name: userDetails.displayName || domainInfo.displayName,
-            address: userDetails.emailAddress,
-            replyTo: null,
-            signature: null
-          },
-        ]
+    require(['activesync/protocol'], function ($asproto) {
+      var credentials = {
+        username: domainInfo.incoming.username,
+        password: userDetails.password,
       };
 
-      self._loadAccount(universe, accountDef, conn, function (account) {
-        callback(null, account, null);
+      var self = this;
+      var conn = new $asproto.Connection();
+      conn.open(domainInfo.incoming.server, credentials.username,
+                credentials.password);
+      conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
+
+      conn.connect(function(error, options) {
+        if (error) {
+          // This error is basically an indication of whether we were able to
+          // call getOptions or not.  If the XHR request completed, we get an
+          // HttpError.  If we timed out or an XHR error occurred, we get a
+          // general Error.
+          var failureType,
+              failureDetails = { server: domainInfo.incoming.server };
+
+          if (error instanceof $asproto.HttpError) {
+            if (error.status === 401) {
+              failureType = 'bad-user-or-pass';
+            }
+            else if (error.status === 403) {
+              failureType = 'not-authorized';
+            }
+            // Treat any other errors where we talked to the server as a problem
+            // with the server.
+            else {
+              failureType = 'server-problem';
+              failureDetails.status = error.status;
+            }
+          }
+          else {
+            // We didn't talk to the server, so let's call it an unresponsive
+            // server.
+            failureType = 'unresponsive-server';
+          }
+          callback(failureType, null, failureDetails);
+          return;
+        }
+
+        var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+        var accountDef = {
+          id: accountId,
+          name: userDetails.accountName || userDetails.emailAddress,
+
+          type: 'activesync',
+          syncRange: 'auto',
+
+          credentials: credentials,
+          connInfo: {
+            server: domainInfo.incoming.server
+          },
+
+          identities: [
+            {
+              id: accountId + '/' +
+                  $a64.encodeInt(universe.config.nextIdentityNum++),
+              name: userDetails.displayName || domainInfo.displayName,
+              address: userDetails.emailAddress,
+              replyTo: null,
+              signature: null
+            },
+          ]
+        };
+
+        self._loadAccount(universe, accountDef, conn, function (account) {
+          callback(null, account, null);
+        });
       });
-    });
+    }.bind(this));
   },
 
   recreateAccount: function cfg_as_ra(universe, oldVersion, oldAccountInfo,
