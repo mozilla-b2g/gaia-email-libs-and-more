@@ -265,7 +265,7 @@ ActiveSyncAccount.prototype = {
     var storage = this._folderStorages[folderId],
         slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
                                               whatToSearch, this._LOG);
-    // the slice is self-starting, we don't need to call anything on storage
+    storage.sliceOpenSearch(slice);
   },
 
   syncFolderList: lazyConnection(0, function asa_syncFolderList(callback) {
