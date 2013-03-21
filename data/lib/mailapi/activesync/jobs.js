@@ -25,7 +25,7 @@ var $wbxml;
 
 function lazyInit(cbIndex, fn, failString) {
   return function lazyRun() {
-    var args = [].slice.call(arguments, 0),
+    var args = Array.slice(arguments),
         self = this;
 
     require(['wbxml'], function (wbxml) {

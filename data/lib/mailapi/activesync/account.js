@@ -44,7 +44,7 @@ var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 function lazyInit(cbIndex, fn) {
   return function lazyRun() {
-    var args = [].slice.call(arguments, 0),
+    var args = Array.slice(arguments),
         self = this;
 
     require(['wbxml'], function (wbxml) {
