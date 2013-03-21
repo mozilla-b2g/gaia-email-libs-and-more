@@ -80,16 +80,16 @@ RUNB2G=$(B2GBD)/dist/bin/b2g
 
 define run-one-xpcraw-test
 	rm -rf test-profile
-	mkdir -p test-profile
+	mkdir -p test-profile/device-storage
 	mkdir -p test-logs/activesync test-logs/imap
 	GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNXPC) $(TESTRUNNER) test/unit/$(SOLO_FILE)
 endef
 
 define run-one-xulrunner-test
 	rm -rf test-profile
-	mkdir -p test-profile
+	mkdir -p test-profile/device-storage
 	mkdir -p test-logs/activesync test-logs/imap
-	$(RUNMOZ) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-name $(SOLO_FILE)
+	$(RUNMOZ) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-name $(basename $(SOLO_FILE))
 endef
 
 define run-interactive-test

@@ -21,6 +21,9 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/commonjs/promise/core.js");
 Cu.import("resource://gre/modules/osfile.jsm");
 
+const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
+const URI = IOService.newURI.bind(IOService);
+
 ////////////////////////////////////////////////////////////////////////////////
 // have all console.log usages in this file be pretty to dump()
 
@@ -260,7 +263,7 @@ function do_get_file(path, allowNonexistent) {
     return lf;
   }
   catch (ex) {
-    do_throw(ex.toString(), Components.stack.caller);
+    console.error('do_get_file problem:', ex, '\n', ex.stack);
   }
 
   return null;
@@ -368,7 +371,8 @@ function registerAlertTestUtils()
 const STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP,
       STATE_IS_WINDOW = Ci.nsIWebProgressListener.STATE_IS_WINDOW;
 
-function ProgressListener(tds) {
+function ProgressListener(callOnLoad) {
+  this._callOnLoad = callOnLoad;
 }
 ProgressListener.prototype = {
   onLocationChange: function() {
@@ -381,7 +385,9 @@ ProgressListener.prototype = {
     console.log('security change!');
   },
   onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
-    console.log('state change', aStateFlags);
+    //console.log('state change', aStateFlags);
+    if (aStateFlags & STATE_STOP && aStateFlags & STATE_IS_WINDOW)
+      this._callOnLoad();
   },
   onStatusChange: function() {
     console.log('status change!');
@@ -389,56 +395,6 @@ ProgressListener.prototype = {
 
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener,
                                          Ci.nsISupportsWeakReference]),
-};
-
-function TestDocshell(testfile) {
-  this.docshell = Cc["@mozilla.org/docshell;1"].createInstance(Ci.nsIDocShell);
-  this.webnav = this.docshell.QueryInterface(Ci.nsIWebNavigation);
-  this.webprogress = this.webnav.QueryInterface(Ci.nsIWebProgress);
-  this.doc = null;
-  this.win = null;
-
-  this.webprogress.addProgressListener(new ProgressListener(this),
-                                       Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
-/*
-  this.win.addEventListener('DOMContentLoaded', function() {
-    console.log('URL loaded!');
-  });
- */
-
-  this.testRunnerUrl = 'resource://gelam/test/loggest-runner.html';
-  this.testUrl = 'resource://gelam/test/unit/' + testfile;
-
-  var IWebNav = Ci.nsIWebNavigation;
-  this.webnav.loadURI(this.testRunnerUrl,
-                      IWebNav.LOAD_FLAGS_BYPASS_HISTORY |
-                        IWebNav.LOAD_FLAGS_BYPASS_CACHE |
-                        IWebNav.LOAD_FLAGS_BYPASS_CLASSIFIER,
-                      null, null, null);
-/*
-  do_timeout(1000, function() {
-    this.win = this.docshell.QueryInterface(Ci.nsIInterfaceRequestor)
-                 .getInterface(Ci.nsIDOMWindow);
-    console.log('this.win', this.win);
-    console.log('URI after load:', this.webnav.currentURI.spec);
-  }.bind(this));
- */
-}
-TestDocshell.prototype = {
-  _loaded: function() {
-    console.log('load completed!');
-    this.doc = this.webnav.document;
-    console.log('doc:', this.doc);
-    this.win = this.doc.defaultView;
-    console.log('win:', this.win);
-
-    try {
-      console.log('web progress domwindow:', this.webprogress.DOMWindow);
-    }
-    catch (ex) {
-      console.warn('there was no window!');
-    }
-  }
 };
 
 
@@ -491,7 +447,8 @@ var TEST_NAME = null;
 function populateTestParams() {
   let args = window.arguments[0].QueryInterface(Ci.nsICommandLine);
 
-  TEST_NAME = args.handleFlagWithParam('test-name', false);
+  TEST_NAME = args.handleFlagWithParam('test-name', false)
+                .replace(/\.js$/, '');
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -514,6 +471,79 @@ function populateTestParams() {
 populateTestParams();
 
 ////////////////////////////////////////////////////////////////////////////////
+// make device storage operate out of our test-profile dir!
+//
+// We want any device storage tests to stick inside our test sub-directory and
+// not be affected by our affect anywhere else on the disk.
+//
+// See the constants in:
+// http://mxr.mozilla.org/mozilla-central/source/xpcom/io/nsDirectoryServiceDefs.h#54
+// and their usages in nsDeviceStorage.cpp
+//
+// Note that DeviceStorage does support a "device.storage.testing" pref, but
+// then it just makes a subdirectory of the temp directory, which limits
+// our ability to test orthogonal device storages, etc.
+
+var dirService = Cc["@mozilla.org/file/directory_service;1"]
+                   .getService(Ci.nsIProperties);
+var DEVICE_STORAGE_PATH_CLOBBERINGS = {
+  // Linux:
+  'XDGPict': 'pictures',
+  'XDGMusic': 'music',
+  'XDGVids': 'videos',
+  // OSX:
+  'Pct': 'pictures',
+  'Music': 'music',
+  'Mov': 'videos',
+  // Win:
+  'Pict': 'pictures',
+  'Music': 'music',
+  'Vids': 'videos'
+};
+
+var deviceStorageFile = dirService.get('ProfD', Ci.nsILocalFile);
+deviceStorageFile.append('device-storage');
+
+  /*
+let replacementDirServiceProvider = {
+  getFile: function(prop, persistent) {
+    persistent.value = true;
+    if (DEVICE_STORAGE_PATH_CLOBBERINGS.hasOwnProperty(prop))
+      return deviceStorageFile.clone();
+
+    return dirService.getFile(prop, persistent);
+  },
+  'get': function(prop, iid) {
+    return dirService.get(prop, iid);
+  },
+  'set': function(prop, value) {
+    return dirService.set(prop, value);
+  },
+  'has': function(prop) {
+
+  },
+  QueryInterface: XPCOMUtils.generateQI(
+                    [Ci.nsIDirectoryService, Ci.nsIProperties]),
+};
+Components.manager
+  .QueryInterface(Ci.nsIComponentRegistrar)
+  .registerFactory(Components.ID('{753e01a4-dc3c-48c7-b45e-91544ec01302}'),
+                   'fake directory service',
+                   '@mozilla.org/file/directory_service;1',
+                   replacementDirServiceProvider);
+*/
+
+for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
+  // force an undefine
+  try {
+    dirService.undefine(name);
+  }
+  catch(ex) {}
+  dirService.set(name, deviceStorageFile);
+//console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 const appStartup = Cc['@mozilla.org/toolkit/app-startup;1']
                      .getService(Ci.nsIAppStartup);
@@ -533,6 +563,27 @@ function buildQuery(args) {
 var gRunnerIframe,
     gRunnerWindow;
 
+// copied from our webapp.manifest
+var EMAIL_PERMISSIONS = {
+    "alarms":{},
+    "audio-channel-notification":{},
+    "contacts":{ "access": "readcreate" },
+    "desktop-notification":{},
+    "device-storage:sdcard":{ "access": "readcreate" },
+    "systemXHR":{},
+    "settings":{ "access": "readonly" },
+    "tcp-socket":{}
+};
+
+function grantEmailPermissions(originUrl) {
+  var perm = Cc["@mozilla.org/permissionmanager;1"]
+               .createInstance(Ci.nsIPermissionManager);
+  var uri = URI(originUrl, null, null);
+  for (var permName in EMAIL_PERMISSIONS) {
+    perm.add(uri, permName, 1);
+  }
+}
+
 function runTestFile(testFileName) {
   console.log('running', testFileName);
 
@@ -541,16 +592,20 @@ function runTestFile(testFileName) {
     testParams: JSON.stringify(TEST_PARAMS)
   };
 
-  gRunnerIframe.webNavigation.QueryInterface(Ci.nsIWebProgress)
-    .addProgressListener(new ProgressListener(),
-                         Ci.nsIWebProgress.NOTIFY_STATE_ALL);
-
+  // Our testfile protocol allows us to use the test file as an origin, so every
+  // test file gets its own instance of the e-mail database.  This is better
+  // than deleting the database every time because at the end of the run we
+  // will have all the untouched IndexedDB databases around so we can poke at
+  // them if we need/want.
   var baseUrl = 'testfile://' + testFileName + '/';
-//  gRunnerIframe.setAttribute(
-//    'src', baseUrl + 'test/loggest-runner.html' /*?' + buildQuery(passToRunner) */);
+  grantEmailPermissions(baseUrl);
+
+  gRunnerIframe.setAttribute(
+    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
   console.log('src set to:', gRunnerIframe.getAttribute('src'));
 
-  var win = gRunnerWindow = gRunnerIframe.contentWindow;
+  var win = gRunnerWindow = gRunnerIframe.contentWindow,
+      domWin = win.wrappedJSObject;
 
   win.addEventListener('DOMContentLoaded', function() {
     console.log('iframe claims load complete');
@@ -558,42 +613,67 @@ function runTestFile(testFileName) {
 
   var deferred = Promise.defer();
 
-  var resultListener = function resultListener(evt) {
-    if (!evt.data || evt.data.type !== 'loggest-test-results')
-      return;
+  function cleanupWindow() {
+    win.removeEventListener('error', errorListener);
+  }
 
-    window.removeEventListener('message', resultListener);
-    window.removeEventListener('error', errorListener);
+  var webProgress = gRunnerIframe.webNavigation
+                      .QueryInterface(Ci.nsIWebProgress);
+  var progressListener = new ProgressListener(function() {
+    webProgress.removeProgressListener(progressListener,
+                                       Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
-    // we are done when the log writing is done!
-    deferred.resolve(writeTestLog(testFileName, evt.data.data));
-  };
+    // Look like we are content-space that embedded the iframe!
+    domWin.parent = {
+      __exposedProps__: {
+        postMessage: 'r',
+      },
+      postMessage: function(data, dest) {
+console.log('cleaning up window');
+        cleanupWindow();
+console.log('calling writeTestLog and resolving');
+        writeTestLog(testFileName, data.data).then(function() {
+          console.log('write completed!');
+          deferred.resolve();
+        });
+      }
+    };
+  });
+  webProgress.addProgressListener(progressListener,
+                                  Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.error('win err:', errorMsg, url, lineNumber);
   };
 
-  win.addEventListener('message', resultListener);
   win.addEventListener('error', errorListener);
 
   return deferred.promise;
 }
 
 function writeTestLog(testFileName, jsonnableObj) {
-  var encoder = new TextEncoder();
-  var logFilename = testFileName.replace(/\.js$/, '.log');
-  var logPath = do_get_file('test-logs/' + TEST_PARAMS.type + '/' +
-                            logFilename).path;
-  var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
-            JSON.stringify(jsonnableObj) + '\n' +
-            '##### LOGGEST-TEST-RUN-END #####\n';
-  var arr = encoder.encode(str);
-  return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
+  try {
+    var encoder = new TextEncoder();
+    var logFilename = testFileName + '.log';
+    var logPath = do_get_file('test-logs/' + TEST_PARAMS.type).path +
+                  '/' + logFilename;
+    console.log('writing to', logPath);
+    var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
+          JSON.stringify(jsonnableObj) + '\n' +
+          '##### LOGGEST-TEST-RUN-END #####\n';
+    var arr = encoder.encode(str);
+    return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
+  }
+  catch (ex) {
+    console.error('Error trying to write log to disk!', ex, '\n', ex.stack);
+    return null;
+  }
 }
 
 function DOMLoaded() {
   gRunnerIframe = document.getElementById('runner');
   runTestFile(TEST_NAME).then(function() {
+    console.log('test run completed, quitting');
     quitApp();
   });
 }

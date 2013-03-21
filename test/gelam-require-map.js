@@ -43,7 +43,7 @@ require({
     "net": "data/lib/node-net",
     "tls": "data/lib/node-tls",
     "os": "data/lib/node-os",
-    "timers": "data/lib/node-timers",
+    "timers": "data/lib/web-timers",
 
     "iconv": "data/lib/js-shims/faux-iconv",
     "encoding": "data/lib/js-shims/faux-encoding",
@@ -62,6 +62,5 @@ require({
     "mailcomposer": "data/deps/mailcomposer",
   },
 });
-console.log('about to issue triggering require');
 require(['loggest-runner.js'], function() {});
-console.log('issued');
+

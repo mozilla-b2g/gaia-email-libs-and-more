@@ -1,6 +1,10 @@
 pref("toolkit.defaultChromeURI", "chrome://test-runner/content/test-runner.xul");
 pref("browser.dom.window.dump.enabled", true);
 
+// developer preferences to
+pref("javascript.options.showInConsole", true);
+pref("dom.report_all_js_exceptions", true);
+
 // something wants to prompt real bad, and our fake prompts don't work.
 pref("browser.prompt.allowNative", true);
 

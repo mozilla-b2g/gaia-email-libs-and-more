@@ -37,7 +37,7 @@ function do_get_file(path, allowNonexistent) {
 
     if (!allowNonexistent && !lf.exists()) {
       var stack = Components.stack.caller;
-      dump("TEST-UNEXPECTED-FAIL | " + stack.filename + " | [" +
+      dump("MISSING FILE | " + stack.filename + " | [" +
             stack.name + " : " + stack.lineNumber + "] " + lf.path +
             " does not exist\n");
     }
@@ -77,7 +77,7 @@ function CustomURL(uriStr) {
         { value: port } ] = authData.slice(2);
 
   // TODO: Make it more configurable.
-  uri.host = auth.substr(hostnamePos, hostnameLen) && '';
+  uri.host = auth.substr(hostnamePos, hostnameLen);
   uri.port = port;
   uri.username = auth.substr(usernamePos, usernameLen);
   uri.userPass = auth.substr(passwordPos, passwordLen);
@@ -88,12 +88,10 @@ function CustomURL(uriStr) {
   let pathData = [ path, path.length, {}, {}, {}, {}, {}, {}, {}, {}, {}];
   URLParser.parsePath.apply(URLParser, pathData);
   let [ { value: filepathPos }, { value: filepathLen },
-        { value: paramPos }, { value: paramLen },
         { value: queryPos }, { value: queryLen },
         { value: refPos }, { value: refLen } ] = pathData.slice(2);
 
   uri.filePath = path.substr(filepathPos, filepathLen);
-  uri.param = path.substr(paramPos, paramLen);
   uri.query = path.substr(queryPos, queryLen);
   uri.ref = path.substr(refPos, refLen);
 
@@ -125,8 +123,29 @@ CustomURL.prototype = {
   equalsExceptRef: function equalsExceptRef(uri) this.equals(uri),
   schemeIs: function schemeIs(scheme) this.scheme === scheme,
   resolve: function resolve(path) {
-    dump('RESOLVE!!! ' + path + '\n');
-    return this.spec + path;
+    let parts;
+
+    if (path.length && path[0] === '/') {
+      parts = [''];
+    }
+    else {
+      parts = this.filePath.split('/');
+    // pop off the filename part
+      if (parts[parts.length - 1])
+        parts.pop();
+    }
+
+    let bits = path.split("/");
+    for (let i = 0; i < bits.length; i++) {
+      if (bits[i]) {
+        if (bits[i] == "..")
+          parts.pop();
+        else
+          parts.push(bits[i]);
+      }
+    }
+
+    return this.scheme + '://' + this.hostPort + parts.join('/');
   },
 
   mutable: true,
@@ -141,7 +160,7 @@ CustomURL.prototype = {
 };
 
 function TestfileProtocolHandler() {
-dump('instantiating protocol!\n');
+//dump('instantiating protocol!\n');
 }
 TestfileProtocolHandler.prototype = {
   classDescription: 'testfile protocol handler',
@@ -156,10 +175,10 @@ TestfileProtocolHandler.prototype = {
   allowPort: function() { return true; },
 
   newURI: function Proto_newURI(aSpec, aOriginCharset, aBaseURI) {
-dump('newURI! ' + aSpec + ' base? ' + (aBaseURI ? aBaseURI.spec : null) + '\n');
+//dump('newURI! ' + aSpec + ' base? ' + (aBaseURI ? aBaseURI.spec : null) + '\n');
     if (aBaseURI) {
       let resolved = aBaseURI.resolve(aSpec);
-      dump('resolved to: ' + resolved + '\n');
+//dump('resolved to: ' + resolved + '\n');
       return URI(resolved, null, null);
     }
 
@@ -167,8 +186,12 @@ dump('newURI! ' + aSpec + ' base? ' + (aBaseURI ? aBaseURI.spec : null) + '\n');
   },
 
   newChannel: function Proto_newChannel(aURI) {
-    var relPath = aURI.path.substring(1);
-dump('trying to create channel for: ' + relPath + '\n');
+    var relPath;
+    if (aURI.QueryInterface(Ci.nsIURL))
+      relPath = aURI.filePath;
+    else
+      relPath = aURI.path;
+//dump('trying to create channel for: ' + relPath + '\n');
     var channel = URIChannel(IOService.newFileURI(do_get_file(relPath)).spec,
                              null, null);
     channel.originalURI = aURI;
@@ -178,5 +201,3 @@ dump('trying to create channel for: ' + relPath + '\n');
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([TestfileProtocolHandler]);
-
-dump('did some stuff!\n');

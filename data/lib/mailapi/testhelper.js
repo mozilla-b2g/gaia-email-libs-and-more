@@ -1,9 +1,11 @@
 define(function(require, exports, $module) {
 
 var $log = require('rdcommon/log'),
+    $allback = require('mailapi/allback'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
     $maildb = require('mailapi/maildb'),
+    $mailapi = require('mailapi/mailapi'),
     $date = require('mailapi/date'),
     $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
@@ -18,7 +20,9 @@ var $log = require('rdcommon/log'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
-    $smtpacct = require('mailapi/smtp/account');
+    $smtpacct = require('mailapi/smtp/account'),
+    $ascp = require('activesync/codepages'),
+    $wbxml = require('activesync/wbxml/wbxml');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -126,13 +130,18 @@ var TestUniverseMixins = {
       self.expect_createUniverse();
 
       self.expect_queriesIssued();
-      var callbacks = $_allback.allbackMaker(
+      var callbacks = $allback.allbackMaker(
         ['accounts', 'folders'],
         function gotSlices() {
           self._logger.queriesIssued();
         });
 
-      var testOpts = {};
+      self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
+        onLine: true
+      };
+      var testOpts = {
+        fakeNavigator: self.fakeNavigator
+      };
       if (opts.dbDelta)
         testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
       if (opts.dbVersion)
@@ -140,11 +149,11 @@ var TestUniverseMixins = {
       if (opts.nukeDb)
         testOpts.nukeDb = opts.nukeDb;
 
-      MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
+      MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
-          var TMA = MailAPI = self.MailAPI = new $_mailapi.MailAPI();
+          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe);
+          var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
             window.setZeroTimeout(function() {
@@ -244,16 +253,29 @@ var TestUniverseMixins = {
   },
 
   /**
+   * Immediately change ourselves to be online/offline; call from within a
+   * test step or use do_pretendToBeOffline that does it for you.
+   */
+  pretendToBeOffline: function(beOffline) {
+    this.fakeNavigator.onLine = !beOffline;
+
+    var evtObject = document.createEvent('Event');
+    evtObject.initEvent(beOffline ? 'offline' : 'online', false, false);
+    window.dispatchEvent(evtObject);
+  },
+
+  /**
    * Start/stop pretending to be offline.  In this case, pretending means that
    * we claim we are offline but do not tear down our IMAP connections.
    */
   do_pretendToBeOffline: function(beOffline, runBefore) {
+    var self = this;
     var step = this.T.convenienceSetup(
       beOffline ? 'go offline' : 'go online',
       function() {
         if (runBefore)
           runBefore();
-        window.navigator.connection.TEST_setOffline(beOffline);
+        self.pretendToBeOffline(beOffline);
       });
     // the step isn't boring if we add expectations to it.
     if (runBefore)
@@ -1747,7 +1769,7 @@ var TestActiveSyncServerMixins = {
       self.server.logResponse = function(request, response, writer) {
         var body;
         if (writer) {
-          var reader = new $_wbxml.Reader(writer.bytes, $_ascp);
+          var reader = new $wbxml.Reader(writer.bytes, $ascp);
           body = reader.dump();
         }
         self._logger.response(response._httpCode, response._headers._headers,

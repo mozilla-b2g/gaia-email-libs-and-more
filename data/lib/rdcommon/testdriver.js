@@ -345,7 +345,7 @@ TestDefinerRunner.prototype = {
         if (self._superDebug)
           self._superDebug("!! all resolved, deferred?", deferred !== null);
         if (!deferred) return;
-        clearTimeout(countdownTimer);
+        $timers.clearTimeout(countdownTimer);
 
         // We should have passed, but it's possible that some logger generated
         //  events after the list of expectations.  It was too late for it to
@@ -369,7 +369,7 @@ TestDefinerRunner.prototype = {
           self._superDebug("!! failed, deferred?", deferred !== null);
         if (!deferred) return;
         // XXX we should do something with the failed expectation pair...
-        clearTimeout(countdownTimer);
+        $timers.clearTimeout(countdownTimer);
 
         failStep();
       });
@@ -401,6 +401,9 @@ TestDefinerRunner.prototype = {
     // Generate a fresh deferred that uses internal counting rather than chained
     //  promises for resolution.
     var deferred = $Q.defer(), self = this;
+
+    if (self._superDebug)
+      self._superDebug("\n========= Begin Case: " + testCase.desc + "\n");
 
     // -- create / setup the context
     testCase.log.run_begin();
@@ -437,6 +440,8 @@ TestDefinerRunner.prototype = {
         // - pop the test-case logger from the logging context stack
         self._runtimeContext.popLogger(defContext._log);
 
+        if (self._superDebug)
+          self._superDebug("\n========= Done Case: " + testCase.desc + "\n");
         // - resolve!
         defContext._log.result(allPassed ? 'pass' : 'fail');
         defContext._log.run_end();
@@ -699,7 +704,9 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
   var deferred = $Q.defer("runTestsFromModule:" + testModuleName);
   var runner;
   function itAllGood() {
-//console.error("  itAllGood()");
+    if (superDebug)
+      superDebug('All tests in "' + testModuleName + '" run, ' +
+                 'generating results.');
     runner.reportResults();
     deferred.resolve(true);
   };

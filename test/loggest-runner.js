@@ -3,12 +3,14 @@
  **/
 define(
   [
-    'Q',
+    'q',
+    'mailapi/shim-sham', // needed for global mocks
     'rdcommon/testdriver',
     'require'
   ],
   function(
     $Q,
+    $shimsham,
     $td,
     require
   ) {
@@ -33,6 +35,9 @@ function getEnv(locSource) {
   if (locSource === undefined)
     locSource = window;
   var env = {};
+
+console.warn('locSource.location.href', locSource.location.href);
+console.warn('locSource.location.search', locSource.location.search);
 
   var searchBits = locSource.location.search.substring(1).split("&");
   for (var i = 0; i < searchBits.length; i++) {
@@ -112,14 +117,19 @@ window.ErrorTrapper = ErrorTrapper;
 
 var env = getEnv();
 
+// does not include a trailing '.js'!
 var testModuleName = 'tests/' + env.testName;
+console.log('requiring module:', testModuleName);
 var testParams = env.testParams ? JSON.parse(env.testParams) : {};
 $td.runTestsFromModule(
   testModuleName,
   {
     exposeToTest: testParams,
     resultsReporter: function(jsonnableObj) {
-      window.postMessage(
+      console.log('Got results! posting message.');
+      console.log('magicParent', window.magicParent);
+      console.log('parent differs?', window.parent !== window);
+      window.parent.postMessage(
         {
           type: 'loggest-test-results',
           data: jsonnableObj

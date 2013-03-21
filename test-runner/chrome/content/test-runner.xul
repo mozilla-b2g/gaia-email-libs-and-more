@@ -9,7 +9,6 @@
   <vbox flex="1">
     <label value="Test Runner!" />
     <iframe id="runner" type="content" flex="1"
-            src="testfile://foo/test/loggest-runner.html"
             style="border: 1px solid blue;"/>
   </vbox>
 </window>

@@ -148,10 +148,13 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   // The refresh should result in us refreshing our flags but not hearing about
@@ -188,10 +191,12 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   // The refresh should result in us refreshing our flags but not hearing about
@@ -240,10 +245,12 @@ TD.commonCase('mutate flags', function(T, RT) {
     // eAccount is listed so we complain if we see ops run
     eSync.expect_event('ops-clear');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-clear');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-clear');
+      });
   });
   // The refresh should result in us refreshing our flags but not hearing about
   // any changes because nothing should have happened!
@@ -304,10 +311,12 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   T.group('offline undo, shutdown, startup, go online, see undos');
@@ -365,10 +374,12 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
 
@@ -408,10 +419,12 @@ TD.commonCase('mutate flags', function(T, RT) {
       doHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    MailAPI.ping(function() {
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eSync.event('ops-done');
-      });
+    testUniverse.MailAPI.ping(function() {
+      testUniverse.universe.waitForAccountOps(
+        testUniverse.universe.accounts[0],
+        function() {
+          eSync.event('ops-done');
+        });
     });
   });
   // Sync should find no changes from our predictive changes
@@ -435,10 +448,12 @@ TD.commonCase('mutate flags', function(T, RT) {
       undoHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    MailAPI.ping(function() {
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eSync.event('ops-done');
-      });
+    testUniverse.MailAPI.ping(function() {
+      testUniverse.universe.waitForAccountOps(
+        testUniverse.universe.accounts[0],
+        function() {
+          eSync.event('ops-done');
+        });
     });
   });
   // And again, sync should find no changes
@@ -474,7 +489,7 @@ TD.commonCase('mutate flags', function(T, RT) {
     testAccount3.expect_runOp(
       'modtags',
       { local: false, server: true, save: false });
-    window.navigator.connection.TEST_setOffline(false);
+    testUniverse.pretendToBeOffline(false);
   });
 
   T.group('cleanup');
@@ -597,10 +612,12 @@ TD.commonCase('move/trash messages', function(T, RT) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   testUniverse.do_pretendToBeOffline(true);
@@ -624,10 +641,12 @@ TD.commonCase('move/trash messages', function(T, RT) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   /**
@@ -661,10 +680,12 @@ TD.commonCase('move/trash messages', function(T, RT) {
       { local: false, server: true, save: false });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
   // Refresh the folder to make sure the current state of the target folder
   // matches our expectation.  This will fail if the flags on the message are
@@ -793,11 +814,11 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
       { additions: toDelete, changes: [], deletions: [] },
       null, /* done after 2 events: */ 2);
 
-    undoMoveBlind = MailAPI.moveMessages(toMoveBlind,
-                                         blindTargetFolder.mailFolder);
-    undoMoveVisible = MailAPI.moveMessages(toMoveVisible,
-                                           targetFolder.mailFolder);
-    undoDelete = MailAPI.deleteMessages(toDelete);
+    undoMoveBlind = testUniverse.MailAPI.moveMessages(
+                      toMoveBlind, blindTargetFolder.mailFolder);
+    undoMoveVisible = testUniverse.MailAPI.moveMessages(
+                        toMoveVisible, targetFolder.mailFolder);
+    undoDelete = testUniverse.MailAPI.deleteMessages(toDelete);
   });
 
   T.action('go online, see changes happen for', eAccount,
@@ -814,10 +835,12 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   testUniverse.do_pretendToBeOffline(true);
@@ -832,7 +855,7 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
       trashView,
       { additions: [], changes: [], deletions: toDelete },
       null, /* done after 2 events: */ 2);
-    MailAPI.deleteMessages(toDelete);
+    testUniverse.MailAPI.deleteMessages(toDelete);
   });
   T.action('go online, see changes happen for', eAccount, eSync, function() {
     var save = TEST_PARAMS.type === 'imap' ? false : 'server';
@@ -841,10 +864,11 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0], function() {
+        eSync.event('ops-done');
+      });
   });
 });
 
