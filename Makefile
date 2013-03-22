@@ -70,35 +70,37 @@ endef
 XPCWIN=node_modules/xpcwindow/bin/xpcwindow
 TESTRUNNER=$(CURDIR)/test/loggest-runner.js
 
-define run-one-xpcwin-test
-	GELAM_TEST_ACCOUNT_TYPE=$(2) $(XPCWIN) $(TESTRUNNER) test/unit/$(SOLO_FILE)
-endef
-
 RUNMOZ=$(B2GBD)/dist/bin/run-mozilla.sh
 RUNXPC=$(B2GBD)/dist/bin/xpcshell
 RUNB2G=$(B2GBD)/dist/bin/b2g
 
-define run-one-xulrunner-test
-	rm -rf test-profile
-	mkdir -p test-profile/device-storage test-profile/fake-sdcard
-	mkdir -p test-logs/activesync test-logs/imap
-	$(RUNMOZ) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-name $(basename $(SOLO_FILE))
+# run all the tests listed in a test config file
+define run-tests  # $(call run-tests,configName,accountType)
+	-rm -f test-logs/all-$(1).log
+	-rm -f test-logs/$(1)/*.log
+	-rm -rf test-profile
+	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
+	-mkdir -p test-logs/$(1)
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-config test/config-$(1).json
+	cat test-logs/$(1)/*.log > test-logs/all-$(1).log
 endef
 
-define run-interactive-test
-	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+# run one test
+define run-one-test
+	-rm -rf test-profile
+	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
+	-mkdir -p test-logs/$(1)
+	-rm -f test-logs/$(1)/$(basename $(SOLO_FILE)).log
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-config test/config-$(1).json --test-name $(basename $(SOLO_FILE))
 endef
 
 ######################
 # IMAP test variations
 imap-tests: build
-	$(call run-xpc-tests,imap,imap)
+	$(call run-tests,imap,imap)
 
 one-imap-test: build
-	$(call run-one-xulrunner-test,imap,imap)
-
-interactive-imap-test: build
-	$(call run-interactive-test,imap,imap)
+	$(call run-one-test,imap,imap)
 
 post-one-imap-test: one-imap-test
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/imap/$(basename $(SOLO_FILE)).log
@@ -114,9 +116,6 @@ activesync-tests: build
 
 one-activesync-test: build
 	$(call run-one-test,activesync,activesync)
-
-interactive-activesync-test: build
-	$(call run-interactive-test,activesync,activesync)
 
 post-one-activesync-test: one-activesync-test
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log

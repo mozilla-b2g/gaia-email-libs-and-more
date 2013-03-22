@@ -4,10 +4,10 @@
  **/
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
-        './resources/th_devicestorage',
+        './resources/th_devicestorage', './resources/messageGenerator',
         'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
         'exports'],
-       function($tc, $th_imap, $th_devicestorage,
+       function($tc, $th_imap, $th_devicestorage, $msggen,
                 $util, $fakeacct, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -96,7 +96,6 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
-      __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
       RT.reportActiveActorThisStep(eLazy);
       RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
@@ -129,8 +128,11 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
                 storageReq = storage.get(att._file[1]);
             storageReq.onsuccess = function() {
               var reader = new FileReader();
-              reader.onload = function(data) {
+              reader.onload = function() {
+                var data = new Uint8Array(reader.result);
                 var dataArr = [];
+                console.log('got', data.length, 'bytes, readyState',
+                            reader.readyState);
                 for (var i = 0; i < data.length; i++) {
                   dataArr.push(data[i]);
                 }
@@ -138,7 +140,9 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
                                  body.attachments[iAtt].sizeEstimateInBytes);
                 eLazy.namedValue('attachment[' + iAtt + '].data',
                                  dataArr);
-                __deviceStorageLogFunc = function() {};
+              };
+              reader.onerror = function() {
+                console.error('reader error:', reader.error.name, reader.error);
               };
               reader.readAsArrayBuffer(storageReq.result);
             };
@@ -307,7 +311,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '</pre>',
         */
       bpartHtml =
-        new SyntheticPartLeaf(
+        new $msggen.SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });
 
   var uniqueSubject = makeRandomSubject();
@@ -332,7 +336,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
     var messageAppends = [],
-        msgGen = new MessageGenerator(testAccount._useDate);
+        msgGen = new $msggen.MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);

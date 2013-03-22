@@ -38,6 +38,7 @@ var TestDeviceStorageMixins = {
   },
 
   onChange: function(event) {
+console.log('!!!!!! CHANGE EVENT', event.reason, event.path);
     switch (event.reason) {
       case 'created':
         this._logger.created(event.path);

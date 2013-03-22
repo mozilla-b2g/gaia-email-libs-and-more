@@ -47,7 +47,8 @@ window.console = {
   log: consoleHelper.bind(null, '\x1b[32mLOG'),
   error: consoleHelper.bind(null, '\x1b[31mERR'),
   info: consoleHelper.bind(null, '\x1b[36mINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWAR')
+  warn: consoleHelper.bind(null, '\x1b[33mWAR'),
+  harness: consoleHelper.bind(null, '\x1b[36mRUN')
 };
 
 console.log('Initial loggest-chrome-runner.js bootstrap begun');
@@ -284,7 +285,7 @@ function register_resource_alias(alias, file) {
       ios.getProtocolHandler("resource")
          .QueryInterface(Components.interfaces.nsIResProtocolHandler);
     let dirURI = ios.newFileURI(file);
-    console.log('adding resources alias:', alias, 'to', dirURI.path);
+    console.harness('adding resources alias:', alias, 'to', dirURI.path);
     protocolHandler.setSubstitution(alias, dirURI);
   };
 }
@@ -382,13 +383,13 @@ function ProgressListener(callOnLoad) {
 }
 ProgressListener.prototype = {
   onLocationChange: function() {
-    console.log('location change!');
+    console.harness('location change!');
   },
   onProgressChange: function() {
-    console.log('progress change!');
+    console.harness('progress change!');
   },
   onSecurityChange: function() {
-    console.log('security change!');
+    console.harness('security change!');
   },
   onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
     //console.log('state change', aStateFlags);
@@ -396,7 +397,7 @@ ProgressListener.prototype = {
       this._callOnLoad();
   },
   onStatusChange: function() {
-    console.log('status change!');
+    console.harness('status change!');
   },
 
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener,
@@ -447,14 +448,21 @@ var TEST_PARAMS = {
 };
 
 var TEST_NAME = null;
+var TEST_CONFIG = null;
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
 function populateTestParams() {
   let args = window.arguments[0].QueryInterface(Ci.nsICommandLine);
 
-  TEST_NAME = args.handleFlagWithParam('test-name', false)
-                .replace(/\.js$/, '');
+  // test-name is optional
+  if (args.findFlag('test-name', false) !== -1)
+    TEST_NAME = args.handleFlagWithParam('test-name', false)
+                  .replace(/\.js$/, '');
+  else
+    TEST_NAME = null;
+  // but the configuration is not
+  TEST_CONFIG = args.handleFlagWithParam('test-config', false);
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -462,13 +470,13 @@ function populateTestParams() {
     let argval = args.handleFlagWithParam('test-param-' + name, false);
     if (argval) {
       TEST_PARAMS[name] = coerce(argval);
-      console.log('command line:', name, TEST_PARAMS[name]);
+      console.harness('command line:', name, TEST_PARAMS[name]);
       if (name !== 'type')
         TEST_PARAMS.defaultArgs = false;
     }
     else if (environ.exists(envVar)) {
       TEST_PARAMS[name] = coerce(environ.get(envVar));
-      console.log('environment:', name, TEST_PARAMS[name]);
+      console.harness('environment:', name, TEST_PARAMS[name]);
       if (name !== 'type')
         TEST_PARAMS.defaultArgs = false;
     }
@@ -550,6 +558,71 @@ for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// permissions
+//
+// This has to be handled in 2 ways:
+// - add the actual permissions to the old-school permissions manager
+// - properly be handled by ContentPermissionPrompt..
+//   b2g/components/ContentPermissionPrompt.js assumes that everything either
+//   has the system principal or is an app.
+
+// copied from our webapp.manifest
+var EMAIL_PERMISSIONS = {
+    "alarms":{},
+    "audio-channel-notification":{},
+    "contacts":{ "access": "readcreate" },
+    "desktop-notification":{},
+    "device-storage:sdcard":{ "access": "readcreate" },
+    "systemXHR":{},
+    "settings":{ "access": "readonly" },
+    "tcp-socket":{}
+};
+
+
+var FakeContentPermissionPrompt = {
+  prompt: function(request) {
+    if (EMAIL_PERMISSIONS.hasOwnProperty(request.type)) {
+      console.harness('Allowing permission:', request.type, 'for',
+                      request.access, 'to', request.principal.origin);
+      request.allow();
+    }
+    else {
+      console.harness('Denying permission', request.type, 'for', request.access,
+                      'to', request.principal.origin);
+      request.cancel();
+    }
+  },
+
+  createInstance: function createInstance(outer, iid) {
+    if (outer != null)
+      throw Components.results.NS_ERROR_NO_AGGREGATION;
+    return this.QueryInterface(iid);
+  },
+
+  classID: Components.ID("{d56fec31-dc7a-4526-9e12-a722f3effb3b}"),
+
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIContentPermissionPrompt])
+};
+
+let componentRegistrar =
+      Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
+
+componentRegistrar.registerFactory(
+  Components.ID("{d56fec31-dc7a-4526-9e12-a722f3effb3b}"),
+  "Fake Content Permission Prompt Service",
+  "@mozilla.org/content-permission/prompt;1",
+  FakeContentPermissionPrompt);
+
+function grantEmailPermissions(originUrl) {
+  var perm = Cc["@mozilla.org/permissionmanager;1"]
+               .createInstance(Ci.nsIPermissionManager);
+  var uri = URI(originUrl, null, null);
+  for (var permName in EMAIL_PERMISSIONS) {
+    perm.add(uri, permName, 1);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 const appStartup = Cc['@mozilla.org/toolkit/app-startup;1']
                      .getService(Ci.nsIAppStartup);
@@ -568,27 +641,6 @@ function buildQuery(args) {
 
 var gRunnerIframe,
     gRunnerWindow;
-
-// copied from our webapp.manifest
-var EMAIL_PERMISSIONS = {
-    "alarms":{},
-    "audio-channel-notification":{},
-    "contacts":{ "access": "readcreate" },
-    "desktop-notification":{},
-    "device-storage:sdcard":{ "access": "readcreate" },
-    "systemXHR":{},
-    "settings":{ "access": "readonly" },
-    "tcp-socket":{}
-};
-
-function grantEmailPermissions(originUrl) {
-  var perm = Cc["@mozilla.org/permissionmanager;1"]
-               .createInstance(Ci.nsIPermissionManager);
-  var uri = URI(originUrl, null, null);
-  for (var permName in EMAIL_PERMISSIONS) {
-    perm.add(uri, permName, 1);
-  }
-}
 
 /**
  * For time/simplicity reasons, we aren't actually doing any type of async
@@ -668,8 +720,62 @@ ActiveSyncServerProxy.prototype = {
   }
 };
 
+function summaryFromLoggest(testFileName, logData) {
+  var summary = {
+    filename: testFileName,
+    tests: []
+  };
+  if (logData.fileFailure) {
+    summary.tests.push({
+      name: '*file level problem*',
+      result: 'fail'
+    });
+  }
+  var definerLog = logData.log;
+
+  // we're currently pre-toJSON, so we need to directly look at the loggers;
+  // this will need to be changed up pretty shortly.
+  // _kids => kids
+  // _ident => semanticIdent
+  // [':result'] => latched.result
+  if (!definerLog._kids)
+    return summary;
+  for (var iKid = 0; iKid < definerLog._kids.length; iKid++) {
+    var testCaseLog = definerLog._kids[iKid];
+    summary.tests.push({
+      name: '' + testCaseLog._ident,
+      result: testCaseLog[':result']
+    });
+  }
+
+  return summary;
+}
+
+function printTestSummary(summary) {
+  dump('Test: ' + summary.filename + '\n');
+  summary.tests.forEach(function(test) {
+    var str = '    ';
+    switch (test.result) {
+      case 'pass':
+        str += '\x1b[32mPASS';
+        break;
+      case 'fail':
+        str += '\x1b[31mFAIL';
+        break;
+      case 'skip':
+        str += '\x1b[33mSKIP';
+        break;
+      default:
+        str += '??? ' + test.result + '???';
+        break;
+    }
+    str += '\x1b[0m ' + test.name + '\n';
+    dump(str);
+  });
+}
+
 function runTestFile(testFileName) {
-  console.log('running', testFileName);
+  console.harness('running', testFileName);
 
   var passToRunner = {
     testName: testFileName,
@@ -686,14 +792,10 @@ function runTestFile(testFileName) {
 
   gRunnerIframe.setAttribute(
     'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
-  console.log('src set to:', gRunnerIframe.getAttribute('src'));
+  console.harness('src set to:', gRunnerIframe.getAttribute('src'));
 
   var win = gRunnerWindow = gRunnerIframe.contentWindow,
       domWin = win.wrappedJSObject;
-
-  win.addEventListener('DOMContentLoaded', function() {
-    console.log('iframe claims load complete');
-  });
 
   var deferred = Promise.defer();
 
@@ -718,12 +820,13 @@ function runTestFile(testFileName) {
         postMessage: 'r',
       },
       postMessage: function(data, dest) {
-console.log('cleaning up window');
+console.harness('cleaning up window');
         cleanupWindow();
-console.log('calling writeTestLog and resolving');
-        writeTestLog(testFileName, data.data).then(function() {
-          console.log('write completed!');
-          deferred.resolve();
+console.harness('calling writeTestLog and resolving');
+        var logData = data.data;
+        writeTestLog(testFileName, logData).then(function() {
+          console.harness('write completed!');
+          deferred.resolve(summaryFromLoggest(testFileName, logData));
         });
       }
     };
@@ -738,7 +841,7 @@ console.log('calling writeTestLog and resolving');
                                   Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
-    console.error('win err:', errorMsg, url, lineNumber);
+    console.harness('win err:', errorMsg, url, lineNumber);
   };
 
   win.addEventListener('error', errorListener);
@@ -748,11 +851,11 @@ console.log('calling writeTestLog and resolving');
 
 function writeTestLog(testFileName, jsonnableObj) {
   try {
-    var encoder = new TextEncoder();
+    var encoder = new TextEncoder('utf-8');
     var logFilename = testFileName + '.log';
     var logPath = do_get_file('test-logs/' + TEST_PARAMS.type).path +
                   '/' + logFilename;
-    console.log('writing to', logPath);
+    console.harness('writing to', logPath);
     var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
           JSON.stringify(jsonnableObj) + '\n' +
           '##### LOGGEST-TEST-RUN-END #####\n';
@@ -765,12 +868,56 @@ function writeTestLog(testFileName, jsonnableObj) {
   }
 }
 
+function runTests(configData) {
+  var deferred = Promise.defer();
+
+  var summaries = [];
+
+  var iTest = 0;
+  function runNextTest(summary) {
+    if (summary)
+      summaries.push(summary);
+
+    if (iTest >= configData.tests.length) {
+      deferred.resolve(summaries);
+      return;
+    }
+
+    var testName = configData.tests[iTest++].replace(/\.js$/, '');
+    runTestFile(testName).then(runNextTest);
+  }
+  runNextTest();
+
+  return deferred.promise;
+}
+
 function DOMLoaded() {
   gRunnerIframe = document.getElementById('runner');
-  runTestFile(TEST_NAME).then(function() {
-    console.log('test run completed, quitting');
-    quitApp();
+
+  OS.File.read(do_get_file(TEST_CONFIG).path).then(function(dataArr) {
+    var decoder = new TextDecoder('utf-8');
+    var configData = JSON.parse(decoder.decode(dataArr));
+
+    if (TEST_NAME) {
+      runTestFile(TEST_NAME).then(function(summary) {
+        dump('\n\n***** 1 test run: *****\n');
+        printTestSummary(summary);
+        dump('************************\n\n');
+        quitApp();
+      });
+    }
+    else {
+      runTests(configData).then(function(summaries) {
+        dump('\n\n***** ' + summaries.length + ' tests run: *****\n\n');
+        summaries.forEach(function(summary) {
+          printTestSummary(summary);
+        });
+        dump('\n************************\n\n');
+        quitApp();
+      });
+    }
   });
+
 }
 
 } catch (ex) {
