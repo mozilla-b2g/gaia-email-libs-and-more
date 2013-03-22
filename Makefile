@@ -9,8 +9,6 @@ VOLO=./scripts/volo
 #  transform it, then copy it to the destination dir.
 NODE_PKGS := addressparser mailparser mailcomposer mimelib simplesmtp browserify-builtins
 
-SED_TRANSFORMS_mailcomposer = s/mimelib-noiconv/mimelib/g
-
 TRANS_NODE_PKGS := $(addprefix node-transformed-deps/,$(NODE_PKGS))
 DEP_NODE_PKGS := $(addprefix data/deps/,$(NODE_PKGS))
 
@@ -20,7 +18,6 @@ node-transformed-deps:
 $(TRANS_NODE_PKGS): node-transformed-deps
 	$(RSYNC) node-deps/$(notdir $@) node-transformed-deps
 	$(VOLO) npmrel $@
-	$(if $(SED_TRANSFORMS_$(notdir $@)),sed -i -e "$(SED_TRANSFORMS_$(notdir $@))" node-transformed-deps/$(notdir $@)/lib/*.js)
 
 # the cp is for main shims created by volo
 $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
