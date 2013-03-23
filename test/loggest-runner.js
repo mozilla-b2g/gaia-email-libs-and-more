@@ -121,20 +121,22 @@ var env = getEnv();
 var testModuleName = 'tests/' + env.testName;
 console.log('requiring module:', testModuleName);
 var testParams = env.testParams ? JSON.parse(env.testParams) : {};
+console.warn('fakeParent?', window.parent.fakeParent);
 $td.runTestsFromModule(
   testModuleName,
   {
     exposeToTest: testParams,
     resultsReporter: function(jsonnableObj) {
-      console.log('Got results! posting message.');
-      console.log('magicParent', window.magicParent);
-      console.log('parent differs?', window.parent !== window);
-      window.parent.postMessage(
-        {
-          type: 'loggest-test-results',
-          data: jsonnableObj
-        },
-        '*');
+      console.log('Got results! posting message. fake parent?:',
+                  window.parent.fakeParent);
+      // Save off the log just in case there was a race about clobbering
+      // window.parent.
+      window.logResultsMsg = {
+        type: 'loggest-test-results',
+        data: jsonnableObj
+      };
+
+      window.parent.postMessage(window.logResultsMsg, '*');
     }
   },
   ErrorTrapper,

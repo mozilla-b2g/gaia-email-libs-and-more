@@ -58,6 +58,8 @@ console.log('Initial loggest-chrome-runner.js bootstrap begun');
 
 const nsIScriptError = Ci.nsIScriptError;
 
+var gRunnerWindow;
+
 var ErrorTrapperHelper = {
   observe: function (aMessage, aTopic, aData) {
     if (aTopic == "profile-after-change")
@@ -375,11 +377,13 @@ function registerAlertTestUtils()
 ////////////////////////////////////////////////////////////////////////////////
 // stuff from xpcshell-type context; probably remove
 
-const STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP,
+const STATE_START = Ci.nsIWebProgressListener.STATE_START,
+      STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP,
       STATE_IS_WINDOW = Ci.nsIWebProgressListener.STATE_IS_WINDOW;
 
-function ProgressListener(callOnLoad) {
-  this._callOnLoad = callOnLoad;
+function ProgressListener(opts) {
+  this._callOnStart = opts.onStart;
+  this._callOnLoad = opts.onLoad;
 }
 ProgressListener.prototype = {
   onLocationChange: function() {
@@ -392,9 +396,19 @@ ProgressListener.prototype = {
     console.harness('security change!');
   },
   onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
-    //console.log('state change', aStateFlags);
-    if (aStateFlags & STATE_STOP && aStateFlags & STATE_IS_WINDOW)
-      this._callOnLoad();
+    try {
+      console.harness('progress:', aStateFlags, aStatus);
+      if (aStateFlags & STATE_START && aStateFlags & STATE_IS_WINDOW &&
+          this._callOnStart)
+        this._callOnStart();
+      //console.log('state change', aStateFlags);
+      if (aStateFlags & STATE_STOP && aStateFlags & STATE_IS_WINDOW &&
+          this._callOnLoad)
+        this._callOnLoad();
+    }
+    catch(ex) {
+      console.error('Problem in stateChange callback:', ex, '\n', ex.stack);
+    }
   },
   onStatusChange: function() {
     console.harness('status change!');
@@ -639,9 +653,6 @@ function buildQuery(args) {
 };
 
 
-var gRunnerIframe,
-    gRunnerWindow;
-
 /**
  * For time/simplicity reasons, we aren't actually doing any type of async
  * proxying here but are instead favoring a synchronous API we are able to
@@ -725,27 +736,32 @@ function summaryFromLoggest(testFileName, logData) {
     filename: testFileName,
     tests: []
   };
-  if (logData.fileFailure) {
-    summary.tests.push({
-      name: '*file level problem*',
-      result: 'fail'
-    });
-  }
-  var definerLog = logData.log;
+  try {
+    if (logData.fileFailure) {
+      summary.tests.push({
+        name: '*file level problem*',
+        result: 'fail'
+      });
+    }
+    var definerLog = logData.log;
 
-  // we're currently pre-toJSON, so we need to directly look at the loggers;
-  // this will need to be changed up pretty shortly.
-  // _kids => kids
-  // _ident => semanticIdent
-  // [':result'] => latched.result
-  if (!definerLog._kids)
-    return summary;
-  for (var iKid = 0; iKid < definerLog._kids.length; iKid++) {
-    var testCaseLog = definerLog._kids[iKid];
-    summary.tests.push({
-      name: '' + testCaseLog._ident,
-      result: testCaseLog[':result']
-    });
+    // we're currently pre-toJSON, so we need to directly look at the loggers;
+    // this will need to be changed up pretty shortly.
+    // _kids => kids
+    // _ident => semanticIdent
+    // [':result'] => latched.result
+    if (!definerLog._kids)
+      return summary;
+    for (var iKid = 0; iKid < definerLog._kids.length; iKid++) {
+      var testCaseLog = definerLog._kids[iKid];
+      summary.tests.push({
+        name: '' + testCaseLog._ident,
+        result: testCaseLog[':result']
+      });
+    }
+  }
+  catch (ex) {
+    console.harness('Problem generating loggest summary:', ex, '\n', ex.stack);
   }
 
   return summary;
@@ -774,7 +790,20 @@ function printTestSummary(summary) {
   });
 }
 
-function runTestFile(testFileName) {
+// Progress listeners are held weakref'ed, so we need to maintain a strong
+// reference here or it can go away prematurely!
+var gProgress = null;
+
+function runTestFile(testFileName, thoroughCleanup) {
+  try {
+    return _runTestFile(testFileName, thoroughCleanup);
+  }
+  catch(ex) {
+    console.error('Error in runTestFile', ex, '\n', ex.stack);
+    throw ex;
+  }
+};
+function _runTestFile(testFileName, thoroughCleanup) {
   console.harness('running', testFileName);
 
   var passToRunner = {
@@ -790,61 +819,125 @@ function runTestFile(testFileName) {
   var baseUrl = 'testfile://' + testFileName + '/';
   grantEmailPermissions(baseUrl);
 
-  gRunnerIframe.setAttribute(
+  var runnerIframe = document.createElement('iframe');
+  runnerIframe.setAttribute('type', 'content');
+  runnerIframe.setAttribute('flex', '1');
+  runnerIframe.setAttribute('style', 'border: 1px solid blue;');
+  runnerIframe.setAttribute(
     'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
-  console.harness('src set to:', gRunnerIframe.getAttribute('src'));
+  console.harness('src set to:', runnerIframe.getAttribute('src'));
+  document.documentElement.appendChild(runnerIframe);
 
-  var win = gRunnerWindow = gRunnerIframe.contentWindow,
-      domWin = win.wrappedJSObject;
+  var win, domWin;
 
   var deferred = Promise.defer();
 
   var cleanupList = [];
   function cleanupWindow() {
-    win.removeEventListener('error', errorListener);
+    try {
+      runnerIframe.parentNode.removeChild(runnerIframe);
 
-    cleanupList.forEach(function(obj) {
-      obj.cleanup();
-    });
+      cleanupList.forEach(function(obj) {
+        obj.cleanup();
+      });
+
+      gProgress = null;
+      // there is no need to do a full GC if we're
+      if (thoroughCleanup) {
+        // Defer until after our caller is no longer on the stack since it
+        // might currently preclude a proper full GC.
+        window.setTimeout(function() {
+          // This gets us a JS GC as well as a cycle collection; Cu.forceGC
+          // does not net the cycle collect.  Cu.schedulePreciseGC I think is
+          // comparable but its API is a little ill-defined.  We don't mind if
+          // this closure is on the stack when we GC, so it's not a big deal.
+          var domWindowUtils = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                .getInterface(Ci.nsIDOMWindowUtils);
+          domWindowUtils.garbageCollect();
+        }, 0);
+      }
+    }
+    catch(ex) {
+      console.harness('Problem cleaning up window', ex, '\n', ex.stack);
+    }
   }
 
-  var webProgress = gRunnerIframe.webNavigation
+  // XXX so, I'm having trouble with the web progress listener not being
+  // reliable in certain cases that have to do with async event ordering.
+  // So as a hack I'm just putting the fake parent object on early, even
+  // though it might get nuked off in most cases and require our progress
+  // listener to put it back on.
+  var processedLog = false;
+  win = gRunnerWindow = runnerIframe.contentWindow;
+  domWin = win.wrappedJSObject;
+  win.addEventListener('error', errorListener);
+  var fakeParentObj = {
+      __exposedProps__: {
+        fakeParent: 'r',
+        postMessage: 'r',
+      },
+      fakeParent: true,
+      postMessage: function(data, dest) {
+        if (processedLog)
+          return;
+        processedLog = true;
+
+console.harness('calling writeTestLog and resolving');
+        var logData = data.data;
+        // this must be done prior to the compartment getting killed
+        var summary = summaryFromLoggest(testFileName, logData);
+        writeTestLog(testFileName, logData).then(function() {
+          console.harness('write completed!');
+          deferred.resolve(summary);
+        });
+
+        // cleanup may kill things, so don't do this until after the above
+        // functions have been able to snapshot the log
+        console.harness('cleaning up window');
+        cleanupWindow();
+      }
+    };
+  if (domWin) {
+    console.harness('setting first fake parent');
+    domWin.parent = fakeParentObj;
+  }
+
+  var webProgress = runnerIframe.webNavigation
                       .QueryInterface(Ci.nsIWebProgress);
-  var progressListener = new ProgressListener(function() {
+  // we want to make sure that we only poke things into the window once it
+  // exists
+  var progressListener = gProgress =new ProgressListener({ onLoad: function() {
+    console.harness('page started; poking functionality inside');
+    win = gRunnerWindow = runnerIframe.contentWindow;
+    win.addEventListener('error', errorListener);
+    domWin = win.wrappedJSObject;
+
     webProgress.removeProgressListener(progressListener,
                                        Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
     // Look like we are content-space that embedded the iframe!
-    domWin.parent = {
-      __exposedProps__: {
-        postMessage: 'r',
-      },
-      postMessage: function(data, dest) {
-console.harness('cleaning up window');
-        cleanupWindow();
-console.harness('calling writeTestLog and resolving');
-        var logData = data.data;
-        writeTestLog(testFileName, logData).then(function() {
-          console.harness('write completed!');
-          deferred.resolve(summaryFromLoggest(testFileName, logData));
-        });
-      }
-    };
+    domWin.parent = fakeParentObj;
+
+    // We somehow did not initialize before the report, just use the log
+    // from there.
+    if (domWin.logResultsMsg) {
+      domWin.postMessage(domWin.logResultsMsg, '*');
+    }
+
+    console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
 
     // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
     // servers.
     var asProxy = new ActiveSyncServerProxy();
     domWin.MAGIC_SERVER_CONTROL = asProxy;
     cleanupList.push(asProxy);
-  });
+  }});
   webProgress.addProgressListener(progressListener,
                                   Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.harness('win err:', errorMsg, url, lineNumber);
   };
-
-  win.addEventListener('error', errorListener);
 
   return deferred.promise;
 }
@@ -884,7 +977,7 @@ function runTests(configData) {
     }
 
     var testName = configData.tests[iTest++].replace(/\.js$/, '');
-    runTestFile(testName).then(runNextTest);
+    runTestFile(testName).then(runNextTest, /* thorough cleanup */ true);
   }
   runNextTest();
 
@@ -892,8 +985,6 @@ function runTests(configData) {
 }
 
 function DOMLoaded() {
-  gRunnerIframe = document.getElementById('runner');
-
   OS.File.read(do_get_file(TEST_CONFIG).path).then(function(dataArr) {
     var decoder = new TextDecoder('utf-8');
     var configData = JSON.parse(decoder.decode(dataArr));
