@@ -12,6 +12,51 @@ define(
     exports
   ) {
 
+function debug(str) {
+  dump("JobMixin: " + str + "\n");
+}
+
+var uid = 0;
+var callbacks = {};
+function sendMessage(cmd, args, callback) {
+  if (callback) {
+    callbacks[uid] = callback;
+  }
+
+  if (!Array.isArray(args)) {
+    args = args ? [args] : [];
+  }
+
+  dump("DeviceStorage: sendMessage " + cmd + "\n");
+  self.postMessage({ uid: uid++, type: 'devicestorage', cmd: cmd, args: args });
+}
+
+function receiveMessage(evt) {
+  var data = evt.data;
+  if (data.type != 'devicestorage')
+    return;
+
+  dump("DeviceStorage: receiveMessage " + data.cmd + "\n");
+  self.postMessage({ uid: uid++, type: 'devicestorage', cmd: cmd, args: args });
+}
+
+function receiveMessage(evt) {
+  var data = evt.data;
+  if (data.type != 'devicestorage')
+    return;
+
+  dump("DeviceStorage: receiveMessage " + data.cmd + "\n");
+
+  var callback = callbacks[data.uid];
+  if (!callback)
+    return;
+  delete callbacks[data.uid];
+
+  dump("DeviceStorage: receiveMessage fire callback\n");
+  callback.apply(callback, data.args);
+}
+self.addEventListener('message', receiveMessage);
+
 exports.local_do_modtags = function(op, doneCallback, undo) {
   var addTags = undo ? op.removeTags : op.addTags,
       removeTags = undo ? op.addTags : op.removeTags;
@@ -249,34 +294,35 @@ exports.do_download = function(op, callback) {
    */
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
-    var dstorage = navigator.getDeviceStorage(storage);
-    var req = dstorage.addNamed(blob, filename);
-    req.onerror = function(event) {
-      self._LOG.saveFailure(storage, blob.type, req.error.name, filename);
-      console.warn('failed to save attachment to', storage, filename,
-                   'type:', blob.type);
-      pendingStorageWrites--;
-      // if we failed to unique the file after appending junk, just give up
-      if (isRetry) {
-        if (pendingStorageWrites === 0)
+
+    var callback = function(success) {
+      if (success) {
+        console.log('saved attachment to', storage, filename, 'type:', blob.type);
+        partInfo.file = [storage, filename];
+        if (--pendingStorageWrites === 0)
           done();
-        return;
+      } else {
+        self._LOG.saveFailure(storage, blob.type, req.error.name, filename);
+        console.warn('failed to save attachment to', storage, filename,
+                     'type:', blob.type);
+        pendingStorageWrites--;
+        // if we failed to unique the file after appending junk, just give up
+        if (isRetry) {
+          if (pendingStorageWrites === 0)
+            done();
+          return;
+        }
+        // retry by appending a super huge timestamp to the file before its
+        // extension.
+        var idxLastPeriod = filename.lastIndexOf('.');
+        if (idxLastPeriod === -1)
+          idxLastPeriod = filename.length;
+        filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+                    filename.substring(idxLastPeriod);
+        saveToStorage(blob, storage, filename, partInfo, true);
       }
-      // retry by appending a super huge timestamp to the file before its
-      // extension.
-      var idxLastPeriod = filename.lastIndexOf('.');
-      if (idxLastPeriod === -1)
-        idxLastPeriod = filename.length;
-      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
-                   filename.substring(idxLastPeriod);
-      saveToStorage(blob, storage, filename, partInfo, true);
-    }.bind(this);
-    req.onsuccess = function() {
-      console.log('saved attachment to', storage, filename, 'type:', blob.type);
-      partInfo.file = [storage, filename];
-      if (--pendingStorageWrites === 0)
-        done();
     };
+    sendMessage('save', [storage, blob, filename], callback);
   }
   var gotParts = function gotParts(err, bodyBlobs) {
     if (bodyBlobs.length !== partsToDownload.length) {

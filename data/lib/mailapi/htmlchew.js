@@ -447,80 +447,20 @@ var BLEACH_SETTINGS = {
  *     style tags in the head, etc.
  *   }
  * ]
- * @return[HtmlElement]{
- *   The sanitized HTML content wrapped in a div container.
+ * @return[HtmlString]{
+ *   The sanitized HTML string wrapped into a div container.
  * }
  */
 exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
-  var sanitizedNode = $bleach.clean(htmlString, BLEACH_SETTINGS);
-  return sanitizedNode;
+  return $bleach.clean(htmlString, BLEACH_SETTINGS);
 };
-
-var ELEMENT_NODE = 1, TEXT_NODE = 3;
-
-var RE_NORMALIZE_WHITESPACE = /\s+/g;
 
 /**
  * Derive snippet text from the already-sanitized HTML representation.
  */
-exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
+exports.generateSnippet = function generateSnippet(sanitizedHtml,
                                                    desiredLength) {
-  var snippet = '';
-
-  // Perform a traversal of the DOM tree skipping over things we don't care
-  // about.  Whenever we see an element we can descend into, we do so.
-  // Whenever we finish processing a node, we move to our next sibling.
-  // If there is no next sibling, we move up the tree until there is a next
-  // sibling or we hit the top.
-  var node = sanitizedHtmlNode.firstChild, done = false;
-  if (!node)
-    return snippet;
-  while (!done) {
-    if (node.nodeType === ELEMENT_NODE) {
-      switch (node.tagName.toLowerCase()) {
-        // - Things that can't contain useful text.
-        // Avoid including block-quotes in the snippet.
-        case 'blockquote':
-        // The style does not belong in the snippet!
-        case 'style':
-          break;
-
-        default:
-          if (node.firstChild) {
-            node = node.firstChild;
-            continue;
-          }
-          break;
-      }
-    }
-    else if (node.nodeType === TEXT_NODE) {
-      // these text nodes can be ridiculously full of whitespace.  Normalize
-      // the whitespace down to one whitespace character.
-      var normalizedText =
-            node.data.replace(RE_NORMALIZE_WHITESPACE, ' ');
-      // If the join would create two adjacents spaces, then skip the one
-      // on the thing we are concatenating.
-      if (snippet.length && normalizedText[0] === ' ' &&
-          snippet[snippet.length - 1] === ' ')
-        normalizedText = normalizedText.substring(1);
-      snippet += normalizedText;
-      if (snippet.length >= desiredLength)
-        break; // (exits the loop)
-    }
-
-    while (!node.nextSibling) {
-      node = node.parentNode;
-      if (node === sanitizedHtmlNode) {
-        // yeah, a goto or embedding this in a function might have been cleaner
-        done = true;
-        break;
-      }
-    }
-    if (!done)
-      node = node.nextSibling;
-  }
-
-  return snippet.substring(0, desiredLength);
+  return $bleach.generateSnippet(sanitizedHtml, desiredLength);
 };
 
 /**
@@ -532,38 +472,24 @@ exports.generateSnippet = function generateSnippet(sanitizedHtmlNode,
  * about recipients having sufficient CSS support and our own desire to have
  * things resemble text/plain.
  *
- * NB: simple escaping should also be fine, but this is unlikely to be a
- * performance hotspot.
  */
 exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
                                               transformNewlines, attrs) {
   if (transformNewlines === undefined)
     transformNewlines = true;
 
-  var doc = document.implementation.createHTMLDocument(''),
-      wrapNode = doc.createElement(wrapTag || 'div');
+  wrapTag = wrapTag || 'div';
 
-  if (transformNewlines) {
-    var lines = text.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      var lineText = lines[i];
-      if (i)
-        wrapNode.appendChild(doc.createElement('br'));
-      if (lineText.length)
-        wrapNode.appendChild(doc.createTextNode(lineText));
-    }
-  }
-  else {
-    wrapNode.textContent = text;
-  }
+  text = transformNewLines ? text.replace(/\n/g, '<br/>') : text;
 
+  var attributes = '';
   if (attrs) {
-    for (var iAttr = 0; iAttr < attrs.length; iAttr += 2) {
-      wrapNode.setAttribute(attrs[iAttr], attrs[iAttr + 1]);
+    for (var i = 0; i < attrs.length; i += 2) {
+      attributes += ' ' + attrs[i] + '="' + attrs[i + 1] +'"';
     }
   }
 
-  return wrapNode.outerHTML;
+  return '<' + wrapTag + attributes + '>' + text + '</' + wrapTag + '>';
 };
 
 var RE_QUOTE_CHAR = /"/g;

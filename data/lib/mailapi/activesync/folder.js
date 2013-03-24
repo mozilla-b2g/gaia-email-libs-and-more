@@ -799,10 +799,10 @@ ActiveSyncFolderConn.prototype = {
       body.bodyReps = ['plain', bodyRep];
     }
     else if (bodyType === asbEnum.Type.HTML) {
-      var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
-      header.snippet = $htmlchew.generateSnippet(htmlNode,
+      var html = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
+      header.snippet = $htmlchew.generateSnippet(html,
                                                  DESIRED_SNIPPET_LENGTH);
-      body.bodyReps = ['html', htmlNode.innerHTML];
+      body.bodyReps = ['html', html];
     }
 
     return { header: header, body: body };

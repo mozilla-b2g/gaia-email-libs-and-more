@@ -10,58 +10,78 @@
 define(
   [
     './shim-sham',
-    './mailapi',
     './mailbridge',
     './mailuniverse',
     'exports'
   ],
   function(
     $shim_setup,
-    $mailapi,
     $mailbridge,
     $mailuniverse,
     exports
   ) {
 'use strict';
 
+var bridgeUniqueIdentifier = 0;
 function createBridgePair(universe) {
+  var uid = bridgeUniqueIdentifier++;
+
   var TMB = new $mailbridge.MailBridge(universe);
-  var TMA = new $mailapi.MailAPI();
-  // shim-sham provide window.setZeroTimeout
-  TMA.__bridgeSend = function(msg) {
-    window.setZeroTimeout(function() {
-      TMB.__receiveMessage(msg);
-    });
-  };
+
+  self.addEventListener('message', function(evt) {
+    var data = evt.data;
+    if (data.type != 'bridge' || data.uid != uid)
+      return;
+
+    //dump("MailBridge receiveMessage: " + JSON.stringify(data) + "\n");
+    TMB.__receiveMessage(data.msg);
+  });
+
   TMB.__sendMessage = function(msg) {
-    window.setZeroTimeout(function() {
-      TMB._LOG.send(msg.type, msg);
-      TMA.__bridgeReceive(msg);
+    TMB._LOG.send(msg.type, msg);
+    self.postMessage({
+      uid: uid,
+      type: 'bridge',
+      msg: msg
     });
   };
-  return {
-    api: TMA,
-    bridge: TMB
-  };
+
+  // Let's say hello to the main thread in order to generate a 
+  // corresponding mailAPI.
+  TMB.__sendMessage({
+    type: 'hello',
+    config: universe.exposeConfigForClient()
+  });
 }
 
-var _universeCallbacks = [], localMailAPI = null;
 function onUniverse() {
-  localMailAPI = createBridgePair(universe).api;
-  // This obviously needs to be sent over the wire in a worker/multi-page setup.
-  localMailAPI.config = universe.exposeConfigForClient();
-  console.log("Mail universe/bridge created, notifying.");
-  for (var i = 0; i < _universeCallbacks.length; i++) {
-    _universeCallbacks[i](universe);
-  }
-  _universeCallbacks = null;
-  var evtObject = document.createEvent('Event');
-  evtObject.initEvent('mailapi', false, false);
-  evtObject.mailAPI = localMailAPI;
-  window.dispatchEvent(evtObject);
+  createBridgePair(universe);
+  console.log("Mail universe/bridge created and notified!");
 }
 
-var universe = new $mailuniverse.MailUniverse(onUniverse);
+var universe = null;
+self.addEventListener('message', function(evt) {
+  var data = evt.data;
+  if (data.type != 'hello') {
+    return;
+  }
+  //dump("WorkerListener: same-frame-setup.js: " + JSON.stringify(data) + "\n");
+  var args = data.args;
+  switch (data.cmd) {
+    case 'hello':
+      navigator.onLine = args[0];
+      navigator.hasPendingAlarm = args[1];
+
+      universe = new $mailuniverse.MailUniverse(onUniverse);
+      break;
+
+    case 'online':
+    case 'offline':
+      navigator.onLine = args[0];
+      break;
+  }
+});
+self.postMessage({ type: "hello" });
 
 function runOnUniverse(callback) {
   if (_universeCallbacks !== null) {
@@ -76,6 +96,7 @@ window.gimmeMailAPI = function(callback) {
   });
 };
 
+if ('document' in this) {
 /**
  * Debugging: enable spawning a loggest log browser using our log contents;
  * call document.spawnLogWindow() to do so.
@@ -113,6 +134,8 @@ document.enableLogSpawner = function enableLogSpawner(spawnNow) {
   if (spawnNow)
     document.spawnLogWindow();
 };
+
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -320,8 +320,15 @@ function MailUniverse(callAfterBigBang, testOptions) {
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
   this._bound_onConnectionChange = this._onConnectionChange.bind(this);
-  window.addEventListener('online', this._bound_onConnectionChange);
-  window.addEventListener('offline', this._bound_onConnectionChange);
+  window.addEventListener('message', (function(evt) {
+    switch(evt.data.type) {
+      case 'online':
+      case 'offline':
+        this._bound_onConnectionChange();
+        break;
+    }
+  }).bind(this));
+
   this._onConnectionChange();
 
   /**

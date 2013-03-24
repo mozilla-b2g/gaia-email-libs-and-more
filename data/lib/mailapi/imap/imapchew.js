@@ -298,10 +298,10 @@ exports.chewBodyParts = function chewBodyParts(rep, bodyPartContents,
         break;
 
       case 'html':
-        var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(contents);
+        var html = $htmlchew.sanitizeAndNormalizeHtml(contents);
         if (!snippet)
-          snippet = $htmlchew.generateSnippet(htmlNode, DESIRED_SNIPPET_LENGTH);
-        bodyReps.push('html', htmlNode.innerHTML);
+          snippet = $htmlchew.generateSnippet(html, DESIRED_SNIPPET_LENGTH);
+        bodyReps.push('html', html);
         break;
     }
   }

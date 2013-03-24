@@ -247,53 +247,23 @@ Autoconfigurator.prototype = {
       // issue), trying to use responseXML results in a SecurityError when
       // running XPath queries. So let's just do an end-run around the
       // "security".
-      var doc = new DOMParser().parseFromString(xhr.responseText, 'text/xml');
-      function getNode(xpath, rel) {
-        return doc.evaluate(xpath, rel || doc, null,
-                            XPathResult.FIRST_ORDERED_NODE_TYPE, null)
-                  .singleNodeValue;
-      }
+      self.postMessage({
+        uid: 0,
+        type: 'configparser',
+        cmd: 'accountcommon',
+        args: [xhr.responseText]
+      });
 
-      var provider = getNode('/clientConfig/emailProvider');
-      // Get the first incomingServer we can use (we assume first == best).
-      var incoming = getNode('incomingServer[@type="imap"] | ' +
-                             'incomingServer[@type="activesync"]', provider);
-      var outgoing = getNode('outgoingServer[@type="smtp"]', provider);
-
-      if (incoming) {
-        var config = { type: null, incoming: {}, outgoing: {} };
-        for (var iter in Iterator(incoming.children)) {
-          var child = iter[1];
-          config.incoming[child.tagName] = child.textContent;
-        }
-
-        if (incoming.getAttribute('type') === 'activesync') {
-          config.type = 'activesync';
-        }
-        else if (outgoing) {
-          config.type = 'imap+smtp';
-          for (var iter in Iterator(outgoing.children)) {
-            var child = iter[1];
-            config.outgoing[child.tagName] = child.textContent;
-          }
-
-          // We do not support unencrypted connections outside of unit tests.
-          if (config.incoming.socketType !== 'SSL' ||
-              config.outgoing.socketType !== 'SSL') {
-            callback('no-config-info', null, { status: 'unsafe' });
-            return;
-          }
-        }
-        else {
-          callback('no-config-info', null, { status: 'no-outgoing' });
+      self.addEventListener('message', function onworkerresponse(evt) {
+        var data = evt.data;
+        if (data.type != 'configparser' || data.cmd != 'accountcommon') {
           return;
         }
-
-        callback(null, config, null);
-      }
-      else {
-        callback('no-config-info', null, { status: 'no-incoming' });
-      }
+        self.removeEventListener(evt.type, onworkerresponse);
+        var args = data.args; 
+        var config = args[0], status = args[1];
+        callback(config ? null : 'no-config-info', config, { status: status });
+      });
     };
 
     xhr.ontimeout = xhr.onerror = function() {

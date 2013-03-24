@@ -21,20 +21,52 @@
  **/
 define(function(require, exports, module) {
 
+function debug(str) {
+  //dump("NetSocket: (" + Date.now() + ") :" + str + "\n");
+}
+
 var util = require('util'),
     EventEmitter = require('events').EventEmitter;
 
-function NetSocket(port, host, crypto) {
-  this._host = host;
-  this._port = port;
-  this._actualSock = navigator.mozTCPSocket.open(
-    host, port, { useSSL: crypto, binaryType: 'arraybuffer' });
-  EventEmitter.call(this);
+function sendMessage(cmd, uid, args, callback) {
+  if (!Array.isArray(args)) {
+    args = args ? [args] : [];
+  }
 
-  this._actualSock.onopen = this._onconnect.bind(this);
-  this._actualSock.onerror = this._onerror.bind(this);
-  this._actualSock.ondata = this._ondata.bind(this);
-  this._actualSock.onclose = this._onclose.bind(this);
+  self.postMessage({ type: 'netsocket', uid: uid, cmd: cmd, args: args });
+}
+
+var socketId = 0;
+
+function NetSocket(port, host, crypto) {
+  var uid = this.uid = socketId++;
+
+  var args = [host, port, { useSSL: crypto, binaryType: 'arraybuffer' }];
+  sendMessage('open', uid, args);
+
+  self.addEventListener('message', function(evt) {
+    var data = evt.data;
+    if (data.type != 'netsocket')
+      return;
+
+    if (data.uid != uid)
+      return;
+
+    var callback = callbacks[data.cmd];
+    if (!callback)
+      return;
+
+    callback.call(callback, { data: data.args[0] });
+  });
+
+  var callbacks = {
+    onopen: this._onconnect.bind(this),
+    onerror: this._onerror.bind(this),
+    ondata: this._ondata.bind(this),
+    onclose: this._onclose.bind(this)
+  };
+  
+  EventEmitter.call(this);
 
   this.destroyed = false;
 }
@@ -45,10 +77,10 @@ NetSocket.prototype.setTimeout = function() {
 NetSocket.prototype.setKeepAlive = function(shouldKeepAlive) {
 };
 NetSocket.prototype.write = function(buffer) {
-  this._actualSock.send(buffer);
+  sendMessage('write', this.uid, [buffer]);
 };
 NetSocket.prototype.end = function() {
-  this._actualSock.close();
+  sendMessage('end', this.uid);
   this.destroyed = true;
 };
 
