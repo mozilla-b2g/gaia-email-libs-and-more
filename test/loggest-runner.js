@@ -114,6 +114,7 @@ var ErrorTrapper = {
 
 };
 window.ErrorTrapper = ErrorTrapper;
+requirejs.onError = ErrorTrapper.yoAnError.bind(ErrorTrapper);
 
 var env = getEnv();
 

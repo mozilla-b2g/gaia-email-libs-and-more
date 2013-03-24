@@ -750,7 +750,7 @@ function summaryFromLoggest(testFileName, logData) {
     // _kids => kids
     // _ident => semanticIdent
     // [':result'] => latched.result
-    if (!definerLog._kids)
+    if (!definerLog || !definerLog._kids)
       return summary;
     for (var iKid = 0; iKid < definerLog._kids.length; iKid++) {
       var testCaseLog = definerLog._kids[iKid];

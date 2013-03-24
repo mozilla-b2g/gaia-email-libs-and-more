@@ -671,24 +671,16 @@ function detectAndReportJsonCycles(obj) {
  *  so it's not just like the test disappears from the radar.
  */
 function reportTestModuleRequireFailures(testModuleName, moduleName,
-                                         exceptions) {
-  console.error("##### LOGGEST-TEST-RUN-BEGIN #####");
-  try {
-    var dumpObj = {
-      schema: $testcontext.LOGFAB._rawDefs,
-      fileFailure: {
-        fileName: testModuleName,
-        moduleName: moduleName,
-        exceptions: exceptions.map($extransform.transformException),
-      }
-    };
-    console.error(JSON.stringify(dumpObj));
-  }
-  catch (ex) {
-    console.error("JSON problem:", ex.message, ex.stack, ex);
-    console.error($util.inspect(dumpObj, false, 12));
-  }
-  console.error("##### LOGGEST-TEST-RUN-END #####");
+                                         exceptions, resultsReporter) {
+  var dumpObj = {
+    schema: $testcontext.LOGFAB._rawDefs,
+    fileFailure: {
+      fileName: testModuleName,
+      moduleName: moduleName,
+      exceptions: exceptions.map($extransform.transformException),
+    }
+  };
+  resultsReporter(dumpObj);
 }
 
 /**
@@ -711,6 +703,10 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
     deferred.resolve(true);
   };
 
+  var resultsReporter =
+        runOptions.resultsReporter ||
+        makeStreamResultsReporter(ErrorTrapper.reliableOutput);
+
   // nutshell:
   // * r.js previously would still invoke our require callback function in
   //    the event of a failure because our error handler did not actually
@@ -726,7 +722,8 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
 //console.error("ERROR TRAPPAH");
     if (alreadyBailed)
       return;
-    reportTestModuleRequireFailures(testModuleName, moduleName, [err]);
+    reportTestModuleRequireFailures(testModuleName, moduleName, [err],
+                                    resultsReporter);
     deferred.resolve(true);
     alreadyBailed = true;
 //console.error("ERROR TRAPPAH2");
@@ -741,14 +738,16 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
     if (alreadyBailed)
       return;
     if (trappedErrors.length) {
-      reportTestModuleRequireFailures(testModuleName, trappedErrors);
+      reportTestModuleRequireFailures(testModuleName, '', trappedErrors,
+                                      resultsReporter);
       deferred.resolve(true);
       return;
     }
     if (!tmod.TD) {
       var fakeError = new Error("Test module: '" + testModuleName +
                                  "' does not export a 'TD' symbol!");
-      reportTestModuleRequireFailures(testModuleName, [fakeError]);
+      reportTestModuleRequireFailures(testModuleName, testModuleName,
+                                      [fakeError], resultsReporter);
       deferred.resolve(true);
       return;
     }
@@ -758,8 +757,7 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
       DEFAULT_STEP_TIMEOUT_MS = runOptions.defaultStepDuration;
     runner = new TestDefinerRunner(
                    tmod.TD, superDebug, runOptions.exposeToTest,
-                   runOptions.resultsReporter ||
-                     makeStreamResultsReporter(ErrorTrapper.reliableOutput));
+                   resultsReporter);
     when(runner.runAll(ErrorTrapper), itAllGood, itAllGood);
   });
   return deferred.promise;
