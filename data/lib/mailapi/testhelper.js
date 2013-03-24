@@ -648,16 +648,22 @@ var TestCommonAccountMixins = {
    */
   fakeServerMessageDeletion: function(mailHeader) {
     var self = this;
+
+    var suid = mailHeader.id;
+    var dateMS = mailHeader.date.valueOf();
+
     this.RT.reportActiveActorThisStep(this);
+    this.expect_deletionNotified(1, suid);
 
     var folderStorage =
           this.universe.getFolderStorageForMessageSuid(mailHeader.id);
-    this.expect_deletionNotified(1);
+
+
     folderStorage.getMessageHeader(
-      mailHeader.id, mailHeader.date,
+      suid, dateMS,
       function(header) {
         folderStorage.deleteMessageHeaderAndBody(header, function() {
-          self._logger.deletionNotified(1);
+          self._logger.deletionNotified(1, header && header.suid);
         });
       });
   },
