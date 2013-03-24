@@ -6,7 +6,7 @@ define(
   [
     'rdcommon/log',
     'activesync/codepages',
-    'activesync/wbxml/wbxml',
+    'wbxml',
     'mailapi/accountcommon',
     'module',
     'exports'
