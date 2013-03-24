@@ -1,7 +1,6 @@
-
+define(function() {
 'use strict';
 
-var MailIndexedDB = (function() {
   function debug(str) {
     dump('MailDB: ' + str + '\n');
   }
@@ -39,9 +38,7 @@ var MailIndexedDB = (function() {
           break;
       }
     }
-  }
-  return self;
-})();
+  };
 
 var IndexedDB;
 if (("indexedDB" in window) && window.indexedDB) {
@@ -459,4 +456,5 @@ MailDB.prototype = {
   },
 };
 
-WorkerListener.register(MailIndexedDB);
+return self;
+});

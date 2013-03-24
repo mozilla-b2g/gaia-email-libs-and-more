@@ -4,9 +4,11 @@
 
 define(
   [
+    './worker-router',
     'exports'
   ],
   function(
+    $router,
     exports
   ) {
 'use strict';
@@ -27,8 +29,6 @@ function sendMessage(cmd, args, callback) {
 
 function receiveMessage(evt) {
   var data = evt.data;
-  if (data.type != 'maildb')
-    return;
   dump("MailDB: receiveMessage " + data.cmd + "\n");
 
   var callback = callbacks[data.uid];
@@ -51,7 +51,6 @@ function MailDB(testOptions) {
   }
 
   sendMessage('open', testOptions, processQueue.bind(this));
-  self.addEventListener('message', receiveMessage);
 }
 exports.MailDB = MailDB;
 MailDB.prototype = {
@@ -65,7 +64,7 @@ MailDB.prototype = {
       this._callbacksQueue.push(this.getConfig.bind(this, callback));
        return;
      }
-  
+
     sendMessage('getConfig', null, callback);
   },
 
@@ -97,5 +96,7 @@ MailDB.prototype = {
     sendMessage('deleteAccount', accountId);
   },
 };
+
+$router.register('maildb', receiveMessage);
 
 }); // end define

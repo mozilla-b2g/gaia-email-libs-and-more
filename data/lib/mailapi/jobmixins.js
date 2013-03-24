@@ -4,58 +4,17 @@
 
 define(
   [
+    './worker-router',
     './util',
     'exports'
   ],
   function(
+    $router,
     $util,
     exports
   ) {
 
-function debug(str) {
-  dump("JobMixin: " + str + "\n");
-}
-
-var uid = 0;
-var callbacks = {};
-function sendMessage(cmd, args, callback) {
-  if (callback) {
-    callbacks[uid] = callback;
-  }
-
-  if (!Array.isArray(args)) {
-    args = args ? [args] : [];
-  }
-
-  dump("DeviceStorage: sendMessage " + cmd + "\n");
-  self.postMessage({ uid: uid++, type: 'devicestorage', cmd: cmd, args: args });
-}
-
-function receiveMessage(evt) {
-  var data = evt.data;
-  if (data.type != 'devicestorage')
-    return;
-
-  dump("DeviceStorage: receiveMessage " + data.cmd + "\n");
-  self.postMessage({ uid: uid++, type: 'devicestorage', cmd: cmd, args: args });
-}
-
-function receiveMessage(evt) {
-  var data = evt.data;
-  if (data.type != 'devicestorage')
-    return;
-
-  dump("DeviceStorage: receiveMessage " + data.cmd + "\n");
-
-  var callback = callbacks[data.uid];
-  if (!callback)
-    return;
-  delete callbacks[data.uid];
-
-  dump("DeviceStorage: receiveMessage fire callback\n");
-  callback.apply(callback, data.args);
-}
-self.addEventListener('message', receiveMessage);
+var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
   var addTags = undo ? op.removeTags : op.addTags,

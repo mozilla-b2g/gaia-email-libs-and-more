@@ -1,7 +1,6 @@
-
+define(function() {
 'use strict';
 
-var NetSocket = (function() {
   function debug(str) {
     //dump('NetSocket: ' + str + '\n');
   }
@@ -71,6 +70,4 @@ var NetSocket = (function() {
     }
   }
   return self;
-})();
-
-WorkerListener.register(NetSocket);
+});

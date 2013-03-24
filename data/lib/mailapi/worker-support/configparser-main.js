@@ -1,7 +1,6 @@
+define(function() {
+  'use strict';
 
-'use strict';
-
-var ConfigParser = (function() {
   function debug(str) {
     //dump('ConfigParser: ' + str + '\n');
   }
@@ -158,8 +157,6 @@ var ConfigParser = (function() {
           break;
       }
     }
-  }
+  };
   return self;
-})();
-
-WorkerListener.register(ConfigParser);
+});

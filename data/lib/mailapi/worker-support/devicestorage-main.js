@@ -1,7 +1,6 @@
+define(function() {
+  'use strict';
 
-'use strict';
-
-var DeviceStorage = (function() {
   function debug(str) {
     dump('DeviceStorage: ' + str + '\n');
   }
@@ -32,6 +31,4 @@ var DeviceStorage = (function() {
     }
   }
   return self;
-})();
-
-WorkerListener.register(DeviceStorage);
+});

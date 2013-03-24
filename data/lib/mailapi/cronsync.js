@@ -24,12 +24,14 @@ define(
   [
     'rdcommon/log',
     './allback',
+    './worker-router',
     'module',
     'exports'
   ],
   function(
     $log,
     $allback,
+    $router,
     $module,
     exports
   ) {
@@ -166,36 +168,7 @@ function debug(str) {
   dump("CronSyncer: " + str + "\n");
 }
 
-var uid = 0;
-var callbacks = {};
-function sendMessage(cmd, args, callback) {
-  if (callback) {
-    callbacks[uid] = callback;
-  }
-
-  if (!Array.isArray(args)) {
-    args = args ? [args] : [];
-  }
-
-  self.postMessage({ uid: uid++, type: 'cronsyncer', cmd: cmd, args: args });
-}
-
-function receiveMessage(evt) {
-  var data = evt.data;
-  if (data.type != 'cronsyncer')
-    return;
-
-  var callback = callbacks[data.uid];
-  if (!callback)
-    return;
-  delete callbacks[data.uid];
-
-  setTimeout(function() {
-    callback.apply(callback, data.args);
-  });
-}
-
-window.addEventListener("message", receiveMessage);
+var sendMessage = $router.registerCallbackType('cronsyncer');
 
 /**
  * Creates the synchronizer.  It is does not do anything until the first call

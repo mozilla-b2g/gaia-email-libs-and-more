@@ -26,7 +26,8 @@ function debug(str) {
 }
 
 var util = require('util'),
-    EventEmitter = require('events').EventEmitter;
+    EventEmitter = require('events').EventEmitter,
+    $router = require('mailapi/worker-router');
 
 function sendMessage(cmd, uid, args, callback) {
   if (!Array.isArray(args)) {
@@ -36,36 +37,21 @@ function sendMessage(cmd, uid, args, callback) {
   self.postMessage({ type: 'netsocket', uid: uid, cmd: cmd, args: args });
 }
 
-var socketId = 0;
+var routerMaker = $router.registerInstanceType('netsocket');
 
 function NetSocket(port, host, crypto) {
-  var uid = this.uid = socketId++;
-
-  var args = [host, port, { useSSL: crypto, binaryType: 'arraybuffer' }];
-  sendMessage('open', uid, args);
-
-  self.addEventListener('message', function(evt) {
-    var data = evt.data;
-    if (data.type != 'netsocket')
-      return;
-
-    if (data.uid != uid)
-      return;
-
-    var callback = callbacks[data.cmd];
-    if (!callback)
-      return;
-
-    callback.call(callback, { data: data.args[0] });
-  });
-
-  var callbacks = {
+  var routerInfo = routerMaker({
     onopen: this._onconnect.bind(this),
     onerror: this._onerror.bind(this),
     ondata: this._ondata.bind(this),
     onclose: this._onclose.bind(this)
-  };
-  
+  });
+  this._sendMessage = routerInfo.sendMessage;
+  this._unregisterWithRouter = routerInfo.unregister;
+
+  var args = [host, port, { useSSL: crypto, binaryType: 'arraybuffer' }];
+  this._sendMessage('open', args);
+
   EventEmitter.call(this);
 
   this.destroyed = false;
@@ -82,6 +68,7 @@ NetSocket.prototype.write = function(buffer) {
 NetSocket.prototype.end = function() {
   sendMessage('end', this.uid);
   this.destroyed = true;
+  this._unregisterWithRouter();
 };
 
 NetSocket.prototype._onconnect = function(event) {
@@ -98,7 +85,6 @@ NetSocket.prototype._onclose = function(event) {
   this.emit('close', event.data);
   this.emit('end', event.data);
 };
-
 
 exports.connect = function(port, host) {
   return new NetSocket(port, host, false);

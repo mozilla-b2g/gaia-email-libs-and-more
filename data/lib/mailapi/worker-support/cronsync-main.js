@@ -1,7 +1,6 @@
+define(function() {
+  'use strict';
 
-'use strict';
-
-var CronSync = (function() {
   function debug(str) {
     //dump('CronSync: ' + str + '\n');
   }
@@ -91,6 +90,4 @@ var CronSync = (function() {
     }
   }
   return self;
-})();
-
-WorkerListener.register(CronSync);
+});
