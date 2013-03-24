@@ -434,9 +434,16 @@ ActiveSyncJobDriver.prototype = {
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ActiveSyncJobDriver: {
     type: $log.DAEMON,
+    events: {
+      saveFailure: { storage: false, mimeType: false, error: false},
+    },
+    TEST_ONLY_events: {
+      saveFailure: { filename: false },
+    },
     errors: {
       callbackErr: { ex: $log.EXCEPTION },
     },
+
   },
 });
 

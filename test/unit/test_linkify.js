@@ -4,9 +4,10 @@
  * messages through the server and can even do everything synchronously.
  */
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_linkify' }, null, [$th_imap.TESTHELPER], ['app']);
 
 /**
@@ -255,7 +256,4 @@ TD.commonCase('linkify HTML', function(T, RT) {
   });
 });
 
-
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

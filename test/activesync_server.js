@@ -42,12 +42,12 @@ function decodeWBXML(stream) {
  * @param args (optional) arguments to pass to makeMessages() to generate
  *        initial messages for this folder
  */
-function ActiveSyncFolder(server, name, type, parent, args) {
+function ActiveSyncFolder(server, name, type, parentId, args) {
   this.server = server;
   this.name = name;
   this.type = type || $_ascp.FolderHierarchy.Enums.Type.Mail;
   this.id = 'folder-' + (this.server._nextCollectionId++);
-  this.parentId = parent ? parent.id : '0';
+  this.parentId = parentId || '0';
 
   if (!args) {
     // Start with the first message one hour in the past and each message after
@@ -318,6 +318,7 @@ function ActiveSyncServer(startDate) {
     trash:  [],
     normal: []
   };
+  this.foldersById = {};
 
   this._nextCollectionId = 1;
   this._nextFolderSyncId = 1;
@@ -369,17 +370,18 @@ ActiveSyncServer.prototype = {
    * @param name the folder's name
    * @param type (optional) the folder's type, as an enum from
    *        FolderHierarchy.Enums.Type
-   * @param parent (optional) the folder to contain this folder
+   * @param parentId (optional) the id of the folder to contain this folder
    * @param args (optional) arguments to pass to makeMessages() to generate
    *        initial messages for this folder
    */
-  addFolder: function(name, type, parent, args) {
+  addFolder: function(name, type, parentId, args) {
     if (type && !this._folderTypes.hasOwnProperty(type))
       throw new Error('Invalid folder type');
 
-    let folder = new ActiveSyncFolder(this, name, type, parent, args);
+    let folder = new ActiveSyncFolder(this, name, type, parentId, args);
     this._folders.push(folder);
     this.foldersByType[this._folderTypes[folder.type]].push(folder);
+    this.foldersById[folder.id] = folder;
 
     for (let [,syncState] in Iterator(this._folderSyncStates))
       syncState.push({ type: 'add', folder: folder });

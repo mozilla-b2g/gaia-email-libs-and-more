@@ -1,9 +1,11 @@
 define(function(require, exports, $module) {
 
 var $log = require('rdcommon/log'),
+    $allback = require('mailapi/allback'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
     $maildb = require('mailapi/maildb'),
+    $mailapi = require('mailapi/mailapi'),
     $date = require('mailapi/date'),
     $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
@@ -26,15 +28,39 @@ function checkFlagDefault(flags, flag, def) {
   return flags[flag];
 }
 
+function consoleHelper(logFunc) {
+  var msg = '';
+  for (var i = 2; i < arguments.length; i++) {
+    msg += ' ' + arguments[i];
+  }
+  logFunc(msg);
+  dump(arguments[1] + ":" + msg + "\x1b[0m\n");
+}
+function makeConsoleForLogger(logger) {
+  window.console = {
+    log:   consoleHelper.bind(null, logger.log.bind(logger), '\x1b[32mLOG'),
+    error: consoleHelper.bind(null, logger.error.bind(logger), '\x1b[31mERR'),
+    info:  consoleHelper.bind(null, logger.info.bind(logger), '\x1b[36mINF'),
+    warn:  consoleHelper.bind(null, logger.warn.bind(logger), '\x1b[33mWAR'),
+    trace: function() {
+      console.error.apply(null, arguments);
+      try {
+        throw new Error('getting stack...');
+      }
+      catch (ex) {
+        console.warn('STACK!\n' + ex.stack);
+      }
+    },
+  };
+}
+
+
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
-    var lazyConsole = self.T.lazyLogger('console');
-
-    gConsoleLogFunc = function(msg) {
-      lazyConsole.value(msg);
-    };
+    var consoleLogger = LOGFAB.console(null, null, self.__name);
+    makeConsoleForLogger(consoleLogger);
 
     if (!opts)
       opts = {};
@@ -126,13 +152,18 @@ var TestUniverseMixins = {
       self.expect_createUniverse();
 
       self.expect_queriesIssued();
-      var callbacks = $_allback.allbackMaker(
+      var callbacks = $allback.allbackMaker(
         ['accounts', 'folders'],
         function gotSlices() {
           self._logger.queriesIssued();
         });
 
-      var testOpts = {};
+      self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
+        onLine: true
+      };
+      var testOpts = {
+        fakeNavigator: self.fakeNavigator
+      };
       if (opts.dbDelta)
         testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
       if (opts.dbVersion)
@@ -140,11 +171,11 @@ var TestUniverseMixins = {
       if (opts.nukeDb)
         testOpts.nukeDb = opts.nukeDb;
 
-      MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
+      MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
-          var TMA = MailAPI = self.MailAPI = new $_mailapi.MailAPI();
+          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe);
+          var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
             window.setZeroTimeout(function() {
@@ -244,16 +275,29 @@ var TestUniverseMixins = {
   },
 
   /**
+   * Immediately change ourselves to be online/offline; call from within a
+   * test step or use do_pretendToBeOffline that does it for you.
+   */
+  pretendToBeOffline: function(beOffline) {
+    this.fakeNavigator.onLine = !beOffline;
+
+    var evtObject = document.createEvent('Event');
+    evtObject.initEvent(beOffline ? 'offline' : 'online', false, false);
+    window.dispatchEvent(evtObject);
+  },
+
+  /**
    * Start/stop pretending to be offline.  In this case, pretending means that
    * we claim we are offline but do not tear down our IMAP connections.
    */
   do_pretendToBeOffline: function(beOffline, runBefore) {
+    var self = this;
     var step = this.T.convenienceSetup(
       beOffline ? 'go offline' : 'go online',
       function() {
         if (runBefore)
           runBefore();
-        window.navigator.connection.TEST_setOffline(beOffline);
+        self.pretendToBeOffline(beOffline);
       });
     // the step isn't boring if we add expectations to it.
     if (runBefore)
@@ -335,6 +379,7 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+    var TEST_PARAMS = self.RT.envOptions;
     this.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
@@ -821,6 +866,7 @@ var TestImapAccountMixins = {
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState();
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName: TEST_PARAMS.name,
@@ -1715,77 +1761,6 @@ var TestImapAccountMixins = {
   },
 };
 
-/**
- * For now, we create at most one server for the lifetime of the xpcshell test.
- * So we spin it up the first time we need it, and we never actually clean up
- * after it.
- */
-var gActiveSyncServer = null;
-var TestActiveSyncServerMixins = {
-  __constructor: function(self, opts) {
-    if (!opts.universe)
-      throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup(self, 'created, listening to get port',
-                            function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
-                                                        self.__name));
-      if (!gActiveSyncServer) {
-        gActiveSyncServer = new ActiveSyncServer(opts.universe._useDate);
-        gActiveSyncServer.start(0);
-      }
-      self.server = gActiveSyncServer;
-      self.server.logRequest = function(request) {
-        self._logger.request(request._method, request._path,
-                             request._headers._headers);
-      };
-      self.server.logRequestBody = function(reader) {
-        self._logger.requestBody(reader.dump());
-        reader.rewind();
-      };
-      self.server.logResponse = function(request, response, writer) {
-        var body;
-        if (writer) {
-          var reader = new $_wbxml.Reader(writer.bytes, $_ascp);
-          body = reader.dump();
-        }
-        self._logger.response(response._httpCode, response._headers._headers,
-                              body);
-      };
-      self.server.logResponseError = function(error) {
-        self._logger.responseError(error);
-      };
-      var httpServer = self.server.server;
-      var port = httpServer._socket.port;
-      httpServer._port = port;
-      // it had created the identity on port 0, which is not helpful to anyone
-      httpServer._identity._initialize(port, httpServer._host, true);
-      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
-        'http://localhost:' + self.server.server._socket.port;
-      self._logger.started(httpServer._socket.port);
-    });
-    self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
-      // Do not stop, pre the above, but do stop logging stuff to it.
-      self.server.logRequest = null;
-      self.server.logRequestBody = null;
-      self.server.logResponse = null;
-      /*
-      self.server.stop(function() {
-        self._logger.stopped();
-      });
-      */
-    });
-  },
-
-  getFirstFolderWithType: function(folderType) {
-    var folders = this.server.foldersByType[folderType];
-    return folders[0];
-  },
-
-  getFirstFolderWithName: function(folderName) {
-    return this.server.findFolderByName(folderName);
-  },
-};
-
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
   __constructor: function(self, opts) {
@@ -1803,8 +1778,9 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
+    var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
-      if (TEST_PARAMS_ARE_DEFAULTS)
+      if (TEST_PARAMS.defaultArgs)
         throw new Error('This test needs a real activesync account!');
       if (opts.realAccountNeeded === 'append')
         throw new Error(
@@ -1870,6 +1846,7 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName:
@@ -1938,7 +1915,7 @@ var TestActiveSyncAccountMixins = {
 
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.server.addFolder(
+      testFolder.serverFolder = self.testServer.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.serverMessages = testFolder.serverFolder.messages;
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
@@ -2157,6 +2134,7 @@ var TestActiveSyncAccountMixins = {
     this.T.convenienceSetup(this, 'add message to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
       folder.serverFolder.addMessage(messageDef);
+      self.test
     });
   },
 
@@ -2176,6 +2154,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       apiSend: { type: false, msg: false },
       bridgeSend: { type: false, msg: false },
+    },
+  },
+  console: {
+    type: $log.LOGGING,
+    events: {
+      log: { msg: false },
+      error: { msg: false },
+      info: { msg: false},
+      warn: { msg: false },
     },
   },
   testUniverse: {
@@ -2229,28 +2216,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changeMismatch: { field: false, expectedValue: false },
     },
   },
-  testActiveSyncServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      request: { method: false, path: false, headers: false },
-      requestBody: { },
-      response: { status: false, headers: false },
-    },
-    errors: {
-      responseError: { err: false },
-    },
-    // I am putting these under TEST_ONLY_ as a hack to get these displayed
-    // differently since they are walls of text.
-    TEST_ONLY_events: {
-      requestBody: { body: false },
-      response: { body: false },
-    },
-  },
 });
 
 exports.TESTHELPER = {
@@ -2270,7 +2235,6 @@ exports.TESTHELPER = {
   actorMixins: {
     testUniverse: TestUniverseMixins,
     testAccount: TestCommonAccountMixins,
-    testActiveSyncServer: TestActiveSyncServerMixins,
   },
   thingMixins: {
     testFolder: TestFolderMixins,

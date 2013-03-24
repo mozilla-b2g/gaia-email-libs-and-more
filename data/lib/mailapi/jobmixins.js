@@ -251,7 +251,8 @@ exports.do_download = function(op, callback) {
     pendingStorageWrites++;
     var dstorage = navigator.getDeviceStorage(storage);
     var req = dstorage.addNamed(blob, filename);
-    req.onerror = function() {
+    req.onerror = function(event) {
+      self._LOG.saveFailure(storage, blob.type, req.error.name, filename);
       console.warn('failed to save attachment to', storage, filename,
                    'type:', blob.type);
       pendingStorageWrites--;
@@ -269,7 +270,7 @@ exports.do_download = function(op, callback) {
       filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
                    filename.substring(idxLastPeriod);
       saveToStorage(blob, storage, filename, partInfo, true);
-    };
+    }.bind(this);
     req.onsuccess = function() {
       console.log('saved attachment to', storage, filename, 'type:', blob.type);
       partInfo.file = [storage, filename];

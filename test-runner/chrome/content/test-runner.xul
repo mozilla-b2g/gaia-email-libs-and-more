@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+
+<window id="main" title="test-runner" width="320" height="200"
+        onload="DOMLoaded()"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <script type="application/javascript" defer=""
+          src="chrome://test-runner/content/loggest-chrome-runner.js" />
+  <label value="Test Runner!" />
+</window>

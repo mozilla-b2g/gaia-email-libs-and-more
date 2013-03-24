@@ -562,6 +562,9 @@ ImapAccount.prototype = {
   },
 
   _makeConnection: function(listener, whyFolderId, whyLabel) {
+    // Mark a pending connection synchronously; the require call will not return
+    // until at least the next turn of the event loop.
+    this._pendingConn = true;
     // Dynamically load the probe/imap code to speed up startup.
     require(['imap', './probe'], function ($imap, $imapprobe) {
       this._LOG.createConnection(whyFolderId, whyLabel);

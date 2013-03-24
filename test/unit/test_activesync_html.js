@@ -3,11 +3,12 @@
  * ActiveSync.
  **/
 
-load('resources/loggest_test_framework.js');
-const $wbxml = require('wbxml');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'wbxml', 'activesync/codepages',
+        'exports'],
+       function($tc, $th_imap, $wbxml, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_activesync_html' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
@@ -195,6 +196,4 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_closeFolderView(folderView);
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

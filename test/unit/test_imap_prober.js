@@ -2,27 +2,18 @@
  * Test the IMAP prober in isolation.
  */
 
-load('resources/loggest_test_framework.js');
-// Use the faulty socket implementation.
-load('resources/fault_injecting_socket.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fault_injecting_socket', 'mailapi/imap/probe', 'imap',
+        'exports'],
+       function($tc, $th_imap, $fawlty, $probe, $imap, exports) {
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var $_imap = require('imap'),
-    $_probe = require('mailapi/imap/probe');
-
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_prober' }, null, [$th_imap.TESTHELPER], ['app']);
-
-function thunkConsole(T) {
-  var lazyConsole = T.lazyLogger('console');
-
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
-}
 
 function thunkImapTimeouts(lazyLogger) {
   var timeouts = [];
-  $_imap.TEST_useTimeoutFuncs(
+  $imap.TEST_useTimeoutFuncs(
     function thunkedSetTimeout(func, delay) {
       lazyLogger.namedValue('imap:setTimeout', delay);
       return timeouts.push(func);
@@ -54,7 +45,6 @@ function makeCredsAndConnInfo() {
 }
 
 TD.commonCase('timeout failure', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -63,8 +53,8 @@ TD.commonCase('timeout failure', function(T, RT) {
 
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
-    eCheck.expect_namedValue('imap:setTimeout', $_probe.CONNECT_TIMEOUT_MS);
-    prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
+    eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
+    prober = new $probe.ImapProber(cci.credentials, cci.connInfo,
                                     eCheck._logger);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
@@ -78,7 +68,6 @@ TD.commonCase('timeout failure', function(T, RT) {
 });
 
 TD.commonCase('SSL failure', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -87,8 +76,8 @@ TD.commonCase('SSL failure', function(T, RT) {
 
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
-    eCheck.expect_namedValue('imap:setTimeout', $_probe.CONNECT_TIMEOUT_MS);
-    prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
+    eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
+    prober = new $probe.ImapProber(cci.credentials, cci.connInfo,
                                     eCheck._logger);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
@@ -109,7 +98,6 @@ const CAPABILITY_RESPONSE = [
 
 
 function cannedLoginTest(T, RT, opts) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkImapTimeouts(eCheck),
@@ -117,7 +105,7 @@ function cannedLoginTest(T, RT, opts) {
       prober;
 
   T.action('connect, get error, return', eCheck, function() {
-    eCheck.expect_namedValue('imap:setTimeout', $_probe.CONNECT_TIMEOUT_MS);
+    eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
     eCheck.expect_event('imap:clearTimeout');
     // imap.js doesn't really care about clearing too many times right now
     eCheck.expect_event('imap:clearTimeout');
@@ -138,7 +126,7 @@ function cannedLoginTest(T, RT, opts) {
         opts.capabilityResponse || CAPABILITY_RESPONSE,
         'A2 ' + opts.loginErrorString + '\r\n',
       ]);
-    prober = new $_probe.ImapProber(cci.credentials, cci.connInfo,
+    prober = new $probe.ImapProber(cci.credentials, cci.connInfo,
                                     eCheck._logger);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
@@ -183,7 +171,6 @@ TD.commonCase('server maintenance', function(T, RT) {
  * timezone offset calculation logic.
  */
 TD.commonCase('timezone extraction unit', function(T, RT) {
-  thunkConsole(T);
   var eCheck = T.lazyLogger('check');
   var caseData = [
     {
@@ -201,12 +188,10 @@ TD.commonCase('timezone extraction unit', function(T, RT) {
   caseData.forEach(function(data) {
     T.check(data.name, eCheck, function() {
       eCheck.expect_namedValue('tzHours', data.tzHours);
-      var tz = $_probe._extractTZFromHeaders(data.headers);
+      var tz = $probe._extractTZFromHeaders(data.headers);
       eCheck.namedValue('tzHours', tz && tz / (60 * 60 * 1000));
     });
   });
 });
 
-function run_test() {
-  runMyTests(15);
-}
+}); // end define

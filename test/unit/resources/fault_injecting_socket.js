@@ -1,3 +1,11 @@
+define(
+  [
+    'exports'
+  ],
+  function(
+    exports
+  ) {
+
 /**
  * Wraps mozTCPSocket so that we can inject a fault.  We can use some combination
  * of injecting fake received data and fake or real closing a connection that is
@@ -224,7 +232,7 @@ FawltySocket.prototype = {
   },
 };
 
-var FawltySocketFactory = {
+var FawltySocketFactory = exports.FawltySocketFactory = {
   _liveSockets: [],
   _precommands: {},
 
@@ -284,3 +292,5 @@ var FawltySocketFactory = {
 };
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;
 window.navigator.mozTCPSocket = FawltySocketFactory;
+
+}); // end define

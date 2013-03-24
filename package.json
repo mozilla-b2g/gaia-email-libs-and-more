@@ -1,9 +1,0 @@
-{
-    "description": "IMAP in Firefox", 
-    "license": "MPL 2.0/GPL 2.0/LGPL 2.1", 
-    "author": "Andrew Sutherland <asutherland@asutherland.org>", 
-    "version": "0.1", 
-    "fullName": "jetpack-tcp-imap-demo", 
-    "id": "jid1-reoZ1pC7LQZcEA", 
-    "name": "jetpack-tcp-imap-demo"
-}
