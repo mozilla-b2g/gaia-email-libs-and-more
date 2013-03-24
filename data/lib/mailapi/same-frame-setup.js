@@ -13,7 +13,6 @@ define(
     './mailapi',
     './mailbridge',
     './mailuniverse',
-    './imap/folder',
     'exports'
   ],
   function(
@@ -21,7 +20,6 @@ define(
     $mailapi,
     $mailbridge,
     $mailuniverse,
-    $imapfolder,
     exports
   ) {
 'use strict';

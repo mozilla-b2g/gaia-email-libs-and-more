@@ -340,8 +340,7 @@ Autoconfigurator.prototype = {
                                                                  callback) {
 
     var self = this;
-    require([Configurators.activesync], function (configurator) {
-      var protocol = configurator.protocol;
+    require(['activesync/protocol'], function (protocol) {
       protocol.autodiscover(userDetails.emailAddress, userDetails.password,
                             self.timeout, function(error, config) {
         if (error) {

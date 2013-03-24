@@ -4,7 +4,6 @@
 
 define(
   [
-    'imap',
     'rdcommon/log',
     '../a64',
     '../allback',
@@ -13,14 +12,13 @@ define(
     '../mailslice',
     '../searchfilter',
     '../util',
-    './probe',
     './folder',
     './jobs',
     'module',
+    'require',
     'exports'
   ],
   function(
-    $imap,
     $log,
     $a64,
     $allback,
@@ -29,10 +27,10 @@ define(
     $mailslice,
     $searchfilter,
     $util,
-    $imapprobe,
     $imapfolder,
     $imapjobs,
     $module,
+    require,
     exports
   ) {
 var bsearchForInsert = $util.bsearchForInsert;
@@ -104,7 +102,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this._demandedConns = [];
   this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
                                                      this._LOG);
-  this._boundMakeConnection = this._makeConnection.bind(this);
 
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);
@@ -560,76 +557,81 @@ ImapAccount.prototype = {
       return;
 
     this._pendingConn = true;
-    this._backoffEndpoint.scheduleConnectAttempt(this._boundMakeConnection);
+    var boundMakeConnection = this._makeConnection.bind(this);
+    this._backoffEndpoint.scheduleConnectAttempt(boundMakeConnection);
   },
 
   _makeConnection: function(listener, whyFolderId, whyLabel) {
-    this._LOG.createConnection(whyFolderId, whyLabel);
-    var opts = {
-      host: this._connInfo.hostname,
-      port: this._connInfo.port,
-      crypto: this._connInfo.crypto,
+    // Dynamically load the probe/imap code to speed up startup.
+    require(['imap', './probe'], function ($imap, $imapprobe) {
+      this._LOG.createConnection(whyFolderId, whyLabel);
+      var opts = {
+        host: this._connInfo.hostname,
+        port: this._connInfo.port,
+        crypto: this._connInfo.crypto,
 
-      username: this._credentials.username,
-      password: this._credentials.password,
-    };
-    if (this._LOG) opts._logParent = this._LOG;
-    var conn = this._pendingConn = new $imap.ImapConnection(opts);
-    var connectCallbackTriggered = false;
-    // The login callback should get invoked in all cases, but a recent code
-    // inspection for the prober suggested that there may be some cases where
-    // things might fall-through, so let's just convert them.  We need some
-    // type of handler since imap.js currently calls the login callback and
-    // then the 'error' handler, generating an error if there is no error
-    // handler.
-    conn.on('error', function(err) {
-      if (!connectCallbackTriggered)
-        loginCb(err);
-    });
-    var loginCb;
-    conn.connect(loginCb = function(err) {
-      connectCallbackTriggered = true;
-      this._pendingConn = null;
-      if (err) {
-        var normErr = $imapprobe.normalizeError(err);
-        console.error('Connect error:', normErr.name, 'formal:', err, 'on',
-                      this._connInfo.hostname, this._connInfo.port);
-        if (normErr.reportProblem)
-          this.universe.__reportAccountProblem(this.compositeAccount,
-                                               normErr.name);
+        username: this._credentials.username,
+        password: this._credentials.password,
+      };
+      if (this._LOG) opts._logParent = this._LOG;
+      var conn = this._pendingConn = new $imap.ImapConnection(opts);
+      var connectCallbackTriggered = false;
+      // The login callback should get invoked in all cases, but a recent code
+      // inspection for the prober suggested that there may be some cases where
+      // things might fall-through, so let's just convert them.  We need some
+      // type of handler since imap.js currently calls the login callback and
+      // then the 'error' handler, generating an error if there is no error
+      // handler.
+      conn.on('error', function(err) {
+        if (!connectCallbackTriggered)
+          loginCb(err);
+      });
+      var loginCb;
+      conn.connect(loginCb = function(err) {
+        connectCallbackTriggered = true;
+        this._pendingConn = null;
+        if (err) {
+          var normErr = $imapprobe.normalizeError(err);
+          console.error('Connect error:', normErr.name, 'formal:', err, 'on',
+                        this._connInfo.hostname, this._connInfo.port);
+          if (normErr.reportProblem)
+            this.universe.__reportAccountProblem(this.compositeAccount,
+                                                 normErr.name);
 
 
-        if (listener)
-          listener(normErr.name);
-        conn.die();
+          if (listener)
+            listener(normErr.name);
+          conn.die();
 
-        // track this failure for backoff purposes
-        if (normErr.retry) {
-          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
-                                      normErr.reachable))
-            this._makeConnectionIfPossible();
-          else
+          // track this failure for backoff purposes
+          if (normErr.retry) {
+            if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
+                                        normErr.reachable))
+              this._makeConnectionIfPossible();
+            else
+              this._killDieOnConnectFailureDemands();
+          }
+          else {
+            this._backoffEndpoint.noteBrokenConnection();
             this._killDieOnConnectFailureDemands();
+          }
         }
         else {
-          this._backoffEndpoint.noteBrokenConnection();
-          this._killDieOnConnectFailureDemands();
+          this._bindConnectionDeathHandlers(conn);
+          this._backoffEndpoint.noteConnectSuccess();
+          this._ownedConns.push({
+            conn: conn,
+            inUseBy: null,
+          });
+          this._allocateExistingConnection();
+          if (listener)
+            listener(null);
+          // Keep opening connections if there is more work to do
+          // (and possible).
+          if (this._demandedConns.length)
+            this._makeConnectionIfPossible();
         }
-      }
-      else {
-        this._bindConnectionDeathHandlers(conn);
-        this._backoffEndpoint.noteConnectSuccess();
-        this._ownedConns.push({
-          conn: conn,
-          inUseBy: null,
-        });
-        this._allocateExistingConnection();
-        if (listener)
-          listener(null);
-        // Keep opening connections if there is more work to do (and possible).
-        if (this._demandedConns.length)
-          this._makeConnectionIfPossible();
-      }
+      }.bind(this));
     }.bind(this));
   },
 

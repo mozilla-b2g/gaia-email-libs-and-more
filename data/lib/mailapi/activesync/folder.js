@@ -1,30 +1,30 @@
 define(
   [
     'rdcommon/log',
-    'wbxml',
-    'activesync/codepages',
-    'activesync/protocol',
-    'mimelib',
-    '../quotechew',
-    '../htmlchew',
     '../date',
     '../syncbase',
     '../util',
+    'activesync/codepages/AirSync',
+    'activesync/codepages/AirSyncBase',
+    'activesync/codepages/ItemEstimate',
+    'activesync/codepages/Email',
+    'activesync/codepages/ItemOperations',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $wbxml,
-    $ascp,
-    $activesync,
-    $mimelib,
-    $quotechew,
-    $htmlchew,
     $date,
     $sync,
     $util,
+    $AirSync,
+    $AirSyncBase,
+    $ItemEstimate,
+    $Email,
+    $ItemOperations,
     $module,
+    require,
     exports
   ) {
 'use strict';
@@ -38,36 +38,68 @@ var DESIRED_SNIPPET_LENGTH = 100;
  */
 var DESIRED_MESSAGE_COUNT = 50;
 
-var FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
-
 /**
- * Map our built-in sync range values to their corresponding ActiveSync
- * FilterType values. We exclude 3 and 6 months, since they aren't valid for
- * email.
- *
- * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
+ * Filter types are lazy initialized once the activesync code is loaded.
  */
-var SYNC_RANGE_TO_FILTER_TYPE = {
-  'auto': null,
-    '1d': FILTER_TYPE.OneDayBack,
-    '3d': FILTER_TYPE.ThreeDaysBack,
-    '1w': FILTER_TYPE.OneWeekBack,
-    '2w': FILTER_TYPE.TwoWeeksBack,
-    '1m': FILTER_TYPE.OneMonthBack,
-   'all': FILTER_TYPE.NoFilter,
-};
+var FILTER_TYPE, SYNC_RANGE_TO_FILTER_TYPE, FILTER_TYPE_TO_STRING;
+function initFilterTypes() {
+  FILTER_TYPE = $AirSync.Enums.FilterType;
 
-/**
- * This mapping is purely for logging purposes.
- */
-var FILTER_TYPE_TO_STRING = {
-  0: 'all messages',
-  1: 'one day',
-  2: 'three days',
-  3: 'one week',
-  4: 'two weeks',
-  5: 'one month',
-};
+  /**
+   * Map our built-in sync range values to their corresponding ActiveSync
+   * FilterType values. We exclude 3 and 6 months, since they aren't valid for
+   * email.
+   *
+   * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
+   */
+  SYNC_RANGE_TO_FILTER_TYPE = {
+    'auto': null,
+      '1d': FILTER_TYPE.OneDayBack,
+      '3d': FILTER_TYPE.ThreeDaysBack,
+      '1w': FILTER_TYPE.OneWeekBack,
+      '2w': FILTER_TYPE.TwoWeeksBack,
+      '1m': FILTER_TYPE.OneMonthBack,
+     'all': FILTER_TYPE.NoFilter,
+  };
+
+  /**
+   * This mapping is purely for logging purposes.
+   */
+  FILTER_TYPE_TO_STRING = {
+    0: 'all messages',
+    1: 'one day',
+    2: 'three days',
+    3: 'one week',
+    4: 'two weeks',
+    5: 'one month',
+  };
+}
+
+var $wbxml, $mimelib, $quotechew, $htmlchew;
+
+function lazyConnection(cbIndex, fn, failString) {
+  return function lazyRun() {
+    var args = Array.slice(arguments),
+        errback = args[cbIndex],
+        self = this;
+
+    require(['wbxml', 'mimelib', '../quotechew', '../htmlchew'],
+    function (wbxml, mimelib, quotechew, htmlchew) {
+      if (!$wbxml) {
+        $wbxml = wbxml;
+        $mimelib = mimelib;
+        $quotechew = quotechew;
+        $htmlchew = htmlchew;
+        initFilterTypes();
+      }
+
+      self._account.withConnection(errback, function () {
+        fn.apply(self, args);
+      }, failString);
+    });
+  };
+}
+
 
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
@@ -98,6 +130,8 @@ ActiveSyncFolderConn.prototype = {
    * filterType on a per-folder basis. The per-folder filterType may be
    * undefined, in which case, we will attempt to infer a good filter type
    * elsewhere (see _inferFilterType()).
+   * ASSUMES that it is only called after lazy load of activesync code and
+   * initFilterTypes() has been run.
    */
   get filterType() {
     var syncRange = this._account.accountDef.syncRange;
@@ -111,7 +145,7 @@ ActiveSyncFolderConn.prototype = {
     else {
       console.warn('Got an invalid syncRange (' + syncRange +
                    ') using three days back instead');
-      return $ascp.AirSync.Enums.FilterType.ThreeDaysBack;
+      return $AirSync.Enums.FilterType.ThreeDaysBack;
     }
   },
 
@@ -122,10 +156,11 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getSyncKey: function asfc__getSyncKey(filterType, callback) {
+  _getSyncKey: lazyConnection(1, function asfc__getSyncKey(filterType,
+                                                           callback) {
     var folderConn = this;
     var account = this._account;
-    var as = $ascp.AirSync.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -175,7 +210,7 @@ ActiveSyncFolderConn.prototype = {
         callback();
       }
     });
-  },
+  }),
 
   /**
    * Get an estimate of the number of messages to be synced.  We assume we have
@@ -184,22 +219,38 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our estimate
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getItemEstimate: function asfc__getItemEstimate(filterType, callback) {
-    var ie = $ascp.ItemEstimate.Tags;
-    var as = $ascp.AirSync.Tags;
+  _getItemEstimate: lazyConnection(1, function asfc__getItemEstimate(filterType,
+                                                                     callback) {
+    var ie = $ItemEstimate.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Collections)
-         .stag(ie.Collection)
-           .tag(as.SyncKey, this.syncKey)
+         .stag(ie.Collection);
+
+    if (this._account.conn.currentVersion.gte('14.0')) {
+          w.tag(as.SyncKey, this.syncKey)
            .tag(ie.CollectionId, this.serverId)
            .stag(as.Options)
              .tag(as.FilterType, filterType)
-           .etag()
-         .etag()
-       .etag()
-     .etag();
+           .etag();
+    }
+    else if (this._account.conn.currentVersion.gte('12.0')) {
+          w.tag(ie.CollectionId, this.serverId)
+           .tag(as.FilterType, filterType)
+           .tag(as.SyncKey, this.syncKey);
+    }
+    else {
+          w.tag(ie.Class, 'Email')
+           .tag(ie.CollectionId, this.serverId)
+           .tag(as.SyncKey, this.syncKey)
+           .tag(as.FilterType, filterType);
+    }
+
+        w.etag(ie.Collection)
+       .etag(ie.Collections)
+     .etag(ie.GetItemEstimate);
 
     this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
@@ -230,7 +281,7 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
+      if (status !== $ItemEstimate.Enums.Status.Success) {
         console.error('Error getting item estimate:', status);
         callback('unknown');
       }
@@ -238,7 +289,7 @@ ActiveSyncFolderConn.prototype = {
         callback(null, estimate);
       }
     });
-  },
+  }),
 
   /**
    * Infer the filter type for this folder to get a sane number of messages.
@@ -247,9 +298,9 @@ ActiveSyncFolderConn.prototype = {
    *  finishes, taking two arguments: an error (if any), and the filter type we
    *  picked
    */
-  _inferFilterType: function asfc__inferFilterType(callback) {
+  _inferFilterType: lazyConnection(0, function asfc__inferFilterType(callback) {
     var folderConn = this;
-    var Type = $ascp.AirSync.Enums.FilterType;
+    var Type = $AirSync.Enums.FilterType;
 
     var getEstimate = function(filterType, onSuccess) {
       folderConn._getSyncKey(filterType, function(error) {
@@ -312,7 +363,7 @@ ActiveSyncFolderConn.prototype = {
       folderConn._LOG.inferFilterType(filterType);
       callback(null, filterType);
     });
-  },
+  }),
 
   /**
    * Sync the folder with the server and enumerate all the changes since the
@@ -324,20 +375,10 @@ ActiveSyncFolderConn.prototype = {
    *   progresses that takes a number in the range [0.0, 1.0] to express
    *   progress.
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
-                                                                 progress) {
+  _enumerateFolderChanges: lazyConnection(0,
+    function asfc__enumerateFolderChanges(callback, progress) {
     var folderConn = this, storage = this._storage;
 
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('aborted');
-          return;
-        }
-        folderConn._enumerateFolderChanges(callback, progress);
-      });
-      return;
-    }
     if (!this.filterType) {
       this._inferFilterType(function(error, filterType) {
         if (error) {
@@ -361,10 +402,10 @@ ActiveSyncFolderConn.prototype = {
       return;
     }
 
-    var as = $ascp.AirSync.Tags;
-    var asEnum = $ascp.AirSync.Enums;
-    var asb = $ascp.AirSyncBase.Tags;
-    var asbEnum = $ascp.AirSyncBase.Enums;
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
 
     var w;
 
@@ -534,11 +575,12 @@ ActiveSyncFolderConn.prototype = {
         totalBytes = Math.max(1000000, bytesSoFar);
       progress(0.1 + 0.7 * bytesSoFar / totalBytes);
     });
-  },
+  }, 'aborted'),
 
   /**
    * Parse the DOM of an individual message to build header and body objects for
    * it.
+   * ASSUMES activesync code has already been lazy-loaded.
    *
    * @param {WBXML.Element} node The fully-parsed node describing the message
    * @param {boolean} isAdded True if this is a new message, false if it's a
@@ -546,9 +588,9 @@ ActiveSyncFolderConn.prototype = {
    * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfc__parseMessage(node, isAdded) {
-    var em = $ascp.Email.Tags;
-    var asb = $ascp.AirSyncBase.Tags;
-    var asbEnum = $ascp.AirSyncBase.Enums;
+    var em = $Email.Tags;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
 
     var header, body, flagHeader;
 
@@ -766,7 +808,8 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  sync: function asfc_sync(accuracyStamp, doneCallback, progressCallback) {
+  sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,
+                                    progressCallback) {
     var folderConn = this,
         addedMessages = 0,
         changedMessages = 0,
@@ -844,22 +887,12 @@ ActiveSyncFolderConn.prototype = {
       }
     },
     progressCallback);
-  },
+  }),
 
-  performMutation: function(invokeWithWriter, callWhenDone) {
+  performMutation: lazyConnection(1, function(invokeWithWriter, callWhenDone) {
     var folderConn = this;
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        folderConn.performMutation(invokeWithWriter, callWhenDone);
-      });
-      return;
-    }
 
-    var as = $ascp.AirSync.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -921,7 +954,7 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      if (status === $ascp.AirSync.Enums.Status.Success) {
+      if (status === $AirSync.Enums.Status.Success) {
         folderConn.syncKey = syncKey;
         if (callWhenDone)
           callWhenDone(null);
@@ -932,27 +965,19 @@ ActiveSyncFolderConn.prototype = {
         callWhenDone('status:' + status);
       }
     });
-  },
+  }),
 
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
-  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+  downloadMessageAttachments: lazyConnection(2, function(uid,
+                                                         partInfos,
+                                                         callback,
+                                                         progress) {
     var folderConn = this;
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        folderConn.downloadMessageAttachments(uid, partInfos, callback,
-                                              progress);
-      });
-      return;
-    }
 
-    var io = $ascp.ItemOperations.Tags;
-    var ioStatus = $ascp.ItemOperations.Enums.Status;
-    var asb = $ascp.AirSyncBase.Tags;
+    var io = $ItemOperations.Tags;
+    var ioStatus = $ItemOperations.Enums.Status;
+    var asb = $AirSyncBase.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations);
@@ -1035,7 +1060,7 @@ ActiveSyncFolderConn.prototype = {
       }
       callback(error, bodies);
     });
-  },
+  }),
 };
 
 function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {

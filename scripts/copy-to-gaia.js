@@ -75,32 +75,79 @@ buildOptions = {
   },
   include: ['event-queue', 'mailapi/same-frame-setup', 'mailapi/mailslice',
             'mailapi/searchfilter', 'mailapi/jobmixins',
-            'mailapi/accountmixins'],
+            'mailapi/accountmixins', 'util', 'stream', 'crypto', 'encoding'],
   name: 'mailapi/same-frame-setup',
   out: jsPath + '/mailapi/same-frame-setup.js'
 };
 
 var standardExcludes = ['mailapi/same-frame-setup'].concat(buildOptions.include);
+var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
 
 var configs = [
   // First one is same-frame-setup
   {},
 
   {
-    name: 'mailapi/activesync/configurator',
+    name: 'mimelib',
     exclude: standardExcludes,
+    out: jsPath + '/mimelib.js'
+  },
+
+  {
+    name: 'mailapi/chewlayer',
+    create: true,
+    include: ['mailapi/quotechew', 'mailapi/htmlchew', 'mailapi/imap/imapchew'],
+    exclude: standardExcludes,
+    out: jsPath + '/mailapi/chewlayer.js'
+  },
+
+  {
+    name: 'mailparser/mailparser',
+    exclude: standardExcludes.concat(['mimelib']),
+    out: jsPath + '/mailparser/mailparser.js'
+  },
+
+  {
+    name: 'mailapi/composer',
+    exclude: standardExcludes.concat(['mailparser/mailparser', 'mimelib']),
+    out: jsPath + '/mailapi/composer.js'
+  },
+
+  {
+    name: 'mailapi/imap/probe',
+    exclude: standardPlusComposerExcludes,
+    out: jsPath + '/mailapi/imap/probe.js'
+  },
+
+  {
+    name: 'mailapi/smtp/probe',
+    exclude: standardPlusComposerExcludes,
+    out: jsPath + '/mailapi/smtp/probe.js'
+  },
+
+  {
+    name: 'mailapi/activesync/configurator',
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/activesync/configurator.js'
   },
 
   {
+    name: 'mailapi/activesync/protocollayer',
+    create: true,
+    include: ['wbxml', 'activesync/protocol'],
+    exclude: standardExcludes.concat(['mailapi/activesync/configurator']),
+    out: jsPath + '/mailapi/activesync/protocollayer.js'
+  },
+
+  {
     name: 'mailapi/composite/configurator',
-    exclude: standardExcludes,
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/composite/configurator.js'
   },
 
   {
     name: 'mailapi/fake/configurator',
-    exclude: standardExcludes,
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/fake/configurator.js'
   }
 ];
