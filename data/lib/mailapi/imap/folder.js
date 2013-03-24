@@ -175,7 +175,7 @@ ImapFolderConn.prototype = {
                 self._conn, false, true);
               if (self._deathback) {
                 var deathback = self._deathback;
-                self._deathback = null;
+                self.resetErrorHandling();
                 deathback();
               }
               return;
@@ -188,7 +188,7 @@ ImapFolderConn.prototype = {
         self._conn = null;
         if (self._deathback) {
           var deathback = self._deathback;
-          self._deathback = null;
+          self.resetErrorHandling();
           deathback();
         }
       },
@@ -199,9 +199,33 @@ ImapFolderConn.prototype = {
     if (!this._conn)
       return;
 
-    this._deathback = null;
+    this.resetErrorHandling();
     this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
+  },
+
+  /**
+   * If no connection, acquires one and also sets up
+   * deathback if connection is lost.
+   */
+  withConnection: function (callback, deathback, label) {
+    if (!this._conn) {
+      this.acquireConn(function () {
+        this.withConnection(callback, deathback, label);
+      }.bind(this), deathback, label);
+      return;
+    }
+
+    this._deathback = deathback;
+    callback(this);
+  },
+
+  /**
+   * Resets error handling that may be triggered during
+   * loss of connection.
+   */
+  resetErrorHandling: function () {
+    this._deathback = null;
   },
 
   reselectBox: function(callback) {
@@ -336,7 +360,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
             if (doneCallback('bisect', bisectInfo, null) === 'abort') {
-              self._deathback = null;
+              self.resetErrorHandling();
               doneCallback('bisect-aborted', null);
               return null;
             }
@@ -392,7 +416,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               return;
 
             completed = true;
-            self._deathback = null;
+            self.resetErrorHandling();
             doneCallback(null, null, newCount + knownCount,
                          skewedStartTS, skewedEndTS);
         };
