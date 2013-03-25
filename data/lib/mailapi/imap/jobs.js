@@ -239,7 +239,7 @@ ImapJobDriver.prototype = {
           // otherwise interact with someone else who just
           // acquired the mutex, (only) theoretically.
           self._heldMutexReleasers.push(function() {
-            syncer.folderConn.resetErrorHandling();
+            syncer.folderConn.clearErrorHandler();
           });
 
           action();

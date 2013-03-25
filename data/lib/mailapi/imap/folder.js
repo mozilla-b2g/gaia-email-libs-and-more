@@ -175,7 +175,7 @@ ImapFolderConn.prototype = {
                 self._conn, false, true);
               if (self._deathback) {
                 var deathback = self._deathback;
-                self.resetErrorHandling();
+                self.clearErrorHandler();
                 deathback();
               }
               return;
@@ -188,7 +188,7 @@ ImapFolderConn.prototype = {
         self._conn = null;
         if (self._deathback) {
           var deathback = self._deathback;
-          self.resetErrorHandling();
+          self.clearErrorHandler();
           deathback();
         }
       },
@@ -199,7 +199,7 @@ ImapFolderConn.prototype = {
     if (!this._conn)
       return;
 
-    this.resetErrorHandling();
+    this.clearErrorHandler();
     this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
   },
@@ -224,7 +224,7 @@ ImapFolderConn.prototype = {
    * Resets error handling that may be triggered during
    * loss of connection.
    */
-  resetErrorHandling: function () {
+  clearErrorHandler: function () {
     this._deathback = null;
   },
 
@@ -360,7 +360,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
             if (doneCallback('bisect', bisectInfo, null) === 'abort') {
-              self.resetErrorHandling();
+              self.clearErrorHandler();
               doneCallback('bisect-aborted', null);
               return null;
             }
@@ -416,7 +416,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               return;
 
             completed = true;
-            self.resetErrorHandling();
+            self.clearErrorHandler();
             doneCallback(null, null, newCount + knownCount,
                          skewedStartTS, skewedEndTS);
         };
