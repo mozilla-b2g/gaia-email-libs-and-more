@@ -13,31 +13,7 @@ define(
   ) {
 'use strict';
 
-var uid = 0;
-var callbacks = {};
-function sendMessage(cmd, args, callback) {
-  if (callback) {
-    callbacks[uid] = callback;
-  }
-
-  if (!Array.isArray(args)) {
-    args = args ? [args] : [];
-  }
-
-  self.postMessage({ uid: uid++, type: 'maildb', cmd: cmd, args: args });
-}
-
-function receiveMessage(evt) {
-  var data = evt.data;
-  dump("MailDB: receiveMessage " + data.cmd + "\n");
-
-  var callback = callbacks[data.uid];
-  if (!callback)
-    return;
-  delete callbacks[data.uid];
-  dump("MailDB: receiveMessage fire callback\n");
-  callback.apply(callback, data.args);
-}
+var sendMessage = $router.registerCallbackType('maildb');
 
 function MailDB(testOptions) {
   this._callbacksQueue = [];
@@ -58,8 +34,7 @@ MailDB.prototype = {
     sendMessage('close');
   },
 
-  getConfig: function(callback, trans) {
-    // XXX vn Does trans deserve any purpose?
+  getConfig: function(callback) {
     if (!this._ready) {
       this._callbacksQueue.push(this.getConfig.bind(this, callback));
        return;
@@ -96,7 +71,5 @@ MailDB.prototype = {
     sendMessage('deleteAccount', accountId);
   },
 };
-
-$router.register('maildb', receiveMessage);
 
 }); // end define

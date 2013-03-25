@@ -1,40 +1,35 @@
 define(
   [
     './shim-sham',
+    './worker-router',
     './mailbridge',
     './mailuniverse',
     'exports'
   ],
   function(
     $shim_setup,
+    $router,
     $mailbridge,
     $mailuniverse,
     exports
   ) {
 'use strict';
 
+var routerBridgeMaker = $router.registerInstanceType('bridge');
+
 var bridgeUniqueIdentifier = 0;
 function createBridgePair(universe) {
   var uid = bridgeUniqueIdentifier++;
 
   var TMB = new $mailbridge.MailBridge(universe);
-
-  window.addEventListener('message', function(evt) {
-    var data = evt.data;
-    if (data.type != 'bridge' || data.uid != uid)
-      return;
-
-    //dump("MailBridge receiveMessage: " + JSON.stringify(data) + "\n");
+  var routerInfo = routerBridgeMaker.register(function(data) {
     TMB.__receiveMessage(data.msg);
   });
+  var sendMessage = routerInfo.sendMessage;
 
   TMB.__sendMessage = function(msg) {
     TMB._LOG.send(msg.type, msg);
-    window.postMessage({
-      uid: uid,
-      type: 'bridge',
-      msg: msg
-    });
+    sendMessage(null, msg);
   };
 
   // Let's say hello to the main thread in order to generate a
@@ -45,18 +40,14 @@ function createBridgePair(universe) {
   });
 }
 
+var universe = null;
+
 function onUniverse() {
   createBridgePair(universe);
   console.log("Mail universe/bridge created and notified!");
 }
 
-var universe = null;
-window.addEventListener('message', function(evt) {
-  var data = evt.data;
-  if (data.type != 'hello') {
-    return;
-  }
-  //dump("WorkerListener: same-frame-setup.js: " + JSON.stringify(data) + "\n");
+var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
@@ -69,10 +60,11 @@ window.addEventListener('message', function(evt) {
     case 'online':
     case 'offline':
       navigator.onLine = args[0];
+      universe._onConnectionChange();
       break;
   }
 });
-window.postMessage({ type: "hello" });
+sendControl('hello');
 
 ////////////////////////////////////////////////////////////////////////////////
 

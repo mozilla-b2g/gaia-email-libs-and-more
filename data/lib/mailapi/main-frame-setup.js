@@ -1,5 +1,19 @@
 /**
+ * The startup process (which can be improved) looks like this:
  *
+ * Main: Initializes worker support logic
+ * Main: Spawns worker
+ * Worker: Loads core JS
+ * Worker: 'hello' => main
+ * Main: 'hello' => worker with online status and mozAlarms status
+ * Worker: Creates MailUniverse
+ * Worker 'mailbridge'.'hello' => main
+ * Main: Creates MailAPI, sends event to UI
+ * UI: can really do stuff
+ *
+ * Note: this file is not currently used by the GELAM unit tests;
+ * mailapi/testhelper.js (in the worker) and
+ * mailapi/worker-support/testhelper-main.js establish the (bounced) bridge.
  **/
 
 define(
@@ -8,125 +22,89 @@ define(
     // worker thread.  We just would need to be sure to latch any received
     // messages that we receive before we finish setup.
     './mailapi',
+    './worker-support/main-router',
     './worker-support/configparser-main',
     './worker-support/cronsync-main',
     './worker-support/devicestorage-main',
     './worker-support/maildb-main',
-    './worker-support/net-main',
-    'require',
-    'exports'
+    './worker-support/net-main'
   ],
   function(
     $mailapi,
+    $router,
     $configparser,
     $cronsync,
     $devicestorage,
     $maildb,
-    $net,
-    require,
-    exports
+    $net
   ) {
 
-  function debug(str) {
-    //dump('WorkerListener: ' + str + '\n');
-  }
-
-  var listeners = {};
-  var worker = null;
-
+  var worker;
   function init() {
     worker = new Worker('js/ext/worker-bootstrap.js');
 
-    worker.onmessage = function dispatchToListener(evt) {
-      var data = evt.data;
-      var listener = listeners['on' + data.type];
-      if (listener)
-        listener(data);
-    };
+    $router.useWorker(worker);
 
-    register(hello);
-    register($configparser);
-    register($cronsync);
-    register($devicestorage);
-    register($maildb);
-    register($net);
+    $router.register(control);
+    $router.register(bridge);
+    $router.register($configparser);
+    $router.register($cronsync);
+    $router.register($devicestorage);
+    $router.register($maildb);
+    $router.register($net);
   }
 
-  function register(module) {
-    var name = module.name;
-
-    listeners['on' + name] = function(msg) {
-      //debug('on' + name + ': ' + msg.uid + ' - ' + msg.cmd);
-      module.process(msg.uid, msg.cmd, msg.args);
-    };
-
-    module.onmessage = function(uid, cmd, args) {
-      //debug('onmessage: ' + name + ": " + uid + " - " + cmd);
-      worker.postMessage({
-        type: name,
-        uid: uid,
-        cmd: cmd,
-        args: Array.isArray(args) ? args : [args]
-      });
-    }
-  }
-
-  function unregister(module) {
-    delete listeners['on' + module.name];
-  }
-
-  var hello = {
-    name: 'hello',
-    onmessage: null,
+  var control = {
+    name: 'control',
+    sendMessage: null,
     process: function(uid, cmd, args) {
       var online = navigator.onLine;
       var hasPendingAlarm = navigator.mozHasPendingMessage('alarm');
-      hello.onmessage(uid, 'hello', [online, hasPendingAlarm]);
+      control.sendMessage(uid, 'hello', [online, hasPendingAlarm]);
 
       window.addEventListener('online', function(evt) {
-        hello.onmessage.postMessage(uid, evt.type, true);
+        control.sendMessage.postMessage(uid, evt.type, true);
       });
       window.addEventListener('offline', function(evt) {
-        hello.onmessage.postMessage(uid, evt.type, false);
+        control.sendMessage.postMessage(uid, evt.type, false);
       });
       navigator.mozSetMessageHandler('alarm', function(msg) {
-        hello.onmessage(uid, 'alarm', [msg]);
+        control.sendMessage(uid, 'alarm', [msg]);
       });
 
-      unregister(hello);
-    }
-  }
+      unregister(control);
+    },
+  };
 
-  listeners['onbridge'] = function(data) {
-    var msg = data.msg;
-    if (msg.type != 'hello')
-      return;
 
-    var uid = data.uid;
+  var mailAPIs = {};
+  var bridge = {
+    name: 'bridge',
+    sendMessage: null,
+    process: function(uid, cmd, args) {
+      var msg = args;
 
-    var mailAPI = new $mailapi.MailAPI();
-    mailAPI.__bridgeSend = function(msg) {
-      worker.postMessage({
-        uid: uid,
-        type: 'bridge',
-        msg: msg
-      });
-    };
-
-    worker.addEventListener('message', function(evt) {
-      if (evt.data.type != 'bridge' || evt.data.uid != uid)
+      if (msg.type !== 'hello') {
+        mailAPIs[uid].__bridgeReceive(msg);
         return;
+      }
 
-      //dump("MailAPI receiveMessage: " + JSON.stringify(evt.data) + "\n");
-      mailAPI.__bridgeReceive(evt.data.msg);
-    });
+      var mailAPI = new $mailapi.MailAPI();
+      mailAPI.__bridgeSend = function(msg) {
+        worker.postMessage({
+          uid: uid,
+          type: 'bridge',
+          msg: msg
+        });
+      };
 
-    mailAPI.config = data.msg.config;
+      mailAPI.config = msg.config;
 
-    var evt = document.createEvent('CustomEvent');
-    evt.initCustomEvent('mailapi', false, false, { mailAPI: mailAPI });
-    window.dispatchEvent(evt);
-  }
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('mailapi', false, false, { mailAPI: mailAPI });
+      window.dispatchEvent(evt);
+    },
+  };
 
   init();
 }); // end define

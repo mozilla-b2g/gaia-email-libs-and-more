@@ -1232,7 +1232,7 @@ function MailAPI() {
    */
   this.onbadlogin = null;
 }
-exports.MailAPIBase = MailAPI;
+exports.MailAPI = MailAPI;
 MailAPI.prototype = {
   toString: function() {
     return '[MailAPI]';

@@ -1,5 +1,5 @@
 define(function() {
-'use strict';
+  'use strict';
 
   function debug(str) {
     //dump('NetSocket: ' + str + '\n');
@@ -14,13 +14,13 @@ define(function() {
 
     sock.onopen = function(evt) {
       //debug('onopen ' + uid + ": " + evt.data.toString());
-      self.onmessage(uid, 'onopen', [evt.data.toString()]);
-    }
+      self.sendMessage(uid, 'onopen', [evt.data.toString()]);
+    };
 
     sock.onerror = function(evt) {
       //debug('onerror ' + uid + ": " + new Uint8Array(evt.data));
-      self.onmessage(uid, 'onerror', [new Uint8Array(evt.data)]);
-    }
+      self.sendMessage(uid, 'onerror', [new Uint8Array(evt.data)]);
+    };
 
     sock.ondata = function(evt) {
       /*
@@ -33,13 +33,13 @@ define(function() {
       } catch(e) {}
       debug('ondata ' + uid + ": " + new Uint8Array(evt.data));
       */
-      self.onmessage(uid, 'ondata', [new Uint8Array(evt.data)]);
-    }
+      self.sendMessage(uid, 'ondata', [new Uint8Array(evt.data)]);
+    };
 
     sock.onclose = function(evt) {
       //debug('onclose ' + uid + ": " + evt.data.toString());
-      self.onmessage(uid, 'onclose', [evt.data.toString()]);
-    }
+      self.sendMessage(uid, 'onclose', [evt.data.toString()]);
+    };
   }
 
   function close(uid) {
@@ -53,7 +53,7 @@ define(function() {
 
   var self = {
     name: 'netsocket',
-    onmessage: null,
+    sendMessage: null,
     process: function(uid, cmd, args) {
       debug('process ' + cmd);
       switch (cmd) {
@@ -68,6 +68,6 @@ define(function() {
           break;
       }
     }
-  }
+  };
   return self;
 });

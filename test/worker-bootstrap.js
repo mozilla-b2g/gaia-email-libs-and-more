@@ -11,18 +11,35 @@
  **/
 var window = self;
 
-importScripts('../../../deps/alameda.js');
+importScripts('../deps/alameda.js');
+
+function consoleHelper() {
+  var msg = arguments[0] + ':';
+  for (var i = 1; i < arguments.length; i++) {
+    msg += ' ' + arguments[i];
+  }
+  msg += '\x1b[0m\n';
+  dump(msg);
+}
+window.console = {
+  log: consoleHelper.bind(null, '\x1b[32mWLOG'),
+  error: consoleHelper.bind(null, '\x1b[31mWERR'),
+  info: consoleHelper.bind(null, '\x1b[36mWINF'),
+  warn: consoleHelper.bind(null, '\x1b[33mWWAR')
+};
+
+var document = { cookie: null };
 
 require({
   catchError: {
     define: true,
   },
-  baseUrl: '../../../',
-  // test/unit/resources/messageGenerator.js still needs this
-  scriptType: 'text/javascript;version=1.8',
+  baseUrl: '../',
   paths: {
     // - test stuff!
+    // XXX should these be exposed just via 'test'?
     "loggest-runner": "test/loggest-runner",
+    "loggest-runner-worker": "test/loggest-runner-worker",
 
     "tests": "test/unit",
 

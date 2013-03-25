@@ -20,7 +20,8 @@ var $log = require('rdcommon/log'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
-    $smtpacct = require('mailapi/smtp/account');
+    $smtpacct = require('mailapi/smtp/account'),
+    $router = require('mailapi/worker-router');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -176,17 +177,27 @@ var TestUniverseMixins = {
           console.log('Universe created');
           var TMB = MailBridge = new $mailbridge.MailBridge(self.universe);
           var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
+
+          var realSendMessage = $router.registerSimple(
+            'bridge',
+            function(data) {
+              TMB.__receiveMessage(data.args);
+            });
+          var bouncedSendMessage = $router.registerSimple(
+            'bounced-bridge',
+            function(data) {
+              TMA.__bridgeReceive(data.args);
+            });
+
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
-            window.setZeroTimeout(function() {
-                                    TMB.__receiveMessage(msg);
-                                  });
+            // 'bridge' => main => 'bounced-bridge'
+            bouncedSendMessage(null, msg);
           };
           TMB.__sendMessage = function(msg) {
             self._bridgeLog.bridgeSend(msg.type, msg);
-            window.setZeroTimeout(function() {
-                                    TMA.__bridgeReceive(msg);
-                                  });
+            // 'bounced-bridge' => main => 'bridge'
+            realSendMessage(null, msg);
           };
           self._logger.createUniverse();
 
@@ -280,10 +291,7 @@ var TestUniverseMixins = {
    */
   pretendToBeOffline: function(beOffline) {
     this.fakeNavigator.onLine = !beOffline;
-
-    var evtObject = document.createEvent('Event');
-    evtObject.initEvent(beOffline ? 'offline' : 'online', false, false);
-    window.dispatchEvent(evtObject);
+    this.universe._onConnectionChange();
   },
 
   /**

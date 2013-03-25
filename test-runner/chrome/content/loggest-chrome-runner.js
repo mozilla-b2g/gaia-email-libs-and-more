@@ -747,16 +747,13 @@ function summaryFromLoggest(testFileName, logData) {
 
     // we're currently pre-toJSON, so we need to directly look at the loggers;
     // this will need to be changed up pretty shortly.
-    // _kids => kids
-    // _ident => semanticIdent
-    // [':result'] => latched.result
-    if (!definerLog || !definerLog._kids)
+    if (!definerLog || !definerLog.kids)
       return summary;
-    for (var iKid = 0; iKid < definerLog._kids.length; iKid++) {
-      var testCaseLog = definerLog._kids[iKid];
+    for (var iKid = 0; iKid < definerLog.kids.length; iKid++) {
+      var testCaseLog = definerLog.kids[iKid];
       summary.tests.push({
-        name: '' + testCaseLog._ident,
-        result: testCaseLog[':result']
+        name: '' + testCaseLog.semanticIdent,
+        result: testCaseLog.latched.result
       });
     }
   }
@@ -883,10 +880,11 @@ function _runTestFile(testFileName, thoroughCleanup) {
         processedLog = true;
 
 console.harness('calling writeTestLog and resolving');
-        var logData = data.data;
+        var jsonStr = data.data,
+            logData = JSON.parse(jsonStr);
         // this must be done prior to the compartment getting killed
         var summary = summaryFromLoggest(testFileName, logData);
-        writeTestLog(testFileName, logData).then(function() {
+        writeTestLog(testFileName, jsonStr).then(function() {
           console.harness('write completed!');
           deferred.resolve(summary);
         });
@@ -942,7 +940,7 @@ console.harness('calling writeTestLog and resolving');
   return deferred.promise;
 }
 
-function writeTestLog(testFileName, jsonnableObj) {
+function writeTestLog(testFileName, jsonStr) {
   try {
     var encoder = new TextEncoder('utf-8');
     var logFilename = testFileName + '.log';
@@ -950,7 +948,7 @@ function writeTestLog(testFileName, jsonnableObj) {
                   '/' + logFilename;
     console.harness('writing to', logPath);
     var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
-          JSON.stringify(jsonnableObj) + '\n' +
+          jsonStr + '\n' +
           '##### LOGGEST-TEST-RUN-END #####\n';
     var arr = encoder.encode(str);
     return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });

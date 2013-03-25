@@ -5,13 +5,23 @@ define(function() {
     //dump('ConfigParser: ' + str + '\n');
   }
 
+  function nsResolver(prefix) {
+    var baseUrl = 'http://schemas.microsoft.com/exchange/autodiscover/';
+    var ns = {
+      rq: baseUrl + 'mobilesync/requestschema/2006',
+      ad: baseUrl + 'responseschema/2006',
+      ms: baseUrl + 'mobilesync/responseschema/2006',
+    };
+    return ns[prefix] || null;
+  }
+
   function parseAccountCommon(uid, cmd, text) {
     var doc = new DOMParser().parseFromString(text, 'text/xml');
     var getNode = function(xpath, rel) {
       return doc.evaluate(xpath, rel || doc, null,
                           XPathResult.FIRST_ORDERED_NODE_TYPE, null)
                             .singleNodeValue;
-    }
+    };
 
     var provider = getNode('/clientConfig/emailProvider');
     // Get the first incomingServer we can use (we assume first == best).
@@ -51,7 +61,7 @@ define(function() {
       status = 'no-incoming';
     }
 
-    self.onmessage(uid, cmd, [config, status]);
+    self.sendMessage(uid, cmd, [config, status]);
   }
 
   function parseActiveSyncAccount(uid, cmd, text) {
@@ -61,19 +71,19 @@ define(function() {
       return doc.evaluate(xpath, rel, nsResolver,
                           XPathResult.FIRST_ORDERED_NODE_TYPE, null)
                   .singleNodeValue;
-    }
+    };
     var getNodes = function(xpath, rel) {
       return doc.evaluate(xpath, rel, nsResolver,
                           XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
-    }
+    };
     var getString = function(xpath, rel) {
       return doc.evaluate(xpath, rel, nsResolver, XPathResult.STRING_TYPE,
                           null).stringValue;
-    }
+    };
 
     var postResponse = function(error, config, redirectedEmail) {
-      self.onmessage(uid, cmd, [config, error, redirectedEmail]);
-    }
+      self.sendMessage(uid, cmd, [config, error, redirectedEmail]);
+    };
 
     var error = null;
     if (doc.documentElement.tagName === 'parsererror') {
@@ -141,11 +151,11 @@ define(function() {
     }
 
     postResponse(null, config);
-  }
+  };
 
   var self = {
     name: 'configparser',
-    onmessage: null,
+    sendMessage: null,
     process: function(uid, cmd, args) {
       debug('process ' + cmd);
       switch (cmd) {

@@ -319,16 +319,9 @@ function MailUniverse(callAfterBigBang, testOptions) {
   // We used to try and use navigator.connection, but it's not supported on B2G,
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
-  this._bound_onConnectionChange = this._onConnectionChange.bind(this);
-  window.addEventListener('message', (function(evt) {
-    switch(evt.data.type) {
-      case 'online':
-      case 'offline':
-        this._bound_onConnectionChange();
-        break;
-    }
-  }).bind(this));
-
+  // Events for online/offline are now pushed into us externally.  They need
+  // to be bridged from the main thread anyways, so no point faking the event
+  // listener.
   this._onConnectionChange();
 
   /**

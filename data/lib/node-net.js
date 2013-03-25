@@ -29,22 +29,17 @@ var util = require('util'),
     EventEmitter = require('events').EventEmitter,
     $router = require('mailapi/worker-router');
 
-function sendMessage(cmd, uid, args, callback) {
-  if (!Array.isArray(args)) {
-    args = args ? [args] : [];
-  }
-
-  self.postMessage({ type: 'netsocket', uid: uid, cmd: cmd, args: args });
-}
-
 var routerMaker = $router.registerInstanceType('netsocket');
 
 function NetSocket(port, host, crypto) {
-  var routerInfo = routerMaker({
+  var cmdMap = {
     onopen: this._onconnect.bind(this),
     onerror: this._onerror.bind(this),
     ondata: this._ondata.bind(this),
     onclose: this._onclose.bind(this)
+  };
+  var routerInfo = routerMaker.register(function(data) {
+    cmdMap[data.cmd]({ data: data.args[0] });
   });
   this._sendMessage = routerInfo.sendMessage;
   this._unregisterWithRouter = routerInfo.unregister;
@@ -63,10 +58,10 @@ NetSocket.prototype.setTimeout = function() {
 NetSocket.prototype.setKeepAlive = function(shouldKeepAlive) {
 };
 NetSocket.prototype.write = function(buffer) {
-  sendMessage('write', this.uid, [buffer]);
+  this._sendMessage('write', [buffer]);
 };
 NetSocket.prototype.end = function() {
-  sendMessage('end', this.uid);
+  this._sendMessage('end');
   this.destroyed = true;
   this._unregisterWithRouter();
 };

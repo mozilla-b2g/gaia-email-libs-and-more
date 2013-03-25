@@ -4,12 +4,27 @@ var listeners = {};
 
 function receiveMessage(evt) {
   var data = evt.data;
+dump('\x1b[37mw <= m: recv: '+data.type+' '+data.uid+' '+data.cmd +'\x1b[0m\n');
   var listener = listeners[data.type];
   if (listener)
     listener(data);
 }
 
 window.addEventListener('message', receiveMessage);
+
+
+function unregister(type) {
+  delete listeners[type];
+}
+
+function registerSimple(type, callback) {
+  listeners[type] = callback;
+
+  return function sendSimpleMessage(cmd, args) {
+    dump('\x1b[34mw => m: send: ' + type + ' null ' + cmd + '\x1b[0m\n');
+    window.postMessage({ type: type, uid: null, cmd: cmd, args: args });
+  };
+}
 
 /**
  * Register a message type that allows sending messages that may expect a return
@@ -23,25 +38,22 @@ function registerCallbackType(type) {
       return;
     delete callbacks[data.uid];
 
-    dump(type + ": receiveMessage fire callback\n");
     callback.apply(callback, data.args);
   };
   var callbacks = {};
   var uid = 0;
 
-  return {
-    sendMessage: function sendCallbackMessage(cmd, args, callback) {
-      if (callback) {
-        callbacks[uid] = callback;
-      }
+  return function sendCallbackMessage(cmd, args, callback) {
+    if (callback) {
+      callbacks[uid] = callback;
+    }
 
-      if (!Array.isArray(args)) {
-        args = args ? [args] : [];
-      }
+    if (!Array.isArray(args)) {
+      args = args ? [args] : [];
+    }
 
-      dump(type + ": sendMessage " + cmd + "\n");
-      window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
-    },
+    dump('\x1b[34mw => m: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
+    window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
   };
 }
 
@@ -51,28 +63,28 @@ function registerCallbackType(type) {
  */
 function registerInstanceType(type) {
   var uid = 0;
-  var uidMapping = {};
+  var instanceMap = {};
   listeners[type] = function receiveInstanceMessage(data) {
-    var cmdMapping = uidMapping[data.uid];
-    if (!cmdMapping)
+    var instanceListener = instanceMap[data.uid];
+    if (!instanceListener)
       return;
-    var callback = cmdMapping[data.cmd];
-    // The argument here is pretty specific to node-net's current structure...
-    callback.call(callback, { data: data.args[0] });
+
+    instanceListener(data);
   };
 
   return {
-    register: function(cmdMapping) {
+    register: function(instanceListener) {
       var thisUid = uid++;
-      uidMapping[thisUid] = cmdMapping;
+      instanceMap[thisUid] = instanceListener;
 
       return {
         sendMessage: function sendInstanceMessage(cmd, args) {
+dump('\x1b[34mw => m: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
           window.postMessage({ type: type, uid: thisUid,
                                cmd: cmd, args: args });
         },
         unregister: function unregisterInstance() {
-          delete uidMapping[thisUid];
+          delete instanceMap[thisUid];
         }
       };
     },
@@ -85,8 +97,10 @@ function shutdown() {
 }
 
 return {
+  registerSimple: registerSimple,
   registerCallbackType: registerCallbackType,
   registerInstanceType: registerInstanceType,
+  unregister: unregister,
   shutdown: shutdown
 };
 

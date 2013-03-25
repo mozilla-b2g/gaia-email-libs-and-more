@@ -5,30 +5,24 @@ define(function() {
     dump('MailDB: ' + str + '\n');
   }
 
-  var callback = function(uid, cmd, args) {
-    debug(uid + " : " + cmd + " : " + args);
-    self.onmessage(uid, cmd, args);
-  }
-
   var db = null;
   function open(uid, cmd, args) {
     db = new MailDB(args[0], function() {
-      callback(uid, cmd, Array.prototype.slice.call(arguments));
+      self.sendMessage(uid, cmd, Array.prototype.slice.call(arguments));
     });
   }
 
   function others(uid, cmd, args) {
     args.push(function() {
-      callback(uid, cmd, Array.prototype.slice.call(arguments));
+      self.sendMessage(uid, cmd, Array.prototype.slice.call(arguments));
     });
     db[cmd].apply(db, args);
   }
 
   var self = {
     name: 'maildb',
-    onmessage: null,
+    sendMessage: null,
     process: function(uid, cmd, args) {
-      debug('process ' + cmd);
       switch (cmd) {
         case 'open':
           open(uid, cmd, args);
@@ -42,11 +36,11 @@ define(function() {
 
 var IndexedDB;
 if (("indexedDB" in window) && window.indexedDB) {
-  IndexedDB = self.indexedDB;
+  IndexedDB = window.indexedDB;
 } else if (("mozIndexedDB" in window) && window.mozIndexedDB) {
-  IndexedDB = self.mozIndexedDB;
-} else if (("webkitIndexedDB" in self) && self.webkitIndexedDB) {
-  IndexedDB = self.webkitIndexedDB;
+  IndexedDB = window.mozIndexedDB;
+} else if (("webkitIndexedDB" in window) && window.webkitIndexedDB) {
+  IndexedDB = window.webkitIndexedDB;
 } else {
   console.error("No IndexedDB!");
   throw new Error("I need IndexedDB; load me in a content page universe!");

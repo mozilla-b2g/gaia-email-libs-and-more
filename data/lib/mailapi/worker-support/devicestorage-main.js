@@ -10,17 +10,17 @@ define(function() {
     var req = deviceStorage.addNamed(blob, filename);
 
     req.onerror = function() {
-      self.onmessage(uid, cmd, false);
-    }
+      self.sendMessage(uid, cmd, false);
+    };
 
     req.onsuccess = function() {
-      self.onmessage(uid, cmd, true);
-    }
+      self.sendMessage(uid, cmd, true);
+    };
   }
 
   var self = {
     name: 'devicestorage',
-    onmessage: null,
+    sendMessage: null,
     process: function(uid, cmd, args) {
       debug('process ' + cmd);
       switch (cmd) {
@@ -29,6 +29,6 @@ define(function() {
           break;
       }
     }
-  }
+  };
   return self;
 });

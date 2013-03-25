@@ -18,7 +18,7 @@ define(function() {
 
     req.onerror = function(event) {
       debug("clearAlarms: failure.");
-    }
+    };
   }
 
   function addAlarm(time) {
@@ -57,19 +57,19 @@ define(function() {
 
   function showNotification(uid, title, body) {
     var success = function() {
-      self.onmessage(uid, 'showNotification', true);
-    }
+      self.sendMessage(uid, 'showNotification', true);
+    };
 
     var close = function() {
-      self.onmessage(uid, 'showNotification', false);
-    }
+      self.sendMessage(uid, 'showNotification', false);
+    };
 
     NotificationHelper.send(title, body, gIconUrl, success, close);
   }
 
   var self = {
     name: 'cronsyncer',
-    onmessage: null,
+    sendMessage: null,
     process: function(uid, cmd, args) {
       debug('process ' + cmd);
       switch (cmd) {
@@ -88,6 +88,6 @@ define(function() {
           break;
       }
     }
-  }
+  };
   return self;
 });

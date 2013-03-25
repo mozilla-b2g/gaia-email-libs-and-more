@@ -159,6 +159,8 @@ CustomURL.prototype = {
   }
 };
 
+var DEBUG = 0;
+
 function TestfileProtocolHandler() {
 //dump('instantiating protocol!\n');
 }
@@ -175,10 +177,13 @@ TestfileProtocolHandler.prototype = {
   allowPort: function() { return true; },
 
   newURI: function Proto_newURI(aSpec, aOriginCharset, aBaseURI) {
-//dump('newURI! ' + aSpec + ' base? ' + (aBaseURI ? aBaseURI.spec : null) + '\n');
+    if (DEBUG)
+      dump('newURI! ' + aSpec + ' base? ' + (aBaseURI ? aBaseURI.spec : null) +
+           '\n');
     if (aBaseURI) {
       let resolved = aBaseURI.resolve(aSpec);
-//dump('resolved to: ' + resolved + '\n');
+      if (DEBUG)
+        dump('resolved to: ' + resolved + '\n');
       return URI(resolved, null, null);
     }
 
@@ -191,7 +196,8 @@ TestfileProtocolHandler.prototype = {
       relPath = aURI.filePath;
     else
       relPath = aURI.path;
-//dump('trying to create channel for: ' + relPath + '\n');
+    if (DEBUG)
+      dump('trying to create channel for: ' + relPath + '\n');
     var channel = URIChannel(IOService.newFileURI(do_get_file(relPath)).spec,
                              null, null);
     channel.originalURI = aURI;

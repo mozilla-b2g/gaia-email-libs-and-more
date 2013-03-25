@@ -5,12 +5,18 @@ define(
   [
     'q',
     'mailapi/shim-sham', // needed for global mocks
+    'mailapi/worker-support/main-router',
+    // XXX Ideally we would only load this at the request of the test, but
+    // there's no real harm in always spinning this up for now.
+    'mailapi/worker-support/testhelper-main',
     'rdcommon/testdriver',
     'require'
   ],
   function(
     $Q,
     $shimsham,
+    $router,
+    $th_main,
     $td,
     require
   ) {
@@ -24,12 +30,11 @@ function consoleHelper() {
   dump(msg);
 }
 var pconsole = {
-  log: consoleHelper.bind(null, '\x1b[32mLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mERR'),
-  info: consoleHelper.bind(null, '\x1b[36mINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWAR')
+  log: consoleHelper.bind(null, '\x1b[32mMLOG'),
+  error: consoleHelper.bind(null, '\x1b[31mMERR'),
+  info: consoleHelper.bind(null, '\x1b[36mMINF'),
+  warn: consoleHelper.bind(null, '\x1b[33mMWAR')
 };
-
 
 function getEnv(locSource) {
   if (locSource === undefined)
@@ -56,91 +61,49 @@ console.warn('locSource.location.search', locSource.location.search);
 
 var SUPER_DEBUG = consoleHelper.bind(null, '\x1b[35mTEST');
 
-var ErrorTrapper = {
-  _trappedErrors: null,
-  _handlerCallback: null,
-  /**
-   * Express interest in errors.
-   */
-  trapErrors: function() {
-    this._trappedErrors = [];
-  },
-  callbackOnError: function(handler) {
-    this._handlerCallback = handler;
-    this._trappedErrors = [];
-  },
-  yoAnError: function(err, moduleName) {
-    if (this._trappedErrors == null || SUPER_DEBUG) {
-      console.error("==== REQUIREJS ERR ====", moduleName);
-      console.error(err.message);
-      console.error(err.stack);
-    }
-    if (this._handlerCallback)
-      this._handlerCallback(err, moduleName);
-    else if (this._trappedErrors)
-      this._trappedErrors.push(err);
-  },
-  gobbleAndStopTrappingErrors: function() {
-    this._handlerCallback = null;
-    var errs = this._trappedErrors;
-    this._trappedErrors = null;
-    return errs;
-  },
-
-  _listenerMap: {
-    exit: null,
-    uncaughtException: null,
-  },
-  on: function(name, listener) {
-    this._listenerMap[name] = listener;
-  },
-  once: function(name, listener) {
-    this._listenerMap[name] = function(data) {
-      listener(data);
-      ErrorTrapper.removeListener(name);
-    };
-  },
-  removeListener: function(name) {
-    this._listenerMap[name] = null;
-  },
-  reliableOutput: print,
-
-  fire: function(name, data) {
-    if (!this._listenerMap[name])
-      return;
-    console.log('firing', name, data);
-    this._listenerMap[name](data);
-  },
-
-};
-window.ErrorTrapper = ErrorTrapper;
-requirejs.onError = ErrorTrapper.yoAnError.bind(ErrorTrapper);
-
 var env = getEnv();
 
 // does not include a trailing '.js'!
 var testModuleName = 'tests/' + env.testName;
-console.log('requiring module:', testModuleName);
 var testParams = env.testParams ? JSON.parse(env.testParams) : {};
-console.warn('fakeParent?', window.parent.fakeParent);
-$td.runTestsFromModule(
-  testModuleName,
-  {
-    exposeToTest: testParams,
-    resultsReporter: function(jsonnableObj) {
-      console.log('Got results! posting message. fake parent?:',
-                  window.parent.fakeParent);
+
+var loggestRouterModule = {
+  name: 'loggest-runner',
+  sendMessage: null,
+  process: function(uid, cmd, args) {
+    if (cmd === 'ready') {
+      console.log('Got ready message, sending test information back.');
+      this.sendMessage(
+        null, 'run',
+        {
+          testModuleName: testModuleName,
+          testParams: testParams
+        });
+    }
+    else if (cmd === 'done') {
+       console.log('Got results! posting message. fake parent?:',
+                   window.parent.fakeParent);
       // Save off the log just in case there was a race about clobbering
       // window.parent.
       window.logResultsMsg = {
         type: 'loggest-test-results',
-        data: jsonnableObj
+        data: args
       };
 
       window.parent.postMessage(window.logResultsMsg, '*');
     }
-  },
-  ErrorTrapper,
-  SUPER_DEBUG);
+  }
+};
+$router.register(loggestRouterModule);
+
+requirejs.onError = function rjsError(err) {
+  console.warn('relaying error:', err);
+  loggestRouterModule.sendMessage(
+    null, 'error',
+    { name: err.name, message: err.message, stack: err.stack });
+};
+
+var worker = new Worker('/test/worker-bootstrap.js');
+$router.useWorker(worker);
 
 }); // end define
