@@ -217,6 +217,16 @@ ImapJobDriver.prototype = {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
     storage.runMutexed(label, function(releaseMutex) {
+      // When we release the mutex, the folder may not release its connection,
+      // so be sure to clear the deathback.  We are slightly abusing the mutex
+      // releasing mutex mechanism here.  And we do want to do this before
+      // calling the actual mutex releaser since we might otherwise interact
+      // with someone else who just acquired the mutex, (only) theoretically.
+      if (needConn) {
+        self._heldMutexReleasers.push(function() {
+          syncer.folderConn._deathback = null;
+        });
+      }
       self._heldMutexReleasers.push(releaseMutex);
       var syncer = storage.folderSyncer;
       if (needConn && !syncer.folderConn._conn) {
@@ -224,6 +234,8 @@ ImapJobDriver.prototype = {
       }
       else {
         try {
+          if (needConn)
+            syncer.folderConn._deathback = deathback;
           callback(syncer.folderConn, storage);
         }
         catch (ex) {

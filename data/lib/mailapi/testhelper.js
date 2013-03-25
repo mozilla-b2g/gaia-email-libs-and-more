@@ -389,10 +389,11 @@ var TestCommonAccountMixins = {
    * ]
    */
   expect_headerChanges: function(viewThing, expected, expectedFlags,
-                                 completeCheckOn) {
+                                 completeCheckOn, extraFlags) {
     this.RT.reportActiveActorThisStep(this);
 
-    var changeMap = {}, self = this;
+    var changeMap = {}, self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
     // - generate expectations and populate changeMap
     var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
     if (expected.hasOwnProperty('additions') && expected.additions) {
@@ -421,7 +422,8 @@ var TestCommonAccountMixins = {
     if (expectedFlags)
       this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
                              expectedFlags.growUp || false,
-                             expectedFlags.grow, 'synced');
+                             expectedFlags.grow,
+                             isFailure ? 'syncfailed' : 'synced');
 
     // - listen for the changes
     var additionRep = {}, changeRep = {}, deletionRep = {},
@@ -507,6 +509,9 @@ var TestCommonAccountMixins = {
                                  expectedFlags, extraFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
+
       // we want this before _expect_dateSyncs because _expect_dateSyncs updates
       // testFolder.initialSynced to be true, which affects this method.
       self._expect_storage_mutexed(viewThing.testFolder, 'refresh', extraFlags);
@@ -514,7 +519,8 @@ var TestCommonAccountMixins = {
       var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
                                                  null, 0);
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags, null,
+                                extraFlags);
 
       viewThing.slice.refresh();
     });
@@ -1660,7 +1666,7 @@ var TestImapAccountMixins = {
       self.expect_headerChanges(
         viewThing,
         { additions: expectedMessages, changes: [], deletions: [] },
-        expectedFlags);
+        expectedFlags, null, extraFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
     });
   },
