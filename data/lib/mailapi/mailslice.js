@@ -3502,11 +3502,17 @@ FolderStorage.prototype = {
    * Retrieve multiple message headers.
    */
   getMessageHeaders: function ifs_getMessageHeaders(namers, callback) {
+    var pending = namers.length;
+
     var headers = [];
     var gotHeader = function gotHeader(header) {
-      headers.push(header);
-      if (headers.length === namers.length)
+      if (header) {
+        headers.push(header);
+      }
+
+      if (!--pending) {
         callback(headers);
+      }
     };
     for (var i = 0; i < namers.length; i++) {
       var namer = namers[i];
