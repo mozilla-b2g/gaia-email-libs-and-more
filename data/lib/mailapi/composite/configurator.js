@@ -125,7 +125,7 @@ exports.configurator = {
     };
 
     this._loadAccount(universe, accountDef,
-                      oldAccountInfo.folderInfo, function (account) {
+                      oldAccountInfo.folderInfo, null, function (account) {
       callback(null, account, null);
     });
   },
