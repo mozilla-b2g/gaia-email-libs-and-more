@@ -521,6 +521,41 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Currently IMAP will fetch the contents and then notify the client via an
+   * update event where as AS sends everything at once... This may be change
+   * soon but this provides a wrapper to wait for the bodies .onchange event for
+   * the bodyReps if they are not downloaded at the time...
+   *
+   *    var myHeader;
+   *
+   *    testAccount.getMessageBodyWithReps(myHeader, function(body) {
+   *
+   *    });
+   *
+   *
+   */
+  getMessageBodyWithReps: function(myHeader, callback) {
+    myHeader.getBody({ downloadBodyReps: true }, function(body) {
+      myBody = body;
+      // wait for all body reps if they are not here...
+      var needBodReps = body.bodyReps.some(function(item) {
+        return !item.isDownloaded;
+      });
+
+      if (needBodReps) {
+        body.onchange = function(evt) {
+          if (evt.changeType === 'bodyReps') {
+            callback(body);
+          }
+        };
+
+      } else {
+        callback(body);
+      }
+    });
+  },
+
+  /**
    * Expect that a mutex operation will be run on the provided storageActor of
    * the given type.  Ignore block load and deletion notifications during this
    * time.
@@ -687,6 +722,18 @@ var TestFolderMixins = {
 
     this._approxMessageCount = 0;
     this._liveSliceThings = [];
+  },
+
+  serverMessageContent: function(guid, idx) {
+    var rep;
+    var msgs = this.serverMessages;
+
+    for (var i = 0; i < msgs.length; i++) {
+      var msg = msgs[i];
+      if (msg.headerInfo.guid === guid) {
+        return msg.bodyInfo.bodyReps[idx || 0].content;
+      }
+    }
   },
 
   /**
@@ -992,7 +1039,6 @@ var TestImapAccountMixins = {
     });
     return testFolder;
   },
-
 
   /**
    * @args[

@@ -266,6 +266,12 @@ function MailHeader(slice, wireRep) {
   this.author = wireRep.author;
 
   this.date = new Date(wireRep.date);
+
+  this.to = wireRep.to;
+  this.cc = wireRep.cc;
+  this.bcc = wireRep.bcc;
+  this.replyTo = wireRep.replyTo;
+
   this.__update(wireRep);
   this.hasAttachments = wireRep.hasAttachments;
 
@@ -291,6 +297,9 @@ MailHeader.prototype = {
   },
 
   __update: function(wireRep) {
+    if (wireRep.snippet)
+      this.snippet = wireRep.snippet;
+
     this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
     this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
     this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
@@ -347,8 +356,12 @@ MailHeader.prototype = {
    * Request the `MailBody` instance for this message, passing it to the
    * provided callback function once retrieved.
    */
-  getBody: function(callback) {
-    this._slice._api._getBodyForMessage(this, callback);
+  getBody: function(options, callback) {
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+    this._slice._api._getBodyForMessage(this, options, callback);
   },
 
   /**
@@ -443,15 +456,12 @@ MailMatchedHeader.prototype = {
  * management to worry about.  However, you should keep the `MailHeader` alive
  * and worry about its lifetime since the message can get deleted, etc.
  */
-function MailBody(api, suid, wireRep) {
+function MailBody(api, suid, wireRep, handle) {
   this._api = api;
   this.id = suid;
   this._date = wireRep.date;
+  this._handle = handle;
 
-  this.to = wireRep.to;
-  this.cc = wireRep.cc;
-  this.bcc = wireRep.bcc;
-  this.replyTo = wireRep.replyTo;
   this.attachments = null;
   if (wireRep.attachments) {
     this.attachments = [];
@@ -463,6 +473,9 @@ function MailBody(api, suid, wireRep) {
   this._relatedParts = wireRep.relatedParts;
   this.bodyReps = wireRep.bodyReps;
   this._cleanup = null;
+
+  this.onchange = null;
+  this.ondead = null;
 }
 MailBody.prototype = {
   toString: function() {
@@ -483,6 +496,21 @@ MailBody.prototype = {
     if (!this._relatedParts)
       return 0;
     return this._relatedParts.length;
+  },
+
+  /**
+   * true if all the bodyReps are downloaded.
+   */
+  get bodyRepsDownloaded() {
+    var i = 0;
+    var len = this.bodyReps.length;
+
+    for (; i < len; i++) {
+      if (!this.bodyReps[i].isDownloaded) {
+        return false;
+      }
+    }
+    return true;
   },
 
   /**
@@ -603,7 +631,16 @@ MailBody.prototype = {
       this._cleanup();
       this._cleanup = null;
     }
-  },
+
+    // Remember to cleanup event listeners except ondead!
+    this.onchange = null;
+
+    this._api.__bridgeSend({
+      type: 'killBody',
+      id: this.id,
+      handle: this._handle
+    });
+  }
 };
 
 /**
@@ -922,6 +959,9 @@ FoldersViewSlice.prototype.getFirstFolderWithName = function(name, items) {
 
 function HeadersViewSlice(api, handle) {
   BridgedViewSlice.call(this, api, 'headers', handle);
+
+  this._snippetRequestId = 1;
+  this._snippetRequests = {};
 }
 HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 /**
@@ -937,6 +977,51 @@ HeadersViewSlice.prototype.refresh = function() {
       type: 'refreshHeaders',
       handle: this._handle
     });
+};
+
+HeadersViewSlice.prototype._notifyRequestSnippetsComplete = function(reqId) {
+  var callback = this._snippetRequests[reqId];
+  if (reqId && callback) {
+    callback(true);
+    delete this._snippetRequests[reqId];
+  }
+};
+
+/**
+ * Request snippets for range of headers in the slice.
+ *
+ *    // start/end inclusive
+ *    slice.maybeRequestSnippets(5, 10);
+ *
+ * The results will be sent through the standard slice/header events.
+ */
+HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, callback) {
+  var messages = [];
+
+  idxEnd = Math.min(idxEnd, this.items.length - 1);
+
+  for (; idxStart <= idxEnd; idxStart++) {
+    if (this.items[idxStart] && !this.items[idxStart].snippet) {
+      messages.push({
+        suid: this.items[idxStart].id,
+        // backend does not care about Date objects
+        date: this.items[idxStart].date.valueOf()
+      });
+    }
+  }
+
+  if (!messages.length)
+    return callback && window.setZeroTimeout(callback, false);
+
+  var reqId = this._snippetRequestId++;
+  this._snippetRequests[reqId] = callback;
+
+  this._api.__bridgeSend({
+    type: 'requestSnippets',
+    handle: this._handle,
+    requestId: reqId,
+    messages: messages
+  });
 };
 
 
@@ -1200,6 +1285,7 @@ function MailAPI() {
 
   this._slices = {};
   this._pendingRequests = {};
+  this._liveBodies = {};
 
   /**
    * @dict[
@@ -1454,18 +1540,26 @@ MailAPI.prototype = {
     slice.ondead = null;
   },
 
-  _getBodyForMessage: function(header, callback) {
+  _getBodyForMessage: function(header, options, callback) {
+
+    var downloadBodyReps = false;
+
+    if (options && options.downloadBodyReps) {
+      downloadBodyReps = options.downloadBodyReps;
+    }
+
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'getBody',
       suid: header.id,
-      callback: callback,
+      callback: callback
     };
     this.__bridgeSend({
       type: 'getBody',
       handle: handle,
       suid: header.id,
       date: header.date.valueOf(),
+      downloadBodyReps: downloadBodyReps
     });
   },
 
@@ -1477,8 +1571,56 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    var body = msg.bodyInfo ? new MailBody(this, req.suid, msg.bodyInfo) : null;
+    var body = msg.bodyInfo ?
+      new MailBody(this, req.suid, msg.bodyInfo, msg.handle) :
+      null;
+
+    if (body) {
+      this._liveBodies[msg.handle] = body;
+    }
+
     req.callback.call(null, body);
+  },
+
+  _recv_requestSnippetsComplete: function(msg) {
+    var slice = this._slices[msg.handle];
+    slice._notifyRequestSnippetsComplete(msg.requestId);
+  },
+
+  _recv_bodyModified: function(msg) {
+    var body = this._liveBodies[msg.handle];
+
+    if (!body) {
+      unexpectedBridgeDataError('body modified for dead handle', msg.handle);
+      // possible but very unlikely race condition where body is modified while
+      // we are removing the reference to the observer...
+      return;
+    }
+
+    if (body.onchange) {
+      // there may be many kinds of updates we want to support but we only
+      // support updating the bodyReps reference currently.
+      switch (msg.detail.changeType) {
+        case 'bodyReps':
+          body.bodyReps = msg.bodyInfo.bodyReps;
+          break;
+      }
+
+      body.onchange(
+        msg.detail,
+        msg.bodyInfo
+      );
+    }
+  },
+
+  _recv_bodyDead: function(msg) {
+    var body = this._liveBodies[msg.handle];
+
+    if (body && body.ondead) {
+      body.ondead();
+    }
+
+    delete this._liveBodies[msg.handle];
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,

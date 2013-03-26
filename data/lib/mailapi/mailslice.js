@@ -2017,8 +2017,9 @@ FolderStorage.prototype = {
       if (serverIdBlockMapping && srvid)
         serverIdBlockMapping[srvid] = info.blockId;
 
-      if (blockPickedCallback)
+      if (blockPickedCallback) {
         blockPickedCallback(info, block);
+      }
     }
 
     if (blockMap.hasOwnProperty(info.blockId))
@@ -3452,6 +3453,57 @@ FolderStorage.prototype = {
   },
 
   /**
+   * Retrieve a full message (header/body) by suid & date. If either the body or
+   * header is not present res will be null.
+   *
+   *    folderStorage.getMessage(suid, date, function(res) {
+   *      if (!res) {
+   *        // don't do anything
+   *      }
+   *
+   *      res.header;
+   *      res.body;
+   *    });
+   *
+   */
+  getMessage: function(suid, date, options, callback) {
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = undefined;
+    }
+
+    var header;
+    var body;
+    var pending = 2;
+
+    function next() {
+      if (!--pending) {
+        if (!body || !header) {
+          return callback(null);
+        }
+
+        callback({ header: header, body: body });
+      }
+    }
+
+    this.getMessageHeader(suid, date, function(_header) {
+      header = _header;
+      next();
+    });
+
+    var gotBody = function gotBody(_body) {
+      body = _body;
+      next();
+    };
+
+    if (options && options.withBodyReps) {
+      this.getMessageBodyWithReps(suid, date, gotBody);
+    } else {
+      this.getMessageBody(suid, date, gotBody);
+    }
+  },
+
+  /**
    * Retrieve a message header by its SUID and date; you would do this if you
    * only had the SUID and date, like in a 'job'.
    */
@@ -3637,9 +3689,6 @@ FolderStorage.prototype = {
 
         self._LOG.updateMessageHeader(header.date, header.id, header.srvid);
 
-        if (partOfSync && self._curSyncSlice &&
-            !self._curSyncSlice.ignoreHeaders)
-          self._curSyncSlice.onHeaderAdded(header, false, false);
         if (self._slices.length > (self._curSyncSlice ? 1 : 0)) {
           for (var iSlice = 0; iSlice < self._slices.length; iSlice++) {
             var slice = self._slices[iSlice];
@@ -3875,13 +3924,16 @@ FolderStorage.prototype = {
     function sizifyBodyReps(reps) {
       if (!reps)
         return;
+
+
       sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
-      for (var i = 0; i < reps.length; i += 2) {
-        var type = reps[i], rep = reps[i + 1];
-        if (type === 'html')
-          sizeEst += STR_OVERHEAD_EST + rep.length;
-        else
-          sizifyBodyRep(rep);
+      for (var i = 0; i < reps.length; i++) {
+        rep = reps[i];
+        if (rep.type === 'html') {
+          sizeEst += STR_OVERHEAD_EST + rep.amountDownloaded;
+        } else {
+          rep.content && sizifyBodyRep(rep.content);
+        }
       }
     };
 
@@ -3893,15 +3945,61 @@ FolderStorage.prototype = {
       sizifyAddrs(bodyInfo.bcc);
     if (bodyInfo.replyTo)
       sizifyStr(bodyInfo.replyTo);
+
+
     sizifyAttachments(bodyInfo.attachments);
     sizifyAttachments(bodyInfo.relatedParts);
     sizifyStringList(bodyInfo.references);
     sizifyBodyReps(bodyInfo.bodyReps);
+
     bodyInfo.size = sizeEst;
 
     this._insertIntoBlockUsingDateAndUID(
       'body', header.date, header.id, header.srvid, bodyInfo.size, bodyInfo,
       callback);
+  },
+
+  /**
+   * Determines if the bodyReps of a given body have been downloaded...
+   *
+   *
+   *    storage.messageBodyRepsDownloaded(bodyInfo) => true/false
+   *
+   */
+  messageBodyRepsDownloaded: function(bodyInfo) {
+    // no reps its as close to downloaded as its going to get.
+    if (!bodyInfo.bodyReps || !bodyInfo.bodyReps.length)
+      return true;
+
+    return bodyInfo.bodyReps.every(function(rep) {
+      return rep.isDownloaded;
+    });
+  },
+
+  /**
+   * Identical to getMessageBody but will attempt to download all body reps
+   * prior to firing its callback .
+   */
+  getMessageBodyWithReps: function(suid, date, callback) {
+    var self = this;
+    // try to get the body without any magic
+    this.getMessageBody(suid, date, function(bodyInfo) {
+      if (!bodyInfo) {
+        return callback(bodyInfo);
+      }
+
+      if (self.messageBodyRepsDownloaded(bodyInfo)) {
+        return callback(bodyInfo);
+      }
+
+      // queue a job and return bodyInfo after it completes..
+      self._account.universe.downloadMessageBodyReps(suid, date,
+                                                     function(err, bodyInfo) {
+
+        // the err (if any) will be logged by the job.
+        callback(bodyInfo);
+      });
+    });
   },
 
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
@@ -3952,17 +4050,59 @@ FolderStorage.prototype = {
    * Right now it is assumed/required that this body was retrieved via
    * getMessageBody while holding a mutex so that the body block must still
    * be around in memory.
+   *
+   * Additionally the final argument allows you to send an event to any client
+   * listening for changes on a given body.
+   *
+   *    // client listening for a body change event
+   *
+   *    // ( body is a MessageBody )
+   *    body.onchange = function(detail, bodyInfo) {
+   *      // detail => { changeType: x, value: y }
+   *    };
+   *
+   *    // in the backend
+   *
+   *    storage.updateMessageBody(
+   *      header,
+   *      changedBodyInfo,
+   *      { changeType: x, value: y }
+   *    );
    */
-  updateMessageBody: function(suid, date, bodyInfo) {
-    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
-        posInfo = this._findRangeObjIndexForDateAndUID(this._bodyBlockInfos,
-                                                       date, id);
-    var bodyBlockInfo = posInfo[1],
-        block = this._bodyBlocks[bodyBlockInfo.blockId];
-    this._LOG.updateMessageBody(date, id);
-    block.bodies[id] = bodyInfo;
-    this._dirty = true;
-    this._dirtyBodyBlocks[bodyBlockInfo.blockId] = block;
+  updateMessageBody: function(header, bodyInfo, eventDetails, callback) {
+    if (typeof(eventDetails) === 'function') {
+      callback = eventDetails;
+      eventDetails = null;
+    }
+
+    // (While this method can complete synchronously, we want to maintain its
+    // perceived ordering relative to those that cannot be.)
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.updateMessageBody.bind(
+                                 this, header, bodyInfo,
+                                 eventDetails, callback));
+      return;
+    }
+
+    var suid = header.suid;
+    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1));
+    var self = this;
+
+    function bodyUpdated() {
+      if (eventDetails && self._account.universe) {
+        self._account.universe.__notifyModifiedBody(
+          suid, eventDetails, bodyInfo
+        );
+      }
+
+      if (callback) {
+        callback();
+      }
+    }
+
+    this._deleteFromBlock('body', header.date, id, function() {
+      self.addMessageBody(header, bodyInfo, bodyUpdated);
+    });
   },
 
   shutdown: function() {

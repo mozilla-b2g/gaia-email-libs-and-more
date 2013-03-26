@@ -302,9 +302,11 @@ exports.do_download = function(op, callback) {
     if (!pendingStorageWrites)
       done();
   };
+
   function done() {
-    folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-    callback(downloadErr, bodyInfo, true);
+    folderStorage.updateMessageBody(header, bodyInfo, function() {
+      callback(downloadErr, bodyInfo, true);
+    });
   };
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,
@@ -405,6 +407,9 @@ exports.allJobsDone =  function() {
  *   @param[label String]{
  *     The label to use to name the usage of the folder connection.
  *   }
+ *   @param[requireHeaders Boolean]{
+ *     True if connection & headers are needed.
+ *   }
  * ]
  */
 exports._partitionAndAccessFoldersSequentially = function(
@@ -414,7 +419,8 @@ exports._partitionAndAccessFoldersSequentially = function(
     callWhenDone,
     callOnConnLoss,
     reverse,
-    label) {
+    label,
+    requireHeaders) {
   var partitions = $util.partitionMessagesByFolderId(allMessageNamers);
   var folderConn, storage, self = this,
       folderId = null, folderMessageNamers = null, serverIds = null,
@@ -453,7 +459,7 @@ exports._partitionAndAccessFoldersSequentially = function(
     folderConn = _folderConn;
     storage = _storage;
     // - Get headers or resolve current server id from name map
-    if (needConn) {
+    if (needConn && !requireHeaders) {
       var neededHeaders = [],
           suidToServerId = self._state.suidToServerId;
       serverIds = [];

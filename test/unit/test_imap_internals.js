@@ -182,7 +182,7 @@ TD.commonCase('account persistence', function(T) {
     TF5.storageActor.expect_bodyNotFound();
     // Use the underlying method used by header.getBody since the dead header
     // is part of a dead object tree.
-    TU5.MailAPI._getBodyForMessage(deletedHeader, function(bodyInfo) {
+    TU5.MailAPI._getBodyForMessage(deletedHeader, null, function(bodyInfo) {
       eSync.namedValue('bodyInfo', bodyInfo);
     });
   });
