@@ -219,22 +219,26 @@ TD.commonCase('folder sync', function(T) {
     // Pick an index that's not the first one of anything...
     var index = 5,
         synMessage = msearchView.testFolder.knownMessages[index];
+
+    var synRep = synMessage.bodyInfo.bodyReps[0];
     eSync.expect_namedValue(
       'bodyInfo',
       {
-        to: synMessage.bodyInfo.to,
-        bodyReps: synMessage.bodyInfo.bodyReps,
+        content: synRep.content,
+        type: synRep.type,
+        length: synMessage.bodyInfo.bodyReps.length
       });
 
     var header = msearchView.slice.items[index];
-    header.getBody(function(bodyInfo) {
-      eSync.namedValue(
-        'bodyInfo',
-        bodyInfo && {
-          to: bodyInfo.to,
-          bodyReps: bodyInfo.bodyReps,
+    header.getBody({ downloadBodyReps: true }, function(bodyInfo) {
+      bodyInfo.onchange = function() {
+        eSync.namedValue('bodyInfo', {
+          content: bodyInfo.bodyReps[0].content,
+          type: bodyInfo.bodyReps[0].type,
+          length: bodyInfo.bodyReps.length
         });
-      bodyInfo.die();
+        bodyInfo.die();
+      };
     });
   });
 

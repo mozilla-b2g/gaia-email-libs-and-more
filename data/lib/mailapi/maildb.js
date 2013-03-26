@@ -34,7 +34,7 @@ else {
  * Bumping to 17 because we changed the folder representation to store
  * hierarchy.
  */
-var CUR_VERSION = exports.CUR_VERSION = 17;
+var CUR_VERSION = exports.CUR_VERSION = 18;
 
 /**
  * What is the lowest database version that we are capable of performing a

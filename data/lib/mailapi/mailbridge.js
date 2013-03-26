@@ -101,6 +101,22 @@ function MailBridge(universe) {
     headers: [],
     matchedHeaders: [],
   };
+
+  /**
+   * Observed bodies in the format of:
+   *
+   * @dictof[
+   *   @key[suid]
+   *   @value[@dictof[
+   *     @key[handleId]
+   *     @value[@oneof[Function null]]
+   *   ]]
+   * ]
+   *
+   * Similar in concept to folder slices but specific to bodies.
+   */
+  this._observedBodies = {};
+
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
   //
@@ -130,6 +146,17 @@ MailBridge.prototype = {
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
     this.universe.modifyConfig(msg.mods);
+  },
+
+  /**
+   * Public api to verify if body has observers.
+   *
+   *
+   *   MailBridge.bodyHasObservers(header.id) // => true/false.
+   *
+   */
+  bodyHasObservers: function(suid) {
+    return !!this._observedBodies[suid];
   },
 
   notifyConfig: function(config) {
@@ -355,6 +382,17 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
+  _cmd_requestSnippets: function(msg) {
+    var self = this;
+    this.universe.downloadSnippets(msg.messages, function() {
+      self.__sendMessage({
+        type: 'requestSnippetsComplete',
+        handle: msg.handle,
+        requestId: msg.requestId
+      });
+    });
+  },
+
   notifyFolderAdded: function(account, folderMeta) {
     var newMarker = makeFolderSortString(account, folderMeta);
 
@@ -393,6 +431,40 @@ MailBridge.prototype = {
         continue;
       proxy.sendSplice(idx, 1, [], false, false);
       proxy.markers.splice(idx, 1);
+    }
+  },
+
+  /**
+   * Sends a notification of a change in the body.
+   *
+   *    bridge.notifyBodyModified(
+   *      suid,
+   *      'bodyRep',
+   *      { index: 0 }
+   *      newBodyInfo
+   *    );
+   *
+   *
+   */
+  notifyBodyModified: function(suid, detail, body) {
+    var handles = this._observedBodies[suid];
+    var defaultHandler = this.__sendMessage;
+
+    if (handles) {
+      for (var handle in handles) {
+        // the suid may have an existing handler which captures the output of
+        // the notification instead of dispatching here... This allows us to
+        // aggregate pending notifications while fetching the bodies so updates
+        // never come before the actual body.
+        var emit = handles[handle] || defaultHandler;
+
+        emit.call(this, {
+          type: 'bodyModified',
+          handle: handle,
+          bodyInfo: body,
+          detail: detail
+        });
+      }
     }
   },
 
@@ -523,12 +595,71 @@ MailBridge.prototype = {
     var self = this;
     // map the message id to the folder storage
     var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.suid);
+
+    // when requesting the body we also create a observer to notify the client
+    // of events... We never want to send the updates before fetching the body
+    // so we buffer them here with a temporary handler.
+    var pendingUpdates = [];
+
+    var catchPending = function catchPending(msg) {
+      pendingUpdates.push(msg);
+    };
+
+    if (!this._observedBodies[msg.suid])
+      this._observedBodies[msg.suid] = {};
+
+    this._observedBodies[msg.suid][msg.handle] = catchPending;
+
     folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
       self.__sendMessage({
         type: 'gotBody',
         handle: msg.handle,
-        bodyInfo: bodyInfo,
+        bodyInfo: bodyInfo
       });
+
+      // if all body reps where requested we verify that all are present
+      // otherwise we begin the request for more body reps.
+      if (
+        msg.downloadBodyReps &&
+        !folderStorage.messageBodyRepsDownloaded(bodyInfo)
+      ) {
+
+        self.universe.downloadMessageBodyReps(
+          msg.suid,
+          msg.date,
+          function() { /* we don't care it will send update events */ }
+        );
+      }
+
+      // dispatch pending updates...
+      pendingUpdates.forEach(self.__sendMessage, self);
+      pendingUpdates = null;
+
+      // revert to default handler. Note! this is intentionally
+      // set to null and not deleted if deleted the observer is removed.
+      self._observedBodies[msg.suid][msg.handle] = null;
+    });
+  },
+
+  _cmd_killBody: function(msg) {
+    var handles = this._observedBodies[msg.id];
+    if (handles) {
+      delete handles[msg.handle];
+
+      var purgeHandles = true;
+      for (var key in handles) {
+        purgeHandles = false;
+        break;
+      }
+
+      if (purgeHandles) {
+        delete this._observedBodies[msg.id];
+      }
+    }
+
+    this.__sendMessage({
+      type: 'bodyDead',
+      handle: msg.handle
     });
   },
 
@@ -595,6 +726,7 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
+
   _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
     require(['./composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle] = {
@@ -613,120 +745,131 @@ MailBridge.prototype = {
 
       identity = account.identities[0];
 
-      if (msg.mode === 'reply' ||
-          msg.mode === 'forward') {
-        var folderStorage = this.universe.getFolderStorageForMessageSuid(
-                              msg.refSuid);
-        var self = this;
-        folderStorage.getMessageBody(
-          msg.refSuid, msg.refDate,
-          function(bodyInfo) {
-            if (msg.mode === 'reply') {
-              var rTo, rCc, rBcc;
-              // clobber the sender's e-mail with the reply-to
-              var effectiveAuthor = {
-                name: msg.refAuthor.name,
-                address: (bodyInfo.replyTo && bodyInfo.replyTo.address) ||
-                         msg.refAuthor.address,
-              };
-              switch (msg.submode) {
-                case 'list':
-                  // XXX we can't do this without headers we're not retrieving,
-                  // fall through for now.
-                case null:
-                case 'sender':
-                  rTo = [effectiveAuthor];
-                  rCc = rBcc = [];
-                  break;
-                case 'all':
-                  // No need to change the lists if the author is already on the
-                  // reply lists.
-                  //
-                  // nb: Our logic here is fairly simple; Thunderbird's
-                  // nsMsgCompose.cpp does a lot of checking that we should
-                  // audit, although much of it could just be related to its
-                  // much more extensive identity support.
-                  if (checkIfAddressListContainsAddress(bodyInfo.to,
-                                                        effectiveAuthor) ||
-                      checkIfAddressListContainsAddress(bodyInfo.cc,
-                                                        effectiveAuthor)) {
-                    rTo = bodyInfo.to;
-                  }
-                  // add the author as the first 'to' person
-                  else {
-                    if (bodyInfo.to && bodyInfo.to.length)
-                      rTo = [effectiveAuthor].concat(bodyInfo.to);
-                    else
-                      rTo = [effectiveAuthor];
-                  }
-                  rCc = bodyInfo.cc;
-                  rBcc = bodyInfo.bcc;
-                  break;
-              }
-
-              var referencesStr;
-              if (bodyInfo.references) {
-                referencesStr = bodyInfo.references.concat([msg.refGuid])
-                                  .map(function(x) { return '<' + x + '>'; })
-                                  .join(' ');
-              }
-              else {
-                referencesStr = '<' + msg.refGuid + '>';
-              }
-              self.__sendMessage({
-                type: 'composeBegun',
-                handle: msg.handle,
-                identity: identity,
-                subject: $composer.mailchew
-                           .generateReplySubject(msg.refSubject),
-                // blank lines at the top are baked in
-                body: $composer.mailchew.generateReplyBody(
-                        bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
-                        identity, msg.refGuid),
-                to: rTo,
-                cc: rCc,
-                bcc: rBcc,
-                referencesStr: referencesStr,
-                attachments: [],
-              });
-            }
-            else {
-              self.__sendMessage({
-                type: 'composeBegun',
-                handle: msg.handle,
-                identity: identity,
-                subject: 'Fwd: ' + msg.refSubject,
-                // blank lines at the top are baked in by the func
-                body: $composer.mailchew.generateForwardMessage(
-                        msg.refAuthor, msg.refDate, msg.refSubject,
-                        bodyInfo, identity),
-                // forwards have no assumed envelope information
-                to: [],
-                cc: [],
-                bcc: [],
-                // XXX imitate Thunderbird current or previous behaviour; I
-                // think we ended up linking forwards into the conversation
-                // they came from, but with an extra header so that it was
-                // possible to detect it was a forward.
-                references: null,
-                attachments: [],
-              });
-            }
-          });
-        return;
+      // not doing something that needs a body just return an empty composer.
+      if (msg.mode !== 'reply' && msg.mode !== 'forward') {
+        return this.__sendMessage({
+          type: 'composeBegun',
+          handle: msg.handle,
+          identity: identity,
+          subject: '',
+          body: { text: '', html: null },
+          to: [],
+          cc: [],
+          bcc: [],
+          references: null,
+          attachments: [],
+        });
       }
 
-      this.__sendMessage({
-        type: 'composeBegun',
-        handle: msg.handle,
-        identity: identity,
-        subject: '',
-        body: { text: '', html: null },
-        to: [],
-        cc: [],
-        bcc: [],
-        references: null,
-        attachments: [],
+      var folderStorage =
+        this.universe.getFolderStorageForMessageSuid(msg.refSuid);
+
+      var self = this;
+      folderStorage.getMessage(
+        msg.refSuid, msg.refDate, { withBodyReps: true }, function(res) {
+
+        if (!res) {
+          // cannot compose a reply/fwd message without a header/body
+          return console.warn(
+            'Cannot compose message missing header/body: ',
+            msg.suid
+          );
+        }
+
+        var header = res.header;
+        var bodyInfo = res.body;
+
+        if (msg.mode === 'reply') {
+          var rTo, rCc, rBcc;
+          // clobber the sender's e-mail with the reply-to
+          var effectiveAuthor = {
+            name: msg.refAuthor.name,
+            address: (header.replyTo && header.replyTo.address) ||
+                     msg.refAuthor.address,
+          };
+          switch (msg.submode) {
+            case 'list':
+              // XXX we can't do this without headers we're not retrieving,
+              // fall through for now.
+            case null:
+            case 'sender':
+              rTo = [effectiveAuthor];
+              rCc = rBcc = [];
+              break;
+            case 'all':
+              // No need to change the lists if the author is already on the
+              // reply lists.
+              //
+              // nb: Our logic here is fairly simple; Thunderbird's
+              // nsMsgCompose.cpp does a lot of checking that we should
+              // audit, although much of it could just be related to its
+              // much more extensive identity support.
+              if (checkIfAddressListContainsAddress(header.to,
+                                                    effectiveAuthor) ||
+                  checkIfAddressListContainsAddress(header.cc,
+                                                    effectiveAuthor)) {
+                rTo = header.to;
+              }
+              // add the author as the first 'to' person
+              else {
+                if (header.to && header.to.length)
+                  rTo = [effectiveAuthor].concat(header.to);
+                else
+                  rTo = [effectiveAuthor];
+              }
+              rCc = header.cc;
+              rBcc = header.bcc;
+              break;
+          }
+
+          var referencesStr;
+          if (bodyInfo.references) {
+            referencesStr = bodyInfo.references.concat([msg.refGuid])
+                              .map(function(x) { return '<' + x + '>'; })
+                              .join(' ');
+          }
+          else {
+            referencesStr = '<' + msg.refGuid + '>';
+          }
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            identity: identity,
+            subject: $composer.mailchew
+                       .generateReplySubject(msg.refSubject),
+            // blank lines at the top are baked in
+            body: $composer.mailchew.generateReplyBody(
+                    bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
+                    identity, msg.refGuid),
+            to: rTo,
+            cc: rCc,
+            bcc: rBcc,
+            referencesStr: referencesStr,
+            attachments: [],
+          });
+        }
+        else {
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            identity: identity,
+            subject: 'Fwd: ' + msg.refSubject,
+            // blank lines at the top are baked in by the func
+            body: $composer.mailchew.generateForwardMessage(
+                    msg.refAuthor, msg.refDate, msg.refSubject,
+                    header, bodyInfo, identity),
+            // forwards have no assumed envelope information
+            to: [],
+            cc: [],
+            bcc: [],
+            // XXX imitate Thunderbird current or previous behaviour; I
+            // think we ended up linking forwards into the conversation
+            // they came from, but with an extra header so that it was
+            // possible to detect it was a forward.
+            references: null,
+            attachments: [],
+          });
+        }
       });
     }.bind(this));
   },
