@@ -260,9 +260,10 @@ Autoconfigurator.prototype = {
           return;
         }
         self.removeEventListener(evt.type, onworkerresponse);
-        var args = data.args; 
+        var args = data.args;
         var config = args[0], status = args[1];
-        callback(config ? null : 'no-config-info', config, { status: status });
+        callback(config ? null : 'no-config-info', config,
+                 config ? null : { status: status });
       });
     };
 

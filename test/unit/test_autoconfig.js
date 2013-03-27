@@ -11,7 +11,7 @@ define(['rdcommon/testcontext', 'mailapi/testhelper',
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_autoconfig' }, null, [$th_imap.TESTHELPER], ['app']);
 
-const goodImapXML =
+var goodImapXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
     '<incomingServer type="imap">' +
@@ -30,7 +30,7 @@ const goodImapXML =
     '</outgoingServer>' +
   '</emailProvider></clientConfig>';
 
-const goodImapConfig = {
+var goodImapConfig = {
   type: 'imap+smtp',
   incoming: {
     hostname: 'imap.xampl.tld',
@@ -48,9 +48,9 @@ const goodImapConfig = {
   },
 };
 
-const unsafeImapXML = goodImapXML.replace('SSL', 'plain', 'g');
+var unsafeImapXML = goodImapXML.replace('SSL', 'plain', 'g');
 
-const goodActivesyncXML =
+var goodActivesyncXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
     '<incomingServer type="activesync">' +
@@ -59,9 +59,9 @@ const goodActivesyncXML =
     '</incomingServer>' +
   '</emailProvider></clientConfig>';
 
-const MXtext = 'mx-xampl.tld';
+var MXtext = 'mx-xampl.tld';
 
-const goodActivesyncConfig = {
+var goodActivesyncConfig = {
   type: 'activesync',
   incoming: {
     server: 'https://m.xampl.tld/',
@@ -71,7 +71,7 @@ const goodActivesyncConfig = {
   },
 };
 
-const goodActivesyncAutodiscoverConfig = {
+var goodActivesyncAutodiscoverConfig = {
   type: 'activesync',
   displayName: 'DISPLAYNAME',
   incoming: {
@@ -81,7 +81,7 @@ const goodActivesyncAutodiscoverConfig = {
 };
 
 
-const goodActivesyncAutodiscoverXML =
+var goodActivesyncAutodiscoverXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<ad:Autodiscover ' +
     'xmlns:ad="http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006" ' +
@@ -102,7 +102,7 @@ const goodActivesyncAutodiscoverXML =
     '</ms:Response>' +
   '</ad:Autodiscover>';
 
-const gibberishXML = '<xml>I NOT GOOD XML</xml>';
+var gibberishXML = '<xml>I NOT GOOD XML</xml>';
 
 function expectXHRs(lazy, xhrs) {
   var iServiced = 0;
