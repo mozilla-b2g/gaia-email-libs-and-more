@@ -68,11 +68,13 @@ TD.commonCase('message encodings', function(T) {
         b64TruthBeauty
       ]
     });
+
   var folderView = testAccount.do_openFolderView(
     'syncs', fullSyncFolder,
     { count: 2, full: 2, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
+
   T.check('check messages', eBodies, function() {
     eBodies.expect_namedValue('from name', rawSammySnake);
     eBodies.expect_namedValue('to[0] name', rawSammySnake);
@@ -84,17 +86,21 @@ TD.commonCase('message encodings', function(T) {
 
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
+
     eBodies.namedValue('from name', qpHeader.author.name);
-    qpHeader.getBody(function(qpBody) {
-    eBodies.namedValue('to[0] name', qpBody.to[0].name);
-    eBodies.namedValue('to[1] name', qpBody.to[1].name);
-    eBodies.namedValue('to[2] name', qpBody.to[2].name);
-    eBodies.namedValue('cc[0] name', qpBody.cc[0].name);
-      eBodies.namedValue('qp', qpBody.bodyReps[1][1]);
+
+    eBodies.namedValue('to[0] name', qpHeader.to[0].name);
+    eBodies.namedValue('to[1] name', qpHeader.to[1].name);
+    eBodies.namedValue('to[2] name', qpHeader.to[2].name);
+    eBodies.namedValue('cc[0] name', qpHeader.cc[0].name);
+
+    testAccount.getMessageBodyWithReps(qpHeader, function(qpBody) {
+      eBodies.namedValue('qp', qpBody.bodyReps[0].content[1]);
       qpBody.die();
     });
-    b64Header.getBody(function(b64Body) {
-      eBodies.namedValue('b64', b64Body.bodyReps[1][1]);
+
+    testAccount.getMessageBodyWithReps(b64Header, function(b64Body) {
+      eBodies.namedValue('b64', b64Body.bodyReps[0].content[1]);
       b64Body.die();
     });
   });
@@ -416,14 +422,23 @@ TD.commonCase('MIME hierarchies', function(T) {
       }
 
       var header = folderView.slice.items[iMsg];
-      header.getBody(function(body) {
+      testAccount.getMessageBodyWithReps(header, function(body) {
+
         var bodyValue;
-        if (!body.bodyReps.length)
+        if (!body.bodyReps.length) {
           bodyValue = '';
-        else if (body.bodyReps[0] === 'plain')
-          bodyValue = body.bodyReps[1][1] || '';
-        else if (body.bodyReps[0] === 'html')
-          bodyValue = body.bodyReps[1];
+        }
+        else if (body.bodyReps[0].type === 'plain') {
+          if (!body.bodyReps[0].content) {
+            bodyValue = '';
+          } else {
+            bodyValue = body.bodyReps[0].content[1] || '';
+          }
+        }
+        else if (body.bodyReps[0].type === 'html') {
+          bodyValue = body.bodyReps[0].content;
+        }
+
         eCheck.namedValue('body', bodyValue);
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);

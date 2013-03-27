@@ -269,6 +269,84 @@ ImapJobDriver.prototype = {
 
   allJobsDone: $jobmixins.allJobsDone,
 
+  // snippet downloading
+
+  local_do_downloadSnippets: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_downloadSnippets: function(op, doneCallback) {
+    var aggrErr;
+    this._partitionAndAccessFoldersSequentially(
+      op.messages,
+      true,
+      function perFolder(folderConn, storage, headers, namers, callWhenDone) {
+        folderConn.downloadSnippets(headers, function(err) {
+          if (err && !aggrErr) {
+            aggrErr = err;
+          }
+          callWhenDone();
+        });
+      },
+      function allDone() {
+        doneCallback(aggrErr);
+      },
+      function deadConn() {
+        aggrErr = 'aborted-retry';
+      },
+      false, // reverse?
+      'downloadSnippets',
+      true // require headers
+    );
+  },
+
+  // body rep downloading
+
+  local_do_downloadBodyReps: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  do_downloadBodyReps: function(op, doneCallback) {
+    var self = this;
+
+    var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+        folderId = op.messageSuid.substring(0, idxLastSlash);
+
+    var folderConn, folderStorage;
+    // Once we have the connection, get the current state of the body rep.
+    var gotConn = function gotConn(_folderConn, _folderStorage) {
+      folderConn = _folderConn;
+      folderStorage = _folderStorage;
+
+      folderConn.downloadBodyReps(
+        op.messageSuid, op.messageDate, onDownloadReps
+      );
+    };
+
+    var onDownloadReps = function onDownloadReps(err, bodyInfo) {
+      if (err) {
+        console.error('Error downloading reps', err);
+        // fail we cannot download for some reason?
+        return doneCallback('unknown');
+      }
+
+      // success
+      doneCallback(null, bodyInfo, true);
+    };
+
+    var deadConn = function deadConn() {
+      doneCallback('aborted-retry');
+    };
+
+    self._accessFolderForMutation(
+      folderId,
+      true,
+      gotConn,
+      deadConn,
+      'downloadBodyReps'
+    );
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message
 
@@ -603,8 +681,8 @@ ImapJobDriver.prototype = {
               namer.date, newId, false,
               function(header) {
                 // If the header isn't there because it got moved, then null
-                // will be returned and it's up to the next move operation
-                // to fix this up.
+                // will be returned and it's up to the next move operation to
+                // fix this up.
                 if (header)
                   header.srvid = msg.id;
                 else

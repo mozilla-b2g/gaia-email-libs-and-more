@@ -36,11 +36,61 @@ const FilterType = $ascp.AirSync.Enums.FilterType;
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
 
+TD.commonCase('deleting headers midflight', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'UDel'),
+      testAccount = T.actor('testAccount', 'ADel', { universe: testUniverse }),
+      numMessages = 2,
+      toDelete = {};
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_mutation_midflight_deletion',
+    { count: numMessages, age_incr: { days: 1 } });
+
+  var folderView = testAccount.do_openFolderView(
+    'folderView2', testFolder,
+    { count: numMessages, full: numMessages, flags: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  T.group('attempt to modify while deleting');
+
+  T.action('delete header midflight', function() {
+     var header =
+       toDelete.headerInfo = folderView.slice.items[numMessages - 1];
+
+    // begin the process of updating this header
+    header.setRead(true);
+
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: true, save: true }
+    );
+
+    // then delete it
+    testAccount.fakeServerMessageDeletion(header);
+  });
+
+  T.group('cleanup');
+
+  testAccount.do_createTestFolder(
+    'test_mutation_midflight_deletion',
+    { count: 0, age_incr: { days: 1 } });
+
+  testAccount.do_closeFolderView(folderView);
+  testUniverse.do_saveState();
+  testUniverse.do_shutdown();
+});
+
 TD.commonCase('mutate flags', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A', {
+        universe: testUniverse,
+        restored: true
+      }),
       eSync = T.lazyLogger('sync'),
       eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
                                                testAccount.eAccount,

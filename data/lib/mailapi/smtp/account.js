@@ -45,6 +45,10 @@ SmtpAccount.prototype = {
     this._LOG.__die();
   },
 
+  accountDeleted: function() {
+    this.shutdown();
+  },
+
   /**
    * Asynchronously send an e-mail message.  Does not provide retries, offline
    * remembering of the command, or any follow-on logic like appending the

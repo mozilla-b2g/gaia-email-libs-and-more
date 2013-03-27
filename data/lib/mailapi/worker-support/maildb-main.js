@@ -51,10 +51,13 @@ if (("indexedDB" in window) && window.indexedDB) {
  *
  * Explanation of most recent bump:
  *
+ * Bumping to 18 because of massive change for lazily fetching snippets and
+ * message bodies.
+ *
  * Bumping to 17 because we changed the folder representation to store
  * hierarchy.
  */
-var CUR_VERSION = 17;
+var CUR_VERSION = 18;
 
 /**
  * What is the lowest database version that we are capable of performing a

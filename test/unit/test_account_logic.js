@@ -93,7 +93,11 @@ TD.commonCase('account creation/deletion', function(T) {
   });
 
   T.group('delete second (middle) account');
-  T.action('delete account', testAccountB, 'perform', eSliceCheck, function() {
+  T.action('delete account', testAccountB, 'perform', eSliceCheck,
+           testAccountB.eOpAccount, function() {
+    if (TEST_PARAMS.type === 'imap')
+      testAccountB.eImapAccount.expect_deadConnection();
+
     eSliceCheck.expect_namedValue('remaining account', testAccountA.accountId);
     eSliceCheck.expect_namedValue('remaining account', testAccountC.accountId);
 
@@ -103,6 +107,7 @@ TD.commonCase('account creation/deletion', function(T) {
                                   testAccountA.accountId);
     eSliceCheck.expect_namedValue('folder[AB].account',
                                   testAccountC.accountId);
+    testAccountB.eOpAccount.expect_accountDeleted('saveAccountState');
 
     // this does not have a callback, so use a ping to wait...
     gAllAccountsSlice.items[1].deleteAccount();
@@ -120,6 +125,8 @@ TD.commonCase('account creation/deletion', function(T) {
       eSliceCheck.namedValue(
         'folder[AB].account',
         gAllFoldersSlice.items[folderPointAB].id[0]);
+
+      testAccountB.account.saveAccountState();
     });
   });
 

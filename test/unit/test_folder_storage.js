@@ -59,9 +59,13 @@ function do_throw(msg) {
 /**
  * Create the FolderStorage instance for a test run plus the required mocks.
  */
-function makeTestContext() {
-  var db = new MockDB(),
-      account = new MockAccount();
+function makeTestContext(account) {
+  var db = new MockDB();
+
+  // some tests interact with account features like the universe so generally we
+  // are only testing FolderStorage but we also want to verify that
+  // FolderStorage will interact correctly with the world.
+  account = account || new MockAccount();
 
   var folderId = 'A/1';
   var storage = new $mailslice.FolderStorage(
@@ -90,13 +94,29 @@ function makeTestContext() {
     account: account,
     db: db,
     storage: storage,
+
+    bodyFactory: function(date, size, overrides) {
+      var body = {
+        date: date,
+        size: size,
+        attachments: [],
+        relatedParts: [],
+        references: [],
+        bodyReps: []
+      };
+
+      if (overrides) {
+        for (var key in overrides) {
+          body[key] = overrides[key];
+        }
+      }
+
+      return body;
+    },
+
     insertBody: function(date, uid, size, expectedBlockIndex) {
       var blockInfo = null;
-      var bodyInfo = {
-        date: date, size: size,
-        to: null, cc: null, bcc: null, replyTo: null,
-        attachments: [], relatedParts: [], references: [], bodyReps: [],
-      };
+      var bodyInfo = this.bodyFactory(date, size);
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, 'S' + uid, size, bodyInfo,
         function blockPicked(info, block) {
@@ -1012,6 +1032,160 @@ TD.commonSimple('header block splitting',
     bigHeaders.slice(expectedHeadersPerBlock), olderInfo.blockId);
 });
 
+TD.commonCase('body insertion size', function(T, RT) {
+
+  function makeText(length) {
+    var str = '';
+    for (var i = 0; i < length; i++) {
+      str += 'a';
+    }
+
+    return str;
+  }
+
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse,
+                              realAccountNeeded: false });
+
+  var eLazy = T.lazyLogger('bodyLogger');
+  var ctx = makeTestContext(testAccount);
+  var storage = ctx.storage;
+
+  var date = DateUTC(2012, 0, 5);
+  var uid = 102;
+  var bodyInfo = ctx.bodyFactory(date, 0, {
+    bodyReps: [
+      { sizeEstimate: 100, amountDownloaded: 0, type: 'text' },
+      { sizeEstimate: 101, amountDownloaded: 0, type: 'html' }
+    ]
+  });
+
+  T.group('insertion');
+
+
+  T.action('stage body', eLazy, function() {
+    eLazy.expect_namedValue('initial size', true);
+    header = ctx.insertHeader(date, uid);
+    storage.addMessageBody(header, bodyInfo, function() {
+      // verify non zero initial size
+      eLazy.namedValue('initial size', bodyInfo.size > 0);
+    });
+  });
+
+  T.group('updates');
+
+  function updatesSizeBy(bodyRepIndex, contentLength) {
+    T.action('update bodyRep[' + bodyRepIndex + ']', eLazy, function() {
+      var originalSize = bodyInfo.size;
+      eLazy.expect_namedValueD('updates size', true);
+
+      var rep = bodyInfo.bodyReps[bodyRepIndex];
+      rep.content = [1, makeText(contentLength)];
+      rep.amountDownloaded = contentLength;
+
+      storage.updateMessageBody(header, bodyInfo, function() {
+        eLazy.namedValueD(
+          'updates size',
+          (bodyInfo.size >= originalSize + contentLength),
+          bodyInfo.size
+        );
+      });
+    });
+
+  }
+
+  updatesSizeBy(0, 100);
+  updatesSizeBy(1, 250);
+
+});
+
+TD.commonCase('events while updating body blocks', function(T, RT) {
+  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse,
+                              realAccountNeeded: false });
+
+  var bodyLogger = T.lazyLogger('bodyLogger');
+
+  var ctx = makeTestContext(testAccount);
+  var storage = ctx.storage;
+
+  var date = DateUTC(2012, 0, 5);
+  var uid = 101;
+  var bodyInfo = ctx.bodyFactory(date, BIG2, {
+    bodyReps: [
+      { sizeEstimate: 100, amountDownloaded: 0, type: 'text' },
+      { sizeEstimate: 101, amountDownloaded: 0, type: 'text' },
+      { sizeEstimate: 102, amountDownloaded: 0, type: 'text' }
+    ]
+  });
+
+  // this is a hook for the __notifyBodyModified mock so we can capture the
+  // events without actually sending them anywhere...
+  var onNotifyBodyModified = null;
+
+  var mockBodyNotified = function mockBodyNotified() {
+    if (typeof(onNotifyBodyModified) === 'function') {
+      onNotifyBodyModified.apply(this, arguments);
+    }
+  };
+
+  T.action('setup notification mocks', bodyLogger, function() {
+    var bridge = testUniverse.universe._bridges[0];
+
+    // the universe should deliver a message to us... the bridge case is tested
+    // in test_body_observers which also handles the front-end onchange
+    // emissions and handling.
+    bridge.notifyBodyModified = mockBodyNotified;
+  });
+
+  var header;
+
+  T.action('stage body', bodyLogger, function() {
+    bodyLogger.expect_event('saved body');
+    header = ctx.insertHeader(date, uid);
+    storage.addMessageBody(header, bodyInfo, function() {
+      bodyLogger.event('saved body');
+    });
+  });
+
+  T.action('verify fetch', bodyLogger, function() {
+    bodyLogger.expect_namedValue('bodyInfo', bodyInfo);
+
+    storage.getMessageBody(header.suid, header.date, function(info) {
+      bodyLogger.namedValue('bodyInfo', info);
+    });
+  });
+
+  T.action('update with event', bodyLogger, function() {
+    var details = { changeType: 'bodyReps' };
+
+    var expectedMessage = {
+      suid: header.suid,
+      detail: details,
+      body: bodyInfo
+    };
+
+    bodyLogger.expect_namedValue('notifyBodyModified', expectedMessage);
+
+    onNotifyBodyModified = function(suid, detail, body) {
+      bodyLogger.namedValue('notifyBodyModified', {
+        suid: suid,
+        detail: details,
+        body: body
+      });
+    };
+
+    storage.updateMessageBody(
+      header,
+      bodyInfo,
+      details
+    );
+  });
+
+});
 
 /**
  * Test that deleting a body out of a block that does not empty the block

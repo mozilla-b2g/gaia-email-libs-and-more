@@ -117,29 +117,33 @@ TD.commonCase('embedded and remote images', function(T) {
       displayDoc = null, displayElem = null;
   T.check(eCheck, 'get fancy body', function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 2);
-    eCheck.expect_namedValue('bodyReps[0]', 'html');
-    eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
+    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps[0].type', 'html');
+    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
     eCheck.expect_namedValue('embeddedImagesDownloaded', false);
     eCheck.expect_namedValue('checkForExternalImages', true);
     fancyHeader = folderView.slice.items[idxFancy];
-    fancyHeader.getBody(function(body) {
+
+    // the bodyReps may not be loaded at this point so we use getMessageBodyWithReps
+    // to ensure that they are downloaded...
+    testAccount.getMessageBodyWithReps(fancyHeader, function(body) {
       fancyBody = body;
       eCheck.event('got body');
       eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-      eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
-      eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
+      eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
+      eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
       eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
       eCheck.namedValue('embeddedImagesDownloaded',
                         fancyBody.embeddedImagesDownloaded);
 
       displayDoc = document.implementation.createHTMLDocument('');
       displayElem = displayDoc.body;
-      displayElem.innerHTML = fancyBody.bodyReps[1];
+      displayElem.innerHTML = fancyBody.bodyReps[0].content;
 
       eCheck.namedValue('checkForExternalImages',
                         fancyBody.checkForExternalImages(displayElem));
+
     });
   });
   // (We could verify the HTML rep prior to any transforms, but we already
@@ -194,9 +198,9 @@ TD.commonCase('embedded and remote images', function(T) {
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 2);
-    eCheck.expect_namedValue('bodyReps[0]', 'html');
-    eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
+    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps[0].type', 'html');
+    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
     eCheck.expect_namedValue('embeddedImagesDownloaded', true);
     eCheck.expect_namedValue('checkForExternalImages', true);
@@ -211,15 +215,15 @@ TD.commonCase('embedded and remote images', function(T) {
       fancyBody = body;
       eCheck.event('got body');
       eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-      eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
-      eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
+      eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
+      eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
       eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
       eCheck.namedValue('embeddedImagesDownloaded',
                         fancyBody.embeddedImagesDownloaded);
 
       displayDoc = document.implementation.createHTMLDocument('');
       displayElem = displayDoc.body;
-      displayElem.innerHTML = fancyBody.bodyReps[1];
+      displayElem.innerHTML = fancyBody.bodyReps[0].content;
 
       eCheck.namedValue('checkForExternalImages',
                         fancyBody.checkForExternalImages(displayElem));
@@ -254,9 +258,9 @@ TD.commonCase('embedded and remote images', function(T) {
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 2);
-    eCheck.expect_namedValue('bodyReps[0]', 'html');
-    eCheck.expect_namedValue('bodyReps[1]', bstrSanitizedFancyHtml);
+    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps[0].type', 'html');
+    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
     eCheck.expect_namedValue('embeddedImagesDownloaded', true);
     eCheck.expect_namedValue('checkForExternalImages', true);
@@ -272,15 +276,15 @@ TD.commonCase('embedded and remote images', function(T) {
       fancyBody = body;
       eCheck.event('got body');
       eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-      eCheck.namedValue('bodyReps[0]', fancyBody.bodyReps[0]);
-      eCheck.namedValue('bodyReps[1]', fancyBody.bodyReps[1]);
+      eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
+      eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
       eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
       eCheck.namedValue('embeddedImagesDownloaded',
                         fancyBody.embeddedImagesDownloaded);
 
       displayDoc = document.implementation.createHTMLDocument('');
       displayElem = displayDoc.body;
-      displayElem.innerHTML = fancyBody.bodyReps[1];
+      displayElem.innerHTML = fancyBody.bodyReps[0].content;
 
       eCheck.namedValue('checkForExternalImages',
                         fancyBody.checkForExternalImages(displayElem));

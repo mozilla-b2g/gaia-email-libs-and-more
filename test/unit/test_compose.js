@@ -249,7 +249,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       eLazy.expect_namedValue('body html', expectedForwardBody.html);
     },
     withMessage: function(header) {
-    forwardComposer = header.forwardMessage('inline', function() {
+      forwardComposer = header.forwardMessage('inline', function() {
         eLazy.event('forward setup completed');
         eLazy.namedValue('to', forwardComposer.to);
         eLazy.namedValue('subject', forwardComposer.subject);
@@ -401,9 +401,9 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     },
     // trigger the reply composer
     withMessage: function(header) {
-      header.getBody(function(body) {
-        eCheck.namedValue('rep type', body.bodyReps[0]);
-        eCheck.namedValue('rep', body.bodyReps[1]);
+      testAccount.getMessageBodyWithReps(header, function(body) {
+        eCheck.namedValue('rep type', body.bodyReps[0].type);
+        eCheck.namedValue('rep', body.bodyReps[0].content);
       });
     }
   });
@@ -588,9 +588,7 @@ TD.commonCase('bcc self', function(T, RT) {
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
-      header.getBody(function(body) {
-        eLazy.namedValue('bcc', body.bcc);
-      });
+      eLazy.namedValue('bcc', header.bcc);
     }
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
@@ -602,9 +600,7 @@ TD.commonCase('bcc self', function(T, RT) {
     },
     // trigger the reply composer
     withMessage: function(header) {
-      header.getBody(function(body) {
-        eLazy.namedValue('bcc', body.bcc);
-      });
+      eLazy.namedValue('bcc', header.bcc);
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 });

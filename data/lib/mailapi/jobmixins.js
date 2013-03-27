@@ -24,7 +24,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
     false,
     function perFolder(ignoredConn, storage, headers, namers, callWhenDone) {
       var waitingOn = headers.length;
-      function headerUpdated() {
+      function next() {
         if (--waitingOn === 0)
           callWhenDone();
       }
@@ -55,7 +55,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
           }
         }
         storage.updateMessageHeader(header.date, header.id, false,
-                                    header, headerUpdated);
+                                    header, next);
       }
     },
     function() {
@@ -308,9 +308,11 @@ exports.do_download = function(op, callback) {
     if (!pendingStorageWrites)
       done();
   };
+
   function done() {
-    folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-    callback(downloadErr, bodyInfo, true);
+    folderStorage.updateMessageBody(header, bodyInfo, function() {
+      callback(downloadErr, bodyInfo, true);
+    });
   };
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,
@@ -379,6 +381,10 @@ exports.allJobsDone =  function() {
  * once per folder, passing in the loaded message header objects for each
  * folder.
  *
+ * This method will filter out removed headers (which would otherwise be null).
+ * Its possible that entire folders will be skipped if no headers requested are
+ * now present.
+ *
  * @args[
  *   @param[messageNamers @listof[MessageNamer]]
  *   @param[needConn Boolean]{
@@ -407,6 +413,9 @@ exports.allJobsDone =  function() {
  *   @param[label String]{
  *     The label to use to name the usage of the folder connection.
  *   }
+ *   @param[requireHeaders Boolean]{
+ *     True if connection & headers are needed.
+ *   }
  * ]
  */
 exports._partitionAndAccessFoldersSequentially = function(
@@ -416,7 +425,8 @@ exports._partitionAndAccessFoldersSequentially = function(
     callWhenDone,
     callOnConnLoss,
     reverse,
-    label) {
+    label,
+    requireHeaders) {
   var partitions = $util.partitionMessagesByFolderId(allMessageNamers);
   var folderConn, storage, self = this,
       folderId = null, folderMessageNamers = null, serverIds = null,
@@ -455,7 +465,7 @@ exports._partitionAndAccessFoldersSequentially = function(
     folderConn = _folderConn;
     storage = _storage;
     // - Get headers or resolve current server id from name map
-    if (needConn) {
+    if (needConn && !requireHeaders) {
       var neededHeaders = [],
           suidToServerId = self._state.suidToServerId;
       serverIds = [];
@@ -507,6 +517,14 @@ exports._partitionAndAccessFoldersSequentially = function(
       }
       iNextServerId = serverIds.indexOf(null, iNextServerId + 1);
     }
+
+    // its entirely possible that we need headers but there are none so we can
+    // skip entering this folder as the job cannot do anything with an empty
+    // header.
+    if (!serverIds.length) {
+      return openNextFolder();
+    }
+
     try {
       callInFolder(folderConn, storage, serverIds, folderMessageNamers,
                    openNextFolder);
@@ -516,6 +534,12 @@ exports._partitionAndAccessFoldersSequentially = function(
     }
   };
   var gotHeaders = function gotHeaders(headers) {
+    // its unlikely but entirely possible that all pending headers have been
+    // removed somehow between when the job was queued and now.
+    if (!headers.length) {
+      return openNextFolder();
+    }
+
     // Sort the headers in ascending-by-date order so that slices hear about
     // changes from oldest to newest. That way, they won't get upset about being
     // asked to expand into the past.
