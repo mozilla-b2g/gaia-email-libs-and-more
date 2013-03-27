@@ -87,6 +87,42 @@ var testHelper = {
 };
 $router.register(testHelper);
 
+var deviceStorageTestHelper = {
+  name: 'th_devicestorage',
+  sendMessage: null,
+  process: function(uid, cmd, args) {
+    if (cmd === 'attach') {
+      this._storage = navigator.getDeviceStorage(args);
+      this._storage.addEventListener('change', this._bound_onChange);
+      this.sendMessage(null, 'attached', null);
+    }
+    else if (cmd === 'detach') {
+      this._storage.removeEventListener('change', this._bound_onChange);
+      this._storage = null;
+      this.sendMessage(null, 'detached', null);
+    }
+    else if (cmd === 'get') {
+      var req = this._storage.get(args.path);
+      req.onsuccess = function() {
+        this.sendMessage(null, 'got',
+                         { id: args.id, error: null, blob: req.result });
+      }.bind(this);
+      req.onerror = function() {
+        this.sendMessage(null, 'got',
+                         { id: args.id, error: '' + req.error, blob: null });
+      }.bind(this);
+    }
+  },
+  _storage: null,
+  _bound_onChange: null,
+  _onChange: function(event) {
+    this.sendMessage(null, 'change', { reason: event.reason, path: event.path });
+  }
+};
+deviceStorageTestHelper._bound_onChange =
+  deviceStorageTestHelper._onChange.bind(deviceStorageTestHelper);
+$router.register(deviceStorageTestHelper);
+
 $router.register($configparser);
 $router.register($cronsync);
 $router.register($devicestorage);

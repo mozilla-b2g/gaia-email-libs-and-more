@@ -107,7 +107,9 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
+      // adding a file sends created and modified
       testStorage.expect_created('foo.png');
+      testStorage.expect_modified('foo.png');
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
@@ -124,28 +126,31 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
             sizeEstimateInBytes: att.sizeEstimateInBytes,
           });
           att.download(function() {
-            var storage = navigator.getDeviceStorage(att._file[0]),
-                storageReq = storage.get(att._file[1]);
-            storageReq.onsuccess = function() {
-              var reader = new FileReader();
-              reader.onload = function() {
-                var data = new Uint8Array(reader.result);
-                var dataArr = [];
-                console.log('got', data.length, 'bytes, readyState',
-                            reader.readyState);
-                for (var i = 0; i < data.length; i++) {
-                  dataArr.push(data[i]);
+            testStorage.get(
+              att._file[1],
+              function gotBlob(error, blob) {
+                if (error) {
+                  console.error('blob fetch error:', error);
+                  return;
                 }
-                eLazy.namedValue('attachment[' + iAtt + '].size',
-                                 body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.namedValue('attachment[' + iAtt + '].data',
-                                 dataArr);
-              };
-              reader.onerror = function() {
-                console.error('reader error:', reader.error.name, reader.error);
-              };
-              reader.readAsArrayBuffer(storageReq.result);
-            };
+                var reader = new FileReaderSync();
+                try {
+                  var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+                  var dataArr = [];
+                  console.log('got', data.length, 'bytes, readyState',
+                              reader.readyState);
+                  for (var i = 0; i < data.length; i++) {
+                    dataArr.push(data[i]);
+                  }
+                  eLazy.namedValue('attachment[' + iAtt + '].size',
+                                   body.attachments[iAtt].sizeEstimateInBytes);
+                  eLazy.namedValue('attachment[' + iAtt + '].data',
+                                   dataArr);
+                }
+                catch(ex) {
+                  console.error('reader error', ex);
+                }
+              });
           });
         });
         eLazy.namedValue('attachments', attachments);

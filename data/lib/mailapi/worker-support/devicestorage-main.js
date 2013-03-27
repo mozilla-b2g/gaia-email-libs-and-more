@@ -10,11 +10,11 @@ define(function() {
     var req = deviceStorage.addNamed(blob, filename);
 
     req.onerror = function() {
-      self.sendMessage(uid, cmd, false);
+      self.sendMessage(uid, cmd, [false]);
     };
 
     req.onsuccess = function() {
-      self.sendMessage(uid, cmd, true);
+      self.sendMessage(uid, cmd, [true]);
     };
   }
 

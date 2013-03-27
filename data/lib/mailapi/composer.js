@@ -59,19 +59,13 @@ function Composer(mode, wireRep, account, identity) {
   // - fetch attachments if sending
   if (mode === 'send' && wireRep.attachments) {
     wireRep.attachments.forEach(function(attachmentDef) {
-      var reader = new FileReader();
-      reader.onload = function onloaded() {
+      var reader = new FileReaderSync();
+      try {
         this._attachments.push({
           filename: attachmentDef.name,
           contentType: attachmentDef.blob.type,
-          contents: new Uint8Array(reader.result),
+          contents: new Uint8Array(reader.readAsArrayBuffer(attachmentDef.blob)),
         });
-        if (--this._asyncPending === 0)
-          this._asyncLoadsCompleted();
-      }.bind(this);
-      try {
-        reader.readAsArrayBuffer(attachmentDef.blob);
-        this._asyncPending++;
       }
       catch (ex) {
         console.error('Problem attaching attachment:', ex, '\n', ex.stack);

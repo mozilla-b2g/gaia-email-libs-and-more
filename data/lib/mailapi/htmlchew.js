@@ -480,7 +480,7 @@ exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
 
   wrapTag = wrapTag || 'div';
 
-  text = transformNewLines ? text.replace(/\n/g, '<br/>') : text;
+  text = transformNewlines ? text.replace(/\n/g, '<br/>') : text;
 
   var attributes = '';
   if (attrs) {
