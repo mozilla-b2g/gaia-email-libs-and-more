@@ -301,11 +301,8 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       replyHtmlHtml  =
         '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
         // XXX we want this style scoped
-        // XXX aaaaaargh. our sanitizer is falling victim to platform
-        // helpfulness and turns "margin: 0;" into
-        // "margin-top: 0px; margin-bottom: 0px;"
         '<style type="text/css">' +
-        'p { margin-top: 0px; margin-bottom: 0px; }' +
+        'p { margin: 0; }' +
         '</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
@@ -397,7 +394,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
       var expectedHtmlRep = [
         '<div>',
-        expectedReplyBody.text.replace(/\n/g, '<br>'),
+        expectedReplyBody.text.replace(/\n/g, '<br/>'),
         '</div>',
         expectedReplyBody.html,
       ].join('');
