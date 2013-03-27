@@ -7,12 +7,14 @@ define(function() {
 
   var db = null;
   function open(uid, cmd, args) {
-    db = new MailDB(args[0], function() {
+    db = self._debugDB = new MailDB(args[0], function() {
       self.sendMessage(uid, cmd, Array.prototype.slice.call(arguments));
     });
   }
 
   function others(uid, cmd, args) {
+    if (!Array.isArray(args))
+      args = [];
     args.push(function() {
       self.sendMessage(uid, cmd, Array.prototype.slice.call(arguments));
     });
@@ -31,7 +33,8 @@ define(function() {
           others(uid, cmd, args);
           break;
       }
-    }
+    },
+    _debugDB: null
   };
 
 var IndexedDB;

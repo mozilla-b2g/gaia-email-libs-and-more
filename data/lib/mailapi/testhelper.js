@@ -176,6 +176,8 @@ var TestUniverseMixins = {
       if (opts.nukeDb)
         testOpts.nukeDb = opts.nukeDb;
 
+      self._sendHelperMessage = $router.registerCallbackType('testhelper');
+
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
@@ -322,30 +324,21 @@ var TestUniverseMixins = {
    */
   help_checkDatabaseDoesNotContain: function(tablesAndKeyPrefixes) {
     var self = this;
-    var idb = self.universe._db._db,
-        desiredStores = [], i, checkArgs;
-
-    for (i = 0; i < tablesAndKeyPrefixes.length; i++) {
-      checkArgs = tablesAndKeyPrefixes[i];
-      desiredStores.push(checkArgs.table);
-    }
-    var trans = idb.transaction(desiredStores, 'readonly');
 
     tablesAndKeyPrefixes.forEach(function(checkArgs) {
       self.expect_dbRowPresent(checkArgs.table, checkArgs.prefix, false);
-      var store = trans.objectStore(checkArgs.table),
-          range = IDBKeyRange.bound(checkArgs.prefix,
-                                    checkArgs.prefix + '\ufff0',
-                                    false, false),
-          req = store.get(range);
-      req.onerror = function(event) {
-        self._logger.dbProblem(event.target.errorCode);
-      };
-      req.onsuccess = function() {
-        self._logger.dbRowPresent(
-          checkArgs.table, checkArgs.prefix, req.result !== undefined);
-      };
     });
+    this._sendHelperMessage(
+      'checkDatabaseDoesNotContain', tablesAndKeyPrefixes,
+      function(results) {
+        results.forEach(function(result) {
+          if (result.errCode)
+            self._logger.dbProblem(result.errCode);
+          else
+            self._logger.dbRowPresent(result.table, result.prefix,
+                                      result.hasResult);
+        });
+      });
   },
 
   do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {

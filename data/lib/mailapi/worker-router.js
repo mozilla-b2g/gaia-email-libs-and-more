@@ -48,10 +48,6 @@ function registerCallbackType(type) {
       callbacks[uid] = callback;
     }
 
-    if (!Array.isArray(args)) {
-      args = args ? [args] : [];
-    }
-
     dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
     window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
   };

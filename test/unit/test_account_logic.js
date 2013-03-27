@@ -19,8 +19,9 @@ var TD = exports.TD = $tc.defineTestsFor(
  * For simplicity, we currently create duplicate accounts.  This obviously will
  * not work once we prevent creating duplicate accounts.
  */
-TD.commonCase('account creation/deletion', function(T) {
+TD.commonCase('account creation/deletion', function(T, RT) {
   T.group('create universe, first account');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U',
                              { name: 'A' }),
       testAccountA = T.actor('testAccount', 'A',
@@ -95,8 +96,9 @@ TD.commonCase('account creation/deletion', function(T) {
   T.group('delete second (middle) account');
   T.action('delete account', testAccountB, 'perform', eSliceCheck,
            testAccountB.eOpAccount, function() {
-    if (TEST_PARAMS.type === 'imap')
-      testAccountB.eImapAccount.expect_deadConnection();
+    // note: we used to expect_deadConnection here because our
+    // EventEmitter.removeAllListeners was broken, so we still got close events
+    // after we no longer wanted them.
 
     eSliceCheck.expect_namedValue('remaining account', testAccountA.accountId);
     eSliceCheck.expect_namedValue('remaining account', testAccountC.accountId);

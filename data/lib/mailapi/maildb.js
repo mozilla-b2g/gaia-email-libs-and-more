@@ -26,7 +26,7 @@ function MailDB(testOptions) {
     this._callbacksQueue = null;
   }
 
-  sendMessage('open', testOptions, processQueue.bind(this));
+  sendMessage('open', [testOptions], processQueue.bind(this));
 }
 exports.MailDB = MailDB;
 MailDB.prototype = {
@@ -44,7 +44,7 @@ MailDB.prototype = {
   },
 
   saveConfig: function(config) {
-    sendMessage('saveConfig', config);
+    sendMessage('saveConfig', [config]);
   },
 
   saveAccountDef: function(config, accountDef, folderInfo) {
@@ -68,7 +68,7 @@ MailDB.prototype = {
   },
 
   deleteAccount: function(accountId) {
-    sendMessage('deleteAccount', accountId);
+    sendMessage('deleteAccount', [accountId]);
   },
 };
 

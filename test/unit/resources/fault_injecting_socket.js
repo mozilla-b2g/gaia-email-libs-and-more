@@ -102,8 +102,9 @@ FawltySocket.prototype = {
   addListener: $events.EventEmitter.prototype.on,
   emit: $events.EventEmitter.prototype.emit,
   on: $events.EventEmitter.prototype.on,
-  once: $events.EventEmitter.prototype.on,
-  removeListener: $events.EventEmitter.prototype.on,
+  once: $events.EventEmitter.prototype.once,
+  removeListener: $events.EventEmitter.prototype.removeListener,
+  removeAllListeners: $events.EventEmitter.prototype.removeAllListeners,
 
   setTimeout: function() {},
   setKeepAlive: function() {},
@@ -170,7 +171,7 @@ console.log('queueing event', type);
     if (!this._sock)
       return;
     this.emit('close');
-    this.emid('end');
+    this.emit('end');
     this._sock.end();
     this._sock = null;
   },
