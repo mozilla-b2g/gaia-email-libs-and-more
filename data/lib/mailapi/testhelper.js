@@ -220,12 +220,7 @@ var TestUniverseMixins = {
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
                                       function() {
-      if (self.universe) {
-        for (var i = 0; i < self.__testAccounts.length; i++) {
-          self.__testAccounts[i].expect_shutdown();
-        }
-        self.universe.shutdown();
-      }
+      self.cleanShutdown();
     });
   },
 
@@ -281,13 +276,21 @@ var TestUniverseMixins = {
     });
   },
 
+  cleanShutdown: function() {
+    for (var i = 0; i < this.__testAccounts.length; i++) {
+      this.__testAccounts[i].expect_shutdown();
+    }
+    this.expect_cleanShutdown();
+
+    this.universe.shutdown(function() {
+      this._logger.cleanShutdown();
+    }.bind(this));
+  },
+
   do_shutdown: function() {
     var self = this;
     this.T.convenienceSetup('shutdown', this, this.__testAccounts, function() {
-      for (var i = 0; i < self.__testAccounts.length; i++) {
-        self.__testAccounts[i].expect_shutdown();
-      }
-      self.universe.shutdown();
+      self.cleanShutdown();
     });
   },
 
@@ -2235,6 +2238,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       killedOperations: { length: true, ops: false },
       operationsDone: {},
+
+      cleanShutdown: {},
     },
     errors: {
       dbProblem: { err: false },

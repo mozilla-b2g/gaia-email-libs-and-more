@@ -141,6 +141,7 @@ console.log('queueing event', type);
       var action = actions[i];
       if (typeof(action) === 'string')
         action = { cmd: action };
+      console.log('FawltySocket.doNow:', action.cmd);
       switch (action.cmd) {
         case 'instant-close':
           // Emit a close event locally in the next turn of the event loop, and
@@ -149,14 +150,16 @@ console.log('queueing event', type);
           // provided string.
           this._queueEvent('close');
           this._queueEvent('end');
-          this._sock.close();
+          this._sock.end();
           this._sock = null;
+          FawltySocketFactory.__deadSocket(this);
           break;
         case 'detach':
           // stop being connected to the real socket
           var sock = this._sock;
           this._sock = null;
-          sock.close();
+          sock.end();
+          FawltySocketFactory.__deadSocket(this);
           break;
         case 'fake-receive':
           var encoder = new TextEncoder('utf-8');
@@ -170,10 +173,13 @@ console.log('queueing event', type);
   end: function() {
     if (!this._sock)
       return;
+    console.log('FawltySocket: end() called by user code');
     this.emit('close');
     this.emit('end');
-    this._sock.end();
+    var sock = this._sock;
     this._sock = null;
+    sock.end();
+    FawltySocketFactory.__deadSocket(this);
   },
   write: function(data) {
     var sendText;

@@ -391,7 +391,7 @@ ImapAccount.prototype = {
     // the slice is self-starting, we don't need to call anything on storage
   },
 
-  shutdown: function() {
+  shutdown: function(callback) {
     // - kill all folder storages (for their loggers)
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -402,12 +402,30 @@ ImapAccount.prototype = {
     this._backoffEndpoint.shutdown();
 
     // - close all connections
+    var liveConns = this._ownedConns.length;
+    function connDead() {
+      if (--liveConns === 0)
+        callback();
+    }
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
-      connInfo.conn.die();
+      if (callback) {
+        connInfo.inUseBy = { deathback: connDead };
+        try {
+          connInfo.conn.logout();
+        }
+        catch (ex) {
+          liveConns--;
+        }
+      }
+      else {
+        connInfo.conn.die();
+      }
     }
 
     this._LOG.__die();
+    if (!liveConns && callback)
+      callback();
   },
 
   accountDeleted: function() {

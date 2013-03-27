@@ -900,11 +900,20 @@ MailUniverse.prototype = {
    * clean shutdown means we get a heads-up, put ourselves offline, and trigger a
    * state save before we just demand that our page be closed.  That's future
    * work, of course.
+   *
+   * If a callback is provided, a cleaner shutdown will be performed where we
+   * wait for all current IMAP connections to be be shutdown by the server
+   * before invoking the callback.
    */
-  shutdown: function() {
+  shutdown: function(callback) {
+    var waitCount = this.accounts.length;
+    function accountShutdownCompleted() {
+      if (--waitCount === 0)
+        callback();
+    }
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      account.shutdown();
+      account.shutdown(callback && accountShutdownCompleted);
     }
 
     window.removeEventListener('online', this._bound_onConnectionChange);

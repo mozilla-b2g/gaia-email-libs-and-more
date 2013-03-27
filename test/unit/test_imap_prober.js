@@ -67,8 +67,7 @@ TD.commonCase('timeout failure', function(T, RT) {
     };
   });
   T.action(eCheck, 'trigger timeout', function() {
-    // No call to clearTimeout is invoked because we were fired by the timeout
-    // and the connection and protocol are torn down without further processing.
+    eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_namedValue('probe result', 'unresponsive-server');
     fireTimeout(0);
   });
@@ -126,7 +125,8 @@ function cannedLoginTest(T, RT, opts) {
     eCheck.expect_namedValue('probe result', opts.expectResult);
     // Even though we will fail to login, from the IMAP connection's
     // perspective we won't want the connection to die.
-    eCheck.expect_namedValue('imap:setTimeout', KEEP_ALIVE_TIMEOUT_MS);
+    // ...And now I've restored the original event functionality.
+    //eCheck.expect_namedValue('imap:setTimeout', KEEP_ALIVE_TIMEOUT_MS);
     FawltySocketFactory.precommand(
       HOST, PORT,
       {

@@ -789,8 +789,6 @@ ImapConnection.prototype.connect = function(loginCb) {
  * are invoked.
  */
 ImapConnection.prototype.die = function() {
-  // NB: there's still a lot of events that could happen, but this is only
-  // being used by unit tests right now.
   if (this._state.conn) {
     this._state.conn.removeAllListeners();
     this._state.conn.end();
