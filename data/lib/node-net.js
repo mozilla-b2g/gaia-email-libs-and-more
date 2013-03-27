@@ -27,9 +27,9 @@ function debug(str) {
 
 var util = require('util'),
     EventEmitter = require('events').EventEmitter,
-    $router = require('mailapi/worker-router');
+    router = require('mailapi/worker-router');
 
-var routerMaker = $router.registerInstanceType('netsocket');
+var routerMaker = router.registerInstanceType('netsocket');
 
 function NetSocket(port, host, crypto) {
   var cmdMap = {
@@ -39,7 +39,7 @@ function NetSocket(port, host, crypto) {
     onclose: this._onclose.bind(this)
   };
   var routerInfo = routerMaker.register(function(data) {
-    cmdMap[data.cmd]({ data: data.args[0] });
+    cmdMap[data.cmd](data.args);
   });
   this._sendMessage = routerInfo.sendMessage;
   this._unregisterWithRouter = routerInfo.unregister;
@@ -61,24 +61,26 @@ NetSocket.prototype.write = function(buffer) {
   this._sendMessage('write', [buffer]);
 };
 NetSocket.prototype.end = function() {
+  if (this.destroyed)
+    return;
   this._sendMessage('end');
   this.destroyed = true;
   this._unregisterWithRouter();
 };
 
-NetSocket.prototype._onconnect = function(event) {
-  this.emit('connect', event.data);
+NetSocket.prototype._onconnect = function() {
+  this.emit('connect');
 };
-NetSocket.prototype._onerror = function(event) {
-  this.emit('error', event.data);
+NetSocket.prototype._onerror = function(err) {
+  this.emit('error', err);
 };
-NetSocket.prototype._ondata = function(event) {
-  var buffer = Buffer(event.data);
+NetSocket.prototype._ondata = function(data) {
+  var buffer = Buffer(data);
   this.emit('data', buffer);
 };
-NetSocket.prototype._onclose = function(event) {
-  this.emit('close', event.data);
-  this.emit('end', event.data);
+NetSocket.prototype._onclose = function() {
+  this.emit('close');
+  this.emit('end');
 };
 
 exports.connect = function(port, host) {

@@ -87,7 +87,7 @@ SmtpProber.prototype = {
 
     this.error = err;
     if (err)
-      console.warn('PROBE:SMTP sad. error: |' + err + '|');
+      console.warn('PROBE:SMTP sad. error: |' + (err && err.message) + '|');
     else
       console.log('PROBE:SMTP happy');
 

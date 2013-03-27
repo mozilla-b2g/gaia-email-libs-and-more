@@ -248,7 +248,10 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   this._state.conn.on('connect', function() {
     if (self._LOG) self._LOG.connected();
-    clearTimeoutFunc(self._state.tmrConn);
+    if (self._state.tmrConn) {
+      clearTimeoutFunc(self._state.tmrConn);
+      self._state.tmrConn = null;
+    }
     self._state.status = STATES.NOAUTH;
     /*
     We will need to add support for node-like starttls emulation on top of TCPSocket
@@ -761,7 +764,10 @@ ImapConnection.prototype.connect = function(loginCb) {
           errType = err.type = 'bad-security';
         }
       }
-      clearTimeoutFunc(self._state.tmrConn);
+      if (self._state.tmrConn) {
+        clearTimeoutFunc(self._state.tmrConn);
+        self._state.tmrConn = null;
+      }
       if (self._state.status === STATES.NOCONNECT) {
         var connErr = new Error('Unable to connect. Reason: ' + err);
         connErr.type = errType || 'unresponsive-server';

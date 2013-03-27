@@ -14,12 +14,29 @@ define(function() {
 
     sock.onopen = function(evt) {
       //debug('onopen ' + uid + ": " + evt.data.toString());
-      self.sendMessage(uid, 'onopen', [evt.data.toString()]);
+      self.sendMessage(uid, 'onopen');
     };
 
     sock.onerror = function(evt) {
       //debug('onerror ' + uid + ": " + new Uint8Array(evt.data));
-      self.sendMessage(uid, 'onerror', [new Uint8Array(evt.data)]);
+      var err = evt.data;
+      var wrappedErr;
+      if (err && typeof(err) === 'object') {
+        wrappedErr = {
+          name: err.name,
+          message: err.message
+        };
+        // Propagate the SSL error detecting heuristic used elsewhere.  This is
+        // an XPCOM interface that we do not expect to structured clone across
+        // so well.
+        if ('isNotValidAtThisTime' in err) {
+          wrappedErr.isNotValidAtThisTime = err.isNotValidAtThisTime;
+        }
+      }
+      else {
+        wrappedErr = err;
+      }
+      self.sendMessage(uid, 'onerror', wrappedErr);
     };
 
     sock.ondata = function(evt) {
@@ -33,21 +50,30 @@ define(function() {
       } catch(e) {}
       debug('ondata ' + uid + ": " + new Uint8Array(evt.data));
       */
-      self.sendMessage(uid, 'ondata', [new Uint8Array(evt.data)]);
+      // XXX why are we doing this? ask Vivien or try to remove...
+      self.sendMessage(uid, 'ondata', new Uint8Array(evt.data));
     };
 
     sock.onclose = function(evt) {
       //debug('onclose ' + uid + ": " + evt.data.toString());
-      self.sendMessage(uid, 'onclose', [evt.data.toString()]);
+      self.sendMessage(uid, 'onclose');
     };
   }
 
   function close(uid) {
-    socks[uid].close();
+    var sock = socks[uid];
+    if (!sock)
+      return;
+    sock.close();
+    sock.onopen = null;
+    sock.onerror = null;
+    sock.ondata = null;
+    sock.onclose = null;
     delete socks[uid];
   }
 
   function write(uid, data) {
+    // XXX why are we doing this? ask Vivien or try to remove...
     socks[uid].send(new Uint8Array(data));
   }
 

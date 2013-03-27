@@ -1,5 +1,10 @@
 /**
  * Test the IMAP prober in isolation.
+ *
+ * None of these test actually establish a network connection.  They all use
+ * FawltySocketFactory to generate canned failures.  We test timeouts by mocking
+ * out the setTimeout/clearTimeout used by imap.js so we can log when timers
+ * are set/cleared and we can control exactly when the timers fire.
  */
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
@@ -45,6 +50,7 @@ function makeCredsAndConnInfo() {
 }
 
 TD.commonCase('timeout failure', function(T, RT) {
+  $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -61,13 +67,15 @@ TD.commonCase('timeout failure', function(T, RT) {
     };
   });
   T.action(eCheck, 'trigger timeout', function() {
-    eCheck.expect_event('imap:clearTimeout');
+    // No call to clearTimeout is invoked because we were fired by the timeout
+    // and the connection and protocol are torn down without further processing.
     eCheck.expect_namedValue('probe result', 'unresponsive-server');
     fireTimeout(0);
   });
 });
 
 TD.commonCase('SSL failure', function(T, RT) {
+  $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
 
@@ -83,7 +91,6 @@ TD.commonCase('SSL failure', function(T, RT) {
       eCheck.namedValue('probe result', err);
     };
     eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
 });
@@ -96,8 +103,10 @@ const CAPABILITY_RESPONSE = [
   'A1 OK Pre-login capabilities listed, post-login capabilities have more.',
 ].join('\r\n') + '\r\n';
 
+var KEEP_ALIVE_TIMEOUT_MS = 10000;
 
 function cannedLoginTest(T, RT, opts) {
+  $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkImapTimeouts(eCheck),
@@ -106,8 +115,7 @@ function cannedLoginTest(T, RT, opts) {
 
   T.action('connect, get error, return', eCheck, function() {
     eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
-    eCheck.expect_event('imap:clearTimeout');
-    // imap.js doesn't really care about clearing too many times right now
+    // the keep-alive timer keeps getting reset is what is up
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
     eCheck.expect_event('imap:clearTimeout');
@@ -116,6 +124,9 @@ function cannedLoginTest(T, RT, opts) {
       eCheck.expect_event('imap:clearTimeout');
     }
     eCheck.expect_namedValue('probe result', opts.expectResult);
+    // Even though we will fail to login, from the IMAP connection's
+    // perspective we won't want the connection to die.
+    eCheck.expect_namedValue('imap:setTimeout', KEEP_ALIVE_TIMEOUT_MS);
     FawltySocketFactory.precommand(
       HOST, PORT,
       {
@@ -171,6 +182,7 @@ TD.commonCase('server maintenance', function(T, RT) {
  * timezone offset calculation logic.
  */
 TD.commonCase('timezone extraction unit', function(T, RT) {
+  $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
   var caseData = [
     {

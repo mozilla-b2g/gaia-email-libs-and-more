@@ -240,7 +240,7 @@ TestDefinerRunner.prototype = {
   runTestStep: function(step) {
     const superDebug = this._superDebug;
     if (superDebug)
-      superDebug("\n====== Running Step: " + step.log._ident);
+      superDebug("====== Running Step: " + step.log._ident);
     var iActor, actor;
 
     this._logBadThingsToLogger = step.log;
@@ -403,7 +403,7 @@ TestDefinerRunner.prototype = {
     var deferred = $Q.defer(), self = this;
 
     if (self._superDebug)
-      self._superDebug("\n========= Begin Case: " + testCase.desc + "\n");
+      self._superDebug("========= Begin Case: " + testCase.desc + "\n");
 
     // -- create / setup the context
     testCase.log.run_begin();
@@ -441,7 +441,7 @@ TestDefinerRunner.prototype = {
         self._runtimeContext.popLogger(defContext._log);
 
         if (self._superDebug)
-          self._superDebug("\n========= Done Case: " + testCase.desc + "\n");
+          self._superDebug("========= Done Case: " + testCase.desc + "\n");
         // - resolve!
         defContext._log.result(allPassed ? 'pass' : 'fail');
         defContext._log.run_end();

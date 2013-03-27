@@ -55,6 +55,10 @@ function makeConsoleForLogger(logger) {
   };
 }
 
+exports.thunkConsoleForNonTestUniverse = function() {
+  var consoleLogger = LOGFAB.console(null, null, 'console');
+  makeConsoleForLogger(consoleLogger);
+};
 
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
