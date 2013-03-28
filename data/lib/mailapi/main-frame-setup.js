@@ -59,7 +59,8 @@ define(
     sendMessage: null,
     process: function(uid, cmd, args) {
       var online = navigator.onLine;
-      var hasPendingAlarm = navigator.mozHasPendingMessage('alarm');
+      var hasPendingAlarm = navigator.mozHasPendingMessage &&
+                            navigator.mozHasPendingMessage('alarm');
       control.sendMessage(uid, 'hello', [online, hasPendingAlarm]);
 
       window.addEventListener('online', function(evt) {
@@ -68,11 +69,13 @@ define(
       window.addEventListener('offline', function(evt) {
         control.sendMessage.postMessage(uid, evt.type, false);
       });
-      navigator.mozSetMessageHandler('alarm', function(msg) {
-        control.sendMessage(uid, 'alarm', [msg]);
-      });
+      if (navigator.mozSetMessageHandler) {
+        navigator.mozSetMessageHandler('alarm', function(msg) {
+          control.sendMessage(uid, 'alarm', [msg]);
+        });
+      }
 
-      unregister(control);
+      $router.unregister(control);
     },
   };
 
