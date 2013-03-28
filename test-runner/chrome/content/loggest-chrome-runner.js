@@ -261,10 +261,8 @@ function do_get_file(path, allowNonexistent) {
     }
 
     if (!allowNonexistent && !lf.exists()) {
-      // Not using do_throw(): caller will continue.
-      _passed = false;
       var stack = Components.stack.caller;
-      _dump("TEST-UNEXPECTED-FAIL | " + stack.filename + " | [" +
+      dump("Problem locating file | " + stack.filename + " | [" +
             stack.name + " : " + stack.lineNumber + "] " + lf.path +
             " does not exist\n");
     }
@@ -477,6 +475,9 @@ function populateTestParams() {
     TEST_NAME = null;
   // but the configuration is not
   TEST_CONFIG = args.handleFlagWithParam('test-config', false);
+  // make absolute if it's not already absolute
+  if (TEST_CONFIG[0] !== '/')
+    TEST_CONFIG = do_get_file(TEST_CONFIG).path;
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -983,7 +984,7 @@ function runTests(configData) {
 }
 
 function DOMLoaded() {
-  OS.File.read(do_get_file(TEST_CONFIG).path).then(function(dataArr) {
+  OS.File.read(TEST_CONFIG).then(function(dataArr) {
     var decoder = new TextDecoder('utf-8');
     var configData = JSON.parse(decoder.decode(dataArr));
 
