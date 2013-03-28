@@ -78,7 +78,7 @@ define run-tests  # $(call run-tests,configName,accountType)
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs/$(1)
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-config test/config-$(1).json
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json
 	cat test-logs/$(1)/*.log > test-logs/all-$(1).log
 endef
 
@@ -88,7 +88,7 @@ define run-one-test
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs/$(1)
 	-rm -f test-logs/$(1)/$(basename $(SOLO_FILE)).log
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app test-runner/application.ini -no-remote -profile test-profile --test-config test/config-$(1).json --test-name $(basename $(SOLO_FILE))
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json --test-name $(basename $(SOLO_FILE))
 endef
 
 ######################

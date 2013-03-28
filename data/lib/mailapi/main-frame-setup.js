@@ -87,26 +87,23 @@ define(
     process: function(uid, cmd, args) {
       var msg = args;
 
-      if (msg.type !== 'hello') {
-        mailAPIs[uid].__bridgeReceive(msg);
-        return;
+      if (msg.type === 'hello') {
+        var mailAPI = new $mailapi.MailAPI();
+        mailAPI.__bridgeSend = function(msg) {
+          worker.postMessage({
+            uid: uid,
+            type: 'bridge',
+            msg: msg
+          });
+        };
+
+        mailAPI.config = msg.config;
+
+        var evtObject = document.createEvent('Event');
+        evtObject.initEvent('mailapi', false, false);
+        evtObject.mailAPI = mailAPI;
+        window.dispatchEvent(evtObject);
       }
-
-      var mailAPI = new $mailapi.MailAPI();
-      mailAPI.__bridgeSend = function(msg) {
-        worker.postMessage({
-          uid: uid,
-          type: 'bridge',
-          msg: msg
-        });
-      };
-
-      mailAPI.config = msg.config;
-
-      var evtObject = document.createEvent('Event');
-      evtObject.initEvent('mailapi', false, false);
-      evtObject.mailAPI = mailAPI;
-      window.dispatchEvent(evtObject);
     },
   };
 

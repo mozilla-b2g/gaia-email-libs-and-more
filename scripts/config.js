@@ -1,5 +1,6 @@
 // set location of dynamically loaded layers.
 require.config({
+  baseUrl: '../..',
   paths: {
     mailapi: 'js/ext/mailapi',
     mimelib: 'js/ext/mimelib',
