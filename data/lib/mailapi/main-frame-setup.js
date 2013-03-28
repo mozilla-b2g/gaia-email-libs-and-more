@@ -103,9 +103,10 @@ define(
 
       mailAPI.config = msg.config;
 
-      var evt = document.createEvent('CustomEvent');
-      evt.initCustomEvent('mailapi', false, false, { mailAPI: mailAPI });
-      window.dispatchEvent(evt);
+      var evtObject = document.createEvent('Event');
+      evtObject.initEvent('mailapi', false, false);
+      evtObject.mailAPI = mailAPI;
+      window.dispatchEvent(evtObject);
     },
   };
 
