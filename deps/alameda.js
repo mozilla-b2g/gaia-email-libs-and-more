@@ -782,6 +782,18 @@ var requirejs, require, define;
             return load;
         }
 
+var mozlog;
+if (typeof console !== 'undefined' && console.log) {
+    mozlog = function (msg) {
+        console.log(msg);
+    }
+} else if (typeof dump !== 'undefined') {
+    mozlog = function (msg) {
+        dump(msg + '\n');
+    };
+} else {
+    throw new Error('NO KENNY LOGGINS');
+}
         load = typeof importScripts === 'function' ?
                 function (map) {
                     var url = map.url;
@@ -789,6 +801,7 @@ var requirejs, require, define;
                         return;
                     }
                     urlFetched[url] = true;
+mozlog('ALAMEDA: importScripts: ' + url);
 
                     //Ask for the deferred so loading is triggered.
                     //Do this before loading, since loading is sync.
@@ -805,6 +818,7 @@ var requirejs, require, define;
                         return;
                     }
                     urlFetched[url] = true;
+mozlog('ALAMEDA: script load: ' + url);
 
                     script = document.createElement('script');
                     script.setAttribute('data-requiremodule', id);

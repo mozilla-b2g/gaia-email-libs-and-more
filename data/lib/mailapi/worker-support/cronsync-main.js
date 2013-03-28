@@ -6,40 +6,45 @@ define(function() {
   }
 
   function clearAlarms() {
-    var req = navigator.mozAlarms.getAll();
-    req.onsuccess = function(event) {
-      var alarms = event.target.result;
-      for (var i = 0; i < alarms.length; i++) {
-        navigator.mozAlarms.remove(alarms[i].id);
-      }
+    if (navigator.mozAlarms) {
+      var req = navigator.mozAlarms.getAll();
+      req.onsuccess = function(event) {
+        var alarms = event.target.result;
+        for (var i = 0; i < alarms.length; i++) {
+          navigator.mozAlarms.remove(alarms[i].id);
+        }
 
-      debug("clearAlarms: done.");
-    };
+        debug("clearAlarms: done.");
+      };
 
-    req.onerror = function(event) {
-      debug("clearAlarms: failure.");
-    };
+      req.onerror = function(event) {
+        debug("clearAlarms: failure.");
+      };
+    }
   }
 
   function addAlarm(time) {
-    var req = navigator.mozAlarms.add(time, 'ignoreTimezone', {});
+    if (navigator.mozAlarms) {
+      var req = navigator.mozAlarms.add(time, 'ignoreTimezone', {});
 
-    req.onsuccess = function() {
-      debug('addAlarm: done.');
-    };
+      req.onsuccess = function() {
+        debug('addAlarm: done.');
+      };
 
-    req.onerror = function(event) {
-      debug('addAlarm: failure.');
+      req.onerror = function(event) {
+        debug('addAlarm: failure.');
 
-      var target = event.target;
-      console.warn('err:', target && target.error && target.error.name);
-    };
+        var target = event.target;
+        console.warn('err:', target && target.error && target.error.name);
+      };
+    }
   }
 
   var gApp, gIconUrl;
   navigator.mozApps.getSelf().onsuccess = function(event) {
     gApp = event.target.result;
-    gIconUrl = gApp.installOrigin + '/style/icons/Email.png';
+    if (gApp)
+      gIconUrl = gApp.installOrigin + '/style/icons/Email.png';
   };
 
   /**

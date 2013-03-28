@@ -24,8 +24,10 @@ buildOptions = {
   useStrict: true,
   paths: {
     'alameda': 'deps/alameda',
+    'config': 'scripts/config',
 
     // NOP's
+    'prim': 'empty:',
     'http': 'data/lib/nop',
     'https': 'data/lib/nop2',
     'url': 'data/lib/nop3',
@@ -49,6 +51,7 @@ buildOptions = {
     'rdplat': 'data/lib/rdplat',
     'rdcommon': 'data/lib/rdcommon',
     'mailapi': 'data/lib/mailapi',
+    'worker-bootstrap': 'data/deps/worker-bootstrap',
 
     'buffer': 'data/lib/node-buffer',
     'crypto': 'data/lib/node-crypto',
@@ -72,20 +75,29 @@ buildOptions = {
     'mailparser': 'data/deps/mailparser/lib',
     'simplesmtp': 'data/deps/simplesmtp',
     'mailcomposer': 'data/deps/mailcomposer'
-  },
-  include: ['event-queue', 'mailapi/same-frame-setup', 'mailapi/mailslice',
-            'mailapi/searchfilter', 'mailapi/jobmixins',
-            'mailapi/accountmixins', 'util', 'stream', 'crypto', 'encoding'],
-  name: 'mailapi/same-frame-setup',
-  out: jsPath + '/mailapi/same-frame-setup.js'
+  }
 };
 
-var standardExcludes = ['mailapi/same-frame-setup'].concat(buildOptions.include);
+var bootstrapIncludes = ['alameda', 'config', 'mailapi/shim-sham',
+  'event-queue', 'mailapi/mailslice', 'mailapi/searchfilter',
+  'mailapi/jobmixins', 'mailapi/accountmixins', 'util', 'stream', 'crypto',
+  'encoding', 'mailapi/worker-setup'];
+var standardExcludes = [].concat(bootstrapIncludes);
 var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
 
 var configs = [
-  // First one is same-frame-setup
-  {},
+  {
+    name: 'worker-bootstrap',
+    include: bootstrapIncludes,
+    insertRequire: ['mailapi/worker-setup'],
+    out: jsPath + '/worker-bootstrap.js'
+  },
+
+  {
+    name: 'mailapi/main-frame-setup',
+    include: [],
+    out: jsPath + '/mailapi/main-frame-setup.js'
+  },
 
   {
     name: 'mimelib',
@@ -186,7 +198,8 @@ function onError(err) {
 //in the configs array.
 var runner = configs.reduceRight(function (prev, cfg) {
   return function (buildReportText) {
-    console.log(buildReportText);
+    if (buildReportText)
+      console.log(buildReportText);
 
     currentConfig = mix(cfg);
 
@@ -197,6 +210,7 @@ var runner = configs.reduceRight(function (prev, cfg) {
 
   try {
     var scriptText,
+      endPath = path.join(jsPath, 'end.js'),
       indexContents = fs.readFileSync(indexPath, 'utf8'),
       startComment = '<!-- START BACKEND INJECT - do not modify -->',
       endComment = '<!-- END BACKEND INJECT -->',
@@ -215,11 +229,21 @@ var runner = configs.reduceRight(function (prev, cfg) {
       'alameda',
       'end'
     ];
-    fs.createReadStream(path.join(__dirname, '..', 'deps', 'alameda.js'))
-      .pipe(fs.createWriteStream(path.join(jsPath, 'alameda.js')));
-    fs.createReadStream(path.join(__dirname, 'end.js'))
-      .pipe(fs.createWriteStream(path.join(jsPath, 'end.js')));
 
+    // Copy some bootstrap scripts over to gaia
+    fs.writeFileSync(path.join(jsPath, 'alameda.js'),
+      fs.readFileSync(path.join(__dirname, '..', 'deps', 'alameda.js')),
+      'utf8');
+    fs.writeFileSync(endPath,
+      fs.readFileSync(path.join(__dirname, 'end.js')),
+      'utf8');
+
+    // Modify end.js to include config.js
+    var configContents = fs.readFileSync(path.join(__dirname, 'config.js'),
+                                         'utf8');
+    fs.writeFile(endPath, configContents + fs.readFileSync(endPath, 'utf8'));
+
+    // Update gaia email index.html with the right script tags.
     scriptText = startComment + '\n' +
       indexPaths.map(function (name) {
 

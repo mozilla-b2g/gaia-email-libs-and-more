@@ -59,7 +59,8 @@ define(
     sendMessage: null,
     process: function(uid, cmd, args) {
       var online = navigator.onLine;
-      var hasPendingAlarm = navigator.mozHasPendingMessage('alarm');
+      var hasPendingAlarm = navigator.mozHasPendingMessage &&
+                            navigator.mozHasPendingMessage('alarm');
       control.sendMessage(uid, 'hello', [online, hasPendingAlarm]);
 
       window.addEventListener('online', function(evt) {
@@ -68,11 +69,13 @@ define(
       window.addEventListener('offline', function(evt) {
         control.sendMessage.postMessage(uid, evt.type, false);
       });
-      navigator.mozSetMessageHandler('alarm', function(msg) {
-        control.sendMessage(uid, 'alarm', [msg]);
-      });
+      if (navigator.mozSetMessageHandler) {
+        navigator.mozSetMessageHandler('alarm', function(msg) {
+          control.sendMessage(uid, 'alarm', [msg]);
+        });
+      }
 
-      unregister(control);
+      $router.unregister(control);
     },
   };
 
@@ -84,25 +87,23 @@ define(
     process: function(uid, cmd, args) {
       var msg = args;
 
-      if (msg.type !== 'hello') {
-        mailAPIs[uid].__bridgeReceive(msg);
-        return;
+      if (msg.type === 'hello') {
+        var mailAPI = new $mailapi.MailAPI();
+        mailAPI.__bridgeSend = function(msg) {
+          worker.postMessage({
+            uid: uid,
+            type: 'bridge',
+            msg: msg
+          });
+        };
+
+        mailAPI.config = msg.config;
+
+        var evtObject = document.createEvent('Event');
+        evtObject.initEvent('mailapi', false, false);
+        evtObject.mailAPI = mailAPI;
+        window.dispatchEvent(evtObject);
       }
-
-      var mailAPI = new $mailapi.MailAPI();
-      mailAPI.__bridgeSend = function(msg) {
-        worker.postMessage({
-          uid: uid,
-          type: 'bridge',
-          msg: msg
-        });
-      };
-
-      mailAPI.config = msg.config;
-
-      var evt = document.createEvent('CustomEvent');
-      evt.initCustomEvent('mailapi', false, false, { mailAPI: mailAPI });
-      window.dispatchEvent(evt);
     },
   };
 
