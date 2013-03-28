@@ -8,6 +8,8 @@ require.config({
     // mailcomposer is in the mailapi/composer layer.
     mailcomposer: 'js/ext/mailapi/composer',
 
+    'mailparser/mailparser': 'js/ext/mailparser/mailparser',
+
     // Point activesync protocol modules to their layer
     'wbxml': 'js/ext/mailapi/activesync/protocollayer',
     'activesync/codepages': 'js/ext/mailapi/activesync/protocollayer',
