@@ -1,3 +1,31 @@
+(function(window) {
+
+function eventHandler(type, killSocket) {
+  var method = 'on' + type;
+
+  return function(event) {
+    var consumer = this._eventConsumers[type];
+    if (this._sock) {
+      if (killSocket) {
+        FawltySocketFactory.__deadSocket(this);
+      }
+
+      if (consumer && consumer(event)) {
+        // event was consumed
+        return;
+      }
+
+      // emit the event to the real listener
+      this[method] && this[method](event);
+    }
+  };
+}
+
+/**
+ * For debugging and easy identification of spy sockets.
+ */
+var lastMockId = 1;
+
 /**
  * Wraps mozTCPSocket so that we can inject a fault.  We can use some combination
  * of injecting fake received data and fake or real closing a connection that is
@@ -8,6 +36,7 @@
  */
 function FawltySocket(host, port, options, cmdDict) {
   this._sock = null;
+  this._mockId = lastMockId++;
 
   this.onopen = null;
   this.ondata = null;
@@ -85,8 +114,11 @@ function FawltySocket(host, port, options, cmdDict) {
   this._sock.ondata = this._ondata.bind(this);
   this._sock.onerror = this._onerror.bind(this);
   this._sock.onclose = this._onclose.bind(this);
+
+  this._eventConsumers = {};
 }
 FawltySocket.prototype = {
+
   get readyState() {
     return this._sock.readyState;
   },
@@ -106,28 +138,37 @@ FawltySocket.prototype = {
     return this._sock.bufferedAmount;
   },
 
-  _onopen: function(event) {
-    if (this._sock && this.onopen)
-      this.onopen(event);
+  /**
+   * Every event sent by this socket will clear the given function
+   * prior to being passed off to the real event handler.
+   *
+   *
+   *    socket.consumeEventHandler('data', function(event) {
+   *      if (...) {
+   *        // true indicates that this event should _not_ be sent
+   *        // to the real .ondata handler...
+   *        return true;
+   *      }
+   *    });
+   *
+   */
+  consumeEventHandler: function(type, callback) {
+    console.log('REGISTER!!!', this._mockId);
+    this._eventConsumers[type] = callback;
   },
 
-  _ondata: function(event) {
-    if (this._sock && this.ondata)
-      this.ondata(event);
+  clearConsumeEventsHandler: function(type) {
+    if (type) {
+      return (delete this._eventConsumers[type]);
+    }
+
+    this._eventConsumers = {};
   },
 
-  _onerror: function(event) {
-    if (this._sock && this.onerror)
-      this.onerror(event);
-    // all errors are a death sentence; it's okay to remove slightly early.
-    FawltySocketFactory.__deadSocket(this);
-  },
-
-  _onclose: function(event) {
-    if (this._sock && this.onclose)
-      this.onclose(event);
-    FawltySocketFactory.__deadSocket(this);
-  },
+  _onopen: eventHandler('open'),
+  _ondata: eventHandler('data'),
+  _onerror: eventHandler('error', true),
+  _onclose: eventHandler('close', true),
 
   // XXX This is currently a hack and just operates based on the number of
   // times send() has been called.  I'm not sure it's worth actually finishing
@@ -135,9 +176,6 @@ FawltySocket.prototype = {
   doOnSendText: function(desc) {
     // concat detects arrays/single values
     this._sendWatches = this._sendWatches.concat(desc);
-  },
-
-  doOnReceiveText: function(match, actions) {
   },
 
   _queueEvent: function(type, data) {
@@ -270,6 +308,34 @@ var FawltySocketFactory = {
     return this._liveSockets[this._liveSockets.length - 1];
   },
 
+  findImapSocket: function() {
+    return this.findLiveSocketWith(function(socket) {
+      // assuming quite a bit but probably fine for our initial tests.
+      return socket.port === 143 || socket.port == 993;
+    });
+  },
+
+  /**
+   * Attempt to find a live socket with a filter function.
+   *
+   *
+   *    // bad way of finding a IMAP socket
+   *    var socket = FawltySocketFactory.findLiveSocketWith(function(sock) {
+   *      return sock.port === 143
+   *    });
+   *
+   */
+  findLiveSocketWith: function(enumerator) {
+    var len = this._liveSockets.length;
+    for (var i = 0; i < len; i++) {
+      if (enumerator(this._liveSockets[i])) {
+        return this._liveSockets[i];
+      }
+    }
+
+    return null;
+  },
+
   reset: function() {
     this._liveSockets = [];
     this._precommands = {};
@@ -282,5 +348,9 @@ var FawltySocketFactory = {
                       'precommands pending for: ' + key);
   },
 };
+
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;
 window.navigator.mozTCPSocket = FawltySocketFactory;
+window.FawltySocketFactory = FawltySocketFactory;
+
+}(this));
