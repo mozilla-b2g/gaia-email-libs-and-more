@@ -153,7 +153,6 @@ FawltySocket.prototype = {
    *
    */
   consumeEventHandler: function(type, callback) {
-    console.log('REGISTER!!!', this._mockId);
     this._eventConsumers[type] = callback;
   },
 
