@@ -418,7 +418,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   },
 
   _formatMailListFromNamesAndAddresses: function(aList) {
-    return this._commaize(aList.map(this._commaize.bind(this)));
+    return this._commaize(
+      aList.map(this._formatMailFromNameAndAddress.bind(this)));
   },
 
   /**
