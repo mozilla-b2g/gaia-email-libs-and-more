@@ -91,12 +91,74 @@ var TEXT_CASES = [
 ];
 
 
+function FakeText(text) {
+  this.textContent = this.nodeValue = text;
+}
+FakeText.prototype = {
+  nodeName: '#text',
+};
+
+function FakeNode(tagName) {
+  this.nodeName = tagName.toUpperCase();
+  this._attributes = {};
+  this.className = '';
+  this.children = this.childNodes = [];
+}
+FakeNode.prototype = {
+
+  get textContent() {
+    var s = '';
+    for (var i = 0; i < this.children.length; i++) {
+      s += this.children[i].textContent;
+    }
+    return s;
+  },
+
+  set textContent(val) {
+    this.children.splice(this.children.length);
+    var textNode = new FakeText(val);
+    this.children.push(textNode);
+  },
+
+  hasAttribute: function hasAttribute(attrName) {
+    return this._attributes.hasOwnProperty(attrName);
+  },
+  getAttribute: function getAttribute(attrName) {
+    return this._attributes[attrName];
+  },
+  setAttribute: function setAttribute(attrName, attrVal) {
+    this._attributes[attrName] = '' + attrVal;
+  },
+  removeAttribute: function removeAttribute(attrName) {
+    delete this._attributes[attrName];
+  },
+  appendChild: function(child) {
+    this.children.push(child);
+  },
+  insertBefore: function(child, before) {
+    this.children.splice(this.children.indexOf(before), 0, child);
+  },
+  replaceChild: function(orig, replacement) {
+    this.children.splice(this.children.indexOf(orig), 1, replacement);
+  },
+};
+
+function FakeDoc() {
+  this.body = new FakeNode('body');
+}
+FakeDoc.prototype = {
+  createElement: function(tagName) {
+    return new FakeNode(tagName);
+  },
+  createTextNode: function(text) {
+    return new FakeText(text);
+  }
+};
+
 TD.commonCase('linkify plaintext', function(T, RT) {
   // We need a universe to get a MailAPI
   var testUniverse = T.actor('testUniverse', 'U'),
       eLazy = T.lazyLogger('linkCheck');
-
-  var doc = document.implementation.createHTMLDocument('');
 
   function expectUrl(tcase) {
     eLazy.expect_namedValue('text', tcase.text);
@@ -131,7 +193,8 @@ TD.commonCase('linkify plaintext', function(T, RT) {
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
       expectUrl(tcase);
-      var nodes = MailAPI.utils.linkifyPlain(tcase.raw || tcase.text, doc);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+                    tcase.raw || tcase.text, new FakeDoc());
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
@@ -140,8 +203,9 @@ TD.commonCase('linkify plaintext', function(T, RT) {
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
       expectUrl(tcase);
-      var nodes = MailAPI.utils.linkifyPlain(
-        'foo ' + (tcase.raw || tcase.text) + ' bar', doc);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'fooooooooo ' + (tcase.raw || tcase.text) + ' barrrrrrrrrrrr',
+        new FakeDoc());
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
@@ -168,7 +232,7 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     expectUrl({ text: 'http://baz.baz.baz/',
                 url: 'http://baz.baz.baz/' });
 
-    var nodes = MailAPI.utils.linkifyPlain(str, doc);
+    var nodes = testUniverse.MailAPI.utils.linkifyPlain(str, new FakeDoc());
     reportAll(nodes);
   });
 });
@@ -211,16 +275,24 @@ TD.commonCase('linkify HTML', function(T, RT) {
   }
 
   T.check(eLazy, 'HTML', function() {
-    var doc = document.implementation.createHTMLDocument(
-      [
-        'Lead-in http://bare.link/ gap1 ',
-        '<a ext-href="http://existing.link/">',
-        'http://nested.plaintext.link/</a> gap2 ',
-        'and an http://intermediate.bare.link ',
-        '<a ext-href="http://other.existing.link/">',
-        '<span>arbitrary http://nested.link/</span>',
-        '</a>',
-      ].join(''));
+    var doc = new FakeDoc(), body = doc.body;
+    body.appendChild(
+      doc.createTextNode('Lead-in http://bare.link/ gap1 '));
+
+    var a = doc.createElement('a');
+    a.setAttribute('ext-href', 'http://existing.link/');
+    a.textContent = 'http://nested.plaintext.link/';
+    body.appendChild(a);
+
+    body.appendChild(
+      doc.createTextNode(' gap2 and an http://intermediate.bare.link '));
+
+    a = doc.createElement('a');
+    a.setAttribute('ext-href', 'http://other.existing.link/');
+    var span = doc.createElement('span');
+    span.textContent = 'arbitrary http://nested.link/';
+    a.appendChild(span);
+
     var expectedNodes = [
         { name: '#text', value: 'Lead-in ' },
         {
@@ -251,7 +323,7 @@ TD.commonCase('linkify HTML', function(T, RT) {
       ];
     traverseAndLogExpectations(expectedNodes);
 
-    MailAPI.utils.linkifyHTML(doc);
+    testUniverse.MailAPI.utils.linkifyHTML(doc);
     traverseAndLogNodes(doc.body.childNodes);
   });
 });

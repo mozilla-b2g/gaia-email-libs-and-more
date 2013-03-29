@@ -922,6 +922,9 @@ MailUniverse.prototype = {
     this._db.close();
     if (this._LOG)
       this._LOG.__die();
+
+    if (!this.accounts.length)
+      callback();
   },
 
   //////////////////////////////////////////////////////////////////////////////
