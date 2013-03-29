@@ -217,18 +217,35 @@ ImapJobDriver.prototype = {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
     storage.runMutexed(label, function(releaseMutex) {
-      self._heldMutexReleasers.push(releaseMutex);
       var syncer = storage.folderSyncer;
-      if (needConn && !syncer.folderConn._conn) {
-        syncer.folderConn.acquireConn(callback, deathback, label);
-      }
-      else {
+      var action = function () {
+        self._heldMutexReleasers.push(releaseMutex);
         try {
           callback(syncer.folderConn, storage);
         }
         catch (ex) {
           self._LOG.callbackErr(ex);
         }
+      };
+
+      if (needConn) {
+        syncer.folderConn.withConnection(function () {
+          // When we release the mutex, the folder may not
+          // release its connection, so be sure to reset
+          // error handling (deathback).  We are slightly
+          // abusing the mutex releasing mutex mechanism
+          // here. And we do want to do this before calling
+          // the actual mutex releaser since we might
+          // otherwise interact with someone else who just
+          // acquired the mutex, (only) theoretically.
+          self._heldMutexReleasers.push(function() {
+            syncer.folderConn.clearErrorHandler();
+          });
+
+          action();
+        }, deathback, label);
+      } else {
+        action();
       }
     });
   },
