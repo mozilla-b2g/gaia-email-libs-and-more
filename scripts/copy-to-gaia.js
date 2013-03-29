@@ -127,7 +127,7 @@ var configs = [
 
   {
     name: 'mailapi/imap/probe',
-    exclude: standardPlusComposerExcludes,
+    exclude: standardPlusComposerExcludes.concat(['mailparser/mailparser']),
     out: jsPath + '/mailapi/imap/probe.js'
   },
 
