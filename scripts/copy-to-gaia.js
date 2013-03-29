@@ -51,7 +51,6 @@ buildOptions = {
     'rdplat': 'data/lib/rdplat',
     'rdcommon': 'data/lib/rdcommon',
     'mailapi': 'data/lib/mailapi',
-    'worker-bootstrap': 'data/deps/worker-bootstrap',
 
     'buffer': 'data/lib/node-buffer',
     'crypto': 'data/lib/node-crypto',
@@ -87,10 +86,10 @@ var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes)
 
 var configs = [
   {
-    name: 'worker-bootstrap',
+    name: 'mailapi/worker-bootstrap',
     include: bootstrapIncludes,
     insertRequire: ['mailapi/worker-setup'],
-    out: jsPath + '/worker-bootstrap.js'
+    out: jsPath + '/mailapi/worker-bootstrap.js'
   },
 
   {

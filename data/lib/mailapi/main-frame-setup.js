@@ -41,7 +41,7 @@ define(
 
   var worker;
   function init() {
-    worker = new Worker('js/ext/worker-bootstrap.js');
+    worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
 
     $router.useWorker(worker);
 
