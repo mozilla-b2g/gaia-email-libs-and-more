@@ -177,11 +177,13 @@ var TestUniverseMixins = {
         testOpts.nukeDb = opts.nukeDb;
 
       self._sendHelperMessage = $router.registerCallbackType('testhelper');
+      self._mainThreadMailBridge = false;
 
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe);
+          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe,
+                                                            self.__name);
           var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
 
           var realSendMessage = $router.registerSimple(
@@ -222,6 +224,25 @@ var TestUniverseMixins = {
                                       function() {
       self.cleanShutdown();
     });
+  },
+
+  ensureMainThreadMailAPI: function() {
+    if (this._mainThreadMailBridge)
+      return;
+
+    var bridge = this._mainThreadMailBridge =
+          new $mailbridge.MailBridge(this.universe);
+    var sendMessage = $router.registerSimple(
+      'main-bridge',
+      function(data) {
+        bridge.__receiveMessage(data.args);
+      });
+
+    this._mainThreadMailBridge.__sendMessage = function(msg) {
+      sendMessage('main-bridge', msg);
+    }.bind(this);
+
+    this._sendHelperMessage('create-mailapi');
   },
 
   do_timewarpNow: function(useAsNowTS, humanMsg) {
@@ -579,17 +600,51 @@ var TestCommonAccountMixins = {
    * soon but this provides a wrapper to wait for the bodies .onchange event for
    * the bodyReps if they are not downloaded at the time...
    *
+   * This function can optionally also fetch the body on the main thread
+   * context as well, and remote a function across that will be run there with
+   * the message body passed-in.
+   *
    *    var myHeader;
    *
-   *    testAccount.getMessageBodyWithReps(myHeader, function(body) {
-   *
-   *    });
-   *
+   *    testAccount.getMessageBodyWithReps(
+   *      myHeader,
+   *      function workerThreadTestContextFunc(body) {
+   *      },
+   *      function remotedMainThreadFunc(remotedArg, body, sendResults) {
+   *        // This can be called asynchronously in the future, but should only
+   *        // be called once.
+   *        sendResults('main thread says hello!');
+   *      },
+   *      function gotResultsBackFromMainThread(results) {
+   *      });
    *
    */
-  getMessageBodyWithReps: function(myHeader, callback) {
+  getMessageBodyWithReps: function(myHeader, callback,
+                                   mainThreadArg, onMainThreadFunc,
+                                   withMainThreadResults) {
+    var testUniverse = this.testUniverse;
+    if (onMainThreadFunc) {
+      testUniverse.ensureMainThreadMailAPI();
+    }
+
+    function sendToMain() {
+      if (!onMainThreadFunc)
+        return;
+      testUniverse._sendHelperMessage(
+        'runWithBody',
+        {
+          headerId: myHeader.id,
+          headerDate: myHeader.date.valueOf(),
+          arg: mainThreadArg,
+          func: onMainThreadFunc.toString()
+        },
+        function(results) {
+          if (withMainThreadResults)
+            withMainThreadResults(results);
+        });
+    }
+
     myHeader.getBody({ downloadBodyReps: true }, function(body) {
-      myBody = body;
       // wait for all body reps if they are not here...
       var needBodReps = body.bodyReps.some(function(item) {
         return !item.isDownloaded;
@@ -599,11 +654,13 @@ var TestCommonAccountMixins = {
         body.onchange = function(evt) {
           if (evt.changeType === 'bodyReps') {
             callback(body);
+            sendToMain();
           }
         };
 
       } else {
         callback(body);
+        sendToMain();
       }
     });
   },
@@ -974,7 +1031,7 @@ var TestImapAccountMixins = {
   /**
    * Create a folder and populate it with a set of messages.
    */
-  do_createTestFolder: function(folderName, messageSetDef) {
+  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
@@ -1036,7 +1093,7 @@ var TestImapAccountMixins = {
     }
 
     this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
-                                     messageSetDef);
+                                     messageSetDef, extraFlags);
 
     return testFolder;
   },
@@ -1104,8 +1161,11 @@ var TestImapAccountMixins = {
    *   }
    * ]
    */
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef, opts) {
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
+                                        extraFlags) {
     var self = this;
+    var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
+                       messageSetDef.count;
     this.T.convenienceSetup(this, desc, testFolder,function(){
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.universe._testModeDisablingLocalOps = true;
@@ -1134,7 +1194,7 @@ var TestImapAccountMixins = {
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
-      if (checkFlagDefault(opts, 'doNotExpect', false)) {
+      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
       else if (!testFolder.serverMessages) {
@@ -1159,7 +1219,7 @@ var TestImapAccountMixins = {
         self._logger.appendNotified();
         self.universe._testModeDisablingLocalOps = false;
       });
-    }).timeoutMS = 1000 + 600 * messageSetDef.count; // appending can take a bit.
+    }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
   },
 
   /**

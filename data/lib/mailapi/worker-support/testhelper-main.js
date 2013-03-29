@@ -12,6 +12,7 @@ define(
     './devicestorage-main',
     './maildb-main',
     './net-main',
+    'mailapi/mailapi',
     'exports'
   ],
   function(
@@ -21,6 +22,7 @@ define(
     $devicestorage,
     $maildb,
     $net,
+    $mailapi,
     exports
   ) {
 
@@ -41,11 +43,45 @@ var bouncedBridge = {
 $router.register(realisticBridge);
 $router.register(bouncedBridge);
 
+var gMailAPI = null;
+
 var testHelper = {
   name: 'testhelper',
   sendMessage: null,
   process: function(uid, cmd, args) {
-    if (cmd === 'checkDatabaseDoesNotContain') {
+    if (cmd === 'create-mailapi') {
+      gMailAPI = new $mailapi.MailAPI();
+      gMailAPI.__bridgeSend = function(msg) {
+        mainBridge.sendMessage(null, null, msg);
+      };
+    }
+    /**
+     * Support testAccount.getMessageBodyWithReps
+     */
+    else if (cmd === 'runWithBody') {
+console.log('func source:', args.func);
+try {
+      var func;
+      eval('func = ' + args.func + ';');
+  console.warn('FUNC', func);
+      gMailAPI._getBodyForMessage(
+        { id: args.headerId, date: args.headerDate },
+        null,
+        function(body) {
+          console.log('got body, invoking func!');
+          try {
+            func(args.arg, body, function(results) {
+              testHelper.sendMessage(uid, cmd, [results]);
+              body.die();
+            });
+          }
+          catch (ex) {
+            console.error('problem in runWithBody func', ex, '\n', ex.stack);
+          }
+        });
+} catch (ex) { console.error('problem with runWithBody', ex, '\n', ex.stack); }
+    }
+    else if (cmd === 'checkDatabaseDoesNotContain') {
       var tablesAndKeyPrefixes = args;
       var idb = $maildb._debugDB._db,
           desiredStores = [], i, checkArgs;
@@ -86,6 +122,17 @@ var testHelper = {
   }
 };
 $router.register(testHelper);
+
+// Bridge connection for a MailAPI instance on the main thread
+var mainBridge = {
+  name: 'main-bridge',
+  sendMessage: null,
+  process: function(uid, cmd, args) {
+    if (gMailAPI)
+      gMailAPI.__bridgeReceive(args);
+  }
+};
+$router.register(mainBridge);
 
 var deviceStorageTestHelper = {
   name: 'th_devicestorage',

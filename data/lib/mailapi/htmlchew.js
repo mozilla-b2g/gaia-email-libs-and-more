@@ -50,14 +50,12 @@ define(
  *   help, but it's something.  Because forms are largely unsupported or just
  *   broken in many places, they are rarely used, so we are turning them off
  *   entirely.
- * - implicitly-nuked: killed as part of the parse process because we assign
- *   to innerHTML rather than creating a document with the string in it.
- * - inline-style-only: Styles have to be included in the document itself,
- *   and for now, on the elements themselves.  We now support <style> tags
- *   (although src will be sanitized off), but not <link> tags because they want
- *   to reference external stuff.
+ * - non-body: previously killed as part of the parse process because we were
+ *   assigning to innerHTML rather than creating a document with the string in
+ *   it.  We could change this up in a future bug now.
  * - dangerous: The semantics of the tag are intentionally at odds with our
- *   goals and/or are extensible.  (ex: link tag.)
+ *   goals and/or are extensible.  (ex: link tag.)  Our callbacks could be
+ *   used to only let through okay things.
  * - interactive-ui: A cross between scripty and forms, things like (HTML5)
  *   menu and command imply some type of mutation that requires scripting.
  *   They also are frequently very attribute-heavy.
@@ -86,15 +84,15 @@ var LEGAL_TAGS = [
   'footer',
   // forms: 'form',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  // implicitly-nuked: head
+  // non-body: 'head'
   'header', 'hgroup', 'hr',
-  // implicitly-nuked: html
+  // non-body: 'html'
   'i', 'img',
   // forms: 'input',
   'ins', // ("represents a range of text that has been inserted to a document")
   'kbd', // ("The kbd element represents user input")
   'label', 'legend', 'li',
-  // dangerous, inline-style-only: link
+  // dangerous: link (for CSS styles
   /* link supports many types, none of which we want, some of which are
    * risky: http://dev.w3.org/html5/spec/links.html#linkTypes. Specifics:
    * - "stylesheet": This would be okay for cid links, but there's no clear
@@ -152,16 +150,20 @@ var LEGAL_TAGS = [
  *   'datalist', so we need not include them.  This means that if the tags
  *   are used in nonsensical positions, they will have their contents
  *   merged into the document text, but that's not a major concern.
+ * - non-body: don't have stuff from the header show up like it's part of the
+ *   body!  For now we do want <style> tags to fall out, but we want <title>
+ *   to not show up, etc.
  * - 'script': no one wants to read the ignored JS code!
- * - 'style': no one wants to read the CSS we are (currently) ignoring
+ * Note that bleach.js now is aware of the special nature of 'script' and
+ * 'style' tags, so putting them in prune is not strictly required.
  */
 var PRUNE_TAGS = [
   'button', // (forms)
   'datalist', // (forms)
   'script', // (script)
   'select', // (forms)
-  'style', // (style)
   'svg', // (svg)
+  'title', // (non-body)
 ];
 
 /**
@@ -223,7 +225,7 @@ var LEGAL_ATTR_MAP = {
     'hspace', // (pres)
     // dangerous: 'http-equiv' (meta refresh, maybe other trickiness)
     // interactive-ui: 'icon',
-    // inline-style-only: 'id',
+    'id', // (pres; white-listed for style targets)
     // specific: 'ismap', (area image map)
     // microformat: 'itemid', 'itemprop', 'itemref', 'itemscope', 'itemtype',
     // annoying: 'kind', (media)
@@ -266,7 +268,7 @@ var LEGAL_ATTR_MAP = {
     // sanitized: 'src',
     'size', // (pres)
     'scope', // (tables)
-    // inline-style-only: 'scoped', (on "style" elem)
+    'scoped', // (pres; on "style" elem)
     // forms: 'selected',
     'shape', // (image maps)
     'span', // (tables)
@@ -381,52 +383,96 @@ var RE_MAILTO_URL = /^mailto:/i;
 
 var RE_IMG_TAG = /^img$/;
 
+function getAttributeFromList(attrs, name) {
+  for (var i = 0; i < attrs.length; i++) {
+    var attr = attrs[i];
+    if (attr.name.toLowerCase() === name) {
+      return attr;
+    }
+  }
+  return null;
+}
+
 /**
  * Transforms src tags, ensure that links are http and transform them too so
  * that they don't actually navigate when clicked on but we can hook them.  (The
  * HTML display iframe is not intended to navigate; we just want to trigger the
  * browser.
  */
-function stashLinks(node, lowerTag) {
+function stashLinks(lowerTag, attrs) {
+  var classAttr;
   // - img: src
   if (RE_IMG_TAG.test(lowerTag)) {
-    var src = node.getAttribute('src');
-    if (RE_CID_URL.test(src)) {
-      node.classList.add('moz-embedded-image');
-      // strip the cid: bit, it is necessarily there and therefore redundant.
-      node.setAttribute('cid-src', src.substring(4));
-      // 'src' attribute will be removed by whitelist
-    }
-    else if (RE_HTTP_URL.test(src)) {
-      node.classList.add('moz-external-image');
-      node.setAttribute('ext-src', src);
-      // 'src' attribute will be removed by whitelist
-    }
-    else {
-      // paranoia; no known benefit if this got through
-      node.removeAttribute('cid-src');
-      node.removeAttribute('ext-src');
+    // filter out things we might write to, also find the 'class attr'
+    attrs = attrs.filter(function(attr) {
+      switch (attr.name.toLowerCase()) {
+        case 'cid-src':
+        case 'ext-src':
+          return false;
+        case 'class':
+          classAttr = attr;
+        default:
+          return true;
+      }
+    });
+
+    var srcAttr = getAttributeFromList(attrs, 'src');
+    if (srcAttr) {
+      if (RE_CID_URL.test(srcAttr.escaped)) {
+        srcAttr.name = 'cid-src';
+        if (classAttr)
+          classAttr.escaped += ' moz-embedded-image';
+        else
+          attrs.push({ name: 'class', escaped: 'moz-embedded-image' });
+        // strip the cid: bit, it is necessarily there and therefore redundant.
+        srcAttr.escaped = srcAttr.escaped.substring(4);
+      }
+      else if (RE_HTTP_URL.test(srcAttr.escaped)) {
+        srcAttr.name = 'ext-src';
+        if (classAttr)
+          classAttr.escaped += ' moz-external-image';
+        else
+          attrs.push({ name: 'class', escaped: 'moz-external-image' });
+      }
     }
   }
   // - a, area: href
   else {
-    var link = node.getAttribute('href');
+    // filter out things we might write to, also find the 'class attr'
+    attrs = attrs.filter(function(attr) {
+      switch (attr.name.toLowerCase()) {
+        case 'cid-src':
+        case 'ext-src':
+          return false;
+        case 'class':
+          classAttr = attr;
+        default:
+          return true;
+      }
+    });
+    var linkAttr = getAttributeFromList(attrs, 'href'),
+        link = linkAttr.escaped;
     if (RE_HTTP_URL.test(link) ||
         RE_MAILTO_URL.test(link)) {
-      node.classList.add('moz-external-link');
-      node.setAttribute('ext-href', link);
-      // 'href' attribute will be removed by whitelist
+
+      linkAttr.name = 'ext-href';
+      if (classAttr)
+        classAttr.escaped += ' moz-external-link';
+      else
+        attrs.push({ name: 'class', escaped: 'moz-external-link' });
     }
     else {
       // paranoia; no known benefit if this got through
-      node.removeAttribute('ext-href');
+      attrs.splice(attrs.indexOf(linkAttr), 1);
     }
   }
+  return attrs;
 }
 
 var BLEACH_SETTINGS = {
   tags: LEGAL_TAGS,
   strip: true,
+  stripComments: true,
   prune: PRUNE_TAGS,
   attributes: LEGAL_ATTR_MAP,
   styles: LEGAL_STYLES,

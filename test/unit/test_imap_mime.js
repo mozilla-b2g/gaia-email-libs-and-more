@@ -181,6 +181,11 @@ TD.commonCase('MIME hierarchies', function(T) {
           { contentType: 'text/enriched' }),
 
   // - bodies: text/html
+      bstrEmptyHtml = '',
+      bpartEmptyHtml =
+        new SyntheticPartLeaf(
+          bstrEmptyHtml, { contentType: 'text/html' }),
+      bstrSanitizedEmptyHtml = '',
       bstrTrivialHtml =
         '<html><head></head><body>I am HTML! Woo!</body></html>',
       bstrSanitizedTrivialHtml =
@@ -220,6 +225,73 @@ TD.commonCase('MIME hierarchies', function(T) {
       bpartStyleHtml =
         new SyntheticPartLeaf(
           bstrStyleHtml, { contentType: 'text/html' }),
+      bstrForwardedHtml = [
+        '<html>',
+        '  <head>',
+        '',
+        '    <meta http-equiv="content-type" content="text/html; charset=UTF-8">',
+        '  </head>',
+        '  <body text="#000000" bgcolor="#FFFFFF">',
+        '    <br>',
+        '    <div class="moz-forward-container"><br>',
+        '      <br>',
+        '      -------- Original Message --------',
+        '      <table class="moz-email-headers-table" border="0" cellpadding="0"',
+        '        cellspacing="0">',
+        '        <tbody>',
+        '          <tr>',
+        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">Date: </th>',
+        '            <td>Wed, 30 Jan 2013 18:01:02 +0530</td>',
+        '          </tr>',
+        '          <tr>',
+        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">From: </th>',
+        '            <td>Foo Bar <a class="moz-txt-link-rfc2396E" href="mailto:foo@example.com">&lt;foo@example.com&gt;</a></td>',
+        '          </tr>',
+        '        </tbody>',
+        '      </table>',
+        '      <br>',
+        '      <br>',
+        '      <br>',
+        '    </div>',
+        '    <br>',
+        '  </body>',
+        '</html>'].join('\n'),
+      bstrSanitizedForwardedHtml = [
+        '',
+        '  ',
+        '',
+        '    ',
+        '  ',
+        '  ',
+        '    <br/>',
+        '    <div class="moz-forward-container"><br/>',
+        '      <br/>',
+        '      -------- Original Message --------',
+        '      <table class="moz-email-headers-table" border="0" cellpadding="0" cellspacing="0">',
+        '        <tbody>',
+        '          <tr>',
+        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">Date: </th>',
+        '            <td>Wed, 30 Jan 2013 18:01:02 +0530</td>',
+        '          </tr>',
+        '          <tr>',
+        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">From: </th>',
+        '            <td>Foo Bar <a class="moz-txt-link-rfc2396E moz-external-link" ext-href="mailto:foo@example.com">&lt;foo@example.com&gt;</a></td>',
+        '          </tr>',
+        '        </tbody>',
+        '      </table>',
+        '      <br/>',
+        '      <br/>',
+        '      <br/>',
+        '    </div>',
+        '    <br/>',
+        '  ',
+        ''].join('\n'),
+      bpartForwardedHtml =
+        new SyntheticPartLeaf(
+          bstrForwardedHtml, { contentType: 'text/html' }),
+      // we can't get a snippet out of the above that's useful.
+      snipForwardedHtml = '',
+
 
   // - multipart/alternative where text/plain should be chosen
       alternStraight =
@@ -322,6 +394,11 @@ TD.commonCase('MIME hierarchies', function(T) {
     },
     // - text/html
     {
+      name: 'text/html empty',
+      bodyPart: bpartEmptyHtml,
+      checkBody: bstrEmptyHtml,
+    },
+    {
       name: 'text/html trivial (sanitized to just text)',
       bodyPart: bpartTrivialHtml,
       checkBody: bstrSanitizedTrivialHtml,
@@ -344,6 +421,12 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: bpartStyleHtml,
       checkBody: bstrSanitizedStyleHtml,
       checkSnippet: snipStyleHtml,
+    },
+    {
+      name: 'text/html thunderbird forwarded',
+      bodyPart: bpartForwardedHtml,
+      checkBody: bstrSanitizedForwardedHtml,
+      checkSnippet: snipForwardedHtml,
     },
     // - alternative chooses text/html
     {
@@ -398,7 +481,7 @@ TD.commonCase('MIME hierarchies', function(T) {
     }
 
     return messageAppends;
-  });
+  }, { messageCount: testMessages.length }); // give count for timeout purposes
   // -- open the folder
   var folderView = testAccount.do_openFolderView(
     'syncs', fullSyncFolder,
