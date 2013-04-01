@@ -39,7 +39,7 @@ var TD = exports.TD = $tc.defineTestsFor(
 
 
 function doNotThunkErrbackoffTimer() {
-  $_errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
+  $errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
 }
 
 function thunkErrbackoffTimer(lazyLogger) {
