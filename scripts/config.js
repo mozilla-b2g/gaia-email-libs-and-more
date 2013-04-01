@@ -35,6 +35,12 @@ require.config({
     'mailapi/quotechew': 'mailapi/chewlayer',
     'mailapi/imap/imapchew': 'mailapi/chewlayer',
 
+    // Imap body fetching / parsing / sync
+    'mailapi/imap/protocol/sync': 'mailapi/imap/protocollayer',
+    'mailapi/imap/protocol/textparser': 'mailapi/imap/protocollayer',
+    'mailapi/imap/protocol/snippetparser': 'mailapi/imap/protocollayer',
+    'mailapi/imap/protocol/bodyfetcher': 'mailapi/imap/protocollayer',
+
     // The imap probe layer also contains the imap module
     'imap': 'mailapi/imap/probe',
 

@@ -80,7 +80,7 @@ define(
   };
 
 
-  var mailAPIs = {};
+  var mailAPI;
   var bridge = {
     name: 'bridge',
     sendMessage: null,
@@ -88,7 +88,7 @@ define(
       var msg = args;
 
       if (msg.type === 'hello') {
-        var mailAPI = new $mailapi.MailAPI();
+        mailAPI = new $mailapi.MailAPI();
         mailAPI.__bridgeSend = function(msg) {
           worker.postMessage({
             uid: uid,
@@ -103,6 +103,8 @@ define(
         evtObject.initEvent('mailapi', false, false);
         evtObject.mailAPI = mailAPI;
         window.dispatchEvent(evtObject);
+      } else {
+        mailAPI.__bridgeReceive(msg);
       }
     },
   };
