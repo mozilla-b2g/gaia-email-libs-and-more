@@ -1,5 +1,9 @@
 (function(window) {
 
+/**
+ * Creates a event handler wrapper which will either call socket.on[type]
+ * or send the event to a FawltySocket consumer (see consumeEventHandler).
+ */
 function eventHandler(type, killSocket) {
   var method = 'on' + type;
 
