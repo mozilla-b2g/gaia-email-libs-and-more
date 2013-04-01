@@ -21,6 +21,7 @@ define(
  * Please see the inline switch() case comments for details / docs:
  */
 function FawltySocket(host, port, options, cmdDict) {
+  console.log('FawltySocket constructor for:', host, port);
   this._sock = null;
 
   $events.EventEmitter.call(this);
@@ -91,6 +92,7 @@ function FawltySocket(host, port, options, cmdDict) {
   // anything we send over the wire will be utf-8
   this._utf8Decoder = new TextDecoder('UTF-8');
 
+  console.log('Creating real socket for:', host, port);
   this._sock = new $net.NetSocket(port, host, options.useSSL);
   this._sock.on('connect', this._reEmit.bind(this, 'connect'));
   this._sock.on('data', this._reEmit.bind(this, 'data'));
@@ -186,11 +188,17 @@ console.log('queueing event', type);
     if (this._sendWatches.length) {
       sendText = new TextDecoder('utf-8').decode(data);
       console.log('In response to send of: ', data);
-      var responseText = this._sendWatches.shift();
-      console.log('Fake-receiving:', responseText);
-      var responseData = new TextEncoder('utf-8').encode(responseText);
-      this._queueEvent('data', responseData);
-      // it's okay to send more data
+      var responseAction = this._sendWatches.shift();
+      if (typeof(responseAction) === 'string') {
+        var responseText = responseAction;
+        console.log('Fake-receiving:', responseText);
+        var responseData = new TextEncoder('utf-8').encode(responseText);
+        this._queueEvent('data', responseData);
+        // it's okay to send more data
+      }
+      else {
+        this.doNow(responseAction);
+      }
       return true;
     }
 
