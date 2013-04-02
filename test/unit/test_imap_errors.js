@@ -38,6 +38,10 @@ var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
 
 
+function doNotThunkErrbackoffTimer() {
+  $errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
+}
+
 function thunkErrbackoffTimer(lazyLogger) {
   var backlog = [];
   $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
@@ -221,6 +225,61 @@ TD.commonCase('general reconnect logic', function(T) {
     errbackReleaser();
   });
 
+  T.group('cleanup');
+  T.cleanup('kill sockets', function() {
+    FawltySocketFactory.reset();
+  });
+});
+
+/**
+ * A previous bug was that if we reused a connection we would not update the
+ * deathback so the old/dead/uncaring sync would get the deathback instead of
+ * the new one.  This would result in sync stalling and breaking.
+ *
+ * We test the failure by having a successful sync, leaving the slice and
+ * conncetion open, then killing the connection during an explicit refresh sync.
+ */
+TD.commonCase('error handler fires on reused connection', function(T, RT) {
+  T.group('setup');
+  T.check('reset / no precommands', function() {
+    FawltySocketFactory.assertNoPrecommands();
+    FawltySocketFactory.reset();
+  });
+  doNotThunkErrbackoffTimer();
+
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  // an empty folder is fine
+  var testFolder = testAccount.do_createTestFolder(
+    'test_error_reuse',
+    { count: 0 });
+
+  T.group('sync / open view');
+  var testView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    { count : 0, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  T.group('connection dies on refresh');
+  testAccount.do_refreshFolderView(
+    testView,
+    { count : 0, full: 0, flags: 0, deleted: 0 },
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { failure: true,
+      expectFunc: function() {
+        RT.reportActiveActorThisStep(testAccount.eImapAccount);
+        testAccount.eImapAccount.expect_deadConnection();
+
+        // Have the socket close on us when we go to say more stuff to the
+        // server.  The sync process should be active at this point.
+        FawltySocketFactory.getMostRecentLiveSocket().doOnSendText(
+          [['instant-close']]);
+      }});
 });
 
 /**

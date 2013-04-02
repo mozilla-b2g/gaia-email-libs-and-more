@@ -21,6 +21,7 @@ define(
     // Pretty much everything could be dynamically loaded after we kickoff the
     // worker thread.  We just would need to be sure to latch any received
     // messages that we receive before we finish setup.
+    './worker-support/shim-sham',
     './mailapi',
     './worker-support/main-router',
     './worker-support/configparser-main',
@@ -30,6 +31,7 @@ define(
     './worker-support/net-main'
   ],
   function(
+    $shim_setup,
     $mailapi,
     $router,
     $configparser,
@@ -41,7 +43,7 @@ define(
 
   var worker;
   function init() {
-    worker = new Worker('js/ext/worker-bootstrap.js');
+    worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
 
     $router.useWorker(worker);
 
@@ -80,7 +82,7 @@ define(
   };
 
 
-  var mailAPIs = {};
+  var mailAPI;
   var bridge = {
     name: 'bridge',
     sendMessage: null,
@@ -88,7 +90,7 @@ define(
       var msg = args;
 
       if (msg.type === 'hello') {
-        var mailAPI = new $mailapi.MailAPI();
+        mailAPI = new $mailapi.MailAPI();
         mailAPI.__bridgeSend = function(msg) {
           worker.postMessage({
             uid: uid,
@@ -103,6 +105,8 @@ define(
         evtObject.initEvent('mailapi', false, false);
         evtObject.mailAPI = mailAPI;
         window.dispatchEvent(evtObject);
+      } else {
+        mailAPI.__bridgeReceive(msg);
       }
     },
   };

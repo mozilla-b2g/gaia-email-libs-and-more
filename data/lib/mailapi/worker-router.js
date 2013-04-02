@@ -4,7 +4,7 @@ var listeners = {};
 
 function receiveMessage(evt) {
   var data = evt.data;
-dump('\x1b[37mw <= M: recv: '+data.type+' '+data.uid+' '+data.cmd +'\x1b[0m\n');
+//dump('\x1b[37mw <= M: recv: '+data.type+' '+data.uid+' '+data.cmd +'\x1b[0m\n');
   var listener = listeners[data.type];
   if (listener)
     listener(data);
@@ -21,7 +21,7 @@ function registerSimple(type, callback) {
   listeners[type] = callback;
 
   return function sendSimpleMessage(cmd, args) {
-    dump('\x1b[34mw => M: send: ' + type + ' null ' + cmd + '\x1b[0m\n');
+    //dump('\x1b[34mw => M: send: ' + type + ' null ' + cmd + '\x1b[0m\n');
     window.postMessage({ type: type, uid: null, cmd: cmd, args: args });
   };
 }
@@ -48,7 +48,7 @@ function registerCallbackType(type) {
       callbacks[uid] = callback;
     }
 
-    dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
+    //dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
     window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
   };
 }
@@ -75,7 +75,7 @@ function registerInstanceType(type) {
 
       return {
         sendMessage: function sendInstanceMessage(cmd, args) {
-dump('\x1b[34mw => M: send: ' + type + ' ' + thisUid + ' ' + cmd + '\x1b[0m\n');
+//dump('\x1b[34mw => M: send: ' + type + ' ' + thisUid + ' ' + cmd + '\x1b[0m\n');
           window.postMessage({ type: type, uid: thisUid,
                                cmd: cmd, args: args });
         },

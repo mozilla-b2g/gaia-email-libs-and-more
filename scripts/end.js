@@ -1,4 +1,9 @@
-//config.js will be injected above this comment
+// config.js will be injected above this comment
+
+// baseUrl is different for front end
+require.config({
+  baseUrl: 'js/ext'
+});
 
 (function () {
   // Send fake API object to allow UI to finish bootstrapping, and finish
