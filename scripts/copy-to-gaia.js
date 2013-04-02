@@ -120,7 +120,11 @@ var configs = [
 
   {
     name: 'mailapi/composer',
-    exclude: standardExcludes.concat(['mailparser/mailparser', 'mimelib']),
+    exclude: standardExcludes.concat(['mailparser/mailparser',
+                                      'mailapi/quotechew',
+                                      'mailapi/htmlchew',
+                                      'mailapi/imap/imapchew',
+                                      'mimelib']),
     out: jsPath + '/mailapi/composer.js'
   },
 
