@@ -1,6 +1,7 @@
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_partialbodyfetching' },
   null,
   [$th_imap.TESTHELPER], ['app']
@@ -62,8 +63,8 @@ TD.commonCase('fetch only snippets', function(T, RT) {
   testUniverse.do_saveState();
   testUniverse.do_shutdown();
 
-  testUniverse2 = T.actor('testUniverse', 'U');
-  testAccount2 = T.actor('testAccount', 'A', {
+  var testUniverse2 = T.actor('testUniverse', 'U');
+  var testAccount2 = T.actor('testAccount', 'A', {
     universe: testUniverse2,
     restored: true
   });
@@ -124,6 +125,4 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define
