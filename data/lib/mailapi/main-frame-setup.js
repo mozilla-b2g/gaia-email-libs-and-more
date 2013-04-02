@@ -21,6 +21,7 @@ define(
     // Pretty much everything could be dynamically loaded after we kickoff the
     // worker thread.  We just would need to be sure to latch any received
     // messages that we receive before we finish setup.
+    './worker-support/shim-sham',
     './mailapi',
     './worker-support/main-router',
     './worker-support/configparser-main',
@@ -30,6 +31,7 @@ define(
     './worker-support/net-main'
   ],
   function(
+    $shim_setup,
     $mailapi,
     $router,
     $configparser,
