@@ -3,6 +3,7 @@ node-transformed-deps/
 jetpack-tcp-imap-demo.xpi
 gaia-email-opt.js
 gaia-symlink
+b2g-bindir-symlink
 b2g-builddir-symlink
 b2g-srcdir-symlink
 arbpl-dir-symlink

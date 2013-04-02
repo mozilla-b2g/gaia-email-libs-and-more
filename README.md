@@ -121,7 +121,7 @@ git submodule update --init --recursive
 
 ## Installing Into Gaia ##
 
-Make sure you have a symlink, gaia-symlink, that points at the root directory
+Make sure you have a symlink, `gaia-symlink`, that points at the root directory
 of your gaia checkout.
 
 For example, to create it:
@@ -137,14 +137,20 @@ make install-into-gaia
 
 ## Unit Tests ##
 
-Unit tests are intended to be run in an xpcshell instance that was built as part
-of a b2g-desktop build, but a Firefox or Thunderbird xpcshell build should work
-equally well.  The Makefile has the standard xpcshell-tests, check-one, and
-check-interactive targets.  They depend on your having "b2g-srcdir-symlink" and
-"b2g-builddir-symlink" files in the root of your gaia-email-libs-and-more
-checkout so it can build the path properly.
+Unit tests are intended to be run against b2g-desktop in xulrunner mode, but
+Firefox or Thunderbird should work equally well.  The Makefile has targets for
+`imap-tests` and for `one-imap-test` (likewise for `activesync` and `torture`).
+To run all tests for all account types, use the target `all-tests`.  You can
+also prefix these target with `post-` to post the results to an ArbPL instance.
+For more details on this, see "Viewing the Test Results" below.
 
-The IMAP tests like to run against real servers.  asuth uses dovecot installed
+Running these tests depends on your having `b2g-bindir-symlink` files in the
+root of your gaia-email-libs-and-more checkout so it can build the path
+properly.
+
+### IMAP ###
+
+The IMAP tests like to run against real servers.  We use dovecot installed
 on Ubuntu hooked up to postfix on localhost, but the unit tests can run against
 any server anywhere.  For example, a somewhat recent dovecot on a remote server
 works just as well as localhost, it's just harder to use on a airplane.  Some
@@ -152,12 +158,14 @@ servers, such as Yahoo's IMAP at the current time, are too broken to use the
 unit tests.  For example, Yahoo's APPEND command ignores the specified
 INTERNALDATE value, which makes it useless for many synchronization unit tests.
 
+For more details on setting up a Dovecot server, see
+[test/dovecot.md](test/dovecot.md).
+
 ### Setup ###
 
-Create the symlinks described above for xpcshell:
+Create the symlink described above for xulrunner:
 ```
-ln -s /path/to/moilla-src-dir b2g-srcdir-symlink
-ln -s /path/to/mozilla-obj-dir b2g-builddir-symlink
+ln -s /path/to/b2g-desktop b2g-bindir-symlink
 ```
 
 ### Running the Tests ###
@@ -165,14 +173,14 @@ ln -s /path/to/mozilla-obj-dir b2g-builddir-symlink
 To run a single test, in this case, test_imap_general.js which is located at
 test/unit/test_imap_general.js in the repo:
 ```
-make check-one SOLO_FILE=test_imap_general.js
+make one-imap-test SOLO_FILE=test_imap_general.js
 ```
 This will produce a log file of the run at
 test/unit/test_imap_general.js.log
 
 To run all of the unit tests:
 ```
-make xpcshell-tests
+make all-tests
 ```
 This will remove all existing log files prior to the run.  Afterwards, all log
 files should be updated/exist, and a log that is the concatenation of all of
@@ -215,20 +223,20 @@ To get data in, the command is:
 ./logalchew /path/to/test_blah_blah.js.log
 ```
 
-Alternatively, you can create a symlink "arbpl-dir-symlink", and then use the
-Makefile targets "post-check-one" or "post-xpcshell-tests" to automatically
-run ./logalchew on the result.
+Alternatively, you can create a symlink "arbpl-dir-symlink", and then use a
+Makefile target such as `post-one-imap-test` to automatically run ./logalchew
+on the result.
 
 To make this more obvious that this is an option for those skimming the page,
 this means:
 ```
-make post-check-one SOLO_FILE=test_imap_general.js
+make post-one-imap-test SOLO_FILE=test_imap_general.js
 ```
 
 or
 
 ```
-make post-xpcshell-tests
+make post-all-tests
 ```
 
 
