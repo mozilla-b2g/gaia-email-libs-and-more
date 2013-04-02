@@ -14,7 +14,7 @@ define(function() {
     };
 
     module.sendMessage = function(uid, cmd, args) {
-    dump('\x1b[34mM => w: send: ' + name + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
+    //dump('\x1b[34mM => w: send: ' + name + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
       //debug('onmessage: ' + name + ": " + uid + " - " + cmd);
       worker.postMessage({
         type: name,
@@ -40,12 +40,10 @@ define(function() {
     worker = _worker;
     worker.onmessage = function dispatchToListener(evt) {
       var data = evt.data;
-dump('\x1b[37mM <= w: recv: '+data.type+' '+data.uid+' '+data.cmd+'\x1b[0m\n');
+//dump('\x1b[37mM <= w: recv: '+data.type+' '+data.uid+' '+data.cmd+'\x1b[0m\n');
       var listener = listeners[data.type];
       if (listener)
         listener(data);
-      else
-        dump('NO HANDLER\n!');
     };
   }
 
