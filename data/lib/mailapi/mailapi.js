@@ -1001,7 +1001,7 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
   idxEnd = Math.min(idxEnd, this.items.length - 1);
 
   for (; idxStart <= idxEnd; idxStart++) {
-    if (this.items[idxStart] && !this.items[idxStart].snippet) {
+    if (this.items[idxStart] && this.items[idxStart].snippet == null) {
       messages.push({
         suid: this.items[idxStart].id,
         // backend does not care about Date objects
