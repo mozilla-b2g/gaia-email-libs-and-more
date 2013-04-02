@@ -36,16 +36,19 @@ var TEXT_CASES = [
     text: 'https://www.mozilla.org',
     url: 'https://www.mozilla.org',
   },
-  /*
   {
     name: 'naked domain name',
     text: 'www.mozilla.org',
-    url: 'http://www.mozilla.org/',
+    url: 'http://www.mozilla.org',
   },
-  */
   {
     name: 'link with path',
     text: 'http://www.mozilla.org/path/path/path.html',
+    url: 'http://www.mozilla.org/path/path/path.html',
+  },
+  {
+    name: 'protocol-less link with path',
+    text: 'www.mozilla.org/path/path/path.html',
     url: 'http://www.mozilla.org/path/path/path.html',
   },
   {
@@ -58,13 +61,11 @@ var TEXT_CASES = [
     text: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
     url: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
   },
-  /*
   {
     name: 'protocol-less domain with path, query string, hash',
     text: 'sub.mozilla.org/robo/hats?foo=bar&baz#pong',
     url: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
   },
-   */
   // e-mail
   {
     name: 'simple mailto link',
@@ -210,6 +211,28 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     }).timeoutMS = 1; // (tests are synchronous)
   });
 
+  T.group('wrapped with punctuation');
+  TEXT_CASES.forEach(function(tcase) {
+    T.check(eLazy, tcase.name, function() {
+      expectText('see the thing (');
+      expectUrl(tcase);
+      expectText(') or the other,');
+      expectUrl(tcase);
+      expectText(', or with a period ');
+      expectUrl(tcase);
+      expectText('. (Or with both: ');
+      expectUrl(tcase);
+      expectText('.)');
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'see the thing (' + (tcase.raw || tcase.text) + ') or the other,' +
+        (tcase.raw || tcase.text) + ', or with a period ' +
+        (tcase.raw || tcase.text) + '. (Or with both: ' +
+        (tcase.raw || tcase.text) + '.)',
+        doc);
+      reportAll(nodes);
+    }).timeoutMS = 1; // (tests are synchronous)
+  });
+
   T.group('multiple URLs');
   T.check(eLazy, 'multiple URLs', function() {
     var str = 'start http://foo.example.com/ space foo@example.com ' +
@@ -234,6 +257,362 @@ TD.commonCase('linkify plaintext', function(T, RT) {
 
     var nodes = testUniverse.MailAPI.utils.linkifyPlain(str, new FakeDoc());
     reportAll(nodes);
+  });
+
+  // Test our scaling by providing a string that is long enough and involves
+  // enough new-lines that running the test cases should take a noticable time
+  // in the event we our regex developes back-tracking issues.
+  //
+  // With these strings, on a Intel(R) Xeon(R) CPU E31225 @ 3.10GHz on
+  // mozilla-b2g18 I was observing ~110.ms for the URL cases and ~940ms for
+  // the e-mail cases.  I now get ~0.0.ms
+  T.group('perf check');
+  TEXT_CASES.forEach(function(tcase) {
+    T.check(eLazy, tcase.name, function() {
+      expectUrl(tcase);
+      expectUrl(tcase);
+      expectUrl(tcase);
+      expectUrl(tcase);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'fooooooooo foo foo foo foo foo FOO! ' + (tcase.raw || tcase.text) +
+        ' dance pants. dance trance. dance plants. dance seance.\n ' +
+        'dance chance. dance romance. dance enhance. dance valance.\n ' +
+        'dance slants.  dance rants.  dance askance.\n ' +
+        'dance pants. dance trance. dance plants. dance seance.\n ' +
+        'dance chance. dance romance. dance enhance. dance valance.\n ' +
+        'dance slants.  dance rants.  dance askance.\n \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. wwdance@ plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. @www. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        ' barrrrrrrrrrrr \n' + (tcase.raw || tcase.text) + ' moooooooooooo \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance@ trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. wwwwwwdance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. ww.dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. wwwdance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        (tcase.raw || tcase.text) + ' .... www. foo. bar. \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww http http http httttttp. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. ' +
+        'dance chance. dance romance. dance enhance. dance valance. ' +
+        'dance slants.  dance rants.  dance askance. ' +
+        (tcase.raw || tcase.text) + ' dance-a-tron!',
+        doc);
+      reportUrls(nodes);
+    }).timeoutMS = 1; // (tests are synchronous)
   });
 });
 
