@@ -228,7 +228,7 @@ TD.commonCase('linkify plaintext', function(T, RT) {
         (tcase.raw || tcase.text) + ', or with a period ' +
         (tcase.raw || tcase.text) + '. (Or with both: ' +
         (tcase.raw || tcase.text) + '.)',
-        doc);
+        new FakeDoc());
       reportAll(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
@@ -610,7 +610,7 @@ TD.commonCase('linkify plaintext', function(T, RT) {
         'dance chance. dance romance. dance enhance. dance valance. ' +
         'dance slants.  dance rants.  dance askance. ' +
         (tcase.raw || tcase.text) + ' dance-a-tron!',
-        doc);
+        new FakeDoc());
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
