@@ -67,9 +67,15 @@ endef
 XPCWIN=node_modules/xpcwindow/bin/xpcwindow
 TESTRUNNER=$(CURDIR)/test/loggest-runner.js
 
-RUNMOZ=$(B2GBD)/dist/bin/run-mozilla.sh
-RUNXPC=$(B2GBD)/dist/bin/xpcshell
-RUNB2G=$(B2GBD)/dist/bin/b2g
+ifeq ($(wildcard b2g-bindir-symlink),)
+  B2GBIND=$(B2GBD)/dist/bin
+  RUNMOZ=$(B2GBIND)/run-mozilla.sh
+  RUNB2G=$(B2GBIND)/b2g
+else
+  B2GBIND=b2g-bindir-symlink
+  RUNMOZ=$(B2GBIND)/run-mozilla.sh
+  RUNB2G=$(B2GBIND)/b2g-bin
+endif
 
 # run all the tests listed in a test config file
 define run-tests  # $(call run-tests,configName,accountType)
