@@ -17,6 +17,7 @@ var emptyFn = function() {}, CRLF = '\r\n',
               'Oct', 'Nov', 'Dec'],
     reFetch = /^\* (\d+) FETCH [\s\S]+? \{(\d+)\}$/,
     reUid = /UID (\d+)/,
+    reBodyPart = /BODY/,
     reDate = /^(\d{2})-(.{3})-(\d{4})$/,
     reDateTime = /^(\d{2})-(.{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-]\d{4})$/,
     HOUR_MILLIS = 60 * 60 * 1000, MINUTE_MILLIS = 60 * 1000;
@@ -213,8 +214,14 @@ ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
   var len = this._state.requests.length;
   prefix = prefix.trim();
 
+  var request;
   for (var i = 0; i < len; i++) {
-    if (this._state.requests[i].prefix.trim() === prefix)
+    request = this._state.requests[i];
+    if (!request || !request.prefix) {
+      continue;
+    }
+
+    if (request.prefix.trim() === prefix)
       return this._state.requests.splice(i, 1)[0];
   }
 };
@@ -222,12 +229,17 @@ ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
 ImapConnection.prototype._findFetchRequest = function(uid, bodyPart) {
   var requests = this._state.requests;
   var len = requests.length;
+  bodyPart = parseInt(bodyPart, 10);
 
 
+  var currentReq;
   for (var i = 0; i < len; i++) {
+    currentReq = requests[i].fetchParams;
+
     if (
-      requests[i].fetchParams &&
-      requests[i].fetchParams.uids[uid]
+      currentReq &&
+      currentReq.uids[uid] &&
+      currentReq.bodyPart === bodyPart
     ) {
       return requests[i];
     }
@@ -293,9 +305,14 @@ ImapConnection.prototype.connect = function(loginCb) {
     */
     fnInit();
   });
+
   this._state.conn.on('data', function(buffer) {
     try {
-      processData(buffer);
+      var parts = processData(buffer);
+
+      if (parts) {
+        parts.forEach(processData);
+      }
     }
     catch (ex) {
       console.error('Explosion while processing data', ex);
@@ -304,166 +321,8 @@ ImapConnection.prototype.connect = function(loginCb) {
       throw ex;
     }
   });
-  /**
-   * Process up to one thing.  Generally:
-   * - If we are processing a literal, we make sure we have the data for the
-   *   whole literal, then we process it.
-   * - If we are not in a literal, we buffer until we have one newline.
-   * - If we have leftover data, we invoke ourselves in a quasi-tail-recursive
-   *   fashion or in subsequent ticks.  It's not clear that the logic that
-   *   defers to future ticks is sound.
-   */
-  function processData(data) {
-    if (data.length === 0) return;
-    var idxCRLF = null, literalInfo;
 
-    // - Accumulate data until newlines when not in a literal
-    if (self._state.curExpected === null) {
-      // no newline, append and bail
-      if ((idxCRLF = bufferIndexOfCRLF(data, 0)) === -1) {
-        if (self._state.curData)
-          self._state.curData = bufferAppend(self._state.curData, data);
-        else
-          self._state.curData = data;
-        return;
-      }
-      // yes newline, use the buffered up data and new data
-      // (note: data may now contain more than one line's worth of data!)
-      if (self._state.curData && self._state.curData.length) {
-        data = bufferAppend(self._state.curData, data);
-        self._state.curData = null;
-      }
-    }
-
-    // -- Literal
-    // Don't mess with incoming data if it's part of a literal
-    if (self._state.curExpected !== null) {
-      curReq = curReq || self._state.requests[0];
-
-      if (!curReq._done) {
-        var chunk = data;
-        self._state.curXferred += data.length;
-        if (self._state.curXferred > self._state.curExpected) {
-          var pos = data.length
-                    - (self._state.curXferred - self._state.curExpected),
-              extra = data.slice(pos);
-          if (pos > 0)
-            chunk = data.slice(0, pos);
-          else
-            chunk = undefined;
-          data = extra;
-          curReq._done = 1;
-        }
-
-        if (chunk && chunk.length) {
-          if (self._LOG) self._LOG.data(chunk.length, chunk);
-          if (curReq._msgtype === 'headers') {
-            chunk.copy(self._state.curData, curReq.curPos, 0);
-            curReq.curPos += chunk.length;
-          }
-          else
-            curReq._msg.emit('data', chunk);
-        }
-      }
-
-      if (curReq._done) {
-        var restDesc;
-        if (curReq._done === 1) {
-          if (curReq._msgtype === 'headers')
-            curReq._headers = self._state.curData.toString('ascii');
-          self._state.curData = null;
-          curReq._done = true;
-        }
-
-        if (self._state.curData)
-          self._state.curData = bufferAppend(self._state.curData, data);
-        else
-          self._state.curData = data;
-
-        idxCRLF = bufferIndexOfCRLF(self._state.curData);
-        if (idxCRLF && self._state.curData[idxCRLF - 1] === CHARCODE_RPAREN) {
-          if (idxCRLF > 1) {
-            // eat up to, but not including, the right paren
-            restDesc = self._state.curData.toString('ascii', 0, idxCRLF - 1)
-                         .trim();
-            if (restDesc.length)
-              curReq._desc += ' ' + restDesc;
-          }
-          parseFetch(curReq._desc, curReq._headers, curReq._msg);
-          data = self._state.curData.slice(idxCRLF + 2);
-          curReq._done = false;
-          self._state.curXferred = 0;
-          self._state.curExpected = null;
-          self._state.curData = null;
-          curReq._msg.emit('end', curReq._msg);
-          // XXX we could just change the next else to not be an else, and then
-          // this conditional is not required and we can just fall out.  (The
-          // expected check === 0 may need to be reinstated, however.)
-          if (data.length && data[0] === CHARCODE_ASTERISK) {
-            processData(data);
-            return;
-          }
-        } else // ??? no right-paren, keep accumulating data? this seems wrong.
-          return;
-      } else // not done, keep accumulating data
-        return;
-    }
-    // -- Fetch w/literal
-    // (More specifically, we were not in a literal, let's see if this line is
-    // a fetch result line that starts a literal.  We want to minimize
-    // conversion to a string, as there used to be a naive conversion here that
-    // chewed up a lot of processor by converting all of data rather than
-    // just the current line.)
-    else if (data[0] === CHARCODE_ASTERISK) {
-      var strdata;
-      idxCRLF = bufferIndexOfCRLF(data, 0);
-      if (data[idxCRLF - 1] === CHARCODE_RBRACE &&
-          (literalInfo =
-             (strdata = data.toString('ascii', 0, idxCRLF)).match(reFetch))) {
-        self._state.curExpected = parseInt(literalInfo[2], 10);
-
-        var desc = strdata.substring(strdata.indexOf('(')+1).trim();
-        var type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(strdata);
-        var uid = reUid.exec(desc)[1];
-
-        // figure out which request this belongs to. If its not assigned to a
-        // specific uid then send it to a pending request...
-        curReq = self._findFetchRequest(uid) || self._state.requests[0];
-        var msg = new ImapMessage();
-
-        msg.seqno = parseInt(literalInfo[1], 10);
-        type = type[1];
-        curReq._desc = desc;
-        curReq._msg = msg;
-        msg.size = self._state.curExpected;
-
-        curReq._fetcher.emit('message', msg);
-
-        curReq._msgtype = (type.indexOf('HEADER') === 0 ? 'headers' : 'body');
-        // This library buffers headers, so allocate a buffer to hold the literal.
-        if (curReq._msgtype === 'headers') {
-          self._state.curData = new Buffer(self._state.curExpected);
-          curReq.curPos = 0;
-        }
-        if (self._LOG) self._LOG.data(strdata.length, strdata);
-        // (If it's not headers, then it's body, and we generate 'data' events.)
-        processData(data.slice(idxCRLF + 2), curReq);
-        return;
-      }
-    }
-
-    if (data.length === 0)
-      return;
-    data = customBufferSplitCRLF(data);
-    // Defer any extra server responses found in the incoming data
-    for (var i=1,len=data.length; i<len; ++i) {
-      process.nextTick(processData.bind(null, data[i]));
-    }
-
-    data = data[0].toString('ascii');
-    if (self._LOG) self._LOG.data(data.length, data);
-    data = stringExplode(data, ' ', 3);
-
+  function processResponse(data) {
     // -- Untagged server responses
     if (data[0] === '*') {
       if (self._state.status === STATES.NOAUTH) {
@@ -652,7 +511,7 @@ ImapConnection.prototype.connect = function(loginCb) {
                   msg.seqno = parseInt(data[1], 10);
                   if (self._state.requests.length &&
                       self._state.requests[0].command.indexOf('FETCH') > -1) {
-                    curReq = curReq || self._state.requests[0];
+                    curReq = self._state.requests[0];
                     curReq._fetcher.emit('message', msg);
                     msg.emit('end');
                   } else if (isUnsolicited)
@@ -728,9 +587,9 @@ ImapConnection.prototype.connect = function(loginCb) {
         self._state.requests[0].callback.apply({}, args);
       }
 
-
-
-      var recentReq = self._findAndShiftRequestByPrefix(data[0]);
+      var recentReq = self._findAndShiftRequestByPrefix(
+        data[0].trim()
+      );
 
       if (!recentReq) {
         // We expect this to happen in the case where our callback above
@@ -778,6 +637,164 @@ ImapConnection.prototype.connect = function(loginCb) {
         self._LOG.unknownResponse(data[0], data[1], data[2]);
       // unknown response
     }
+  }
+
+  /**
+   * Process up to one thing.  Generally:
+   * - If we are processing a literal, we make sure we have the data for the
+   *   whole literal, then we process it.
+   * - If we are not in a literal, we buffer until we have one newline.
+   * - If we have leftover data, we invoke ourselves in a quasi-tail-recursive
+   *   fashion or in subsequent ticks.  It's not clear that the logic that
+   *   defers to future ticks is sound.
+   */
+  function processData(data) {
+    if (data.length === 0) return;
+    var idxCRLF = null, literalInfo;
+
+    // - Accumulate data until newlines when not in a literal
+    if (self._state.curExpected === null) {
+      // no newline, append and bail
+      if ((idxCRLF = bufferIndexOfCRLF(data, 0)) === -1) {
+        if (self._state.curData)
+          self._state.curData = bufferAppend(self._state.curData, data);
+        else
+          self._state.curData = data;
+        return;
+      }
+      // yes newline, use the buffered up data and new data
+      // (note: data may now contain more than one line's worth of data!)
+      if (self._state.curData && self._state.curData.length) {
+        data = bufferAppend(self._state.curData, data);
+        self._state.curData = null;
+      }
+    }
+
+    // -- Literal
+    // Don't mess with incoming data if it's part of a literal
+    if (self._state.curExpected !== null) {
+      curReq = curReq || self._state.requests[0];
+
+      if (!curReq._done) {
+        var chunk = data;
+        self._state.curXferred += data.length;
+        if (self._state.curXferred > self._state.curExpected) {
+          var pos = data.length
+                    - (self._state.curXferred - self._state.curExpected),
+              extra = data.slice(pos);
+          if (pos > 0)
+            chunk = data.slice(0, pos);
+          else
+            chunk = undefined;
+          data = extra;
+          curReq._done = 1;
+        }
+
+        if (chunk && chunk.length) {
+          if (self._LOG) self._LOG.data(chunk.length, chunk);
+          if (curReq._msgtype === 'headers') {
+            chunk.copy(self._state.curData, curReq.curPos, 0);
+            curReq.curPos += chunk.length;
+          }
+          else
+            curReq._msg.emit('data', chunk);
+        }
+      }
+
+      if (curReq._done) {
+        var restDesc;
+        if (curReq._done === 1) {
+          if (curReq._msgtype === 'headers')
+            curReq._headers = self._state.curData.toString('ascii');
+          self._state.curData = null;
+          curReq._done = true;
+        }
+
+        if (self._state.curData)
+          self._state.curData = bufferAppend(self._state.curData, data);
+        else
+          self._state.curData = data;
+
+        idxCRLF = bufferIndexOfCRLF(self._state.curData);
+        if (idxCRLF && self._state.curData[idxCRLF - 1] === CHARCODE_RPAREN) {
+          if (idxCRLF > 1) {
+            // eat up to, but not including, the right paren
+            restDesc = self._state.curData.toString('ascii', 0, idxCRLF - 1)
+                         .trim();
+            if (restDesc.length)
+              curReq._desc += ' ' + restDesc;
+          }
+          parseFetch(curReq._desc, curReq._headers, curReq._msg);
+          data = self._state.curData.slice(idxCRLF + 2);
+          curReq._done = false;
+          self._state.curXferred = 0;
+          self._state.curExpected = null;
+          self._state.curData = null;
+          curReq._msg.emit('end', curReq._msg);
+          // XXX we could just change the next else to not be an else, and then
+          // this conditional is not required and we can just fall out.  (The
+          // expected check === 0 may need to be reinstated, however.)
+          if (data.length && data[0] === CHARCODE_ASTERISK) {
+            return processData(data);
+          }
+        } else // ??? no right-paren, keep accumulating data? this seems wrong.
+          return;
+      } else // not done, keep accumulating data
+        return;
+    }
+    // -- Fetch w/literal
+    // (More specifically, we were not in a literal, let's see if this line is
+    // a fetch result line that starts a literal.  We want to minimize
+    // conversion to a string, as there used to be a naive conversion here that
+    // chewed up a lot of processor by converting all of data rather than
+    // just the current line.)
+    else if (data[0] === CHARCODE_ASTERISK) {
+      var strdata;
+      idxCRLF = bufferIndexOfCRLF(data, 0);
+      if (data[idxCRLF - 1] === CHARCODE_RBRACE &&
+          (literalInfo =
+             (strdata = data.toString('ascii', 0, idxCRLF)).match(reFetch))) {
+        self._state.curExpected = parseInt(literalInfo[2], 10);
+
+        var desc = strdata.substring(strdata.indexOf('(')+1).trim();
+        var type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(strdata)[1];
+        var uid = reUid.exec(desc)[1];
+
+        // figure out which request this belongs to. If its not assigned to a
+        // specific uid then send it to a pending request...
+        curReq = self._findFetchRequest(uid, type) || self._state.requests[0];
+        var msg = new ImapMessage();
+
+        msg.seqno = parseInt(literalInfo[1], 10);
+        curReq._desc = desc;
+        curReq._msg = msg;
+        msg.size = self._state.curExpected;
+
+        curReq._fetcher.emit('message', msg);
+
+        curReq._msgtype = (type.indexOf('HEADER') === 0 ? 'headers' : 'body');
+        // This library buffers headers, so allocate a buffer to hold the literal.
+        if (curReq._msgtype === 'headers') {
+          self._state.curData = new Buffer(self._state.curExpected);
+          curReq.curPos = 0;
+        }
+        if (self._LOG) self._LOG.data(strdata.length, strdata);
+        // (If it's not headers, then it's body, and we generate 'data' events.)
+        return processData(data.slice(idxCRLF + 2), curReq);
+      }
+    }
+
+    if (data.length === 0)
+      return;
+
+    data = customBufferSplitCRLF(data);
+    var response = data.shift().toString('ascii');
+
+    if (self._LOG) self._LOG.data(response.length, response);
+    processResponse(stringExplode(response, ' ', 3));
+
+    // return the remaining buffer chunks
+    return data;
   };
 
   this._state.conn.on('close', function onClose() {
@@ -1160,13 +1177,13 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
 
   var fetchParams;
   // we only run fetches in parallel when fetching for one UID.
-  if (uids.length === 1) {
+  if (uids.length === 1 && opts.request.body) {
     var uidMap = {};
     uids.forEach(function(id) {
       uidMap[id] = toFetch;
     });
 
-    fetchParams = { uids: uidMap };
+    fetchParams = { uids: uidMap, bodyPart: parseInt(opts.request.body) };
   }
 
   var extensions = '';
