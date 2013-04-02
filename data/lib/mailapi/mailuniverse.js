@@ -8,6 +8,7 @@ define(
     'rdcommon/logreaper',
     './a64',
     './syncbase',
+    './worker-router',
     './maildb',
     './cronsync',
     './accountcommon',
@@ -19,6 +20,7 @@ define(
     $logreaper,
     $a64,
     $syncbase,
+    $router,
     $maildb,
     $cronsync,
     $acctcommon,
@@ -469,22 +471,22 @@ MailUniverse.prototype = {
   },
 
   dumpLogToDeviceStorage: function() {
+    // This reuses the existing registration if one exists.
+    var sendMessage = $router.registerCallbackType('devicestorage');
     try {
-      var storage = navigator.getDeviceStorage('sdcard');
       var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
                           {
                             type: 'application/json',
                             endings: 'transparent'
                           });
       var filename = 'gem-log-' + Date.now() + '.json';
-      var req = storage.addNamed(blob, filename);
-      req.onsuccess = function() {
-        console.log('saved log to "sdcard" devicestorage:', filename);
-      };
-      req.onerror = function() {
-        console.error('failed to save log to', filename, 'err:',
-                      this.error.name);
-      };
+      sendMessage('save', ['sdcard', blob, filename], function(success) {
+        if (success)
+          console.log('saved log to "sdcard" devicestorage:', filename);
+        else
+          console.error('failed to save log to', filename);
+
+      });
     }
     catch(ex) {
       console.error('Problem dumping log to device storage:', ex,

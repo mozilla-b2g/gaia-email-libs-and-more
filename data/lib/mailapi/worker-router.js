@@ -26,12 +26,16 @@ function registerSimple(type, callback) {
   };
 }
 
+var callbackSenders = {};
+
 /**
  * Register a message type that allows sending messages that may expect a return
  * message that should trigger a callback.  Messages may not be received unless
  * they have an associated callback from a previous sendMessage.
  */
 function registerCallbackType(type) {
+  if (callbackSenders.hasOwnProperty(type))
+    return callbackSenders[type];
   listeners[type] = function receiveCallbackMessage(data) {
     var callback = callbacks[data.uid];
     if (!callback)
@@ -43,7 +47,7 @@ function registerCallbackType(type) {
   var callbacks = {};
   var uid = 0;
 
-  return function sendCallbackMessage(cmd, args, callback) {
+  var sender = function sendCallbackMessage(cmd, args, callback) {
     if (callback) {
       callbacks[uid] = callback;
     }
@@ -51,6 +55,8 @@ function registerCallbackType(type) {
     //dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
     window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
   };
+  callbackSenders[type] = sender;
+  return sender;
 }
 
 /**
@@ -90,6 +96,7 @@ function registerInstanceType(type) {
 function shutdown() {
   window.removeEventListener('message', receiveMessage);
   listeners = {};
+  callbackSenders = {};
 }
 
 return {
