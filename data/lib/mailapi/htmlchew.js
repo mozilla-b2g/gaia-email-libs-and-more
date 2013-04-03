@@ -487,7 +487,6 @@ var BLEACH_SNIPPET_SETTINGS = {
   stripComments: true,
   prune: [
     'style',
-    '!DOCTYPE',
     'button', // (forms)
     'datalist', // (forms)
     'script', // (script)
