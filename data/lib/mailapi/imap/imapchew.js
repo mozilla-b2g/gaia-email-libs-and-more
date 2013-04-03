@@ -376,16 +376,14 @@ exports.updateMessageWithFetch =
       }
       break;
     case 'html':
-      var htmlStr = res.text;
+      var htmlStr = '';
+      var text = res.text;
       if (req.createSnippet) {
-        htmlStr = header.snippet = $htmlchew.generateSnippet(htmlStr);
-console.log("FINAL SNIPPET IS: " + htmlStr);
-      } else {
-        htmlStr = $htmlchew.sanitizeAndNormalizeHtml(htmlStr);
-        header.snippet = $htmlchew.generateSnippet(htmlStr);
-console.log("UPDATED SNIPPET IS: " + header.snippet);
-
+        header.snippet = $htmlchew.generateSnippet(text);
       }
+
+      if (bodyRep.isDownloaded)
+        htmlStr = $htmlchew.sanitizeAndNormalizeHtml(text);
 
       parsedContent = htmlStr;
       break;
