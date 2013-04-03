@@ -379,8 +379,12 @@ exports.updateMessageWithFetch =
       var htmlStr = res.text;
       if (req.createSnippet) {
         htmlStr = header.snippet = $htmlchew.generateSnippet(htmlStr);
+console.log("FINAL SNIPPET IS: " + htmlStr);
       } else {
         htmlStr = $htmlchew.sanitizeAndNormalizeHtml(htmlStr);
+        header.snippet = $htmlchew.generateSnippet(htmlStr);
+console.log("UPDATED SNIPPET IS: " + header.snippet);
+
       }
 
       parsedContent = htmlStr;
