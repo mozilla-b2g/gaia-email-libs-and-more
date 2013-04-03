@@ -481,6 +481,17 @@ var BLEACH_SETTINGS = {
   callback: stashLinks
 };
 
+var BLEACH_SNIPPET_SETTINGS = {
+  tags: ['i', 'b', 'strong', 'em', 'span'],
+  strip: true,
+  stripComments: true,
+  prune: PRUNE_TAGS,
+  attributes: LEGAL_ATTR_MAP,
+  styles: LEGAL_STYLES,
+  asNode: true,
+  maxLength: 100
+};
+
 /**
  * @args[
  *   @param[htmlString String]{
@@ -504,9 +515,8 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
 /**
  * Derive snippet text from the already-sanitized HTML representation.
  */
-exports.generateSnippet = function generateSnippet(sanitizedHtml,
-                                                   desiredLength) {
-  return $bleach.generateSnippet(sanitizedHtml, desiredLength);
+exports.generateSnippet = function generateSnippet(sanitizedHtml) {
+  return $bleach.clean(sanitizedHtml, BLEACH_SNIPPET_SETTINGS);
 };
 
 /**

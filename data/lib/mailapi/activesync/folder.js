@@ -809,8 +809,7 @@ ActiveSyncFolderConn.prototype = {
     }
     else if (bodyType === asbEnum.Type.HTML) {
       var html = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
-      header.snippet = $htmlchew.generateSnippet(html,
-                                                 DESIRED_SNIPPET_LENGTH);
+      header.snippet = $htmlchew.generateSnippet(html);
       var len = html.length;
 
       body.bodyReps = [{
