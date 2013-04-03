@@ -297,7 +297,7 @@ MailHeader.prototype = {
   },
 
   __update: function(wireRep) {
-    if (wireRep.snippet)
+    if (wireRep.snippet != null)
       this.snippet = wireRep.snippet;
 
     this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
