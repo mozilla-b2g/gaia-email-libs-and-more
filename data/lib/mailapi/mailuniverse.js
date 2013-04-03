@@ -546,7 +546,7 @@ MailUniverse.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  _onConnectionChange: function() {
+  _onConnectionChange: function(isOnline) {
     var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
@@ -554,7 +554,7 @@ MailUniverse.prototype = {
      * end up temporarily false if we move to a 2-phase startup process.
      */
     this.online = this._testModeFakeNavigator ?
-                    this._testModeFakeNavigator.onLine : navigator.onLine;
+                    this._testModeFakeNavigator.onLine : isOnline;
     // Knowing when the app thinks it is online/offline is going to be very
     // useful for our console.log debug spew.
     console.log('Email knows that it is:', this.online ? 'online' : 'offline',
@@ -918,8 +918,6 @@ MailUniverse.prototype = {
       account.shutdown(callback && accountShutdownCompleted);
     }
 
-    window.removeEventListener('online', this._bound_onConnectionChange);
-    window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
     if (this._LOG)

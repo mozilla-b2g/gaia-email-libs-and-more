@@ -51,16 +51,15 @@ var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
-      navigator.onLine = args[0];
       navigator.hasPendingAlarm = args[1];
 
       universe = new $mailuniverse.MailUniverse(onUniverse);
+      universe._onConnectionChange(args[0]);
       break;
 
     case 'online':
     case 'offline':
-      navigator.onLine = args[0];
-      universe._onConnectionChange();
+      universe._onConnectionChange(args[0]);
       break;
   }
 });

@@ -66,10 +66,10 @@ define(
       control.sendMessage(uid, 'hello', [online, hasPendingAlarm]);
 
       window.addEventListener('online', function(evt) {
-        control.sendMessage.postMessage(uid, evt.type, true);
+        control.sendMessage(uid, evt.type, [true]);
       });
       window.addEventListener('offline', function(evt) {
-        control.sendMessage.postMessage(uid, evt.type, false);
+        control.sendMessage(uid, evt.type, [false]);
       });
       if (navigator.mozSetMessageHandler) {
         navigator.mozSetMessageHandler('alarm', function(msg) {
