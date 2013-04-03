@@ -482,12 +482,19 @@ var BLEACH_SETTINGS = {
 };
 
 var BLEACH_SNIPPET_SETTINGS = {
-  tags: ['i', 'b', 'strong', 'em', 'span'],
+  tags: [],
   strip: true,
   stripComments: true,
-  prune: PRUNE_TAGS,
-  attributes: LEGAL_ATTR_MAP,
-  styles: LEGAL_STYLES,
+  prune: [
+    'style',
+    '!DOCTYPE',
+    'button', // (forms)
+    'datalist', // (forms)
+    'script', // (script)
+    'select', // (forms)
+    'svg', // (svg)
+    'title' // (non-body)
+  ],
   asNode: true,
   maxLength: 100
 };
