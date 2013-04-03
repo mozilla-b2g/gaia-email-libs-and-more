@@ -513,10 +513,10 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
 };
 
 /**
- * Derive snippet text from the already-sanitized HTML representation.
+ * Derive snippet text from the an HTML string. It will also sanitize it.
  */
-exports.generateSnippet = function generateSnippet(sanitizedHtml) {
-  return $bleach.clean(sanitizedHtml, BLEACH_SNIPPET_SETTINGS);
+exports.generateSnippet = function generateSnippet(htmlString) {
+  return $bleach.clean(htmlString, BLEACH_SNIPPET_SETTINGS);
 };
 
 /**
