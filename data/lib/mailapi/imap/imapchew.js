@@ -347,7 +347,7 @@ var DESIRED_SNIPPET_LENGTH = 100;
  *
  */
 exports.updateMessageWithFetch =
-  function(header, body, req, res) {
+  function(header, body, req, res, _LOG) {
 
   var bodyRep = body.bodyReps[req.bodyRepIndex];
 
@@ -368,22 +368,48 @@ exports.updateMessageWithFetch =
   var snippet;
   switch (bodyRep.type) {
     case 'plain':
-      parsedContent = $quotechew.quoteProcessTextBody(res.text);
+      try {
+        parsedContent = $quotechew.quoteProcessTextBody(res.text);
+      }
+      catch (ex) {
+        _LOG.textChewError(ex);
+        // an empty content rep is better than nothing.
+        parsedContent = [];
+      }
       if (req.createSnippet) {
-        header.snippet = $quotechew.generateSnippet(
-          parsedContent, DESIRED_SNIPPET_LENGTH
-        );
+        try {
+          header.snippet = $quotechew.generateSnippet(
+            parsedContent, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          _LOG.textSnippetError(ex);
+          header.snippet = '';
+        }
       }
       break;
     case 'html':
       var htmlStr = '';
       var text = res.text;
       if (req.createSnippet) {
-        header.snippet = $htmlchew.generateSnippet(text);
+        try {
+          header.snippet = $htmlchew.generateSnippet(text);
+        }
+        catch (ex) {
+          _LOG.htmlSnippetError(ex);
+          header.snippet = '';
+        }
       }
 
-      if (bodyRep.isDownloaded)
-        htmlStr = $htmlchew.sanitizeAndNormalizeHtml(text);
+      if (bodyRep.isDownloaded) {
+        try {
+          htmlStr = $htmlchew.sanitizeAndNormalizeHtml(text);
+        }
+        catch (ex) {
+          _LOG.htmlParseError(ex);
+          htmlStr = '';
+        }
+      }
 
       parsedContent = htmlStr;
       break;

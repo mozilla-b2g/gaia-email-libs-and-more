@@ -611,7 +611,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     var self = this;
 
     fetcher.onparsed = function(req, resp) {
-      $imapchew.updateMessageWithFetch(header, body, req, resp);
+      $imapchew.updateMessageWithFetch(header, body, req, resp, self._LOG);
 
       if (req.createSnippet) {
         self._storage.updateMessageHeader(
@@ -1296,7 +1296,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     errors: {
       callbackErr: { ex: $log.EXCEPTION },
 
-      bodyChewError: { ex: $log.EXCEPTION },
+      htmlParseError: { ex: $log.EXCEPTION },
+      htmlSnippetError: { ex: $log.EXCEPTION },
+      textChewError: { ex: $log.EXCEPTION },
+      textSnippetError: { ex: $log.EXCEPTION },
 
       // Attempted to sync with an empty or inverted range.
       illegalSync: { startTS: false, endTS: false },

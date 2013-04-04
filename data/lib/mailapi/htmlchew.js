@@ -451,20 +451,22 @@ function stashLinks(lowerTag, attrs) {
           return true;
       }
     });
-    var linkAttr = getAttributeFromList(attrs, 'href'),
-        link = linkAttr.escaped;
-    if (RE_HTTP_URL.test(link) ||
-        RE_MAILTO_URL.test(link)) {
+    var linkAttr = getAttributeFromList(attrs, 'href');
+    if (linkAttr) {
+      var link = linkAttr.escaped;
+      if (RE_HTTP_URL.test(link) ||
+          RE_MAILTO_URL.test(link)) {
 
-      linkAttr.name = 'ext-href';
-      if (classAttr)
-        classAttr.escaped += ' moz-external-link';
-      else
-        attrs.push({ name: 'class', escaped: 'moz-external-link' });
-    }
-    else {
-      // paranoia; no known benefit if this got through
-      attrs.splice(attrs.indexOf(linkAttr), 1);
+        linkAttr.name = 'ext-href';
+        if (classAttr)
+          classAttr.escaped += ' moz-external-link';
+        else
+          attrs.push({ name: 'class', escaped: 'moz-external-link' });
+      }
+      else {
+        // paranoia; no known benefit if this got through
+        attrs.splice(attrs.indexOf(linkAttr), 1);
+      }
     }
   }
   return attrs;
