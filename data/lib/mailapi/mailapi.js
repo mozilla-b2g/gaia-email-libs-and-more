@@ -1001,14 +1001,18 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
   idxEnd = Math.min(idxEnd, this.items.length - 1);
 
   for (; idxStart <= idxEnd; idxStart++) {
-    if (this.items[idxStart] && this.items[idxStart].snippet == null) {
+    var item = this.items[idxStart];
+    if (item && item.snippet === null) {
+      // ns of 'headers' has the id/date on the item, where 'matchedHeaders'
+      // has it on header.date
+      if (this._ns === 'matchedHeaders') {
+        item = item.header;
+      }
+
       messages.push({
-        suid: this.items[idxStart].id,
+        suid: item.id,
         // backend does not care about Date objects
-        // ns of 'headers' has date on the item, where 'matchedHeaders'
-        // has it on header.date
-        date: (this.items[idxStart].date ||
-               this.items[idxStart].header.date).valueOf()
+        date: item.date.valueOf()
       });
     }
   }
