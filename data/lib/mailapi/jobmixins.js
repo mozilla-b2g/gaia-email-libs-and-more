@@ -254,14 +254,15 @@ exports.do_download = function(op, callback) {
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
 
-    var callback = function(success) {
+    var callback = function(success, error) {
       if (success) {
+        self._LOG.savedAttachment(storage, blob.type, blob.size);
         console.log('saved attachment to', storage, filename, 'type:', blob.type);
         partInfo.file = [storage, filename];
         if (--pendingStorageWrites === 0)
           done();
       } else {
-        self._LOG.saveFailure(storage, blob.type, req.error.name, filename);
+        self._LOG.saveFailure(storage, blob.type, error, filename);
         console.warn('failed to save attachment to', storage, filename,
                      'type:', blob.type);
         pendingStorageWrites--;

@@ -384,7 +384,8 @@ var RE_MAILTO_URL = /^mailto:/i;
 var RE_IMG_TAG = /^img$/;
 
 function getAttributeFromList(attrs, name) {
-  for (var i = 0; i < attrs.length; i++) {
+  var len = attrs.length;
+  for (var i = 0; i < len; i++) {
     var attr = attrs[i];
     if (attr.name.toLowerCase() === name) {
       return attr;
@@ -546,7 +547,8 @@ exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
 
   var attributes = '';
   if (attrs) {
-    for (var i = 0; i < attrs.length; i += 2) {
+    var len = attrs.length;
+    for (var i = 0; i < len; i += 2) {
       attributes += ' ' + attrs[i] + '="' + attrs[i + 1] +'"';
     }
   }

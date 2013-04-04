@@ -112,7 +112,6 @@ FawltySocket.prototype = {
   setKeepAlive: function() {},
 
   _reEmit: function(name, data) {
-console.log('re-emitting', name);
     if (this._sock)
       this.emit(name, data);
 
@@ -132,7 +131,6 @@ console.log('re-emitting', name);
   },
 
   _queueEvent: function(type, data) {
-console.log('queueing event', type);
     window.setZeroTimeout(this.emit.bind(this, type, data));
   },
 

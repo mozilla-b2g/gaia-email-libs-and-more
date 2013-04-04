@@ -883,6 +883,7 @@ var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self.eImapAccount = self.eOpAccount =
       self.T.actor('ImapAccount', self.__name, null, self);
+    self.eJobDriver = self.T.actor('ImapJobDriver', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
@@ -973,6 +974,7 @@ var TestImapAccountMixins = {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eImapAccount);
+      self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.RT.reportActiveActorThisStep(self.eBackoff);
       self.expect_accountCreated();
@@ -1892,6 +1894,8 @@ var TestActiveSyncAccountMixins = {
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
+    self.eJobDriver =
+      self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
 
     self._opts = opts;
     if (!opts.universe)
@@ -1966,6 +1970,7 @@ var TestActiveSyncAccountMixins = {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eAccount);
+      self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.expect_accountCreated();
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
 

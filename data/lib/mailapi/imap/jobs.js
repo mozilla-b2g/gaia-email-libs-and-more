@@ -1117,6 +1117,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {
     type: $log.DAEMON,
     events: {
+      savedAttachment: { storage: true, mimeType: true, size: true },
       saveFailure: { storage: false, mimeType: false, error: false },
     },
     TEST_ONLY_events: {

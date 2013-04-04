@@ -96,6 +96,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
+      RT.reportActiveActorThisStep(testAccount.eJobDriver);
       RT.reportActiveActorThisStep(eLazy);
       RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
@@ -107,6 +108,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
+      testAccount.eJobDriver.expect_savedAttachment('sdcard', 'image/png', 256);
       // adding a file sends created and modified
       testStorage.expect_created('foo.png');
       testStorage.expect_modified('foo.png');

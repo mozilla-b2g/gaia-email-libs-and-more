@@ -435,7 +435,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   ActiveSyncJobDriver: {
     type: $log.DAEMON,
     events: {
-      saveFailure: { storage: false, mimeType: false, error: false},
+      savedAttachment: { storage: true, mimeType: true, size: true },
+      saveFailure: { storage: false, mimeType: false, error: false },
     },
     TEST_ONLY_events: {
       saveFailure: { filename: false },

@@ -909,13 +909,15 @@ MailUniverse.prototype = {
    */
   shutdown: function(callback) {
     var waitCount = this.accounts.length;
+    // (only used if a 'callback' is passed)
     function accountShutdownCompleted() {
       if (--waitCount === 0)
         callback();
     }
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      account.shutdown(callback && accountShutdownCompleted);
+      // only need to pass our handler if clean shutdown is desired
+      account.shutdown(callback ? accountShutdownCompleted : null);
     }
 
     this._cronSyncer.shutdown();
