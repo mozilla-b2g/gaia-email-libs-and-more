@@ -523,9 +523,12 @@ exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
 
 /**
  * Derive snippet text from the an HTML string. It will also sanitize it.
+ * Note that it unescapes HTML enttities, so best to only use this output
+ * in textContent cases.
  */
 exports.generateSnippet = function generateSnippet(htmlString) {
-  return $bleach.clean(htmlString, BLEACH_SNIPPET_SETTINGS);
+  return $bleach.unescapeHTMLEntities($bleach.clean(htmlString,
+                                                    BLEACH_SNIPPET_SETTINGS));
 };
 
 /**
