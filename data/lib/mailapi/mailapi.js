@@ -957,8 +957,8 @@ FoldersViewSlice.prototype.getFirstFolderWithName = function(name, items) {
   return null;
 };
 
-function HeadersViewSlice(api, handle) {
-  BridgedViewSlice.call(this, api, 'headers', handle);
+function HeadersViewSlice(api, handle, ns) {
+  BridgedViewSlice.call(this, api, ns || 'headers', handle);
 
   this._snippetRequestId = 1;
   this._snippetRequests = {};
@@ -1005,7 +1005,7 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
       messages.push({
         suid: this.items[idxStart].id,
         // backend does not care about Date objects
-        date: this.items[idxStart].date.valueOf()
+        date: this.items[idxStart].header.date.valueOf()
       });
     }
   }
@@ -2014,7 +2014,7 @@ MailAPI.prototype = {
   searchFolderMessages:
       function ma_searchFolderMessages(folder, text, whatToSearch) {
     var handle = this._nextHandle++,
-        slice = new BridgedViewSlice(this, 'matchedHeaders', handle);
+        slice = new HeadersViewSlice(this, handle, 'matchedHeaders');
     // the initial population counts as a request.
     slice.pendingRequestCount++;
     this._slices[handle] = slice;
