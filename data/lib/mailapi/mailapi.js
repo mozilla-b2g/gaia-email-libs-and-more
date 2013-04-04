@@ -1005,7 +1005,10 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
       messages.push({
         suid: this.items[idxStart].id,
         // backend does not care about Date objects
-        date: this.items[idxStart].header.date.valueOf()
+        // ns of 'headers' has date on the item, where 'matchedHeaders'
+        // has it on header.date
+        date: (this.items[idxStart].date ||
+               this.items[idxStart].header.date).valueOf()
       });
     }
   }
