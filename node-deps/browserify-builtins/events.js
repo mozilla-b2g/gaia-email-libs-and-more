@@ -158,6 +158,7 @@ EventEmitter.prototype.removeListener = function(type, listener) {
 EventEmitter.prototype.removeAllListeners = function(type) {
   // does not use listeners(), so no side effect of creating _events[type]
   if (type && this._events && this._events[type]) this._events[type] = null;
+  if (!type) this._events = {};
   return this;
 };
 

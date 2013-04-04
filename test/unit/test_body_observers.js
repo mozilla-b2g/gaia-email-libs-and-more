@@ -1,8 +1,9 @@
-load('resources/loggest_test_framework.js');
-const $ascp = require('activesync/codepages');
-const FilterType = $ascp.AirSync.Enums.FilterType;
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'activesync/codepages', 'exports'],
+       function($tc, $th_imap, $ascp, exports) {
+var FilterType = $ascp.AirSync.Enums.FilterType;
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_body_observers' },
   null,
   [$th_imap.TESTHELPER],
@@ -88,6 +89,4 @@ TD.commonCase('body update events', function(T, RT) {
 
 });
 
-function run_test() {
-  runMyTests(10);
-}
+}); // end define

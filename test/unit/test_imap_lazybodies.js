@@ -1,6 +1,7 @@
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_lazybodies' },
   null,
   [$th_imap.TESTHELPER],
@@ -184,6 +185,4 @@ TD.commonCase('sync headers then download body', function(T, RT) {
 
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

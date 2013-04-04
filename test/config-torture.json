@@ -1,1 +1,8 @@
-{ "account": "imap", "torture": "true" }
+{
+  "account": "imap",
+  "torture": "true"
+
+  "tests": [
+    "test_torture_imap.js"
+  ]
+}

@@ -8,6 +8,7 @@ define(
     'rdcommon/logreaper',
     './a64',
     './syncbase',
+    './worker-router',
     './maildb',
     './cronsync',
     './accountcommon',
@@ -19,6 +20,7 @@ define(
     $logreaper,
     $a64,
     $syncbase,
+    $router,
     $maildb,
     $cronsync,
     $acctcommon,
@@ -313,15 +315,18 @@ function MailUniverse(callAfterBigBang, testOptions) {
 
   this._bridges = [];
 
+  this._testModeDisablingLocalOps = false;
+  /** Fake navigator to use for navigator.onLine checks */
+  this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
+                                null;
+
   // We used to try and use navigator.connection, but it's not supported on B2G,
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
-  this._bound_onConnectionChange = this._onConnectionChange.bind(this);
-  window.addEventListener('online', this._bound_onConnectionChange);
-  window.addEventListener('offline', this._bound_onConnectionChange);
+  // Events for online/offline are now pushed into us externally.  They need
+  // to be bridged from the main thread anyways, so no point faking the event
+  // listener.
   this._onConnectionChange();
-
-  this._testModeDisablingLocalOps = false;
 
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
@@ -466,22 +471,22 @@ MailUniverse.prototype = {
   },
 
   dumpLogToDeviceStorage: function() {
+    // This reuses the existing registration if one exists.
+    var sendMessage = $router.registerCallbackType('devicestorage');
     try {
-      var storage = navigator.getDeviceStorage('sdcard');
       var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
                           {
                             type: 'application/json',
                             endings: 'transparent'
                           });
       var filename = 'gem-log-' + Date.now() + '.json';
-      var req = storage.addNamed(blob, filename);
-      req.onsuccess = function() {
-        console.log('saved log to "sdcard" devicestorage:', filename);
-      };
-      req.onerror = function() {
-        console.error('failed to save log to', filename, 'err:',
-                      this.error.name);
-      };
+      sendMessage('save', ['sdcard', blob, filename], function(success) {
+        if (success)
+          console.log('saved log to "sdcard" devicestorage:', filename);
+        else
+          console.error('failed to save log to', filename);
+
+      });
     }
     catch(ex) {
       console.error('Problem dumping log to device storage:', ex,
@@ -541,14 +546,15 @@ MailUniverse.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  _onConnectionChange: function() {
+  _onConnectionChange: function(isOnline) {
     var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
      * This should ideally be false behind a captive portal.  This might also
      * end up temporarily false if we move to a 2-phase startup process.
      */
-    this.online = navigator.onLine;
+    this.online = this._testModeFakeNavigator ?
+                    this._testModeFakeNavigator.onLine : isOnline;
     // Knowing when the app thinks it is online/offline is going to be very
     // useful for our console.log debug spew.
     console.log('Email knows that it is:', this.online ? 'online' : 'offline',
@@ -896,18 +902,31 @@ MailUniverse.prototype = {
    * clean shutdown means we get a heads-up, put ourselves offline, and trigger a
    * state save before we just demand that our page be closed.  That's future
    * work, of course.
+   *
+   * If a callback is provided, a cleaner shutdown will be performed where we
+   * wait for all current IMAP connections to be be shutdown by the server
+   * before invoking the callback.
    */
-  shutdown: function() {
+  shutdown: function(callback) {
+    var waitCount = this.accounts.length;
+    // (only used if a 'callback' is passed)
+    function accountShutdownCompleted() {
+      if (--waitCount === 0)
+        callback();
+    }
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      account.shutdown();
+      // only need to pass our handler if clean shutdown is desired
+      account.shutdown(callback ? accountShutdownCompleted : null);
     }
 
-    window.removeEventListener('online', this._bound_onConnectionChange);
-    window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
-    this._LOG.__die();
+    if (this._LOG)
+      this._LOG.__die();
+
+    if (!this.accounts.length)
+      callback();
   },
 
   //////////////////////////////////////////////////////////////////////////////

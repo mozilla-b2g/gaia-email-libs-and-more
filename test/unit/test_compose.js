@@ -3,13 +3,16 @@
  * received messages.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_devicestorage', './resources/messageGenerator',
+        'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
+        'exports'],
+       function($tc, $th_imap, $th_devicestorage, $msggen,
+                $util, $fakeacct, $accountcommon, exports) {
 
-var $util = require('mailapi/util');
-var $fakeacct = require('mailapi/fake/account');
-
-var TD = $tc.defineTestsFor(
-  { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_compose' }, null,
+  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
@@ -26,10 +29,13 @@ function makeRandomSubject() {
  * that we received it (which is also a good test of refresh).
  */
 TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
-                              realAccountNeeded: true });
+                              realAccountNeeded: true }),
+      testStorage = T.actor('testDeviceStorage', 'sdcard',
+                            { storage: 'sdcard' });
 
   var uniqueSubject = makeRandomSubject();
 
@@ -90,8 +96,9 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
-      __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
+      RT.reportActiveActorThisStep(testAccount.eJobDriver);
       RT.reportActiveActorThisStep(eLazy);
+      RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
       eLazy.expect_namedValue(
         'attachments',
@@ -101,8 +108,10 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
-      eLazy.expect_namedValue('addNamed:sdcard', 'foo.png');
-      eLazy.expect_namedValue('get:sdcard', 'foo.png');
+      testAccount.eJobDriver.expect_savedAttachment('sdcard', 'image/png', 256);
+      // adding a file sends created and modified
+      testStorage.expect_created('foo.png');
+      testStorage.expect_modified('foo.png');
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
@@ -119,23 +128,31 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
             sizeEstimateInBytes: att.sizeEstimateInBytes,
           });
           att.download(function() {
-            var storage = navigator.getDeviceStorage(att._file[0]),
-                storageReq = storage.get(att._file[1]);
-            storageReq.onsuccess = function() {
-              var reader = new FileReader();
-              reader.onload = function(data) {
-                var dataArr = [];
-                for (var i = 0; i < data.length; i++) {
-                  dataArr.push(data[i]);
+            testStorage.get(
+              att._file[1],
+              function gotBlob(error, blob) {
+                if (error) {
+                  console.error('blob fetch error:', error);
+                  return;
                 }
-                eLazy.namedValue('attachment[' + iAtt + '].size',
-                                 body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.namedValue('attachment[' + iAtt + '].data',
-                                 dataArr);
-                __deviceStorageLogFunc = function() {};
-              };
-              reader.readAsArrayBuffer(storageReq.result);
-            };
+                var reader = new FileReaderSync();
+                try {
+                  var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+                  var dataArr = [];
+                  console.log('got', data.length, 'bytes, readyState',
+                              reader.readyState);
+                  for (var i = 0; i < data.length; i++) {
+                    dataArr.push(data[i]);
+                  }
+                  eLazy.namedValue('attachment[' + iAtt + '].size',
+                                   body.attachments[iAtt].sizeEstimateInBytes);
+                  eLazy.namedValue('attachment[' + iAtt + '].data',
+                                   dataArr);
+                }
+                catch(ex) {
+                  console.error('reader error', ex);
+                }
+              });
           });
         });
         eLazy.namedValue('attachments', attachments);
@@ -159,7 +176,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // XXX we used to have a default signature; when we start letting
           // users configure signatures again, then we will want the test to
           // use one and put this back.
-          //'', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          //'', '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -219,7 +236,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         text: [
           '', '',
           // XXX when signatures get enabled/tested:
-          // '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + safeifyTime(replySentDate + ''),
@@ -261,6 +278,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
  * message into the inbox so that we can reply to it.
  */
 TD.commonCase('reply/forward html message', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,
@@ -285,22 +303,19 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       replyHtmlHtml  =
         '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
         // XXX we want this style scoped
-        // XXX aaaaaargh. our sanitizer is falling victim to platform
-        // helpfulness and turns "margin: 0;" into
-        // "margin-top: 0px; margin-bottom: 0px;"
         '<style type="text/css">' +
-        'p { margin-top: 0px; margin-bottom: 0px; }' +
+        'p { margin: 0; }' +
         '</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
         '</blockquote>',
         /* XXX when signatures get put back in/tested:
         '<pre class="moz-signature" cols="72">' +
-        $_accountcommon.DEFAULT_SIGNATURE +
+        $accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
         */
       bpartHtml =
-        new SyntheticPartLeaf(
+        new $msggen.SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });
 
   var uniqueSubject = makeRandomSubject();
@@ -325,7 +340,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
     var messageAppends = [],
-        msgGen = new MessageGenerator(testAccount._useDate);
+        msgGen = new $msggen.MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
@@ -381,7 +396,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
       var expectedHtmlRep = [
         '<div>',
-        expectedReplyBody.text.replace(/\n/g, '<br>'),
+        expectedReplyBody.text.replace(/\n/g, '<br/>'),
         '</div>',
         expectedReplyBody.html,
       ].join('');
@@ -515,6 +530,7 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 TD.commonCase('bcc self', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,
@@ -593,6 +609,4 @@ TD.commonCase('bcc self', function(T, RT) {
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 });
 
-function run_test() {
-  runMyTests(90);
-}
+}); // end define

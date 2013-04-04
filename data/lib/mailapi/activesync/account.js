@@ -242,8 +242,10 @@ ActiveSyncAccount.prototype = {
     this.saveAccountState(null, null, 'checkpointSync');
   },
 
-  shutdown: function asa_shutdown() {
+  shutdown: function asa_shutdown(callback) {
     this._LOG.__die();
+    if (callback)
+      callback();
   },
 
   accountDeleted: function asa_accountDeleted() {

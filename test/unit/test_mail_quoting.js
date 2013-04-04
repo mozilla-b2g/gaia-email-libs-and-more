@@ -5,9 +5,11 @@
  * mailparser lib itself.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'mailapi/quotechew', 'exports'],
+       function($tc, $th_imap, $quotechew, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mail_quoting' }, null, [$th_imap.TESTHELPER], ['app']);
 
 function j() {
@@ -386,7 +388,7 @@ TD.commonCase('Quoting', function(T) {
           'forwardText', JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
       eCheck.expect_event('done');
 
-      var rep = $_quotechew.quoteProcessTextBody(tdef.body);
+      var rep = $quotechew.quoteProcessTextBody(tdef.body);
       for (i = 0; i < rep.length; i += 2) {
         var etype = rep[i]&0xf, rtype = null;
         switch (etype) {
@@ -425,10 +427,10 @@ TD.commonCase('Quoting', function(T) {
           return x;
         return x.toString(16);
       }));
-      var snippetText = $_quotechew.generateSnippet(rep, DESIRED_SNIPPET_LENGTH);
+      var snippetText = $quotechew.generateSnippet(rep, DESIRED_SNIPPET_LENGTH);
       eCheck.namedValue('snippet', JSON.stringify(snippetText));
       if (roundtrip) {
-        var forwardText = $_quotechew.generateForwardBodyText(rep);
+        var forwardText = $quotechew.generateForwardBodyText(rep);
         eCheck.namedValue('forwardText', JSON.stringify(forwardText));
       }
       eCheck.event('done');
@@ -436,6 +438,4 @@ TD.commonCase('Quoting', function(T) {
   });
 });
 
-function run_test() {
-  runMyTests(3);
-}
+}); // end define

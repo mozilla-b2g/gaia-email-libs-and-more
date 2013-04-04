@@ -1,1 +1,20 @@
-{ "account": "activesync", "torture": "false" }
+{ 
+  "account": "activesync", "torture": "false",
+  "tests": [
+    "test_activesync_general.js",
+    "test_activesync_recreate.js",
+    "test_activesync_html.js",
+
+
+    "test_compose.js",
+    "test_body_observers.js",
+
+    "test_autoconfig.js",
+    "test_account_logic.js",
+    "test_account_create_unit.js",
+    "test_folder_storage.js",
+    "test_linkify.js",
+    "test_mutation.js",
+    "test_search.js"
+  ]
+}

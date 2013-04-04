@@ -4,13 +4,17 @@
 
 define(
   [
+    './worker-router',
     './util',
     'exports'
   ],
   function(
+    $router,
     $util,
     exports
   ) {
+
+var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
   var addTags = undo ? op.removeTags : op.addTags,
@@ -249,33 +253,36 @@ exports.do_download = function(op, callback) {
    */
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
-    var dstorage = navigator.getDeviceStorage(storage);
-    var req = dstorage.addNamed(blob, filename);
-    req.onerror = function() {
-      console.warn('failed to save attachment to', storage, filename,
-                   'type:', blob.type);
-      pendingStorageWrites--;
-      // if we failed to unique the file after appending junk, just give up
-      if (isRetry) {
-        if (pendingStorageWrites === 0)
+
+    var callback = function(success, error) {
+      if (success) {
+        self._LOG.savedAttachment(storage, blob.type, blob.size);
+        console.log('saved attachment to', storage, filename, 'type:', blob.type);
+        partInfo.file = [storage, filename];
+        if (--pendingStorageWrites === 0)
           done();
-        return;
+      } else {
+        self._LOG.saveFailure(storage, blob.type, error, filename);
+        console.warn('failed to save attachment to', storage, filename,
+                     'type:', blob.type);
+        pendingStorageWrites--;
+        // if we failed to unique the file after appending junk, just give up
+        if (isRetry) {
+          if (pendingStorageWrites === 0)
+            done();
+          return;
+        }
+        // retry by appending a super huge timestamp to the file before its
+        // extension.
+        var idxLastPeriod = filename.lastIndexOf('.');
+        if (idxLastPeriod === -1)
+          idxLastPeriod = filename.length;
+        filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+                    filename.substring(idxLastPeriod);
+        saveToStorage(blob, storage, filename, partInfo, true);
       }
-      // retry by appending a super huge timestamp to the file before its
-      // extension.
-      var idxLastPeriod = filename.lastIndexOf('.');
-      if (idxLastPeriod === -1)
-        idxLastPeriod = filename.length;
-      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
-                   filename.substring(idxLastPeriod);
-      saveToStorage(blob, storage, filename, partInfo, true);
     };
-    req.onsuccess = function() {
-      console.log('saved attachment to', storage, filename, 'type:', blob.type);
-      partInfo.file = [storage, filename];
-      if (--pendingStorageWrites === 0)
-        done();
-    };
+    sendMessage('save', [storage, blob, filename], callback);
   }
   var gotParts = function gotParts(err, bodyBlobs) {
     if (bodyBlobs.length !== partsToDownload.length) {

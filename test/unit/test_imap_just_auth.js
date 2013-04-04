@@ -1,6 +1,7 @@
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_just_auth' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('just auth', function(T) {
@@ -8,6 +9,4 @@ TD.commonCase('just auth', function(T) {
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
 });
 
-function run_test() {
-  runMyTests(15);
-}
+}); // end define

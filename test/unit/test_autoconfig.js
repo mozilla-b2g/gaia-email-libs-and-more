@@ -3,13 +3,15 @@
  * permutations and a few failures.
  */
 
-load('resources/loggest_test_framework.js');
-load('resources/fake_xhr.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fake_xhr', 'mailapi/accountcommon',
+        'exports'],
+       function($tc, $th_imap, $fakexhr, $accountcommon, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_autoconfig' }, null, [$th_imap.TESTHELPER], ['app']);
 
-const goodImapXML =
+var goodImapXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
     '<incomingServer type="imap">' +
@@ -28,7 +30,7 @@ const goodImapXML =
     '</outgoingServer>' +
   '</emailProvider></clientConfig>';
 
-const goodImapConfig = {
+var goodImapConfig = {
   type: 'imap+smtp',
   incoming: {
     hostname: 'imap.xampl.tld',
@@ -46,9 +48,9 @@ const goodImapConfig = {
   },
 };
 
-const unsafeImapXML = goodImapXML.replace('SSL', 'plain', 'g');
+var unsafeImapXML = goodImapXML.replace('SSL', 'plain', 'g');
 
-const goodActivesyncXML =
+var goodActivesyncXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
     '<incomingServer type="activesync">' +
@@ -57,9 +59,9 @@ const goodActivesyncXML =
     '</incomingServer>' +
   '</emailProvider></clientConfig>';
 
-const MXtext = 'mx-xampl.tld';
+var MXtext = 'mx-xampl.tld';
 
-const goodActivesyncConfig = {
+var goodActivesyncConfig = {
   type: 'activesync',
   incoming: {
     server: 'https://m.xampl.tld/',
@@ -69,7 +71,7 @@ const goodActivesyncConfig = {
   },
 };
 
-const goodActivesyncAutodiscoverConfig = {
+var goodActivesyncAutodiscoverConfig = {
   type: 'activesync',
   displayName: 'DISPLAYNAME',
   incoming: {
@@ -79,7 +81,7 @@ const goodActivesyncAutodiscoverConfig = {
 };
 
 
-const goodActivesyncAutodiscoverXML =
+var goodActivesyncAutodiscoverXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<ad:Autodiscover ' +
     'xmlns:ad="http://schemas.microsoft.com/exchange/autodiscover/responseschema/2006" ' +
@@ -100,11 +102,11 @@ const goodActivesyncAutodiscoverXML =
     '</ms:Response>' +
   '</ad:Autodiscover>';
 
-const gibberishXML = '<xml>I NOT GOOD XML</xml>';
+var gibberishXML = '<xml>I NOT GOOD XML</xml>';
 
 function expectXHRs(lazy, xhrs) {
   var iServiced = 0;
-  gFakeXHRListener = function(req, args) {
+  window.gFakeXHRListener = function(req, args) {
     lazy.namedValue('xhr', args);
     if (iServiced >= xhrs.length)
       return;
@@ -142,14 +144,10 @@ function expectXHRs(lazy, xhrs) {
 }
 
 function cannedTest(T, RT, xhrs, results) {
-  var lazyConsole = T.lazyLogger('console');
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
   var eCheck = T.lazyLogger('check');
   T.action(eCheck, 'autoconfig', function() {
     expectXHRs(eCheck, xhrs);
-    var configurator = new $_accountcommon.Autoconfigurator();
+    var configurator = new $accountcommon.Autoconfigurator();
     var userDetails = {
       emailAddress: 'user@xampl.tld',
       password: 'PASSWORD',
@@ -462,7 +460,4 @@ TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
     });
 });
 
-
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

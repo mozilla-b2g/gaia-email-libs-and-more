@@ -91,7 +91,8 @@ ImapProber.prototype = {
   onError: function ImapProber_onError(err) {
     if (!this.onresult)
       return;
-    console.warn('PROBE:IMAP sad', err);
+    console.warn('PROBE:IMAP sad', err && err.name, '|', err && err.type, '|',
+                 err && err.message, '|', err && err.serverResponse);
 
     var normErr = normalizeError(err);
     this.error = normErr.name;
