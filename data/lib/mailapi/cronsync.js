@@ -24,12 +24,14 @@ define(
   [
     'rdcommon/log',
     './allback',
+    './worker-router',
     'module',
     'exports'
   ],
   function(
     $log,
     $allback,
+    $router,
     $module,
     exports
   ) {
@@ -149,39 +151,24 @@ console.log('sync done!');
 };
 
 function generateNotificationForMessage(header, onClick, onClose) {
-  // NB: We don't need to use NotificationHelper because we end up doing
-  // something similar ourselves.
 console.log('generating notification for:', header.suid, header.subject);
-  var notif = navigator.mozNotification.createNotification(
-    header.author.name || header.author.address,
-    header.subject,
-    // XXX it makes no sense that the back-end knows the path of the icon,
-    // but this specific function may need to vary based on host environment
-    // anyways...
-    gIconUrl);
-  notif.onclick = onClick.bind(null, header, notif);
-  notif.onclose = onClose.bind(null, header, notif);
-  notif.show();
+  var notif = header.suid;
+
+  sendMessage(
+    'showNotification',
+    [header.author.name || header.author.address, header.subject],
+    function(click) {
+      click ? onClick(header, notif) : onClose(header, notif);
+    });
   return notif;
 }
 
-var gApp, gIconUrl;
-navigator.mozApps.getSelf().onsuccess = function(event) {
-  gApp = event.target.result;
-  gIconUrl = gApp.installOrigin + '/style/icons/Email.png';
-};
-/**
- * Try and bring up the given header in the front-end.
- *
- * XXX currently, we just cause the app to display, but we don't do anything
- * to cause the actual message to be displayed.  Right now, since the back-end
- * and the front-end are in the same app, we can easily tell ourselves to do
- * things, but in the separated future, we might want to use a webactivity,
- * and as such we should consider using that initially too.
- */
-function displayHeaderInFrontend(header) {
-  gApp.launch();
+
+function debug(str) {
+  dump("CronSyncer: " + str + "\n");
 }
+
+var sendMessage = $router.registerCallbackType('cronsyncer');
 
 /**
  * Creates the synchronizer.  It is does not do anything until the first call
@@ -208,7 +195,6 @@ function CronSyncer(universe, _logParent) {
   this._outstandingNotesPerAccount = {};
 
   this._initialized = false;
-  this._hackTimeout = null;
 
   this._activeSlices = [];
 }
@@ -218,50 +204,16 @@ CronSyncer.prototype = {
    * Remove any/all scheduled alarms.
    */
   _clearAlarms: function() {
-    // mozalarms doesn't work on desktop; comment out and use setTimeout.
-    if (this._hackTimeout !== null) {
-      window.clearTimeout(this._hackTimeout);
-      this._hackTimeout = null;
-    }
-/*
-    var req = navigator.mozAlarms.getAll();
-    req.onsuccess = function(event) {
-      var alarms = event.target.result;
-      for (var i = 0; i < alarms.length; i++) {
-        navigator.mozAlarms.remove(alarms[i].id);
-      }
-    }.bind(this);
-*/
+    sendMessage('clearAlarms');
   },
 
   _scheduleNextSync: function() {
     if (!this._syncIntervalMS)
       return;
-    console.log("scheduling sync for " + (this._syncIntervalMS / 1000) +
-                " seconds in the future.");
-    this._hackTimeout = window.setTimeout(this.onAlarm.bind(this),
-                                          this._syncIntervalMS);
-/*
-    try {
-      console.log('mpozAlarms', navigator.mozAlarms);
-      var req = navigator.mozAlarms.add(
-        new Date(Date.now() + this._syncIntervalMS),
-        'ignoreTimezone', {});
-      console.log('req:', req);
-      req.onsuccess = function() {
-        console.log('scheduled!');
-      };
-      req.onerror = function(event) {
-        console.warn('alarm scheduling problem!');
-        console.warn(' err:',
-                     event.target && event.target.error &&
-                     event.target.error.name);
-      };
-    }
-    catch (ex) {
-      console.error('problem initiating request:', ex);
-    }
-*/
+    //debug("scheduling sync for " + (this._syncIntervalMS / 1000) +
+    //      " seconds in the future.");
+
+    sendMessage('addAlarm', [new Date(Date.now() + this._syncIntervalMS)]);
   },
 
   setSyncIntervalMS: function(syncIntervalMS) {
@@ -269,11 +221,16 @@ CronSyncer.prototype = {
     var pendingAlarm = false;
     if (!this._initialized) {
       this._initialized = true;
-      // mozAlarms doesn't work on b2g-desktop
-      /*
-      pendingAlarm = navigator.mozHasPendingMessage('alarm');
-      navigator.mozSetMessageHandler('alarm', this.onAlarm.bind(this));
-     */
+      pendingAlarm = navigator.hasPendingAlarm;
+
+      window.addEventListener('message', (function(evt) {
+        switch(evt.data.type) {
+          case 'alarm':
+            dump("CronSyncer - receive an alarm via a message handler\n");
+            this.onAlarm(evt.data.args);
+            break;
+        }
+      }).bind(this));
     }
 
     // leave zero intact, otherwise round up to the minimum.
@@ -332,7 +289,7 @@ CronSyncer.prototype = {
             console.warn('bad note index!');
           outstandingInfo.notes.splice(idx);
           // trigger the display of the app!
-          displayHeaderInFrontend(header);
+          sendMessage('showApp', [header]);
         },
         closeHandler: function(header, note, event) {
           var idx = outstandingInfo.notes.indexOf(note);

@@ -29,23 +29,22 @@
  *    state and re-establishes.)
  **/
 
-load('resources/loggest_test_framework.js');
-// Use the faulty socket implementation.
-load('resources/fault_injecting_socket.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fault_injecting_socket', 'mailapi/errbackoff', 'exports'],
+       function($tc, $th_imap, $fawlty, $errbackoff, exports) {
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var $_errbackoff = require('mailapi/errbackoff');
-
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
 
 
 function doNotThunkErrbackoffTimer() {
-  $_errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
+  $errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
 }
 
 function thunkErrbackoffTimer(lazyLogger) {
   var backlog = [];
-  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+  $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     backlog.push(func);
     lazyLogger.namedValue('errbackoff:schedule', delay);
   });
@@ -58,7 +57,7 @@ function thunkErrbackoffTimer(lazyLogger) {
 }
 
 function zeroTimeoutErrbackoffTimer(lazyLogger) {
-  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+  $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     lazyLogger.namedValue('errbackoff:schedule', delay);
     window.setZeroTimeout(func);
   });
@@ -292,8 +291,9 @@ TD.commonCase('error handler fires on reused connection', function(T, RT) {
  * password failure since the server forces a delay that is annoying (if
  * realistic.)
  */
-TD.commonCase('bad password login failure', function(T) {
+TD.commonCase('bad password login failure', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
@@ -487,6 +487,4 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 
 });
 
-function run_test() {
-  runMyTests(15);
-}
+}); // end define

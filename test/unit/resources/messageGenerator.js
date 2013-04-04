@@ -1,6 +1,13 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+define(
+  [
+    'exports'
+  ],
+  function(
+    exports
+  ) {
 
 function Object_extend(proto, mix, propdefs) {
   var obj = Object.create(proto, propdefs);
@@ -15,7 +22,7 @@ function Object_extend(proto, mix, propdefs) {
  *  reversible names.  To keep things easily reversible, if you add names, make
  *  sure they have no spaces in them!
  */
-const FIRST_NAMES = [
+var FIRST_NAMES = [
   "Andy", "Bob", "Chris", "David", "Emily", "Felix",
   "Gillian", "Helen", "Idina", "Johnny", "Kate", "Lilia",
   "Martin", "Neil", "Olof", "Pete", "Quinn", "Rasmus",
@@ -28,7 +35,7 @@ const FIRST_NAMES = [
  *  reversible names.  To keep things easily reversible, if you add names, make
  *  sure they have no spaces in them!
  */
-const LAST_NAMES = [
+var LAST_NAMES = [
   "Anway", "Bell", "Clarke", "Davol", "Ekberg", "Flowers",
   "Gilbert", "Hook", "Ivarsson", "Jones", "Kurtz", "Lowe",
   "Morris", "Nagel", "Orzabal", "Price", "Quinn", "Rolinski",
@@ -42,7 +49,7 @@ const LAST_NAMES = [
  *  make sure they have no spaces in them!  Also, make sure your additions
  *  don't break the secret Monty Python reference!
  */
-const SUBJECT_ADJECTIVES = [
+var SUBJECT_ADJECTIVES = [
   "Big", "Small", "Huge", "Tiny",
   "Red", "Green", "Blue", "My",
   "Happy", "Sad", "Grumpy", "Angry",
@@ -55,7 +62,7 @@ const SUBJECT_ADJECTIVES = [
  *  make sure they have no spaces in them!  Also, make sure your additions
  *  don't break the secret Monty Python reference!
  */
-const SUBJECT_NOUNS = [
+var SUBJECT_NOUNS = [
   "Meeting", "Party", "Shindig", "Wedding",
   "Document", "Report", "Spreadsheet", "Hovercraft",
   "Aardvark", "Giraffe", "Llama", "Velociraptor",
@@ -67,7 +74,7 @@ const SUBJECT_NOUNS = [
  *  by MessageGenerator.  These can (clearly) have spaces in them.  Make sure
  *  your additions don't break the secret Monty Python reference!
  */
-const SUBJECT_SUFFIXES = [
+var SUBJECT_SUFFIXES = [
   "Today", "Tomorrow", "Yesterday", "In a Fortnight",
   "Needs Attention", "Very Important", "Highest Priority", "Full Of Eels",
   "In The Lobby", "On Your Desk", "In Your Car", "Hiding Behind The Door",
@@ -98,10 +105,11 @@ function SyntheticPart(aProperties) {
       this._extraHeaders = aProperties.extraHeaders;
   }
 }
+exports.SyntheticPart = SyntheticPart;
 SyntheticPart.prototype = {
   _forceDisposition: null,
   get contentTypeHeaderValue() {
-    let s = this._contentType;
+    var s = this._contentType;
     if (this._charset)
       s += '; charset=' + this._charset;
     if (this._format)
@@ -109,8 +117,10 @@ SyntheticPart.prototype = {
     if (this._filename)
       s += ';\r\n name="' + this._filename +'"';
     if (this._contentTypeExtra) {
-      for (let [key, value] in Iterator(this._contentTypeExtra))
+      for (var key in this._contentTypeExtra) {
+        var value = this._contentTypeExtra[key];
         s += ';\r\n ' + key + '="' + value + '"';
+      }
     }
     if (this._boundary)
       s += ';\r\n boundary="' + this._boundary + '"';
@@ -126,7 +136,7 @@ SyntheticPart.prototype = {
     return this._forceDisposition || this._filename;
   },
   get contentDispositionHeaderValue() {
-    let s = '';
+    var s = '';
     if (this._forceDisposition)
       s += this._forceDisposition;
     else if (this._filename)
@@ -154,6 +164,7 @@ function SyntheticPartLeaf(aBody, aProperties) {
   SyntheticPart.call(this, aProperties);
   this.body = aBody;
 }
+exports.SyntheticPartLeaf = SyntheticPartLeaf;
 SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'text/plain',
   _charset: 'ISO-8859-1',
@@ -176,6 +187,7 @@ SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {
  */
 function SyntheticDegeneratePartEmpty() {
 }
+exports.SyntheticDegeneratePartEmpty = SyntheticDegeneratePartEmpty;
 SyntheticDegeneratePartEmpty.prototype = {
   prettyString: function SyntheticDegeneratePartEmpty_prettyString(aIndent) {
     return "Degenerate Empty Part";
@@ -192,11 +204,13 @@ function SyntheticPartMulti(aParts, aProperties) {
   this.BOUNDARY_COUNTER_HOME.BOUNDARY_COUNTER += 1;
   this.parts = (aParts != null) ? aParts : [];
 }
+exports.SyntheticPartMulti = SyntheticPartMulti;
 SyntheticPartMulti.prototype = Object_extend(SyntheticPart.prototype, {
   BOUNDARY_COUNTER: 0,
   toMessageString: function() {
-    let s = "This is a multi-part message in MIME format.\r\n";
-    for (let [,part] in Iterator(this.parts)) {
+    var s = "This is a multi-part message in MIME format.\r\n";
+    for (var iPart = 0; iPart < this.parts.length; iPart++) {
+      var part = this.parts[iPart];
       s += "--" + this._boundary + "\r\n";
       if (part instanceof SyntheticDegeneratePartEmpty)
         continue;
@@ -209,9 +223,12 @@ SyntheticPartMulti.prototype = Object_extend(SyntheticPart.prototype, {
              '\r\n';
       if (part.hasContentId)
         s += 'Content-ID: ' + part.contentIdHeaderValue + '\r\n';
-      if (part.hasExtraHeaders)
-        for each (let [k, v] in Iterator(part.extraHeaders))
+      if (part.hasExtraHeaders) {
+        for (var k in part.extraHeaders) {
+          var v = part.extraHeaders[k];
           s += k + ': ' + v + '\r\n';
+        }
+      }
       s += '\r\n';
       s += part.toMessageString() + '\r\n\r\n';
     }
@@ -219,12 +236,12 @@ SyntheticPartMulti.prototype = Object_extend(SyntheticPart.prototype, {
     return s;
   },
   prettyString: function(aIndent) {
-    let nextIndent = (aIndent != null) ? (aIndent + "  ") : "";
+    var nextIndent = (aIndent != null) ? (aIndent + "  ") : "";
 
-    let s = "Container: " + this._contentType;
+    var s = "Container: " + this._contentType;
 
-    for (let iPart = 0; iPart < this.parts.length; iPart++) {
-      let part = this.parts[iPart];
+    for (var iPart = 0; iPart < this.parts.length; iPart++) {
+      var part = this.parts[iPart];
       s += "\n" + nextIndent + (iPart+1) + " " + part.prettyString(nextIndent);
     }
 
@@ -239,6 +256,7 @@ SyntheticPartMulti.prototype.BOUNDARY_COUNTER_HOME = SyntheticPartMulti.prototyp
 function SyntheticPartMultiMixed() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiMixed = SyntheticPartMultiMixed;
 SyntheticPartMultiMixed.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/mixed',
 });
@@ -249,6 +267,7 @@ SyntheticPartMultiMixed.prototype = Object_extend(SyntheticPartMulti.prototype, 
 function SyntheticPartMultiParallel() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiMixed = SyntheticPartMultiMixed;
 SyntheticPartMultiParallel.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/parallel',
 });
@@ -259,6 +278,7 @@ SyntheticPartMultiParallel.prototype = Object_extend(SyntheticPartMulti.prototyp
 function SyntheticPartMultiDigest() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiDigest = SyntheticPartMultiDigest;
 SyntheticPartMultiDigest.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/digest',
 });
@@ -269,6 +289,7 @@ SyntheticPartMultiDigest.prototype = Object_extend(SyntheticPartMulti.prototype,
 function SyntheticPartMultiAlternative() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiAlternative = SyntheticPartMultiAlternative;
 SyntheticPartMultiAlternative.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/alternative',
 });
@@ -279,11 +300,12 @@ SyntheticPartMultiAlternative.prototype = Object_extend(SyntheticPartMulti.proto
 function SyntheticPartMultiRelated() {
   SyntheticPartMulti.apply(this, arguments);
 }
+exports.SyntheticPartMultiRelated = SyntheticPartMultiRelated;
 SyntheticPartMultiRelated.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/related',
 });
 
-const PKCS_SIGNATURE_MIME_TYPE = 'application/x-pkcs7-signature';
+var PKCS_SIGNATURE_MIME_TYPE = 'application/x-pkcs7-signature';
 /**
  * Multipart signed (multipart/signed) SMIME part.  This is helperish and makes
  *  up a gibberish signature.  We wrap the provided parts in the standard
@@ -302,6 +324,7 @@ function SyntheticPartMultiSignedSMIME(aPart, aProperties) {
       name: 'smime.p7s',
     }));
 }
+exports.SyntheticPartMultiSignedSMIME = SyntheticPartMultiSignedSMIME;
 SyntheticPartMultiSignedSMIME.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
@@ -310,7 +333,7 @@ SyntheticPartMultiSignedSMIME.prototype = Object_extend(SyntheticPartMulti.proto
   },
 });
 
-const PGP_SIGNATURE_MIME_TYPE = 'application/pgp-signature';
+var PGP_SIGNATURE_MIME_TYPE = 'application/pgp-signature';
 /**
  * Multipart signed (multipart/signed) PGP part.  This is helperish and makes
  *  up a gibberish signature.  We wrap the provided parts in the standard
@@ -328,6 +351,7 @@ function SyntheticPartMultiSignedPGP(aPart, aProperties) {
       contentType: PGP_SIGNATURE_MIME_TYPE,
     }));
 }
+exports.SyntheticPartMultiSignedPGP = SyntheticPartMultiSignedPGP;
 SyntheticPartMultiSignedPGP.prototype = Object_extend(SyntheticPartMulti.prototype, {
   _contentType: 'multipart/signed',
   _contentTypeExtra: {
@@ -337,7 +361,7 @@ SyntheticPartMultiSignedPGP.prototype = Object_extend(SyntheticPartMulti.prototy
 });
 
 
-const _DEFAULT_META_STATES = {
+var _DEFAULT_META_STATES = {
   junk: false,
   read: false,
 };
@@ -362,12 +386,13 @@ function SyntheticMessage(aHeaders, aBodyPart, aMetaState) {
   this.headers = aHeaders || {};
   this.bodyPart = aBodyPart || new SyntheticPartLeaf("");
   this.metaState = aMetaState || {};
-  for each (let [key, value] in Iterator(_DEFAULT_META_STATES)) {
+  for (var key in _DEFAULT_META_STATES) {
+    var value = _DEFAULT_META_STATES[key];
     if (!(key in this.metaState))
       this.metaState[key] = value;
   }
 }
-
+exports.SyntheticMessage = SyntheticMessage;
 SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   _contentType: 'message/rfc822',
   _charset: null,
@@ -392,6 +417,11 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
            '<' + aNameAndAddress[1] + '>';
   },
 
+  _formatMailListFromNamesAndAddresses: function(aList) {
+    return this._commaize(
+      aList.map(this._formatMailFromNameAndAddress.bind(this)));
+  },
+
   /**
    * Given a mailbox, parse out name and email. The mailbox
    * can (per rfc 2822) be of two forms:
@@ -400,12 +430,12 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    * @return a tuple of name, email
    **/
   _parseMailbox: function(mailbox) {
-    let matcher = mailbox.match(/(.*)<(.+@.+)>/);
+    var matcher = mailbox.match(/(.*)<(.+@.+)>/);
     if (!matcher) // no match -> second form
       return ["", mailbox];
 
-    let name = matcher[1].trim();
-    let email = matcher[2].trim();
+    var name = matcher[1].trim();
+    var email = matcher[2].trim();
     return [name, email];
   },
 
@@ -416,7 +446,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    *     list except the last one has a comma appended to it.
    */
   _commaize: function(aList) {
-    for (let i=0; i < aList.length - 1; i++)
+    for (var i=0; i < aList.length - 1; i++)
       aList[i] = aList[i] + ",";
     return aList;
   },
@@ -457,9 +487,9 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   prettyString: function MimeMessage_prettyString(aIndent) {
     if (aIndent === undefined)
       aIndent = "";
-    let nextIndent = aIndent + "  ";
+    var nextIndent = aIndent + "  ";
 
-    let s = "Message: " + this.subject;
+    var s = "Message: " + this.subject;
     s += "\n" + nextIndent + "1 " + this.bodyPart.prettyString(nextIndent);
 
     return s;
@@ -469,9 +499,11 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    * @returns this messages in rfc822 format, or something close enough.
    */
   toMessageString: function() {
-    let lines = [headerKey + ": " + this._formatHeaderValues(headerValues)
-                 for each ([headerKey, headerValues] in Iterator(this.headers))];
-
+    var lines = [];
+    for (var headerKey in this.headers) {
+      var headerValues = this.headers[headerKey];
+      lines.push(headerKey + ": " + this._formatHeaderValues(headerValues));
+    }
 
     var msgString = this.bodyPart.toMessageString();
 
@@ -510,7 +542,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
       if (typeof(aDate) === 'number')
         aDate = new Date(aDate);
       this._date = aDate;
-      let dateParts = aDate.toString().split(" ");
+      var dateParts = aDate.toString().split(" ");
       this.headers["Date"] = dateParts[0] + ", " + dateParts[2] + " " +
                              dateParts[1] + " " + dateParts[3] + " " +
                              dateParts[4] + " " + dateParts[5].substring(3);
@@ -583,8 +615,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
       set: function(aNameAndAddresses) {
         if (typeof aNameAndAddresses === "string") {
           this._to = [];
-          let people = aNameAndAddresses.split(",");
-          for (let i = 0; i < people.length; i++) {
+          var people = aNameAndAddresses.split(",");
+          for (var i = 0; i < people.length; i++) {
             this._to.push(this._parseMailbox(people[i]));
           }
 
@@ -592,9 +624,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
           return;
         }
         this._to = aNameAndAddresses;
-        this.headers["To"] = this._commaize(
-                               [this._formatMailFromNameAndAddress(nameAndAddr)
-                                for each (nameAndAddr in aNameAndAddresses)]);
+        this.headers["To"] =
+          this._formatMailListFromNamesAndAddresses(aNameAndAddresses);
       },
   },
 
@@ -627,17 +658,16 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     set: function(aNameAndAddresses) {
       if (typeof aNameAndAddresses === "string") {
         this._cc = [];
-        let people = aNameAndAddresses.split(",");
-        for (let i = 0; i < people.length; i++) {
+        var people = aNameAndAddresses.split(",");
+        for (var i = 0; i < people.length; i++) {
           this._cc.push(this._parseMailbox(people[i]));
         }
         this.headers["Cc"] = aNameAndAddresses;
         return;
       }
       this._cc = aNameAndAddresses;
-      this.headers["Cc"] = this._commaize(
-                             [this._formatMailFromNameAndAddress(nameAndAddr)
-                              for each (nameAndAddr in aNameAndAddresses)]);
+      this.headers["Cc"] =
+        this._formatMailListFromNamesAndAddresses(aNameAndAddresses);
     },
   },
 
@@ -665,7 +695,7 @@ function MessageGenerator(startDate) {
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
 }
-
+exports.MessageGenerator = MessageGenerator;
 MessageGenerator.prototype = {
   /**
    * The maximum number of unique names makeName can produce.
@@ -692,8 +722,8 @@ MessageGenerator.prototype = {
    * @returns The unique name corresponding to the name number.
    */
   makeName: function(aNameNumber) {
-    let iFirst = aNameNumber % FIRST_NAMES.length;
-    let iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
+    var iFirst = aNameNumber % FIRST_NAMES.length;
+    var iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
                 LAST_NAMES.length;
 
     return FIRST_NAMES[iFirst] + " " + LAST_NAMES[iLast];
@@ -710,8 +740,8 @@ MessageGenerator.prototype = {
    * @returns The unique name corresponding to the name mail address.
    */
   makeMailAddress: function(aNameNumber) {
-    let iFirst = aNameNumber % FIRST_NAMES.length;
-    let iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
+    var iFirst = aNameNumber % FIRST_NAMES.length;
+    var iLast = (iFirst + Math.floor(aNameNumber / FIRST_NAMES.length)) %
                 LAST_NAMES.length;
 
     return FIRST_NAMES[iFirst].toLowerCase() + "@" +
@@ -749,8 +779,8 @@ MessageGenerator.prototype = {
    * @returns a list of aCount name-and-address tuples.
    */
   makeNamesAndAddresses: function(aCount) {
-    let namesAndAddresses = [];
-    for (let i=0; i < aCount; i++)
+    var namesAndAddresses = [];
+    for (var i=0; i < aCount; i++)
       namesAndAddresses.push(this.makeNameAndAddress());
     return namesAndAddresses;
   },
@@ -766,16 +796,16 @@ MessageGenerator.prototype = {
   makeSubject: function(aSubjectNumber) {
     if (aSubjectNumber === undefined)
       aSubjectNumber = this._nextSubjectNumber++;
-    let iAdjective = aSubjectNumber % SUBJECT_ADJECTIVES.length;
-    let iNoun = (iAdjective + Math.floor(aSubjectNumber /
+    var iAdjective = aSubjectNumber % SUBJECT_ADJECTIVES.length;
+    var iNoun = (iAdjective + Math.floor(aSubjectNumber /
                                          SUBJECT_ADJECTIVES.length)) %
                 SUBJECT_NOUNS.length;
-    let iSuffix = (iNoun + Math.floor(aSubjectNumber /
+    var iSuffix = (iNoun + Math.floor(aSubjectNumber /
                    (SUBJECT_ADJECTIVES.length * SUBJECT_NOUNS.length))) %
                   SUBJECT_SUFFIXES.length;
     return SUBJECT_ADJECTIVES[iAdjective] + " " +
            SUBJECT_NOUNS[iNoun] + " " +
-           SUBJECT_SUFFIXES[iSuffix];
+           SUBJECT_SUFFIXES[iSuffix] + " #" + aSubjectNumber;
   },
 
   /**
@@ -789,7 +819,7 @@ MessageGenerator.prototype = {
    * @returns a Message-id suitable for the given message.
    */
   makeMessageId: function(aSynthMessage) {
-    let msgId = this._nextMessageIdNum + "@made.up";
+    var msgId = this._nextMessageIdNum + "@made.up";
     this._nextMessageIdNum++;
     return msgId;
   },
@@ -804,7 +834,7 @@ MessageGenerator.prototype = {
    * @returns A made-up time in JavaScript Date object form.
    */
   makeDate: function() {
-    let date = this._clock;
+    var date = this._clock;
     // advance time by an hour
     this._clock = new Date(date.valueOf() + 60 * 60 * 1000);
     return date;
@@ -864,12 +894,12 @@ MessageGenerator.prototype = {
    */
   makeMessage: function(aArgs) {
     aArgs = aArgs || {};
-    let msg = new SyntheticMessage();
+    var msg = new SyntheticMessage();
 
     if (aArgs.inReplyTo) {
       // If inReplyTo is a SyntheticMessageSet, just use the first message in
       //  the set because the caller may be using them.
-      let srcMsg = aArgs.inReplyTo.synMessages ?
+      var srcMsg = aArgs.inReplyTo.synMessages ?
                      aArgs.inReplyTo.synMessages[0] :
                      aArgs.inReplyTo;
 
@@ -902,9 +932,9 @@ MessageGenerator.prototype = {
     msg.children = [];
     msg.messageId = this.makeMessageId(msg);
     if (aArgs.age) {
-      let age = aArgs.age;
+      var age = aArgs.age;
       // start from 'now'
-      let ts = this._clock || Date.now();
+      var ts = this._clock.valueOf() || Date.now();
       if (age.seconds)
         ts -= age.seconds * 1000;
       if (age.minutes)
@@ -922,7 +952,8 @@ MessageGenerator.prototype = {
     }
 
     if ("clobberHeaders" in aArgs) {
-      for each (let [key, value] in Iterator(aArgs.clobberHeaders)) {
+      for (var key in aArgs.clobberHeaders) {
+        var value = aArgs.clobberHeaders[key];
         msg.headers[key] = value;
         // clobber helper...
         if (key == "From")
@@ -939,7 +970,7 @@ MessageGenerator.prototype = {
     if ("read" in aArgs && aArgs.read)
       msg.metaState.read = true;
 
-    let bodyPart;
+    var bodyPart;
     if (aArgs.bodyPart)
       bodyPart = aArgs.bodyPart;
     else if (aArgs.body)
@@ -950,9 +981,11 @@ MessageGenerator.prototype = {
     // if it has any attachments, create a multipart/mixed to be the body and
     //  have it be the parent of the existing body and all the attachments
     if (aArgs.attachments) {
-      let parts = [bodyPart];
-      for each (let [,attachDesc] in Iterator(aArgs.attachments))
+      var parts = [bodyPart];
+      for (var iAttach = 0; iAttach < aArgs.attachments.length; iAttach++) {
+        var attachDesc = aArgs.attachDesc[iAttach];
         parts.push(new SyntheticPartLeaf(attachDesc.body, attachDesc));
+      }
       bodyPart = new SyntheticPartMultiMixed(parts);
     }
 
@@ -974,11 +1007,11 @@ MessageGenerator.prototype = {
     aOptions.clobberHeaders = {
       'Content-Transfer-Encoding': 'base64',
       'Content-Disposition': 'attachment; filename="smime.p7m"',
-    }
+    };
     if (!aOptions.body)
       aOptions.body = {};
     aOptions.body.contentType = 'application/pkcs7-mime; name="smime.p7m"';
-    let msg = this.makeMessage(aOptions);
+    var msg = this.makeMessage(aOptions);
     return msg;
   },
 
@@ -1011,34 +1044,40 @@ MessageGenerator.prototype = {
    * - count: 10
    */
   makeMessages: function MessageGenerator_makeMessages(aSetDef) {
-    let messages = [];
+    var messages = [];
 
-    let args = {
+    var args = {
       age_incr_every: 1,
-    };
+    }, unit, delta;
     // zero out all the age_incr fields in age (if present)
     if (aSetDef.age_incr) {
       args.age = { seconds: 0 };
-      for (let [unit, delta] in Iterator(aSetDef.age_incr))
+      for (unit in aSetDef.age_incr) {
         args.age[unit] = 0;
+      }
     }
     // copy over the initial values from age (if present)
     if (aSetDef.age) {
       args.age = args.age || {};
-      for (let [unit, value] in Iterator(aSetDef.age))
+      for (unit in aSetDef.age) {
+        var value = aSetDef.age[unit];
         args.age[unit] = value;
+      }
     }
     // just copy over any attributes found from MAKE_MESSAGES_PROPAGATE
-    for each (let [, propAttrName] in Iterator(this.MAKE_MESSAGES_PROPAGATE)) {
+    for (var iPropName = 0;
+         iPropName < this.MAKE_MESSAGES_PROPAGATE.length;
+         iPropName++) {
+      var propAttrName = this.MAKE_MESSAGES_PROPAGATE[iPropName];
       if (aSetDef[propAttrName])
         args[propAttrName] = aSetDef[propAttrName];
     }
 
-    let count = aSetDef.hasOwnProperty('count') ? aSetDef.count :
+    var count = aSetDef.hasOwnProperty('count') ? aSetDef.count :
                 this.MAKE_MESSAGES_DEFAULTS.count;
-    let messagesPerThread = aSetDef.msgsPerThread || 1;
-    let lastMessage = null;
-    for (let iMsg = 0; iMsg < count; iMsg++) {
+    var messagesPerThread = aSetDef.msgsPerThread || 1;
+    var lastMessage = null;
+    for (var iMsg = 0; iMsg < count; iMsg++) {
       // primitive threading support...
       if (lastMessage && (iMsg % messagesPerThread != 0))
         args.inReplyTo = lastMessage;
@@ -1050,8 +1089,10 @@ MessageGenerator.prototype = {
         if (!aSetDef.age_incr_every ||
             (messages.length % aSetDef.age_incr_every === 0)) {
           args.age.seconds = 0;
-          for (let [unit, delta] in Iterator(aSetDef.age_incr))
+          for (unit in aSetDef.age_incr) {
+            delta = aSetDef.age_incr[unit];
             args.age[unit] += delta;
+          }
         }
         else {
           args.age.seconds++;
@@ -1088,8 +1129,8 @@ MessageScenarioFactory.prototype = {
   /** Create a chain of direct-reply messages of the given length. */
   directReply: function(aNumMessages) {
     aNumMessages = aNumMessages || 2;
-    let messages = [this._msgGen.makeMessage()];
-    for (let i = 1; i < aNumMessages; i++) {
+    var messages = [this._msgGen.makeMessage()];
+    for (var i = 1; i < aNumMessages; i++) {
       messages.push(this._msgGen.makeMessage({inReplyTo: messages[i-1]}));
     }
     return messages;
@@ -1097,17 +1138,17 @@ MessageScenarioFactory.prototype = {
 
   /** Two siblings (present), one parent (missing). */
   siblingsMissingParent: function() {
-    let missingParent = this._msgGen.makeMessage();
-    let msg1 = this._msgGen.makeMessage({inReplyTo: missingParent});
-    let msg2 = this._msgGen.makeMessage({inReplyTo: missingParent});
+    var missingParent = this._msgGen.makeMessage();
+    var msg1 = this._msgGen.makeMessage({inReplyTo: missingParent});
+    var msg2 = this._msgGen.makeMessage({inReplyTo: missingParent});
     return [msg1, msg2];
   },
 
   /** Present parent, missing child, present grand-child. */
   missingIntermediary: function() {
-    let msg1 = this._msgGen.makeMessage();
-    let msg2 = this._msgGen.makeMessage({inReplyTo: msg1});
-    let msg3 = this._msgGen.makeMessage({inReplyTo: msg2});
+    var msg1 = this._msgGen.makeMessage();
+    var msg2 = this._msgGen.makeMessage({inReplyTo: msg1});
+    var msg3 = this._msgGen.makeMessage({inReplyTo: msg2});
     return [msg1, msg3];
   },
 
@@ -1117,12 +1158,12 @@ MessageScenarioFactory.prototype = {
    *  if aHeight is 2, the root and his aChildrePerParent children.)
    */
   fullPyramid: function(aChildrenPerParent, aHeight) {
-    let msgGen = this._msgGen;
-    let root = msgGen.makeMessage();
-    let messages = [root];
+    var msgGen = this._msgGen;
+    var root = msgGen.makeMessage();
+    var messages = [root];
     function helper(aParent, aRemDepth) {
-      for (let iChild = 0; iChild < aChildrenPerParent; iChild++) {
-        let child = msgGen.makeMessage({inReplyTo: aParent});
+      for (var iChild = 0; iChild < aChildrenPerParent; iChild++) {
+        var child = msgGen.makeMessage({inReplyTo: aParent});
         messages.push(child);
         if (aRemDepth)
           helper(child, aRemDepth - 1);
@@ -1145,17 +1186,18 @@ MessageScenarioFactory.prototype = {
  *  in question (never any part of its prototype chain).  As such, you probably
  *  want to invoke us on your prototype object(s).
  *
- * @param The object on whom we want to perform magic binding.  This should
+ * @param aObj The object on whom we want to perform magic binding.  This should
  *     probably be your prototype object.
  */
 function bindMethods(aObj) {
-  for (let [name, ubfunc] in Iterator(aObj)) {
+  for (var name in aObj) {
+    var ubfunc = aObj[name];
     // the variable binding needs to get captured...
-    let realFunc = ubfunc;
+    var realFunc = ubfunc;
     function getterFunc() {
       // 'this' is magic and not from the enclosing scope.  we are assuming the
       //  getter will receive a valid 'this', and so
-      let realThis = this;
+      var realThis = this;
       return function() { return realFunc.apply(realThis, arguments); };
     }
     delete aObj[name];
@@ -1164,3 +1206,5 @@ function bindMethods(aObj) {
 }
 
 bindMethods(MessageScenarioFactory.prototype);
+
+}); // end define

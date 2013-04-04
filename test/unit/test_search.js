@@ -2,24 +2,15 @@
  * Test the search filters.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        'mailapi/searchfilter', 'exports'],
+       function($tc, $th_imap, $filters, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_search' }, null, [$th_imap.TESTHELPER], ['app']);
-
-var $filters = require('mailapi/searchfilter');
-
-function thunkConsole(T) {
-  var lazyConsole = T.lazyLogger('console');
-
-  gConsoleLogFunc = function(msg) {
-    lazyConsole.value(msg);
-  };
-}
 
 TD.commonCase('author filter', function(T) {
   var eLazy = T.lazyLogger('filter');
-  thunkConsole(T);
 
   var samples = [
     { name: 'no match against empty author',
@@ -106,7 +97,6 @@ TD.commonCase('author filter', function(T) {
 
 TD.commonCase('recipient filter', function(T) {
   var eLazy = T.lazyLogger('filter');
-  thunkConsole(T);
 
   var samples = [
     { name: 'no match against empty to',
@@ -164,7 +154,6 @@ TD.commonCase('recipient filter', function(T) {
 
 TD.commonCase('subject filter', function(T) {
   var eLazy = T.lazyLogger('filter');
-  thunkConsole(T);
 
   var samples = [
     {
@@ -228,6 +217,4 @@ TD.commonCase('subject filter', function(T) {
 
 // XXX write a body test
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

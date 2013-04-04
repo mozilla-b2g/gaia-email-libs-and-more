@@ -86,11 +86,11 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  * `same-frame-setup.js` is the only place that hooks them up together right
  * now.
  */
-function MailBridge(universe) {
+function MailBridge(universe, name) {
   this.universe = universe;
   this.universe.registerBridge(this);
 
-  this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
+  this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
   /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */

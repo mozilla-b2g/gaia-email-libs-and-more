@@ -4,9 +4,10 @@
  * lot of the growth logic cases.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_complex' }, null, [$th_imap.TESTHELPER], ['app']);
 
 // This gets clobbered into $mailslice by testhelper.js as a default.
@@ -827,6 +828,4 @@ TD.commonCase('repeated refresh is stable', function(T) {
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(20); // we do a lot of appending...
-}
+}); // end define

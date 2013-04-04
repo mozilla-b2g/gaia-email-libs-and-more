@@ -3,10 +3,14 @@
  * db reuse makes this test unhappy.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'activesync/codepages', 'exports'],
+       function($tc, $th_imap, $th_as_srv, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_account_logic' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_account_logic' }, null,
+  [$th_imap.TESTHELPER, $th_as_srv.TESTHELPER], ['app']);
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly
@@ -15,8 +19,9 @@ var TD = $tc.defineTestsFor(
  * For simplicity, we currently create duplicate accounts.  This obviously will
  * not work once we prevent creating duplicate accounts.
  */
-TD.commonCase('account creation/deletion', function(T) {
+TD.commonCase('account creation/deletion', function(T, RT) {
   T.group('create universe, first account');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U',
                              { name: 'A' }),
       testAccountA = T.actor('testAccount', 'A',
@@ -91,8 +96,9 @@ TD.commonCase('account creation/deletion', function(T) {
   T.group('delete second (middle) account');
   T.action('delete account', testAccountB, 'perform', eSliceCheck,
            testAccountB.eOpAccount, function() {
-    if (TEST_PARAMS.type === 'imap')
-      testAccountB.eImapAccount.expect_deadConnection();
+    // note: we used to expect_deadConnection here because our
+    // EventEmitter.removeAllListeners was broken, so we still got close events
+    // after we no longer wanted them.
 
     eSliceCheck.expect_namedValue('remaining account', testAccountA.accountId);
     eSliceCheck.expect_namedValue('remaining account', testAccountC.accountId);
@@ -184,16 +190,18 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
-TD.commonCase('syncFolderList obeys hierarchy', function(T) {
+TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
-      testServer = T.actor('testActiveSyncServer', 'S',
-                           { universe: testUniverse }),
+      testServer = null,
       eSync = T.lazyLogger('sync');
 
   if (TEST_PARAMS.type === 'activesync') {
+    testServer = T.actor('testActiveSyncServer', 'S',
+                         { universe: testUniverse });
     T.action('create test folders', function() {
-      const folderType = $_ascp.FolderHierarchy.Enums.Type;
+      const folderType = $ascp.FolderHierarchy.Enums.Type;
       var inbox = testServer.server.foldersByType['inbox'][0],
           sent  = testServer.server.foldersByType['sent'][0],
           trash = testServer.server.foldersByType['trash'][0];
@@ -246,6 +254,4 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T) {
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define
