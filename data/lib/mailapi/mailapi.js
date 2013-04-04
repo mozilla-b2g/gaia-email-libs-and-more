@@ -1002,13 +1002,13 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
 
   for (; idxStart <= idxEnd; idxStart++) {
     var item = this.items[idxStart];
-    if (item && item.snippet === null) {
-      // ns of 'headers' has the id/date on the item, where 'matchedHeaders'
-      // has it on header.date
-      if (this._ns === 'matchedHeaders') {
-        item = item.header;
-      }
+    // ns of 'headers' has the id/date on the item, where 'matchedHeaders'
+    // has it on header.date
+    if (this._ns === 'matchedHeaders') {
+      item = item.header;
+    }
 
+    if (item && item.snippet === null) {
       messages.push({
         suid: item.id,
         // backend does not care about Date objects
