@@ -821,9 +821,9 @@ ImapAccount.prototype = {
       // heuristic based type assignment based on the name
       if (!type) {
         // ensure that we treat folders at the root, see bug 854128
-	var personalNS = conn.namespaces.personal;
-	var prefix = personalNS.length ? personalNS[0].prefix : '';
-	var isAtNamespaceRoot = path === (prefix + box.displayName);
+        var personalNS = conn.namespaces.personal;
+        var prefix = personalNS.length ? personalNS[0].prefix : '';
+        var isAtNamespaceRoot = path === (prefix + box.displayName);
         // If our name is our path, we are at the absolute root of the tree.
         // This will be the case for INBOX even if there is a namespace.
         if (isAtNamespaceRoot || path === box.displayName) {
