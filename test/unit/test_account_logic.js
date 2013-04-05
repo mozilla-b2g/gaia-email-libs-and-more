@@ -251,6 +251,83 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
     }
   });
 
+  if (TEST_PARAMS.type === 'imap') {
+    T.group('check folder type');
+    T.check('check folder type', testAccount, eSync, function(T) {
+      var validNamespace = { "personal":[{"prefix":"INBOX.","delim":"."}],
+                             "other":[],
+                             "shared":[
+                               {"prefix":"#shared.","delim":"."},
+                               {"prefix":"shared.","delim":"."}
+                             ]
+                           };
+      var invalidNamespace =
+                           { "personal":[],
+                             "other":[],
+                             "shared":[
+                               {"prefix":"#shared.","delim":"."},
+                               {"prefix":"shared.","delim":"."}
+                             ]
+                           };
+      var folders = [
+        {
+          "box": {"displayName": "INBOX", "attribs": [] },
+          "path": "INBOX",
+          "ns": validNamespace,
+          "expType": "inbox"
+        },
+        {
+          "box": {"displayName": "INBOX", "attribs": [] },
+          "path": "INBOX",
+          "ns": invalidNamespace,
+          "expType": "inbox"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Sent",
+          "ns": validNamespace,
+          "expType": "sent"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "Sent",
+          "ns": invalidNamespace,
+          "expType": "sent"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Sent",
+          "ns": invalidNamespace,
+          "expType": "normal"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Subfolder.Sent",
+          "ns": validNamespace,
+          "expType": "normal"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Subfolder.Sent",
+          "ns": invalidNamespace,
+          "expType": "normal"
+        },
+      ];
+      for (var i = 0; i < folders.length; i++) {
+        var box = folders[i].box;
+        var path = folders[i].path;
+        var ns = folders[i].ns;
+        var eType = folders[i].expType;
+
+        var fakeConn = { namespaces: ns };
+        var type = testAccount.imapAccount._determineFolderType(
+                     box, path, fakeConn);
+        eSync.expect_namedValue('folder type', eType);
+        eSync.namedValue('folder type', type);
+      }
+    });
+  }
+
   T.group('cleanup');
 });
 
