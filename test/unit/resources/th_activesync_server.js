@@ -48,12 +48,17 @@ var TestActiveSyncServerMixins = {
   },
 
   getFirstFolderWithType: function(folderType) {
-    var folders = this.server.foldersByType[folderType];
-    return folders[0];
+    return this._backdoor({
+      command: 'getFirstFolderWithType',
+      type: folderType
+    });
   },
 
   getFirstFolderWithName: function(folderName) {
-    return this.server.findFolderByName(folderName);
+    return this._backdoor({
+      command: 'getFirstFolderWithName',
+      name: folderName
+    });
   },
 
   addFolder: function(name, type, parentId, messageSetDef) {

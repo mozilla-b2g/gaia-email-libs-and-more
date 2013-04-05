@@ -29,12 +29,14 @@
  **/
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
-        'activesync/codepages', 'exports'],
-       function($tc, $th_imap, $ascp, exports) {
-const FilterType = $ascp.AirSync.Enums.FilterType;
+        './resources/th_activesync_server',
+        'activesync/codepages/AirSync', 'exports'],
+       function($tc, $th_imap, $th_as_server, $airsync, exports) {
+const FilterType = $airsync.Enums.FilterType;
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_mutation' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('deleting headers midflight', function(T, RT) {
   T.group('setup');

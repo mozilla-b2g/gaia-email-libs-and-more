@@ -1123,28 +1123,29 @@ ActiveSyncServer.prototype = {
 
   _backdoor_addFolder: function(data) {
     let folder = this.addFolder(data.name, data.type, data.parentId, data.args);
-    return {
-      id: folder.id,
-      messages: [this._serializeMessage(i) for (i of folder.messages)]
-    };
+    return this._serializeFolder(folder);
   },
 
   _backdoor_addMessageToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessage(data.args);
-    return {
-      id: folder.id,
-      messages: [this._serializeMessage(i) for (i of folder.messages)]
-    };
+    return this._serializeFolder(folder);
   },
 
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.args);
-    return {
-      id: folder.id,
-      messages: [this._serializeMessage(i) for (i of folder.messages)]
-    };
+    return this._serializeFolder(folder);
+  },
+
+  _backdoor_getFirstFolderWithType: function(data) {
+    let folder = this.foldersByType[data.type];
+    return this._serializeFolder(folder);
+  },
+
+  _backdoor_getFirstFolderWithName: function(data) {
+    let folder = this.findFolderByName(data.name);
+    return this._serializeFolder(folder);
   },
 
   _backdoor_removeMessageById: function(data) {
@@ -1153,10 +1154,12 @@ ActiveSyncServer.prototype = {
     return {};
   },
 
-  _serializeMessage: function(message) {
+  _serializeFolder: function(folder) {
     return {
-      subject: message.subject,
-      messageId: message.messageId,
+      id: folder.id,
+      messages: [{ subject: i.subject,
+                   messageId: i.messageId,
+                 } for (i of folder.messages)]
     };
   },
 };
