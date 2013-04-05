@@ -998,7 +998,7 @@ ImapJobDriver.prototype = {
             walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
           }
           else {
-            var type = self.account._determineFolderType(box, boxPath);
+            var type = self.account._determineFolderType(box, boxPath, rawConn);
             folderMeta = self.account._learnAboutFolder(
               boxName, boxPath, parentFolderId, type, box.delim, pathDepth);
           }
