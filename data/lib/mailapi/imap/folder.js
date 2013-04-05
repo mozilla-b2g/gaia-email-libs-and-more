@@ -380,7 +380,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           var idxUid = serverUIDs.indexOf(header.srvid);
           // deleted!
           if (idxUid === -1) {
-            storage.deleteMessageHeaderAndBody(header);
+            storage.deleteMessageHeaderAndBodyUsingHeader(header);
             numDeleted++;
             headers[iMsg] = null;
             continue;

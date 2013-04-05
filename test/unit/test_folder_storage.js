@@ -1272,7 +1272,7 @@ TD.commonSimple('srvid mapping for add/del',
   ctx.checkServerIdMapForHeaders([h1, h2, h3], '0');
 
   // - delete h1
-  ctx.storage.deleteMessageHeaderAndBody(h1);
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h1);
 
   // - make sure the srvid is gone
   ctx.checkServerIdMapForHeaders([h1], null);
@@ -1286,7 +1286,7 @@ TD.commonSimple('srvid mapping for add/del',
   ctx.checkServerIdMapForHeaders([h3], '0');
 
   // - delete h3, blocks should now be nuked
-  ctx.storage.deleteMessageHeaderAndBody(h3);
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h3);
 
   // - make sure h3 getting gone was not affected by block nukage
   ctx.checkServerIdMapForHeaders([h1, h2, h3], null);

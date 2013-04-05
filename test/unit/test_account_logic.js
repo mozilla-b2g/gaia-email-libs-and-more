@@ -190,6 +190,31 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
+TD.commonCase('syncFolderList created localdrafts folder', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  T.group('check for localdrafts folder');
+  T.check(eCheck, 'localdrafts folder', function() {
+    eCheck.expect_namedValue('has localdrafts folder?', true);
+    var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
+    // the path should place it next to the existing drafts folder, but we
+    // frequently don't have that folder, so use sent, which is our fallback
+    // anyways and should be consistently located
+    eCheck.expect_namedValue('path',
+                             sent.path.replace('sent', 'localdrafts', 'i'));
+
+    var localDrafts = testUniverse.allFoldersSlice
+                        .getFirstFolderWithType('localdrafts');
+    eCheck.namedValue('has localdrafts folder?', !!localDrafts);
+    eCheck.namedValue('path', localDrafts.path);
+  });
+});
+
+
 TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;

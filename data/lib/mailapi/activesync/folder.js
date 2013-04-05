@@ -1117,7 +1117,8 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
   /**
-   * Can we synchronize?  Not if we don't have a server id!
+   * Can we synchronize?  Not if we don't have a server id!  (This happens for
+   * the inbox when it is speculative before our first syncFolderList.)
    */
   get syncable() {
     return this.folderConn.serverId !== null;
