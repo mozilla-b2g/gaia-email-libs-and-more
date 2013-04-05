@@ -32,45 +32,19 @@ var TestActiveSyncServerMixins = {
       throw new Error('You need to provide a universe!');
     self.T.convenienceSetup(self, 'created, listening to get port',
                             function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
-                                                        self.__name));
-      if (!gActiveSyncServer) {
-        gActiveSyncServer =
-          MAGIC_SERVER_CONTROL.createServer(opts.universe._useDate);
-      }
-      self.serverHandle = gActiveSyncServer.id;
-      MAGIC_SERVER_CONTROL.useLoggers(
-        self.serverHandle,
-        {
-          request: function(request) {
-            self._logger.request(request._method, request._path,
-                                 request._headers._headers);
-          },
-          requestBody: function(reader) {
-            self._logger.requestBody(reader.dump());
-            reader.rewind();
-          },
-          response: function(request, response, writer) {
-            var body;
-            if (writer) {
-              var reader = new $wbxml.Reader(writer.bytes, $ascp);
-              body = reader.dump();
-            }
-            self._logger.response(response._httpCode, response._headers._headers,
-                                  body);
-          },
-          responseError: function(error) {
-            self._logger.responseError(error);
-          },
-       });
+      self.serverBaseUrl = 'http://localhost:8880';
       $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
-        'http://localhost:' + gActiveSyncServer.port;
-      self._logger.started(gActiveSyncServer.port);
+        self.serverBaseUrl;
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
-      // Do not stop, pre the above, but do stop logging stuff to it.
-      MAGIC_SERVER_CONTROL.useLoggers(self.serverHandle, {});
     });
+  },
+
+  _backdoor: function(request) {
+    var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
+    xhr.open('POST', this.serverBaseUrl + '/backdoor', false);
+    xhr.send(JSON.stringify(request));
+    return JSON.parse(xhr.response);
   },
 
   getFirstFolderWithType: function(folderType) {
@@ -83,18 +57,37 @@ var TestActiveSyncServerMixins = {
   },
 
   addFolder: function(name, type, parentId, messageSetDef) {
-    return MAGIC_SERVER_CONTROL.addFolder(
-      this.serverHandle, name, type, parentId, messageSetDef);
+    return this._backdoor({
+      command: 'addFolder',
+      name: name,
+      type: type,
+      parentId: parentId,
+      args: messageSetDef
+    });
   },
 
   addMessageToFolder: function(folderId, messageDef) {
-    return MAGIC_SERVER_CONTROL.addMessageToFolder(
-      this.serverHandle, folderId, messageDef);
+    return this._backdoor({
+      command: 'addMessageToFolder',
+      folderId: folderId,
+      args: messageDef
+    });
   },
 
   addMessagesToFolder: function(folderId, messageSetDef) {
-    return MAGIC_SERVER_CONTROL.addMessagesToFolder(
-      this.serverHandle, folderId, messageSetDef);
+    return this._backdoor({
+      command: 'addMessagesToFolder',
+      folderId: folderId,
+      args: messageSetDef
+    });
+  },
+
+  removeMessageById: function(folderId, messageId) {
+    return this._backdoor({
+      command: 'removeMessageById',
+      folderId: folderId,
+      messageId: messageId
+    });
   },
 };
 

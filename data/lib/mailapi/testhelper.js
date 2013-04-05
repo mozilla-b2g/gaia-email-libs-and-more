@@ -870,10 +870,7 @@ var TestFolderMixins = {
     this.serverDeleted.push(this.serverMessages[index]);
     this.serverDeleted.push({ below: this.serverMessages[index - 1],
                               above: this.serverMessages[index + 1] });
-    // ActiveYsnc's removeMessageById method will do this for us; serverMessages
-    // is aliased to serverFolder.messages which gets updated.
-    if (!this.serverFolder)
-      this.serverMessages.splice(index, 1);
+    this.serverMessages.splice(index, 1);
   },
 };
 
@@ -2263,8 +2260,9 @@ var TestActiveSyncAccountMixins = {
     var self = this;
     this.T.convenienceSetup(this, 'add message to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverFolder.addMessage(messageDef);
-      self.test
+      folder.serverMessages =
+        self.testServer.addMessageToFolder(folder.serverFolder.id,
+                                           messageDef).messages;
     });
   },
 
@@ -2272,7 +2270,9 @@ var TestActiveSyncAccountMixins = {
     var self = this;
     this.T.convenienceSetup(this, 'add messages to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverFolder.addMessages(messageSetDef);
+      folder.serverMessages =
+        self.testServer.addMessagesToFolder(folder.serverFolder.id,
+                                            messageSetDef).messages;
     });
   },
 };

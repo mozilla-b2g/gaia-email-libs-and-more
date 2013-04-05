@@ -14,15 +14,27 @@ function encodeWBXML(wbxml) {
 }
 
 /**
+ * Convert an nsIInputStream into a string.
+ *
+ * @param stream the nsIInputStream
+ * @return the string
+ */
+function stringifyStream(stream) {
+  if (!stream.available())
+    return '';
+  return NetUtil.readInputStreamToString(stream, stream.available());
+}
+
+/**
  * Decode a stream from the network into a WBXML reader.
  *
  * @param stream the incoming stream
  * @return the WBXML Reader
  */
 function decodeWBXML(stream) {
-  if (!stream.available())
+  let str = stringifyStream(stream);
+  if (!str)
     return null;
-  let str = NetUtil.readInputStreamToString(stream, stream.available());
 
   let bytes = new Uint8Array(str.length);
   for (let i = 0; i < str.length; i++)
@@ -98,7 +110,7 @@ ActiveSyncFolder.prototype = {
    * @return the newly-added message
    */
   addMessage: function(args) {
-    let newMessage = args instanceof SyntheticPart ? args :
+    let newMessage = args instanceof $msgGen.SyntheticPart ? args :
                      this.server.msgGen.makeMessage(args);
     this.messages.unshift(newMessage);
     this.messages.sort(function(a, b) { return b.date - a.date; });
@@ -304,7 +316,7 @@ ActiveSyncFolder.prototype = {
  */
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
-  this.msgGen = new MessageGenerator();
+  this.msgGen = new $msgGen.MessageGenerator();
 
   // Make sure the message generator is using the same start date as us.
   this._clock = this.msgGen._clock = startDate || Date.now();
@@ -341,6 +353,8 @@ ActiveSyncServer.prototype = {
   start: function(port) {
     this.server.registerPathHandler('/Microsoft-Server-ActiveSync',
                                     this._commandHandler.bind(this));
+    this.server.registerPathHandler('/backdoor',
+                                    this._backdoorHandler.bind(this));
     this.server.start(port);
   },
 
@@ -396,25 +410,25 @@ ActiveSyncServer.prototype = {
    * @param response the nsIHttpResponse
    */
   _commandHandler: function(request, response) {
-    if (this.logRequest)
-      this.logRequest(request);
-    if (request.method === 'OPTIONS') {
-      this._options(request, response);
-    }
-    else if (request.method === 'POST') {
-      let query = {};
-      for (let param of request.queryString.split('&')) {
-        let idx = param.indexOf('=');
-        if (idx === -1) {
-          query[decodeURIComponent(param)] = null;
-        }
-        else {
-          query[decodeURIComponent(param.substring(0, idx))] =
-            decodeURIComponent(param.substring(idx + 1));
-        }
+    try {
+      if (this.logRequest)
+        this.logRequest(request);
+      if (request.method === 'OPTIONS') {
+        this._options(request, response);
       }
+      else if (request.method === 'POST') {
+        let query = {};
+        for (let param of request.queryString.split('&')) {
+          let idx = param.indexOf('=');
+          if (idx === -1) {
+            query[decodeURIComponent(param)] = null;
+          }
+          else {
+            query[decodeURIComponent(param.substring(0, idx))] =
+              decodeURIComponent(param.substring(idx + 1));
+          }
+        }
 
-      try {
         let wbxmlResponse = this['_handleCommand_' + query.Cmd](
           request, query, response);
 
@@ -425,13 +439,13 @@ ActiveSyncServer.prototype = {
           if (this.logResponse)
             this.logResponse(request, response, wbxmlResponse);
         }
-      } catch(e) {
-        if (this.logResponseError)
-          this.logResponseError(e + '\n' + e.stack);
-        else
-          dump(e + '\n' + e.stack + '\n');
-        throw e;
       }
+    } catch(e) {
+      if (this.logResponseError)
+        this.logResponseError(e + '\n' + e.stack);
+      else
+        dump(e + '\n' + e.stack + '\n');
+      throw e;
     }
   },
 
@@ -1014,7 +1028,7 @@ ActiveSyncServer.prototype = {
     // TODO: this could be smarter, and accept more complicated MIME structures
     let bodyPart = message.bodyPart;
     let attachments = [];
-    if (!(bodyPart instanceof SyntheticPartLeaf)) {
+    if (!(bodyPart instanceof $msgGen.SyntheticPartLeaf)) {
       attachments = bodyPart.parts.slice(1);
       bodyPart = bodyPart.parts[0];
     }
@@ -1090,5 +1104,59 @@ ActiveSyncServer.prototype = {
     }
 
     return changes;
+  },
+
+  _backdoorHandler: function(request, response) {
+    try {
+      let postData = JSON.parse(stringifyStream(request.bodyInputStream));
+      let responseData = this['_backdoor_' + postData.command ](postData);
+      response.setStatusLine('1.1', 200, 'OK');
+      response.write(JSON.stringify(responseData));
+    } catch(e) {
+      if (this.logResponseError)
+        this.logResponseError(e + '\n' + e.stack);
+      else
+        dump(e + '\n' + e.stack + '\n');
+      throw e;
+    }
+  },
+
+  _backdoor_addFolder: function(data) {
+    let folder = this.addFolder(data.name, data.type, data.parentId, data.args);
+    return {
+      id: folder.id,
+      messages: [this._serializeMessage(i) for (i of folder.messages)]
+    };
+  },
+
+  _backdoor_addMessageToFolder: function(data) {
+    let folder = this._findFolderById(data.folderId);
+    folder.addMessage(data.args);
+    return {
+      id: folder.id,
+      messages: [this._serializeMessage(i) for (i of folder.messages)]
+    };
+  },
+
+  _backdoor_addMessagesToFolder: function(data) {
+    let folder = this._findFolderById(data.folderId);
+    folder.addMessages(data.args);
+    return {
+      id: folder.id,
+      messages: [this._serializeMessage(i) for (i of folder.messages)]
+    };
+  },
+
+  _backdoor_removeMessageById: function(data) {
+    let folder = this._findFolderById(data.folderId);
+    folder.removeMessageById(data.messageId);
+    return {};
+  },
+
+  _serializeMessage: function(message) {
+    return {
+      subject: message.subject,
+      messageId: message.messageId,
+    };
   },
 };

@@ -1,13 +1,14 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-define(
-  [
-    'exports'
-  ],
-  function(
-    exports
-  ) {
+(function (root, factory) {
+  if (typeof define === 'function' && define.amd)
+    define(['exports'], factory);
+  else {
+    root.MsgGen = {};
+    factory(root.MsgGen);
+  }
+}(this, function(exports) {
 
 function Object_extend(proto, mix, propdefs) {
   var obj = Object.create(proto, propdefs);
@@ -1207,4 +1208,4 @@ function bindMethods(aObj) {
 
 bindMethods(MessageScenarioFactory.prototype);
 
-}); // end define
+})); // end define
