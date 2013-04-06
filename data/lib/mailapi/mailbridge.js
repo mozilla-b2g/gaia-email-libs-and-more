@@ -965,6 +965,8 @@ MailBridge.prototype = {
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
     require(['./composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle], self = this;
+      if (!req)
+        return;
       if (msg.command === 'die') {
         if (req.active)
           req.die = true;

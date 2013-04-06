@@ -2335,9 +2335,10 @@ MailAPI.prototype = {
   },
 
   _composeDone: function(handle, command, state, callback) {
+    if (!handle)
+      return;
     var req = this._pendingRequests[handle];
     if (!req) {
-      unexpectedBridgeDataError('Bad handle for compose done:', handle);
       return;
     }
     req.type = command;

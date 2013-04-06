@@ -114,7 +114,10 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
         if (header.srvid)
           stateDelta.serverIdMap[header.suid] = header.srvid;
 
-        if (sourceStorage === targetStorage) {
+        if (sourceStorage === targetStorage ||
+            // localdraft messages aren't real, and so must not be moved and
+            // are only eligible for nuke deletion.
+            sourceStorage.folderMeta.type === 'localdrafts') {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
             processNext();
