@@ -334,18 +334,33 @@ ActiveSyncAccount.prototype = {
       }
 
       // - create local drafts folder (if needed)
-      var localDrafts = this.getFirstFolderWithType('localdrafts');
+      var localDrafts = account.getFirstFolderWithType('localdrafts');
       if (!localDrafts) {
         // Try and add the folder next to the existing drafts folder, or the
         // sent folder if there is no drafts folder.  Otherwise we must have an
         // inbox and we want to live under that.
-        var sibling = this.getFirstFolderWithType('drafts') ||
-                      this.getFirstFolderWithType('sent');
-        var parentId = sibling ? sibling.parentId
-                               : this.getFirstFolderWithType('inbox').serverId;
+        var sibling = account.getFirstFolderWithType('drafts') ||
+                      account.getFirstFolderWithType('sent');
+        // If we have a sibling, it can tell us our gelam parent folder id
+        // which is different from our parent server id.  From there, we can
+        // map to the serverId.  Note that top-level folders will not have a
+        // parentId, in which case we want to just go with the top level.
+        var parentServerId;
+        if (sibling) {
+          if (sibling.parentId)
+            parentServerId =
+              account._folderInfos[sibling.parentId].$meta.serverId;
+          else
+            parentServerId = '0';
+        }
+        // Otherwise try and make the Inbox our parent.
+        else {
+          parentServerId = account.getFirstFolderWithType('inbox').serverId;
+        }
         // Since this is a synthetic folder; we just directly choose the name
         // that our l10n mapping will transform.
-        this._addedFolder(null, parentId, 'localdrafts', null, 'localdrafts');
+        account._addedFolder(null, parentServerId, 'localdrafts', null,
+                             'localdrafts');
       }
 
       console.log('Synced folder list');
