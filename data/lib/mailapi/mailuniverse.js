@@ -176,6 +176,9 @@ var MAX_LOG_BACKLOG = 30;
  *     }
  *     @case['undone']{
  *     }
+ *     @case['moot']{
+ *       Either the local or server operation failed and mooted the operation.
+ *     }
  *   ]]{
  *     Tracks the overall desired state and completion state of the operation.
  *     Operations currently cannot be redone after they are undone.  This field
@@ -248,6 +251,9 @@ var MAX_LOG_BACKLOG = 30;
  *       assume something is fundamentally wrong and the request simply cannot
  *       be executed.
  *     }
+ *     @case['n/a']{
+ *       The op does not need to be run online.
+ *     }
  *   ]]{
  *     The state of the operation on the server.  This is tracked separately
  *     from the `localStatus` to reduce the number of possible states.
@@ -310,8 +316,6 @@ function MailUniverse(callAfterBigBang, testOptions) {
   this._opCompletionListenersByAccount = {};
   // maps longtermId to a callback that cares. non-persisted.
   this._opCallbacks = {};
-  // counter for session only jobs
-  this._sessionOnlyJobId = 1;
 
   this._bridges = [];
 
@@ -728,7 +732,7 @@ MailUniverse.prototype = {
     $acctcommon.accountTypeToClass(accountDef.type, function (constructor) {
       if (!constructor) {
         this._LOG.badAccountType(accountDef.type);
-        return null;
+        return;
       }
       var account = new constructor(this, accountDef, folderInfo, this._db,
                                     receiveProtoConn, this._LOG);
@@ -761,7 +765,8 @@ MailUniverse.prototype = {
       // maintained in this list.
       for (var i = 0; i < account.mutations.length; i++) {
         var op = account.mutations[i];
-        if (op.lifecycle !== 'done' && op.lifecycle !== 'undone') {
+        if (op.lifecycle !== 'done' && op.lifecycle !== 'undone' &&
+            op.lifecycle !== 'moot') {
           // For localStatus, we currently expect it to be consistent with the
           // state of the folder's database.  We expect this to be true going
           // forward and as we make changes because when we save the account's
@@ -774,7 +779,6 @@ MailUniverse.prototype = {
           this._queueAccountOp(account, op);
         }
       }
-
       callback(account);
     }.bind(this));
   },
@@ -1055,7 +1059,8 @@ MailUniverse.prototype = {
         localQueue = queues.local;
     queues.active = false;
 
-    var removeFromServerQueue = false;
+    var removeFromServerQueue = false,
+        completeOp = false;
     if (err) {
       switch (err) {
         // Only defer is currently supported as a recoverable local failure
@@ -1070,9 +1075,11 @@ MailUniverse.prototype = {
           // fall-through to an error
         default:
           this._LOG.opGaveUp(op.type, op.longtermId);
+          op.lifecycle = 'moot';
           op.localStatus = 'unknown';
           op.serverStatus = 'moot';
           removeFromServerQueue = true;
+          completeOp = true;
           break;
       }
     }
@@ -1080,9 +1087,17 @@ MailUniverse.prototype = {
       switch (op.localStatus) {
         case 'doing':
           op.localStatus = 'done';
+          if (op.serverStatus === 'n/a') {
+            op.lifecycle = 'done';
+            completeOp = true;
+          }
           break;
         case 'undoing':
           op.localStatus = 'undone';
+          if (op.serverStatus === 'n/a') {
+            op.lifecycle = 'undone';
+            completeOp = true;
+          }
           break;
       }
 
@@ -1091,12 +1106,27 @@ MailUniverse.prototype = {
       if (accountSaveSuggested)
         account.saveAccountState();
     }
+
     if (removeFromServerQueue) {
       var idx = serverQueue.indexOf(op);
       if (idx !== -1)
         serverQueue.splice(idx, 1);
     }
     localQueue.shift();
+
+    if (completeOp) {
+      if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
+        var callback = this._opCallbacks[op.longtermId];
+        delete this._opCallbacks[op.longtermId];
+        try {
+          callback(err, resultIfAny, account, op);
+        }
+        catch(ex) {
+          console.log(ex.message, ex.stack);
+          this._LOG.opCallbackErr(op.type);
+        }
+      }
+    }
 
     if (localQueue.length) {
       op = localQueue[0];
@@ -1194,6 +1224,7 @@ MailUniverse.prototype = {
             completeOp = false;
           }
           else {
+            op.lifecycle = 'moot';
             op.serverStatus = 'moot';
           }
           break;
@@ -1208,11 +1239,13 @@ MailUniverse.prototype = {
         case 'failure-give-up':
           this._LOG.opGaveUp(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
+          op.lifecycle = 'moot';
           op.serverStatus = 'moot';
           break;
         case 'moot':
           this._LOG.opMooted(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
+          op.lifecycle = 'moot';
           op.serverStatus = 'moot';
           break;
       }
@@ -1237,6 +1270,7 @@ MailUniverse.prototype = {
               op.serverStatus = 'done';
               break;
             case 'moot':
+              op.lifecycle = 'moot';
               op.serverStatus = 'moot';
               break;
             // this is the same thing as defer.
@@ -1275,6 +1309,7 @@ MailUniverse.prototype = {
       else {
         this._LOG.opTryLimitReached(op.type, op.longtermId);
         // we complete the op, but the error flag is propagated
+        op.lifecycle = 'moot';
         op.serverStatus = 'moot';
       }
     }
@@ -1321,14 +1356,14 @@ MailUniverse.prototype = {
    *
    * @args[
    *   @param[account]
-   *   @param[op]
+   *   @param[op SerializedMutation]{
+   *     Note that a `null` longtermId should be passed in if the operation
+   *     should be persisted, and a 'session' string if the operation should
+   *     not be persisted.  In both cases, a longtermId will be allocated,
+   *   }
    *   @param[optionalCallback #:optional Function]{
    *     A callback to invoke when the operation completes.  Callbacks are
    *     obviously not capable of being persisted and are merely best effort.
-   *   }
-   *   @param[justRequeue #:optional Boolean]{
-   *     If true, we are just re-enqueueing the operation and have no desire
-   *     or need to run the local operations.
    *   }
    * ]
    */
@@ -1340,15 +1375,18 @@ MailUniverse.prototype = {
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
+      // Clear out any completed/dead operations that put us over the undo
+      // threshold.
       while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
              (account.mutations[0].lifecycle === 'done') ||
-             (account.mutations[0].lifecycle === 'undone')) {
+             (account.mutations[0].lifecycle === 'undone') ||
+             (account.mutations[0].lifecycle === 'moot')) {
         account.mutations.shift();
       }
     }
-
-    if (op.sessionOnly) {
-      op.longtermId = op.type + '/' + this._sessionOnlyJobId++;
+    else if (op.longtermId === 'session') {
+      op.longtermId = account.id + '/' +
+                        $a64.encodeInt(account.meta.nextMutationNum++);
     }
 
     if (optionalCallback)
@@ -1362,8 +1400,8 @@ MailUniverse.prototype = {
          (op.lifecycle === 'undo' && op.localStatus !== 'undone' &&
           op.localStatus !== 'unknown')))
       queues.local.push(op);
-    // Server processing is always needed
-    queues.server.push(op);
+    if (op.serverStatus !== 'n/a' && op.serverStatus !== 'moot')
+      queues.server.push(op);
 
     // If there is already something active, don't do anything!
     if (queues.active) {
@@ -1372,11 +1410,10 @@ MailUniverse.prototype = {
       // Only actually dispatch if there is only the op we just (maybe).
       if (queues.local.length === 1 && queues.local[0] === op)
         this._dispatchLocalOpForAccount(account, op);
-      else
-        console.log('local active! not running!');
       // else: we grabbed control flow to avoid the server queue running
     }
-    else if (queues.server.length === 1 && this.online && account.enabled) {
+    else if (queues.server.length === 1 && queues.server[0] === op &&
+             this.online && account.enabled) {
       this._dispatchServerOpForAccount(account, op);
     }
 
@@ -1397,8 +1434,7 @@ MailUniverse.prototype = {
       account,
       {
         type: 'syncFolderList',
-        // no need to track this in the mutations list
-        longtermId: 'internal',
+        longtermId: 'session',
         lifecycle: 'do',
         localStatus: 'done',
         serverStatus: null,
@@ -1419,11 +1455,10 @@ MailUniverse.prototype = {
       account,
       {
         type: 'purgeExcessMessages',
-        // no need to track this in the mutations list
-        longtermId: 'internal',
+        longtermId: 'session',
         lifecycle: 'do',
         localStatus: null,
-        serverStatus: null,
+        serverStatus: 'n/a',
         tryCount: 0,
         humanOp: 'purgeExcessMessages',
         folderId: folderId
@@ -1440,9 +1475,9 @@ MailUniverse.prototype = {
       account,
       {
         type: 'downloadBodyReps',
-        sessionOnly: true,
+        longtermId: 'session',
         lifecycle: 'do',
-        localStatus: null,
+        localStatus: 'done',
         serverStatus: null,
         tryCount: 0,
         humanOp: 'downloadBodyReps',
@@ -1469,7 +1504,7 @@ MailUniverse.prototype = {
         x.account,
         {
           type: 'downloadSnippets',
-          sessionOnly: true, // don't persist this job.
+          longtermId: 'session', // don't persist this job.
           lifecycle: 'do',
           localStatus: null,
           serverStatus: null,
@@ -1591,7 +1626,7 @@ MailUniverse.prototype = {
         type: 'append',
         longtermId: null,
         lifecycle: 'do',
-        localStatus: null,
+        localStatus: 'done',
         serverStatus: null,
         tryCount: 0,
         humanOp: 'append',
@@ -1599,6 +1634,46 @@ MailUniverse.prototype = {
         folderId: folderId,
       });
     return [longtermId];
+  },
+
+  /**
+   * Save a new draft or update an existing draft.
+   */
+  saveDraft: function(account, existingNamer, header, body, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'saveDraft',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'saveDraft',
+        existingNamer: existingNamer,
+        header: header,
+        body: body
+      },
+      callback
+    );
+  },
+
+  deleteDraft: function(account, messageNamer, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'deleteDraft',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'deleteDraft',
+        messageNamer: messageNamer
+      },
+      callback
+    );
+
   },
 
   /**

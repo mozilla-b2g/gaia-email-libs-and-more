@@ -923,4 +923,80 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
   });
 });
 
+/**
+ * (Local only) drafts can be deleted, but they don't go to the trash, they just
+ * get nuked.  Drafts *cannot* be moved.
+ */
+TD.commonCase('trash drafts', function(T, RT) {
+  T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
+                                               testAccount.eAccount,
+      eLazy = T.lazyLogger('check'),
+
+      trashFolder = testAccount.do_createTestFolder(
+        'Trash',
+        { count: 0 }),
+      trashView = testAccount.do_openFolderView(
+        'trashView', trashFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
+
+      localDraftsFolder = testAccount.do_useExistingFolderWithType(
+        'localdrafts', ''),
+      localDraftsView = testAccount.do_openFolderView(
+        'localdrafts', localDraftsFolder, null, null,
+        { nonet: true }),
+      composer;
+
+  T.group('create draft message');
+  T.action('begin composition', eLazy, function() {
+    eLazy.expect_event('compose setup completed');
+    composer = testUniverse.MailAPI.beginMessageComposition(
+      null, testUniverse.allFoldersSlice.getFirstFolderWithType('inbox'), null,
+      eLazy.event.bind(eLazy, 'compose setup completed'));
+  });
+
+  T.action(testAccount, 'compose, save', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+    eLazy.expect_event('saved');
+
+    composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
+    composer.subject = 'Midnight City';
+    composer.body.text = 'We own the sky.';
+
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+    composer.die();
+    composer = null;
+  });
+
+  // This is a dalek reference doctor who, you see.
+  T.group('exterminate! exterminate!');
+  // This was going to be a homestar runner 'balete' reference, but would have
+  // proved confusing.
+  T.action(testAccount, 'delete', function() {
+    testAccount.expect_runOp(
+      'delete',
+      { local: true, server: true, save: true });
+
+    var header = localDraftsView.slice.items[0];
+    header.deleteMessage();
+  });
+  T.check('in neither folder', eLazy, function() {
+    eLazy.expect_namedValue('trash count', 0);
+    eLazy.expect_namedValue('draft count', 0);
+
+    eLazy.namedValue('trash count', trashView.slice.items.length);
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+  });
+
+  T.group('cleanup');
+});
+
 }); // end define

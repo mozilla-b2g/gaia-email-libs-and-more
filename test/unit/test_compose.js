@@ -28,7 +28,9 @@ function makeRandomSubject() {
  * we think it was sent, verify that it ended up in the sent folder, and verify
  * that we received it (which is also a good test of refresh).
  */
-TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
+TD.commonCase('compose, save, edit, reply (text/plain), forward',
+              function(T, RT) {
+  T.group('setup');
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
@@ -49,12 +51,18 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       sentView = testAccount.do_openFolderView(
         'sent', sentFolder, null, null,
         { syncedToDawnOfTime: 'ignore' }),
+      localDraftsFolder = testAccount.do_useExistingFolderWithType(
+        'localdrafts', ''),
+      localDraftsView = testAccount.do_openFolderView(
+        'localdrafts', localDraftsFolder, null, null,
+        { nonet: true }),
       replyComposer, expectedReplyBody;
 
   // - compose and send
+  T.group('compose');
   T.action('begin composition', eLazy, function() {
     eLazy.expect_event('compose setup completed');
-    composer = MailAPI.beginMessageComposition(
+    composer = testUniverse.MailAPI.beginMessageComposition(
       null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
@@ -69,9 +77,11 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     attachmentData.push(iData);
   }
 
-  T.action('send', eLazy, function() {
-    eLazy.expect_event('sent');
-    eLazy.expect_event('appended');
+  T.action(testAccount, 'compose, save', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+    eLazy.expect_event('saved');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
@@ -82,16 +92,105 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
     });
 
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+    composer.die();
+    composer = null;
+  });
+
+  var lastDraftId;
+  T.action('locate draft header, resume editing', eLazy, function() {
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_event('resumed');
+    eLazy.expect_namedValue('draft subject', uniqueSubject);
+    eLazy.expect_namedValue('draft text',
+                            'Antelope banana credenza.\n\nDialog excitement!');
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    lastDraftId = draftHeader.id;
+    eLazy.namedValue('header subject', draftHeader.subject);
+    composer = draftHeader.editAsDraft(function() {
+      eLazy.event('resumed');
+      eLazy.namedValue('draft subject', composer.subject);
+      eLazy.namedValue('draft text', composer.body.text);
+    });
+  });
+  T.action(testAccount, 'save draft again, old draft deleted',eLazy,function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('saved');
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+  });
+  T.check('id change check', eLazy, function() {
+    // we could also listen for changes on the view...
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_namedValueD('id changed?', true);
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    eLazy.namedValue('header subject', draftHeader.subject);
+    eLazy.namedValueD('id changed?', draftHeader.id !== lastDraftId,
+                      draftHeader.id);
+    lastDraftId = draftHeader.id;
+  });
+  T.action(testAccount, 'save draft 2nd time, old draft deleted',
+           eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('saved');
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+  });
+  T.check('id change check', eLazy, function() {
+    // we could also listen for changes on the view...
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_namedValueD('id changed?', true);
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    eLazy.namedValue('header subject', draftHeader.subject);
+    eLazy.namedValueD('id changed?', draftHeader.id !== lastDraftId,
+                      draftHeader.id);
+    lastDraftId = draftHeader.id;
+  });
+  T.action(testAccount, 'send', eLazy, function() {
+    // sending is not tracked as an op, but appending is
+    testAccount.expect_runOp(
+      'append',
+      { local: false, server: true, save: false });
+    // note: the delete op is asynchronously scheduled by the send process once
+    // it completes; our callback below will be invoked before the op is
+    // guaranteed to run to completion.
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('sent');
+
     composer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
         eLazy.error(err);
       else
         eLazy.event('sent');
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eLazy.event('appended');
-      });
     });
   }).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
+
+  T.check('draft message deleted', eLazy, function() {
+    eLazy.expect_namedValue('draft count', 0);
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+  });
 
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {

@@ -228,7 +228,10 @@ ImapJobDriver.prototype = {
         }
       };
 
-      if (needConn) {
+      // localdrafts is a synthetic folder and so we never want a connection
+      // for it.  This is a somewhat awkward place to make this decision, but
+      // it does work.
+      if (needConn && storage.folderMeta.type !== 'localdrafts') {
         syncer.folderConn.withConnection(function () {
           // When we release the mutex, the folder may not
           // release its connection, so be sure to reset
@@ -376,6 +379,32 @@ ImapJobDriver.prototype = {
   local_undo_download: $jobmixins.local_undo_download,
 
   undo_download: $jobmixins.undo_download,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // saveDraft
+
+  local_do_saveDraft: $jobmixins.local_do_saveDraft,
+
+  do_saveDraft: $jobmixins.do_saveDraft,
+
+  check_saveDraft: $jobmixins.check_saveDraft,
+
+  local_undo_saveDraft: $jobmixins.local_undo_saveDraft,
+
+  undo_saveDraft: $jobmixins.undo_saveDraft,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // deleteDraft
+
+  local_do_deleteDraft: $jobmixins.local_do_deleteDraft,
+
+  do_deleteDraft: $jobmixins.do_deleteDraft,
+
+  check_deleteDraft: $jobmixins.check_deleteDraft,
+
+  local_undo_deleteDraft: $jobmixins.local_undo_deleteDraft,
+
+  undo_deleteDraft: $jobmixins.undo_deleteDraft,
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
@@ -741,10 +770,14 @@ ImapJobDriver.prototype = {
           return;
         }
 
-        if (sourceStorage.folderId === targetFolderId) {
+        // There is nothing to do on localdrafts folders, server-wise.
+        if (sourceStorage.folderMeta.type === 'localdrafts') {
+          perFolderDone();
+        }
+        else if (sourceStorage.folderId === targetFolderId) {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
-            processNext();
+            perFolderDone();
           }
           else { // op.type === 'delete'
             // If the op is a delete and the source and destination folders

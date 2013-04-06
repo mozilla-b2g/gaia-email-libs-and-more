@@ -387,8 +387,7 @@ var TestUniverseMixins = {
         expectFunc();
       self.expect_operationsDone();
       for (var i = 0; i < killedThing.ops.length; i++) {
-        self.universe._queueAccountOp(testAccount.account,
-                                      killedThing.ops[i]);
+        self.universe._queueAccountOp(testAccount.account, killedThing.ops[i]);
       }
       self.universe.waitForAccountOps(testAccount.account, function() {
         self._logger.operationsDone();
@@ -813,7 +812,7 @@ var TestCommonAccountMixins = {
     folderStorage.getMessageHeader(
       suid, dateMS,
       function(header) {
-        folderStorage.deleteMessageHeaderAndBody(header, function() {
+        folderStorage.deleteMessageHeaderAndBodyUsingHeader(header, function() {
           self._logger.deletionNotified(1, header && header.suid);
         });
       });
