@@ -924,8 +924,40 @@ ImapAccount.prototype = {
       // (skip those we found above)
       if (folderPub === true)
         continue;
+      // Never delete our localdrafts folder.
+      if (folderPub.type === 'localdrafts')
+        continue;
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);
+    }
+
+    // Add a localdrafts folder if we don't have one.
+    var localDrafts = this.getFirstFolderWithType('localdrafts');
+    if (!localDrafts) {
+      // Try and add the folder next to the existing drafts folder, or the
+      // sent folder if there is no drafts folder.  Otherwise we must have an
+      // inbox and we want to live under that.
+      var sibling = this.getFirstFolderWithType('drafts') ||
+                    this.getFirstFolderWithType('sent');
+      var parentId = sibling ? sibling.parentId
+                             : this.getFirstFolderWithType('inbox').id;
+      // parentId will be null if we are already top-level
+      var parentFolder;
+      if (parentId) {
+        parentFolder = this._folderInfos[parentId].$meta;
+      }
+      else {
+        parentFolder = {
+          path: '', delim: '', depth: -1
+        };
+      }
+      var localDraftPath = parentFolder.path + parentFolder.delim +
+            'localdrafts';
+      // Since this is a synthetic folder; we just directly choose the name
+      // that our l10n mapping will transform.
+      this._learnAboutFolder('localdrafts', localDraftPath,  parentId,
+                             'localdrafts', parentFolder.delim,
+                             parentFolder.depth + 1);
     }
 
     callback(null);

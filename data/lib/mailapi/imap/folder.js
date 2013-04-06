@@ -380,7 +380,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           var idxUid = serverUIDs.indexOf(header.srvid);
           // deleted!
           if (idxUid === -1) {
-            storage.deleteMessageHeaderAndBody(header);
+            storage.deleteMessageHeaderAndBodyUsingHeader(header);
             numDeleted++;
             headers[iMsg] = null;
             continue;
@@ -868,7 +868,8 @@ ImapFolderSyncer.prototype = {
    * Can we grow this sync range?  IMAP always lets us do this.
    */
   get canGrowSync() {
-    return true;
+    // localdrafts is offline-only, so we can't ask the server for messages.
+    return this.folderStorage.folderMeta.type !== 'localdrafts';
   },
 
   /**

@@ -1596,7 +1596,8 @@ FolderStorage.prototype = {
         deleteTriggered = false;
         callActive = true;
         deletionCount++;
-        this.deleteMessageHeaderAndBody(lastHeader, deleteNextHeader);
+        this.deleteMessageHeaderAndBodyUsingHeader(lastHeader,
+                                                   deleteNextHeader);
         callActive = false;
         if (!deleteTriggered)
           return;
@@ -2239,12 +2240,14 @@ FolderStorage.prototype = {
     }.bind(this);
 
     // -- grab from database if we have ever synchronized this folder
-    if (this._accuracyRanges.length) {
+    // OR if it's synthetic
+    if (this._accuracyRanges.length || this.folderMeta.type === 'localdrafts') {
       // We can only trigger a refresh if we are online.  Our caller may want to
       // force the refresh, ignoring recency data.  (This logic was too ugly as
       // a straight-up boolean/ternarny combo.)
       var triggerRefresh;
-      if (this._account.universe.online && this.folderSyncer.syncable) {
+      if (this._account.universe.online && this.folderSyncer.syncable &&
+          this.folderMeta.type !== 'localdrafts') {
         if (forceRefresh)
           triggerRefresh = 'force';
         else
@@ -2266,9 +2269,9 @@ FolderStorage.prototype = {
     }
     // (we have never synchronized this folder)
 
-    // -- issue a failure if we/the folder are offline
+    // -- no work to do if we are offline or synthetic folder
     if (!this._account.universe.online ||
-        !this.folderSyncer.syncable) {
+        this.folderMeta.type === 'localdrafts') {
       doneCallback();
       return;
     }
@@ -3713,7 +3716,7 @@ FolderStorage.prototype = {
       if (headerOrMutationFunc instanceof Function)
         headerOrMutationFunc(null);
       else
-        throw new Error('Failed to block containing header with date: ' +
+        throw new Error('Failed to find block containing header with date: ' +
                         date + ' id: ' + id);
     }
     else if (!this._headerBlocks.hasOwnProperty(info.blockId))
@@ -3788,10 +3791,19 @@ FolderStorage.prototype = {
     return !!blockId;
   },
 
-  deleteMessageHeaderAndBody: function(header, callback) {
+  deleteMessageHeaderAndBody: function(suid, date, callback) {
+    this.getMessageHeader(suid, date, function(header) {
+      if (header)
+        this.deleteMessageHeaderAndBodyUsingHeader(header, callback);
+      else
+        callback();
+    }.bind(this));
+  },
+
+  deleteMessageHeaderAndBodyUsingHeader: function(header, callback) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.deleteMessageHeaderAndBody.bind(
-                                 this, header, callback));
+      this._deferredCalls.push(this.deleteMessageHeaderAndBodyUsingHeader.bind(
+                               this, header, callback));
       return;
     }
 
@@ -3848,7 +3860,7 @@ FolderStorage.prototype = {
       for (var i = 0; i < headers.length; i++) {
         var header = headers[i];
         if (header.srvid === srvid) {
-          this.deleteMessageHeaderAndBody(header);
+          this.deleteMessageHeaderAndBodyUsingHeader(header);
           return;
         }
       }
@@ -3928,7 +3940,7 @@ FolderStorage.prototype = {
 
       sizeEst += STR_OVERHEAD_EST * (reps.length / 2);
       for (var i = 0; i < reps.length; i++) {
-        rep = reps[i];
+        var rep = reps[i];
         if (rep.type === 'html') {
           sizeEst += STR_OVERHEAD_EST + rep.amountDownloaded;
         } else {
