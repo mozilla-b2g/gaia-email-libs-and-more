@@ -1670,7 +1670,9 @@ MailAPI.prototype = {
 
   _recv_requestSnippetsComplete: function(msg) {
     var slice = this._slices[msg.handle];
-    slice._notifyRequestSnippetsComplete(msg.requestId);
+    // The slice may be dead now!
+    if (slice)
+      slice._notifyRequestSnippetsComplete(msg.requestId);
   },
 
   _recv_bodyModified: function(msg) {
