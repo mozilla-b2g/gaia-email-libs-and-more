@@ -51,6 +51,41 @@ const $msgGen = MsgGen;
 load('test/activesync_server.js');
 
 let server = new ActiveSyncServer();
+
+server.logRequest = function(request, body) {
+  let path = request.path;
+  if (request.queryString)
+    path += '?' + request.queryString;
+  dump('>>> ' + path + '\n');
+  if (body) {
+    if (body instanceof $_wbxml.Reader) {
+      dump(body.dump());
+      body.rewind();
+    }
+    else {
+      dump(JSON.stringify(body, null, 2) + '\n');
+    }
+  }
+  dump('\n');
+};
+
+server.logResponse = function(request, response, body) {
+  dump('<<<\n');
+  if (body) {
+    if (body instanceof $_wbxml.Writer) {
+      dump(new $_wbxml.Reader(body, $_ascp).dump());
+    }
+    else {
+      dump(JSON.stringify(body, null, 2) + '\n');
+    }
+  }
+  dump('\n');
+};
+
+server.logResponseError = function(err) {
+  dump("ERR " + err + '\n\n');
+};
+
 server.start(SERVER_PORT);
 
 _do_main();

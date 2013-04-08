@@ -341,7 +341,6 @@ function ActiveSyncServer(startDate) {
   this.addFolder('Trash', folderType.DefaultDeleted, null, {count: 0});
 
   this.logRequest = null;
-  this.logRequestBody = null;
   this.logResponse = null;
   this.logResponseError = null;
 }
@@ -411,9 +410,9 @@ ActiveSyncServer.prototype = {
    */
   _commandHandler: function(request, response) {
     try {
-      if (this.logRequest)
-        this.logRequest(request);
       if (request.method === 'OPTIONS') {
+        if (this.logRequest)
+          this.logRequest(request, null);
         this._options(request, response);
       }
       else if (request.method === 'POST') {
@@ -429,8 +428,12 @@ ActiveSyncServer.prototype = {
           }
         }
 
+        // XXX: Only try to decode WBXML when the client actually sent WBXML
+        let wbxmlRequest = decodeWBXML(request.bodyInputStream);
+        if (this.logRequest)
+          this.logRequest(request, wbxmlRequest);
         let wbxmlResponse = this['_handleCommand_' + query.Cmd](
-          request, query, response);
+          wbxmlRequest, query, request, response);
 
         if (wbxmlResponse) {
           response.setStatusLine('1.1', 200, 'OK');
@@ -478,11 +481,9 @@ ActiveSyncServer.prototype = {
    * Handle the FolderSync command. This entails keeping track of which folders
    * the client knows about using folder SyncKeys.
    *
-   * @param request the nsIHttpRequest
-   * @param query an object of URL query parameters
-   * @param response the nsIHttpResponse
+   * @param requestData the WBXML.Reader for the request
    */
-  _handleCommand_FolderSync: function(request, query, response) {
+  _handleCommand_FolderSync: function(requestData) {
     const fh = $_ascp.FolderHierarchy.Tags;
     const folderType = $_ascp.FolderHierarchy.Enums.Type;
 
@@ -492,10 +493,7 @@ ActiveSyncServer.prototype = {
     e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
       syncKey = node.children[0].textContent;
     });
-    let reader = decodeWBXML(request.bodyInputStream);
-    if (this.logRequestBody)
-      this.logRequestBody(reader);
-    e.run(reader);
+    e.run(requestData);
 
     let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
     this._folderSyncStates[nextSyncKey] = [];
@@ -547,11 +545,15 @@ ActiveSyncServer.prototype = {
    * respond to commands from the client, and update clients with any changes
    * we know about.
    *
-   * @param request the nsIHttpRequest
+   * @param requestData the WBXML.Reader for the request
    * @param query an object of URL query parameters
+   * @param request the nsIHttpRequest
    * @param response the nsIHttpResponse
    */
-  _handleCommand_Sync: function(request, query, response) {
+  _handleCommand_Sync: function(requestData, query, request, response) {
+    if (!requestData)
+      requestData = this._cachedSyncRequest;
+
     const as = $_ascp.AirSync.Tags;
     const asEnum = $_ascp.AirSync.Enums;
 
@@ -606,12 +608,7 @@ ActiveSyncServer.prototype = {
       }
       clientCommands.push(command);
     });
-
-    let reader = decodeWBXML(request.bodyInputStream) ||
-                 this._cachedSyncRequest;
-    if (this.logRequestBody)
-      this.logRequestBody(reader);
-    e.run(reader);
+    e.run(requestData);
 
     // If GetChanges wasn't specified, it defaults to true when the SyncKey is
     // non-zero, and false when the SyncKey is zero.
@@ -687,8 +684,8 @@ ActiveSyncServer.prototype = {
         // There are no changes, so cache the sync request and return an empty
         // response.
         response.setStatusLine('1.1', 200, 'OK');
-        reader.rewind();
-        this._cachedSyncRequest = reader;
+        requestData.rewind();
+        this._cachedSyncRequest = requestData;
         return;
       }
     }
@@ -776,11 +773,9 @@ ActiveSyncServer.prototype = {
    * Handle the ItemOperations command. Mainly, this is used to get message
    * bodies and attachments.
    *
-   * @param request the nsIHttpRequest
-   * @param query an object of URL query parameters
-   * @param response the nsIHttpResponse
+   * @param requestData the WBXML.Reader for the request
    */
-  _handleCommand_ItemOperations: function(request, query, response) {
+  _handleCommand_ItemOperations: function(requestData) {
     const io = $_ascp.ItemOperations.Tags;
     const as = $_ascp.AirSync.Tags;
 
@@ -807,10 +802,7 @@ ActiveSyncServer.prototype = {
       fetch.message = folder.findMessageById(fetch.serverId);
       fetches.push(fetch);
     });
-    let reader = decodeWBXML(request.bodyInputStream);
-    if (this.logRequestBody)
-      this.logRequestBody(reader);
-    e.run(reader);
+    e.run(requestData);
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations)
@@ -841,11 +833,9 @@ ActiveSyncServer.prototype = {
    * Handle the GetItemEstimate command. This gives the client the number of
    * changes to expect from a Sync request.
    *
-   * @param request the nsIHttpRequest
-   * @param query an object of URL query parameters
-   * @param response the nsIHttpResponse
+   * @param requestData the WBXML.Reader for the request
    */
-  _handleCommand_GetItemEstimate: function(request, query, response) {
+  _handleCommand_GetItemEstimate: function(requestData) {
     const ie = $_ascp.ItemEstimate.Tags;
     const as = $_ascp.AirSync.Tags;
     const ieStatus = $_ascp.ItemEstimate.Enums.Status;
@@ -867,10 +857,7 @@ ActiveSyncServer.prototype = {
         }
       }
     });
-    let reader = decodeWBXML(request.bodyInputStream);
-    if (this.logRequestBody)
-      this.logRequestBody(reader);
-    e.run(reader);
+    e.run(requestData);
 
     let status, syncState, estimate,
         folder = this._findFolderById(collectionId);
@@ -907,11 +894,9 @@ ActiveSyncServer.prototype = {
    * folders. Note that they'll have to get up-to-date via a Sync request
    * afterward.
    *
-   * @param request the nsIHttpRequest
-   * @param query an object of URL query parameters
-   * @param response the nsIHttpResponse
+   * @param requestData the WBXML.Reader for the request
    */
-  _handleCommand_MoveItems: function(request, query, response) {
+  _handleCommand_MoveItems: function(requestData) {
     const mo = $_ascp.Move.Tags;
     const moStatus = $_ascp.Move.Enums.Status;
 
@@ -938,10 +923,7 @@ ActiveSyncServer.prototype = {
 
       moves.push(move);
     });
-    let reader = decodeWBXML(request.bodyInputStream);
-    if (this.logRequestBody)
-      this.logRequestBody(reader);
-    e.run(reader);
+    e.run(requestData);
 
     let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(mo.MoveItems);
@@ -1109,7 +1091,13 @@ ActiveSyncServer.prototype = {
   _backdoorHandler: function(request, response) {
     try {
       let postData = JSON.parse(stringifyStream(request.bodyInputStream));
+      if (this.logRequest)
+        this.logRequest(request, postData);
+
       let responseData = this['_backdoor_' + postData.command ](postData);
+      if (this.logResponse)
+        this.logResponse(request, response, postData);
+
       response.setStatusLine('1.1', 200, 'OK');
       response.write(JSON.stringify(responseData));
     } catch(e) {
@@ -1139,7 +1127,7 @@ ActiveSyncServer.prototype = {
   },
 
   _backdoor_getFirstFolderWithType: function(data) {
-    let folder = this.foldersByType[data.type];
+    let folder = this.foldersByType[data.type][0];
     return this._serializeFolder(folder);
   },
 
