@@ -402,6 +402,19 @@ ActiveSyncServer.prototype = {
     return folder;
   },
 
+  removeFolder: function(folderId) {
+    for (let i = 0; i < this._folders.length; i++) {
+      if (this._folders[i].id === folderId) {
+        let folder = this._folders.splice(i, 1);
+
+        for (let [,syncState] in Iterator(this._folderSyncStates))
+          syncState.push({ type: 'delete', folderId: folderId });
+
+        return folder;
+      }
+    }
+  },
+
   /**
    * Handle incoming requests.
    *
@@ -524,11 +537,16 @@ ActiveSyncServer.prototype = {
       for (let change of syncState) {
         if (change.type === 'add') {
           w.stag(fh.Add)
-           .tag(fh.ServerId, change.folder.id)
-           .tag(fh.ParentId, change.folder.parentId)
-           .tag(fh.DisplayName, change.folder.name)
-           .tag(fh.Type, change.folder.type)
-         .etag();
+             .tag(fh.ServerId, change.folder.id)
+             .tag(fh.ParentId, change.folder.parentId)
+             .tag(fh.DisplayName, change.folder.name)
+             .tag(fh.Type, change.folder.type)
+           .etag();
+        }
+        else if (change.type === 'delete') {
+          w.stag(fh.Delete)
+             .tag(fh.ServerId, change.folderId)
+           .etag();
         }
       }
     }
@@ -1096,22 +1114,48 @@ ActiveSyncServer.prototype = {
 
       let responseData = this['_backdoor_' + postData.command ](postData);
       if (this.logResponse)
-        this.logResponse(request, response, postData);
+        this.logResponse(request, response, responseData);
 
       response.setStatusLine('1.1', 200, 'OK');
-      response.write(JSON.stringify(responseData));
+      if (responseData)
+        response.write(JSON.stringify(responseData));
     } catch(e) {
       if (this.logResponseError)
         this.logResponseError(e + '\n' + e.stack);
-      else
-        dump(e + '\n' + e.stack + '\n');
       throw e;
     }
   },
 
-  _backdoor_addFolder: function(data) {
-    let folder = this.addFolder(data.name, data.type, data.parentId, data.args);
+  _backdoor_getFirstFolderWithType: function(data) {
+    let folder = this.foldersByType[data.type][0];
     return this._serializeFolder(folder);
+  },
+
+  _backdoor_getFirstFolderWithName: function(data) {
+    let folder = this.findFolderByName(data.name);
+    return this._serializeFolder(folder);
+  },
+
+  _backdoor_addFolder: function(data) {
+    // XXX: Come up with a smarter way to preserve folder types when deleting
+    // and recreating them!
+    const folderType = $_ascp.FolderHierarchy.Enums.Type;
+    let type = data.type;
+    if (!type) {
+      if (data.name === 'Inbox')
+        type = folderType.DefaultInbox;
+      else if (data.name === 'Sent Mail')
+        type = folderType.DefaultSent;
+      else if (data.name === 'Trash')
+        type = folderType.DefaultDeleted;
+    }
+
+    let folder = this.addFolder(data.name, type, data.parentId, data.args);
+    return this._serializeFolder(folder);
+  },
+
+  _backdoor_removeFolder: function(data) {
+    this.removeFolder(data.folderId);
   },
 
   _backdoor_addMessageToFolder: function(data) {
@@ -1126,28 +1170,19 @@ ActiveSyncServer.prototype = {
     return this._serializeFolder(folder);
   },
 
-  _backdoor_getFirstFolderWithType: function(data) {
-    let folder = this.foldersByType[data.type][0];
-    return this._serializeFolder(folder);
-  },
-
-  _backdoor_getFirstFolderWithName: function(data) {
-    let folder = this.findFolderByName(data.name);
-    return this._serializeFolder(folder);
-  },
-
   _backdoor_removeMessageById: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.removeMessageById(data.messageId);
-    return {};
   },
 
   _serializeFolder: function(folder) {
-    return {
-      id: folder.id,
-      messages: [{ subject: i.subject,
-                   messageId: i.messageId,
-                 } for (i of folder.messages)]
-    };
+    if (folder) {
+      return {
+        id: folder.id,
+        messages: [{ subject: i.subject,
+                     messageId: i.messageId,
+                   } for (i of folder.messages)]
+      };
+    }
   },
 };

@@ -2040,6 +2040,14 @@ var TestActiveSyncAccountMixins = {
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
 
+    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
+                            function() {
+      var existingFolder = self.testServer.getFirstFolderWithName(folderName);
+      if (!existingFolder)
+        return;
+      self.testServer.removeFolder(existingFolder.id);
+    });
+
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
       testFolder.serverFolder = self.testServer.addFolder(

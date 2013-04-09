@@ -44,7 +44,7 @@ var TestActiveSyncServerMixins = {
     var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
     xhr.open('POST', this.serverBaseUrl + '/backdoor', false);
     xhr.send(JSON.stringify(request));
-    return JSON.parse(xhr.response);
+    return xhr.response ? JSON.parse(xhr.response) : null;
   },
 
   getFirstFolderWithType: function(folderType) {
@@ -68,6 +68,13 @@ var TestActiveSyncServerMixins = {
       type: type,
       parentId: parentId,
       args: messageSetDef
+    });
+  },
+
+  removeFolder: function(folderId) {
+    return this._backdoor({
+      command: 'removeFolder',
+      folderId: folderId
     });
   },
 
