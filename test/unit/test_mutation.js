@@ -670,6 +670,31 @@ TD.commonCase('move/trash messages', function(T, RT) {
         eSync.event('ops-done');
       });
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // Make sure we have the expected number of messages in the target folder.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 1, full: 0, flags: TEST_PARAMS.type === 'imap' ? 1 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  // Make sure we have the expected number of messages in the trash folder.
+  testAccount.do_refreshFolderView(
+    trashView,
+    { count: 1, full: 0, flags: TEST_PARAMS.type === 'imap' ? 1 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('delete from trash', testAccount, eAccount, function() {
@@ -893,6 +918,31 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
         eSync.event('ops-done');
       });
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 4, full: 0, flags: TEST_PARAMS.type === 'imap' ? 4 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // Make sure we have the expected number of messages in the target folder.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  // Make sure we have the expected number of messages in the trash folder.
+  testAccount.do_refreshFolderView(
+    trashView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('delete from trash', testAccount, eAccount, function() {
