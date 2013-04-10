@@ -309,7 +309,36 @@ TD.commonCase('MIME hierarchies', function(T) {
   // - multipart/alternative where text/html should be chosen
       alternHtml =
         new SyntheticPartMultiAlternative(
-          [bpartStraightASCII, bpartTrivialHtml]);
+          [bpartStraightASCII, bpartTrivialHtml]),
+  // - attachments
+      tachImageAsciiName = {
+        filename: 'stuff.png',
+        decodedFilename: 'stuff.png',
+        contentType: 'image/png',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      tachImageMimeWordQuotedName = {
+        filename: mwqSammySnake + '.png',
+        decodedFilename: rawSammySnake + '.png',
+        contentType: 'image/png',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      tachImageMimeWordBase64Name = {
+        filename: mwbMultiBase64 + '.png',
+        decodedFilename: rawMultiBase64 + '.png',
+        contentType: 'image/png',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      tachImageDoubleMimeWordName = {
+        filename: mwqSammySnake + '-' + mwbMultiBase64 + '.png',
+        decodedFilename: rawSammySnake + '-' + rawMultiBase64 + '.png',
+        contentType: 'image/png',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      };
 
   // -- full definitions and expectations
   var testMessages = [
@@ -434,6 +463,31 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: alternHtml,
       checkBody: bstrSanitizedTrivialHtml,
     },
+    // - text/plain with attachments
+    {
+      name: 'text/plain with ASCII attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageAsciiName],
+    },
+    {
+      name: 'text/plain with QP mime-word attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageMimeWordQuotedName],
+    },
+    {
+      name: 'text/plain with base64 mime-word attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageMimeWordBase64Name],
+    },
+    {
+      name: 'text/plain with multiple mime words in the attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageDoubleMimeWordName],
+    },
   ];
 
   T.group('setup');
@@ -498,7 +552,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           eCheck.expect_namedValue('attachment-name',
-                                   msgDef.attachments[i].filename);
+                                   msgDef.attachments[i].decodedFilename);
           eCheck.expect_namedValue('attachment-size',
                                    msgDef.attachments[i].body.length);
         }

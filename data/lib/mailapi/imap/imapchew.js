@@ -4,11 +4,13 @@
 
 define(
   [
+    'mimelib',
     '../quotechew',
     '../htmlchew',
     'exports'
   ],
   function(
+    $mimelib,
     $quotechew,
     $htmlchew,
     exports
@@ -140,8 +142,10 @@ function chewStructure(msg) {
     }
 
     function makePart(partInfo, filename) {
+
       return {
-        name: filename || 'unnamed-' + (++unnamedPartCounter),
+        name: $mimelib.parseMimeWords(filename) ||
+              'unnamed-' + (++unnamedPartCounter),
         contentId: partInfo.id ? stripArrows(partInfo.id) : null,
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
         part: partInfo.partID,
