@@ -983,7 +983,7 @@ MessageGenerator.prototype = {
     if (aArgs.attachments) {
       var parts = [bodyPart];
       for (var iAttach = 0; iAttach < aArgs.attachments.length; iAttach++) {
-        var attachDesc = aArgs.attachDesc[iAttach];
+        var attachDesc = aArgs.attachments[iAttach];
         parts.push(new SyntheticPartLeaf(attachDesc.body, attachDesc));
       }
       bodyPart = new SyntheticPartMultiMixed(parts);
