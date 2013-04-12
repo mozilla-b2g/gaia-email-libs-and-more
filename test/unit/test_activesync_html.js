@@ -4,12 +4,14 @@
  **/
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
         'wbxml', 'activesync/codepages',
         'exports'],
-       function($tc, $th_imap, $wbxml, $ascp, exports) {
+       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_html' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_activesync_html' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;

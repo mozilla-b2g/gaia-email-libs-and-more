@@ -14,11 +14,14 @@
  **/
 
 define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
         'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase', 'exports'],
-       function($tc, $th_imap, $date, $mailslice, $syncbase, exports) {
+       function($tc, $th_imap, $th_as_server, $date, $mailslice, $syncbase,
+                exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_folder_storage' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_folder_storage' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 function MockDB() {
 }

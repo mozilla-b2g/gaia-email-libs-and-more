@@ -115,16 +115,16 @@ post-imap-tests: imap-tests
 ######################
 # ActiveSync test variations
 activesync-tests: build
-	$(call run-xpc-tests,activesync,activesync)
+	$(call run-tests,activesync,activesync)
 
 one-activesync-test: build
 	$(call run-one-test,activesync,activesync)
 
 post-one-activesync-test: one-activesync-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/activesync/$(basename $(SOLO_FILE)).log
 
 post-activesync-tests: activesync-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-activesync.log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-activesync.log
 
 
 ######################
