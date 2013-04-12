@@ -85,6 +85,7 @@ var standardExcludes = [].concat(bootstrapIncludes);
 var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
 
 var configs = [
+  // root aggregate loaded in worker context
   {
     name: 'mailapi/worker-bootstrap',
     include: bootstrapIncludes,
@@ -92,32 +93,43 @@ var configs = [
     out: jsPath + '/mailapi/worker-bootstrap.js'
   },
 
+  // root aggregate loaded in main frame context
   {
     name: 'mailapi/main-frame-setup',
     include: [],
     out: jsPath + '/mailapi/main-frame-setup.js'
   },
 
+  // needed by all kinds of different layers, so broken out on its own:
+  // - mailparser/mailparser
+  // - mailapi/composer (specifically mailcomposer)
+  // - mailapi/chewlayer (specifically mailapi/imap/imapchew statically)
+  // - activesync (specifically mailapi/activesync/folder dynamically)
   {
     name: 'mimelib',
     exclude: standardExcludes,
     out: jsPath + '/mimelib.js'
   },
 
+  // text/plain and text/html logic, needed by both IMAP and ActiveSync.
+  // It's not clear why imapchew is in this layer; seems like it could be in
+  // imap/protocollayer.
   {
     name: 'mailapi/chewlayer',
     create: true,
     include: ['mailapi/quotechew', 'mailapi/htmlchew', 'mailapi/imap/imapchew'],
-    exclude: standardExcludes,
+    exclude: standardExcludes.concat(['mimelib']),
     out: jsPath + '/mailapi/chewlayer.js'
   },
 
+  // mailparser lib and deps sans mimelib
   {
     name: 'mailparser/mailparser',
     exclude: standardExcludes.concat(['mimelib']),
     out: jsPath + '/mailparser/mailparser.js'
   },
 
+  // our composition abstraction and its deps
   {
     name: 'mailapi/composer',
     exclude: standardExcludes.concat(['mailparser/mailparser',
@@ -128,12 +140,14 @@ var configs = [
     out: jsPath + '/mailapi/composer.js'
   },
 
+  // imap protocol and probing support
   {
     name: 'mailapi/imap/probe',
     exclude: standardPlusComposerExcludes.concat(['mailparser/mailparser']),
     out: jsPath + '/mailapi/imap/probe.js'
   },
 
+  // imap online support
   {
     name: 'mailapi/imap/protocollayer',
     exclude: standardPlusComposerExcludes.concat(
@@ -148,19 +162,21 @@ var configs = [
     out: jsPath + '/mailapi/imap/protocollayer.js',
     create: true
   },
-
+  // smtp online support
   {
     name: 'mailapi/smtp/probe',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/smtp/probe.js'
   },
 
+  // activesync configurator, offline support
   {
     name: 'mailapi/activesync/configurator',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/activesync/configurator.js'
   },
 
+  // activesync online support
   {
     name: 'mailapi/activesync/protocollayer',
     create: true,
@@ -169,12 +185,14 @@ var configs = [
     out: jsPath + '/mailapi/activesync/protocollayer.js'
   },
 
+  // imap/smtp configuration, offline support
   {
     name: 'mailapi/composite/configurator',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/composite/configurator.js'
   },
 
+  // bundles up all fake account logic
   {
     name: 'mailapi/fake/configurator',
     exclude: standardPlusComposerExcludes,
