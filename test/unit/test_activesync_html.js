@@ -3,12 +3,15 @@
  * ActiveSync.
  **/
 
-load('resources/loggest_test_framework.js');
-const $wbxml = require('wbxml');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'wbxml', 'activesync/codepages',
+        'exports'],
+       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_activesync_html' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_activesync_html' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
@@ -199,6 +202,4 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_closeFolderView(folderView);
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

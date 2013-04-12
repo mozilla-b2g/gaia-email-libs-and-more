@@ -32,8 +32,9 @@ var FOLDER_TYPE_TO_SORT_PRIORITY = {
   starred: 'e',
   important: 'f',
   drafts: 'g',
-  queue: 'h',
-  sent: 'i',
+  localdrafts: 'h',
+  queue: 'i',
+  sent: 'j',
   junk: 'k',
   trash: 'm',
   archive: 'o',
@@ -86,11 +87,11 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  * `same-frame-setup.js` is the only place that hooks them up together right
  * now.
  */
-function MailBridge(universe) {
+function MailBridge(universe, name) {
   this.universe = universe;
   this.universe.registerBridge(this);
 
-  this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
+  this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
   /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
@@ -731,9 +732,9 @@ MailBridge.prototype = {
     require(['./composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle] = {
         type: 'compose',
-        // XXX draft persistence/saving to-do/etc.
-        persistedFolder: null,
-        persistedUID: null,
+        active: 'begin',
+        persistedNamer: null,
+        die: false
       };
 
       // - figure out the identity to use
@@ -750,6 +751,7 @@ MailBridge.prototype = {
         return this.__sendMessage({
           type: 'composeBegun',
           handle: msg.handle,
+          error: null,
           identity: identity,
           subject: '',
           body: { text: '', html: null },
@@ -831,9 +833,11 @@ MailBridge.prototype = {
           else {
             referencesStr = '<' + msg.refGuid + '>';
           }
+          req.active = null;
           self.__sendMessage({
             type: 'composeBegun',
             handle: msg.handle,
+            error: null,
             identity: identity,
             subject: $composer.mailchew
                        .generateReplySubject(msg.refSubject),
@@ -849,9 +853,11 @@ MailBridge.prototype = {
           });
         }
         else {
+          req.active = null;
           self.__sendMessage({
             type: 'composeBegun',
             handle: msg.handle,
+            error: null,
             identity: identity,
             subject: 'Fwd: ' + msg.refSubject,
             // blank lines at the top are baked in by the func
@@ -874,25 +880,147 @@ MailBridge.prototype = {
     }.bind(this));
   },
 
+  _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
+    var req = this._pendingRequests[msg.handle] = {
+      type: 'compose',
+      active: 'resume',
+      persistedNamer: msg.messageNamer,
+      die: false
+    };
+
+    // NB: We are not acquiring the folder mutex here because
+    var account = this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
+    var folderStorage = this.universe.getFolderStorageForMessageSuid(
+                          msg.messageNamer.suid);
+    var self = this;
+    folderStorage.runMutexed('resumeCompose', function(callWhenDone) {
+      function fail() {
+        self.__sendMessage({
+          type: 'composeBegun',
+          handle: msg.handle,
+          error: 'no-message'
+        });
+        callWhenDone();
+      }
+      folderStorage.getMessage(msg.messageNamer.suid, msg.messageNamer.date,
+                               function(res) {
+        try {
+          if (!res.header || !res.body) {
+            fail();
+            return;
+          }
+          var header = res.header, body = res.body;
+
+          // -- convert from header/body rep to compose rep
+
+          var composeBody = {
+            text: '',
+            html: null,
+          };
+
+          // Body structure should be guaranteed, but add some checks.
+          if (body.bodyReps.length >= 1 &&
+              body.bodyReps[0].type === 'plain' &&
+              body.bodyReps[0].content.length === 2 &&
+              body.bodyReps[0].content[0] === 0x1) {
+            composeBody.text = body.bodyReps[0].content[1];
+          }
+          // HTML is optional, but if present, should satisfy our guard
+          if (body.bodyReps.length == 2 &&
+              body.bodyReps[1].type === 'html') {
+            composeBody.html = body.bodyReps[1].content;
+          }
+
+          var attachments = [];
+          body.attachments.forEach(function(att) {
+            attachments.push({
+              name: att.name,
+              blob: att.file
+            });
+          });
+
+          req.active = null;
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            error: null,
+            identity: account.identities[0],
+            subject: header.subject,
+            body: composeBody,
+            to: header.to,
+            cc: header.cc,
+            bcc: header.bcc,
+            // we abuse guid to serve as the references list...
+            referencesStr: header.guid,
+            attachments: attachments
+          });
+          callWhenDone();
+        }
+        catch (ex) {
+          fail(); // calls callWhenDone
+        }
+      });
+    });
+  },
+
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
     require(['./composer'], function ($composer) {
+      var req = this._pendingRequests[msg.handle], self = this;
+      if (!req)
+        return;
+      if (msg.command === 'die') {
+        if (req.active)
+          req.die = true;
+        else
+          delete this._pendingRequests[msg.handle];
+        return;
+      }
+      var account;
       if (msg.command === 'delete') {
+        function sendDeleted() {
+          self.__sendMessage({
+            type: 'doneCompose',
+            handle: msg.handle,
+            err: null,
+            badAddresses: null,
+            messageId: null,
+            sentDate: null
+          });
+        }
+        if (req.persistedNamer) {
+          account = this.universe.getAccountForMessageSuid(
+                      req.persistedNamer.suid);
+          this.universe.deleteDraft(account, req.persistedNamer, sendDeleted);
+        }
+        else {
+          sendDeleted();
+        }
+        delete this._pendingRequests[msg.handle];
         // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
         // message and try and execute it.
         return;
       }
+
+
       var wireRep = msg.state,
           identity = this.universe.getIdentityForSenderIdentityId(
-                       wireRep.senderId),
-          account = this.universe.getAccountForSenderIdentityId(
-                      wireRep.senderId),
-          composer = new $composer.Composer(msg.command, wireRep,
-                                            account, identity);
+                       wireRep.senderId);
+      account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
 
       if (msg.command === 'send') {
+        var composer = new $composer.Composer(msg.command, wireRep,
+                                              account, identity);
+
+        req.active = null;
+        if (req.die)
+          delete this._pendingRequests[msg.handle];
         account.sendMessage(composer, function(err, badAddresses) {
+          // If there was an associated/saved draft, clear it out, but there's
+          // no need to wait for that to complete.
+          if (req.persistedNamer)
+            this.universe.deleteDraft(account, req.persistedNamer);
           this.__sendMessage({
-            type: 'sent',
+            type: 'doneCompose',
             handle: msg.handle,
             err: err,
             badAddresses: badAddresses,
@@ -901,8 +1029,81 @@ MailBridge.prototype = {
           });
         }.bind(this));
       }
-      else { // (msg.command === draft)
-        // XXX save drafts!
+      else if (msg.command === 'save') {
+        // -- convert from compose rep to header/body rep
+        var msgTimestamp = Date.now();
+        var header = {
+          id: null, // filled in by the job
+          srvid: null, // stays null
+          suid: null, // filled in by the job
+          guid: null, // unused
+          author: { name: identity.name, address: identity.address},
+          to: wireRep.to,
+          cc: wireRep.cc,
+          bcc: wireRep.bcc,
+          replyTo: null,
+          date: msgTimestamp,
+          flags: [],
+          hasAttachments: !!wireRep.attachments.length,
+          subject: wireRep.subject,
+          snippet: wireRep.body.text.substring(0, 100),
+        };
+        var body = {
+          date: msgTimestamp,
+          size: 0,
+          attachments: [],
+          relatedParts: [],
+          references: wireRep.referencesStr,
+          bodyReps: []
+        };
+        wireRep.attachments.forEach(function(wireAtt) {
+          body.attachments.push({
+            name: wireAtt.name,
+            contentId: null,
+            type: wireAtt.blob.type,
+            part: null,
+            encoding: null,
+            sizeEstimate: wireAtt.blob.size,
+            file: wireAtt.blob
+          });
+        });
+        body.bodyReps.push({
+          type: 'plain',
+          part: null,
+          sizeEstimate: wireRep.body.text.length,
+          amountDownloaded: wireRep.body.text.length,
+          isDownloaded: true,
+          _partInfo: {},
+          content: [0x1, wireRep.body.text]
+        });
+        if (wireRep.body.html) {
+          body.bodyReps.push({
+            type: 'html',
+            part: null,
+            sizeEstimate: wireRep.body.html.length,
+            amountDownloaded: wireRep.body.html.length,
+            isDownloaded: true,
+            _partInfo: {},
+            content: wireRep.body.html
+          });
+        }
+
+        this.universe.saveDraft(
+          account, req.persistedNamer, header, body,
+          function(err, messageNamer) {
+            req.active = null;
+            req.persistedNamer = messageNamer;
+            if (req.die)
+              delete self._pendingRequests[msg.handle];
+            self.__sendMessage({
+              type: 'doneCompose',
+              handle: msg.handle,
+              err: null,
+              badAddresses: null,
+              messageId: null,
+              sentDate: null,
+            });
+          });
       }
     }.bind(this));
   },

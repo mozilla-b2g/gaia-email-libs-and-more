@@ -1,9 +1,11 @@
 define(function(require, exports, $module) {
 
 var $log = require('rdcommon/log'),
+    $allback = require('mailapi/allback'),
     $mailuniverse = require('mailapi/mailuniverse'),
     $mailbridge = require('mailapi/mailbridge'),
     $maildb = require('mailapi/maildb'),
+    $mailapi = require('mailapi/mailapi'),
     $date = require('mailapi/date'),
     $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
@@ -18,7 +20,8 @@ var $log = require('rdcommon/log'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
-    $smtpacct = require('mailapi/smtp/account');
+    $smtpacct = require('mailapi/smtp/account'),
+    $router = require('mailapi/worker-router');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -26,15 +29,43 @@ function checkFlagDefault(flags, flag, def) {
   return flags[flag];
 }
 
+function consoleHelper(logFunc) {
+  var msg = '';
+  for (var i = 2; i < arguments.length; i++) {
+    msg += ' ' + arguments[i];
+  }
+  logFunc(msg);
+  dump(arguments[1] + ":" + msg + "\x1b[0m\n");
+}
+function makeConsoleForLogger(logger) {
+  window.console = {
+    log:   consoleHelper.bind(null, logger.log.bind(logger), '\x1b[32mLOG'),
+    error: consoleHelper.bind(null, logger.error.bind(logger), '\x1b[31mERR'),
+    info:  consoleHelper.bind(null, logger.info.bind(logger), '\x1b[36mINF'),
+    warn:  consoleHelper.bind(null, logger.warn.bind(logger), '\x1b[33mWAR'),
+    trace: function() {
+      console.error.apply(null, arguments);
+      try {
+        throw new Error('getting stack...');
+      }
+      catch (ex) {
+        console.warn('STACK!\n' + ex.stack);
+      }
+    },
+  };
+}
+
+exports.thunkConsoleForNonTestUniverse = function() {
+  var consoleLogger = LOGFAB.console(null, null, 'console');
+  makeConsoleForLogger(consoleLogger);
+};
+
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
-    var lazyConsole = self.T.lazyLogger('console');
-
-    gConsoleLogFunc = function(msg) {
-      lazyConsole.value(msg);
-    };
+    var consoleLogger = LOGFAB.console(null, null, self.__name);
+    makeConsoleForLogger(consoleLogger);
 
     if (!opts)
       opts = {};
@@ -126,13 +157,18 @@ var TestUniverseMixins = {
       self.expect_createUniverse();
 
       self.expect_queriesIssued();
-      var callbacks = $_allback.allbackMaker(
+      var callbacks = $allback.allbackMaker(
         ['accounts', 'folders'],
         function gotSlices() {
           self._logger.queriesIssued();
         });
 
-      var testOpts = {};
+      self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
+        onLine: true
+      };
+      var testOpts = {
+        fakeNavigator: self.fakeNavigator
+      };
       if (opts.dbDelta)
         testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
       if (opts.dbVersion)
@@ -140,22 +176,36 @@ var TestUniverseMixins = {
       if (opts.nukeDb)
         testOpts.nukeDb = opts.nukeDb;
 
-      MailUniverse = self.universe = new $_mailuniverse.MailUniverse(
+      self._sendHelperMessage = $router.registerCallbackType('testhelper');
+      self._mainThreadMailBridge = false;
+
+      MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $_mailbridge.MailBridge(self.universe);
-          var TMA = MailAPI = self.MailAPI = new $_mailapi.MailAPI();
+          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe,
+                                                            self.__name);
+          var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
+
+          var realSendMessage = $router.registerSimple(
+            'bridge',
+            function(data) {
+              TMB.__receiveMessage(data.args);
+            });
+          var bouncedSendMessage = $router.registerSimple(
+            'bounced-bridge',
+            function(data) {
+              TMA.__bridgeReceive(data.args);
+            });
+
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
-            window.setZeroTimeout(function() {
-                                    TMB.__receiveMessage(msg);
-                                  });
+            // 'bridge' => main => 'bounced-bridge'
+            bouncedSendMessage(null, msg);
           };
           TMB.__sendMessage = function(msg) {
             self._bridgeLog.bridgeSend(msg.type, msg);
-            window.setZeroTimeout(function() {
-                                    TMA.__bridgeReceive(msg);
-                                  });
+            // 'bounced-bridge' => main => 'bridge'
+            realSendMessage(null, msg);
           };
           self._logger.createUniverse();
 
@@ -172,13 +222,27 @@ var TestUniverseMixins = {
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
                                       function() {
-      if (self.universe) {
-        for (var i = 0; i < self.__testAccounts.length; i++) {
-          self.__testAccounts[i].expect_shutdown();
-        }
-        self.universe.shutdown();
-      }
+      self.cleanShutdown();
     });
+  },
+
+  ensureMainThreadMailAPI: function() {
+    if (this._mainThreadMailBridge)
+      return;
+
+    var bridge = this._mainThreadMailBridge =
+          new $mailbridge.MailBridge(this.universe);
+    var sendMessage = $router.registerSimple(
+      'main-bridge',
+      function(data) {
+        bridge.__receiveMessage(data.args);
+      });
+
+    this._mainThreadMailBridge.__sendMessage = function(msg) {
+      sendMessage('main-bridge', msg);
+    }.bind(this);
+
+    this._sendHelperMessage('create-mailapi');
   },
 
   do_timewarpNow: function(useAsNowTS, humanMsg) {
@@ -233,14 +297,31 @@ var TestUniverseMixins = {
     });
   },
 
+  cleanShutdown: function() {
+    for (var i = 0; i < this.__testAccounts.length; i++) {
+      this.__testAccounts[i].expect_shutdown();
+    }
+    this.expect_cleanShutdown();
+
+    this.universe.shutdown(function() {
+      this._logger.cleanShutdown();
+    }.bind(this));
+  },
+
   do_shutdown: function() {
     var self = this;
     this.T.convenienceSetup('shutdown', this, this.__testAccounts, function() {
-      for (var i = 0; i < self.__testAccounts.length; i++) {
-        self.__testAccounts[i].expect_shutdown();
-      }
-      self.universe.shutdown();
+      self.cleanShutdown();
     });
+  },
+
+  /**
+   * Immediately change ourselves to be online/offline; call from within a
+   * test step or use do_pretendToBeOffline that does it for you.
+   */
+  pretendToBeOffline: function(beOffline) {
+    this.fakeNavigator.onLine = !beOffline;
+    this.universe._onConnectionChange();
   },
 
   /**
@@ -248,12 +329,13 @@ var TestUniverseMixins = {
    * we claim we are offline but do not tear down our IMAP connections.
    */
   do_pretendToBeOffline: function(beOffline, runBefore) {
+    var self = this;
     var step = this.T.convenienceSetup(
       beOffline ? 'go offline' : 'go online',
       function() {
         if (runBefore)
           runBefore();
-        window.navigator.connection.TEST_setOffline(beOffline);
+        self.pretendToBeOffline(beOffline);
       });
     // the step isn't boring if we add expectations to it.
     if (runBefore)
@@ -266,30 +348,21 @@ var TestUniverseMixins = {
    */
   help_checkDatabaseDoesNotContain: function(tablesAndKeyPrefixes) {
     var self = this;
-    var idb = self.universe._db._db,
-        desiredStores = [], i, checkArgs;
-
-    for (i = 0; i < tablesAndKeyPrefixes.length; i++) {
-      checkArgs = tablesAndKeyPrefixes[i];
-      desiredStores.push(checkArgs.table);
-    }
-    var trans = idb.transaction(desiredStores, 'readonly');
 
     tablesAndKeyPrefixes.forEach(function(checkArgs) {
       self.expect_dbRowPresent(checkArgs.table, checkArgs.prefix, false);
-      var store = trans.objectStore(checkArgs.table),
-          range = IDBKeyRange.bound(checkArgs.prefix,
-                                    checkArgs.prefix + '\ufff0',
-                                    false, false),
-          req = store.get(range);
-      req.onerror = function(event) {
-        self._logger.dbProblem(event.target.errorCode);
-      };
-      req.onsuccess = function() {
-        self._logger.dbRowPresent(
-          checkArgs.table, checkArgs.prefix, req.result !== undefined);
-      };
     });
+    this._sendHelperMessage(
+      'checkDatabaseDoesNotContain', tablesAndKeyPrefixes,
+      function(results) {
+        results.forEach(function(result) {
+          if (result.errCode)
+            self._logger.dbProblem(result.errCode);
+          else
+            self._logger.dbRowPresent(result.table, result.prefix,
+                                      result.hasResult);
+        });
+      });
   },
 
   do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {
@@ -314,8 +387,7 @@ var TestUniverseMixins = {
         expectFunc();
       self.expect_operationsDone();
       for (var i = 0; i < killedThing.ops.length; i++) {
-        self.universe._queueAccountOp(testAccount.account,
-                                      killedThing.ops[i]);
+        self.universe._queueAccountOp(testAccount.account, killedThing.ops[i]);
       }
       self.universe.waitForAccountOps(testAccount.account, function() {
         self._logger.operationsDone();
@@ -335,6 +407,7 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+    var TEST_PARAMS = self.RT.envOptions;
     this.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
@@ -389,10 +462,11 @@ var TestCommonAccountMixins = {
    * ]
    */
   expect_headerChanges: function(viewThing, expected, expectedFlags,
-                                 completeCheckOn) {
+                                 completeCheckOn, extraFlags) {
     this.RT.reportActiveActorThisStep(this);
 
-    var changeMap = {}, self = this;
+    var changeMap = {}, self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
     // - generate expectations and populate changeMap
     var i, iExp, expAdditionRep = {}, expDeletionRep = {}, expChangeRep = {};
     if (expected.hasOwnProperty('additions') && expected.additions) {
@@ -421,7 +495,8 @@ var TestCommonAccountMixins = {
     if (expectedFlags)
       this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
                              expectedFlags.growUp || false,
-                             expectedFlags.grow, 'synced');
+                             expectedFlags.grow,
+                             isFailure ? 'syncfailed' : 'synced');
 
     // - listen for the changes
     var additionRep = {}, changeRep = {}, deletionRep = {},
@@ -507,6 +582,9 @@ var TestCommonAccountMixins = {
                                  expectedFlags, extraFlags) {
     var self = this;
     this.T.action(this, 'refreshes', viewThing, function() {
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
+
       // we want this before _expect_dateSyncs because _expect_dateSyncs updates
       // testFolder.initialSynced to be true, which affects this method.
       self._expect_storage_mutexed(viewThing.testFolder, 'refresh', extraFlags);
@@ -514,7 +592,8 @@ var TestCommonAccountMixins = {
       var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
                                                  null, 0);
       self.expect_messagesReported(totalExpected);
-      self.expect_headerChanges(viewThing, checkExpected, expectedFlags);
+      self.expect_headerChanges(viewThing, checkExpected, expectedFlags, null,
+                                extraFlags);
 
       viewThing.slice.refresh();
     });
@@ -526,17 +605,51 @@ var TestCommonAccountMixins = {
    * soon but this provides a wrapper to wait for the bodies .onchange event for
    * the bodyReps if they are not downloaded at the time...
    *
+   * This function can optionally also fetch the body on the main thread
+   * context as well, and remote a function across that will be run there with
+   * the message body passed-in.
+   *
    *    var myHeader;
    *
-   *    testAccount.getMessageBodyWithReps(myHeader, function(body) {
-   *
-   *    });
-   *
+   *    testAccount.getMessageBodyWithReps(
+   *      myHeader,
+   *      function workerThreadTestContextFunc(body) {
+   *      },
+   *      function remotedMainThreadFunc(remotedArg, body, sendResults) {
+   *        // This can be called asynchronously in the future, but should only
+   *        // be called once.
+   *        sendResults('main thread says hello!');
+   *      },
+   *      function gotResultsBackFromMainThread(results) {
+   *      });
    *
    */
-  getMessageBodyWithReps: function(myHeader, callback) {
+  getMessageBodyWithReps: function(myHeader, callback,
+                                   mainThreadArg, onMainThreadFunc,
+                                   withMainThreadResults) {
+    var testUniverse = this.testUniverse;
+    if (onMainThreadFunc) {
+      testUniverse.ensureMainThreadMailAPI();
+    }
+
+    function sendToMain() {
+      if (!onMainThreadFunc)
+        return;
+      testUniverse._sendHelperMessage(
+        'runWithBody',
+        {
+          headerId: myHeader.id,
+          headerDate: myHeader.date.valueOf(),
+          arg: mainThreadArg,
+          func: onMainThreadFunc.toString()
+        },
+        function(results) {
+          if (withMainThreadResults)
+            withMainThreadResults(results);
+        });
+    }
+
     myHeader.getBody({ downloadBodyReps: true }, function(body) {
-      myBody = body;
       // wait for all body reps if they are not here...
       var needBodReps = body.bodyReps.some(function(item) {
         return !item.isDownloaded;
@@ -546,11 +659,13 @@ var TestCommonAccountMixins = {
         body.onchange = function(evt) {
           if (evt.changeType === 'bodyReps') {
             callback(body);
+            sendToMain();
           }
         };
 
       } else {
         callback(body);
+        sendToMain();
       }
     });
   },
@@ -697,7 +812,7 @@ var TestCommonAccountMixins = {
     folderStorage.getMessageHeader(
       suid, dateMS,
       function(header) {
-        folderStorage.deleteMessageHeaderAndBody(header, function() {
+        folderStorage.deleteMessageHeaderAndBodyUsingHeader(header, function() {
           self._logger.deletionNotified(1, header && header.suid);
         });
       });
@@ -755,10 +870,7 @@ var TestFolderMixins = {
     this.serverDeleted.push(this.serverMessages[index]);
     this.serverDeleted.push({ below: this.serverMessages[index - 1],
                               above: this.serverMessages[index + 1] });
-    // ActiveYsnc's removeMessageById method will do this for us; serverMessages
-    // is aliased to serverFolder.messages which gets updated.
-    if (!this.serverFolder)
-      this.serverMessages.splice(index, 1);
+    this.serverMessages.splice(index, 1);
   },
 };
 
@@ -767,6 +879,7 @@ var TestImapAccountMixins = {
   __constructor: function(self, opts) {
     self.eImapAccount = self.eOpAccount =
       self.T.actor('ImapAccount', self.__name, null, self);
+    self.eJobDriver = self.T.actor('ImapJobDriver', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
@@ -857,6 +970,7 @@ var TestImapAccountMixins = {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eImapAccount);
+      self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.RT.reportActiveActorThisStep(self.eBackoff);
       self.expect_accountCreated();
@@ -874,6 +988,7 @@ var TestImapAccountMixins = {
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState();
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName: TEST_PARAMS.name,
@@ -920,7 +1035,7 @@ var TestImapAccountMixins = {
   /**
    * Create a folder and populate it with a set of messages.
    */
-  do_createTestFolder: function(folderName, messageSetDef) {
+  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
@@ -982,7 +1097,7 @@ var TestImapAccountMixins = {
     }
 
     this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
-                                     messageSetDef);
+                                     messageSetDef, extraFlags);
 
     return testFolder;
   },
@@ -1050,8 +1165,11 @@ var TestImapAccountMixins = {
    *   }
    * ]
    */
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef, opts) {
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
+                                        extraFlags) {
     var self = this;
+    var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
+                       messageSetDef.count;
     this.T.convenienceSetup(this, desc, testFolder,function(){
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.universe._testModeDisablingLocalOps = true;
@@ -1080,7 +1198,7 @@ var TestImapAccountMixins = {
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
-      if (checkFlagDefault(opts, 'doNotExpect', false)) {
+      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
       else if (!testFolder.serverMessages) {
@@ -1105,7 +1223,7 @@ var TestImapAccountMixins = {
         self._logger.appendNotified();
         self.universe._testModeDisablingLocalOps = false;
       });
-    }).timeoutMS = 1000 + 600 * messageSetDef.count; // appending can take a bit.
+    }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
   },
 
   /**
@@ -1706,7 +1824,7 @@ var TestImapAccountMixins = {
       self.expect_headerChanges(
         viewThing,
         { additions: expectedMessages, changes: [], deletions: [] },
-        expectedFlags);
+        expectedFlags, null, extraFlags);
       viewThing.slice.requestGrowth(dirMagnitude, userRequestsGrowth);
     });
   },
@@ -1767,82 +1885,13 @@ var TestImapAccountMixins = {
   },
 };
 
-/**
- * For now, we create at most one server for the lifetime of the xpcshell test.
- * So we spin it up the first time we need it, and we never actually clean up
- * after it.
- */
-var gActiveSyncServer = null;
-var TestActiveSyncServerMixins = {
-  __constructor: function(self, opts) {
-    if (!opts.universe)
-      throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup(self, 'created, listening to get port',
-                            function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
-                                                        self.__name));
-      if (!gActiveSyncServer) {
-        gActiveSyncServer = new ActiveSyncServer(opts.universe._useDate);
-        gActiveSyncServer.start(0);
-      }
-      self.server = gActiveSyncServer;
-      self.server.logRequest = function(request) {
-        self._logger.request(request._method, request._path,
-                             request._headers._headers);
-      };
-      self.server.logRequestBody = function(reader) {
-        self._logger.requestBody(reader.dump());
-        reader.rewind();
-      };
-      self.server.logResponse = function(request, response, writer) {
-        var body;
-        if (writer) {
-          var reader = new $_wbxml.Reader(writer.bytes, $_ascp);
-          body = reader.dump();
-        }
-        self._logger.response(response._httpCode, response._headers._headers,
-                              body);
-      };
-      self.server.logResponseError = function(error) {
-        self._logger.responseError(error);
-      };
-      var httpServer = self.server.server;
-      var port = httpServer._socket.port;
-      httpServer._port = port;
-      // it had created the identity on port 0, which is not helpful to anyone
-      httpServer._identity._initialize(port, httpServer._host, true);
-      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
-        'http://localhost:' + self.server.server._socket.port;
-      self._logger.started(httpServer._socket.port);
-    });
-    self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
-      // Do not stop, pre the above, but do stop logging stuff to it.
-      self.server.logRequest = null;
-      self.server.logRequestBody = null;
-      self.server.logResponse = null;
-      /*
-      self.server.stop(function() {
-        self._logger.stopped();
-      });
-      */
-    });
-  },
-
-  getFirstFolderWithType: function(folderType) {
-    var folders = this.server.foldersByType[folderType];
-    return folders[0];
-  },
-
-  getFirstFolderWithName: function(folderName) {
-    return this.server.findFolderByName(folderName);
-  },
-};
-
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
+    self.eJobDriver =
+      self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
 
     self._opts = opts;
     if (!opts.universe)
@@ -1855,8 +1904,9 @@ var TestActiveSyncAccountMixins = {
     self.MailAPI = null;
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
+    var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
-      if (TEST_PARAMS_ARE_DEFAULTS)
+      if (TEST_PARAMS.defaultArgs)
         throw new Error('This test needs a real activesync account!');
       if (opts.realAccountNeeded === 'append')
         throw new Error(
@@ -1916,12 +1966,14 @@ var TestActiveSyncAccountMixins = {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
       self.RT.reportActiveActorThisStep(self.eAccount);
+      self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.expect_accountCreated();
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
           displayName:
@@ -1988,9 +2040,17 @@ var TestActiveSyncAccountMixins = {
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
 
+    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
+                            function() {
+      var existingFolder = self.testServer.getFirstFolderWithName(folderName);
+      if (!existingFolder)
+        return;
+      self.testServer.removeFolder(existingFolder.id);
+    });
+
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.server.addFolder(
+      testFolder.serverFolder = self.testServer.addFolder(
         folderName, null, null, messageSetDef);
       testFolder.serverMessages = testFolder.serverFolder.messages;
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
@@ -2208,7 +2268,9 @@ var TestActiveSyncAccountMixins = {
     var self = this;
     this.T.convenienceSetup(this, 'add message to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverFolder.addMessage(messageDef);
+      folder.serverMessages =
+        self.testServer.addMessageToFolder(folder.serverFolder.id,
+                                           messageDef).messages;
     });
   },
 
@@ -2216,7 +2278,9 @@ var TestActiveSyncAccountMixins = {
     var self = this;
     this.T.convenienceSetup(this, 'add messages to', folder, function() {
       self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverFolder.addMessages(messageSetDef);
+      folder.serverMessages =
+        self.testServer.addMessagesToFolder(folder.serverFolder.id,
+                                            messageSetDef).messages;
     });
   },
 };
@@ -2228,6 +2292,15 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     events: {
       apiSend: { type: false, msg: false },
       bridgeSend: { type: false, msg: false },
+    },
+  },
+  console: {
+    type: $log.LOGGING,
+    events: {
+      log: { msg: false },
+      error: { msg: false },
+      info: { msg: false},
+      warn: { msg: false },
     },
   },
   testUniverse: {
@@ -2243,6 +2316,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       killedOperations: { length: true, ops: false },
       operationsDone: {},
+
+      cleanShutdown: {},
     },
     errors: {
       dbProblem: { err: false },
@@ -2281,28 +2356,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changeMismatch: { field: false, expectedValue: false },
     },
   },
-  testActiveSyncServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      request: { method: false, path: false, headers: false },
-      requestBody: { },
-      response: { status: false, headers: false },
-    },
-    errors: {
-      responseError: { err: false },
-    },
-    // I am putting these under TEST_ONLY_ as a hack to get these displayed
-    // differently since they are walls of text.
-    TEST_ONLY_events: {
-      requestBody: { body: false },
-      response: { body: false },
-    },
-  },
 });
 
 exports.TESTHELPER = {
@@ -2322,7 +2375,6 @@ exports.TESTHELPER = {
   actorMixins: {
     testUniverse: TestUniverseMixins,
     testAccount: TestCommonAccountMixins,
-    testActiveSyncServer: TestActiveSyncServerMixins,
   },
   thingMixins: {
     testFolder: TestFolderMixins,

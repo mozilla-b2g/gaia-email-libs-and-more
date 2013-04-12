@@ -1,0 +1,8 @@
+content test-runner file:content/
+resource test-runner file:.
+
+locale branding en-US file:locale/branding/
+content branding file:branding/
+
+component {14f565f2-8886-4b9e-92f6-d52b53d87464} components/testfile-proto.js
+contract @mozilla.org/network/protocol;1?name=testfile {14f565f2-8886-4b9e-92f6-d52b53d87464}

@@ -127,6 +127,8 @@ function ImapFolderConn(account, storage, _parentLog) {
 
   this._conn = null;
   this.box = null;
+
+  this._deathback = null;
 }
 ImapFolderConn.prototype = {
   /**
@@ -154,6 +156,7 @@ ImapFolderConn.prototype = {
    */
   acquireConn: function(callback, deathback, label, dieOnConnectFailure) {
     var self = this;
+    this._deathback = deathback;
     this._account.__folderDemandsConnection(
       this._storage.folderId, label,
       function gotconn(conn) {
@@ -170,8 +173,11 @@ ImapFolderConn.prototype = {
               // hand the connection back, noting a resource problem
               self._account.__folderDoneWithConnection(
                 self._conn, false, true);
-              if (deathback)
+              if (self._deathback) {
+                var deathback = self._deathback;
+                self.clearErrorHandler();
                 deathback();
+              }
               return;
             }
             self.box = box;
@@ -180,8 +186,11 @@ ImapFolderConn.prototype = {
       },
       function deadconn() {
         self._conn = null;
-        if (deathback)
+        if (self._deathback) {
+          var deathback = self._deathback;
+          self.clearErrorHandler();
           deathback();
+        }
       },
       dieOnConnectFailure);
   },
@@ -190,8 +199,33 @@ ImapFolderConn.prototype = {
     if (!this._conn)
       return;
 
+    this.clearErrorHandler();
     this._account.__folderDoneWithConnection(this._conn, true, false);
     this._conn = null;
+  },
+
+  /**
+   * If no connection, acquires one and also sets up
+   * deathback if connection is lost.
+   */
+  withConnection: function (callback, deathback, label) {
+    if (!this._conn) {
+      this.acquireConn(function () {
+        this.withConnection(callback, deathback, label);
+      }.bind(this), deathback, label);
+      return;
+    }
+
+    this._deathback = deathback;
+    callback(this);
+  },
+
+  /**
+   * Resets error handling that may be triggered during
+   * loss of connection.
+   */
+  clearErrorHandler: function () {
+    this._deathback = null;
   },
 
   reselectBox: function(callback) {
@@ -219,6 +253,10 @@ ImapFolderConn.prototype = {
                                     abortedCallback, progressCallback),
         abortedCallback, 'sync', true);
       return;
+    }
+    // We do have a connection, hook-up our abortedCallback
+    else {
+      this._deathback = abortedCallback;
     }
 
     // Having a connection is 10% of the battle
@@ -322,6 +360,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             // If we were being used for a refresh, they may want us to stop
             // and change their sync strategy.
             if (doneCallback('bisect', bisectInfo, null) === 'abort') {
+              self.clearErrorHandler();
               doneCallback('bisect-aborted', null);
               return null;
             }
@@ -341,7 +380,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           var idxUid = serverUIDs.indexOf(header.srvid);
           // deleted!
           if (idxUid === -1) {
-            storage.deleteMessageHeaderAndBody(header);
+            storage.deleteMessageHeaderAndBodyUsingHeader(header);
             numDeleted++;
             headers[iMsg] = null;
             continue;
@@ -377,6 +416,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
               return;
 
             completed = true;
+            self.clearErrorHandler();
             doneCallback(null, null, newCount + knownCount,
                          skewedStartTS, skewedEndTS);
         };
@@ -571,7 +611,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     var self = this;
 
     fetcher.onparsed = function(req, resp) {
-      $imapchew.updateMessageWithFetch(header, body, req, resp);
+      $imapchew.updateMessageWithFetch(header, body, req, resp, self._LOG);
 
       if (req.createSnippet) {
         self._storage.updateMessageHeader(
@@ -828,7 +868,8 @@ ImapFolderSyncer.prototype = {
    * Can we grow this sync range?  IMAP always lets us do this.
    */
   get canGrowSync() {
-    return true;
+    // localdrafts is offline-only, so we can't ask the server for messages.
+    return this.folderStorage.folderMeta.type !== 'localdrafts';
   },
 
   /**
@@ -1256,7 +1297,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     errors: {
       callbackErr: { ex: $log.EXCEPTION },
 
-      bodyChewError: { ex: $log.EXCEPTION },
+      htmlParseError: { ex: $log.EXCEPTION },
+      htmlSnippetError: { ex: $log.EXCEPTION },
+      textChewError: { ex: $log.EXCEPTION },
+      textSnippetError: { ex: $log.EXCEPTION },
 
       // Attempted to sync with an empty or inverted range.
       illegalSync: { startTS: false, endTS: false },

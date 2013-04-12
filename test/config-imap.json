@@ -1,1 +1,31 @@
-{ "account": "imap", "torture": "false" }
+{ 
+  "account": "imap", "torture": "false",
+  "tests": [
+    "test_mail_html.js",
+    "test_mail_quoting.js",
+
+    "test_imap_complex.js",
+    "test_imap_general.js",
+    "test_imap_internals.js",
+    "test_imap_lazybodies.js",
+    "test_imap_partialbodyfetching.js",
+    "test_imap_just_auth.js",
+    "test_imap_mime.js",
+    "test_imap_errors.js",
+    "test_imap_proto.js",
+    "test_imap_prober.js",
+    "test_smtp_prober.js",
+
+
+    "test_compose.js",
+    "test_body_observers.js",
+
+    "test_autoconfig.js",
+    "test_account_logic.js",
+    "test_account_create_unit.js",
+    "test_folder_storage.js",
+    "test_linkify.js",
+    "test_mutation.js",
+    "test_search.js"
+  ]
+}

@@ -4,13 +4,17 @@
 
 define(
   [
+    './worker-router',
     './util',
     'exports'
   ],
   function(
+    $router,
     $util,
     exports
   ) {
+
+var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
   var addTags = undo ? op.removeTags : op.addTags,
@@ -110,7 +114,10 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
         if (header.srvid)
           stateDelta.serverIdMap[header.suid] = header.srvid;
 
-        if (sourceStorage === targetStorage) {
+        if (sourceStorage === targetStorage ||
+            // localdraft messages aren't real, and so must not be moved and
+            // are only eligible for nuke deletion.
+            sourceStorage.folderMeta.type === 'localdrafts') {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
             processNext();
@@ -118,11 +125,12 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
           else { // op.type === 'delete'
             // If the op is a delete and the source and destination folders
             // match, we're deleting from trash, so just perma-delete it.
-            sourceStorage.deleteMessageHeaderAndBody(header, processNext);
+            sourceStorage.deleteMessageHeaderAndBodyUsingHeader(
+              header, processNext);
           }
         }
         else {
-          sourceStorage.deleteMessageHeaderAndBody(
+          sourceStorage.deleteMessageHeaderAndBodyUsingHeader(
             header, deleted_nowAdd);
         }
       }
@@ -249,33 +257,36 @@ exports.do_download = function(op, callback) {
    */
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
-    var dstorage = navigator.getDeviceStorage(storage);
-    var req = dstorage.addNamed(blob, filename);
-    req.onerror = function() {
-      console.warn('failed to save attachment to', storage, filename,
-                   'type:', blob.type);
-      pendingStorageWrites--;
-      // if we failed to unique the file after appending junk, just give up
-      if (isRetry) {
-        if (pendingStorageWrites === 0)
+
+    var callback = function(success, error) {
+      if (success) {
+        self._LOG.savedAttachment(storage, blob.type, blob.size);
+        console.log('saved attachment to', storage, filename, 'type:', blob.type);
+        partInfo.file = [storage, filename];
+        if (--pendingStorageWrites === 0)
           done();
-        return;
+      } else {
+        self._LOG.saveFailure(storage, blob.type, error, filename);
+        console.warn('failed to save attachment to', storage, filename,
+                     'type:', blob.type);
+        pendingStorageWrites--;
+        // if we failed to unique the file after appending junk, just give up
+        if (isRetry) {
+          if (pendingStorageWrites === 0)
+            done();
+          return;
+        }
+        // retry by appending a super huge timestamp to the file before its
+        // extension.
+        var idxLastPeriod = filename.lastIndexOf('.');
+        if (idxLastPeriod === -1)
+          idxLastPeriod = filename.length;
+        filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+                    filename.substring(idxLastPeriod);
+        saveToStorage(blob, storage, filename, partInfo, true);
       }
-      // retry by appending a super huge timestamp to the file before its
-      // extension.
-      var idxLastPeriod = filename.lastIndexOf('.');
-      if (idxLastPeriod === -1)
-        idxLastPeriod = filename.length;
-      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
-                   filename.substring(idxLastPeriod);
-      saveToStorage(blob, storage, filename, partInfo, true);
     };
-    req.onsuccess = function() {
-      console.log('saved attachment to', storage, filename, 'type:', blob.type);
-      partInfo.file = [storage, filename];
-      if (--pendingStorageWrites === 0)
-        done();
-    };
+    sendMessage('save', [storage, blob, filename], callback);
   }
   var gotParts = function gotParts(err, bodyBlobs) {
     if (bodyBlobs.length !== partsToDownload.length) {
@@ -330,6 +341,97 @@ exports.undo_download = function(op, callback) {
   callback(null);
 };
 
+
+exports.local_do_saveDraft = function(op, callback) {
+  var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
+  if (!localDraftsFolder) {
+    callback('moot');
+    return;
+  }
+  var self = this;
+  this._accessFolderForMutation(
+    localDraftsFolder.id, /* needConn*/ false,
+    function(nullFolderConn, folderStorage) {
+      function next() {
+        if (--waitingFor === 0) {
+          callback(
+            null,
+            { suid: header.suid, date: header.date },
+            /* save account */ true);
+        }
+      }
+      var waitingFor = 2;
+
+      var header = op.header, body = op.body;
+      // fill-in header id's
+      header.id = folderStorage._issueNewHeaderId();
+      header.suid = folderStorage.folderId + '/' + header.id;
+
+      // If there already was a draft saved, delete it.
+      // Note that ordering of the removal and the addition doesn't really
+      // matter here because of our use of transactions.
+      if (op.existingNamer) {
+        waitingFor++;
+        folderStorage.deleteMessageHeaderAndBody(
+          op.existingNamer.suid, op.existingNamer.date, next);
+      }
+
+      folderStorage.addMessageHeader(header, next);
+      folderStorage.addMessageBody(header, body, next);
+    },
+    /* no conn => no deathback required */ null,
+    'saveDraft');
+};
+
+exports.do_saveDraft = function(op, callback) {
+  // there is no server component for this
+  callback(null);
+};
+exports.check_saveDraft = function(op, callback) {
+  callback(null, 'moot');
+};
+exports.local_undo_saveDraft = function(op, callback) {
+  callback(null);
+};
+exports.undo_saveDraft = function(op, callback) {
+  callback(null);
+};
+
+exports.local_do_deleteDraft = function(op, callback) {
+  var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
+  if (!localDraftsFolder) {
+    callback('moot');
+    return;
+  }
+  var self = this;
+  this._accessFolderForMutation(
+    localDraftsFolder.id, /* needConn*/ false,
+    function(nullFolderConn, folderStorage) {
+      folderStorage.deleteMessageHeaderAndBody(
+        op.messageNamer.suid, op.messageNamer.date,
+        function() {
+          callback(null, null, /* save account */ true);
+        });
+    },
+    /* no conn => no deathback required */ null,
+    'deleteDraft');
+};
+
+exports.do_deleteDraft = function(op, callback) {
+  // there is no server component for this
+  callback(null);
+};
+exports.check_deleteDraft = function(op, callback) {
+  callback(null, 'moot');
+};
+exports.local_undo_deleteDraft = function(op, callback) {
+  callback(null);
+};
+exports.undo_deleteDraft = function(op, callback) {
+  callback(null);
+};
+
+
 exports.postJobCleanup = function(passed) {
   if (passed) {
     var deltaMap, fullMap;
@@ -350,7 +452,7 @@ exports.postJobCleanup = function(passed) {
       deltaMap = this._stateDelta.moveMap;
       fullMap = this._state.moveMap;
       for (var oldSuid in deltaMap) {
-        var newSuid = deltaMap[suid];
+        var newSuid = deltaMap[oldSuid];
         fullMap[oldSuid] = newSuid;
       }
     }

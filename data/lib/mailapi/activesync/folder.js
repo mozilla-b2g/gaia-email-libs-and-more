@@ -793,9 +793,23 @@ ActiveSyncFolderConn.prototype = {
 
     // Process the body as needed.
     if (bodyType === asbEnum.Type.PlainText) {
-      var bodyRep = $quotechew.quoteProcessTextBody(bodyText);
-      header.snippet = $quotechew.generateSnippet(bodyRep,
-                                                  DESIRED_SNIPPET_LENGTH);
+      try {
+        var bodyRep = $quotechew.quoteProcessTextBody(bodyText);
+      }
+      catch (ex) {
+        this._LOG.textChewError(ex);
+        // an empty content rep is better than nothing.
+        bodyRep = [];
+      }
+      try {
+        header.snippet = $quotechew.generateSnippet(bodyRep,
+                                                    DESIRED_SNIPPET_LENGTH);
+      }
+      catch (ex) {
+        this._LOG.textSnippetError(ex);
+        header.snippet = '';
+      }
+
       var content = bodyRep[1];
       var len = content.length;
 
@@ -808,15 +822,25 @@ ActiveSyncFolderConn.prototype = {
       }];
     }
     else if (bodyType === asbEnum.Type.HTML) {
-      var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
-      header.snippet = $htmlchew.generateSnippet(htmlNode,
-                                                 DESIRED_SNIPPET_LENGTH);
-      var content = htmlNode.innerHTML;
-      var len = content.length;
+      try {
+        var html = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
+      }
+      catch (ex) {
+        this._LOG.htmlParseError(ex);
+        html = '';
+      }
+      try {
+        header.snippet = $htmlchew.generateSnippet(html);
+      }
+      catch (ex) {
+        this._LOG.htmlSnippetError(ex);
+        header.snippet = '';
+      }
+      var len = html.length;
 
       body.bodyReps = [{
         type: 'html',
-        content: content,
+        content: html,
         sizeEstimate: len,
         amountDownloaded: len,
         isDownloaded: true
@@ -1093,7 +1117,8 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
   /**
-   * Can we synchronize?  Not if we don't have a server id!
+   * Can we synchronize?  Not if we don't have a server id!  (This happens for
+   * the inbox when it is speculative before our first syncFolderList.)
    */
   get syncable() {
     return this.folderConn.serverId !== null;
@@ -1192,6 +1217,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       sync: {
         newMessages: true, changedMessages: true, deletedMessages: true,
       },
+    },
+    errors: {
+      htmlParseError: { ex: $log.EXCEPTION },
+      htmlSnippetError: { ex: $log.EXCEPTION },
+      textChewError: { ex: $log.EXCEPTION },
+      textSnippetError: { ex: $log.EXCEPTION },
     },
   },
   ActiveSyncFolderSyncer: {

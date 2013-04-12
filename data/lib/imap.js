@@ -194,7 +194,7 @@ function ImapConnection (options) {
       }
     }
   };
-  this._options = extend(true, this._options, options);
+  this._options = extend(this._options, options);
   // The Date.now thing is to assign a random/unique value as a logging stop-gap
   this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, Date.now() % 1000) : null);
   if (this._LOG) this._LOG.created();
@@ -286,7 +286,10 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   this._state.conn.on('connect', function() {
     if (self._LOG) self._LOG.connected();
-    clearTimeoutFunc(self._state.tmrConn);
+    if (self._state.tmrConn) {
+      clearTimeoutFunc(self._state.tmrConn);
+      self._state.tmrConn = null;
+    }
     self._state.status = STATES.NOAUTH;
     /*
     We will need to add support for node-like starttls emulation on top of TCPSocket
@@ -813,7 +816,10 @@ ImapConnection.prototype.connect = function(loginCb) {
           errType = err.type = 'bad-security';
         }
       }
-      clearTimeoutFunc(self._state.tmrConn);
+      if (self._state.tmrConn) {
+        clearTimeoutFunc(self._state.tmrConn);
+        self._state.tmrConn = null;
+      }
       if (self._state.status === STATES.NOCONNECT) {
         var connErr = new Error('Unable to connect. Reason: ' + err);
         connErr.type = errType || 'unresponsive-server';
@@ -835,8 +841,6 @@ ImapConnection.prototype.connect = function(loginCb) {
  * are invoked.
  */
 ImapConnection.prototype.die = function() {
-  // NB: there's still a lot of events that could happen, but this is only
-  // being used by unit tests right now.
   if (this._state.conn) {
     this._state.conn.removeAllListeners();
     this._state.conn.end();
@@ -1135,7 +1139,7 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
   }, toFetch, bodyRange = '', self = this;
   if (typeof options !== 'object')
     options = {};
-  extend(true, opts, options);
+  extend(opts, options, 'request');
 
   if (!Array.isArray(opts.request.headers)) {
     if (Array.isArray(opts.request.body)) {
@@ -2183,92 +2187,17 @@ function convStr(str) {
     return str;
 }
 
-/**
- * Adopted from jquery's extend method. Under the terms of MIT License.
- *
- * http://code.jquery.com/jquery-1.4.2.js
- *
- * Modified by Brian White to use Array.isArray instead of the custom isArray
- * method
- */
-function extend() {
-  // copy reference to target object
-  var target = arguments[0] || {},
-      i = 1,
-      length = arguments.length,
-      deep = false,
-      options,
-      name,
-      src,
-      copy;
-
-  // Handle a deep copy situation
-  if (typeof target === "boolean") {
-    deep = target;
-    target = arguments[1] || {};
-    // skip the boolean and the target
-    i = 2;
+// Very simple extend that meets our minimal use-cases because the jQuery one
+// was not working correct in the worker and we don't really need much in the
+// way of fanciness.
+function extend(target, source, recurseInto) {
+  for (var key in source) {
+    if (recurseInto && key === recurseInto)
+      extend(target[key], source[key]);
+    else
+      target[key] = source[key];
   }
 
-  // Handle case when target is a string or something (possible in deep copy)
-  if (typeof target !== "object" && !typeof target === 'function')
-    target = {};
-
-  var isPlainObject = function(obj) {
-    // Must be an Object.
-    // Because of IE, we also have to check the presence of the constructor
-    // property.
-    // Make sure that DOM nodes and window objects don't pass through, as well
-    if (!obj || toString.call(obj) !== "[object Object]" || obj.nodeType
-        || obj.setInterval)
-      return false;
-
-    var has_own_constructor = hasOwnProperty.call(obj, "constructor");
-    var has_is_prop_of_method = hasOwnProperty.call(obj.constructor.prototype,
-                                                    "isPrototypeOf");
-    // Not own constructor property must be Object
-    if (obj.constructor && !has_own_constructor && !has_is_prop_of_method)
-      return false;
-
-    // Own properties are enumerated firstly, so to speed up,
-    // if last one is own, then all properties are own.
-
-    var last_key;
-    for (var key in obj)
-      last_key = key;
-
-    return last_key === undefined || hasOwnProperty.call(obj, last_key);
-  };
-
-
-  for (; i < length; i++) {
-    // Only deal with non-null/undefined values
-    if ((options = arguments[i]) !== null) {
-      // Extend the base object
-      for (name in options) {
-        src = target[name];
-        copy = options[name];
-
-        // Prevent never-ending loop
-        if (target === copy)
-            continue;
-
-        // Recurse if we're merging object literal values or arrays
-        if (deep && copy && (isPlainObject(copy) || Array.isArray(copy))) {
-          var clone = src && (isPlainObject(src) || Array.isArray(src)
-                              ? src : (Array.isArray(copy) ? [] : {}));
-
-          // Never move original objects, clone them
-          target[name] = extend(deep, clone, copy);
-
-        // Don't bring in undefined values
-        } else if (copy !== undefined)
-          target[name] = copy;
-      }
-    }
-  }
-
-  // Return the modified object
   return target;
 };
 

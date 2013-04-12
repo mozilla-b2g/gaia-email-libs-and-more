@@ -3,13 +3,16 @@
  * received messages.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_devicestorage', './resources/messageGenerator',
+        'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
+        'exports'],
+       function($tc, $th_imap, $th_devicestorage, $msggen,
+                $util, $fakeacct, $accountcommon, exports) {
 
-var $util = require('mailapi/util');
-var $fakeacct = require('mailapi/fake/account');
-
-var TD = $tc.defineTestsFor(
-  { id: 'test_compose' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_compose' }, null,
+  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
@@ -25,11 +28,16 @@ function makeRandomSubject() {
  * we think it was sent, verify that it ended up in the sent folder, and verify
  * that we received it (which is also a good test of refresh).
  */
-TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
+TD.commonCase('compose, save, edit, reply (text/plain), forward',
+              function(T, RT) {
+  T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
-                              realAccountNeeded: true });
+                              realAccountNeeded: true }),
+      testStorage = T.actor('testDeviceStorage', 'sdcard',
+                            { storage: 'sdcard' });
 
   var uniqueSubject = makeRandomSubject();
 
@@ -43,12 +51,18 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       sentView = testAccount.do_openFolderView(
         'sent', sentFolder, null, null,
         { syncedToDawnOfTime: 'ignore' }),
+      localDraftsFolder = testAccount.do_useExistingFolderWithType(
+        'localdrafts', ''),
+      localDraftsView = testAccount.do_openFolderView(
+        'localdrafts', localDraftsFolder, null, null,
+        { nonet: true }),
       replyComposer, expectedReplyBody;
 
   // - compose and send
+  T.group('compose');
   T.action('begin composition', eLazy, function() {
     eLazy.expect_event('compose setup completed');
-    composer = MailAPI.beginMessageComposition(
+    composer = testUniverse.MailAPI.beginMessageComposition(
       null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
@@ -63,9 +77,11 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
     attachmentData.push(iData);
   }
 
-  T.action('send', eLazy, function() {
-    eLazy.expect_event('sent');
-    eLazy.expect_event('appended');
+  T.action(testAccount, 'compose, save', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+    eLazy.expect_event('saved');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
@@ -76,22 +92,112 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
       blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
     });
 
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+    composer.die();
+    composer = null;
+  });
+
+  var lastDraftId;
+  T.action('locate draft header, resume editing', eLazy, function() {
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_event('resumed');
+    eLazy.expect_namedValue('draft subject', uniqueSubject);
+    eLazy.expect_namedValue('draft text',
+                            'Antelope banana credenza.\n\nDialog excitement!');
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    lastDraftId = draftHeader.id;
+    eLazy.namedValue('header subject', draftHeader.subject);
+    composer = draftHeader.editAsDraft(function() {
+      eLazy.event('resumed');
+      eLazy.namedValue('draft subject', composer.subject);
+      eLazy.namedValue('draft text', composer.body.text);
+    });
+  });
+  T.action(testAccount, 'save draft again, old draft deleted',eLazy,function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('saved');
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+  });
+  T.check('id change check', eLazy, function() {
+    // we could also listen for changes on the view...
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_namedValueD('id changed?', true);
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    eLazy.namedValue('header subject', draftHeader.subject);
+    eLazy.namedValueD('id changed?', draftHeader.id !== lastDraftId,
+                      draftHeader.id);
+    lastDraftId = draftHeader.id;
+  });
+  T.action(testAccount, 'save draft 2nd time, old draft deleted',
+           eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('saved');
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+  });
+  T.check('id change check', eLazy, function() {
+    // we could also listen for changes on the view...
+    eLazy.expect_namedValue('draft count', 1);
+    eLazy.expect_namedValue('header subject', uniqueSubject);
+    eLazy.expect_namedValueD('id changed?', true);
+
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    var draftHeader = localDraftsView.slice.items[0];
+    eLazy.namedValue('header subject', draftHeader.subject);
+    eLazy.namedValueD('id changed?', draftHeader.id !== lastDraftId,
+                      draftHeader.id);
+    lastDraftId = draftHeader.id;
+  });
+  T.action(testAccount, 'send', eLazy, function() {
+    // sending is not tracked as an op, but appending is
+    testAccount.expect_runOp(
+      'append',
+      { local: false, server: true, save: false });
+    // note: the delete op is asynchronously scheduled by the send process once
+    // it completes; our callback below will be invoked before the op is
+    // guaranteed to run to completion.
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: true });
+
+    eLazy.expect_event('sent');
+
     composer.finishCompositionSendMessage(function(err, badAddrs) {
       if (err)
         eLazy.error(err);
       else
         eLazy.event('sent');
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eLazy.event('appended');
-      });
     });
   }).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
+
+  T.check('draft message deleted', eLazy, function() {
+    eLazy.expect_namedValue('draft count', 0);
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+  });
 
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
-      __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
+      RT.reportActiveActorThisStep(testAccount.eJobDriver);
       RT.reportActiveActorThisStep(eLazy);
+      RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
       eLazy.expect_namedValue(
         'attachments',
@@ -101,8 +207,10 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
          }]);
-      eLazy.expect_namedValue('addNamed:sdcard', 'foo.png');
-      eLazy.expect_namedValue('get:sdcard', 'foo.png');
+      testAccount.eJobDriver.expect_savedAttachment('sdcard', 'image/png', 256);
+      // adding a file sends created and modified
+      testStorage.expect_created('foo.png');
+      testStorage.expect_modified('foo.png');
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
@@ -119,23 +227,31 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
             sizeEstimateInBytes: att.sizeEstimateInBytes,
           });
           att.download(function() {
-            var storage = navigator.getDeviceStorage(att._file[0]),
-                storageReq = storage.get(att._file[1]);
-            storageReq.onsuccess = function() {
-              var reader = new FileReader();
-              reader.onload = function(data) {
-                var dataArr = [];
-                for (var i = 0; i < data.length; i++) {
-                  dataArr.push(data[i]);
+            testStorage.get(
+              att._file[1],
+              function gotBlob(error, blob) {
+                if (error) {
+                  console.error('blob fetch error:', error);
+                  return;
                 }
-                eLazy.namedValue('attachment[' + iAtt + '].size',
-                                 body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.namedValue('attachment[' + iAtt + '].data',
-                                 dataArr);
-                __deviceStorageLogFunc = function() {};
-              };
-              reader.readAsArrayBuffer(storageReq.result);
-            };
+                var reader = new FileReaderSync();
+                try {
+                  var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+                  var dataArr = [];
+                  console.log('got', data.length, 'bytes, readyState',
+                              reader.readyState);
+                  for (var i = 0; i < data.length; i++) {
+                    dataArr.push(data[i]);
+                  }
+                  eLazy.namedValue('attachment[' + iAtt + '].size',
+                                   body.attachments[iAtt].sizeEstimateInBytes);
+                  eLazy.namedValue('attachment[' + iAtt + '].data',
+                                   dataArr);
+                }
+                catch(ex) {
+                  console.error('reader error', ex);
+                }
+              });
           });
         });
         eLazy.namedValue('attachments', attachments);
@@ -159,7 +275,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
           // XXX we used to have a default signature; when we start letting
           // users configure signatures again, then we will want the test to
           // use one and put this back.
-          //'', '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          //'', '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
         ].join('\n'),
         html: null
       };
@@ -219,7 +335,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
         text: [
           '', '',
           // XXX when signatures get enabled/tested:
-          // '-- ', $_accountcommon.DEFAULT_SIGNATURE, '',
+          // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
           '-------- Original Message --------',
           'Subject: Re: ' + uniqueSubject,
           'Date: ' + safeifyTime(replySentDate + ''),
@@ -261,6 +377,7 @@ TD.commonCase('compose, reply (text/plain), forward', function(T, RT) {
  * message into the inbox so that we can reply to it.
  */
 TD.commonCase('reply/forward html message', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,
@@ -285,22 +402,19 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       replyHtmlHtml  =
         '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
         // XXX we want this style scoped
-        // XXX aaaaaargh. our sanitizer is falling victim to platform
-        // helpfulness and turns "margin: 0;" into
-        // "margin-top: 0px; margin-bottom: 0px;"
         '<style type="text/css">' +
-        'p { margin-top: 0px; margin-bottom: 0px; }' +
+        'p { margin: 0; }' +
         '</style>' +
         '<p>I am the reply to the quote below.</p>' +
         '<blockquote><p>I am the replied-to text!</p></blockquote>' +
         '</blockquote>',
         /* XXX when signatures get put back in/tested:
         '<pre class="moz-signature" cols="72">' +
-        $_accountcommon.DEFAULT_SIGNATURE +
+        $accountcommon.DEFAULT_SIGNATURE +
         '</pre>',
         */
       bpartHtml =
-        new SyntheticPartLeaf(
+        new $msggen.SyntheticPartLeaf(
           bstrHtml,  { contentType: 'text/html' });
 
   var uniqueSubject = makeRandomSubject();
@@ -325,7 +439,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
     var messageAppends = [],
-        msgGen = new MessageGenerator(testAccount._useDate);
+        msgGen = new $msggen.MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
@@ -381,7 +495,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
       var expectedHtmlRep = [
         '<div>',
-        expectedReplyBody.text.replace(/\n/g, '<br>'),
+        expectedReplyBody.text.replace(/\n/g, '<br/>'),
         '</div>',
         expectedReplyBody.html,
       ].join('');
@@ -515,6 +629,7 @@ TD.commonCase('reply all', function(T, RT) {
 });
 
 TD.commonCase('bcc self', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true,
@@ -593,6 +708,4 @@ TD.commonCase('bcc self', function(T, RT) {
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 });
 
-function run_test() {
-  runMyTests(90);
-}
+}); // end define

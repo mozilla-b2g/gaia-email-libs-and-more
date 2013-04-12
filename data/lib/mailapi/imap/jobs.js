@@ -217,18 +217,38 @@ ImapJobDriver.prototype = {
     var storage = this.account.getFolderStorageForFolderId(folderId),
         self = this;
     storage.runMutexed(label, function(releaseMutex) {
-      self._heldMutexReleasers.push(releaseMutex);
       var syncer = storage.folderSyncer;
-      if (needConn && !syncer.folderConn._conn) {
-        syncer.folderConn.acquireConn(callback, deathback, label);
-      }
-      else {
+      var action = function () {
+        self._heldMutexReleasers.push(releaseMutex);
         try {
           callback(syncer.folderConn, storage);
         }
         catch (ex) {
           self._LOG.callbackErr(ex);
         }
+      };
+
+      // localdrafts is a synthetic folder and so we never want a connection
+      // for it.  This is a somewhat awkward place to make this decision, but
+      // it does work.
+      if (needConn && storage.folderMeta.type !== 'localdrafts') {
+        syncer.folderConn.withConnection(function () {
+          // When we release the mutex, the folder may not
+          // release its connection, so be sure to reset
+          // error handling (deathback).  We are slightly
+          // abusing the mutex releasing mutex mechanism
+          // here. And we do want to do this before calling
+          // the actual mutex releaser since we might
+          // otherwise interact with someone else who just
+          // acquired the mutex, (only) theoretically.
+          self._heldMutexReleasers.push(function() {
+            syncer.folderConn.clearErrorHandler();
+          });
+
+          action();
+        }, deathback, label);
+      } else {
+        action();
       }
     });
   },
@@ -359,6 +379,32 @@ ImapJobDriver.prototype = {
   local_undo_download: $jobmixins.local_undo_download,
 
   undo_download: $jobmixins.undo_download,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // saveDraft
+
+  local_do_saveDraft: $jobmixins.local_do_saveDraft,
+
+  do_saveDraft: $jobmixins.do_saveDraft,
+
+  check_saveDraft: $jobmixins.check_saveDraft,
+
+  local_undo_saveDraft: $jobmixins.local_undo_saveDraft,
+
+  undo_saveDraft: $jobmixins.undo_saveDraft,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // deleteDraft
+
+  local_do_deleteDraft: $jobmixins.local_do_deleteDraft,
+
+  do_deleteDraft: $jobmixins.do_deleteDraft,
+
+  check_deleteDraft: $jobmixins.check_deleteDraft,
+
+  local_undo_deleteDraft: $jobmixins.local_undo_deleteDraft,
+
+  undo_deleteDraft: $jobmixins.undo_deleteDraft,
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
@@ -724,10 +770,14 @@ ImapJobDriver.prototype = {
           return;
         }
 
-        if (sourceStorage.folderId === targetFolderId) {
+        // There is nothing to do on localdrafts folders, server-wise.
+        if (sourceStorage.folderMeta.type === 'localdrafts') {
+          perFolderDone();
+        }
+        else if (sourceStorage.folderId === targetFolderId) {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
-            processNext();
+            perFolderDone();
           }
           else { // op.type === 'delete'
             // If the op is a delete and the source and destination folders
@@ -981,7 +1031,7 @@ ImapJobDriver.prototype = {
             walkBoxes(box.children, boxPath + box.delim, pathDepth + 1);
           }
           else {
-            var type = self.account._determineFolderType(box, boxPath);
+            var type = self.account._determineFolderType(box, boxPath, rawConn);
             folderMeta = self.account._learnAboutFolder(
               boxName, boxPath, parentFolderId, type, box.delim, pathDepth);
           }
@@ -1099,6 +1149,13 @@ HighLevelJobDriver.prototype = {
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {
     type: $log.DAEMON,
+    events: {
+      savedAttachment: { storage: true, mimeType: true, size: true },
+      saveFailure: { storage: false, mimeType: false, error: false },
+    },
+    TEST_ONLY_events: {
+      saveFailure: { filename: false },
+    },
     asyncJobs: {
       acquireConnWithoutFolder: { label: false },
     },

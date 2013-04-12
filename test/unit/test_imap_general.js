@@ -17,9 +17,10 @@
  *   deleted messages, and flag changes.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
 
 const INITIAL_SYNC_DAYS = 5,
@@ -258,6 +259,4 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_closeFolderView(msearchView);
 });
 
-function run_test() {
-  runMyTests(20); // we do a lot of appending...
-}
+}); // end define

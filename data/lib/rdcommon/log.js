@@ -1778,6 +1778,7 @@ exports.DATABASE = 'database';
 exports.CRYPTO = 'crypto';
 exports.QUERY = 'query';
 exports.ACCOUNT = 'account';
+exports.LOGGING = 'log';
 
 exports.TEST_DRIVER = 'testdriver';
 exports.TEST_GROUP = 'testgroup';

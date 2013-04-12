@@ -4,9 +4,10 @@
  * messages through the server and can even do everything synchronously.
  */
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_linkify' }, null, [$th_imap.TESTHELPER], ['app']);
 
 /**
@@ -35,16 +36,19 @@ var TEXT_CASES = [
     text: 'https://www.mozilla.org',
     url: 'https://www.mozilla.org',
   },
-  /*
   {
     name: 'naked domain name',
     text: 'www.mozilla.org',
-    url: 'http://www.mozilla.org/',
+    url: 'http://www.mozilla.org',
   },
-  */
   {
     name: 'link with path',
     text: 'http://www.mozilla.org/path/path/path.html',
+    url: 'http://www.mozilla.org/path/path/path.html',
+  },
+  {
+    name: 'protocol-less link with path',
+    text: 'www.mozilla.org/path/path/path.html',
     url: 'http://www.mozilla.org/path/path/path.html',
   },
   {
@@ -57,13 +61,11 @@ var TEXT_CASES = [
     text: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
     url: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
   },
-  /*
   {
     name: 'protocol-less domain with path, query string, hash',
     text: 'sub.mozilla.org/robo/hats?foo=bar&baz#pong',
     url: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
   },
-   */
   // e-mail
   {
     name: 'simple mailto link',
@@ -90,12 +92,74 @@ var TEXT_CASES = [
 ];
 
 
+function FakeText(text) {
+  this.textContent = this.nodeValue = text;
+}
+FakeText.prototype = {
+  nodeName: '#text',
+};
+
+function FakeNode(tagName) {
+  this.nodeName = tagName.toUpperCase();
+  this._attributes = {};
+  this.className = '';
+  this.children = this.childNodes = [];
+}
+FakeNode.prototype = {
+
+  get textContent() {
+    var s = '';
+    for (var i = 0; i < this.children.length; i++) {
+      s += this.children[i].textContent;
+    }
+    return s;
+  },
+
+  set textContent(val) {
+    this.children.splice(this.children.length);
+    var textNode = new FakeText(val);
+    this.children.push(textNode);
+  },
+
+  hasAttribute: function hasAttribute(attrName) {
+    return this._attributes.hasOwnProperty(attrName);
+  },
+  getAttribute: function getAttribute(attrName) {
+    return this._attributes[attrName];
+  },
+  setAttribute: function setAttribute(attrName, attrVal) {
+    this._attributes[attrName] = '' + attrVal;
+  },
+  removeAttribute: function removeAttribute(attrName) {
+    delete this._attributes[attrName];
+  },
+  appendChild: function(child) {
+    this.children.push(child);
+  },
+  insertBefore: function(child, before) {
+    this.children.splice(this.children.indexOf(before), 0, child);
+  },
+  replaceChild: function(orig, replacement) {
+    this.children.splice(this.children.indexOf(orig), 1, replacement);
+  },
+};
+
+function FakeDoc() {
+  this.body = new FakeNode('body');
+}
+FakeDoc.prototype = {
+  createElement: function(tagName) {
+    return new FakeNode(tagName);
+  },
+  createTextNode: function(text) {
+    return new FakeText(text);
+  }
+};
+
 TD.commonCase('linkify plaintext', function(T, RT) {
   // We need a universe to get a MailAPI
   var testUniverse = T.actor('testUniverse', 'U'),
       eLazy = T.lazyLogger('linkCheck');
-
-  var doc = document.implementation.createHTMLDocument('');
 
   function expectUrl(tcase) {
     eLazy.expect_namedValue('text', tcase.text);
@@ -130,7 +194,8 @@ TD.commonCase('linkify plaintext', function(T, RT) {
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
       expectUrl(tcase);
-      var nodes = MailAPI.utils.linkifyPlain(tcase.raw || tcase.text, doc);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+                    tcase.raw || tcase.text, new FakeDoc());
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
@@ -139,9 +204,32 @@ TD.commonCase('linkify plaintext', function(T, RT) {
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
       expectUrl(tcase);
-      var nodes = MailAPI.utils.linkifyPlain(
-        'foo ' + (tcase.raw || tcase.text) + ' bar', doc);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'fooooooooo ' + (tcase.raw || tcase.text) + ' barrrrrrrrrrrr',
+        new FakeDoc());
       reportUrls(nodes);
+    }).timeoutMS = 1; // (tests are synchronous)
+  });
+
+  T.group('wrapped with punctuation');
+  TEXT_CASES.forEach(function(tcase) {
+    T.check(eLazy, tcase.name, function() {
+      expectText('see the thing (');
+      expectUrl(tcase);
+      expectText(') or the other,');
+      expectUrl(tcase);
+      expectText(', or with a period ');
+      expectUrl(tcase);
+      expectText('. (Or with both: ');
+      expectUrl(tcase);
+      expectText('.)');
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'see the thing (' + (tcase.raw || tcase.text) + ') or the other,' +
+        (tcase.raw || tcase.text) + ', or with a period ' +
+        (tcase.raw || tcase.text) + '. (Or with both: ' +
+        (tcase.raw || tcase.text) + '.)',
+        new FakeDoc());
+      reportAll(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
 
@@ -167,8 +255,364 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     expectUrl({ text: 'http://baz.baz.baz/',
                 url: 'http://baz.baz.baz/' });
 
-    var nodes = MailAPI.utils.linkifyPlain(str, doc);
+    var nodes = testUniverse.MailAPI.utils.linkifyPlain(str, new FakeDoc());
     reportAll(nodes);
+  });
+
+  // Test our scaling by providing a string that is long enough and involves
+  // enough new-lines that running the test cases should take a noticable time
+  // in the event we our regex developes back-tracking issues.
+  //
+  // With these strings, on a Intel(R) Xeon(R) CPU E31225 @ 3.10GHz on
+  // mozilla-b2g18 I was observing ~110.ms for the URL cases and ~940ms for
+  // the e-mail cases.  I now get ~0.0.ms
+  T.group('perf check');
+  TEXT_CASES.forEach(function(tcase) {
+    T.check(eLazy, tcase.name, function() {
+      expectUrl(tcase);
+      expectUrl(tcase);
+      expectUrl(tcase);
+      expectUrl(tcase);
+      var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+        'fooooooooo foo foo foo foo foo FOO! ' + (tcase.raw || tcase.text) +
+        ' dance pants. dance trance. dance plants. dance seance.\n ' +
+        'dance chance. dance romance. dance enhance. dance valance.\n ' +
+        'dance slants.  dance rants.  dance askance.\n ' +
+        'dance pants. dance trance. dance plants. dance seance.\n ' +
+        'dance chance. dance romance. dance enhance. dance valance.\n ' +
+        'dance slants.  dance rants.  dance askance.\n \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. wwdance@ plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. @www. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        ' barrrrrrrrrrrr \n' + (tcase.raw || tcase.text) + ' moooooooooooo \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance@ trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. wwwwwwdance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. ww.dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. wwwdance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        (tcase.raw || tcase.text) + ' .... www. foo. bar. \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'foo bar foo bar foo bar foo bar foo bar foo bar foo bar foor \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww http http http httttttp. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance @trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. \n' +
+        'dance chance. dance romance. dance enhance. dance valance. \n' +
+        'dance slants.  dance rants.  dance askance. \n' +
+        'dance pants. dance trance. dance plants. dance seance. ' +
+        'dance chance. dance romance. dance enhance. dance valance. ' +
+        'dance slants.  dance rants.  dance askance. ' +
+        (tcase.raw || tcase.text) + ' dance-a-tron!',
+        new FakeDoc());
+      reportUrls(nodes);
+    }).timeoutMS = 1; // (tests are synchronous)
   });
 });
 
@@ -210,16 +654,24 @@ TD.commonCase('linkify HTML', function(T, RT) {
   }
 
   T.check(eLazy, 'HTML', function() {
-    var doc = document.implementation.createHTMLDocument(
-      [
-        'Lead-in http://bare.link/ gap1 ',
-        '<a ext-href="http://existing.link/">',
-        'http://nested.plaintext.link/</a> gap2 ',
-        'and an http://intermediate.bare.link ',
-        '<a ext-href="http://other.existing.link/">',
-        '<span>arbitrary http://nested.link/</span>',
-        '</a>',
-      ].join(''));
+    var doc = new FakeDoc(), body = doc.body;
+    body.appendChild(
+      doc.createTextNode('Lead-in http://bare.link/ gap1 '));
+
+    var a = doc.createElement('a');
+    a.setAttribute('ext-href', 'http://existing.link/');
+    a.textContent = 'http://nested.plaintext.link/';
+    body.appendChild(a);
+
+    body.appendChild(
+      doc.createTextNode(' gap2 and an http://intermediate.bare.link '));
+
+    a = doc.createElement('a');
+    a.setAttribute('ext-href', 'http://other.existing.link/');
+    var span = doc.createElement('span');
+    span.textContent = 'arbitrary http://nested.link/';
+    a.appendChild(span);
+
     var expectedNodes = [
         { name: '#text', value: 'Lead-in ' },
         {
@@ -250,12 +702,9 @@ TD.commonCase('linkify HTML', function(T, RT) {
       ];
     traverseAndLogExpectations(expectedNodes);
 
-    MailAPI.utils.linkifyHTML(doc);
+    testUniverse.MailAPI.utils.linkifyHTML(doc);
     traverseAndLogNodes(doc.body.childNodes);
   });
 });
 
-
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

@@ -28,14 +28,17 @@
  *   server.  (While these tests can and should be run against real servers.)
  **/
 
-load('resources/loggest_test_framework.js');
-const $ascp = require('activesync/codepages');
-const FilterType = $ascp.AirSync.Enums.FilterType;
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'activesync/codepages/AirSync', 'exports'],
+       function($tc, $th_imap, $th_as_server, $airsync, exports) {
+const FilterType = $airsync.Enums.FilterType;
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_mutation' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_mutation' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
-TD.commonCase('deleting headers midflight', function(T) {
+TD.commonCase('deleting headers midflight', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'UDel'),
       testAccount = T.actor('testAccount', 'ADel', { universe: testUniverse }),
@@ -82,8 +85,9 @@ TD.commonCase('deleting headers midflight', function(T) {
   testUniverse.do_shutdown();
 });
 
-TD.commonCase('mutate flags', function(T) {
+TD.commonCase('mutate flags', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', {
         universe: testUniverse,
@@ -197,10 +201,13 @@ TD.commonCase('mutate flags', function(T) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   // The refresh should result in us refreshing our flags but not hearing about
@@ -237,10 +244,12 @@ TD.commonCase('mutate flags', function(T) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   // The refresh should result in us refreshing our flags but not hearing about
@@ -289,10 +298,12 @@ TD.commonCase('mutate flags', function(T) {
     // eAccount is listed so we complain if we see ops run
     eSync.expect_event('ops-clear');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-clear');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-clear');
+      });
   });
   // The refresh should result in us refreshing our flags but not hearing about
   // any changes because nothing should have happened!
@@ -324,7 +335,7 @@ TD.commonCase('mutate flags', function(T) {
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_saveState();
   testUniverse.do_shutdown();
-  var testUniverse2 = T.actor('testUniverse', 'U2'),
+  var testUniverse2 = T.actor('testUniverse', 'U2', { old: testUniverse }),
       testAccount2 = T.actor('testAccount', 'A2',
                              { universe: testUniverse2, restored: true }),
       eAccount2 = TEST_PARAMS.type === 'imap' ? testAccount2.eImapAccount :
@@ -353,10 +364,12 @@ TD.commonCase('mutate flags', function(T) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse2.pretendToBeOffline(false);
+    testUniverse2.universe.waitForAccountOps(
+      testUniverse2.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   T.group('offline undo, shutdown, startup, go online, see undos');
@@ -384,7 +397,7 @@ TD.commonCase('mutate flags', function(T) {
   });
   testUniverse2.do_saveState();
   testUniverse2.do_shutdown();
-  var testUniverse3 = T.actor('testUniverse', 'U3'),
+  var testUniverse3 = T.actor('testUniverse', 'U3', { old: testUniverse2 }),
       testAccount3 = T.actor('testAccount', 'A3',
                              { universe: testUniverse3, restored: true }),
       eAccount3 = TEST_PARAMS.type === 'imap' ? testAccount3.eImapAccount :
@@ -414,10 +427,12 @@ TD.commonCase('mutate flags', function(T) {
     }
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse3.pretendToBeOffline(false);
+    testUniverse3.universe.waitForAccountOps(
+      testUniverse3.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
 
@@ -457,10 +472,12 @@ TD.commonCase('mutate flags', function(T) {
       doHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    MailAPI.ping(function() {
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eSync.event('ops-done');
-      });
+    testUniverse3.MailAPI.ping(function() {
+      testUniverse3.universe.waitForAccountOps(
+        testUniverse3.universe.accounts[0],
+        function() {
+          eSync.event('ops-done');
+        });
     });
   });
   // Sync should find no changes from our predictive changes
@@ -484,10 +501,12 @@ TD.commonCase('mutate flags', function(T) {
       undoHeaderExps.changes.length);
     // We need to roundtrip before waiting on the ops because the latter does
     // not cross the bridge itself.
-    MailAPI.ping(function() {
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eSync.event('ops-done');
-      });
+    testUniverse3.MailAPI.ping(function() {
+      testUniverse3.universe.waitForAccountOps(
+        testUniverse3.universe.accounts[0],
+        function() {
+          eSync.event('ops-done');
+        });
     });
   });
   // And again, sync should find no changes
@@ -523,7 +542,7 @@ TD.commonCase('mutate flags', function(T) {
     testAccount3.expect_runOp(
       'modtags',
       { local: false, server: true, save: false });
-    window.navigator.connection.TEST_setOffline(false);
+    testUniverse3.pretendToBeOffline(false);
   });
 
   T.group('cleanup');
@@ -535,8 +554,9 @@ TD.commonCase('mutate flags', function(T) {
  * Create a source folder and a target folder with some messages in the source
  * folder.
  */
-TD.commonCase('move/trash messages', function(T) {
+TD.commonCase('move/trash messages', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
@@ -645,11 +665,38 @@ TD.commonCase('move/trash messages', function(T) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // Make sure we have the expected number of messages in the target folder.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 1, full: 0, flags: TEST_PARAMS.type === 'imap' ? 1 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  // Make sure we have the expected number of messages in the trash folder.
+  testAccount.do_refreshFolderView(
+    trashView,
+    { count: 1, full: 0, flags: TEST_PARAMS.type === 'imap' ? 1 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('delete from trash', testAccount, eAccount, function() {
@@ -672,10 +719,12 @@ TD.commonCase('move/trash messages', function(T) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
 
   /**
@@ -709,10 +758,12 @@ TD.commonCase('move/trash messages', function(T) {
       { local: false, server: true, save: false });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
   // Refresh the folder to make sure the current state of the target folder
   // matches our expectation.  This will fail if the flags on the message are
@@ -749,8 +800,9 @@ TD.commonCase('move/trash messages', function(T) {
  * Create a source folder and a target folder with some messages in the source
  * folder, and then move them around in batches.
  */
-TD.commonCase('batch move/trash messages', function(T) {
+TD.commonCase('batch move/trash messages', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
@@ -840,11 +892,11 @@ TD.commonCase('batch move/trash messages', function(T) {
       { additions: toDelete, changes: [], deletions: [] },
       null, /* done after 2 events: */ 2);
 
-    undoMoveBlind = MailAPI.moveMessages(toMoveBlind,
-                                         blindTargetFolder.mailFolder);
-    undoMoveVisible = MailAPI.moveMessages(toMoveVisible,
-                                           targetFolder.mailFolder);
-    undoDelete = MailAPI.deleteMessages(toDelete);
+    undoMoveBlind = testUniverse.MailAPI.moveMessages(
+                      toMoveBlind, blindTargetFolder.mailFolder);
+    undoMoveVisible = testUniverse.MailAPI.moveMessages(
+                        toMoveVisible, targetFolder.mailFolder);
+    undoDelete = testUniverse.MailAPI.deleteMessages(toDelete);
   });
 
   T.action('go online, see changes happen for', eAccount,
@@ -861,11 +913,38 @@ TD.commonCase('batch move/trash messages', function(T) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0],
+      function() {
+        eSync.event('ops-done');
+      });
   });
+  // Make sure we have the expected number of messages in the original folder.
+  testAccount.do_refreshFolderView(
+    sourceView,
+    { count: 4, full: 0, flags: TEST_PARAMS.type === 'imap' ? 4 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
+  // Make sure we have the expected number of messages in the target folder.
+  testAccount.do_refreshFolderView(
+    targetView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  // Make sure we have the expected number of messages in the trash folder.
+  testAccount.do_refreshFolderView(
+    trashView,
+    { count: 2, full: 0, flags: TEST_PARAMS.type === 'imap' ? 2 : 0,
+      deleted: 0 },
+    // note: the empty changes assertion
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false });
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('delete from trash', testAccount, eAccount, function() {
@@ -879,7 +958,7 @@ TD.commonCase('batch move/trash messages', function(T) {
       trashView,
       { additions: [], changes: [], deletions: toDelete },
       null, /* done after 2 events: */ 2);
-    MailAPI.deleteMessages(toDelete);
+    testUniverse.MailAPI.deleteMessages(toDelete);
   });
   T.action('go online, see changes happen for', eAccount, eSync, function() {
     var save = TEST_PARAMS.type === 'imap' ? false : 'server';
@@ -888,13 +967,88 @@ TD.commonCase('batch move/trash messages', function(T) {
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
-    window.navigator.connection.TEST_setOffline(false);
-    MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-      eSync.event('ops-done');
-    });
+    testUniverse.pretendToBeOffline(false);
+    testUniverse.universe.waitForAccountOps(
+      testUniverse.universe.accounts[0], function() {
+        eSync.event('ops-done');
+      });
   });
 });
 
-function run_test() {
-  runMyTests(20);
-}
+/**
+ * (Local only) drafts can be deleted, but they don't go to the trash, they just
+ * get nuked.  Drafts *cannot* be moved.
+ */
+TD.commonCase('trash drafts', function(T, RT) {
+  T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
+                                               testAccount.eAccount,
+      eLazy = T.lazyLogger('check'),
+
+      trashFolder = testAccount.do_createTestFolder(
+        'Trash',
+        { count: 0 }),
+      trashView = testAccount.do_openFolderView(
+        'trashView', trashFolder, null, null,
+        { syncedToDawnOfTime: 'ignore' }),
+
+      localDraftsFolder = testAccount.do_useExistingFolderWithType(
+        'localdrafts', ''),
+      localDraftsView = testAccount.do_openFolderView(
+        'localdrafts', localDraftsFolder, null, null,
+        { nonet: true }),
+      composer;
+
+  T.group('create draft message');
+  T.action('begin composition', eLazy, function() {
+    eLazy.expect_event('compose setup completed');
+    composer = testUniverse.MailAPI.beginMessageComposition(
+      null, testUniverse.allFoldersSlice.getFirstFolderWithType('inbox'), null,
+      eLazy.event.bind(eLazy, 'compose setup completed'));
+  });
+
+  T.action(testAccount, 'compose, save', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: true });
+    eLazy.expect_event('saved');
+
+    composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
+    composer.subject = 'Midnight City';
+    composer.body.text = 'We own the sky.';
+
+    composer.saveDraft(function() {
+      eLazy.event('saved');
+    });
+    composer.die();
+    composer = null;
+  });
+
+  // This is a dalek reference doctor who, you see.
+  T.group('exterminate! exterminate!');
+  // This was going to be a homestar runner 'balete' reference, but would have
+  // proved confusing.
+  T.action(testAccount, 'delete', function() {
+    testAccount.expect_runOp(
+      'delete',
+      { local: true, server: true, save: true });
+
+    var header = localDraftsView.slice.items[0];
+    header.deleteMessage();
+  });
+  T.check('in neither folder', eLazy, function() {
+    eLazy.expect_namedValue('trash count', 0);
+    eLazy.expect_namedValue('draft count', 0);
+
+    eLazy.namedValue('trash count', trashView.slice.items.length);
+    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+  });
+
+  T.group('cleanup');
+});
+
+}); // end define
