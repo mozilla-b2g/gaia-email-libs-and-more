@@ -229,8 +229,6 @@ ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
 ImapConnection.prototype._findFetchRequest = function(uid, bodyPart) {
   var requests = this._state.requests;
   var len = requests.length;
-  bodyPart = parseInt(bodyPart, 10);
-
 
   var currentReq;
   for (var i = 0; i < len; i++) {
@@ -647,13 +645,10 @@ ImapConnection.prototype.connect = function(loginCb) {
    * - If we are processing a literal, we make sure we have the data for the
    *   whole literal, then we process it.
    * - If we are not in a literal, we buffer until we have one newline.
-   * - If we have leftover data, we invoke ourselves in a quasi-tail-recursive
-   *   fashion or in subsequent ticks.  It's not clear that the logic that
-   *   defers to future ticks is sound.
    */
   function processData(data) {
     if (data.length === 0) return;
-    var idxCRLF = null, literalInfo;
+    var idxCRLF = null, literalInfo, curReq;
 
     // - Accumulate data until newlines when not in a literal
     if (self._state.curExpected === null) {
@@ -1180,14 +1175,17 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
   }
 
   var fetchParams;
-  // we only run fetches in parallel when fetching for one UID.
+  // we only run fetches in parallel when fetching for one UID per request.
+  // (Otherwise, you are asking for data from multiple UIDs at the same time and
+  // a parallel fetch is not needed since your request is basically already issuing
+  // one.)
   if (uids.length === 1 && opts.request.body) {
     var uidMap = {};
     uids.forEach(function(id) {
       uidMap[id] = toFetch;
     });
 
-    fetchParams = { uids: uidMap, bodyPart: parseInt(opts.request.body) };
+    fetchParams = { uids: uidMap, bodyPart: opts.request.body };
   }
 
   var extensions = '';
@@ -1600,7 +1598,7 @@ ImapConnection.prototype._writeRequest = function(request) {
   request.sent = true;
 
   if (this._LOG) {
-    this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data); 
+    this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data);
   }
 };
 
