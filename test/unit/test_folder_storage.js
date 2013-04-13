@@ -130,7 +130,7 @@ function makeTestContext(account) {
           blockInfo = info;
 
           // Make sure the insertion took.
-          if (block.uids.indexOf(uid) === -1)
+          if (block.ids.indexOf(uid) === -1)
             do_throw('UID was not inserted!');
           if (!block.bodies.hasOwnProperty(uid))
             do_throw('body was not inserted!');
@@ -711,12 +711,12 @@ function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
   do_check_eq(blockInfo.estSize, size);
 }
 
-function check_body_block_contents(bodyBlock, uids, bodies) {
+function check_body_block_contents(bodyBlock, ids, bodies) {
   do_check_neq(bodyBlock, undefined);
-  do_check_eq(uids.length, bodyBlock.uids.length);
-  for (var i = 0; i < uids.length; i++){
-    do_check_eq(uids[i], bodyBlock.uids[i]);
-    do_check_eq(bodies[i], bodyBlock.bodies[uids[i]]);
+  do_check_eq(ids.length, bodyBlock.ids.length);
+  for (var i = 0; i < ids.length; i++){
+    do_check_eq(ids[i], bodyBlock.ids[i]);
+    do_check_eq(bodies[i], bodyBlock.bodies[ids[i]]);
   }
 }
 
@@ -1013,8 +1013,8 @@ TD.commonSimple('header block splitting',
   do_check_eq(newerInfo.endUID, bigHeaders[0].id);
   do_check_true(newerBlock.headers[0] === bigHeaders[0]);
   do_check_eq(newerBlock.headers.length, newerInfo.count);
-  do_check_eq(newerBlock.headers[0].id, newerBlock.uids[0]);
-  do_check_eq(newerBlock.uids.length, newerInfo.count);
+  do_check_eq(newerBlock.headers[0].id, newerBlock.ids[0]);
+  do_check_eq(newerBlock.ids.length, newerInfo.count);
   do_check_true(newerBlock.headers[expectedHeadersPerBlock-1] ===
                 bigHeaders[expectedHeadersPerBlock-1]);
 
@@ -1024,8 +1024,8 @@ TD.commonSimple('header block splitting',
   do_check_eq(olderInfo.endUID, bigHeaders[expectedHeadersPerBlock].id);
   do_check_true(olderBlock.headers[0] === bigHeaders[expectedHeadersPerBlock]);
   do_check_eq(olderBlock.headers.length, olderInfo.count);
-  do_check_eq(olderBlock.headers[0].id, olderBlock.uids[0]);
-  do_check_eq(olderBlock.uids.length, olderInfo.count);
+  do_check_eq(olderBlock.headers[0].id, olderBlock.ids[0]);
+  do_check_eq(olderBlock.ids.length, olderInfo.count);
   do_check_true(olderBlock.headers[numHeaders - expectedHeadersPerBlock - 1] ===
                 bigHeaders[numHeaders - 1]);
 
@@ -1064,6 +1064,7 @@ TD.commonCase('body insertion size', function(T, RT) {
       { sizeEstimate: 101, amountDownloaded: 0, type: 'html' }
     ]
   });
+  var header;
 
   T.group('insertion');
 
