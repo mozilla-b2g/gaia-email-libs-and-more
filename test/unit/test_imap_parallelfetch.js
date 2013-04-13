@@ -1,8 +1,11 @@
-load('resources/loggest_test_framework.js');
-// Use the faulty socket implementation.
-load('resources/fault_injecting_socket.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/messageGenerator', './resources/fault_injecting_socket',
+        'exports'],
+       function($tc, $th_imap, $msggen, $fawlty, exports) {
 
-var TD = $tc.defineTestsFor(
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
+
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_parallelfetch' },
   null,
   [$th_imap.TESTHELPER],
@@ -72,7 +75,4 @@ TD.commonCase('fetch 3 bodies at once', function(T, RT) {
   // reorder the fetches and expect the right results...
 });
 
-function run_test() {
-  runMyTests(10);
-}
-
+}); // end define

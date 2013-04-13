@@ -13,16 +13,6 @@ define(
   ) {
 
 /**
- * Creates a event handler wrapper which will either call socket.on[type]
- * or send the event to a FawltySocket consumer (see consumeEventHandler).
- */
-function eventHandler(type, killSocket) {
-  var method = 'on' + type;
-
-  return function(event) {
-}
-
-/**
  * For debugging and easy identification of spy sockets.
  */
 var lastMockId = 1;
@@ -132,7 +122,7 @@ FawltySocket.prototype = {
     if (name === 'error' || name === 'close')
       FawltySocketFactory.__deadSocket(this);
 
-    var consumer = this._eventConsumers[type];
+    var consumer = this._eventConsumers[name];
     if (this._sock) {
       if (consumer && consumer(data)) {
         // event was consumed
