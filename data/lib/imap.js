@@ -194,6 +194,7 @@ function ImapConnection (options) {
       }
     }
   };
+  this._unprocessed = [];
   this._options = extend(this._options, options);
   // The Date.now thing is to assign a random/unique value as a logging stop-gap
   this._LOG = (this._options._logParent ? LOGFAB.ImapProtoConn(this, this._options._logParent, Date.now() % 1000) : null);
@@ -221,8 +222,9 @@ ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
       continue;
     }
 
-    if (request.prefix.trim() === prefix)
+    if (request.prefix.trim() === prefix) {
       return this._state.requests.splice(i, 1)[0];
+    }
   }
 };
 
@@ -309,10 +311,9 @@ ImapConnection.prototype.connect = function(loginCb) {
 
   this._state.conn.on('data', function(buffer) {
     try {
-      var parts = processData(buffer);
-
-      if (parts) {
-        parts.forEach(processData);
+      self._unprocessed.push(buffer);
+      while (self._unprocessed.length) {
+        processData(self._unprocessed.shift());
       }
     }
     catch (ex) {
@@ -324,6 +325,7 @@ ImapConnection.prototype.connect = function(loginCb) {
   });
 
   function processResponse(data) {
+    var curReq = null;
     // -- Untagged server responses
     if (data[0] === '*') {
       if (self._state.status === STATES.NOAUTH) {
@@ -510,6 +512,8 @@ ImapConnection.prototype.connect = function(loginCb) {
                                                data[2].lastIndexOf(")")),
                              "", msg);
                   msg.seqno = parseInt(data[1], 10);
+                  // we don't need/want to use _findFetchRequest because that only
+                  // applies for body fetches, which this is definitely not.
                   if (self._state.requests.length &&
                       self._state.requests[0].command.indexOf('FETCH') > -1) {
                     curReq = self._state.requests[0];
@@ -550,16 +554,21 @@ ImapConnection.prototype.connect = function(loginCb) {
         return;
       }
 
-      if (self._state.requests[0].command.indexOf('RENAME') > -1) {
+      var recentReq = (data[0] !== '+') ?
+        self._findAndShiftRequestByPrefix(data[0].trim()) :
+        self._state.requests[0];
+
+      if (recentReq.command.indexOf('RENAME') > -1) {
         self._state.box.name = self._state.box._newName;
         delete self._state.box._newName;
         sendBox = true;
       }
 
-      if (typeof self._state.requests[0].callback === 'function') {
+
+      if (typeof recentReq.callback === 'function') {
         var err = null;
-        var args = self._state.requests[0].args,
-            cmd = self._state.requests[0].command;
+        var args = recentReq.args,
+            cmd = recentReq.command;
         if (data[0] === '+') {
           if (cmd.indexOf('APPEND') !== 0) {
             err = new Error('Unexpected continuation');
@@ -567,7 +576,7 @@ ImapConnection.prototype.connect = function(loginCb) {
             err.serverResponse = '';
             err.request = cmd;
           } else
-            return self._state.requests[0].callback();
+            return recentReq.callback();
         } else if (data[1] !== 'OK') {
           err = new Error('Error while executing request: ' + data[2]);
           err.type = data[1];
@@ -585,12 +594,8 @@ ImapConnection.prototype.connect = function(loginCb) {
             args.unshift([]);
         }
         args.unshift(err);
-        self._state.requests[0].callback.apply({}, args);
+        recentReq.callback.apply(recentReq, args);
       }
-
-      var recentReq = self._findAndShiftRequestByPrefix(
-        data[0].trim()
-      );
 
       if (!recentReq) {
         // We expect this to happen in the case where our callback above
@@ -733,7 +738,8 @@ ImapConnection.prototype.connect = function(loginCb) {
           // this conditional is not required and we can just fall out.  (The
           // expected check === 0 may need to be reinstated, however.)
           if (data.length && data[0] === CHARCODE_ASTERISK) {
-            return processData(data);
+            self._unprocessed.unshift(data);
+            return;
           }
         } else // ??? no right-paren, keep accumulating data? this seems wrong.
           return;
@@ -759,9 +765,19 @@ ImapConnection.prototype.connect = function(loginCb) {
         var uid = reUid.exec(desc)[1];
 
         // figure out which request this belongs to. If its not assigned to a
-        // specific uid then send it to a pending request...
+        // specific uid then send it to the first pending request...
         curReq = self._findFetchRequest(uid, type) || self._state.requests[0];
         var msg = new ImapMessage();
+
+        // because we push data onto the unprocessed queue for any literals and
+        // processData lacks any context, we need to reorder the request to be
+        // first if it is not already first.  (Storing the request along-side
+        // the data in insufficient because if the literal data is fragmented
+        // at all, the context will be lost.)
+        if (self._state.requests[0] !== curReq) {
+          self._state.requests.splice(self._state.requests.indexOf(curReq), 1);
+          self._state.requests.unshift(curReq);
+        }
 
         msg.seqno = parseInt(literalInfo[1], 10);
         curReq._desc = desc;
@@ -778,7 +794,8 @@ ImapConnection.prototype.connect = function(loginCb) {
         }
         if (self._LOG) self._LOG.data(strdata.length, strdata);
         // (If it's not headers, then it's body, and we generate 'data' events.)
-        return processData(data.slice(idxCRLF + 2), curReq);
+        self._unprocessed.unshift(data.slice(idxCRLF + 2));
+        return;
       }
     }
 
@@ -787,12 +804,11 @@ ImapConnection.prototype.connect = function(loginCb) {
 
     data = customBufferSplitCRLF(data);
     var response = data.shift().toString('ascii');
+    // queue the remaining buffer chunks up for processing at the head of the queue
+    self._unprocessed = data.concat(self._unprocessed);
 
     if (self._LOG) self._LOG.data(response.length, response);
     processResponse(stringExplode(response, ' ', 3));
-
-    // return the remaining buffer chunks
-    return data;
   };
 
   this._state.conn.on('close', function onClose() {
@@ -1203,7 +1219,7 @@ ImapConnection.prototype._fetch = function(which, uids, options) {
              + '[' + toFetch + ']' + bodyRange : '') + ')';
 
   var onFetch = function onFetch(e) {
-    var fetcher = self._state.requests[0]._fetcher;
+    var fetcher = this._fetcher;
     if (e && fetcher) {
       fetcher.emit('error', e);
     }
