@@ -1524,7 +1524,7 @@ ImapConnection.prototype._send = function(
     this._writeRequest(unsentRequests.shift(), true);
   }
   // We can issue fetches in parallel, so if our last request was a fetch, then
-  // try and enqueue all the
+  // try and issue all the fetches we can.
   if (
     this._state.lastRequest &&
     this._state.lastRequest.fetchParams
