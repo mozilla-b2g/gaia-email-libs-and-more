@@ -39,8 +39,16 @@ gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
 PYTHON=python
-B2GSD=b2g-srcdir-symlink
-B2GBD=b2g-builddir-symlink
+B2GSD := b2g-srcdir-symlink
+B2GBD := b2g-builddir-symlink
+ifeq ($(wildcard b2g-bindir-symlink),)
+  B2GBIND := $(B2GBD)/dist/bin
+  RUNB2G := $(B2GBIND)/b2g
+else
+  B2GBIND := b2g-bindir-symlink
+  RUNB2G := $(B2GBIND)/b2g-bin
+endif
+
 ARBPLD=arbpl-dir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 # common xpcshell args
@@ -48,15 +56,12 @@ RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
            --build-info-json=$(B2GBD)/mozinfo.json \
            --testing-modules-dir=$(B2GBD)/_tests/modules
 
+# Best effort use RUNMOZ if its available otherwise ignore it.
+RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
+
 # Common test running logic.  Some test files are for both IMAP and ActiveSync.
 # Some test files are just for one or the other.  xpcshell has a mechanism for
 # specifying constraings on test files in xpcshell.ini, and we are using that.
-
-define run-xpc-tests # $(call run-xpc-tests,type)
-	-rm test/unit/all-$(1).log test/unit/*.js.log
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json $(B2GBD)/dist/bin/xpcshell test/unit
-	cat test/unit/*.js.log > test/unit/all-$(1).log
-endef
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
@@ -67,15 +72,6 @@ endef
 XPCWIN=node_modules/xpcwindow/bin/xpcwindow
 TESTRUNNER=$(CURDIR)/test/loggest-runner.js
 
-# Best effort use RUNMOZ if its available otherwise ignore it.
-RUNMOZ=$(wildcard($(B2GBIND)/run-mozilla.sh),)
-
-ifeq ($(wildcard b2g-bindir-symlink),)
-  B2GBIND=$(B2GBD)/dist/bin
-else
-  B2GBIND=b2g-bindir-symlink
-  RUNB2G=$(B2GBIND)/b2g-bin
-endif
 
 # run all the tests listed in a test config file
 define run-tests  # $(call run-tests,configName,accountType)
@@ -126,23 +122,6 @@ post-one-activesync-test: one-activesync-test
 post-activesync-tests: activesync-tests
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-activesync.log
 
-
-######################
-# Torture test variations (currently IMAP only)
-torture-tests: build
-	$(call run-xpc-tests,torture,imap)
-
-one-torture-test: build
-	$(call run-one-test,torture,imap)
-
-interactive-torture-test: build
-	$(call run-interactive-test,torture,imap)
-
-post-one-torture-test: one-torture-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
-
-post-torture-tests: torture-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-torture.log
 
 
 ######################
