@@ -168,6 +168,12 @@ Create the symlink described above for xulrunner:
 ln -s /path/to/b2g-desktop b2g-bindir-symlink
 ```
 
+On OSX: `/path/to/b2g-desktop` will be something like:
+
+```
+/Applications/B2G.app/Contents/MacOS/
+```
+
 ### Running the Tests ###
 
 To run a single test, in this case, test_imap_general.js which is located at
