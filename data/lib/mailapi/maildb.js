@@ -18,6 +18,7 @@ var sendMessage = $router.registerCallbackType('maildb');
 function MailDB(testOptions) {
   this._callbacksQueue = [];
   function processQueue() {
+    console.log('main thread reports DB ready');
     this._ready = true;
 
     this._callbacksQueue.forEach(function executeCallback(cb) {
@@ -36,10 +37,12 @@ MailDB.prototype = {
 
   getConfig: function(callback) {
     if (!this._ready) {
+      console.log('deferring getConfig call until ready');
       this._callbacksQueue.push(this.getConfig.bind(this, callback));
-       return;
-     }
+      return;
+    }
 
+    console.log('issuing getConfig call to main thread');
     sendMessage('getConfig', null, callback);
   },
 

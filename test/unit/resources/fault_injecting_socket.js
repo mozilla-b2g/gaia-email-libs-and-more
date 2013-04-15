@@ -13,6 +13,11 @@ define(
   ) {
 
 /**
+ * For debugging and easy identification of spy sockets.
+ */
+var lastMockId = 1;
+
+/**
  * Wraps mozTCPSocket so that we can inject a fault.  We can use some combination
  * of injecting fake received data and fake or real closing a connection that is
  * either manually triggered (at a quiescent time), or based on when we observe
@@ -23,6 +28,7 @@ define(
 function FawltySocket(host, port, options, cmdDict) {
   console.log('FawltySocket constructor for:', host, port);
   this._sock = null;
+  this._mockId = lastMockId++;
 
   $events.EventEmitter.call(this);
 
@@ -91,6 +97,7 @@ function FawltySocket(host, port, options, cmdDict) {
 
   // anything we send over the wire will be utf-8
   this._utf8Decoder = new TextDecoder('UTF-8');
+  this._eventConsumers = {};
 
   console.log('Creating real socket for:', host, port);
   this._sock = new $net.NetSocket(port, host, options.useSSL);
@@ -112,11 +119,44 @@ FawltySocket.prototype = {
   setKeepAlive: function() {},
 
   _reEmit: function(name, data) {
-    if (this._sock)
-      this.emit(name, data);
-
     if (name === 'error' || name === 'close')
       FawltySocketFactory.__deadSocket(this);
+
+    var consumer = this._eventConsumers[name];
+    if (this._sock) {
+      if (consumer && consumer(data)) {
+        // event was consumed
+        return;
+      }
+
+      this.emit(name, data);
+    }
+  },
+
+  /**
+   * Every event sent by this socket will clear the given function
+   * prior to being passed off to the real event handler.
+   *
+   *
+   *    socket.consumeEventHandler('data', function(event) {
+   *      if (...) {
+   *        // true indicates that this event should _not_ be sent
+   *        // to the real .ondata handler...
+   *        return true;
+   *      }
+   *    });
+   *
+   */
+  consumeEventHandler: function(type, callback) {
+    this._eventConsumers[type] = callback;
+  },
+
+  clearConsumeEventsHandler: function(type) {
+    if (type) {
+      return (delete this._eventConsumers[type]);
+    }
+
+    this._eventConsumers = {};
   },
 
   // XXX This is currently a hack and just operates based on the number of
@@ -125,9 +165,6 @@ FawltySocket.prototype = {
   doOnSendText: function(desc) {
     // concat detects arrays/single values
     this._sendWatches = this._sendWatches.concat(desc);
-  },
-
-  doOnReceiveText: function(match, actions) {
   },
 
   _queueEvent: function(type, data) {
@@ -255,6 +292,34 @@ var FawltySocketFactory = exports.FawltySocketFactory = {
     if (!this._liveSockets.length)
       throw new Error('No live sockets!');
     return this._liveSockets[this._liveSockets.length - 1];
+  },
+
+  findImapSocket: function() {
+    return this.findLiveSocketWith(function(socket) {
+      // assuming quite a bit but probably fine for our initial tests.
+      return socket.port === 143 || socket.port == 993;
+    });
+  },
+
+  /**
+   * Attempt to find a live socket with a filter function.
+   *
+   *
+   *    // bad way of finding a IMAP socket
+   *    var socket = FawltySocketFactory.findLiveSocketWith(function(sock) {
+   *      return sock.port === 143
+   *    });
+   *
+   */
+  findLiveSocketWith: function(enumerator) {
+    var len = this._liveSockets.length;
+    for (var i = 0; i < len; i++) {
+      if (enumerator(this._liveSockets[i])) {
+        return this._liveSockets[i];
+      }
+    }
+
+    return null;
   },
 
   reset: function() {
