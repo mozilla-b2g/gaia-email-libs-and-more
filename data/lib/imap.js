@@ -161,6 +161,8 @@ function ImapConnection (options) {
     conn: null,
     curId: 0,
     requests: [],
+    unsentRequests: [],
+    activeRequests: 0,
     numCapRecvs: 0,
     isReady: false,
     isIdle: true,
@@ -215,17 +217,28 @@ ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
   var len = this._state.requests.length;
   prefix = prefix.trim();
 
-  var request;
-  for (var i = 0; i < len; i++) {
+  var request, i;
+  for (i = 0; i < len; i++) {
     request = this._state.requests[i];
     if (!request || !request.prefix) {
       continue;
     }
 
-    if (request.prefix.trim() === prefix) {
+    if (request.prefix.lastIndexOf(prefix, 0) === 0) {
       return this._state.requests.splice(i, 1)[0];
     }
   }
+
+  // if we didn't find anything, assume it was the first request, but issue a
+  // warning if there was more than one outstanding request
+  if (this._state.requests.length > 1) {
+    var skipped = [];
+    for (i = 0; i < len; i++) {
+      request = this._state.requests[i];
+      skipped.push(request.prefix);
+    }
+  }
+  return this._state.requests.shift();
 };
 
 ImapConnection.prototype._findFetchRequest = function(uid, bodyPart) {
@@ -530,7 +543,8 @@ ImapConnection.prototype.connect = function(loginCb) {
 
       if (data[0] === '+' && self._state.ext.idle.state === IDLE_WAIT) {
         self._state.ext.idle.state = IDLE_READY;
-        return process.nextTick(function() { self._send(); });
+        process.nextTick(function() { self._send(); });
+        return;
       }
 
       var sendBox = false;
@@ -555,8 +569,8 @@ ImapConnection.prototype.connect = function(loginCb) {
       }
 
       var recentReq = (data[0] !== '+') ?
-        self._findAndShiftRequestByPrefix(data[0].trim()) :
-        self._state.requests[0];
+        self._findAndShiftRequestByPrefix(data[0]) :
+        self._state.requests.shift();
 
       if (recentReq.command.indexOf('RENAME') > -1) {
         self._state.box.name = self._state.box._newName;
@@ -570,6 +584,8 @@ ImapConnection.prototype.connect = function(loginCb) {
         var args = recentReq.args,
             cmd = recentReq.command;
         if (data[0] === '+') {
+          // continuation, put request back-on
+          self._state.requests.unshift(recentReq);
           if (cmd.indexOf('APPEND') !== 0) {
             err = new Error('Unexpected continuation');
             err.type = 'continuation';
@@ -597,7 +613,11 @@ ImapConnection.prototype.connect = function(loginCb) {
         recentReq.callback.apply(recentReq, args);
       }
 
-      if (!recentReq) {
+      if (recentReq) {
+        if (recentReq.active)
+          self._state.activeRequests--;
+      }
+      else {
         // We expect this to happen in the case where our callback above
         // resulted in our connection being killed.  So just bail in that case.
         if (self._state.status === STATES.NOCONNECT)
@@ -1417,6 +1437,7 @@ ImapConnection.prototype._reset = function() {
   this._state.status = STATES.NOCONNECT;
   this._state.numCapRecvs = 0;
   this._state.requests = [];
+  this._state.unsentRequests = [];
   this._state.isIdle = true;
   this._state.isReady = false;
   this._state.ext.idle.state = IDLE_NONE;
@@ -1460,8 +1481,6 @@ ImapConnection.prototype._send = function(
 ) {
 
   var request;
-  var nextRequestIndex;
-
 
   if (cmdstr !== undefined) {
     request = {
@@ -1471,13 +1490,14 @@ ImapConnection.prototype._send = function(
       callback: cb,
       dispatch: dispatchFunc,
       args: [],
-      fetchParams: fetchParams
+      fetchParams: fetchParams,
+      active: false
     };
 
     // don't queue bypassed requests
     if (!bypass) {
-      // push returns next index
-      nextRequestIndex = this._state.requests.push(request);
+      this._state.requests.push(request);
+      this._state.unsentRequests.push(request);
     }
   }
 
@@ -1485,56 +1505,40 @@ ImapConnection.prototype._send = function(
   // server's response before doing anything more.
   if (this._state.ext.idle.state === IDLE_WAIT ||
       this._state.ext.idle.state === DONE_WAIT) {
-    return;
+    return request;
   }
 
   if (bypass) {
-    return this._writeRequest(request);
+    this._writeRequest(request);
+    return request;
   }
 
-  var requestLen = this._state.requests.length;
-  var requests = this._state.requests;
-  var nextRequestIdx = 0;
+  var unsentRequests = this._state.unsentRequests;
 
-  // no requests
-  if (requestLen === 0)
-    return;
+  // bail if nothing unsent
+  if (unsentRequests.length === 0)
+    return null;
 
-  for (; nextRequestIdx < requestLen; nextRequestIdx++) {
-    // we can send a stream of fetches but only while other fetching is ongoing
-    // and no other operations are pending.
-    if (!requests[nextRequestIdx].sent)
-      break;
+  // If there are no active requests, dispatch immediately.
+  if (this._state.activeRequests === 0) {
+    this._writeRequest(unsentRequests.shift(), true);
   }
-
-  // if the nextRequestIdx is 0 that means there is no other pending requests
-  // which indicates we can send immediately.
-  if (nextRequestIdx === 0) {
-    this._writeRequest(requests[nextRequestIdx]);
-    nextRequestIdx++;
-  }
-
+  // We can issue fetches in parallel, so if our last request was a fetch, then
+  // try and enqueue all the
   if (
     this._state.lastRequest &&
     this._state.lastRequest.fetchParams
   ) {
-    // ongoing fetch we can write this current request then also check
-    // for other unsent fetch requests after the nextRequestIdx.
-    for (; nextRequestIdx < requestLen; nextRequestIdx++) {
-      if (requests[nextRequestIdx].fetchParams) {
-        this._writeRequest(requests[nextRequestIdx]);
-
-        // is a fetch see if next result is also a fetch.
-        continue;
-      }
-
-      // anything that is not a fetch must wait.
-      break;
+    while (unsentRequests.length &&
+           unsentRequests[0].fetchParams) {
+      this._writeRequest(unsentRequests.shift(), true);
     }
   }
+
+  return request;
 };
 
-ImapConnection.prototype._writeRequest = function(request) {
+ImapConnection.prototype._writeRequest = function(request, realRequest) {
   var prefix = '',
       cmd = request.command,
       data = request.cmddata,
@@ -1545,8 +1549,9 @@ ImapConnection.prototype._writeRequest = function(request) {
   // If we are currently in IDLE, we need to exit it before we send the
   // actual command.  We mark it as a bypass so it does't mess with the
   // list of requests.
-  if (this._state.ext.idle.state === IDLE_READY && cmd !== 'DONE')
-    return this._send('DONE', null, undefined, undefined, true);
+  if (this._state.ext.idle.state === IDLE_READY && cmd !== 'DONE') {
+    this._send('DONE', null, undefined, undefined, true);
+  }
   else if (cmd === 'IDLE') {
      // we use a different prefix to differentiate and disregard the tagged
      // response the server will send us when we issue DONE
@@ -1611,7 +1616,10 @@ ImapConnection.prototype._writeRequest = function(request) {
     this._state.conn.write(gSendBuf.subarray(0, iWrite));
   }
 
-  request.sent = true;
+  if (realRequest) {
+    request.active = true;
+    this._state.activeRequests++;
+  }
 
   if (this._LOG) {
     this._LOG.cmd_begin(prefix, cmd, /^LOGIN$/.test(cmd) ? '***BLEEPING OUT LOGON***' : data);
