@@ -849,6 +849,8 @@ var TestFolderMixins = {
         return msg.bodyInfo.bodyReps[idx || 0].content;
       }
     }
+
+    throw new Error('Unable to find message with guid: ' + guid);
   },
 
   /**

@@ -13,6 +13,7 @@
     "test_imap_mime.js",
     "test_imap_errors.js",
     "test_imap_proto.js",
+    "test_imap_parallelfetch.js",
     "test_imap_prober.js",
     "test_smtp_prober.js",
 
