@@ -101,28 +101,28 @@ TD.commonCase('recipient filter', function(T) {
   var samples = [
     { name: 'no match against empty to',
       phrase: 'foo',
-      body: { to: [ {} ] },
+      header: { to: [ {} ] },
       result: false,
       index: 0 },
     { name: 'no match against populated to',
       phrase: 'foo',
-      body: { to: [ {}, {}, { name: 'bar', address: 'barbar' } ] },
+      header: { to: [ {}, {}, { name: 'bar', address: 'barbar' } ] },
       result: false,
       index: 0 },
     { name: 'match middle of address',
       phrase: 'foo',
-      body: { to: [ {}, {}, { name: 'bar', address: 'bar foobar' } ] },
+      header: { to: [ {}, {}, { name: 'bar', address: 'bar foobar' } ] },
       result: true,
       index: 4 },
     { name: 'match name ignoring case',
       phrase: /foobar/i,
-      body: { to: [ {}, {}, {name: 'FOOBaR'} ] },
+      header: { to: [ {}, {}, {name: 'FOOBaR'} ] },
       result: true,
       index: 0,
       length: 6 },
     { name: 'match address ignoring case',
       phrase: /foobar/i,
-      body: { bcc: [ {}, {}, {address: 'FOOBaR'} ] },
+      header: { bcc: [ {}, {}, {address: 'FOOBaR'} ] },
       result: true,
       index: 0,
       length: 6 }
@@ -141,7 +141,7 @@ TD.commonCase('recipient filter', function(T) {
       var recipient = new $filters.RecipientFilter(
         sample.phrase, 1, true, true, true);
       var match = {};
-      var ret = recipient.testMessage('', sample.body, match);
+      var ret = recipient.testMessage(sample.header, {}, match);
       eLazy.namedValueD('matches?', ret, match);
       if (!ret)
         return;
