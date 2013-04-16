@@ -491,73 +491,53 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * Initiates a request to download all body reps. If a snippet has not yet
    * been generated this will also generate the snippet...
    */
-  _lazyDownloadBodyReps: function(suid, date, callback) {
-    var bodyInfo;
-    var header;
-
+  _lazyDownloadBodyReps: function(header, bodyInfo, callback) {
     var requests = [];
     var self = this;
 
-    var gotHeader = function gotHeader(_header) {
-      // header may have been deleted by the time we get here...
-      if (!_header) {
-        return callback();
+    // target for snippet generation
+    var bodyRepIdx = $imapchew.selectSnippetBodyRep(header, bodyInfo);
+
+    // build the list of requests based on downloading required.
+    bodyInfo.bodyReps.forEach(function(rep, idx) {
+
+      // attempt to be idempotent by only requesting the bytes we need if we
+      // actually need them...
+      if (rep.isDownloaded)
+        return;
+
+      var request = {
+        uid: header.srvid,
+        partInfo: rep._partInfo,
+        bodyRepIndex: idx,
+        createSnippet: idx === bodyRepIdx
+      };
+
+      // we may only need a subset of the total number of bytes.
+      if (rep.amountDownloaded) {
+        // request the remainder
+        request.bytes = [
+          rep.amountDownloaded,
+          Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES)
+        ];
       }
 
-      header = _header;
-      self._storage.getMessageBody(suid, date, gotBody);
-    };
+      requests.push(request);
+    });
 
-    var gotBody = function gotBody(bodyInfo) {
-      if (!bodyInfo)
-        return callback();
+    // we may not have any requests bail early if so.
+    if (!requests.length)
+      callback(); // no requests === success
 
-      // target for snippet generation
-      var bodyRepIdx = $imapchew.selectSnippetBodyRep(header, bodyInfo);
+    var fetch = new $imapbodyfetcher.BodyFetcher(
+      self._conn,
+      $imaptextparser.TextParser,
+      requests
+    );
 
-      // build the list of requests based on downloading required.
-      bodyInfo.bodyReps.forEach(function(rep, idx) {
-
-        // attempt to be idempotent by only requesting the bytes we need if we
-        // actually need them...
-        if (rep.isDownloaded)
-          return;
-
-        var request = {
-          uid: header.srvid,
-          partInfo: rep._partInfo,
-          bodyRepIndex: idx,
-          createSnippet: idx === bodyRepIdx
-        };
-
-        // we may only need a subset of the total number of bytes.
-        if (rep.amountDownloaded) {
-          // request the remainder
-          request.bytes = [
-            rep.amountDownloaded,
-            Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES)
-          ];
-        }
-
-        requests.push(request);
-      });
-
-      // we may not have any requests bail early if so.
-      if (!requests.length)
-        callback(); // no requests === success
-
-      var fetch = new $imapbodyfetcher.BodyFetcher(
-        self._conn,
-        $imaptextparser.TextParser,
-        requests
-      );
-
-      self._handleBodyFetcher(fetch, header, bodyInfo, function(err) {
-        callback(err, bodyInfo);
-      });
-    };
-
-    self._storage.getMessageHeader(suid, date, gotHeader);
+    self._handleBodyFetcher(fetch, header, bodyInfo, function(err) {
+      callback(err, bodyInfo);
+    });
   },
 
   /**

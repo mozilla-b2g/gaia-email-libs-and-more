@@ -320,52 +320,12 @@ ImapJobDriver.prototype = {
     );
   },
 
-  // body rep downloading
+  //////////////////////////////////////////////////////////////////////////////
+  // downloadBodyReps: Download the bodies from a single message
 
-  local_do_downloadBodyReps: function(op, doneCallback) {
-    doneCallback(null);
-  },
+  local_do_downloadBodyReps: $jobmixins.local_do_downloadBodyReps,
 
-  do_downloadBodyReps: function(op, doneCallback) {
-    var self = this;
-
-    var idxLastSlash = op.messageSuid.lastIndexOf('/'),
-        folderId = op.messageSuid.substring(0, idxLastSlash);
-
-    var folderConn, folderStorage;
-    // Once we have the connection, get the current state of the body rep.
-    var gotConn = function gotConn(_folderConn, _folderStorage) {
-      folderConn = _folderConn;
-      folderStorage = _folderStorage;
-
-      folderConn.downloadBodyReps(
-        op.messageSuid, op.messageDate, onDownloadReps
-      );
-    };
-
-    var onDownloadReps = function onDownloadReps(err, bodyInfo) {
-      if (err) {
-        console.error('Error downloading reps', err);
-        // fail we cannot download for some reason?
-        return doneCallback('unknown');
-      }
-
-      // success
-      doneCallback(null, bodyInfo, true);
-    };
-
-    var deadConn = function deadConn() {
-      doneCallback('aborted-retry');
-    };
-
-    self._accessFolderForMutation(
-      folderId,
-      true,
-      gotConn,
-      deadConn,
-      'downloadBodyReps'
-    );
-  },
+  do_downloadBodyReps: $jobmixins.do_downloadBodyReps,
 
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message

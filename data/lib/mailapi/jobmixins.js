@@ -341,6 +341,62 @@ exports.undo_download = function(op, callback) {
   callback(null);
 };
 
+exports.do_downloadBodyReps = function(op, callback) {
+  var self = this;
+  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+      folderId = op.messageSuid.substring(0, idxLastSlash);
+
+  var folderConn, folderStorage;
+  // Once we have the connection, get the current state of the body rep.
+  var gotConn = function gotConn(_folderConn, _folderStorage) {
+    folderConn = _folderConn;
+    folderStorage = _folderStorage;
+
+    folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
+  };
+  var deadConn = function deadConn() {
+    callback('aborted-retry');
+  };
+
+  var header;
+  var gotHeader = function gotHeader(_headerInfo) {
+    // header may have been deleted by the time we get here...
+    if (!_headerInfo)
+      return callback();
+
+    header = _headerInfo;
+    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
+  };
+  var gotBody = function gotBody(bodyInfo) {
+    if (!bodyInfo)
+      return callback();
+
+    try{
+    folderConn.downloadBodyReps(header, bodyInfo, onDownloadReps);
+    } catch(e){
+      console.error(e);
+    }
+  };
+
+  var onDownloadReps = function onDownloadReps(err, bodyInfo) {
+    if (err) {
+      console.error('Error downloading reps', err);
+      // fail we cannot download for some reason?
+      return callback('unknown');
+    }
+
+    // success
+    callback(null, bodyInfo, true);
+  };
+
+  self._accessFolderForMutation(folderId, true, gotConn, deadConn,
+                                'downloadBodyReps');
+};
+
+exports.local_do_downloadBodyReps = function(op, callback) {
+  callback(null);
+};
+
 
 exports.local_do_saveDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
