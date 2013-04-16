@@ -2115,7 +2115,7 @@ var TestActiveSyncAccountMixins = {
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
-      if (self.testServer) {
+      if (self.testServer && folderType !== 'localdrafts') {
         testFolder.serverFolder = self.testServer.getFirstFolderWithType(
                                     folderType);
         testFolder.serverMessages = testFolder.serverFolder.messages;
@@ -2194,8 +2194,9 @@ var TestActiveSyncAccountMixins = {
     var testFolder = viewThing.testFolder;
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
+    var totalMessageCount = 0,
+        nonet = checkFlagDefault(extraFlags, 'nonet', false);
 
-    var totalMessageCount = 0;
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
         expectedValues = [expectedValues];
@@ -2203,7 +2204,7 @@ var TestActiveSyncAccountMixins = {
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
-        if (this.universe.online) {
+        if (this.universe.online && !nonet) {
           // The client should know about all of the messages on the server
           // after a sync.  If we start modeling the server only telling us
           // things in chunks, we will want to do something more clever here,
@@ -2254,13 +2255,15 @@ var TestActiveSyncAccountMixins = {
         }
       }
     }
-    if (this.universe.online &&
+    if (this.universe.online && !nonet &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eAccount.expect_saveAccountState();
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
       this.eAccount.expectNothing();
+      if (nonet)
+        testFolder.connActor.expectNothing();
     }
 
     return totalMessageCount;
