@@ -573,12 +573,14 @@ ActiveSyncServer.prototype = {
       requestData = this._cachedSyncRequest;
 
     const as = $_ascp.AirSync.Tags;
+    const asb = $_ascp.AirSyncBase.Tags;
     const asEnum = $_ascp.AirSync.Enums;
 
     let syncKey, collectionId, getChanges,
         server = this,
         deletesAsMoves = true,
         filterType = asEnum.FilterType.NoFilter,
+        truncationSize = 0,
         clientCommands = [];
 
     let e = new $_wbxml.EventParser();
@@ -600,6 +602,10 @@ ActiveSyncServer.prototype = {
     });
     e.addEventListener(base.concat(as.Options, as.FilterType), function(node) {
       filterType = node.children[0].textContent;
+    });
+    e.addEventListener(base.concat(as.Options, asb.BodyPreference),
+                       function(node) {
+      truncationSize = node.children[0].textContent;
     });
     e.addEventListener(base.concat(as.Commands, as.Change), function(node) {
       let command = { type: 'change' };
@@ -734,7 +740,7 @@ ActiveSyncServer.prototype = {
              .tag(as.ServerId, command.message.messageId)
              .stag(as.ApplicationData);
 
-          this._writeEmail(w, command.message);
+          this._writeEmail(w, command.message, truncationSize);
 
           w  .etag(as.ApplicationData)
             .etag(as.Add);
@@ -1019,8 +1025,10 @@ ActiveSyncServer.prototype = {
    *
    * @param w the WBXML writer
    * @param message the message object
+   * @param truncSize the truncation size for the body (optional, defaults to
+   *        no truncation)
    */
-  _writeEmail: function(w, message) {
+  _writeEmail: function(w, message, truncSize) {
     const em  = $_ascp.Email.Tags;
     const asb = $_ascp.AirSyncBase.Tags;
     const asbEnum = $_ascp.AirSyncBase.Enums;
@@ -1068,12 +1076,19 @@ ActiveSyncServer.prototype = {
       w.etag();
     }
 
+    let body = bodyPart.body;
+    if (truncSize !== undefined)
+      body = body.substring(0, truncSize);
+
     w.stag(asb.Body)
        .tag(asb.Type, bodyType)
        .tag(asb.EstimatedDataSize, bodyPart.body.length)
-       .tag(asb.Truncated, '0')
-       .tag(asb.Data, bodyPart.body)
-     .etag();
+       .tag(asb.Truncated, body.length === bodyPart.body.length ? '0' : '1');
+
+    if (body)
+      w.tag(asb.Data, bodyPart.body);
+
+    w.etag(asb.Body);
   },
 
   /**
