@@ -205,7 +205,7 @@ TD.commonCase('syncFolderList created localdrafts folder', function(T, RT) {
     // frequently don't have that folder, so use sent, which is our fallback
     // anyways and should be consistently located
     eCheck.expect_namedValue('path',
-                             sent.path.replace('sent', 'localdrafts', 'i'));
+                             sent.path.replace(/sent.*/i, 'localdrafts'));
 
     var localDrafts = testUniverse.allFoldersSlice
                         .getFirstFolderWithType('localdrafts');
