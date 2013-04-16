@@ -431,9 +431,15 @@ ActiveSyncFolderConn.prototype = {
              .tag(as.GetChanges)
              .stag(as.Options)
                .tag(as.FilterType, this.filterType)
-               .tag(as.MIMESupport, asEnum.MIMESupport.Never)
-               .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
-             .etag()
+
+      // Older versions of ActiveSync give us the body by default. Ensure they
+      // omit it.
+      if (this._account.conn.currentVersion.lte('12.0')) {
+              w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
+               .tag(as.Truncation, asEnum.MIMETruncation.TruncateAll);
+      }
+
+            w.etag()
            .etag()
          .etag()
        .etag();
