@@ -243,8 +243,8 @@ ActiveSyncFolderConn.prototype = {
     }
     else {
           w.tag(ie.Class, 'Email')
-           .tag(ie.CollectionId, this.serverId)
            .tag(as.SyncKey, this.syncKey)
+           .tag(ie.CollectionId, this.serverId)
            .tag(as.FilterType, filterType);
     }
 
@@ -311,7 +311,9 @@ ActiveSyncFolderConn.prototype = {
 
         folderConn._getItemEstimate(filterType, function(error, estimate) {
           if (error) {
-            callback('unknown');
+            // If we couldn't get an estimate, just tell the main callback that
+            // we want three days back.
+            callback(null, Type.ThreeDaysBack);
             return;
           }
 
@@ -809,10 +811,12 @@ ActiveSyncFolderConn.prototype = {
 
   downloadBodyReps: lazyConnection(2, function(header, bodyInfo, callback) {
     var io = $ItemOperations.Tags;
-    var ioStatus = $ItemOperations.Enums.Status;
+    var ioEnum = $ItemOperations.Enums;
     var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
     var asb = $AirSyncBase.Tags;
     var asbEnum = $AirSyncBase.Enums;
+    var em = $Email.Tags;
 
     var folderConn = this;
     var account = this._account;
@@ -824,22 +828,43 @@ ActiveSyncFolderConn.prototype = {
                                              asbEnum.Type.PlainText;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(io.ItemOperations)
-       .stag(io.Fetch)
-         .tag(io.Store, 'Mailbox')
-         .tag(as.CollectionId, this.serverId)
-         .tag(as.ServerId, header.srvid)
-         .stag(io.Options)
-           // Only get the AirSyncBase:Body element to minimize bandwidth usage.
-           .stag(io.Schema)
-             .tag(asb.Body)
-           .etag()
-           .stag(asb.BodyPreference)
-             .tag(asb.Type, bodyType)
+    if (account.conn.currentVersion.gte('12.0')) {
+      w.stag(io.ItemOperations)
+         .stag(io.Fetch)
+           .tag(io.Store, 'Mailbox')
+           .tag(as.CollectionId, this.serverId)
+           .tag(as.ServerId, header.srvid)
+           .stag(io.Options)
+             // Only get the AirSyncBase:Body element to minimize bandwidth.
+             .stag(io.Schema)
+               .tag(asb.Body)
+             .etag()
+             .stag(asb.BodyPreference)
+               .tag(asb.Type, bodyType)
+             .etag()
            .etag()
          .etag()
-       .etag()
-     .etag();
+       .etag();
+    }
+    else {
+      w.stag(as.Sync)
+         .stag(as.Collections)
+           .stag(as.Collection)
+             .tag(as.Class, 'Email')
+             .tag(as.SyncKey, this.syncKey)
+             .tag(as.CollectionId, this.serverId)
+             .stag(as.Options)
+               .tag(as.MIMESupport, asEnum.MIMESupport.Never)
+             .etag()
+             .stag(as.Commands)
+               .stag(as.Fetch)
+                 .tag(as.ServerId, header.srvid)
+               .etag()
+             .etag()
+           .etag()
+         .etag()
+       .etag();
+    }
 
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
@@ -848,19 +873,39 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      var bodyContent, status;
-      var e = new $wbxml.EventParser();
-      e.addEventListener([io.ItemOperations, io.Status], function(node) {
-        status = node.children[0].textContent;
-      });
-      e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                          io.Properties, asb.Body, asb.Data], function(node) {
-        bodyContent = node.children[0].textContent;
-      });
-      e.run(aResponse);
+      var status, bodyContent,
+          e = new $wbxml.EventParser();
+      if (account.conn.currentVersion.gte('12.0')) {
+        e.addEventListener([io.ItemOperations, io.Status], function(node) {
+          status = node.children[0].textContent;
+        });
+        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
+                            io.Properties, asb.Body, asb.Data], function(node) {
+          bodyContent = node.children[0].textContent;
+        });
+        e.run(aResponse);
 
-      if (status !== ioStatus.Success)
-        return callback('unknown');
+        if (status !== ioEnum.Status.Success)
+          return callback('unknown');
+      }
+      else {
+        var base = [as.Sync, as.Collections, as.Collection];
+        e.addEventListener(base.concat(as.SyncKey), function(node) {
+          folderConn.syncKey = node.children[0].textContent;
+        });
+        e.addEventListener(base.concat(as.Status), function(node) {
+          status = node.children[0].textContent;
+        });
+        e.addEventListener(base.concat(as.Responses, as.Fetch,
+                                       as.ApplicationData, em.Body),
+                           function(node) {
+          bodyContent = node.children[0].textContent;
+        });
+        e.run(aResponse);
+
+        if (status !== asEnum.Status.Success)
+          return callback('unknown');
+      }
 
       bodyRep.isDownloaded = true;
       bodyRep.amountDownloaded = bodyContent.length;
