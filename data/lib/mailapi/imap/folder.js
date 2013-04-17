@@ -623,7 +623,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   /**
    * Download snippets for a set of headers.
    */
-  _lazyDownloadSnippets: function(headers, callback) {
+  _lazyDownloadBodies: function(headers, callback) {
     var i = 0;
     var len = headers.length;
     var pending = 1;
@@ -647,7 +647,15 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       }
 
       pending++;
-      this._downloadSnippet(headers[i], next);
+      this._storage.getMessageBody(headers[i].suid, headers[i].date, function(header, body) {
+        if (!body) {
+          return next();
+        }
+
+        pending++;
+        this.downloadBodyReps(header, body, next);
+        next();
+      }.bind(this, headers[i]));
     }
 
     // by having one pending item always this handles the case of not having any
@@ -656,7 +664,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     window.setZeroTimeout(next);
   },
 
-  downloadSnippets: function() {
+  downloadBodies: function() {
     var args = Array.slice(arguments);
     var self = this;
 
@@ -672,7 +680,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         $imapbodyfetcher = _bodyfetcher;
         $imapsnippetparser = _snippetparser;
 
-        (self.downloadSnippets = self._lazyDownloadSnippets).apply(self, args);
+        (self.downloadBodies = self._lazyDownloadBodies).apply(self, args);
     });
   },
 

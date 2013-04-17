@@ -289,19 +289,17 @@ ImapJobDriver.prototype = {
 
   allJobsDone: $jobmixins.allJobsDone,
 
-  // snippet downloading
-
-  local_do_downloadSnippets: function(op, doneCallback) {
+  local_do_downloadBodies: function(op, doneCallback) {
     doneCallback(null);
   },
 
-  do_downloadSnippets: function(op, doneCallback) {
+  do_downloadBodies: function(op, doneCallback) {
     var aggrErr;
     this._partitionAndAccessFoldersSequentially(
       op.messages,
       true,
       function perFolder(folderConn, storage, headers, namers, callWhenDone) {
-        folderConn.downloadSnippets(headers, function(err) {
+        folderConn.downloadBodies(headers, function(err) {
           if (err && !aggrErr) {
             aggrErr = err;
           }
@@ -309,13 +307,13 @@ ImapJobDriver.prototype = {
         });
       },
       function allDone() {
-        doneCallback(aggrErr);
+        doneCallback(aggrErr, null, true);
       },
       function deadConn() {
         aggrErr = 'aborted-retry';
       },
       false, // reverse?
-      'downloadSnippets',
+      'downloadBodies',
       true // require headers
     );
   },

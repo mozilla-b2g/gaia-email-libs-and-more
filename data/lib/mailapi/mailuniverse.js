@@ -1488,7 +1488,7 @@ MailUniverse.prototype = {
     );
   },
 
-  downloadSnippets: function(messages, callback) {
+  downloadBodies: function(messages, callback) {
     var self = this;
     var pending = 0;
 
@@ -1503,13 +1503,13 @@ MailUniverse.prototype = {
       self._queueAccountOp(
         x.account,
         {
-          type: 'downloadSnippets',
+          type: 'downloadBodies',
           longtermId: 'session', // don't persist this job.
           lifecycle: 'do',
           localStatus: null,
           serverStatus: null,
           tryCount: 0,
-          humanOp: 'downloadSnippets',
+          humanOp: 'downloadBodies',
           messages: x.messages
         },
         next
