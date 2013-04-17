@@ -1133,7 +1133,7 @@ ActiveSyncFolderSyncer.prototype = {
 
   initialSync: function(slice, initialDays, syncCallback,
                         doneCallback, progressCallback) {
-    syncCallback('sync', false, true);
+    syncCallback('sync', true);
     this.folderConn.sync(
       $date.NOW(),
       this.onSyncCompleted.bind(this, doneCallback, true),

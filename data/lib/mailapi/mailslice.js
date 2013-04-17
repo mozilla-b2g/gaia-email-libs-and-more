@@ -147,28 +147,17 @@ var SYNC_START_MINIMUM_PROGRESS = 0.02;
  *
  * === Batching ===
  *
- * We do a few different types of batching based on the current sync state,
- * with these choices being motivated by UX desires and some efficiency desires
- * (in pursuit of improved UX).  We want the user to feel like they get their
- * messages quickly, but we also don't want messages jumping all over the
- * screen.
+ * Headers are either notified one-by-one using onHeaderAdded/onHeaderModified/
+ * onHeaderRemoved or we are told about them in an explicit batch using
+ * batchAppendHeaders.  We only get explicit batches when loading directly from
+ * the database; any time network traffic is involved things will be
+ * one-by-one.
  *
- * - Fresh sync (all messages are new to us): Messages are being added from
- *   most recent to oldest.  Currently, we just let this pass through, but
- *   we might want to do some form of limited time-based batching.  (ex:
- *   wait 50ms or for notification of completion before sending a batch).
+ * We want to batch so that UI will inherently cluster its DOM manipulations and
+ * thereby minimize the amount of reflowing and painting that occurs.
  *
- * - Refresh (sync): No action required because we either already have the
- *   messages or get them in efficient-ish batches.  This is followed by
- *   what should be minimal changes (and where refresh was explicitly chosen
- *   to be used rather than date sync for this reason.)
- *
- * - Date sync (some messages are new, some messages are known):  We currently
- *   get the known headers added one by one from youngest to oldest, followed
- *   by the new messages also youngest to oldest.  The notional UX (enforced
- *   by unit tests) for this is that we want all the changes coherently and with
- *   limits made effective.  To this end, we do not generate any splices until
- *   sync is complete and then generate a single slice.
+ * Since this class is already reasonably complicated, we push the actual
+ * batching into the `SliceBridgeProxy`.
  */
 function MailSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;
@@ -191,11 +180,6 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
    */
   this.waitingOnData = false;
 
-  /**
-   * When true, we are not generating splices and are just accumulating state
-   * in this.headers.
-   */
-  this._accumulating = false;
   /**
    * If true, don't add any headers.  This is used by ActiveSync during its
    * synchronization step to wait until all headers have been retrieved and
@@ -259,10 +243,7 @@ MailSlice.prototype = {
       return;
 
     if (this.headers.length) {
-      // If we're accumulating, we were starting from zero to begin with, so
-      // there is no need to send a nuking splice.
-      if (!this._accumulating)
-        this._bridgeHandle.sendSplice(0, this.headers.length, [], false, true);
+      this._bridgeHandle.sendSplice(0, this.headers.length, [], false, true);
       this.headers.splice(0, this.headers.length);
 
       this.startTS = null;
@@ -312,11 +293,10 @@ MailSlice.prototype = {
       this.userCanGrowDownwards = false;
       var delCount = this.headers.length - lastIndex  - 1;
       this.desiredHeaders -= delCount;
-      if (!this._accumulating)
-        this._bridgeHandle.sendSplice(
-          lastIndex + 1, delCount, [],
-          // This is expected; more coming if there's a low-end splice
-          true, firstIndex > 0);
+      this._bridgeHandle.sendSplice(
+        lastIndex + 1, delCount, [],
+        // This is expected; more coming if there's a low-end splice
+        true, firstIndex > 0);
       this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
       var lastHeader = this.headers[lastIndex];
       this.startTS = lastHeader.date;
@@ -326,8 +306,7 @@ MailSlice.prototype = {
       this.atTop = false;
       this.userCanGrowUpwards = false;
       this.desiredHeaders -= firstIndex;
-      if (!this._accumulating)
-        this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
+      this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
       this.headers.splice(0, firstIndex);
       var firstHeader = this.headers[0];
       this.endTS = firstHeader.date;
@@ -349,7 +328,7 @@ MailSlice.prototype = {
     this.setStatus('synced', true, false);
   },
 
-  setStatus: function(status, requested, moreExpected, flushAccumulated,
+  setStatus: function(status, requested, moreExpected, flush,
                       progress) {
     if (!this._bridgeHandle)
       return;
@@ -360,28 +339,7 @@ MailSlice.prototype = {
         this._updateSliceFlags();
         break;
     }
-    if (flushAccumulated && this._accumulating) {
-      if (this.headers.length > this.desiredHeaders) {
-        this.headers.splice(this.desiredHeaders,
-                            this.headers.length - this.desiredHeaders);
-        this.endTS = this.headers[this.headers.length - 1].date;
-        this.endUID = this.headers[this.headers.length - 1].id;
-      }
-
-      this._accumulating = false;
-      this._bridgeHandle.status = status;
-      // XXX remove concat() once our bridge sending makes rep sharing
-      // impossible by dint of actual postMessage or JSON roundtripping.
-      this._bridgeHandle.sendSplice(0, 0, this.headers.concat(),
-                                    requested, moreExpected);
-      // If we're no longer synchronizing, we want to update desiredHeaders
-      // to avoid accumulating extra 'desire'.
-      if (status !== 'synchronizing')
-        this.desiredHeaders = this.headers.length;
-    }
-    else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
-    }
+    this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
   },
 
   /**
@@ -441,9 +399,8 @@ MailSlice.prototype = {
     }
 
     this._updateSliceFlags();
-    if (!this._accumulating)
-      this._bridgeHandle.sendSplice(insertAt, 0, headers,
-                                    true, moreComing);
+    this._bridgeHandle.sendSplice(insertAt, 0, headers,
+                                  true, moreComing);
   },
 
   /**
@@ -459,20 +416,16 @@ MailSlice.prototype = {
     var idx = bsearchForInsert(this.headers, header, cmpHeaderYoungToOld);
 
     var hlen = this.headers.length;
-    // Don't append the header if it would expand us beyond our requested amount
-    // and there is no subsequent step, like accumulate flushing, that would get
-    // rid of the excess.  Note that this does not guarantee that we won't
-    // end up with more headers than originally planned; if we get told about
-    // headers earlier than the last slot, we will insert them and grow without
-    // forcing a removal of something else to offset.
-    if (hlen >= this.desiredHeaders && idx === hlen &&
-        !this._accumulating)
+    // Don't append the header if it would expand us beyond our requested
+    //  amount.  Note that this does not guarantee that we won't end up with
+    //  more headers than originally planned; if we get told about headers
+    //  earlier than the last slot, we will insert them and grow without forcing
+    //  a removal of something else to offset.
+    if (hlen >= this.desiredHeaders && idx === hlen)
       return;
-    // If we are inserting (not at the end) and not accumulating (in which case
-    // we can chop off the excess before we tell about it), then be sure to grow
-    // the number of desired headers to be consistent with the number of headers
-    // we have.
-    if (hlen >= this.desiredHeaders && !this._accumulating)
+    // If we are inserting (not at the end), then be sure to grow the number of
+    // desired headers to be consistent with the number of headers we have.
+    if (hlen >= this.desiredHeaders)
       this.desiredHeaders++;
 
     if (this.startTS === null ||
@@ -495,10 +448,9 @@ MailSlice.prototype = {
     }
 
     this._LOG.headerAdded(idx, header);
-    if (!this._accumulating)
-      this._bridgeHandle.sendSplice(idx, 0, [header],
-                                    Boolean(this.waitingOnData),
-                                    Boolean(this.waitingOnData));
+    this._bridgeHandle.sendSplice(idx, 0, [header],
+                                  Boolean(this.waitingOnData),
+                                  Boolean(this.waitingOnData));
     this.headers.splice(idx, 0, header);
   },
 
@@ -516,9 +468,7 @@ MailSlice.prototype = {
       // There is no identity invariant to ensure this is already true.
       this.headers[idx] = header;
       this._LOG.headerModified(idx, header);
-      // If we are accumulating, the update will be observed.
-      if (!this._accumulating)
-        this._bridgeHandle.sendUpdate([idx, header]);
+      this._bridgeHandle.sendUpdate(idx, header);
     }
   },
 
@@ -532,10 +482,9 @@ MailSlice.prototype = {
     var idx = bsearchMaybeExists(this.headers, header, cmpHeaderYoungToOld);
     if (idx !== null) {
       this._LOG.headerRemoved(idx, header);
-      if (!this._accumulating)
-        this._bridgeHandle.sendSplice(idx, 1, [],
-                                      Boolean(this.waitingOnData),
-                                      Boolean(this.waitingOnData));
+      this._bridgeHandle.sendSplice(idx, 1, [],
+                                    Boolean(this.waitingOnData),
+                                    Boolean(this.waitingOnData));
       this.headers.splice(idx, 1);
 
       // update time-ranges if required...
@@ -2285,12 +2234,8 @@ FolderStorage.prototype = {
 
     // -- Bad existing data, issue a sync
     var progressCallback = slice.setSyncProgress.bind(slice);
-    var syncCallback = function syncCallback(syncMode, accumulateMode,
-                                             ignoreHeaders) {
+    var syncCallback = function syncCallback(syncMode, ignoreHeaders) {
       slice.waitingOnData = syncMode;
-      if (accumulateMode && slice.headers.length === 0) {
-        slice._accumulating = true;
-      }
       if (ignoreHeaders) {
         slice.ignoreHeaders = true;
       }

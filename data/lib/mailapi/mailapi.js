@@ -1447,18 +1447,66 @@ MailAPI.prototype = {
       this.onbadlogin(new MailAccount(this, msg.account), msg.problem);
   },
 
-  _recv_sliceSplice: function ma__recv_sliceSplice(msg) {
-    var slice = this._slices[msg.handle];
+  _recv_sliceBatchUpdate: function ma__recv_sliceBatchUpdate(msg) {
+    var slice = this._slices[msg.handle],
+        i;
     if (!slice) {
       unexpectedBridgeDataError('Received message about a nonexistent slice:',
                                 msg.handle);
       return;
     }
 
-    var addItems = msg.addItems, transformedItems = [], i, stopIndex;
+    // - update flags
+    slice.atTop = msg.atTop;
+    slice.atBottom = msg.atBottom;
+    slice.userCanGrowUpwards = msg.userCanGrowUpwards;
+    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
+
+    var generateStatusChange =
+      (msg.status &&
+       (slice.status !== msg.status ||
+        slice.syncProgress !== msg.progress));
+
+    if (msg.status) {
+      slice.status = msg.status;
+      slice.syncProgress = msg.progress;
+    }
+
+    // - process splices/updates
+    // These are interleaved since their indices are inter-related.
+    var changes = msg.changes;
+    for (i = 0; i < changes.length; i++) {
+      var thing = changes[i];
+      // - update!
+      if (Array.isArray(thing)) {
+        try {
+          var idx = thing[0], wireRep = thing[1],
+              itemObj = slice.items[idx];
+          itemObj.__update(wireRep);
+          if (slice.onchange)
+            slice.onchange(itemObj, idx);
+          if (itemObj.onchange)
+            itemObj.onchange(itemObj, idx);
+        }
+        catch (ex) {
+          reportClientCodeError('onchange notification error', ex,
+                                '\n', ex.stack);
+        }
+      }
+      // - splice!
+      else {
+        this._processSliceSplice(slice, thing);
+      }
+    }
+
+    if (generateStatusChange && slice.onstatus)
+      slice.onstatus(slice.status);
+  },
+
+  _processSliceSplice: function ma__recv_sliceSplice(slice, splice) {
+    var addItems = splice.addItems, transformedItems = [], i, stopIndex;
     switch (slice._ns) {
       case 'accounts':
-
         if (typeof document !== 'undefined') {
           var hasAccounts = hasAccountCookie();
           if (addItems.length && !hasAccounts) {
@@ -1512,25 +1560,11 @@ MailAPI.prototype = {
         break;
     }
 
-    // - generate namespace-specific notifications
-    slice.atTop = msg.atTop;
-    slice.atBottom = msg.atBottom;
-    slice.userCanGrowUpwards = msg.userCanGrowUpwards;
-    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
-    if (msg.status &&
-        (slice.status !== msg.status ||
-         slice.syncProgress !== msg.progress)) {
-      slice.status = msg.status;
-      slice.syncProgress = msg.progress;
-      if (slice.onstatus)
-        slice.onstatus(slice.status);
-    }
-
     // - generate slice 'onsplice' notification
     if (slice.onsplice) {
       try {
-        slice.onsplice(msg.index, msg.howMany, transformedItems,
-                       msg.requested, msg.moreExpected);
+        slice.onsplice(splice.index, splice.howMany, transformedItems,
+                       splice.requested, splice.moreExpected);
       }
       catch (ex) {
         reportClientCodeError('onsplice notification error', ex,
@@ -1538,10 +1572,10 @@ MailAPI.prototype = {
       }
     }
     // - generate item 'onremove' notifications
-    if (msg.howMany) {
+    if (splice.howMany) {
       try {
-        stopIndex = msg.index + msg.howMany;
-        for (i = msg.index; i < stopIndex; i++) {
+        stopIndex = splice.index + splice.howMany;
+        for (i = splice.index; i < stopIndex; i++) {
           var item = slice.items[i];
           if (slice.onremove)
             slice.onremove(item, i);
@@ -1555,13 +1589,14 @@ MailAPI.prototype = {
       }
     }
     // - perform actual splice
-    slice.items.splice.apply(slice.items,
-                             [msg.index, msg.howMany].concat(transformedItems));
+    slice.items.splice.apply(
+      slice.items,
+      [splice.index, splice.howMany].concat(transformedItems));
     // - generate item 'onadd' notifications
     if (slice.onadd) {
       try {
-        stopIndex = msg.index + transformedItems.length;
-        for (i = msg.index; i < stopIndex; i++) {
+        stopIndex = splice.index + transformedItems.length;
+        for (i = splice.index; i < stopIndex; i++) {
           slice.onadd(slice.items[i], i);
         }
       }
@@ -1572,7 +1607,7 @@ MailAPI.prototype = {
     }
 
     // - generate 'oncomplete' notification
-    if (msg.requested && !msg.moreExpected) {
+    if (splice.requested && !splice.moreExpected) {
       slice._growing = 0;
       if (slice.pendingRequestCount)
         slice.pendingRequestCount--;
@@ -1589,32 +1624,6 @@ MailAPI.prototype = {
                                 '\n', ex.stack);
         }
       }
-    }
-  },
-
-  _recv_sliceUpdate: function ma__recv_sliceUpdate(msg) {
-    var slice = this._slices[msg.handle];
-    if (!slice) {
-      unexpectedBridgeDataError('Received message about a nonexistent slice:',
-                                msg.handle);
-      return;
-    }
-
-    var updates = msg.updates;
-    try {
-      for (var i = 0; i < updates.length; i += 2) {
-        var idx = updates[i], wireRep = updates[i + 1],
-            itemObj = slice.items[idx];
-        itemObj.__update(wireRep);
-        if (slice.onchange)
-          slice.onchange(itemObj, idx);
-        if (itemObj.onchange)
-          itemObj.onchange(itemObj, idx);
-      }
-    }
-    catch (ex) {
-      reportClientCodeError('onchange notification error', ex,
-                            '\n', ex.stack);
     }
   },
 

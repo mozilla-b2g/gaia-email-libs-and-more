@@ -649,6 +649,15 @@ var TestCommonAccountMixins = {
         });
     }
 
+    // We may need to wait for the slice to flush if the snippet is not yet
+    // good.  We wait for this via a ping invocation.
+    function callbackWhenSnippetGood(body) {
+      if (myHeader.snippet === null)
+        testUniverse.MailAPI.ping(callback.bind(null, body));
+      else
+        callback(body);
+    }
+
     myHeader.getBody({ downloadBodyReps: true }, function(body) {
       // wait for all body reps if they are not here...
       var needBodReps = body.bodyReps.some(function(item) {
@@ -658,13 +667,13 @@ var TestCommonAccountMixins = {
       if (needBodReps) {
         body.onchange = function(evt) {
           if (evt.changeType === 'bodyReps') {
-            callback(body);
+            callbackWhenSnippetGood(body);
             sendToMain();
           }
         };
 
       } else {
-        callback(body);
+        callbackWhenSnippetGood(body);
         sendToMain();
       }
     });

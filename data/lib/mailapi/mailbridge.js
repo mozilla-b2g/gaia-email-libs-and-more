@@ -139,10 +139,14 @@ MailBridge.prototype = {
   },
 
   _cmd_ping: function mb__cmd_ping(msg) {
-    this.__sendMessage({
-      type: 'pong',
-      handle: msg.handle,
-    });
+    // We need to use a zero timeout to make sure that we only fire after any
+    // slice flushes fire (which also use setZeroTimeout).
+    setZeroTimeout(function() {
+      this.__sendMessage({
+        type: 'pong',
+        handle: msg.handle,
+      });
+    }.bind(this));
   },
 
   _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
@@ -339,7 +343,7 @@ MailBridge.prototype = {
       var proxy = slices[i];
       var idx = proxy.markers.indexOf(account.id);
       if (idx !== -1) {
-        proxy.sendUpdate([idx, accountWireRep]);
+        proxy.sendUpdate(idx, accountWireRep);
       }
     }
   },
@@ -416,7 +420,7 @@ MailBridge.prototype = {
       var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
       if (idx === null)
         continue;
-      proxy.sendUpdate([idx, folderMeta]);
+      proxy.sendUpdate(idx, folderMeta);
     }
   },
 
@@ -1134,6 +1138,9 @@ function SliceBridgeProxy(bridge, ns, handle) {
    */
   this.userCanGrowUpwards = false;
   this.userCanGrowDownwards = false;
+
+  this._pendingChanges = [];
+  this._flushPending = false;
 }
 SliceBridgeProxy.prototype = {
   /**
@@ -1141,14 +1148,33 @@ SliceBridgeProxy.prototype = {
    */
   sendSplice: function sbp_sendSplice(index, howMany, addItems, requested,
                                       moreExpected) {
-    this._bridge.__sendMessage({
-      type: 'sliceSplice',
-      handle: this._handle,
+    this._pendingChanges.push({
       index: index,
       howMany: howMany,
       addItems: addItems,
       requested: requested,
       moreExpected: moreExpected,
+    });
+    if (!this._flushPending)
+      this._scheduleFlush();
+  },
+
+  _scheduleFlush: function() {
+    this._flushPending = setZeroTimeout(this._flush.bind(this));
+  },
+
+  _flushNow: function() {
+    if (this._flushPending)
+      clearZeroTimeout(this._flushPending);
+    this._flush();
+  },
+
+  _flush: function() {
+    this._flushPending = false;
+    this._bridge.__sendMessage({
+      type: 'sliceBatchUpdate',
+      handle: this._handle,
+      changes: this._pendingChanges,
       status: this.status,
       progress: this.progress,
       atTop: this.atTop,
@@ -1156,17 +1182,20 @@ SliceBridgeProxy.prototype = {
       userCanGrowUpwards: this.userCanGrowUpwards,
       userCanGrowDownwards: this.userCanGrowDownwards,
     });
+    // XXX our logging infrastructure currently needs us to create new lists
+    // each time.  The trade-off is that having the logger have to serialize all
+    // long entries to avoid getting tripped up by this would actually be much
+    // worse.
+    this._pendingChanges = [];
   },
 
   /**
    * Issue an update for existing items.
    */
-  sendUpdate: function sbp_sendUpdate(indexUpdatesRun) {
-    this._bridge.__sendMessage({
-      type: 'sliceUpdate',
-      handle: this._handle,
-      updates: indexUpdatesRun,
-    });
+  sendUpdate: function sbp_sendUpdate(index, header) {
+    this._pendingChanges.push([index, header]);
+    if (!this._flushPending)
+      this._scheduleFlush();
   },
 
   sendStatus: function sbp_sendStatus(status, requested, moreExpected,
@@ -1175,11 +1204,13 @@ SliceBridgeProxy.prototype = {
     if (progress != null)
       this.progress = progress;
     this.sendSplice(0, 0, [], requested, moreExpected);
+    this._flushNow();
   },
 
   sendSyncProgress: function(progress) {
     this.progress = progress;
-    this.sendSplice(0, 0, [], true, true);
+    if (!this._flushPending)
+      this._scheduleFlush();
   },
 
   die: function sbp_die() {

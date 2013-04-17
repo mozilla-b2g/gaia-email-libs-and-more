@@ -878,7 +878,7 @@ ImapFolderSyncer.prototype = {
    */
   initialSync: function(slice, initialDays, syncCallback,
                         doneCallback, progressCallback) {
-    syncCallback('sync', false);
+    syncCallback('sync');
     this._startSync(
       slice, PASTWARDS, // sync into the past
       'grow',
