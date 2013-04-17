@@ -299,7 +299,7 @@ ImapJobDriver.prototype = {
       op.messages,
       true,
       function perFolder(folderConn, storage, headers, namers, callWhenDone) {
-        folderConn.downloadBodies(headers, function(err) {
+        folderConn.downloadBodies(headers, op.options, function(err) {
           if (err && !aggrErr) {
             aggrErr = err;
           }

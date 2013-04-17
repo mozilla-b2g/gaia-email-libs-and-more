@@ -998,7 +998,14 @@ HeadersViewSlice.prototype._notifyRequestBodiesComplete = function(reqId) {
  *
  * The results will be sent through the standard slice/header events.
  */
-HeadersViewSlice.prototype.maybeRequestBodies = function(idxStart, idxEnd, callback) {
+HeadersViewSlice.prototype.maybeRequestBodies =
+  function(idxStart, idxEnd, options, callback) {
+
+  if (typeof(options) === 'function') {
+    callback = options;
+    options = null;
+  }
+
   var messages = [];
 
   idxEnd = Math.min(idxEnd, this.items.length - 1);
@@ -1030,7 +1037,8 @@ HeadersViewSlice.prototype.maybeRequestBodies = function(idxStart, idxEnd, callb
     type: 'requestBodies',
     handle: this._handle,
     requestId: reqId,
-    messages: messages
+    messages: messages,
+    options: options
   });
 };
 

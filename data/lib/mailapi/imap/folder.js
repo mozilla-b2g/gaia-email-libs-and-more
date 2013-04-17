@@ -467,6 +467,21 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       searchOptions.push(['BEFORE', endTS]);
   },
 
+  /**
+   * Downloads all the body representations for a given message.
+   *
+   *
+   *    folder.downloadBodyReps(
+   *      header,
+   *      body,
+   *      {
+   *        // maximum number of bytes to fetch total (across all bodyReps)
+   *        maximumBytesToFetch: N
+   *      }
+   *      callback
+   *    );
+   *
+   */
   downloadBodyReps: function() {
     var args = Array.slice(arguments);
     var self = this;
@@ -491,12 +506,23 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * Initiates a request to download all body reps. If a snippet has not yet
    * been generated this will also generate the snippet...
    */
-  _lazyDownloadBodyReps: function(header, bodyInfo, callback) {
+  _lazyDownloadBodyReps: function(header, bodyInfo, options, callback) {
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+
+    options = options || {};
+
     var requests = [];
     var self = this;
 
     // target for snippet generation
     var bodyRepIdx = $imapchew.selectSnippetBodyRep(header, bodyInfo);
+
+    // assume user always wants entire email unless option is given...
+    var overallMaximumBytes = options.maximumBytesToFetch;
+
 
     // build the list of requests based on downloading required.
     bodyInfo.bodyReps.forEach(function(rep, idx) {
@@ -513,12 +539,31 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         createSnippet: idx === bodyRepIdx
       };
 
+      // default to the entire remaining email
+      var bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
+
+      if (overallMaximumBytes !== undefined) {
+        // issued enough downloads
+        if (overallMaximumBytes === 0) {
+          return;
+        }
+
+        // if our estimate is greater then expected number of bytes request the
+        // maximum allowed.
+        if (rep.sizeEstimate > overallMaximumBytes) {
+          bytesToFetch = overallMaximumBytes;
+        }
+
+        // subtract the estimated byte size
+        overallMaximumBytes -= rep.sizeEstimate;
+      }
+
       // we may only need a subset of the total number of bytes.
-      if (rep.amountDownloaded) {
+      if (overallMaximumBytes || rep.amountDownloaded) {
         // request the remainder
         request.bytes = [
           rep.amountDownloaded,
-          Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES)
+          bytesToFetch
         ];
       }
 
@@ -623,7 +668,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   /**
    * Download snippets for a set of headers.
    */
-  _lazyDownloadBodies: function(headers, callback) {
+  _lazyDownloadBodies: function(headers, options, callback) {
     var i = 0;
     var len = headers.length;
     var pending = 1;
@@ -653,7 +698,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         }
 
         pending++;
-        this.downloadBodyReps(header, body, next);
+        this.downloadBodyReps(header, body, options, next);
         next();
       }.bind(this, headers[i]));
     }

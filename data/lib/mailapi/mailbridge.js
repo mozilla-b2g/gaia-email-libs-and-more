@@ -385,7 +385,7 @@ MailBridge.prototype = {
 
   _cmd_requestBodies: function(msg) {
     var self = this;
-    this.universe.downloadBodies(msg.messages, function() {
+    this.universe.downloadBodies(msg.messages, msg.options, function() {
       self.__sendMessage({
         type: 'requestBodiesComplete',
         handle: msg.handle,
