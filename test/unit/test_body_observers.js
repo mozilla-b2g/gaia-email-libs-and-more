@@ -1,14 +1,12 @@
 define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
         'activesync/codepages', 'exports'],
-       function($tc, $th_imap, $ascp, exports) {
+       function($tc, $th_imap, $th_as_server, $ascp, exports) {
 var FilterType = $ascp.AirSync.Enums.FilterType;
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_body_observers' },
-  null,
-  [$th_imap.TESTHELPER],
-  ['app']
-);
+  { id: 'test_body_observers' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('body update events', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
