@@ -539,12 +539,15 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         createSnippet: idx === bodyRepIdx
       };
 
-      // default to the entire remaining email
+      // default to the entire remaining email. We use the estimate * largish
+      // multiplier so even if the size estimate is wrong we should fetch more
+      // then the requested number of bytes which if truncated indicates the
+      // end of the bodies content.
       var bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
 
       if (overallMaximumBytes !== undefined) {
         // issued enough downloads
-        if (overallMaximumBytes === 0) {
+        if (overallMaximumBytes <= 0) {
           return;
         }
 
@@ -559,7 +562,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       }
 
       // we may only need a subset of the total number of bytes.
-      if (overallMaximumBytes || rep.amountDownloaded) {
+      if (overallMaximumBytes !== undefined || rep.amountDownloaded) {
         // request the remainder
         request.bytes = [
           rep.amountDownloaded,
