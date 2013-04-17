@@ -473,7 +473,6 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    *
    *    folder.downloadBodyReps(
    *      header,
-   *      body,
    *      {
    *        // maximum number of bytes to fetch total (across all bodyReps)
    *        maximumBytesToFetch: N
@@ -506,7 +505,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * Initiates a request to download all body reps. If a snippet has not yet
    * been generated this will also generate the snippet...
    */
-  _lazyDownloadBodyReps: function(header, bodyInfo, options, callback) {
+  _lazyDownloadBodyReps: function(header, options, callback) {
     if (typeof(options) === 'function') {
       callback = options;
       options = null;
@@ -514,78 +513,81 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 
     options = options || {};
 
-    var requests = [];
     var self = this;
 
-    // target for snippet generation
-    var bodyRepIdx = $imapchew.selectSnippetBodyRep(header, bodyInfo);
+    var gotBody = function gotBody(bodyInfo) {
+      // target for snippet generation
+      var bodyRepIdx = $imapchew.selectSnippetBodyRep(header, bodyInfo);
 
-    // assume user always wants entire email unless option is given...
-    var overallMaximumBytes = options.maximumBytesToFetch;
+      // assume user always wants entire email unless option is given...
+      var overallMaximumBytes = options.maximumBytesToFetch;
 
+      // build the list of requests based on downloading required.
+      var requests = [];
+      bodyInfo.bodyReps.forEach(function(rep, idx) {
 
-    // build the list of requests based on downloading required.
-    bodyInfo.bodyReps.forEach(function(rep, idx) {
-
-      // attempt to be idempotent by only requesting the bytes we need if we
-      // actually need them...
-      if (rep.isDownloaded)
-        return;
-
-      var request = {
-        uid: header.srvid,
-        partInfo: rep._partInfo,
-        bodyRepIndex: idx,
-        createSnippet: idx === bodyRepIdx
-      };
-
-      // default to the entire remaining email. We use the estimate * largish
-      // multiplier so even if the size estimate is wrong we should fetch more
-      // then the requested number of bytes which if truncated indicates the
-      // end of the bodies content.
-      var bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
-
-      if (overallMaximumBytes !== undefined) {
-        // issued enough downloads
-        if (overallMaximumBytes <= 0) {
+        // attempt to be idempotent by only requesting the bytes we need if we
+        // actually need them...
+        if (rep.isDownloaded)
           return;
+
+        var request = {
+          uid: header.srvid,
+          partInfo: rep._partInfo,
+          bodyRepIndex: idx,
+          createSnippet: idx === bodyRepIdx
+        };
+
+        // default to the entire remaining email. We use the estimate * largish
+        // multiplier so even if the size estimate is wrong we should fetch more
+        // then the requested number of bytes which if truncated indicates the
+        // end of the bodies content.
+        var bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
+
+        if (overallMaximumBytes !== undefined) {
+          // issued enough downloads
+          if (overallMaximumBytes <= 0) {
+            return;
+          }
+
+          // if our estimate is greater then expected number of bytes request the
+          // maximum allowed.
+          if (rep.sizeEstimate > overallMaximumBytes) {
+            bytesToFetch = overallMaximumBytes;
+          }
+
+          // subtract the estimated byte size
+          overallMaximumBytes -= rep.sizeEstimate;
         }
 
-        // if our estimate is greater then expected number of bytes request the
-        // maximum allowed.
-        if (rep.sizeEstimate > overallMaximumBytes) {
-          bytesToFetch = overallMaximumBytes;
+        // we may only need a subset of the total number of bytes.
+        if (overallMaximumBytes !== undefined || rep.amountDownloaded) {
+          // request the remainder
+          request.bytes = [
+            rep.amountDownloaded,
+            bytesToFetch
+          ];
         }
 
-        // subtract the estimated byte size
-        overallMaximumBytes -= rep.sizeEstimate;
-      }
+        requests.push(request);
+      });
 
-      // we may only need a subset of the total number of bytes.
-      if (overallMaximumBytes !== undefined || rep.amountDownloaded) {
-        // request the remainder
-        request.bytes = [
-          rep.amountDownloaded,
-          bytesToFetch
-        ];
-      }
+      // we may not have any requests bail early if so.
+      if (!requests.length)
+        callback(); // no requests === success
 
-      requests.push(request);
-    });
+      var fetch = new $imapbodyfetcher.BodyFetcher(
+        self._conn,
+        $imaptextparser.TextParser,
+        requests
+      );
 
-    // we may not have any requests bail early if so.
-    if (!requests.length)
-      callback(); // no requests === success
+      self._handleBodyFetcher(fetch, header, bodyInfo, function(err) {
+        callback(err, bodyInfo);
+      });
+    };
 
-    var fetch = new $imapbodyfetcher.BodyFetcher(
-      self._conn,
-      $imaptextparser.TextParser,
-      requests
-    );
-
-    self._handleBodyFetcher(fetch, header, bodyInfo, function(err) {
-      callback(err, bodyInfo);
-    });
+    this._storage.getMessageBody(header.suid, header.date, gotBody);
   },
 
   /**
@@ -672,8 +674,6 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * Download snippets for a set of headers.
    */
   _lazyDownloadBodies: function(headers, options, callback) {
-    var i = 0;
-    var len = headers.length;
     var pending = 1;
 
     var self = this;
@@ -689,21 +689,13 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       }
     }
 
-    for (; i < len; i++) {
+    for (var i = 0; i < headers.length; i++) {
       if (!headers[i] || headers[i].snippet) {
         continue;
       }
 
       pending++;
-      this._storage.getMessageBody(headers[i].suid, headers[i].date, function(header, body) {
-        if (!body) {
-          return next();
-        }
-
-        pending++;
-        this.downloadBodyReps(header, body, options, next);
-        next();
-      }.bind(this, headers[i]));
+      this.downloadBodyReps(headers[i], options, next);
     }
 
     // by having one pending item always this handles the case of not having any

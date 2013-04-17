@@ -289,34 +289,12 @@ ImapJobDriver.prototype = {
 
   allJobsDone: $jobmixins.allJobsDone,
 
-  local_do_downloadBodies: function(op, doneCallback) {
-    doneCallback(null);
-  },
+  //////////////////////////////////////////////////////////////////////////////
+  // downloadBodies: Download the bodies from a list of messages
 
-  do_downloadBodies: function(op, doneCallback) {
-    var aggrErr;
-    this._partitionAndAccessFoldersSequentially(
-      op.messages,
-      true,
-      function perFolder(folderConn, storage, headers, namers, callWhenDone) {
-        folderConn.downloadBodies(headers, op.options, function(err) {
-          if (err && !aggrErr) {
-            aggrErr = err;
-          }
-          callWhenDone();
-        });
-      },
-      function allDone() {
-        doneCallback(aggrErr, null, true);
-      },
-      function deadConn() {
-        aggrErr = 'aborted-retry';
-      },
-      false, // reverse?
-      'downloadBodies',
-      true // require headers
-    );
-  },
+  local_do_downloadBodies: $jobmixins.local_do_downloadBodies,
+
+  do_downloadBodies: $jobmixins.do_downloadBodies,
 
   //////////////////////////////////////////////////////////////////////////////
   // downloadBodyReps: Download the bodies from a single message

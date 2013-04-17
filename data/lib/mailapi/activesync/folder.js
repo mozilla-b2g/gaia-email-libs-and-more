@@ -809,30 +809,73 @@ ActiveSyncFolderConn.prototype = {
     return { header: header, body: body };
   },
 
-  downloadBodyReps: lazyConnection(2, function(header, bodyInfo, callback) {
+  /**
+   * Download the bodies for a set of headers.
+   */
+  downloadBodies: function(headers, options, callback) {
+    if (this._account.conn.currentVersion.lt('12.0'))
+      return this._syncBodies(headers, callback);
+
+    var anyErr,
+        pending = 1,
+        folderConn = this;
+
+    function next(err) {
+      if (err && !anyErr)
+        anyErr = err;
+
+      if (!--pending) {
+        folderConn._storage.runAfterDeferredCalls(function() {
+          callback(anyErr);
+        });
+      }
+    }
+
+    for (var i = 0; i < headers.length; i++) {
+      if (!headers[i] || headers[i].snippet)
+        continue;
+
+      pending++;
+      this.downloadBodyReps(headers[i], options, next);
+    }
+
+    // by having one pending item always this handles the case of not having any
+    // snippets needing a download and also returning in the next tick of the
+    // event loop.
+    window.setZeroTimeout(next);
+  },
+
+  downloadBodyReps: lazyConnection(1, function(header, options, callback) {
+    var folderConn = this;
+    var account = this._account;
+
+    if (account.conn.currentVersion.lt('12.0'))
+      return this._syncBodies([header], callback);
+
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+    options = options || {};
+
     var io = $ItemOperations.Tags;
     var ioEnum = $ItemOperations.Enums;
     var as = $AirSync.Tags;
     var asEnum = $AirSync.Enums;
     var asb = $AirSyncBase.Tags;
     var asbEnum = $AirSyncBase.Enums;
-    var em = $Email.Tags;
 
-    var folderConn = this;
-    var account = this._account;
+    var gotBody = function gotBody(bodyInfo) {
+      // ActiveSync only stores one body rep, no matter how many body parts the
+      // MIME message actually has.
+      var bodyType = bodyInfo.bodyReps[0].type === 'html' ?
+        asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
-    // ActiveSync only stores one body rep, no matter how many body parts the
-    // MIME message actually has.
-    var bodyRep = bodyInfo.bodyReps[0];
-    var bodyType = bodyRep.type === 'html' ? asbEnum.Type.HTML :
-                                             asbEnum.Type.PlainText;
-
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    if (account.conn.currentVersion.gte('12.0')) {
+      var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
       w.stag(io.ItemOperations)
          .stag(io.Fetch)
            .tag(io.Store, 'Mailbox')
-           .tag(as.CollectionId, this.serverId)
+           .tag(as.CollectionId, folderConn.serverId)
            .tag(as.ServerId, header.srvid)
            .stag(io.Options)
              // Only get the AirSyncBase:Body element to minimize bandwidth.
@@ -840,31 +883,84 @@ ActiveSyncFolderConn.prototype = {
                .tag(asb.Body)
              .etag()
              .stag(asb.BodyPreference)
-               .tag(asb.Type, bodyType)
-             .etag()
+               .tag(asb.Type, bodyType);
+
+      if (options.maximumBytesToFetch !== undefined)
+              w.tag(asb.TruncationSize, options.maximumBytesToFetch);
+
+            w.etag()
            .etag()
          .etag()
        .etag();
-    }
-    else {
-      w.stag(as.Sync)
-         .stag(as.Collections)
-           .stag(as.Collection)
-             .tag(as.Class, 'Email')
-             .tag(as.SyncKey, this.syncKey)
-             .tag(as.CollectionId, this.serverId)
-             .stag(as.Options)
-               .tag(as.MIMESupport, asEnum.MIMESupport.Never)
-             .etag()
-             .stag(as.Commands)
-               .stag(as.Fetch)
-                 .tag(as.ServerId, header.srvid)
-               .etag()
-             .etag()
+
+      account.conn.postCommand(w, function(aError, aResponse) {
+        if (aError) {
+          console.error(aError);
+          callback('unknown');
+          return;
+        }
+
+        var status, bodyContent, truncated = false,
+            e = new $wbxml.EventParser();
+        e.addEventListener([io.ItemOperations, io.Status], function(node) {
+          status = node.children[0].textContent;
+        });
+        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
+                            io.Properties, asb.Body, asb.Data], function(node) {
+          bodyContent = node.children[0].textContent;
+        });
+        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
+                            io.Properties, asb.Body, asb.Truncated],
+                           function(node) {
+          truncated = node.children[0].textContent === '1';
+        });
+        e.run(aResponse);
+
+        if (status !== ioEnum.Status.Success)
+          return callback('unknown');
+
+        folderConn._updateBody(header, bodyInfo, bodyContent, !truncated,
+                               callback);
+      });
+    };
+
+    this._storage.getMessageBody(header.suid, header.date, gotBody);
+  }),
+
+  /**
+   * Sync message bodies. This function should only be used against ActiveSync
+   * 2.5!
+   */
+  _syncBodies: function(headers, callback) {
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var em = $Email.Tags;
+
+    var folderConn = this;
+    var account = this._account;
+
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(as.Sync)
+       .stag(as.Collections)
+         .stag(as.Collection)
+           .tag(as.Class, 'Email')
+           .tag(as.SyncKey, this.syncKey)
+           .tag(as.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.MIMESupport, asEnum.MIMESupport.Never)
            .etag()
-         .etag()
-       .etag();
+           .stag(as.Commands);
+
+    for (var i = 0; i < headers.length; i++) {
+            w.stag(as.Fetch)
+               .tag(as.ServerId, headers[i].srvid)
+             .etag();
     }
+
+          w.etag()
+         .etag()
+       .etag()
+     .etag();
 
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
@@ -873,91 +969,106 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      var status, bodyContent,
-          e = new $wbxml.EventParser();
-      if (account.conn.currentVersion.gte('12.0')) {
-        e.addEventListener([io.ItemOperations, io.Status], function(node) {
-          status = node.children[0].textContent;
-        });
-        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                            io.Properties, asb.Body, asb.Data], function(node) {
-          bodyContent = node.children[0].textContent;
-        });
-        e.run(aResponse);
+      var status, anyErr,
+          i = 0,
+          pending = 1;
 
-        if (status !== ioEnum.Status.Success)
-          return callback('unknown');
-      }
-      else {
-        var base = [as.Sync, as.Collections, as.Collection];
-        e.addEventListener(base.concat(as.SyncKey), function(node) {
-          folderConn.syncKey = node.children[0].textContent;
-        });
-        e.addEventListener(base.concat(as.Status), function(node) {
-          status = node.children[0].textContent;
-        });
-        e.addEventListener(base.concat(as.Responses, as.Fetch,
-                                       as.ApplicationData, em.Body),
-                           function(node) {
-          bodyContent = node.children[0].textContent;
-        });
-        e.run(aResponse);
+      function next(err) {
+        if (err && !anyErr)
+          anyErr = err;
 
-        if (status !== asEnum.Status.Success)
-          return callback('unknown');
+        if (!--pending) {
+          folderConn._storage.runAfterDeferredCalls(function() {
+            callback(anyErr);
+          });
+        }
       }
 
-      bodyRep.isDownloaded = true;
-      bodyRep.amountDownloaded = bodyContent.length;
+      var e = new $wbxml.EventParser();
+      var base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        folderConn.syncKey = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Responses, as.Fetch,
+                                     as.ApplicationData, em.Body),
+                         function(node) {
+        // We assume the response is in the same order as the request!
+        var header = headers[i++];
+        var bodyContent = node.children[0].textContent;
 
-      switch (bodyRep.type) {
-        case 'plain':
-          try {
-            bodyRep.content = $quotechew.quoteProcessTextBody(bodyContent);
-          }
-          catch (ex) {
-            this._LOG.textChewError(ex);
-            // an empty content rep is better than nothing.
-            bodyRep.content = [];
-          }
-          try {
-            header.snippet = $quotechew.generateSnippet(
-              bodyRep.content, DESIRED_SNIPPET_LENGTH
-            );
-          }
-          catch (ex) {
-            this._LOG.textSnippetError(ex);
-            header.snippet = '';
-          }
-          break;
-        case 'html':
-          try {
-            bodyRep.content = $htmlchew.sanitizeAndNormalizeHtml(bodyContent);
-          }
-          catch (ex) {
-            this._LOG.htmlParseError(ex);
-            bodyRep.content = '';
-          }
-          try {
-            header.snippet = $htmlchew.generateSnippet(
-              bodyRep.content, DESIRED_SNIPPET_LENGTH
-            );
-          }
-          catch (ex) {
-            this._LOG.htmlSnippetError(ex);
-            header.snippet = '';
-          }
-          break;
-      }
+        pending++;
+        folderConn._storage.getMessageBody(header.suid, header.date,
+                                           function(body) {
+          folderConn._updateBody(header, body, bodyContent, true, next);
+        });
+      });
+      e.run(aResponse);
 
-      var event = {
-        changeType: 'bodyReps',
-        indexes: [0]
-      };
-      folderConn._storage.updateMessageBody(header, bodyInfo, event);
-      folderConn._storage.runAfterDeferredCalls(callback);
+      if (status !== asEnum.Status.Success)
+        return next('unknown');
+
+      next(null);
     });
-  }),
+  },
+
+  _updateBody: function(header, bodyInfo, bodyContent, isDownloaded, callback) {
+    var bodyRep = bodyInfo.bodyReps[0];
+
+    bodyRep.isDownloaded = isDownloaded;
+    bodyRep.amountDownloaded = bodyContent.length;
+
+    switch (bodyRep.type) {
+      case 'plain':
+        try {
+          bodyRep.content = $quotechew.quoteProcessTextBody(bodyContent);
+        }
+        catch (ex) {
+          this._LOG.textChewError(ex);
+          // an empty content rep is better than nothing.
+          bodyRep.content = [];
+        }
+        try {
+          header.snippet = $quotechew.generateSnippet(
+            bodyRep.content, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          this._LOG.textSnippetError(ex);
+          header.snippet = '';
+        }
+        break;
+      case 'html':
+        try {
+          bodyRep.content = $htmlchew.sanitizeAndNormalizeHtml(bodyContent);
+        }
+        catch (ex) {
+          this._LOG.htmlParseError(ex);
+          bodyRep.content = '';
+        }
+        try {
+          header.snippet = $htmlchew.generateSnippet(
+            bodyRep.content, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          this._LOG.htmlSnippetError(ex);
+          header.snippet = '';
+        }
+        break;
+    }
+
+    var event = {
+      changeType: 'bodyReps',
+      indexes: [0]
+    };
+
+    this._storage.updateMessageHeader(header.date, header.id, false, header);
+    this._storage.updateMessageBody(header, bodyInfo, event);
+    this._storage.runAfterDeferredCalls(callback);
+  },
 
   sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,
                                     progressCallback) {

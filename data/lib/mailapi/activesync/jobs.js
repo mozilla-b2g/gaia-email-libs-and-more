@@ -392,13 +392,12 @@ ActiveSyncJobDriver.prototype = {
     doneCallback('moot');
   },
 
-  local_do_downloadSnippets: function(op, doneCallback) {
-    doneCallback(null);
-  },
+  //////////////////////////////////////////////////////////////////////////////
+  // downloadBodies: Download the bodies from a list of messages
 
-  do_downloadSnippets: function(op, doneCallback) {
-    doneCallback(null);
-  },
+  local_do_downloadBodies: $jobmixins.local_do_downloadBodies,
+
+  do_downloadBodies: $jobmixins.do_downloadBodies,
 
   //////////////////////////////////////////////////////////////////////////////
   // downloadBodyReps: Download the bodies from a single message

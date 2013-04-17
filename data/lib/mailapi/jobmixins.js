@@ -341,6 +341,37 @@ exports.undo_download = function(op, callback) {
   callback(null);
 };
 
+
+exports.local_do_downloadBodies = function(op, callback) {
+  callback(null);
+};
+
+exports.do_downloadBodies = function(op, callback) {
+  var aggrErr;
+  this._partitionAndAccessFoldersSequentially(
+    op.messages,
+    true,
+    function perFolder(folderConn, storage, headers, namers, callWhenDone) {
+      folderConn.downloadBodies(headers, op.options, function(err) {
+        if (err && !aggrErr) {
+          aggrErr = err;
+        }
+        callWhenDone();
+      });
+    },
+    function allDone() {
+      callback(aggrErr, null, true);
+    },
+    function deadConn() {
+      aggrErr = 'aborted-retry';
+    },
+    false, // reverse?
+    'downloadBodies',
+    true // require headers
+  );
+};
+
+
 exports.do_downloadBodyReps = function(op, callback) {
   var self = this;
   var idxLastSlash = op.messageSuid.lastIndexOf('/'),
@@ -358,24 +389,12 @@ exports.do_downloadBodyReps = function(op, callback) {
     callback('aborted-retry');
   };
 
-  var header;
-  var gotHeader = function gotHeader(_headerInfo) {
+  var gotHeader = function gotHeader(header) {
     // header may have been deleted by the time we get here...
-    if (!_headerInfo)
+    if (!header)
       return callback();
 
-    header = _headerInfo;
-    folderStorage.getMessageBody(op.messageSuid, op.messageDate, gotBody);
-  };
-  var gotBody = function gotBody(bodyInfo) {
-    if (!bodyInfo)
-      return callback();
-
-    try{
-    folderConn.downloadBodyReps(header, bodyInfo, onDownloadReps);
-    } catch(e){
-      console.error(e);
-    }
+    folderConn.downloadBodyReps(header, onDownloadReps);
   };
 
   var onDownloadReps = function onDownloadReps(err, bodyInfo) {
