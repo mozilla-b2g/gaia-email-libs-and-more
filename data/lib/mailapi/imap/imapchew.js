@@ -368,8 +368,13 @@ exports.updateMessageWithFetch = function(header, body, req, res, _LOG) {
 
   bodyRep.amountDownloaded += res.bytesFetched;
 
-  $mailchew.updateMessageContent(header, bodyRep, res.text, req.createSnippet,
-                                _LOG);
+  var data = $mailchew.processMessageContent(
+    res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet, _LOG
+  );
+
+  header.snippet = data.snippet;
+  if (bodyRep.isDownloaded)
+    bodyRep.content = data.content;
 };
 
 /**

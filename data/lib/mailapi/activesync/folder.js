@@ -30,6 +30,12 @@ define(
 'use strict';
 
 /**
+ * The desired number of bytes to fetch when downloading bodies, but the body's
+ * size exceeds the maximum requested size.
+ */
+var DESIRED_TEXT_SNIPPET_BYTES = 512;
+
+/**
  * This is minimum number of messages we'd like to get for a folder for a given
  * sync range. It's not exact, since we estimate from the number of messages in
  * the past two weeks, but it's close enough.
@@ -860,13 +866,21 @@ ActiveSyncFolderConn.prototype = {
     var as = $AirSync.Tags;
     var asEnum = $AirSync.Enums;
     var asb = $AirSyncBase.Tags;
-    var asbEnum = $AirSyncBase.Enums;
+    var Type = $AirSyncBase.Enums.Type;
 
     var gotBody = function gotBody(bodyInfo) {
       // ActiveSync only stores one body rep, no matter how many body parts the
       // MIME message actually has.
-      var bodyType = bodyInfo.bodyReps[0].type === 'html' ?
-        asbEnum.Type.HTML : asbEnum.Type.PlainText;
+      var bodyRep = bodyInfo.bodyReps[0];
+      var bodyType = bodyRep.type === 'html' ? Type.HTML : Type.PlainText;
+      var truncationSize;
+
+      // If the body is bigger than the max size, grab a small bit of plain text
+      // to show as the snippet.
+      if (options.maximumBytesToFetch < bodyRep.sizeEstimate) {
+        bodyType = Type.PlainText;
+        truncationSize = DESIRED_TEXT_SNIPPET_BYTES;
+      }
 
       var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
       w.stag(io.ItemOperations)
@@ -882,8 +896,8 @@ ActiveSyncFolderConn.prototype = {
              .stag(asb.BodyPreference)
                .tag(asb.Type, bodyType);
 
-      if (options.maximumBytesToFetch !== undefined)
-              w.tag(asb.TruncationSize, options.maximumBytesToFetch);
+      if (truncationSize)
+              w.tag(asb.TruncationSize, truncationSize);
 
             w.etag()
            .etag()
@@ -897,7 +911,7 @@ ActiveSyncFolderConn.prototype = {
           return;
         }
 
-        var status, bodyContent, truncated = false,
+        var status, bodyContent,
             e = new $wbxml.EventParser();
         e.addEventListener([io.ItemOperations, io.Status], function(node) {
           status = node.children[0].textContent;
@@ -906,17 +920,12 @@ ActiveSyncFolderConn.prototype = {
                             io.Properties, asb.Body, asb.Data], function(node) {
           bodyContent = node.children[0].textContent;
         });
-        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                            io.Properties, asb.Body, asb.Truncated],
-                           function(node) {
-          truncated = node.children[0].textContent === '1';
-        });
         e.run(aResponse);
 
         if (status !== ioEnum.Status.Success)
           return callback('unknown');
 
-        folderConn._updateBody(header, bodyInfo, bodyContent, !truncated,
+        folderConn._updateBody(header, bodyInfo, bodyContent, !!truncationSize,
                                callback);
       });
     };
@@ -926,7 +935,8 @@ ActiveSyncFolderConn.prototype = {
 
   /**
    * Sync message bodies. This function should only be used against ActiveSync
-   * 2.5!
+   * 2.5! XXX: This *always* downloads the bodies for all the messages, even if
+   * it exceeds the maximum requested size.
    */
   _syncBodies: function(headers, callback) {
     var as = $AirSync.Tags;
@@ -999,7 +1009,7 @@ ActiveSyncFolderConn.prototype = {
         pending++;
         folderConn._storage.getMessageBody(header.suid, header.date,
                                            function(body) {
-          folderConn._updateBody(header, body, bodyContent, true, next);
+          folderConn._updateBody(header, body, bodyContent, false, next);
         });
       });
       e.run(aResponse);
@@ -1011,14 +1021,18 @@ ActiveSyncFolderConn.prototype = {
     });
   },
 
-  _updateBody: function(header, bodyInfo, bodyContent, isDownloaded, callback) {
+  _updateBody: function(header, bodyInfo, bodyContent, snippetOnly, callback) {
     var bodyRep = bodyInfo.bodyReps[0];
 
-    bodyRep.isDownloaded = isDownloaded;
-    bodyRep.amountDownloaded = bodyContent.length;
+    var type = snippetOnly ? 'plain' : bodyRep.type;
+    var data = $mailchew.processMessageContent(bodyContent, type, !snippetOnly,
+                                               true, this._LOG);
 
-    $mailchew.updateMessageContent(header, bodyRep, bodyContent, true,
-                                   this._LOG);
+    header.snippet = data.snippet;
+    bodyRep.isDownloaded = !snippetOnly;
+    bodyRep.amountDownloaded = bodyContent.length;
+    if (!snippetOnly)
+      bodyRep.content = data.content;
 
     var event = {
       changeType: 'bodyReps',

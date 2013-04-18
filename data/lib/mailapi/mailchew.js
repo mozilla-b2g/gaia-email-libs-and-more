@@ -266,13 +266,13 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
 };
 
 /**
- * Update the snippet and body reps with the message body's content.
+ * Generate the snippet and parsed body from the message body's content.
  */
-exports.updateMessageContent = function updateMessageContent(
-    header, bodyRep, content, generateSnippet, _LOG) {
-  switch (bodyRep.type) {
+exports.processMessageContent = function processMessageContent(
+    content, type, isDownloaded, generateSnippet, _LOG) {
+  var parsedContent, snippet;
+  switch (type) {
     case 'plain':
-      var parsedContent;
       try {
         parsedContent = $quotechew.quoteProcessTextBody(content);
       }
@@ -284,40 +284,39 @@ exports.updateMessageContent = function updateMessageContent(
 
       if (generateSnippet) {
         try {
-          header.snippet = $quotechew.generateSnippet(
+          snippet = $quotechew.generateSnippet(
             parsedContent, DESIRED_SNIPPET_LENGTH
           );
         }
         catch (ex) {
           _LOG.textSnippetError(ex);
-          header.snippet = '';
+          snippet = '';
         }
       }
-
-      if (bodyRep.isDownloaded)
-        bodyRep.content = parsedContent;
       break;
     case 'html':
       if (generateSnippet) {
         try {
-          header.snippet = $htmlchew.generateSnippet(content);
+          snippet = $htmlchew.generateSnippet(content);
         }
         catch (ex) {
           _LOG.htmlSnippetError(ex);
-          header.snippet = '';
+          snippet = '';
         }
       }
-      if (bodyRep.isDownloaded) {
+      if (isDownloaded) {
         try {
-          bodyRep.content = $htmlchew.sanitizeAndNormalizeHtml(content);
+          parsedContent = $htmlchew.sanitizeAndNormalizeHtml(content);
         }
         catch (ex) {
           _LOG.htmlParseError(ex);
-          bodyRep.content = '';
+          parsedContent = '';
         }
       }
       break;
   }
+
+  return { content: parsedContent, snippet: snippet };
 };
 
 }); // end define
