@@ -54,13 +54,12 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
     eLazy.expect_namedValue('request complete', true);
 
-    slice.maybeRequestSnippets(0, 1, function() {
+    slice.maybeRequestBodies(0, 1, function() {
       eLazy.namedValue('request complete', true);
     });
   });
 
   testAccount.do_closeFolderView(folderView);
-  testUniverse.do_saveState();
   testUniverse.do_shutdown();
 
   var testUniverse2 = T.actor('testUniverse', 'U');
@@ -93,7 +92,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
   T.check('requesting existing headers', eLazy, function() {
     eLazy.expect_namedValue('fires callback', false);
-    recreateView.slice.maybeRequestSnippets(0, 1, function() {
+    recreateView.slice.maybeRequestBodies(0, 1, function() {
       // false means it does not queue
       eLazy.namedValue('fires callback', false);
     });

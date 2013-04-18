@@ -393,7 +393,21 @@ ActiveSyncJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  // download
+  // downloadBodies: Download the bodies from a list of messages
+
+  local_do_downloadBodies: $jobmixins.local_do_downloadBodies,
+
+  do_downloadBodies: $jobmixins.do_downloadBodies,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // downloadBodyReps: Download the bodies from a single message
+
+  local_do_downloadBodyReps: $jobmixins.local_do_downloadBodyReps,
+
+  do_downloadBodyReps: $jobmixins.do_downloadBodyReps,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // download: Download one or more attachments from a single message
 
   local_do_download: $jobmixins.local_do_download,
 

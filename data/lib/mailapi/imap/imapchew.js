@@ -5,14 +5,12 @@
 define(
   [
     'mimelib',
-    '../quotechew',
-    '../htmlchew',
+    '../mailchew',
     'exports'
   ],
   function(
     $mimelib,
-    $quotechew,
-    $htmlchew,
+    $mailchew,
     exports
   ) {
 
@@ -321,8 +319,6 @@ exports.chewHeaderAndBodyStructure =
   return rep;
 };
 
-var DESIRED_SNIPPET_LENGTH = 100;
-
 /**
  * Fill a given body rep with the content from fetching
  * part or the entire body of the message...
@@ -353,8 +349,7 @@ var DESIRED_SNIPPET_LENGTH = 100;
  *    //    and set its value.
  *
  */
-exports.updateMessageWithFetch =
-  function(header, body, req, res, _LOG) {
+exports.updateMessageWithFetch = function(header, body, req, res, _LOG) {
 
   var bodyRep = body.bodyReps[req.bodyRepIndex];
 
@@ -371,65 +366,15 @@ exports.updateMessageWithFetch =
     bodyRep._partInfo.pendingBuffer = res.buffer;
   }
 
-  var parsedContent;
-  var snippet;
-  switch (bodyRep.type) {
-    case 'plain':
-      try {
-        parsedContent = $quotechew.quoteProcessTextBody(res.text);
-      }
-      catch (ex) {
-        _LOG.textChewError(ex);
-        // an empty content rep is better than nothing.
-        parsedContent = [];
-      }
-      if (req.createSnippet) {
-        try {
-          header.snippet = $quotechew.generateSnippet(
-            parsedContent, DESIRED_SNIPPET_LENGTH
-          );
-        }
-        catch (ex) {
-          _LOG.textSnippetError(ex);
-          header.snippet = '';
-        }
-      }
-      break;
-    case 'html':
-      var htmlStr = '';
-      var text = res.text;
-      if (req.createSnippet) {
-        try {
-          header.snippet = $htmlchew.generateSnippet(text);
-        }
-        catch (ex) {
-          _LOG.htmlSnippetError(ex);
-          header.snippet = '';
-        }
-      }
-
-      if (bodyRep.isDownloaded) {
-        try {
-          htmlStr = $htmlchew.sanitizeAndNormalizeHtml(text);
-        }
-        catch (ex) {
-          _LOG.htmlParseError(ex);
-          htmlStr = '';
-        }
-      }
-
-      parsedContent = htmlStr;
-      break;
-  }
-
   bodyRep.amountDownloaded += res.bytesFetched;
 
-  // if the body rep is fully downloaded then we should set the content as text
-  // otherwise the message is likely garbled and the snippet is the best we can
-  // do.
-  if (bodyRep.isDownloaded) {
-    bodyRep.content = parsedContent;
-  }
+  var data = $mailchew.processMessageContent(
+    res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet, _LOG
+  );
+
+  header.snippet = data.snippet;
+  if (bodyRep.isDownloaded)
+    bodyRep.content = data.content;
 };
 
 /**

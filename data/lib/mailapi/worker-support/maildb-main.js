@@ -54,6 +54,8 @@ if (("indexedDB" in window) && window.indexedDB) {
  *
  * Explanation of most recent bump:
  *
+ * Bumping to 20 because of block sizing changes.
+ *
  * Bumping to 19 because of change from uids to ids, but mainly because we are
  * now doing parallel IMAP fetching and we want to see the results of using it
  * immediately.
@@ -64,7 +66,7 @@ if (("indexedDB" in window) && window.indexedDB) {
  * Bumping to 17 because we changed the folder representation to store
  * hierarchy.
  */
-var CUR_VERSION = 19;
+var CUR_VERSION = 20;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -400,8 +402,45 @@ MailDB.prototype = {
                                       TBL_BODY_BLOCKS], 'readwrite');
     trans.onerror = this._fatalError;
     trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
+
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
-        bodyStore = trans.objectStore(TBL_BODY_BLOCKS), i;
+        bodyStore = trans.objectStore(TBL_BODY_BLOCKS), 
+        i;
+
+    /**
+     * Calling put/delete on operations can be fairly expensive for these blocks
+     * (4-10ms+) which can cause major jerk while scrolling to we send block
+     * operations individually (but inside of a single block) to improve
+     * responsiveness at the cost of throughput.
+     */
+    var operationQueue = [];
+
+    function addToQueue() {
+      var args = Array.slice(arguments);
+      var store = args.shift();
+      var type = args.shift();
+
+      operationQueue.push({
+        store: store,
+        type: type,
+        args: args
+      });
+    }
+
+    function workQueue() {
+      var pendingRequest = operationQueue.shift();
+
+      // no more the transition complete handles the callback
+      if (!pendingRequest)
+        return;
+
+      var store = pendingRequest.store;
+      var type = pendingRequest.type;
+
+      var request = store[type].apply(store, pendingRequest.args);
+
+      request.onsuccess = request.onerror = workQueue;
+    }
 
     for (i = 0; i < perFolderStuff.length; i++) {
       var pfs = perFolderStuff[i], block;
@@ -409,17 +448,17 @@ MailDB.prototype = {
       for (var headerBlockId in pfs.headerBlocks) {
         block = pfs.headerBlocks[headerBlockId];
         if (block)
-          headerStore.put(block, pfs.id + ':' + headerBlockId);
+          addToQueue(headerStore, 'put', block, pfs.id + ':' + headerBlockId);
         else
-          headerStore.delete(pfs.id + ':' + headerBlockId);
+          addToQueue(headerStore, 'delete', pfs.id + ':' + headerBlockId);
       }
 
       for (var bodyBlockId in pfs.bodyBlocks) {
         block = pfs.bodyBlocks[bodyBlockId];
         if (block)
-          bodyStore.put(block, pfs.id + ':' + bodyBlockId);
+          addToQueue(bodyStore, 'put', block, pfs.id + ':' + bodyBlockId);
         else
-          bodyStore.delete(pfs.id + ':' + bodyBlockId);
+          addToQueue(bodyStore, 'delete', pfs.id + ':' + bodyBlockId);
       }
     }
 
@@ -429,8 +468,8 @@ MailDB.prototype = {
             range = IDBKeyRange.bound(folderId + ':',
                                       folderId + ':\ufff0',
                                       false, false);
-        headerStore.delete(range);
-        bodyStore.delete(range);
+        addToQueue(headerStore, 'delete', range);
+        addToQueue(bodyStore, 'delete', range);
       }
     }
 
@@ -439,6 +478,8 @@ MailDB.prototype = {
         callback();
       });
     }
+
+    workQueue();
 
     return trans;
   },

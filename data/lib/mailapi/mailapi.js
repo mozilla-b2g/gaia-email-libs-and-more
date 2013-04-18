@@ -963,8 +963,8 @@ FoldersViewSlice.prototype.getFirstFolderWithName = function(name, items) {
 function HeadersViewSlice(api, handle, ns) {
   BridgedViewSlice.call(this, api, ns || 'headers', handle);
 
-  this._snippetRequestId = 1;
-  this._snippetRequests = {};
+  this._bodiesRequestId = 1;
+  this._bodiesRequest = {};
 }
 HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 /**
@@ -982,23 +982,30 @@ HeadersViewSlice.prototype.refresh = function() {
     });
 };
 
-HeadersViewSlice.prototype._notifyRequestSnippetsComplete = function(reqId) {
-  var callback = this._snippetRequests[reqId];
+HeadersViewSlice.prototype._notifyRequestBodiesComplete = function(reqId) {
+  var callback = this._bodiesRequest[reqId];
   if (reqId && callback) {
     callback(true);
-    delete this._snippetRequests[reqId];
+    delete this._bodiesRequest[reqId];
   }
 };
 
 /**
- * Request snippets for range of headers in the slice.
+ * Requests bodies (if of a reasonable size) given a start/end position.
  *
  *    // start/end inclusive
- *    slice.maybeRequestSnippets(5, 10);
+ *    slice.maybeRequestBodies(5, 10);
  *
  * The results will be sent through the standard slice/header events.
  */
-HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, callback) {
+HeadersViewSlice.prototype.maybeRequestBodies =
+  function(idxStart, idxEnd, options, callback) {
+
+  if (typeof(options) === 'function') {
+    callback = options;
+    options = null;
+  }
+
   var messages = [];
 
   idxEnd = Math.min(idxEnd, this.items.length - 1);
@@ -1023,14 +1030,15 @@ HeadersViewSlice.prototype.maybeRequestSnippets = function(idxStart, idxEnd, cal
   if (!messages.length)
     return callback && window.setZeroTimeout(callback, false);
 
-  var reqId = this._snippetRequestId++;
-  this._snippetRequests[reqId] = callback;
+  var reqId = this._bodiesRequestId++;
+  this._bodiesRequest[reqId] = callback;
 
   this._api.__bridgeSend({
-    type: 'requestSnippets',
+    type: 'requestBodies',
     handle: this._handle,
     requestId: reqId,
-    messages: messages
+    messages: messages,
+    options: options
   });
 };
 
@@ -1668,11 +1676,11 @@ MailAPI.prototype = {
     req.callback.call(null, body);
   },
 
-  _recv_requestSnippetsComplete: function(msg) {
+  _recv_requestBodiesComplete: function(msg) {
     var slice = this._slices[msg.handle];
     // The slice may be dead now!
     if (slice)
-      slice._notifyRequestSnippetsComplete(msg.requestId);
+      slice._notifyRequestBodiesComplete(msg.requestId);
   },
 
   _recv_bodyModified: function(msg) {

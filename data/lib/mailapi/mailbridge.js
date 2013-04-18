@@ -383,11 +383,11 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
-  _cmd_requestSnippets: function(msg) {
+  _cmd_requestBodies: function(msg) {
     var self = this;
-    this.universe.downloadSnippets(msg.messages, function() {
+    this.universe.downloadBodies(msg.messages, msg.options, function() {
       self.__sendMessage({
-        type: 'requestSnippetsComplete',
+        type: 'requestBodiesComplete',
         handle: msg.handle,
         requestId: msg.requestId
       });
