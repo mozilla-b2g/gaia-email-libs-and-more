@@ -839,18 +839,23 @@ var TestFolderMixins = {
     this._liveSliceThings = [];
   },
 
-  serverMessageContent: function(guid, idx) {
+  findServerMessage: function(guid) {
     var rep;
     var msgs = this.serverMessages;
 
     for (var i = 0; i < msgs.length; i++) {
       var msg = msgs[i];
-      if (msg.headerInfo.guid === guid) {
-        return msg.bodyInfo.bodyReps[idx || 0].content;
-      }
+
+      if (msg.headerInfo.guid === guid)
+        return msg;
     }
 
     throw new Error('Unable to find message with guid: ' + guid);
+  },
+
+  serverMessageContent: function(guid, idx) {
+    var msg = this.findServerMessage(guid);
+    return msg.bodyInfo.bodyReps[idx || 0].content;
   },
 
   /**

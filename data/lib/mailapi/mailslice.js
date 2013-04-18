@@ -116,23 +116,25 @@ var tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
   return true;
 };
 
+var EXPECTED_BLOCK_SIZE = 8;
+
 /**
  * What is the maximum number of bytes a block should store before we split
  * it?
  */
-var MAX_BLOCK_SIZE = 96 * 1024,
+var MAX_BLOCK_SIZE = EXPECTED_BLOCK_SIZE * 1024,
 /**
  * How many bytes should we target for the small part when splitting 1:2?
  */
-      BLOCK_SPLIT_SMALL_PART = 32 * 1024,
+      BLOCK_SPLIT_SMALL_PART = (EXPECTED_BLOCK_SIZE / 3) * 1024,
 /**
  * How many bytes should we target for equal parts when splitting 1:1?
  */
-      BLOCK_SPLIT_EQUAL_PART = 48 * 1024,
+      BLOCK_SPLIT_EQUAL_PART = (EXPECTED_BLOCK_SIZE / 2) * 1024,
 /**
  * How many bytes should we target for the large part when splitting 1:2?
  */
-      BLOCK_SPLIT_LARGE_PART = 64 * 1024;
+      BLOCK_SPLIT_LARGE_PART = (EXPECTED_BLOCK_SIZE / 1.5) * 1024;
 
 /**
  * How much progress in the range [0.0, 1.0] should we report for just having
@@ -4024,7 +4026,7 @@ FolderStorage.prototype = {
         callback(null);
       }
       catch (ex) {
-        this._log.callbackErr(ex);
+        this._LOG.callbackErr(ex);
       }
       return;
     }

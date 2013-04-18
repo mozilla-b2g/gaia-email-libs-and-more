@@ -248,23 +248,25 @@ function makeDummyHeaders(count) {
   return headers;
 }
 
+var EXPECTED_BLOCK_SIZE = 8;
+
 /**
  * Byte size so that 2 fit in a block, but 3 will not.
  */
-const BIG2 = 36 * 1024;
+const BIG2 = (EXPECTED_BLOCK_SIZE / 2.6) * 1024;
 /**
  * Byte size so that 3 fit in a block, but 4 will not.
  */
-const BIG3 = 28 * 1024;
+const BIG3 = Math.floor((EXPECTED_BLOCK_SIZE / 3.4) * 1024);
 /**
  * Byte size so that 5 fit in a block, but 6 will not.
  */
-const BIG5 = 18 * 1024;
+const BIG5 = (EXPECTED_BLOCK_SIZE / 5) * 1024;
 
 /**
  * Byte size that exceeds our target block size.
  */
-const TOOBIG = 128 * 1024;
+const TOOBIG = Math.ceil(((EXPECTED_BLOCK_SIZE * 1.4) * 1024));
 
 
 /**

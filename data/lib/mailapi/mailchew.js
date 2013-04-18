@@ -28,6 +28,8 @@ define(
     $htmlchew
   ) {
 
+var DESIRED_SNIPPET_LENGTH = 100;
+
 var RE_RE = /^[Rr][Ee]: /;
 
 /**
@@ -261,6 +263,60 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
          $htmlchew.wrapTextIntoSafeHTMLString(text, 'div') +
          html +
          HTML_WRAP_BOTTOM;
+};
+
+/**
+ * Generate the snippet and parsed body from the message body's content.
+ */
+exports.processMessageContent = function processMessageContent(
+    content, type, isDownloaded, generateSnippet, _LOG) {
+  var parsedContent, snippet;
+  switch (type) {
+    case 'plain':
+      try {
+        parsedContent = $quotechew.quoteProcessTextBody(content);
+      }
+      catch (ex) {
+        _LOG.textChewError(ex);
+        // An empty content rep is better than nothing.
+        parsedContent = [];
+      }
+
+      if (generateSnippet) {
+        try {
+          snippet = $quotechew.generateSnippet(
+            parsedContent, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          _LOG.textSnippetError(ex);
+          snippet = '';
+        }
+      }
+      break;
+    case 'html':
+      if (generateSnippet) {
+        try {
+          snippet = $htmlchew.generateSnippet(content);
+        }
+        catch (ex) {
+          _LOG.htmlSnippetError(ex);
+          snippet = '';
+        }
+      }
+      if (isDownloaded) {
+        try {
+          parsedContent = $htmlchew.sanitizeAndNormalizeHtml(content);
+        }
+        catch (ex) {
+          _LOG.htmlParseError(ex);
+          parsedContent = '';
+        }
+      }
+      break;
+  }
+
+  return { content: parsedContent, snippet: snippet };
 };
 
 }); // end define

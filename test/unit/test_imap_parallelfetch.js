@@ -43,7 +43,8 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
   );
   var sanitizedHtmlStr = 'I am HTML! Woo!';
   var partAlternative = new SyntheticPartMultiAlternative([partText, partHtml]);
-  var partMailingListFooter = new SyntheticPartLeaf("I am an annoying footer!");
+  var mailingListFooterContent = 'I am an annoying footer!';
+  var partMailingListFooter = new SyntheticPartLeaf(mailingListFooterContent);
   var relImage = {contentType: 'image/png',
                   encoding: 'base64', charset: null, format: null,
                   contentId: 'part1.foo@bar.com',
@@ -56,12 +57,14 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       name: 'text/plain',
       bodyPart: partText,
       bodyStr: partText.body,
+      expectedContents: [partText.body]
     },
     // - simple alternative (1-deep hierarchy)
     {
       name: 'text/alternative',
       bodyPart: partAlternative,
       bodyStr: sanitizedHtmlStr,
+      expectedContents: [sanitizedHtmlStr]
     },
     // - alternative with related inside (2-deep hierarchy)
     {
@@ -70,6 +73,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         new SyntheticPartMultiAlternative(
           [partText, new SyntheticPartMultiRelated([partHtml, partRelImage])]),
       bodyStr: sanitizedHtmlStr,
+      expectedContents: [sanitizedHtmlStr]
     },
     // - S/MIME derived complex hierarchy (complex hierarchy!)
     {
@@ -78,6 +82,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         [new SyntheticPartMultiSignedSMIME(partAlternative),
          partMailingListFooter]),
       bodyStr: sanitizedHtmlStr,
+      expectedContents: [sanitizedHtmlStr, mailingListFooterContent]
     },
   ];
 
@@ -99,6 +104,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         bodyInfo: {
           // HACK: just use the string from the def
           bodyReps: [{ content: msgDef.bodyStr }],
+          expectedContents: msgDef.expectedContents
         },
         messageText: synMsg.toMessageString(),
       });
@@ -116,9 +122,6 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
 
   var imapSocket;
 
-  // events of the raw fetch data
-  var fetches = [];
-
   T.group('recieving data');
 
   T.action('recieve fetches in random order', eLazy, function() {
@@ -126,10 +129,11 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
     eLazy.expectUseSetMatching();
 
     folderView.slice.items.forEach(function(header) {
-      var serverContent = testFolder.serverMessageContent(header.guid);
-      if (!serverContent)
+      var serverMsg = testFolder.findServerMessage(header.guid);
+      var snippetBodyRepContent = testFolder.serverMessageContent(header.guid);
+      if (!snippetBodyRepContent)
         throw new Error('no server content for guid: ' + header.guid);
-      var snippet = serverContent.slice(0, 20);
+      var snippet = snippetBodyRepContent.slice(0, 20);
 
       eLazy.expect_namedValue('snippet', JSON.stringify({
         id: header.id,
@@ -137,7 +141,27 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         approxSnippet: snippet.trim()
       }));
 
+      eLazy.expect_namedValue('bodyReps', {
+        id: header.id,
+        contents: serverMsg.bodyInfo.expectedContents,
+        isDownloaded: true
+      });
+
       header.onchange = function() {
+        // intentionally omitting options... body should be downloaded here.
+        header.getBody(function(body) {
+          var contents = body.bodyReps.map(function(item) {
+            return ((Array.isArray(item.content)) ?
+              item.content[1] : item.content).trim();
+          });
+
+          eLazy.namedValue('bodyReps', {
+            id: header.id,
+            contents: contents,
+            isDownloaded: body.bodyReps[0].isDownloaded
+          });
+        });
+
         eLazy.namedValue('snippet', JSON.stringify({
           id: header.id,
           approxSnippet: header.snippet.slice(0, 20).trim()
@@ -145,10 +169,9 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       };
     });
 
-    folderView.slice.maybeRequestSnippets(0, messageCount + 1);
+    folderView.slice.maybeRequestBodies(0, messageCount + 1);
   });
 
-  // reorder the fetches and expect the right results...
 });
 
 }); // end define

@@ -342,6 +342,81 @@ exports.undo_download = function(op, callback) {
 };
 
 
+exports.local_do_downloadBodies = function(op, callback) {
+  callback(null);
+};
+
+exports.do_downloadBodies = function(op, callback) {
+  var aggrErr;
+  this._partitionAndAccessFoldersSequentially(
+    op.messages,
+    true,
+    function perFolder(folderConn, storage, headers, namers, callWhenDone) {
+      folderConn.downloadBodies(headers, op.options, function(err) {
+        if (err && !aggrErr) {
+          aggrErr = err;
+        }
+        callWhenDone();
+      });
+    },
+    function allDone() {
+      callback(aggrErr, null, true);
+    },
+    function deadConn() {
+      aggrErr = 'aborted-retry';
+    },
+    false, // reverse?
+    'downloadBodies',
+    true // require headers
+  );
+};
+
+
+exports.do_downloadBodyReps = function(op, callback) {
+  var self = this;
+  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+      folderId = op.messageSuid.substring(0, idxLastSlash);
+
+  var folderConn, folderStorage;
+  // Once we have the connection, get the current state of the body rep.
+  var gotConn = function gotConn(_folderConn, _folderStorage) {
+    folderConn = _folderConn;
+    folderStorage = _folderStorage;
+
+    folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
+  };
+  var deadConn = function deadConn() {
+    callback('aborted-retry');
+  };
+
+  var gotHeader = function gotHeader(header) {
+    // header may have been deleted by the time we get here...
+    if (!header)
+      return callback();
+
+    folderConn.downloadBodyReps(header, onDownloadReps);
+  };
+
+  var onDownloadReps = function onDownloadReps(err, bodyInfo) {
+    if (err) {
+      console.error('Error downloading reps', err);
+      // fail we cannot download for some reason?
+      return callback('unknown');
+    }
+
+    // success
+    callback(null, bodyInfo, true);
+  };
+
+  self._accessFolderForMutation(folderId, true, gotConn, deadConn,
+                                'downloadBodyReps');
+};
+
+exports.local_do_downloadBodyReps = function(op, callback) {
+  callback(null);
+};
+
+
 exports.local_do_saveDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
   if (!localDraftsFolder) {

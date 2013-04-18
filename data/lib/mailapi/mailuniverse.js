@@ -1488,7 +1488,12 @@ MailUniverse.prototype = {
     );
   },
 
-  downloadSnippets: function(messages, callback) {
+  downloadBodies: function(messages, options, callback) {
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+
     var self = this;
     var pending = 0;
 
@@ -1497,20 +1502,20 @@ MailUniverse.prototype = {
         callback();
       }
     }
-
     this._partitionMessagesByAccount(messages, null).forEach(function(x) {
       pending++;
       self._queueAccountOp(
         x.account,
         {
-          type: 'downloadSnippets',
+          type: 'downloadBodies',
           longtermId: 'session', // don't persist this job.
           lifecycle: 'do',
           localStatus: null,
           serverStatus: null,
           tryCount: 0,
-          humanOp: 'downloadSnippets',
-          messages: x.messages
+          humanOp: 'downloadBodies',
+          messages: x.messages,
+          options: options
         },
         next
       );
