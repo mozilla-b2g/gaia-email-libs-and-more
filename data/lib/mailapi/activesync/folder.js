@@ -29,8 +29,6 @@ define(
   ) {
 'use strict';
 
-var DESIRED_SNIPPET_LENGTH = 100;
-
 /**
  * This is minimum number of messages we'd like to get for a folder for a given
  * sync range. It's not exact, since we estimate from the number of messages in
@@ -75,7 +73,7 @@ function initFilterTypes() {
   };
 }
 
-var $wbxml, $mimelib, $quotechew, $htmlchew;
+var $wbxml, $mimelib, $mailchew;
 
 function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
@@ -83,13 +81,12 @@ function lazyConnection(cbIndex, fn, failString) {
         errback = args[cbIndex],
         self = this;
 
-    require(['wbxml', 'mimelib', '../quotechew', '../htmlchew'],
-    function (wbxml, mimelib, quotechew, htmlchew) {
+    require(['wbxml', 'mimelib', '../mailchew'],
+    function (wbxml, mimelib, mailchew) {
       if (!$wbxml) {
         $wbxml = wbxml;
         $mimelib = mimelib;
-        $quotechew = quotechew;
-        $htmlchew = htmlchew;
+        $mailchew = mailchew;
         initFilterTypes();
       }
 
@@ -1020,45 +1017,8 @@ ActiveSyncFolderConn.prototype = {
     bodyRep.isDownloaded = isDownloaded;
     bodyRep.amountDownloaded = bodyContent.length;
 
-    switch (bodyRep.type) {
-      case 'plain':
-        try {
-          bodyRep.content = $quotechew.quoteProcessTextBody(bodyContent);
-        }
-        catch (ex) {
-          this._LOG.textChewError(ex);
-          // an empty content rep is better than nothing.
-          bodyRep.content = [];
-        }
-        try {
-          header.snippet = $quotechew.generateSnippet(
-            bodyRep.content, DESIRED_SNIPPET_LENGTH
-          );
-        }
-        catch (ex) {
-          this._LOG.textSnippetError(ex);
-          header.snippet = '';
-        }
-        break;
-      case 'html':
-        try {
-          bodyRep.content = $htmlchew.sanitizeAndNormalizeHtml(bodyContent);
-        }
-        catch (ex) {
-          this._LOG.htmlParseError(ex);
-          bodyRep.content = '';
-        }
-        try {
-          header.snippet = $htmlchew.generateSnippet(
-            bodyRep.content, DESIRED_SNIPPET_LENGTH
-          );
-        }
-        catch (ex) {
-          this._LOG.htmlSnippetError(ex);
-          header.snippet = '';
-        }
-        break;
-    }
+    $mailchew.updateMessageContent(header, bodyRep, bodyContent, true,
+                                   this._LOG);
 
     var event = {
       changeType: 'bodyReps',

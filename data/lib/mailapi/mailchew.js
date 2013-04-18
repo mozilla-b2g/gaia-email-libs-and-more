@@ -28,6 +28,8 @@ define(
     $htmlchew
   ) {
 
+var DESIRED_SNIPPET_LENGTH = 100;
+
 var RE_RE = /^[Rr][Ee]: /;
 
 /**
@@ -261,6 +263,61 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
          $htmlchew.wrapTextIntoSafeHTMLString(text, 'div') +
          html +
          HTML_WRAP_BOTTOM;
+};
+
+/**
+ * Update the snippet and body reps with the message body's content.
+ */
+exports.updateMessageContent = function updateMessageContent(
+    header, bodyRep, content, generateSnippet, _LOG) {
+  switch (bodyRep.type) {
+    case 'plain':
+      var parsedContent;
+      try {
+        parsedContent = $quotechew.quoteProcessTextBody(content);
+      }
+      catch (ex) {
+        _LOG.textChewError(ex);
+        // An empty content rep is better than nothing.
+        parsedContent = [];
+      }
+
+      if (generateSnippet) {
+        try {
+          header.snippet = $quotechew.generateSnippet(
+            parsedContent, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          _LOG.textSnippetError(ex);
+          header.snippet = '';
+        }
+      }
+
+      if (bodyRep.isDownloaded)
+        bodyRep.content = parsedContent;
+      break;
+    case 'html':
+      if (generateSnippet) {
+        try {
+          header.snippet = $htmlchew.generateSnippet(content);
+        }
+        catch (ex) {
+          _LOG.htmlSnippetError(ex);
+          header.snippet = '';
+        }
+      }
+      if (bodyRep.isDownloaded) {
+        try {
+          bodyRep.content = $htmlchew.sanitizeAndNormalizeHtml(content);
+        }
+        catch (ex) {
+          _LOG.htmlParseError(ex);
+          bodyRep.content = '';
+        }
+      }
+      break;
+  }
 };
 
 }); // end define

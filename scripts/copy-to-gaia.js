@@ -117,7 +117,8 @@ var configs = [
   {
     name: 'mailapi/chewlayer',
     create: true,
-    include: ['mailapi/quotechew', 'mailapi/htmlchew', 'mailapi/imap/imapchew'],
+    include: ['mailapi/quotechew', 'mailapi/htmlchew', 'mailapi/mailchew',
+              'mailapi/imap/imapchew'],
     exclude: standardExcludes.concat(['mimelib']),
     out: jsPath + '/mailapi/chewlayer.js'
   },
