@@ -334,8 +334,8 @@ var ContactCache = {
           for (i = 0; i < peepsToFixup.length; i++) {
             var peep = peepsToFixup[i];
             peep.isContact = true;
-            if (contact.name)
-              peep.name = contact.name;
+            if (contact.name && contact.name.length)
+              peep.name = contact.name[0];
             if (contact.photo && contact.photo.length)
               peep._thumbnailBlob = contact.photo[0];
           }
