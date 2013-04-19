@@ -13,7 +13,7 @@ define(function() {
       module.process(msg.uid, msg.cmd, msg.args);
     };
 
-    module.sendMessage = function(uid, cmd, args) {
+    module.sendMessage = function(uid, cmd, args, transferArgs) {
     //dump('\x1b[34mM => w: send: ' + name + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
       //debug('onmessage: ' + name + ": " + uid + " - " + cmd);
       worker.postMessage({
@@ -21,7 +21,7 @@ define(function() {
         uid: uid,
         cmd: cmd,
         args: args
-      });
+      }, transferArgs);
     };
   }
 
