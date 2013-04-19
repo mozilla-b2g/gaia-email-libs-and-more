@@ -1,23 +1,45 @@
 define(
   [
-    'wbxml',
-    'activesync/codepages',
-    'activesync/protocol',
     'rdcommon/log',
     '../jobmixins',
+    'activesync/codepages/AirSync',
+    'activesync/codepages/Email',
+    'activesync/codepages/Move',
     'module',
+    'require',
     'exports'
   ],
   function(
-    $wbxml,
-    $ascp,
-    $activesync,
     $log,
     $jobmixins,
+    $AirSync,
+    $Email,
+    $Move,
     $module,
+    require,
     exports
   ) {
 'use strict';
+
+var $wbxml;
+
+function lazyConnection(cbIndex, fn, failString) {
+  return function lazyRun() {
+    var args = Array.slice(arguments),
+        errback = args[cbIndex],
+        self = this;
+
+    require(['wbxml'], function (wbxml) {
+      if (!$wbxml) {
+        $wbxml = wbxml;
+      }
+
+      self.account.withConnection(errback, function () {
+        fn.apply(self, args);
+      }, failString);
+    });
+  };
+}
 
 function ActiveSyncJobDriver(account, state, _parentLog) {
   this.account = account;
@@ -57,8 +79,8 @@ ActiveSyncJobDriver.prototype = {
       self._heldMutexReleasers.push(releaseMutex);
 
       var syncer = storage.folderSyncer;
-      if (needConn && !self.account.conn.connected) {
-        self.account.conn.connect(function(error) {
+      if (needConn) {
+        self.account.withConnection(callback, function () {
           try {
             callback(syncer.folderConn, storage);
           }
@@ -66,8 +88,7 @@ ActiveSyncJobDriver.prototype = {
             self._LOG.callbackErr(ex);
           }
         });
-      }
-      else {
+      } else {
         try {
           callback(syncer.folderConn, storage);
         }
@@ -86,7 +107,7 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_modtags: $jobmixins.local_do_modtags,
 
-  do_modtags: function(op, jobDoneCallback, undo) {
+  do_modtags: lazyConnection(1, function(op, jobDoneCallback, undo) {
     // Note: this method is derived from the IMAP implementation.
     var addTags = undo ? op.removeTags : op.addTags,
         removeTags = undo ? op.addTags : op.removeTags;
@@ -102,8 +123,8 @@ ActiveSyncJobDriver.prototype = {
     var markRead = getMark('\\Seen');
     var markFlagged = getMark('\\Flagged');
 
-    var as = $ascp.AirSync.Tags;
-    var em = $ascp.Email.Tags;
+    var as = $AirSync.Tags;
+    var em = $Email.Tags;
 
     var aggrErr = null;
 
@@ -164,7 +185,7 @@ ActiveSyncJobDriver.prototype = {
       },
       /* reverse if we're undoing */ undo,
       'modtags');
-  },
+  }),
 
   check_modtags: function(op, callback) {
     callback(null, 'idempotent');
@@ -181,7 +202,7 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_move: $jobmixins.local_do_move,
 
-  do_move: function(op, jobDoneCallback) {
+  do_move: lazyConnection(1, function(op, jobDoneCallback) {
     /*
      * The ActiveSync command for this does not produce or consume SyncKeys.
      * As such, we don't need to acquire mutexes for the source folders for
@@ -198,7 +219,7 @@ ActiveSyncJobDriver.prototype = {
     var aggrErr = null, account = this.account,
         targetFolderStorage = this.account.getFolderStorageForFolderId(
                                 op.targetFolder);
-    var mo = $ascp.Move.Tags;
+    var mo = $Move.Tags;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
@@ -248,7 +269,7 @@ ActiveSyncJobDriver.prototype = {
       },
       false,
       'move');
-  },
+  }),
 
   check_move: function(op, jobDoneCallback) {
 
@@ -264,10 +285,10 @@ ActiveSyncJobDriver.prototype = {
 
   local_do_delete: $jobmixins.local_do_delete,
 
-  do_delete: function(op, jobDoneCallback) {
+  do_delete: lazyConnection(1, function(op, jobDoneCallback) {
     var aggrErr = null;
-    var as = $ascp.AirSync.Tags;
-    var em = $ascp.Email.Tags;
+    var as = $AirSync.Tags;
+    var em = $Email.Tags;
 
     this._partitionAndAccessFoldersSequentially(
       op.messages, true,
@@ -305,7 +326,7 @@ ActiveSyncJobDriver.prototype = {
       },
       false,
       'delete');
-  },
+  }),
 
   check_delete: function(op, callback) {
     callback(null, 'idempotent');
@@ -328,19 +349,8 @@ ActiveSyncJobDriver.prototype = {
     doneCallback(null);
   },
 
-  do_syncFolderList: function(op, doneCallback) {
+  do_syncFolderList: lazyConnection(1, function(op, doneCallback) {
     var account = this.account, self = this;
-    // establish a connection if we are not already connected
-    if (!account.conn.connected) {
-      account.conn.connect(function(error) {
-        if (error) {
-          doneCallback('aborted-retry');
-          return;
-        }
-        self.do_syncFolderList(op, doneCallback);
-      });
-      return;
-    }
 
     // The inbox needs to be resynchronized if there was no server id and we
     // have active slices displaying the contents of the folder.  (No server id
@@ -368,7 +378,7 @@ ActiveSyncJobDriver.prototype = {
         // automatically, we can ignore that case for now.
       }
     });
-  },
+  }, 'aborted-retry'),
 
   check_syncFolderList: function(op, doneCallback) {
     doneCallback('idempotent');
@@ -383,7 +393,21 @@ ActiveSyncJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  // download
+  // downloadBodies: Download the bodies from a list of messages
+
+  local_do_downloadBodies: $jobmixins.local_do_downloadBodies,
+
+  do_downloadBodies: $jobmixins.do_downloadBodies,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // downloadBodyReps: Download the bodies from a single message
+
+  local_do_downloadBodyReps: $jobmixins.local_do_downloadBodyReps,
+
+  do_downloadBodyReps: $jobmixins.do_downloadBodyReps,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // download: Download one or more attachments from a single message
 
   local_do_download: $jobmixins.local_do_download,
 
@@ -394,6 +418,32 @@ ActiveSyncJobDriver.prototype = {
   local_undo_download: $jobmixins.local_undo_download,
 
   undo_download: $jobmixins.undo_download,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // saveDraft
+
+  local_do_saveDraft: $jobmixins.local_do_saveDraft,
+
+  do_saveDraft: $jobmixins.do_saveDraft,
+
+  check_saveDraft: $jobmixins.check_saveDraft,
+
+  local_undo_saveDraft: $jobmixins.local_undo_saveDraft,
+
+  undo_saveDraft: $jobmixins.undo_saveDraft,
+
+  //////////////////////////////////////////////////////////////////////////////
+  // deleteDraft
+
+  local_do_deleteDraft: $jobmixins.local_do_deleteDraft,
+
+  do_deleteDraft: $jobmixins.do_deleteDraft,
+
+  check_deleteDraft: $jobmixins.check_deleteDraft,
+
+  local_undo_deleteDraft: $jobmixins.local_undo_deleteDraft,
+
+  undo_deleteDraft: $jobmixins.undo_deleteDraft,
 
   //////////////////////////////////////////////////////////////////////////////
   // purgeExcessMessages is a NOP for activesync
@@ -424,9 +474,17 @@ ActiveSyncJobDriver.prototype = {
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ActiveSyncJobDriver: {
     type: $log.DAEMON,
+    events: {
+      savedAttachment: { storage: true, mimeType: true, size: true },
+      saveFailure: { storage: false, mimeType: false, error: false },
+    },
+    TEST_ONLY_events: {
+      saveFailure: { filename: false },
+    },
     errors: {
       callbackErr: { ex: $log.EXCEPTION },
     },
+
   },
 });
 

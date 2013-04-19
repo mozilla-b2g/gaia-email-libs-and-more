@@ -5,17 +5,17 @@
 define(
   [
     'rdcommon/log',
-    './mailchew',
-    './composer',
     './util',
+    './mailchew-strings',
+    'require',
     'module',
     'exports'
   ],
   function(
     $log,
-    $mailchew,
-    $composer,
     $imaputil,
+    $mailchewStrings,
+    require,
     $module,
     exports
   ) {
@@ -32,8 +32,9 @@ var FOLDER_TYPE_TO_SORT_PRIORITY = {
   starred: 'e',
   important: 'f',
   drafts: 'g',
-  queue: 'h',
-  sent: 'i',
+  localdrafts: 'h',
+  queue: 'i',
+  sent: 'j',
   junk: 'k',
   trash: 'm',
   archive: 'o',
@@ -86,11 +87,11 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  * `same-frame-setup.js` is the only place that hooks them up together right
  * now.
  */
-function MailBridge(universe) {
+function MailBridge(universe, name) {
   this.universe = universe;
   this.universe.registerBridge(this);
 
-  this._LOG = LOGFAB.MailBridge(this, universe._LOG, null);
+  this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
   /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
@@ -101,6 +102,22 @@ function MailBridge(universe) {
     headers: [],
     matchedHeaders: [],
   };
+
+  /**
+   * Observed bodies in the format of:
+   *
+   * @dictof[
+   *   @key[suid]
+   *   @value[@dictof[
+   *     @key[handleId]
+   *     @value[@oneof[Function null]]
+   *   ]]
+   * ]
+   *
+   * Similar in concept to folder slices but specific to bodies.
+   */
+  this._observedBodies = {};
+
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
   //
@@ -132,6 +149,17 @@ MailBridge.prototype = {
     this.universe.modifyConfig(msg.mods);
   },
 
+  /**
+   * Public api to verify if body has observers.
+   *
+   *
+   *   MailBridge.bodyHasObservers(header.id) // => true/false.
+   *
+   */
+  bodyHasObservers: function(suid) {
+    return !!this._observedBodies[suid];
+  },
+
   notifyConfig: function(config) {
     this.__sendMessage({
       type: 'config',
@@ -156,7 +184,7 @@ MailBridge.prototype = {
   },
 
   _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
-    $mailchew.setLocalizedStrings(msg.strings);
+    $mailchewStrings.set(msg.strings);
   },
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
@@ -355,6 +383,17 @@ MailBridge.prototype = {
     proxy.sendSplice(0, 0, wireReps, true, false);
   },
 
+  _cmd_requestBodies: function(msg) {
+    var self = this;
+    this.universe.downloadBodies(msg.messages, msg.options, function() {
+      self.__sendMessage({
+        type: 'requestBodiesComplete',
+        handle: msg.handle,
+        requestId: msg.requestId
+      });
+    });
+  },
+
   notifyFolderAdded: function(account, folderMeta) {
     var newMarker = makeFolderSortString(account, folderMeta);
 
@@ -393,6 +432,40 @@ MailBridge.prototype = {
         continue;
       proxy.sendSplice(idx, 1, [], false, false);
       proxy.markers.splice(idx, 1);
+    }
+  },
+
+  /**
+   * Sends a notification of a change in the body.
+   *
+   *    bridge.notifyBodyModified(
+   *      suid,
+   *      'bodyRep',
+   *      { index: 0 }
+   *      newBodyInfo
+   *    );
+   *
+   *
+   */
+  notifyBodyModified: function(suid, detail, body) {
+    var handles = this._observedBodies[suid];
+    var defaultHandler = this.__sendMessage;
+
+    if (handles) {
+      for (var handle in handles) {
+        // the suid may have an existing handler which captures the output of
+        // the notification instead of dispatching here... This allows us to
+        // aggregate pending notifications while fetching the bodies so updates
+        // never come before the actual body.
+        var emit = handles[handle] || defaultHandler;
+
+        emit.call(this, {
+          type: 'bodyModified',
+          handle: handle,
+          bodyInfo: body,
+          detail: detail
+        });
+      }
     }
   },
 
@@ -523,12 +596,71 @@ MailBridge.prototype = {
     var self = this;
     // map the message id to the folder storage
     var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.suid);
+
+    // when requesting the body we also create a observer to notify the client
+    // of events... We never want to send the updates before fetching the body
+    // so we buffer them here with a temporary handler.
+    var pendingUpdates = [];
+
+    var catchPending = function catchPending(msg) {
+      pendingUpdates.push(msg);
+    };
+
+    if (!this._observedBodies[msg.suid])
+      this._observedBodies[msg.suid] = {};
+
+    this._observedBodies[msg.suid][msg.handle] = catchPending;
+
     folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
       self.__sendMessage({
         type: 'gotBody',
         handle: msg.handle,
-        bodyInfo: bodyInfo,
+        bodyInfo: bodyInfo
       });
+
+      // if all body reps where requested we verify that all are present
+      // otherwise we begin the request for more body reps.
+      if (
+        msg.downloadBodyReps &&
+        !folderStorage.messageBodyRepsDownloaded(bodyInfo)
+      ) {
+
+        self.universe.downloadMessageBodyReps(
+          msg.suid,
+          msg.date,
+          function() { /* we don't care it will send update events */ }
+        );
+      }
+
+      // dispatch pending updates...
+      pendingUpdates.forEach(self.__sendMessage, self);
+      pendingUpdates = null;
+
+      // revert to default handler. Note! this is intentionally
+      // set to null and not deleted if deleted the observer is removed.
+      self._observedBodies[msg.suid][msg.handle] = null;
+    });
+  },
+
+  _cmd_killBody: function(msg) {
+    var handles = this._observedBodies[msg.id];
+    if (handles) {
+      delete handles[msg.handle];
+
+      var purgeHandles = true;
+      for (var key in handles) {
+        purgeHandles = false;
+        break;
+      }
+
+      if (purgeHandles) {
+        delete this._observedBodies[msg.id];
+      }
+    }
+
+    this.__sendMessage({
+      type: 'bodyDead',
+      handle: msg.handle
     });
   },
 
@@ -595,170 +727,385 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
+
   _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
-    var req = this._pendingRequests[msg.handle] = {
-      type: 'compose',
-      // XXX draft persistence/saving to-do/etc.
-      persistedFolder: null,
-      persistedUID: null,
-    };
+    require(['./composer'], function ($composer) {
+      var req = this._pendingRequests[msg.handle] = {
+        type: 'compose',
+        active: 'begin',
+        persistedNamer: null,
+        die: false
+      };
 
-    // - figure out the identity to use
-    var account, identity, folderId;
-    if (msg.mode === 'new' && msg.submode === 'folder')
-      account = this.universe.getAccountForFolderId(msg.refSuid);
-    else
-      account = this.universe.getAccountForMessageSuid(msg.refSuid);
+      // - figure out the identity to use
+      var account, identity, folderId;
+      if (msg.mode === 'new' && msg.submode === 'folder')
+        account = this.universe.getAccountForFolderId(msg.refSuid);
+      else
+        account = this.universe.getAccountForMessageSuid(msg.refSuid);
 
-    identity = account.identities[0];
+      identity = account.identities[0];
 
-    if (msg.mode === 'reply' ||
-        msg.mode === 'forward') {
-      var folderStorage = this.universe.getFolderStorageForMessageSuid(
-                            msg.refSuid);
+      // not doing something that needs a body just return an empty composer.
+      if (msg.mode !== 'reply' && msg.mode !== 'forward') {
+        return this.__sendMessage({
+          type: 'composeBegun',
+          handle: msg.handle,
+          error: null,
+          identity: identity,
+          subject: '',
+          body: { text: '', html: null },
+          to: [],
+          cc: [],
+          bcc: [],
+          references: null,
+          attachments: [],
+        });
+      }
+
+      var folderStorage =
+        this.universe.getFolderStorageForMessageSuid(msg.refSuid);
+
       var self = this;
-      folderStorage.getMessageBody(
-        msg.refSuid, msg.refDate,
-        function(bodyInfo) {
-          if (msg.mode === 'reply') {
-            var rTo, rCc, rBcc;
-            // clobber the sender's e-mail with the reply-to
-            var effectiveAuthor = {
-              name: msg.refAuthor.name,
-              address: (bodyInfo.replyTo && bodyInfo.replyTo.address) ||
-                       msg.refAuthor.address,
-            };
-            switch (msg.submode) {
-              case 'list':
-                // XXX we can't do this without headers we're not retrieving,
-                // fall through for now.
-              case null:
-              case 'sender':
-                rTo = [effectiveAuthor];
-                rCc = rBcc = [];
-                break;
-              case 'all':
-                // No need to change the lists if the author is already on the
-                // reply lists.
-                //
-                // nb: Our logic here is fairly simple; Thunderbird's
-                // nsMsgCompose.cpp does a lot of checking that we should audit,
-                // although much of it could just be related to its much more
-                // extensive identity support.
-                if (checkIfAddressListContainsAddress(bodyInfo.to,
-                                                      effectiveAuthor) ||
-                    checkIfAddressListContainsAddress(bodyInfo.cc,
-                                                      effectiveAuthor)) {
-                  rTo = bodyInfo.to;
-                }
-                // add the author as the first 'to' person
-                else {
-                  if (bodyInfo.to && bodyInfo.to.length)
-                    rTo = [effectiveAuthor].concat(bodyInfo.to);
-                  else
-                    rTo = [effectiveAuthor];
-                }
-                rCc = bodyInfo.cc;
-                rBcc = bodyInfo.bcc;
-                break;
-            }
+      folderStorage.getMessage(
+        msg.refSuid, msg.refDate, { withBodyReps: true }, function(res) {
 
-            var referencesStr;
-            if (bodyInfo.references) {
-              referencesStr = bodyInfo.references.concat([msg.refGuid])
-                                .map(function(x) { return '<' + x + '>'; })
-                                .join(' ');
-            }
-            else {
-              referencesStr = '<' + msg.refGuid + '>';
-            }
-            self.__sendMessage({
-              type: 'composeBegun',
-              handle: msg.handle,
-              identity: identity,
-              subject: $mailchew.generateReplySubject(msg.refSubject),
-              // blank lines at the top are baked in
-              body: $mailchew.generateReplyBody(
-                      bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
-                      identity, msg.refGuid),
-              to: rTo,
-              cc: rCc,
-              bcc: rBcc,
-              referencesStr: referencesStr,
-              attachments: [],
-            });
+        if (!res) {
+          // cannot compose a reply/fwd message without a header/body
+          return console.warn(
+            'Cannot compose message missing header/body: ',
+            msg.suid
+          );
+        }
+
+        var header = res.header;
+        var bodyInfo = res.body;
+
+        if (msg.mode === 'reply') {
+          var rTo, rCc, rBcc;
+          // clobber the sender's e-mail with the reply-to
+          var effectiveAuthor = {
+            name: msg.refAuthor.name,
+            address: (header.replyTo && header.replyTo.address) ||
+                     msg.refAuthor.address,
+          };
+          switch (msg.submode) {
+            case 'list':
+              // XXX we can't do this without headers we're not retrieving,
+              // fall through for now.
+            case null:
+            case 'sender':
+              rTo = [effectiveAuthor];
+              rCc = rBcc = [];
+              break;
+            case 'all':
+              // No need to change the lists if the author is already on the
+              // reply lists.
+              //
+              // nb: Our logic here is fairly simple; Thunderbird's
+              // nsMsgCompose.cpp does a lot of checking that we should
+              // audit, although much of it could just be related to its
+              // much more extensive identity support.
+              if (checkIfAddressListContainsAddress(header.to,
+                                                    effectiveAuthor) ||
+                  checkIfAddressListContainsAddress(header.cc,
+                                                    effectiveAuthor)) {
+                rTo = header.to;
+              }
+              // add the author as the first 'to' person
+              else {
+                if (header.to && header.to.length)
+                  rTo = [effectiveAuthor].concat(header.to);
+                else
+                  rTo = [effectiveAuthor];
+              }
+              rCc = header.cc;
+              rBcc = header.bcc;
+              break;
+          }
+
+          var referencesStr;
+          if (bodyInfo.references) {
+            referencesStr = bodyInfo.references.concat([msg.refGuid])
+                              .map(function(x) { return '<' + x + '>'; })
+                              .join(' ');
           }
           else {
-            self.__sendMessage({
-              type: 'composeBegun',
-              handle: msg.handle,
-              identity: identity,
-              subject: 'Fwd: ' + msg.refSubject,
-              // blank lines at the top are baked in by the func
-              body: $mailchew.generateForwardMessage(
-                      msg.refAuthor, msg.refDate, msg.refSubject,
-                      bodyInfo, identity),
-              // forwards have no assumed envelope information
-              to: [],
-              cc: [],
-              bcc: [],
-              // XXX imitate Thunderbird current or previous behaviour; I
-              // think we ended up linking forwards into the conversation
-              // they came from, but with an extra header so that it was
-              // possible to detect it was a forward.
-              references: null,
-              attachments: [],
-            });
+            referencesStr = '<' + msg.refGuid + '>';
           }
-        });
-      return;
-    }
+          req.active = null;
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            error: null,
+            identity: identity,
+            subject: $composer.mailchew
+                       .generateReplySubject(msg.refSubject),
+            // blank lines at the top are baked in
+            body: $composer.mailchew.generateReplyBody(
+                    bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
+                    identity, msg.refGuid),
+            to: rTo,
+            cc: rCc,
+            bcc: rBcc,
+            referencesStr: referencesStr,
+            attachments: [],
+          });
+        }
+        else {
+          req.active = null;
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            error: null,
+            identity: identity,
+            subject: 'Fwd: ' + msg.refSubject,
+            // blank lines at the top are baked in by the func
+            body: $composer.mailchew.generateForwardMessage(
+                    msg.refAuthor, msg.refDate, msg.refSubject,
+                    header, bodyInfo, identity),
+            // forwards have no assumed envelope information
+            to: [],
+            cc: [],
+            bcc: [],
+            // XXX imitate Thunderbird current or previous behaviour; I
+            // think we ended up linking forwards into the conversation
+            // they came from, but with an extra header so that it was
+            // possible to detect it was a forward.
+            references: null,
+            attachments: [],
+          });
+        }
+      });
+    }.bind(this));
+  },
 
-    this.__sendMessage({
-      type: 'composeBegun',
-      handle: msg.handle,
-      identity: identity,
-      subject: '',
-      body: { text: '', html: null },
-      to: [],
-      cc: [],
-      bcc: [],
-      references: null,
-      attachments: [],
+  _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
+    var req = this._pendingRequests[msg.handle] = {
+      type: 'compose',
+      active: 'resume',
+      persistedNamer: msg.messageNamer,
+      die: false
+    };
+
+    // NB: We are not acquiring the folder mutex here because
+    var account = this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
+    var folderStorage = this.universe.getFolderStorageForMessageSuid(
+                          msg.messageNamer.suid);
+    var self = this;
+    folderStorage.runMutexed('resumeCompose', function(callWhenDone) {
+      function fail() {
+        self.__sendMessage({
+          type: 'composeBegun',
+          handle: msg.handle,
+          error: 'no-message'
+        });
+        callWhenDone();
+      }
+      folderStorage.getMessage(msg.messageNamer.suid, msg.messageNamer.date,
+                               function(res) {
+        try {
+          if (!res.header || !res.body) {
+            fail();
+            return;
+          }
+          var header = res.header, body = res.body;
+
+          // -- convert from header/body rep to compose rep
+
+          var composeBody = {
+            text: '',
+            html: null,
+          };
+
+          // Body structure should be guaranteed, but add some checks.
+          if (body.bodyReps.length >= 1 &&
+              body.bodyReps[0].type === 'plain' &&
+              body.bodyReps[0].content.length === 2 &&
+              body.bodyReps[0].content[0] === 0x1) {
+            composeBody.text = body.bodyReps[0].content[1];
+          }
+          // HTML is optional, but if present, should satisfy our guard
+          if (body.bodyReps.length == 2 &&
+              body.bodyReps[1].type === 'html') {
+            composeBody.html = body.bodyReps[1].content;
+          }
+
+          var attachments = [];
+          body.attachments.forEach(function(att) {
+            attachments.push({
+              name: att.name,
+              blob: att.file
+            });
+          });
+
+          req.active = null;
+          self.__sendMessage({
+            type: 'composeBegun',
+            handle: msg.handle,
+            error: null,
+            identity: account.identities[0],
+            subject: header.subject,
+            body: composeBody,
+            to: header.to,
+            cc: header.cc,
+            bcc: header.bcc,
+            // we abuse guid to serve as the references list...
+            referencesStr: header.guid,
+            attachments: attachments
+          });
+          callWhenDone();
+        }
+        catch (ex) {
+          fail(); // calls callWhenDone
+        }
+      });
     });
   },
 
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
-    if (msg.command === 'delete') {
-      // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
-      // message and try and execute it.
-      return;
-    }
-    var wireRep = msg.state,
-        identity = this.universe.getIdentityForSenderIdentityId(
-                     wireRep.senderId),
-        account = this.universe.getAccountForSenderIdentityId(
-                    wireRep.senderId),
-        composer = new $composer.Composer(msg.command, wireRep,
-                                          account, identity);
+    require(['./composer'], function ($composer) {
+      var req = this._pendingRequests[msg.handle], self = this;
+      if (!req)
+        return;
+      if (msg.command === 'die') {
+        if (req.active)
+          req.die = true;
+        else
+          delete this._pendingRequests[msg.handle];
+        return;
+      }
+      var account;
+      if (msg.command === 'delete') {
+        function sendDeleted() {
+          self.__sendMessage({
+            type: 'doneCompose',
+            handle: msg.handle,
+            err: null,
+            badAddresses: null,
+            messageId: null,
+            sentDate: null
+          });
+        }
+        if (req.persistedNamer) {
+          account = this.universe.getAccountForMessageSuid(
+                      req.persistedNamer.suid);
+          this.universe.deleteDraft(account, req.persistedNamer, sendDeleted);
+        }
+        else {
+          sendDeleted();
+        }
+        delete this._pendingRequests[msg.handle];
+        // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
+        // message and try and execute it.
+        return;
+      }
 
-    if (msg.command === 'send') {
-      var self = this;
 
-      account.sendMessage(composer, function(err, badAddresses) {
-        this.__sendMessage({
-          type: 'sent',
-          handle: msg.handle,
-          err: err,
-          badAddresses: badAddresses,
-          messageId: composer.messageId,
-          sentDate: composer.sentDate.valueOf(),
+      var wireRep = msg.state,
+          identity = this.universe.getIdentityForSenderIdentityId(
+                       wireRep.senderId);
+      account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
+
+      if (msg.command === 'send') {
+        var composer = new $composer.Composer(msg.command, wireRep,
+                                              account, identity);
+
+        req.active = null;
+        if (req.die)
+          delete this._pendingRequests[msg.handle];
+        account.sendMessage(composer, function(err, badAddresses) {
+          // If there was an associated/saved draft, clear it out, but there's
+          // no need to wait for that to complete.
+          if (req.persistedNamer)
+            this.universe.deleteDraft(account, req.persistedNamer);
+          this.__sendMessage({
+            type: 'doneCompose',
+            handle: msg.handle,
+            err: err,
+            badAddresses: badAddresses,
+            messageId: composer.messageId,
+            sentDate: composer.sentDate.valueOf(),
+          });
+        }.bind(this));
+      }
+      else if (msg.command === 'save') {
+        // -- convert from compose rep to header/body rep
+        var msgTimestamp = Date.now();
+        var header = {
+          id: null, // filled in by the job
+          srvid: null, // stays null
+          suid: null, // filled in by the job
+          guid: null, // unused
+          author: { name: identity.name, address: identity.address},
+          to: wireRep.to,
+          cc: wireRep.cc,
+          bcc: wireRep.bcc,
+          replyTo: null,
+          date: msgTimestamp,
+          flags: [],
+          hasAttachments: !!wireRep.attachments.length,
+          subject: wireRep.subject,
+          snippet: wireRep.body.text.substring(0, 100),
+        };
+        var body = {
+          date: msgTimestamp,
+          size: 0,
+          attachments: [],
+          relatedParts: [],
+          references: wireRep.referencesStr,
+          bodyReps: []
+        };
+        wireRep.attachments.forEach(function(wireAtt) {
+          body.attachments.push({
+            name: wireAtt.name,
+            contentId: null,
+            type: wireAtt.blob.type,
+            part: null,
+            encoding: null,
+            sizeEstimate: wireAtt.blob.size,
+            file: wireAtt.blob
+          });
         });
-      }.bind(this));
-    }
-    else { // (msg.command === draft)
-      // XXX save drafts!
-    }
+        body.bodyReps.push({
+          type: 'plain',
+          part: null,
+          sizeEstimate: wireRep.body.text.length,
+          amountDownloaded: wireRep.body.text.length,
+          isDownloaded: true,
+          _partInfo: {},
+          content: [0x1, wireRep.body.text]
+        });
+        if (wireRep.body.html) {
+          body.bodyReps.push({
+            type: 'html',
+            part: null,
+            sizeEstimate: wireRep.body.html.length,
+            amountDownloaded: wireRep.body.html.length,
+            isDownloaded: true,
+            _partInfo: {},
+            content: wireRep.body.html
+          });
+        }
+
+        this.universe.saveDraft(
+          account, req.persistedNamer, header, body,
+          function(err, messageNamer) {
+            req.active = null;
+            req.persistedNamer = messageNamer;
+            if (req.die)
+              delete self._pendingRequests[msg.handle];
+            self.__sendMessage({
+              type: 'doneCompose',
+              handle: msg.handle,
+              err: null,
+              badAddresses: null,
+              messageId: null,
+              sentDate: null,
+            });
+          });
+      }
+    }.bind(this));
   },
 
   //////////////////////////////////////////////////////////////////////////////

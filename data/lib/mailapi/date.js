@@ -188,12 +188,15 @@ var NOW = exports.NOW =
  * ask for 2 days ago, you really get 2.5 days worth of time.
  */
 var makeDaysAgo = exports.makeDaysAgo =
-      function makeDaysAgo(numDays) {
-  var past = quantizeDate(TIME_WARPED_NOW || Date.now()) - numDays * DAY_MILLIS;
+      function makeDaysAgo(numDays, tzOffset) {
+  var past = quantizeDate((TIME_WARPED_NOW || Date.now()) + tzOffset) -
+               numDays * DAY_MILLIS;
   return past;
 };
 var makeDaysBefore = exports.makeDaysBefore =
-      function makeDaysBefore(date, numDaysBefore) {
+      function makeDaysBefore(date, numDaysBefore, tzOffset) {
+  if (date === null)
+    return makeDaysAgo(numDaysBefore - 1, tzOffset);
   return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 };
 /**
@@ -201,6 +204,8 @@ var makeDaysBefore = exports.makeDaysBefore =
  */
 var quantizeDate = exports.quantizeDate =
       function quantizeDate(date) {
+  if (date === null)
+    return null;
   if (typeof(date) === 'number')
     date = new Date(date);
   return date.setUTCHours(0, 0, 0, 0).valueOf();

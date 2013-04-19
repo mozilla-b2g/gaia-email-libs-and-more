@@ -1688,11 +1688,12 @@ var ALL_KNOWN_FABS = [];
  * without a known consumer.
  */
 var GENERAL_LOG_DEFAULT = false;
+var UNDER_TEST_DEFAULT = false;
 
 exports.register = function register(mod, defs) {
   var fab = {
     _generalLog: GENERAL_LOG_DEFAULT,
-    _underTest: false,
+    _underTest: UNDER_TEST_DEFAULT,
     _actorCons: {},
     _rawDefs: {},
     _onDeath: null
@@ -1744,6 +1745,7 @@ exports.enableGeneralLogging = function() {
  *  shouldn't do that.
  */
 exports.DEBUG_markAllFabsUnderTest = function() {
+  UNDER_TEST_DEFAULT = BogusTester;
   for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
     var logfab = ALL_KNOWN_FABS[i];
 
@@ -1781,6 +1783,7 @@ exports.DATABASE = 'database';
 exports.CRYPTO = 'crypto';
 exports.QUERY = 'query';
 exports.ACCOUNT = 'account';
+exports.LOGGING = 'log';
 
 exports.TEST_DRIVER = 'testdriver';
 exports.TEST_GROUP = 'testgroup';

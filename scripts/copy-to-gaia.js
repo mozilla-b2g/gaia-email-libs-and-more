@@ -24,8 +24,10 @@ buildOptions = {
   useStrict: true,
   paths: {
     'alameda': 'deps/alameda',
+    'config': 'scripts/config',
 
     // NOP's
+    'prim': 'empty:',
     'http': 'data/lib/nop',
     'https': 'data/lib/nop2',
     'url': 'data/lib/nop3',
@@ -72,35 +74,129 @@ buildOptions = {
     'mailparser': 'data/deps/mailparser/lib',
     'simplesmtp': 'data/deps/simplesmtp',
     'mailcomposer': 'data/deps/mailcomposer'
-  },
-  include: ['event-queue', 'mailapi/same-frame-setup', 'mailapi/mailslice',
-            'mailapi/searchfilter', 'mailapi/jobmixins',
-            'mailapi/accountmixins'],
-  name: 'mailapi/same-frame-setup',
-  out: jsPath + '/mailapi/same-frame-setup.js'
+  }
 };
 
-var standardExcludes = ['mailapi/same-frame-setup'].concat(buildOptions.include);
+var bootstrapIncludes = ['alameda', 'config', 'mailapi/shim-sham',
+  'event-queue', 'mailapi/mailslice', 'mailapi/searchfilter',
+  'mailapi/jobmixins', 'mailapi/accountmixins', 'util', 'stream', 'crypto',
+  'encoding', 'mailapi/worker-setup'];
+var standardExcludes = [].concat(bootstrapIncludes);
+var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
 
 var configs = [
-  // First one is same-frame-setup
-  {},
+  // root aggregate loaded in worker context
+  {
+    name: 'mailapi/worker-bootstrap',
+    include: bootstrapIncludes,
+    insertRequire: ['mailapi/worker-setup'],
+    out: jsPath + '/mailapi/worker-bootstrap.js'
+  },
 
+  // root aggregate loaded in main frame context
+  {
+    name: 'mailapi/main-frame-setup',
+    include: [],
+    out: jsPath + '/mailapi/main-frame-setup.js'
+  },
+
+  // needed by all kinds of different layers, so broken out on its own:
+  // - mailparser/mailparser
+  // - mailapi/composer (specifically mailcomposer)
+  // - mailapi/chewlayer (specifically mailapi/imap/imapchew statically)
+  // - activesync (specifically mailapi/activesync/folder dynamically)
+  {
+    name: 'mimelib',
+    exclude: standardExcludes,
+    out: jsPath + '/mimelib.js'
+  },
+
+  // text/plain and text/html logic, needed by both IMAP and ActiveSync.
+  // It's not clear why imapchew is in this layer; seems like it could be in
+  // imap/protocollayer.
+  {
+    name: 'mailapi/chewlayer',
+    create: true,
+    include: ['mailapi/quotechew', 'mailapi/htmlchew', 'mailapi/mailchew',
+              'mailapi/imap/imapchew'],
+    exclude: standardExcludes.concat(['mimelib']),
+    out: jsPath + '/mailapi/chewlayer.js'
+  },
+
+  // mailparser lib and deps sans mimelib
+  {
+    name: 'mailparser/mailparser',
+    exclude: standardExcludes.concat(['mimelib']),
+    out: jsPath + '/mailparser/mailparser.js'
+  },
+
+  // our composition abstraction and its deps
+  {
+    name: 'mailapi/composer',
+    exclude: standardExcludes.concat(['mailparser/mailparser',
+                                      'mailapi/quotechew',
+                                      'mailapi/htmlchew',
+                                      'mailapi/imap/imapchew',
+                                      'mimelib']),
+    out: jsPath + '/mailapi/composer.js'
+  },
+
+  // imap protocol and probing support
+  {
+    name: 'mailapi/imap/probe',
+    exclude: standardPlusComposerExcludes.concat(['mailparser/mailparser']),
+    out: jsPath + '/mailapi/imap/probe.js'
+  },
+
+  // imap online support
+  {
+    name: 'mailapi/imap/protocollayer',
+    exclude: standardPlusComposerExcludes.concat(
+      ['mailparser/mailparser', 'mimelib', 'mailapi/imap/imapchew']
+    ),
+    include: [
+      'mailapi/imap/protocol/sync',
+      'mailapi/imap/protocol/bodyfetcher',
+      'mailapi/imap/protocol/textparser',
+      'mailapi/imap/protocol/snippetparser'
+    ],
+    out: jsPath + '/mailapi/imap/protocollayer.js',
+    create: true
+  },
+  // smtp online support
+  {
+    name: 'mailapi/smtp/probe',
+    exclude: standardPlusComposerExcludes,
+    out: jsPath + '/mailapi/smtp/probe.js'
+  },
+
+  // activesync configurator, offline support
   {
     name: 'mailapi/activesync/configurator',
-    exclude: standardExcludes,
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/activesync/configurator.js'
   },
 
+  // activesync online support
+  {
+    name: 'mailapi/activesync/protocollayer',
+    create: true,
+    include: ['wbxml', 'activesync/protocol'],
+    exclude: standardExcludes.concat(['mailapi/activesync/configurator']),
+    out: jsPath + '/mailapi/activesync/protocollayer.js'
+  },
+
+  // imap/smtp configuration, offline support
   {
     name: 'mailapi/composite/configurator',
-    exclude: standardExcludes,
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/composite/configurator.js'
   },
 
+  // bundles up all fake account logic
   {
     name: 'mailapi/fake/configurator',
-    exclude: standardExcludes,
+    exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/fake/configurator.js'
   }
 ];
@@ -124,7 +220,8 @@ function onError(err) {
 //in the configs array.
 var runner = configs.reduceRight(function (prev, cfg) {
   return function (buildReportText) {
-    console.log(buildReportText);
+    if (buildReportText)
+      console.log(buildReportText);
 
     currentConfig = mix(cfg);
 
@@ -135,6 +232,7 @@ var runner = configs.reduceRight(function (prev, cfg) {
 
   try {
     var scriptText,
+      endPath = path.join(jsPath, 'end.js'),
       indexContents = fs.readFileSync(indexPath, 'utf8'),
       startComment = '<!-- START BACKEND INJECT - do not modify -->',
       endComment = '<!-- END BACKEND INJECT -->',
@@ -153,11 +251,21 @@ var runner = configs.reduceRight(function (prev, cfg) {
       'alameda',
       'end'
     ];
-    fs.createReadStream(path.join(__dirname, '..', 'deps', 'alameda.js'))
-      .pipe(fs.createWriteStream(path.join(jsPath, 'alameda.js')));
-    fs.createReadStream(path.join(__dirname, 'end.js'))
-      .pipe(fs.createWriteStream(path.join(jsPath, 'end.js')));
 
+    // Copy some bootstrap scripts over to gaia
+    fs.writeFileSync(path.join(jsPath, 'alameda.js'),
+      fs.readFileSync(path.join(__dirname, '..', 'deps', 'alameda.js')),
+      'utf8');
+    fs.writeFileSync(endPath,
+      fs.readFileSync(path.join(__dirname, 'end.js')),
+      'utf8');
+
+    // Modify end.js to include config.js
+    var configContents = fs.readFileSync(path.join(__dirname, 'config.js'),
+                                         'utf8');
+    fs.writeFile(endPath, configContents + fs.readFileSync(endPath, 'utf8'));
+
+    // Update gaia email index.html with the right script tags.
     scriptText = startComment + '\n' +
       indexPaths.map(function (name) {
 

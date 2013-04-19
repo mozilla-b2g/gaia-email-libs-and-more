@@ -8,6 +8,7 @@ define(
     'rdcommon/logreaper',
     './a64',
     './syncbase',
+    './worker-router',
     './maildb',
     './cronsync',
     './accountcommon',
@@ -19,6 +20,7 @@ define(
     $logreaper,
     $a64,
     $syncbase,
+    $router,
     $maildb,
     $cronsync,
     $acctcommon,
@@ -174,6 +176,9 @@ var MAX_LOG_BACKLOG = 30;
  *     }
  *     @case['undone']{
  *     }
+ *     @case['moot']{
+ *       Either the local or server operation failed and mooted the operation.
+ *     }
  *   ]]{
  *     Tracks the overall desired state and completion state of the operation.
  *     Operations currently cannot be redone after they are undone.  This field
@@ -246,6 +251,9 @@ var MAX_LOG_BACKLOG = 30;
  *       assume something is fundamentally wrong and the request simply cannot
  *       be executed.
  *     }
+ *     @case['n/a']{
+ *       The op does not need to be run online.
+ *     }
  *   ]]{
  *     The state of the operation on the server.  This is tracked separately
  *     from the `localStatus` to reduce the number of possible states.
@@ -311,15 +319,18 @@ function MailUniverse(callAfterBigBang, testOptions) {
 
   this._bridges = [];
 
+  this._testModeDisablingLocalOps = false;
+  /** Fake navigator to use for navigator.onLine checks */
+  this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
+                                null;
+
   // We used to try and use navigator.connection, but it's not supported on B2G,
   // so we have to use navigator.onLine like suckers.
   this.online = true; // just so we don't cause an offline->online transition
-  this._bound_onConnectionChange = this._onConnectionChange.bind(this);
-  window.addEventListener('online', this._bound_onConnectionChange);
-  window.addEventListener('offline', this._bound_onConnectionChange);
+  // Events for online/offline are now pushed into us externally.  They need
+  // to be bridged from the main thread anyways, so no point faking the event
+  // listener.
   this._onConnectionChange();
-
-  this._testModeDisablingLocalOps = false;
 
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
@@ -464,29 +475,22 @@ MailUniverse.prototype = {
   },
 
   dumpLogToDeviceStorage: function() {
-    console.log('Planning to dump log to device storage for "videos"');
+    // This reuses the existing registration if one exists.
+    var sendMessage = $router.registerCallbackType('devicestorage');
     try {
-      // 'default' does not work, but pictures does.  Hopefully gallery is
-      // smart enough to stay away from my log files!
-      var storage = navigator.getDeviceStorage('videos');
-      // HACK HACK HACK: DeviceStorage does not care about our use-case at all
-      // and brutally fails to write things that do not have a mime type (and
-      // apropriately named file), so we pretend to be a realmedia file because
-      // who would really have such a thing?
       var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
                           {
-                            type: 'video/lies',
+                            type: 'application/json',
                             endings: 'transparent'
                           });
-      var filename = 'gem-log-' + Date.now() + '.json.rm';
-      var req = storage.addNamed(blob, filename);
-      req.onsuccess = function() {
-        console.log('saved log to', filename);
-      };
-      req.onerror = function() {
-        console.error('failed to save log to', filename, 'err:',
-                      this.error.name);
-      };
+      var filename = 'gem-log-' + Date.now() + '.json';
+      sendMessage('save', ['sdcard', blob, filename], function(success) {
+        if (success)
+          console.log('saved log to "sdcard" devicestorage:', filename);
+        else
+          console.error('failed to save log to', filename);
+
+      });
     }
     catch(ex) {
       console.error('Problem dumping log to device storage:', ex,
@@ -546,14 +550,15 @@ MailUniverse.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  _onConnectionChange: function() {
+  _onConnectionChange: function(isOnline) {
     var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
      * This should ideally be false behind a captive portal.  This might also
      * end up temporarily false if we move to a 2-phase startup process.
      */
-    this.online = navigator.onLine;
+    this.online = this._testModeFakeNavigator ?
+                    this._testModeFakeNavigator.onLine : isOnline;
     // Knowing when the app thinks it is online/offline is going to be very
     // useful for our console.log debug spew.
     console.log('Email knows that it is:', this.online ? 'online' : 'offline',
@@ -686,7 +691,7 @@ MailUniverse.prototype = {
     var savedEx = null;
     var account = this._accountsById[accountId];
     try {
-      account.shutdown();
+      account.accountDeleted();
     }
     catch (ex) {
       // save the failure until after we have done other cleanup.
@@ -727,7 +732,7 @@ MailUniverse.prototype = {
     $acctcommon.accountTypeToClass(accountDef.type, function (constructor) {
       if (!constructor) {
         this._LOG.badAccountType(accountDef.type);
-        return null;
+        return;
       }
       var account = new constructor(this, accountDef, folderInfo, this._db,
                                     receiveProtoConn, this._LOG);
@@ -760,7 +765,8 @@ MailUniverse.prototype = {
       // maintained in this list.
       for (var i = 0; i < account.mutations.length; i++) {
         var op = account.mutations[i];
-        if (op.lifecycle !== 'done' && op.lifecycle !== 'undone') {
+        if (op.lifecycle !== 'done' && op.lifecycle !== 'undone' &&
+            op.lifecycle !== 'moot') {
           // For localStatus, we currently expect it to be consistent with the
           // state of the folder's database.  We expect this to be true going
           // forward and as we make changes because when we save the account's
@@ -773,7 +779,6 @@ MailUniverse.prototype = {
           this._queueAccountOp(account, op);
         }
       }
-
       callback(account);
     }.bind(this));
   },
@@ -873,6 +878,13 @@ MailUniverse.prototype = {
     }
   },
 
+  __notifyModifiedBody: function(suid, detail, body) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge.notifyBodyModified(suid, detail, body);
+    }
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
 
@@ -894,18 +906,31 @@ MailUniverse.prototype = {
    * clean shutdown means we get a heads-up, put ourselves offline, and trigger a
    * state save before we just demand that our page be closed.  That's future
    * work, of course.
+   *
+   * If a callback is provided, a cleaner shutdown will be performed where we
+   * wait for all current IMAP connections to be be shutdown by the server
+   * before invoking the callback.
    */
-  shutdown: function() {
+  shutdown: function(callback) {
+    var waitCount = this.accounts.length;
+    // (only used if a 'callback' is passed)
+    function accountShutdownCompleted() {
+      if (--waitCount === 0)
+        callback();
+    }
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      account.shutdown();
+      // only need to pass our handler if clean shutdown is desired
+      account.shutdown(callback ? accountShutdownCompleted : null);
     }
 
-    window.removeEventListener('online', this._bound_onConnectionChange);
-    window.removeEventListener('offline', this._bound_onConnectionChange);
     this._cronSyncer.shutdown();
     this._db.close();
-    this._LOG.__die();
+    if (this._LOG)
+      this._LOG.__die();
+
+    if (!this.accounts.length)
+      callback();
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1034,7 +1059,8 @@ MailUniverse.prototype = {
         localQueue = queues.local;
     queues.active = false;
 
-    var removeFromServerQueue = false;
+    var removeFromServerQueue = false,
+        completeOp = false;
     if (err) {
       switch (err) {
         // Only defer is currently supported as a recoverable local failure
@@ -1049,9 +1075,11 @@ MailUniverse.prototype = {
           // fall-through to an error
         default:
           this._LOG.opGaveUp(op.type, op.longtermId);
+          op.lifecycle = 'moot';
           op.localStatus = 'unknown';
           op.serverStatus = 'moot';
           removeFromServerQueue = true;
+          completeOp = true;
           break;
       }
     }
@@ -1059,9 +1087,17 @@ MailUniverse.prototype = {
       switch (op.localStatus) {
         case 'doing':
           op.localStatus = 'done';
+          if (op.serverStatus === 'n/a') {
+            op.lifecycle = 'done';
+            completeOp = true;
+          }
           break;
         case 'undoing':
           op.localStatus = 'undone';
+          if (op.serverStatus === 'n/a') {
+            op.lifecycle = 'undone';
+            completeOp = true;
+          }
           break;
       }
 
@@ -1070,12 +1106,27 @@ MailUniverse.prototype = {
       if (accountSaveSuggested)
         account.saveAccountState();
     }
+
     if (removeFromServerQueue) {
       var idx = serverQueue.indexOf(op);
       if (idx !== -1)
         serverQueue.splice(idx, 1);
     }
     localQueue.shift();
+
+    if (completeOp) {
+      if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
+        var callback = this._opCallbacks[op.longtermId];
+        delete this._opCallbacks[op.longtermId];
+        try {
+          callback(err, resultIfAny, account, op);
+        }
+        catch(ex) {
+          console.log(ex.message, ex.stack);
+          this._LOG.opCallbackErr(op.type);
+        }
+      }
+    }
 
     if (localQueue.length) {
       op = localQueue[0];
@@ -1173,6 +1224,7 @@ MailUniverse.prototype = {
             completeOp = false;
           }
           else {
+            op.lifecycle = 'moot';
             op.serverStatus = 'moot';
           }
           break;
@@ -1187,11 +1239,13 @@ MailUniverse.prototype = {
         case 'failure-give-up':
           this._LOG.opGaveUp(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
+          op.lifecycle = 'moot';
           op.serverStatus = 'moot';
           break;
         case 'moot':
           this._LOG.opMooted(op.type, op.longtermId);
           // we complete the op, but the error flag is propagated
+          op.lifecycle = 'moot';
           op.serverStatus = 'moot';
           break;
       }
@@ -1216,6 +1270,7 @@ MailUniverse.prototype = {
               op.serverStatus = 'done';
               break;
             case 'moot':
+              op.lifecycle = 'moot';
               op.serverStatus = 'moot';
               break;
             // this is the same thing as defer.
@@ -1254,6 +1309,7 @@ MailUniverse.prototype = {
       else {
         this._LOG.opTryLimitReached(op.type, op.longtermId);
         // we complete the op, but the error flag is propagated
+        op.lifecycle = 'moot';
         op.serverStatus = 'moot';
       }
     }
@@ -1269,6 +1325,7 @@ MailUniverse.prototype = {
           callback(err, resultIfAny, account, op);
         }
         catch(ex) {
+          console.log(ex.message, ex.stack);
           this._LOG.opCallbackErr(op.type);
         }
       }
@@ -1299,29 +1356,39 @@ MailUniverse.prototype = {
    *
    * @args[
    *   @param[account]
-   *   @param[op]
+   *   @param[op SerializedMutation]{
+   *     Note that a `null` longtermId should be passed in if the operation
+   *     should be persisted, and a 'session' string if the operation should
+   *     not be persisted.  In both cases, a longtermId will be allocated,
+   *   }
    *   @param[optionalCallback #:optional Function]{
    *     A callback to invoke when the operation completes.  Callbacks are
    *     obviously not capable of being persisted and are merely best effort.
-   *   }
-   *   @param[justRequeue #:optional Boolean]{
-   *     If true, we are just re-enqueueing the operation and have no desire
-   *     or need to run the local operations.
    *   }
    * ]
    */
   _queueAccountOp: function(account, op, optionalCallback) {
     // - Name the op, register callbacks
     if (op.longtermId === null) {
+      // mutation job must be persisted until completed otherwise bad thing
+      // will happen.
       op.longtermId = account.id + '/' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
+      // Clear out any completed/dead operations that put us over the undo
+      // threshold.
       while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
              (account.mutations[0].lifecycle === 'done') ||
-             (account.mutations[0].lifecycle === 'undone')) {
+             (account.mutations[0].lifecycle === 'undone') ||
+             (account.mutations[0].lifecycle === 'moot')) {
         account.mutations.shift();
       }
     }
+    else if (op.longtermId === 'session') {
+      op.longtermId = account.id + '/' +
+                        $a64.encodeInt(account.meta.nextMutationNum++);
+    }
+
     if (optionalCallback)
       this._opCallbacks[op.longtermId] = optionalCallback;
 
@@ -1333,8 +1400,8 @@ MailUniverse.prototype = {
          (op.lifecycle === 'undo' && op.localStatus !== 'undone' &&
           op.localStatus !== 'unknown')))
       queues.local.push(op);
-    // Server processing is always needed
-    queues.server.push(op);
+    if (op.serverStatus !== 'n/a' && op.serverStatus !== 'moot')
+      queues.server.push(op);
 
     // If there is already something active, don't do anything!
     if (queues.active) {
@@ -1343,11 +1410,10 @@ MailUniverse.prototype = {
       // Only actually dispatch if there is only the op we just (maybe).
       if (queues.local.length === 1 && queues.local[0] === op)
         this._dispatchLocalOpForAccount(account, op);
-      else
-        console.log('local active! not running!');
       // else: we grabbed control flow to avoid the server queue running
     }
-    else if (queues.server.length === 1 && this.online && account.enabled) {
+    else if (queues.server.length === 1 && queues.server[0] === op &&
+             this.online && account.enabled) {
       this._dispatchServerOpForAccount(account, op);
     }
 
@@ -1368,8 +1434,7 @@ MailUniverse.prototype = {
       account,
       {
         type: 'syncFolderList',
-        // no need to track this in the mutations list
-        longtermId: 'internal',
+        longtermId: 'session',
         lifecycle: 'do',
         localStatus: 'done',
         serverStatus: null,
@@ -1390,16 +1455,71 @@ MailUniverse.prototype = {
       account,
       {
         type: 'purgeExcessMessages',
-        // no need to track this in the mutations list
-        longtermId: 'internal',
+        longtermId: 'session',
         lifecycle: 'do',
         localStatus: null,
-        serverStatus: null,
+        serverStatus: 'n/a',
         tryCount: 0,
         humanOp: 'purgeExcessMessages',
         folderId: folderId
       },
       callback);
+  },
+
+  /**
+   * Download entire bodyRep(s) representation.
+   */
+  downloadMessageBodyReps: function(suid, date, callback) {
+    var account = this.getAccountForMessageSuid(suid);
+    this._queueAccountOp(
+      account,
+      {
+        type: 'downloadBodyReps',
+        longtermId: 'session',
+        lifecycle: 'do',
+        localStatus: 'done',
+        serverStatus: null,
+        tryCount: 0,
+        humanOp: 'downloadBodyReps',
+        messageSuid: suid,
+        messageDate: date
+      },
+      callback
+    );
+  },
+
+  downloadBodies: function(messages, options, callback) {
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+
+    var self = this;
+    var pending = 0;
+
+    function next() {
+      if (!--pending) {
+        callback();
+      }
+    }
+    this._partitionMessagesByAccount(messages, null).forEach(function(x) {
+      pending++;
+      self._queueAccountOp(
+        x.account,
+        {
+          type: 'downloadBodies',
+          longtermId: 'session', // don't persist this job.
+          lifecycle: 'do',
+          localStatus: null,
+          serverStatus: null,
+          tryCount: 0,
+          humanOp: 'downloadBodies',
+          messages: x.messages,
+          options: options
+        },
+        next
+      );
+    });
   },
 
   /**
@@ -1511,7 +1631,7 @@ MailUniverse.prototype = {
         type: 'append',
         longtermId: null,
         lifecycle: 'do',
-        localStatus: null,
+        localStatus: 'done',
         serverStatus: null,
         tryCount: 0,
         humanOp: 'append',
@@ -1519,6 +1639,46 @@ MailUniverse.prototype = {
         folderId: folderId,
       });
     return [longtermId];
+  },
+
+  /**
+   * Save a new draft or update an existing draft.
+   */
+  saveDraft: function(account, existingNamer, header, body, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'saveDraft',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'saveDraft',
+        existingNamer: existingNamer,
+        header: header,
+        body: body
+      },
+      callback
+    );
+  },
+
+  deleteDraft: function(account, messageNamer, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'deleteDraft',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'deleteDraft',
+        messageNamer: messageNamer
+      },
+      callback
+    );
+
   },
 
   /**

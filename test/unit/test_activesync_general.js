@@ -4,16 +4,19 @@
  * coming soon!
  **/
 
-load('resources/loggest_test_framework.js');
-const $wbxml = require('wbxml');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'wbxml', 'activesync/codepages',
+        'exports'],
+       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
 
 // This is the number of messages after which the sync logic will
 // declare victory and stop filling.
 const INITIAL_FILL_SIZE = 15;
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_activesync_general' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_activesync_general' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
@@ -29,7 +32,6 @@ TD.commonCase('folder sync', function(T) {
       syncKey: '0',
       hasServerId: true
     });
-
     var folder = testAccount.account.getFirstFolderWithType('inbox');
     eSync.namedValue('inbox', {
       syncKey: folder.syncKey,
@@ -97,7 +99,8 @@ TD.commonCase('folder sync', function(T) {
         expectedFlags = { top: true, bottom: true, grow: false };
 
     fullSyncFolder.beAwareOfDeletion(0);
-    fullSyncFolder.serverFolder.removeMessageById(toDeleteId);
+    testAccount.testServer.removeMessageById(fullSyncFolder.serverFolder.id,
+                                             toDeleteId);
     var totalExpected = testAccount._expect_dateSyncs(folderView, expectedValues);
     testAccount.expect_messagesReported(totalExpected);
     testAccount.expect_headerChanges(folderView, checkExpected, expectedFlags);
@@ -196,6 +199,4 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_closeFolderView(folderView);
 });
 
-function run_test() {
-  runMyTests(10);
-}
+}); // end define

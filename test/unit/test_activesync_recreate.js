@@ -3,12 +3,15 @@
  * conditions.  This test should actually work for IMAP too...
  **/
 
-load('resources/loggest_test_framework.js');
-const $wbxml = require('wbxml');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'wbxml', 'activesync/codepages',
+        'exports'],
+       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_activesync_recreate' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_activesync_recreate' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('create, recreate offline', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
@@ -85,6 +88,4 @@ TD.commonCase('create, recreate offline', function(T) {
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

@@ -1,18 +1,8 @@
-// set location of dynamically loaded layers.
-require.config({
-  paths: {
-    mailapi: 'js/ext/mailapi'
-  },
-  scriptType: 'application/javascript;version=1.8',
-  definePrim: 'prim'
-});
+// config.js will be injected above this comment
 
-// q shim for rdcommon/log, just enough for it to
-// work. Just uses defer, promise, resolve and reject.
-define('q', ['prim'], function (prim) {
-  return {
-    defer: prim
-  };
+// baseUrl is different for front end
+require.config({
+  baseUrl: 'js/ext'
 });
 
 (function () {
@@ -37,10 +27,11 @@ define('q', ['prim'], function (prim) {
           if (acctSlice.oncomplete) {
               acctSlice.oncomplete();
           }
-          require(['mailapi/same-frame-setup']);
+          require(['mailapi/main-frame-setup']);
       }, 0);
       return acctSlice;
     }
   };
   window.dispatchEvent(evtObject);
 }());
+

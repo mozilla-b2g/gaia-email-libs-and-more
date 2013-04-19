@@ -16,6 +16,11 @@ define(
     exports
   ) {
 
+// Exports to make it easier for other modules to just require
+// this module, but get access to these useful dependencies.
+exports.mailchew = $mailchew;
+exports.MailComposer = $mailcomposer;
+
 /**
  * Abstraction around the mailcomposer helper library that exists to consolidate
  * our hackish uses of it, as well as to deal with our need to create variations
@@ -54,19 +59,13 @@ function Composer(mode, wireRep, account, identity) {
   // - fetch attachments if sending
   if (mode === 'send' && wireRep.attachments) {
     wireRep.attachments.forEach(function(attachmentDef) {
-      var reader = new FileReader();
-      reader.onload = function onloaded() {
+      var reader = new FileReaderSync();
+      try {
         this._attachments.push({
           filename: attachmentDef.name,
           contentType: attachmentDef.blob.type,
-          contents: new Uint8Array(reader.result),
+          contents: new Uint8Array(reader.readAsArrayBuffer(attachmentDef.blob)),
         });
-        if (--this._asyncPending === 0)
-          this._asyncLoadsCompleted();
-      }.bind(this);
-      try {
-        reader.readAsArrayBuffer(attachmentDef.blob);
-        this._asyncPending++;
       }
       catch (ex) {
         console.error('Problem attaching attachment:', ex, '\n', ex.stack);
@@ -168,11 +167,21 @@ Composer.prototype = {
    * Request that a body be produced as a single buffer with the given options.
    * Multiple calls to this method can be made and they may overlap.
    *
+   * XXX: Currently, the callback is invoked with a String instead of an
+   * ArrayBuffer/node-like Buffer; consumers that do not use TextEncoder to
+   * produce a utf-8 encoding probably need to and we might want to change this
+   * here.
+   *
    * @args[
    *   @param[opts @dict[
    *     @key[includeBcc Boolean]{
    *       Should we include the BCC data in the headers?
    *     }
+   *   ]]
+   *   @param[callback @func[
+   *     @args[
+   *       @param[messageBuffer String]
+   *     ]
    *   ]]
    * ]
    */

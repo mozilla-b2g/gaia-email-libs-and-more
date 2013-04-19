@@ -3,10 +3,14 @@
  * db reuse makes this test unhappy.
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'activesync/codepages', 'exports'],
+       function($tc, $th_imap, $th_as_srv, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_account_logic' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_account_logic' }, null,
+  [$th_imap.TESTHELPER, $th_as_srv.TESTHELPER], ['app']);
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly
@@ -15,8 +19,9 @@ var TD = $tc.defineTestsFor(
  * For simplicity, we currently create duplicate accounts.  This obviously will
  * not work once we prevent creating duplicate accounts.
  */
-TD.commonCase('account creation/deletion', function(T) {
+TD.commonCase('account creation/deletion', function(T, RT) {
   T.group('create universe, first account');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U',
                              { name: 'A' }),
       testAccountA = T.actor('testAccount', 'A',
@@ -89,7 +94,12 @@ TD.commonCase('account creation/deletion', function(T) {
   });
 
   T.group('delete second (middle) account');
-  T.action('delete account', testAccountB, 'perform', eSliceCheck, function() {
+  T.action('delete account', testAccountB, 'perform', eSliceCheck,
+           testAccountB.eOpAccount, function() {
+    // note: we used to expect_deadConnection here because our
+    // EventEmitter.removeAllListeners was broken, so we still got close events
+    // after we no longer wanted them.
+
     eSliceCheck.expect_namedValue('remaining account', testAccountA.accountId);
     eSliceCheck.expect_namedValue('remaining account', testAccountC.accountId);
 
@@ -99,6 +109,7 @@ TD.commonCase('account creation/deletion', function(T) {
                                   testAccountA.accountId);
     eSliceCheck.expect_namedValue('folder[AB].account',
                                   testAccountC.accountId);
+    testAccountB.eOpAccount.expect_accountDeleted('saveAccountState');
 
     // this does not have a callback, so use a ping to wait...
     gAllAccountsSlice.items[1].deleteAccount();
@@ -116,6 +127,8 @@ TD.commonCase('account creation/deletion', function(T) {
       eSliceCheck.namedValue(
         'folder[AB].account',
         gAllFoldersSlice.items[folderPointAB].id[0]);
+
+      testAccountB.account.saveAccountState();
     });
   });
 
@@ -177,39 +190,66 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
-TD.commonCase('syncFolderList obeys hierarchy', function(T) {
+TD.commonCase('syncFolderList created localdrafts folder', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testServer = T.actor('testActiveSyncServer', 'S',
-                           { universe: testUniverse }),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  T.group('check for localdrafts folder');
+  T.check(eCheck, 'localdrafts folder', function() {
+    eCheck.expect_namedValue('has localdrafts folder?', true);
+    var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
+    // the path should place it next to the existing drafts folder, but we
+    // frequently don't have that folder, so use sent, which is our fallback
+    // anyways and should be consistently located
+    eCheck.expect_namedValue('path',
+                             sent.path.replace(/sent.*/i, 'localdrafts'));
+
+    var localDrafts = testUniverse.allFoldersSlice
+                        .getFirstFolderWithType('localdrafts');
+    eCheck.namedValue('has localdrafts folder?', !!localDrafts);
+    eCheck.namedValue('path', localDrafts.path);
+  });
+});
+
+
+TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
+  T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testServer = null,
       eSync = T.lazyLogger('sync');
 
   if (TEST_PARAMS.type === 'activesync') {
+    testServer = T.actor('testActiveSyncServer', 'S',
+                         { universe: testUniverse });
     T.action('create test folders', function() {
-      const folderType = $_ascp.FolderHierarchy.Enums.Type;
-      var inbox = testServer.server.foldersByType['inbox'][0],
-          sent  = testServer.server.foldersByType['sent'][0],
-          trash = testServer.server.foldersByType['trash'][0];
+      const folderType = $ascp.FolderHierarchy.Enums.Type;
+      var inbox = testServer.getFirstFolderWithType('inbox'),
+          sent  = testServer.getFirstFolderWithType('sent'),
+          trash = testServer.getFirstFolderWithType('trash');
 
-      var subinbox = testServer.server.addFolder(
-        'Subinbox', folderType.Mail, inbox);
-      testServer.server.addFolder(
-        'Subsubinbox', folderType.Inbox, subinbox);
+      var subinbox = testServer.addFolder(
+        'Subinbox', folderType.Mail, inbox.folderId);
+      testServer.addFolder(
+        'Subsubinbox', folderType.Inbox, subinbox.folderId);
 
-      var subsent = testServer.server.addFolder(
-        'Subsent', folderType.Mail, sent);
-      testServer.server.addFolder(
-        'Subsubsent', folderType.Inbox, subsent);
+      var subsent = testServer.addFolder(
+        'Subsent', folderType.Mail, sent.folderId);
+      testServer.addFolder(
+        'Subsubsent', folderType.Inbox, subsent.folderId);
 
-      var subtrash = testServer.server.addFolder(
-        'Subtrash', folderType.Mail, trash);
-      testServer.server.addFolder(
-        'Subsubtrash', folderType.Inbox, subtrash);
+      var subtrash = testServer.addFolder(
+        'Subtrash', folderType.Mail, trash.folderId);
+      testServer.addFolder(
+        'Subsubtrash', folderType.Inbox, subtrash.folderId);
 
-      var folder = testServer.server.addFolder(
+      var folder = testServer.addFolder(
         'Folder', folderType.Mail);
-      testServer.server.addFolder(
-        'Subfolder', folderType.Inbox, folder);
+      testServer.addFolder(
+        'Subfolder', folderType.Inbox, folder.folderId);
     });
   }
 
@@ -236,9 +276,84 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T) {
     }
   });
 
+  if (TEST_PARAMS.type === 'imap') {
+    T.group('check folder type');
+    T.check('check folder type', testAccount, eSync, function(T) {
+      var validNamespace = { "personal":[{"prefix":"INBOX.","delim":"."}],
+                             "other":[],
+                             "shared":[
+                               {"prefix":"#shared.","delim":"."},
+                               {"prefix":"shared.","delim":"."}
+                             ]
+                           };
+      var invalidNamespace =
+                           { "personal":[],
+                             "other":[],
+                             "shared":[
+                               {"prefix":"#shared.","delim":"."},
+                               {"prefix":"shared.","delim":"."}
+                             ]
+                           };
+      var folders = [
+        {
+          "box": {"displayName": "INBOX", "attribs": [] },
+          "path": "INBOX",
+          "ns": validNamespace,
+          "expType": "inbox"
+        },
+        {
+          "box": {"displayName": "INBOX", "attribs": [] },
+          "path": "INBOX",
+          "ns": invalidNamespace,
+          "expType": "inbox"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Sent",
+          "ns": validNamespace,
+          "expType": "sent"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "Sent",
+          "ns": invalidNamespace,
+          "expType": "sent"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Sent",
+          "ns": invalidNamespace,
+          "expType": "normal"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Subfolder.Sent",
+          "ns": validNamespace,
+          "expType": "normal"
+        },
+        {
+          "box": {"displayName": "Sent", "attribs": [] },
+          "path": "INBOX.Subfolder.Sent",
+          "ns": invalidNamespace,
+          "expType": "normal"
+        },
+      ];
+      for (var i = 0; i < folders.length; i++) {
+        var box = folders[i].box;
+        var path = folders[i].path;
+        var ns = folders[i].ns;
+        var eType = folders[i].expType;
+
+        var fakeConn = { namespaces: ns };
+        var type = testAccount.imapAccount._determineFolderType(
+                     box, path, fakeConn);
+        eSync.expect_namedValue('folder type', eType);
+        eSync.namedValue('folder type', type);
+      }
+    });
+  }
+
   T.group('cleanup');
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

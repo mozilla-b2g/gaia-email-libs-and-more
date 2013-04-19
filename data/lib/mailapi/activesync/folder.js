@@ -1,35 +1,39 @@
 define(
   [
     'rdcommon/log',
-    'wbxml',
-    'activesync/codepages',
-    'activesync/protocol',
-    'mimelib',
-    '../quotechew',
-    '../htmlchew',
     '../date',
     '../syncbase',
     '../util',
+    'activesync/codepages/AirSync',
+    'activesync/codepages/AirSyncBase',
+    'activesync/codepages/ItemEstimate',
+    'activesync/codepages/Email',
+    'activesync/codepages/ItemOperations',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $wbxml,
-    $ascp,
-    $activesync,
-    $mimelib,
-    $quotechew,
-    $htmlchew,
     $date,
     $sync,
     $util,
+    $AirSync,
+    $AirSyncBase,
+    $ItemEstimate,
+    $Email,
+    $ItemOperations,
     $module,
+    require,
     exports
   ) {
 'use strict';
 
-var DESIRED_SNIPPET_LENGTH = 100;
+/**
+ * The desired number of bytes to fetch when downloading bodies, but the body's
+ * size exceeds the maximum requested size.
+ */
+var DESIRED_TEXT_SNIPPET_BYTES = 512;
 
 /**
  * This is minimum number of messages we'd like to get for a folder for a given
@@ -38,36 +42,67 @@ var DESIRED_SNIPPET_LENGTH = 100;
  */
 var DESIRED_MESSAGE_COUNT = 50;
 
-var FILTER_TYPE = $ascp.AirSync.Enums.FilterType;
-
 /**
- * Map our built-in sync range values to their corresponding ActiveSync
- * FilterType values. We exclude 3 and 6 months, since they aren't valid for
- * email.
- *
- * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
+ * Filter types are lazy initialized once the activesync code is loaded.
  */
-var SYNC_RANGE_TO_FILTER_TYPE = {
-  'auto': null,
-    '1d': FILTER_TYPE.OneDayBack,
-    '3d': FILTER_TYPE.ThreeDaysBack,
-    '1w': FILTER_TYPE.OneWeekBack,
-    '2w': FILTER_TYPE.TwoWeeksBack,
-    '1m': FILTER_TYPE.OneMonthBack,
-   'all': FILTER_TYPE.NoFilter,
-};
+var FILTER_TYPE, SYNC_RANGE_TO_FILTER_TYPE, FILTER_TYPE_TO_STRING;
+function initFilterTypes() {
+  FILTER_TYPE = $AirSync.Enums.FilterType;
 
-/**
- * This mapping is purely for logging purposes.
- */
-var FILTER_TYPE_TO_STRING = {
-  0: 'all messages',
-  1: 'one day',
-  2: 'three days',
-  3: 'one week',
-  4: 'two weeks',
-  5: 'one month',
-};
+  /**
+   * Map our built-in sync range values to their corresponding ActiveSync
+   * FilterType values. We exclude 3 and 6 months, since they aren't valid for
+   * email.
+   *
+   * Also see SYNC_RANGE_ENUMS_TO_MS in `syncbase.js`.
+   */
+  SYNC_RANGE_TO_FILTER_TYPE = {
+    'auto': null,
+      '1d': FILTER_TYPE.OneDayBack,
+      '3d': FILTER_TYPE.ThreeDaysBack,
+      '1w': FILTER_TYPE.OneWeekBack,
+      '2w': FILTER_TYPE.TwoWeeksBack,
+      '1m': FILTER_TYPE.OneMonthBack,
+     'all': FILTER_TYPE.NoFilter,
+  };
+
+  /**
+   * This mapping is purely for logging purposes.
+   */
+  FILTER_TYPE_TO_STRING = {
+    0: 'all messages',
+    1: 'one day',
+    2: 'three days',
+    3: 'one week',
+    4: 'two weeks',
+    5: 'one month',
+  };
+}
+
+var $wbxml, $mimelib, $mailchew;
+
+function lazyConnection(cbIndex, fn, failString) {
+  return function lazyRun() {
+    var args = Array.slice(arguments),
+        errback = args[cbIndex],
+        self = this;
+
+    require(['wbxml', 'mimelib', '../mailchew'],
+    function (wbxml, mimelib, mailchew) {
+      if (!$wbxml) {
+        $wbxml = wbxml;
+        $mimelib = mimelib;
+        $mailchew = mailchew;
+        initFilterTypes();
+      }
+
+      self._account.withConnection(errback, function () {
+        fn.apply(self, args);
+      }, failString);
+    });
+  };
+}
+
 
 function ActiveSyncFolderConn(account, storage, _parentLog) {
   this._account = account;
@@ -98,6 +133,8 @@ ActiveSyncFolderConn.prototype = {
    * filterType on a per-folder basis. The per-folder filterType may be
    * undefined, in which case, we will attempt to infer a good filter type
    * elsewhere (see _inferFilterType()).
+   * ASSUMES that it is only called after lazy load of activesync code and
+   * initFilterTypes() has been run.
    */
   get filterType() {
     var syncRange = this._account.accountDef.syncRange;
@@ -111,7 +148,7 @@ ActiveSyncFolderConn.prototype = {
     else {
       console.warn('Got an invalid syncRange (' + syncRange +
                    ') using three days back instead');
-      return $ascp.AirSync.Enums.FilterType.ThreeDaysBack;
+      return $AirSync.Enums.FilterType.ThreeDaysBack;
     }
   },
 
@@ -122,10 +159,11 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our synchronization
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getSyncKey: function asfc__getSyncKey(filterType, callback) {
+  _getSyncKey: lazyConnection(1, function asfc__getSyncKey(filterType,
+                                                           callback) {
     var folderConn = this;
     var account = this._account;
-    var as = $ascp.AirSync.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -175,7 +213,7 @@ ActiveSyncFolderConn.prototype = {
         callback();
       }
     });
-  },
+  }),
 
   /**
    * Get an estimate of the number of messages to be synced.  We assume we have
@@ -184,22 +222,38 @@ ActiveSyncFolderConn.prototype = {
    * @param {string} filterType The filter type for our estimate
    * @param {function} callback A callback to be run when the operation finishes
    */
-  _getItemEstimate: function asfc__getItemEstimate(filterType, callback) {
-    var ie = $ascp.ItemEstimate.Tags;
-    var as = $ascp.AirSync.Tags;
+  _getItemEstimate: lazyConnection(1, function asfc__getItemEstimate(filterType,
+                                                                     callback) {
+    var ie = $ItemEstimate.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Collections)
-         .stag(ie.Collection)
-           .tag(as.SyncKey, this.syncKey)
+         .stag(ie.Collection);
+
+    if (this._account.conn.currentVersion.gte('14.0')) {
+          w.tag(as.SyncKey, this.syncKey)
            .tag(ie.CollectionId, this.serverId)
            .stag(as.Options)
              .tag(as.FilterType, filterType)
-           .etag()
-         .etag()
-       .etag()
-     .etag();
+           .etag();
+    }
+    else if (this._account.conn.currentVersion.gte('12.0')) {
+          w.tag(ie.CollectionId, this.serverId)
+           .tag(as.FilterType, filterType)
+           .tag(as.SyncKey, this.syncKey);
+    }
+    else {
+          w.tag(ie.Class, 'Email')
+           .tag(as.SyncKey, this.syncKey)
+           .tag(ie.CollectionId, this.serverId)
+           .tag(as.FilterType, filterType);
+    }
+
+        w.etag(ie.Collection)
+       .etag(ie.Collections)
+     .etag(ie.GetItemEstimate);
 
     this._account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
@@ -230,7 +284,7 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      if (status !== $ascp.ItemEstimate.Enums.Status.Success) {
+      if (status !== $ItemEstimate.Enums.Status.Success) {
         console.error('Error getting item estimate:', status);
         callback('unknown');
       }
@@ -238,7 +292,7 @@ ActiveSyncFolderConn.prototype = {
         callback(null, estimate);
       }
     });
-  },
+  }),
 
   /**
    * Infer the filter type for this folder to get a sane number of messages.
@@ -247,9 +301,9 @@ ActiveSyncFolderConn.prototype = {
    *  finishes, taking two arguments: an error (if any), and the filter type we
    *  picked
    */
-  _inferFilterType: function asfc__inferFilterType(callback) {
+  _inferFilterType: lazyConnection(0, function asfc__inferFilterType(callback) {
     var folderConn = this;
-    var Type = $ascp.AirSync.Enums.FilterType;
+    var Type = $AirSync.Enums.FilterType;
 
     var getEstimate = function(filterType, onSuccess) {
       folderConn._getSyncKey(filterType, function(error) {
@@ -260,7 +314,9 @@ ActiveSyncFolderConn.prototype = {
 
         folderConn._getItemEstimate(filterType, function(error, estimate) {
           if (error) {
-            callback('unknown');
+            // If we couldn't get an estimate, just tell the main callback that
+            // we want three days back.
+            callback(null, Type.ThreeDaysBack);
             return;
           }
 
@@ -312,7 +368,7 @@ ActiveSyncFolderConn.prototype = {
       folderConn._LOG.inferFilterType(filterType);
       callback(null, filterType);
     });
-  },
+  }),
 
   /**
    * Sync the folder with the server and enumerate all the changes since the
@@ -324,20 +380,10 @@ ActiveSyncFolderConn.prototype = {
    *   progresses that takes a number in the range [0.0, 1.0] to express
    *   progress.
    */
-  _enumerateFolderChanges: function asfc__enumerateFolderChanges(callback,
-                                                                 progress) {
+  _enumerateFolderChanges: lazyConnection(0,
+    function asfc__enumerateFolderChanges(callback, progress) {
     var folderConn = this, storage = this._storage;
 
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('aborted');
-          return;
-        }
-        folderConn._enumerateFolderChanges(callback, progress);
-      });
-      return;
-    }
     if (!this.filterType) {
       this._inferFilterType(function(error, filterType) {
         if (error) {
@@ -361,10 +407,10 @@ ActiveSyncFolderConn.prototype = {
       return;
     }
 
-    var as = $ascp.AirSync.Tags;
-    var asEnum = $ascp.AirSync.Enums;
-    var asb = $ascp.AirSyncBase.Tags;
-    var asbEnum = $ascp.AirSyncBase.Enums;
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
 
     var w;
 
@@ -391,17 +437,14 @@ ActiveSyncFolderConn.prototype = {
              .stag(as.Options)
                .tag(as.FilterType, this.filterType)
 
-      // XXX: For some servers (e.g. Hotmail), we could be smart and get the
-      // native body type (plain text or HTML), but Gmail doesn't seem to let us
-      // do this. For now, let's keep it simple and always get HTML.
-      if (this._account.conn.currentVersion.gte('12.0'))
-              w.stag(asb.BodyPreference)
-                 .tag(asb.Type, asbEnum.Type.HTML)
-               .etag();
-
+      // Older versions of ActiveSync give us the body by default. Ensure they
+      // omit it.
+      if (this._account.conn.currentVersion.lte('12.0')) {
               w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
-               .tag(as.MIMETruncation, asEnum.MIMETruncation.NoTruncate)
-             .etag()
+               .tag(as.Truncation, asEnum.MIMETruncation.TruncateAll);
+      }
+
+            w.etag()
            .etag()
          .etag()
        .etag();
@@ -534,11 +577,12 @@ ActiveSyncFolderConn.prototype = {
         totalBytes = Math.max(1000000, bytesSoFar);
       progress(0.1 + 0.7 * bytesSoFar / totalBytes);
     });
-  },
+  }, 'aborted'),
 
   /**
    * Parse the DOM of an individual message to build header and body objects for
    * it.
+   * ASSUMES activesync code has already been lazy-loaded.
    *
    * @param {WBXML.Element} node The fully-parsed node describing the message
    * @param {boolean} isAdded True if this is a new message, false if it's a
@@ -546,9 +590,9 @@ ActiveSyncFolderConn.prototype = {
    * @return {object} An object containing the header and body for the message
    */
   _parseMessage: function asfc__parseMessage(node, isAdded) {
-    var em = $ascp.Email.Tags;
-    var asb = $ascp.AirSyncBase.Tags;
-    var asbEnum = $ascp.AirSyncBase.Enums;
+    var em = $Email.Tags;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
 
     var header, body, flagHeader;
 
@@ -559,24 +603,24 @@ ActiveSyncFolderConn.prototype = {
         suid: null,
         guid: null,
         author: null,
+        to: null,
+        cc: null,
+        bcc: null,
+        replyTo: null,
         date: null,
         flags: [],
         hasAttachments: false,
         subject: null,
-        snippet: null,
+        snippet: null
       };
 
       body = {
         date: null,
         size: 0,
-        to: null,
-        cc: null,
-        bcc: null,
-        replyTo: null,
         attachments: [],
         relatedParts: [],
         references: null,
-        bodyReps: null,
+        bodyReps: null
       };
 
       flagHeader = function(flag, state) {
@@ -628,7 +672,7 @@ ActiveSyncFolderConn.prototype = {
       }
     }
 
-    var bodyType, bodyText;
+    var bodyType, bodySize;
 
     for (var iter in Iterator(node.children)) {
       var child = iter[1];
@@ -643,13 +687,13 @@ ActiveSyncFolderConn.prototype = {
         header.author = $mimelib.parseAddresses(childText)[0] || null;
         break;
       case em.To:
-        body.to = $mimelib.parseAddresses(childText);
+        header.to = $mimelib.parseAddresses(childText);
         break;
       case em.Cc:
-        body.cc = $mimelib.parseAddresses(childText);
+        header.cc = $mimelib.parseAddresses(childText);
         break;
       case em.ReplyTo:
-        body.replyTo = $mimelib.parseAddresses(childText);
+        header.replyTo = $mimelib.parseAddresses(childText);
         break;
       case em.DateReceived:
         body.date = header.date = new Date(childText).valueOf();
@@ -669,17 +713,26 @@ ActiveSyncFolderConn.prototype = {
           var grandchild = iter2[1];
           switch (grandchild.tag) {
           case asb.Type:
-            bodyType = grandchild.children[0].textContent;
+            var type = grandchild.children[0].textContent;
+            if (type === asbEnum.Type.HTML)
+              bodyType = 'html';
+            else {
+              // I've seen a handful of extra-weird messages with body types
+              // that aren't plain or html. Let's assume they're plain, though.
+              if (type !== asbEnum.Type.PlainText)
+                console.warn('A message had a strange body type:', type)
+              bodyType = 'plain';
+            }
             break;
-          case asb.Data:
-            bodyText = grandchild.children[0].textContent;
+          case asb.EstimatedDataSize:
+            bodySize = grandchild.children[0].textContent;
             break;
           }
         }
         break;
-      case em.Body: // pre-ActiveSync 12.0
-        bodyType = asbEnum.Type.PlainText;
-        bodyText = childText;
+      case em.BodySize: // pre-ActiveSync 12.0
+        bodyType = 'plain';
+        bodySize = childText;
         break;
       case asb.Attachments: // ActiveSync 12.0+
       case em.Attachments:  // pre-ActiveSync 12.0
@@ -749,24 +802,250 @@ ActiveSyncFolderConn.prototype = {
       }
     }
 
-    // Process the body as needed.
-    if (bodyType === asbEnum.Type.PlainText) {
-      var bodyRep = $quotechew.quoteProcessTextBody(bodyText);
-      header.snippet = $quotechew.generateSnippet(bodyRep,
-                                                  DESIRED_SNIPPET_LENGTH);
-      body.bodyReps = ['plain', bodyRep];
-    }
-    else if (bodyType === asbEnum.Type.HTML) {
-      var htmlNode = $htmlchew.sanitizeAndNormalizeHtml(bodyText);
-      header.snippet = $htmlchew.generateSnippet(htmlNode,
-                                                 DESIRED_SNIPPET_LENGTH);
-      body.bodyReps = ['html', htmlNode.innerHTML];
-    }
+    body.bodyReps = [{
+      type: bodyType,
+      sizeEstimate: bodySize,
+      amountDownloaded: 0,
+      isDownloaded: false
+    }];
 
     return { header: header, body: body };
   },
 
-  sync: function asfc_sync(accuracyStamp, doneCallback, progressCallback) {
+  /**
+   * Download the bodies for a set of headers.
+   */
+  downloadBodies: function(headers, options, callback) {
+    if (this._account.conn.currentVersion.lt('12.0'))
+      return this._syncBodies(headers, callback);
+
+    var anyErr,
+        pending = 1,
+        folderConn = this;
+
+    function next(err) {
+      if (err && !anyErr)
+        anyErr = err;
+
+      if (!--pending) {
+        folderConn._storage.runAfterDeferredCalls(function() {
+          callback(anyErr);
+        });
+      }
+    }
+
+    for (var i = 0; i < headers.length; i++) {
+      if (!headers[i] || headers[i].snippet)
+        continue;
+
+      pending++;
+      this.downloadBodyReps(headers[i], options, next);
+    }
+
+    // by having one pending item always this handles the case of not having any
+    // snippets needing a download and also returning in the next tick of the
+    // event loop.
+    window.setZeroTimeout(next);
+  },
+
+  downloadBodyReps: lazyConnection(1, function(header, options, callback) {
+    var folderConn = this;
+    var account = this._account;
+
+    if (account.conn.currentVersion.lt('12.0'))
+      return this._syncBodies([header], callback);
+
+    if (typeof(options) === 'function') {
+      callback = options;
+      options = null;
+    }
+    options = options || {};
+
+    var io = $ItemOperations.Tags;
+    var ioEnum = $ItemOperations.Enums;
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var asb = $AirSyncBase.Tags;
+    var Type = $AirSyncBase.Enums.Type;
+
+    var gotBody = function gotBody(bodyInfo) {
+      // ActiveSync only stores one body rep, no matter how many body parts the
+      // MIME message actually has.
+      var bodyRep = bodyInfo.bodyReps[0];
+      var bodyType = bodyRep.type === 'html' ? Type.HTML : Type.PlainText;
+      var truncationSize;
+
+      // If the body is bigger than the max size, grab a small bit of plain text
+      // to show as the snippet.
+      if (options.maximumBytesToFetch < bodyRep.sizeEstimate) {
+        bodyType = Type.PlainText;
+        truncationSize = DESIRED_TEXT_SNIPPET_BYTES;
+      }
+
+      var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(io.ItemOperations)
+         .stag(io.Fetch)
+           .tag(io.Store, 'Mailbox')
+           .tag(as.CollectionId, folderConn.serverId)
+           .tag(as.ServerId, header.srvid)
+           .stag(io.Options)
+             // Only get the AirSyncBase:Body element to minimize bandwidth.
+             .stag(io.Schema)
+               .tag(asb.Body)
+             .etag()
+             .stag(asb.BodyPreference)
+               .tag(asb.Type, bodyType);
+
+      if (truncationSize)
+              w.tag(asb.TruncationSize, truncationSize);
+
+            w.etag()
+           .etag()
+         .etag()
+       .etag();
+
+      account.conn.postCommand(w, function(aError, aResponse) {
+        if (aError) {
+          console.error(aError);
+          callback('unknown');
+          return;
+        }
+
+        var status, bodyContent,
+            e = new $wbxml.EventParser();
+        e.addEventListener([io.ItemOperations, io.Status], function(node) {
+          status = node.children[0].textContent;
+        });
+        e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
+                            io.Properties, asb.Body, asb.Data], function(node) {
+          bodyContent = node.children[0].textContent;
+        });
+        e.run(aResponse);
+
+        if (status !== ioEnum.Status.Success)
+          return callback('unknown');
+
+        folderConn._updateBody(header, bodyInfo, bodyContent, !!truncationSize,
+                               callback);
+      });
+    };
+
+    this._storage.getMessageBody(header.suid, header.date, gotBody);
+  }),
+
+  /**
+   * Sync message bodies. This function should only be used against ActiveSync
+   * 2.5! XXX: This *always* downloads the bodies for all the messages, even if
+   * it exceeds the maximum requested size.
+   */
+  _syncBodies: function(headers, callback) {
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var em = $Email.Tags;
+
+    var folderConn = this;
+    var account = this._account;
+
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(as.Sync)
+       .stag(as.Collections)
+         .stag(as.Collection)
+           .tag(as.Class, 'Email')
+           .tag(as.SyncKey, this.syncKey)
+           .tag(as.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.MIMESupport, asEnum.MIMESupport.Never)
+           .etag()
+           .stag(as.Commands);
+
+    for (var i = 0; i < headers.length; i++) {
+            w.stag(as.Fetch)
+               .tag(as.ServerId, headers[i].srvid)
+             .etag();
+    }
+
+          w.etag()
+         .etag()
+       .etag()
+     .etag();
+
+    account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        console.error(aError);
+        callback('unknown');
+        return;
+      }
+
+      var status, anyErr,
+          i = 0,
+          pending = 1;
+
+      function next(err) {
+        if (err && !anyErr)
+          anyErr = err;
+
+        if (!--pending) {
+          folderConn._storage.runAfterDeferredCalls(function() {
+            callback(anyErr);
+          });
+        }
+      }
+
+      var e = new $wbxml.EventParser();
+      var base = [as.Sync, as.Collections, as.Collection];
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        folderConn.syncKey = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(as.Responses, as.Fetch,
+                                     as.ApplicationData, em.Body),
+                         function(node) {
+        // We assume the response is in the same order as the request!
+        var header = headers[i++];
+        var bodyContent = node.children[0].textContent;
+
+        pending++;
+        folderConn._storage.getMessageBody(header.suid, header.date,
+                                           function(body) {
+          folderConn._updateBody(header, body, bodyContent, false, next);
+        });
+      });
+      e.run(aResponse);
+
+      if (status !== asEnum.Status.Success)
+        return next('unknown');
+
+      next(null);
+    });
+  },
+
+  _updateBody: function(header, bodyInfo, bodyContent, snippetOnly, callback) {
+    var bodyRep = bodyInfo.bodyReps[0];
+
+    var type = snippetOnly ? 'plain' : bodyRep.type;
+    var data = $mailchew.processMessageContent(bodyContent, type, !snippetOnly,
+                                               true, this._LOG);
+
+    header.snippet = data.snippet;
+    bodyRep.isDownloaded = !snippetOnly;
+    bodyRep.amountDownloaded = bodyContent.length;
+    if (!snippetOnly)
+      bodyRep.content = data.content;
+
+    var event = {
+      changeType: 'bodyReps',
+      indexes: [0]
+    };
+
+    this._storage.updateMessageHeader(header.date, header.id, false, header);
+    this._storage.updateMessageBody(header, bodyInfo, event);
+    this._storage.runAfterDeferredCalls(callback);
+  },
+
+  sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,
+                                    progressCallback) {
     var folderConn = this,
         addedMessages = 0,
         changedMessages = 0,
@@ -844,22 +1123,12 @@ ActiveSyncFolderConn.prototype = {
       }
     },
     progressCallback);
-  },
+  }),
 
-  performMutation: function(invokeWithWriter, callWhenDone) {
+  performMutation: lazyConnection(1, function(invokeWithWriter, callWhenDone) {
     var folderConn = this;
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        folderConn.performMutation(invokeWithWriter, callWhenDone);
-      });
-      return;
-    }
 
-    var as = $ascp.AirSync.Tags;
+    var as = $AirSync.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
@@ -921,7 +1190,7 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
 
-      if (status === $ascp.AirSync.Enums.Status.Success) {
+      if (status === $AirSync.Enums.Status.Success) {
         folderConn.syncKey = syncKey;
         if (callWhenDone)
           callWhenDone(null);
@@ -932,27 +1201,19 @@ ActiveSyncFolderConn.prototype = {
         callWhenDone('status:' + status);
       }
     });
-  },
+  }),
 
   // XXX: take advantage of multipart responses here.
   // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
-  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+  downloadMessageAttachments: lazyConnection(2, function(uid,
+                                                         partInfos,
+                                                         callback,
+                                                         progress) {
     var folderConn = this;
-    if (!this._account.conn.connected) {
-      this._account.conn.connect(function(error) {
-        if (error) {
-          callback('unknown');
-          return;
-        }
-        folderConn.downloadMessageAttachments(uid, partInfos, callback,
-                                              progress);
-      });
-      return;
-    }
 
-    var io = $ascp.ItemOperations.Tags;
-    var ioStatus = $ascp.ItemOperations.Enums.Status;
-    var asb = $ascp.AirSyncBase.Tags;
+    var io = $ItemOperations.Tags;
+    var ioStatus = $ItemOperations.Enums.Status;
+    var asb = $AirSyncBase.Tags;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations);
@@ -1035,7 +1296,7 @@ ActiveSyncFolderConn.prototype = {
       }
       callback(error, bodies);
     });
-  },
+  }),
 };
 
 function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
@@ -1050,7 +1311,8 @@ function ActiveSyncFolderSyncer(account, folderStorage, _parentLog) {
 exports.ActiveSyncFolderSyncer = ActiveSyncFolderSyncer;
 ActiveSyncFolderSyncer.prototype = {
   /**
-   * Can we synchronize?  Not if we don't have a server id!
+   * Can we synchronize?  Not if we don't have a server id!  (This happens for
+   * the inbox when it is speculative before our first syncFolderList.)
    */
   get syncable() {
     return this.folderConn.serverId !== null;
@@ -1149,6 +1411,12 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       sync: {
         newMessages: true, changedMessages: true, deletedMessages: true,
       },
+    },
+    errors: {
+      htmlParseError: { ex: $log.EXCEPTION },
+      htmlSnippetError: { ex: $log.EXCEPTION },
+      textChewError: { ex: $log.EXCEPTION },
+      textSnippetError: { ex: $log.EXCEPTION },
     },
   },
   ActiveSyncFolderSyncer: {

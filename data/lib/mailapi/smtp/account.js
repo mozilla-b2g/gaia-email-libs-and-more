@@ -5,14 +5,14 @@
 define(
   [
     'rdcommon/log',
-    'simplesmtp/lib/client',
     'module',
+    'require',
     'exports'
   ],
   function(
     $log,
-    $simplesmtp,
     $module,
+    require,
     exports
   ) {
 
@@ -39,25 +39,14 @@ SmtpAccount.prototype = {
     return this._activeConnections.length;
   },
 
-  _makeConnection: function() {
-    var conn = $simplesmtp(
-      this.connInfo.port, this.connInfo.hostname,
-      {
-        secureConnection: this.connInfo.crypto === true,
-        ignoreTLS: this.connInfo.crypto === false,
-        auth: {
-          user: this.credentials.username,
-          pass: this.credentials.password
-        },
-        debug: false,
-      });
-    return conn;
-  },
-
   shutdown: function(callback) {
     // (there should be no live connections during a unit-test initiated
     // shutdown.)
     this._LOG.__die();
+  },
+
+  accountDeleted: function() {
+    this.shutdown();
   },
 
   /**
@@ -119,49 +108,63 @@ SmtpAccount.prototype = {
    * ]
    */
   sendMessage: function(composer, callback) {
-    var conn = this._makeConnection(), bailed = false, sendingMessage = false;
-    this._activeConnections.push(conn);
+    require(['simplesmtp/lib/client'], function ($simplesmtp) {
+      var conn, bailed = false, sendingMessage = false;
 
-    // - Optimistic case
-    // Send the envelope once the connection is ready (fires again after
-    // ready too.)
-    conn.once('idle', function() {
-        conn.useEnvelope(composer.getEnvelope());
-      });
-    // Then send the actual message if everything was cool
-    conn.on('message', function() {
-        if (bailed)
-          return;
-        sendingMessage = true;
-        composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
-          conn.write(buffer);
-          conn.end();
+      conn = $simplesmtp(
+        this.connInfo.port, this.connInfo.hostname,
+        {
+          secureConnection: this.connInfo.crypto === true,
+          ignoreTLS: this.connInfo.crypto === false,
+          auth: {
+            user: this.credentials.username,
+            pass: this.credentials.password
+          },
+          debug: false,
         });
-      });
-    // And close the connection and be done once it has been sent
-    conn.on('ready', function() {
-        bailed = true;
-        conn.close();
-        callback(null);
-      });
 
-    // - Error cases
-    // It's possible for the server to decide some, but not all, of the
-    // recipients are gibberish.  Since we are a mail client and talking to
-    // a smarthost and not the final destination (most of the time), this
-    // is not super likely.
-    //
-    // We upgrade this to a full failure to send
-    conn.on('rcptFailed', function(addresses) {
-        // nb: this gets called all the time, even without any failures
-        if (addresses.length) {
+      this._activeConnections.push(conn);
+
+      // - Optimistic case
+      // Send the envelope once the connection is ready (fires again after
+      // ready too.)
+      conn.once('idle', function() {
+          conn.useEnvelope(composer.getEnvelope());
+        });
+      // Then send the actual message if everything was cool
+      conn.on('message', function() {
+          if (bailed)
+            return;
+          sendingMessage = true;
+          composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
+            conn.write(buffer);
+            conn.end();
+          });
+        });
+      // And close the connection and be done once it has been sent
+      conn.on('ready', function() {
           bailed = true;
-          // simplesmtp does't view this as fatal, so we have to close it ourself
           conn.close();
-          callback('bad-recipient', addresses);
-        }
-      });
-    conn.on('error', function(err) {
+          callback(null);
+        });
+
+      // - Error cases
+      // It's possible for the server to decide some, but not all, of the
+      // recipients are gibberish.  Since we are a mail client and talking to
+      // a smarthost and not the final destination (most of the time), this
+      // is not super likely.
+      //
+      // We upgrade this to a full failure to send
+      conn.on('rcptFailed', function(addresses) {
+          // nb: this gets called all the time, even without any failures
+          if (addresses.length) {
+            bailed = true;
+            // simplesmtp does't view this as fatal, so we have to close it ourself
+            conn.close();
+            callback('bad-recipient', addresses);
+          }
+        });
+      conn.on('error', function(err) {
         if (bailed) // (paranoia, this shouldn't happen.)
           return;
         var reportAs = null;
@@ -214,6 +217,7 @@ SmtpAccount.prototype = {
         bailed = true;
         // (the connection is already closed if we are here)
       }.bind(this));
+    }.bind(this));
   },
 
 

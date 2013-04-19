@@ -3,9 +3,10 @@
  * our default constants.
  */
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_torture_imap' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('obliterate', function(T) {
@@ -42,6 +43,4 @@ TD.commonCase('obliterate', function(T) {
     }).timeoutMS = 5 * 1000;
 });
 
-function run_test() {
-  runMyTests(90); // we do a lot of appending...
-}
+}); // end define

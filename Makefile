@@ -9,8 +9,6 @@ VOLO=./scripts/volo
 #  transform it, then copy it to the destination dir.
 NODE_PKGS := addressparser mailparser mailcomposer mimelib simplesmtp browserify-builtins
 
-SED_TRANSFORMS_mailcomposer = s/mimelib-noiconv/mimelib/g
-
 TRANS_NODE_PKGS := $(addprefix node-transformed-deps/,$(NODE_PKGS))
 DEP_NODE_PKGS := $(addprefix data/deps/,$(NODE_PKGS))
 
@@ -20,14 +18,14 @@ node-transformed-deps:
 $(TRANS_NODE_PKGS): node-transformed-deps
 	$(RSYNC) node-deps/$(notdir $@) node-transformed-deps
 	$(VOLO) npmrel $@
-	$(if $(SED_TRANSFORMS_$(notdir $@)),sed -i -e "$(SED_TRANSFORMS_$(notdir $@))" node-transformed-deps/$(notdir $@)/lib/*.js)
+	touch $@
 
 # the cp is for main shims created by volo
 $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 	mkdir -p $@
 	-cp node-transformed-deps/$(notdir $@).js data/deps/
 	$(RSYNC_JS) node-transformed-deps/$(notdir $@)/ $@/
-
+	touch $@
 
 OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/lib/mailapi/fake/*.js) $(wildcard data/deps/rdcommon/*.js)
 
@@ -41,8 +39,16 @@ gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
 PYTHON=python
-B2GSD=b2g-srcdir-symlink
-B2GBD=b2g-builddir-symlink
+B2GSD := b2g-srcdir-symlink
+B2GBD := b2g-builddir-symlink
+ifeq ($(wildcard b2g-bindir-symlink),)
+  B2GBIND := $(B2GBD)/dist/bin
+  RUNB2G := $(B2GBIND)/b2g
+else
+  B2GBIND := b2g-bindir-symlink
+  RUNB2G := $(B2GBIND)/b2g-bin
+endif
+
 ARBPLD=arbpl-dir-symlink
 PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 # common xpcshell args
@@ -50,15 +56,12 @@ RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
            --build-info-json=$(B2GBD)/mozinfo.json \
            --testing-modules-dir=$(B2GBD)/_tests/modules
 
+# Best effort use RUNMOZ if its available otherwise ignore it.
+RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
+
 # Common test running logic.  Some test files are for both IMAP and ActiveSync.
 # Some test files are just for one or the other.  xpcshell has a mechanism for
 # specifying constraings on test files in xpcshell.ini, and we are using that.
-
-define run-xpc-tests # $(call run-xpc-tests,type)
-	-rm test/unit/all-$(1).log test/unit/*.js.log
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json $(B2GBD)/dist/bin/xpcshell test/unit
-	cat test/unit/*.js.log > test/unit/all-$(1).log
-endef
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
@@ -66,62 +69,59 @@ define run-one-test
 	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
 endef
 
-define run-interactive-test
-	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) --interactive $(B2GBD)/dist/bin/xpcshell test/unit
+XPCWIN=node_modules/xpcwindow/bin/xpcwindow
+TESTRUNNER=$(CURDIR)/test/loggest-runner.js
+
+
+# run all the tests listed in a test config file
+define run-tests  # $(call run-tests,configName,accountType)
+	-rm -f test-logs/all-$(1).log
+	-rm -f test-logs/$(1)/*.log
+	-rm -rf test-profile
+	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
+	-mkdir -p test-logs/$(1)
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json
+	cat test-logs/$(1)/*.log > test-logs/all-$(1).log
+endef
+
+# run one test
+define run-one-test
+	-rm -rf test-profile
+	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
+	-mkdir -p test-logs/$(1)
+	-rm -f test-logs/$(1)/$(basename $(SOLO_FILE)).log
+	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json --test-name $(basename $(SOLO_FILE))
 endef
 
 ######################
 # IMAP test variations
 imap-tests: build
-	$(call run-xpc-tests,imap,imap)
+	$(call run-tests,imap,imap)
 
 one-imap-test: build
 	$(call run-one-test,imap,imap)
 
-interactive-imap-test: build
-	$(call run-interactive-test,imap,imap)
-
 post-one-imap-test: one-imap-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/imap/$(basename $(SOLO_FILE)).log
 
 post-imap-tests: imap-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-imap.log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-imap.log
 
 
 ######################
 # ActiveSync test variations
 activesync-tests: build
-	$(call run-xpc-tests,activesync,activesync)
+	$(call run-tests,activesync,activesync)
 
 one-activesync-test: build
 	$(call run-one-test,activesync,activesync)
 
-interactive-activesync-test: build
-	$(call run-interactive-test,activesync,activesync)
-
 post-one-activesync-test: one-activesync-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/activesync/$(basename $(SOLO_FILE)).log
 
 post-activesync-tests: activesync-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-activesync.log
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-activesync.log
 
-
-######################
-# Torture test variations (currently IMAP only)
-torture-tests: build
-	$(call run-xpc-tests,torture,imap)
-
-one-torture-test: build
-	$(call run-one-test,torture,imap)
-
-interactive-torture-test: build
-	$(call run-interactive-test,torture,imap)
-
-post-one-torture-test: one-torture-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/$(SOLO_FILE).log
-
-post-torture-tests: torture-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test/unit/all-torture.log
 
 
 ######################

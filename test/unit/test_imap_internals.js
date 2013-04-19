@@ -7,9 +7,10 @@
  * - Sync further back into time on demand ('grow')
  **/
 
-load('resources/loggest_test_framework.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+       function($tc, $th_imap, exports) {
 
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_internals' }, null, [$th_imap.TESTHELPER], ['app']);
 
 TD.commonCase('account persistence', function(T) {
@@ -182,7 +183,7 @@ TD.commonCase('account persistence', function(T) {
     TF5.storageActor.expect_bodyNotFound();
     // Use the underlying method used by header.getBody since the dead header
     // is part of a dead object tree.
-    TU5.MailAPI._getBodyForMessage(deletedHeader, function(bodyInfo) {
+    TU5.MailAPI._getBodyForMessage(deletedHeader, null, function(bodyInfo) {
       eSync.namedValue('bodyInfo', bodyInfo);
     });
   });
@@ -374,7 +375,4 @@ TD.commonCase('grow with deepening required', function(T) {
   testAccount.do_closeFolderView(syncView);
 });
 
-
-function run_test() {
-  runMyTests(15);
-}
+});

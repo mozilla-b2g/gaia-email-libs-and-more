@@ -3,12 +3,15 @@
  * ActiveSync.
  **/
 
-load('resources/loggest_test_framework.js');
-const $wbxml = require('wbxml');
-const $ascp = require('activesync/codepages');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/th_activesync_server',
+        'wbxml', 'activesync/codepages',
+        'exports'],
+       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
 
-var TD = $tc.defineTestsFor(
-  { id: 'test_activesync_html' }, null, [$th_imap.TESTHELPER], ['app']);
+var TD = exports.TD = $tc.defineTestsFor(
+  { id: 'test_activesync_html' }, null,
+  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
@@ -162,12 +165,16 @@ TD.commonCase('folder sync', function(T) {
       var header = folderView.slice.items[iMsg];
       header.getBody(function(body) {
         var bodyValue;
-        if (!body.bodyReps.length)
+        if (!body.bodyReps.length) {
           bodyValue = '';
-        else if (body.bodyReps[0] === 'plain')
-          bodyValue = body.bodyReps[1][1] || '';
-        else if (body.bodyReps[0] === 'html')
-          bodyValue = body.bodyReps[1];
+        }
+        else if (body.bodyReps[0].type === 'plain') {
+          bodyValue = body.bodyReps[0].content || '';
+        }
+        else if (body.bodyReps[0].type === 'html') {
+          bodyValue = body.bodyReps[0].content;
+        }
+
         eCheck.namedValue('body', bodyValue);
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
@@ -195,6 +202,4 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_closeFolderView(folderView);
 });
 
-function run_test() {
-  runMyTests(5);
-}
+}); // end define

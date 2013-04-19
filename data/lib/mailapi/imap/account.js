@@ -4,7 +4,6 @@
 
 define(
   [
-    'imap',
     'rdcommon/log',
     '../a64',
     '../allback',
@@ -13,14 +12,13 @@ define(
     '../mailslice',
     '../searchfilter',
     '../util',
-    './probe',
     './folder',
     './jobs',
     'module',
+    'require',
     'exports'
   ],
   function(
-    $imap,
     $log,
     $a64,
     $allback,
@@ -29,10 +27,10 @@ define(
     $mailslice,
     $searchfilter,
     $util,
-    $imapprobe,
     $imapfolder,
     $imapjobs,
     $module,
+    require,
     exports
   ) {
 var bsearchForInsert = $util.bsearchForInsert;
@@ -60,6 +58,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this.accountDef = compositeAccount.accountDef;
 
   this.enabled = true;
+  this._alive = true;
 
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, this.id);
 
@@ -104,7 +103,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this._demandedConns = [];
   this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
                                                      this._LOG);
-  this._boundMakeConnection = this._makeConnection.bind(this);
 
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);
@@ -283,6 +281,11 @@ ImapAccount.prototype = {
    * operations to defer until after that snapshot has occurred.
    */
   saveAccountState: function(reuseTrans, callback) {
+    if (!this._alive) {
+      this._LOG.accountDeleted('saveAccountState');
+      return;
+    }
+
     var perFolderStuff = [], self = this;
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -388,7 +391,7 @@ ImapAccount.prototype = {
     // the slice is self-starting, we don't need to call anything on storage
   },
 
-  shutdown: function() {
+  shutdown: function(callback) {
     // - kill all folder storages (for their loggers)
     for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
       var folderPub = this.folders[iFolder],
@@ -399,12 +402,35 @@ ImapAccount.prototype = {
     this._backoffEndpoint.shutdown();
 
     // - close all connections
+    var liveConns = this._ownedConns.length;
+    function connDead() {
+      if (--liveConns === 0)
+        callback();
+    }
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
-      connInfo.conn.die();
+      if (callback) {
+        connInfo.inUseBy = { deathback: connDead };
+        try {
+          connInfo.conn.logout();
+        }
+        catch (ex) {
+          liveConns--;
+        }
+      }
+      else {
+        connInfo.conn.die();
+      }
     }
 
     this._LOG.__die();
+    if (!liveConns && callback)
+      callback();
+  },
+
+  accountDeleted: function() {
+    this._alive = false;
+    this.shutdown();
   },
 
   checkAccount: function(listener) {
@@ -560,76 +586,84 @@ ImapAccount.prototype = {
       return;
 
     this._pendingConn = true;
-    this._backoffEndpoint.scheduleConnectAttempt(this._boundMakeConnection);
+    var boundMakeConnection = this._makeConnection.bind(this);
+    this._backoffEndpoint.scheduleConnectAttempt(boundMakeConnection);
   },
 
   _makeConnection: function(listener, whyFolderId, whyLabel) {
-    this._LOG.createConnection(whyFolderId, whyLabel);
-    var opts = {
-      host: this._connInfo.hostname,
-      port: this._connInfo.port,
-      crypto: this._connInfo.crypto,
+    // Mark a pending connection synchronously; the require call will not return
+    // until at least the next turn of the event loop.
+    this._pendingConn = true;
+    // Dynamically load the probe/imap code to speed up startup.
+    require(['imap', './probe'], function ($imap, $imapprobe) {
+      this._LOG.createConnection(whyFolderId, whyLabel);
+      var opts = {
+        host: this._connInfo.hostname,
+        port: this._connInfo.port,
+        crypto: this._connInfo.crypto,
 
-      username: this._credentials.username,
-      password: this._credentials.password,
-    };
-    if (this._LOG) opts._logParent = this._LOG;
-    var conn = this._pendingConn = new $imap.ImapConnection(opts);
-    var connectCallbackTriggered = false;
-    // The login callback should get invoked in all cases, but a recent code
-    // inspection for the prober suggested that there may be some cases where
-    // things might fall-through, so let's just convert them.  We need some
-    // type of handler since imap.js currently calls the login callback and
-    // then the 'error' handler, generating an error if there is no error
-    // handler.
-    conn.on('error', function(err) {
-      if (!connectCallbackTriggered)
-        loginCb(err);
-    });
-    var loginCb;
-    conn.connect(loginCb = function(err) {
-      connectCallbackTriggered = true;
-      this._pendingConn = null;
-      if (err) {
-        var normErr = $imapprobe.normalizeError(err);
-        console.error('Connect error:', normErr.name, 'formal:', err, 'on',
-                      this._connInfo.hostname, this._connInfo.port);
-        if (normErr.reportProblem)
-          this.universe.__reportAccountProblem(this.compositeAccount,
-                                               normErr.name);
+        username: this._credentials.username,
+        password: this._credentials.password,
+      };
+      if (this._LOG) opts._logParent = this._LOG;
+      var conn = this._pendingConn = new $imap.ImapConnection(opts);
+      var connectCallbackTriggered = false;
+      // The login callback should get invoked in all cases, but a recent code
+      // inspection for the prober suggested that there may be some cases where
+      // things might fall-through, so let's just convert them.  We need some
+      // type of handler since imap.js currently calls the login callback and
+      // then the 'error' handler, generating an error if there is no error
+      // handler.
+      conn.on('error', function(err) {
+        if (!connectCallbackTriggered)
+          loginCb(err);
+      });
+      var loginCb;
+      conn.connect(loginCb = function(err) {
+        connectCallbackTriggered = true;
+        this._pendingConn = null;
+        if (err) {
+          var normErr = $imapprobe.normalizeError(err);
+          console.error('Connect error:', normErr.name, 'formal:', err, 'on',
+                        this._connInfo.hostname, this._connInfo.port);
+          if (normErr.reportProblem)
+            this.universe.__reportAccountProblem(this.compositeAccount,
+                                                 normErr.name);
 
 
-        if (listener)
-          listener(normErr.name);
-        conn.die();
+          if (listener)
+            listener(normErr.name);
+          conn.die();
 
-        // track this failure for backoff purposes
-        if (normErr.retry) {
-          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
-                                      normErr.reachable))
-            this._makeConnectionIfPossible();
-          else
+          // track this failure for backoff purposes
+          if (normErr.retry) {
+            if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
+                                        normErr.reachable))
+              this._makeConnectionIfPossible();
+            else
+              this._killDieOnConnectFailureDemands();
+          }
+          else {
+            this._backoffEndpoint.noteBrokenConnection();
             this._killDieOnConnectFailureDemands();
+          }
         }
         else {
-          this._backoffEndpoint.noteBrokenConnection();
-          this._killDieOnConnectFailureDemands();
+          this._bindConnectionDeathHandlers(conn);
+          this._backoffEndpoint.noteConnectSuccess();
+          this._ownedConns.push({
+            conn: conn,
+            inUseBy: null,
+          });
+          this._allocateExistingConnection();
+          if (listener)
+            listener(null);
+          // Keep opening connections if there is more work to do
+          // (and possible).
+          if (this._demandedConns.length)
+            this._makeConnectionIfPossible();
         }
-      }
-      else {
-        this._bindConnectionDeathHandlers(conn);
-        this._backoffEndpoint.noteConnectSuccess();
-        this._ownedConns.push({
-          conn: conn,
-          inUseBy: null,
-        });
-        this._allocateExistingConnection();
-        if (listener)
-          listener(null);
-        // Keep opening connections if there is more work to do (and possible).
-        if (this._demandedConns.length)
-          this._makeConnectionIfPossible();
-      }
+      }.bind(this));
     }.bind(this));
   },
 
@@ -719,7 +753,7 @@ ImapAccount.prototype = {
   _syncFolderList: function(conn, callback) {
     conn.getBoxes(this._syncFolderComputeDeltas.bind(this, conn, callback));
   },
-  _determineFolderType: function(box, path) {
+  _determineFolderType: function(box, path, conn) {
     var type = null;
     // NoSelect trumps everything.
     if (box.attribs.indexOf('NOSELECT') !== -1) {
@@ -786,32 +820,42 @@ ImapAccount.prototype = {
 
       // heuristic based type assignment based on the name
       if (!type) {
-        switch (box.displayName.toUpperCase()) {
-          case 'DRAFT':
-          case 'DRAFTS':
-            type = 'drafts';
-            break;
-          case 'INBOX':
-            type = 'inbox';
-            break;
-          // Yahoo provides "Bulk Mail" for yahoo.fr.
-          case 'BULK MAIL':
-          case 'JUNK':
-          case 'SPAM':
-            type = 'junk';
-            break;
-          case 'SENT':
-            type = 'sent';
-            break;
-          case 'TRASH':
-            type = 'trash';
-            break;
-          // This currently only exists for consistency with Thunderbird, but
-          // may become useful in the future when we need an outbox.
-          case 'UNSENT MESSAGES':
-            type = 'queue';
-            break;
-        }
+        // ensure that we treat folders at the root, see bug 854128
+        var personalNS = conn.namespaces.personal;
+        var prefix = personalNS.length ? personalNS[0].prefix : '';
+        var isAtNamespaceRoot = path === (prefix + box.displayName);
+        // If our name is our path, we are at the absolute root of the tree.
+        // This will be the case for INBOX even if there is a namespace.
+        if (isAtNamespaceRoot || path === box.displayName) {
+          switch (box.displayName.toUpperCase()) {
+            case 'DRAFT':
+            case 'DRAFTS':
+              type = 'drafts';
+              break;
+            case 'INBOX':
+              // Inbox is special; the path needs to case-insensitively match.
+              if (path.toUpperCase() === 'INBOX')
+                type = 'inbox';
+              break;
+            // Yahoo provides "Bulk Mail" for yahoo.fr.
+            case 'BULK MAIL':
+            case 'JUNK':
+            case 'SPAM':
+              type = 'junk';
+              break;
+            case 'SENT':
+              type = 'sent';
+              break;
+            case 'TRASH':
+              type = 'trash';
+              break;
+            // This currently only exists for consistency with Thunderbird, but
+            // may become useful in the future when we need an outbox.
+            case 'UNSENT MESSAGES':
+              type = 'queue';
+              break;
+          }
+	}
       }
 
       if (!type)
@@ -842,7 +886,7 @@ ImapAccount.prototype = {
             folderId;
 
         // - normalize jerk-moves
-        var type = self._determineFolderType(box, path);
+        var type = self._determineFolderType(box, path, conn);
         // gmail finds it amusing to give us the localized name/path of its
         // inbox, but still expects us to ask for it as INBOX.
         if (type === 'inbox')
@@ -880,8 +924,40 @@ ImapAccount.prototype = {
       // (skip those we found above)
       if (folderPub === true)
         continue;
+      // Never delete our localdrafts folder.
+      if (folderPub.type === 'localdrafts')
+        continue;
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);
+    }
+
+    // Add a localdrafts folder if we don't have one.
+    var localDrafts = this.getFirstFolderWithType('localdrafts');
+    if (!localDrafts) {
+      // Try and add the folder next to the existing drafts folder, or the
+      // sent folder if there is no drafts folder.  Otherwise we must have an
+      // inbox and we want to live under that.
+      var sibling = this.getFirstFolderWithType('drafts') ||
+                    this.getFirstFolderWithType('sent');
+      var parentId = sibling ? sibling.parentId
+                             : this.getFirstFolderWithType('inbox').id;
+      // parentId will be null if we are already top-level
+      var parentFolder;
+      if (parentId) {
+        parentFolder = this._folderInfos[parentId].$meta;
+      }
+      else {
+        parentFolder = {
+          path: '', delim: '', depth: -1
+        };
+      }
+      var localDraftPath = parentFolder.path + parentFolder.delim +
+            'localdrafts';
+      // Since this is a synthetic folder; we just directly choose the name
+      // that our l10n mapping will transform.
+      this._learnAboutFolder('localdrafts', localDraftPath,  parentId,
+                             'localdrafts', parentFolder.delim,
+                             parentFolder.depth + 1);
     }
 
     callback(null);
@@ -957,6 +1033,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       connectionMismatch: {},
 
       saveAccountState: {},
+      /**
+       * XXX: this is really an error/warning, but to make the logging less
+       * confusing, treat it as an event.
+       */
+      accountDeleted: { where: false },
 
       /**
        * The maximum connection limit has been reached, we are intentionally

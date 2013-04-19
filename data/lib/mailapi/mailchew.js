@@ -16,15 +16,19 @@ define(
   [
     'exports',
     './util',
+    './mailchew-strings',
     './quotechew',
     './htmlchew'
   ],
   function(
     exports,
     $util,
+    $mailchewStrings,
     $quotechew,
     $htmlchew
   ) {
+
+var DESIRED_SNIPPET_LENGTH = 100;
 
 var RE_RE = /^[Rr][Ee]: /;
 
@@ -88,6 +92,15 @@ exports.setLocalizedStrings = function(strings) {
   l10n_forward_header_labels = strings.forwardHeaderLabels;
 };
 
+// Grab the localized strings, if not available, listen for the event that
+// sets them.
+if ($mailchewStrings.strings) {
+  exports.setLocalizedStrings($mailchewStrings.strings);
+}
+$mailchewStrings.events.on('strings', function (strings) {
+  exports.setLocalizedStrings(strings);
+});
+
 /**
  * Generate the reply body representation given info about the message we are
  * replying to.
@@ -104,8 +117,8 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
                 l10n_wroteString.replace('{name}', useName) + ':\n',
       htmlMsg = null;
 
-  for (var i = 0; i < reps.length; i += 2) {
-    var repType = reps[i], rep = reps[i + 1];
+  for (var i = 0; i < reps.length; i++) {
+    var repType = reps[i].type, rep = reps[i].content;
 
     if (repType === 'plain') {
       var replyText = $quotechew.generateReplyText(rep);
@@ -158,8 +171,9 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
  * Generate the body of an inline forward message.  XXX we need to generate
  * the header summary which needs some localized strings.
  */
-exports.generateForwardMessage = function generateForwardMessage(
-                                   author, date, subject, bodyInfo, identity) {
+exports.generateForwardMessage = 
+  function(author, date, subject, headerInfo, bodyInfo, identity) {
+
   var textMsg = '\n\n', htmlMsg = null;
 
   if (identity.signature)
@@ -188,18 +202,18 @@ exports.generateForwardMessage = function generateForwardMessage(
   textMsg += l10n_forward_header_labels['from'] + ': ' +
                $util.formatAddresses([author]) + '\n';
   // : reply-to
-  if (bodyInfo.replyTo)
+  if (headerInfo.replyTo)
     textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
-                 $util.formatAddresses([bodyInfo.replyTo]) + '\n';
+                 $util.formatAddresses([headerInfo.replyTo]) + '\n';
   // : organization
   // : to
-  if (bodyInfo.to)
+  if (headerInfo.to)
     textMsg += l10n_forward_header_labels['to'] + ': ' +
-                 $util.formatAddresses(bodyInfo.to) + '\n';
+                 $util.formatAddresses(headerInfo.to) + '\n';
   // : cc
-  if (bodyInfo.cc)
+  if (headerInfo.cc)
     textMsg += l10n_forward_header_labels['cc'] + ': ' +
-                 $util.formatAddresses(bodyInfo.cc) + '\n';
+                 $util.formatAddresses(headerInfo.cc) + '\n';
   // (bcc should never be forwarded)
   // : newsgroups
   // : followup-to
@@ -208,8 +222,8 @@ exports.generateForwardMessage = function generateForwardMessage(
   textMsg += '\n';
 
   var reps = bodyInfo.bodyReps;
-  for (var i = 0; i < reps.length; i += 2) {
-    var repType = reps[i], rep = reps[i + 1];
+  for (var i = 0; i < reps.length; i++) {
+    var repType = reps[i].type, rep = reps[i].content;
 
     if (repType === 'plain') {
       var forwardText = $quotechew.generateForwardBodyText(rep);
@@ -249,6 +263,60 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
          $htmlchew.wrapTextIntoSafeHTMLString(text, 'div') +
          html +
          HTML_WRAP_BOTTOM;
+};
+
+/**
+ * Generate the snippet and parsed body from the message body's content.
+ */
+exports.processMessageContent = function processMessageContent(
+    content, type, isDownloaded, generateSnippet, _LOG) {
+  var parsedContent, snippet;
+  switch (type) {
+    case 'plain':
+      try {
+        parsedContent = $quotechew.quoteProcessTextBody(content);
+      }
+      catch (ex) {
+        _LOG.textChewError(ex);
+        // An empty content rep is better than nothing.
+        parsedContent = [];
+      }
+
+      if (generateSnippet) {
+        try {
+          snippet = $quotechew.generateSnippet(
+            parsedContent, DESIRED_SNIPPET_LENGTH
+          );
+        }
+        catch (ex) {
+          _LOG.textSnippetError(ex);
+          snippet = '';
+        }
+      }
+      break;
+    case 'html':
+      if (generateSnippet) {
+        try {
+          snippet = $htmlchew.generateSnippet(content);
+        }
+        catch (ex) {
+          _LOG.htmlSnippetError(ex);
+          snippet = '';
+        }
+      }
+      if (isDownloaded) {
+        try {
+          parsedContent = $htmlchew.sanitizeAndNormalizeHtml(content);
+        }
+        catch (ex) {
+          _LOG.htmlParseError(ex);
+          parsedContent = '';
+        }
+      }
+      break;
+  }
+
+  return { content: parsedContent, snippet: snippet };
 };
 
 }); // end define

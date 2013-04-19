@@ -91,7 +91,8 @@ ImapProber.prototype = {
   onError: function ImapProber_onError(err) {
     if (!this.onresult)
       return;
-    console.warn('PROBE:IMAP sad', err);
+    console.warn('PROBE:IMAP sad', err && err.name, '|', err && err.type, '|',
+                 err && err.message, '|', err && err.serverResponse);
 
     var normErr = normalizeError(err);
     this.error = normErr.name;
@@ -223,7 +224,7 @@ var extractTZFromHeaders = exports._extractTZFromHeaders =
     var hpair = allHeaders[i];
     if (hpair.key !== 'received')
       continue;
-    var tzMatch = /([+-]\d{4})/.exec(hpair.value);
+    var tzMatch = / ([+-]\d{4})/.exec(hpair.value);
     if (tzMatch) {
       var tz =
         parseInt(tzMatch[1].substring(1, 3), 10) * 60 * 60 * 1000 +

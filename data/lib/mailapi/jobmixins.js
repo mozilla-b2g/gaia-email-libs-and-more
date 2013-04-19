@@ -4,13 +4,17 @@
 
 define(
   [
+    './worker-router',
     './util',
     'exports'
   ],
   function(
+    $router,
     $util,
     exports
   ) {
+
+var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
   var addTags = undo ? op.removeTags : op.addTags,
@@ -20,7 +24,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
     false,
     function perFolder(ignoredConn, storage, headers, namers, callWhenDone) {
       var waitingOn = headers.length;
-      function headerUpdated() {
+      function next() {
         if (--waitingOn === 0)
           callWhenDone();
       }
@@ -51,7 +55,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
           }
         }
         storage.updateMessageHeader(header.date, header.id, false,
-                                    header, headerUpdated);
+                                    header, next);
       }
     },
     function() {
@@ -110,7 +114,10 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
         if (header.srvid)
           stateDelta.serverIdMap[header.suid] = header.srvid;
 
-        if (sourceStorage === targetStorage) {
+        if (sourceStorage === targetStorage ||
+            // localdraft messages aren't real, and so must not be moved and
+            // are only eligible for nuke deletion.
+            sourceStorage.folderMeta.type === 'localdrafts') {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
             processNext();
@@ -118,11 +125,12 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
           else { // op.type === 'delete'
             // If the op is a delete and the source and destination folders
             // match, we're deleting from trash, so just perma-delete it.
-            sourceStorage.deleteMessageHeaderAndBody(header, processNext);
+            sourceStorage.deleteMessageHeaderAndBodyUsingHeader(
+              header, processNext);
           }
         }
         else {
-          sourceStorage.deleteMessageHeaderAndBody(
+          sourceStorage.deleteMessageHeaderAndBodyUsingHeader(
             header, deleted_nowAdd);
         }
       }
@@ -236,8 +244,8 @@ exports.do_download = function(op, callback) {
       if (partInfo.file)
         continue;
       partsToDownload.push(partInfo);
-      // right now all attachments go in pictures
-      storePartsTo.push('pictures');
+      // right now all attachments go in sdcard
+      storePartsTo.push('sdcard');
     }
 
     folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
@@ -249,33 +257,36 @@ exports.do_download = function(op, callback) {
    */
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
-    var dstorage = navigator.getDeviceStorage(storage);
-    var req = dstorage.addNamed(blob, filename);
-    req.onerror = function() {
-      console.warn('failed to save attachment to', storage, filename,
-                   'type:', blob.type);
-      pendingStorageWrites--;
-      // if we failed to unique the file after appending junk, just give up
-      if (isRetry) {
-        if (pendingStorageWrites === 0)
+
+    var callback = function(success, error) {
+      if (success) {
+        self._LOG.savedAttachment(storage, blob.type, blob.size);
+        console.log('saved attachment to', storage, filename, 'type:', blob.type);
+        partInfo.file = [storage, filename];
+        if (--pendingStorageWrites === 0)
           done();
-        return;
+      } else {
+        self._LOG.saveFailure(storage, blob.type, error, filename);
+        console.warn('failed to save attachment to', storage, filename,
+                     'type:', blob.type);
+        pendingStorageWrites--;
+        // if we failed to unique the file after appending junk, just give up
+        if (isRetry) {
+          if (pendingStorageWrites === 0)
+            done();
+          return;
+        }
+        // retry by appending a super huge timestamp to the file before its
+        // extension.
+        var idxLastPeriod = filename.lastIndexOf('.');
+        if (idxLastPeriod === -1)
+          idxLastPeriod = filename.length;
+        filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+                    filename.substring(idxLastPeriod);
+        saveToStorage(blob, storage, filename, partInfo, true);
       }
-      // retry by appending a super huge timestamp to the file before its
-      // extension.
-      var idxLastPeriod = filename.lastIndexOf('.');
-      if (idxLastPeriod === -1)
-        idxLastPeriod = filename.length;
-      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
-                   filename.substring(idxLastPeriod);
-      saveToStorage(blob, storage, filename, partInfo, true);
     };
-    req.onsuccess = function() {
-      console.log('saved attachment to', storage, filename, 'type:', blob.type);
-      partInfo.file = [storage, filename];
-      if (--pendingStorageWrites === 0)
-        done();
-    };
+    sendMessage('save', [storage, blob, filename], callback);
   }
   var gotParts = function gotParts(err, bodyBlobs) {
     if (bodyBlobs.length !== partsToDownload.length) {
@@ -302,9 +313,11 @@ exports.do_download = function(op, callback) {
     if (!pendingStorageWrites)
       done();
   };
+
   function done() {
-    folderStorage.updateMessageBody(op.messageSuid, op.messageDate, bodyInfo);
-    callback(downloadErr, bodyInfo, true);
+    folderStorage.updateMessageBody(header, bodyInfo, function() {
+      callback(downloadErr, bodyInfo, true);
+    });
   };
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,
@@ -328,6 +341,172 @@ exports.undo_download = function(op, callback) {
   callback(null);
 };
 
+
+exports.local_do_downloadBodies = function(op, callback) {
+  callback(null);
+};
+
+exports.do_downloadBodies = function(op, callback) {
+  var aggrErr;
+  this._partitionAndAccessFoldersSequentially(
+    op.messages,
+    true,
+    function perFolder(folderConn, storage, headers, namers, callWhenDone) {
+      folderConn.downloadBodies(headers, op.options, function(err) {
+        if (err && !aggrErr) {
+          aggrErr = err;
+        }
+        callWhenDone();
+      });
+    },
+    function allDone() {
+      callback(aggrErr, null, true);
+    },
+    function deadConn() {
+      aggrErr = 'aborted-retry';
+    },
+    false, // reverse?
+    'downloadBodies',
+    true // require headers
+  );
+};
+
+
+exports.do_downloadBodyReps = function(op, callback) {
+  var self = this;
+  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+      folderId = op.messageSuid.substring(0, idxLastSlash);
+
+  var folderConn, folderStorage;
+  // Once we have the connection, get the current state of the body rep.
+  var gotConn = function gotConn(_folderConn, _folderStorage) {
+    folderConn = _folderConn;
+    folderStorage = _folderStorage;
+
+    folderStorage.getMessageHeader(op.messageSuid, op.messageDate, gotHeader);
+  };
+  var deadConn = function deadConn() {
+    callback('aborted-retry');
+  };
+
+  var gotHeader = function gotHeader(header) {
+    // header may have been deleted by the time we get here...
+    if (!header)
+      return callback();
+
+    folderConn.downloadBodyReps(header, onDownloadReps);
+  };
+
+  var onDownloadReps = function onDownloadReps(err, bodyInfo) {
+    if (err) {
+      console.error('Error downloading reps', err);
+      // fail we cannot download for some reason?
+      return callback('unknown');
+    }
+
+    // success
+    callback(null, bodyInfo, true);
+  };
+
+  self._accessFolderForMutation(folderId, true, gotConn, deadConn,
+                                'downloadBodyReps');
+};
+
+exports.local_do_downloadBodyReps = function(op, callback) {
+  callback(null);
+};
+
+
+exports.local_do_saveDraft = function(op, callback) {
+  var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
+  if (!localDraftsFolder) {
+    callback('moot');
+    return;
+  }
+  var self = this;
+  this._accessFolderForMutation(
+    localDraftsFolder.id, /* needConn*/ false,
+    function(nullFolderConn, folderStorage) {
+      function next() {
+        if (--waitingFor === 0) {
+          callback(
+            null,
+            { suid: header.suid, date: header.date },
+            /* save account */ true);
+        }
+      }
+      var waitingFor = 2;
+
+      var header = op.header, body = op.body;
+      // fill-in header id's
+      header.id = folderStorage._issueNewHeaderId();
+      header.suid = folderStorage.folderId + '/' + header.id;
+
+      // If there already was a draft saved, delete it.
+      // Note that ordering of the removal and the addition doesn't really
+      // matter here because of our use of transactions.
+      if (op.existingNamer) {
+        waitingFor++;
+        folderStorage.deleteMessageHeaderAndBody(
+          op.existingNamer.suid, op.existingNamer.date, next);
+      }
+
+      folderStorage.addMessageHeader(header, next);
+      folderStorage.addMessageBody(header, body, next);
+    },
+    /* no conn => no deathback required */ null,
+    'saveDraft');
+};
+
+exports.do_saveDraft = function(op, callback) {
+  // there is no server component for this
+  callback(null);
+};
+exports.check_saveDraft = function(op, callback) {
+  callback(null, 'moot');
+};
+exports.local_undo_saveDraft = function(op, callback) {
+  callback(null);
+};
+exports.undo_saveDraft = function(op, callback) {
+  callback(null);
+};
+
+exports.local_do_deleteDraft = function(op, callback) {
+  var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
+  if (!localDraftsFolder) {
+    callback('moot');
+    return;
+  }
+  var self = this;
+  this._accessFolderForMutation(
+    localDraftsFolder.id, /* needConn*/ false,
+    function(nullFolderConn, folderStorage) {
+      folderStorage.deleteMessageHeaderAndBody(
+        op.messageNamer.suid, op.messageNamer.date,
+        function() {
+          callback(null, null, /* save account */ true);
+        });
+    },
+    /* no conn => no deathback required */ null,
+    'deleteDraft');
+};
+
+exports.do_deleteDraft = function(op, callback) {
+  // there is no server component for this
+  callback(null);
+};
+exports.check_deleteDraft = function(op, callback) {
+  callback(null, 'moot');
+};
+exports.local_undo_deleteDraft = function(op, callback) {
+  callback(null);
+};
+exports.undo_deleteDraft = function(op, callback) {
+  callback(null);
+};
+
+
 exports.postJobCleanup = function(passed) {
   if (passed) {
     var deltaMap, fullMap;
@@ -348,7 +527,7 @@ exports.postJobCleanup = function(passed) {
       deltaMap = this._stateDelta.moveMap;
       fullMap = this._state.moveMap;
       for (var oldSuid in deltaMap) {
-        var newSuid = deltaMap[suid];
+        var newSuid = deltaMap[oldSuid];
         fullMap[oldSuid] = newSuid;
       }
     }
@@ -372,6 +551,10 @@ exports.allJobsDone =  function() {
  * Partition messages identified by namers by folder, then invoke the callback
  * once per folder, passing in the loaded message header objects for each
  * folder.
+ *
+ * This method will filter out removed headers (which would otherwise be null).
+ * Its possible that entire folders will be skipped if no headers requested are
+ * now present.
  *
  * @args[
  *   @param[messageNamers @listof[MessageNamer]]
@@ -401,6 +584,9 @@ exports.allJobsDone =  function() {
  *   @param[label String]{
  *     The label to use to name the usage of the folder connection.
  *   }
+ *   @param[requireHeaders Boolean]{
+ *     True if connection & headers are needed.
+ *   }
  * ]
  */
 exports._partitionAndAccessFoldersSequentially = function(
@@ -410,7 +596,8 @@ exports._partitionAndAccessFoldersSequentially = function(
     callWhenDone,
     callOnConnLoss,
     reverse,
-    label) {
+    label,
+    requireHeaders) {
   var partitions = $util.partitionMessagesByFolderId(allMessageNamers);
   var folderConn, storage, self = this,
       folderId = null, folderMessageNamers = null, serverIds = null,
@@ -449,7 +636,7 @@ exports._partitionAndAccessFoldersSequentially = function(
     folderConn = _folderConn;
     storage = _storage;
     // - Get headers or resolve current server id from name map
-    if (needConn) {
+    if (needConn && !requireHeaders) {
       var neededHeaders = [],
           suidToServerId = self._state.suidToServerId;
       serverIds = [];
@@ -501,6 +688,14 @@ exports._partitionAndAccessFoldersSequentially = function(
       }
       iNextServerId = serverIds.indexOf(null, iNextServerId + 1);
     }
+
+    // its entirely possible that we need headers but there are none so we can
+    // skip entering this folder as the job cannot do anything with an empty
+    // header.
+    if (!serverIds.length) {
+      return openNextFolder();
+    }
+
     try {
       callInFolder(folderConn, storage, serverIds, folderMessageNamers,
                    openNextFolder);
@@ -510,6 +705,12 @@ exports._partitionAndAccessFoldersSequentially = function(
     }
   };
   var gotHeaders = function gotHeaders(headers) {
+    // its unlikely but entirely possible that all pending headers have been
+    // removed somehow between when the job was queued and now.
+    if (!headers.length) {
+      return openNextFolder();
+    }
+
     // Sort the headers in ascending-by-date order so that slices hear about
     // changes from oldest to newest. That way, they won't get upset about being
     // asked to expand into the past.

@@ -145,9 +145,14 @@ CompositeAccount.prototype = {
   /**
    * Shutdown the account; see `MailUniverse.shutdown` for semantics.
    */
-  shutdown: function() {
+  shutdown: function(callback) {
     this._sendPiece.shutdown();
-    this._receivePiece.shutdown();
+    this._receivePiece.shutdown(callback);
+  },
+
+  accountDeleted: function() {
+    this._sendPiece.accountDeleted();
+    this._receivePiece.accountDeleted();
   },
 
   deleteFolder: function(folderId, callback) {

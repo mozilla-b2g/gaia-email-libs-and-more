@@ -29,19 +29,22 @@
  *    state and re-establishes.)
  **/
 
-load('resources/loggest_test_framework.js');
-// Use the faulty socket implementation.
-load('resources/fault_injecting_socket.js');
+define(['rdcommon/testcontext', 'mailapi/testhelper',
+        './resources/fault_injecting_socket', 'mailapi/errbackoff', 'exports'],
+       function($tc, $th_imap, $fawlty, $errbackoff, exports) {
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var $_errbackoff = require('mailapi/errbackoff');
-
-var TD = $tc.defineTestsFor(
+var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
 
 
+function doNotThunkErrbackoffTimer() {
+  $errbackoff.TEST_useTimeoutFunc(window.setTimeout.bind(window));
+}
+
 function thunkErrbackoffTimer(lazyLogger) {
   var backlog = [];
-  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+  $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     backlog.push(func);
     lazyLogger.namedValue('errbackoff:schedule', delay);
   });
@@ -54,7 +57,7 @@ function thunkErrbackoffTimer(lazyLogger) {
 }
 
 function zeroTimeoutErrbackoffTimer(lazyLogger) {
-  $_errbackoff.TEST_useTimeoutFunc(function(func, delay) {
+  $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     lazyLogger.namedValue('errbackoff:schedule', delay);
     window.setZeroTimeout(func);
   });
@@ -222,6 +225,61 @@ TD.commonCase('general reconnect logic', function(T) {
     errbackReleaser();
   });
 
+  T.group('cleanup');
+  T.cleanup('kill sockets', function() {
+    FawltySocketFactory.reset();
+  });
+});
+
+/**
+ * A previous bug was that if we reused a connection we would not update the
+ * deathback so the old/dead/uncaring sync would get the deathback instead of
+ * the new one.  This would result in sync stalling and breaking.
+ *
+ * We test the failure by having a successful sync, leaving the slice and
+ * conncetion open, then killing the connection during an explicit refresh sync.
+ */
+TD.commonCase('error handler fires on reused connection', function(T, RT) {
+  T.group('setup');
+  T.check('reset / no precommands', function() {
+    FawltySocketFactory.assertNoPrecommands();
+    FawltySocketFactory.reset();
+  });
+  doNotThunkErrbackoffTimer();
+
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  // an empty folder is fine
+  var testFolder = testAccount.do_createTestFolder(
+    'test_error_reuse',
+    { count: 0 });
+
+  T.group('sync / open view');
+  var testView = testAccount.do_openFolderView(
+    'syncs', testFolder,
+    { count : 0, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  T.group('connection dies on refresh');
+  testAccount.do_refreshFolderView(
+    testView,
+    { count : 0, full: 0, flags: 0, deleted: 0 },
+    { changes: [], deletions: [] },
+    { top: true, bottom: true, grow: false },
+    { failure: true,
+      expectFunc: function() {
+        RT.reportActiveActorThisStep(testAccount.eImapAccount);
+        testAccount.eImapAccount.expect_deadConnection();
+
+        // Have the socket close on us when we go to say more stuff to the
+        // server.  The sync process should be active at this point.
+        FawltySocketFactory.getMostRecentLiveSocket().doOnSendText(
+          [['instant-close']]);
+      }});
 });
 
 /**
@@ -233,8 +291,9 @@ TD.commonCase('general reconnect logic', function(T) {
  * password failure since the server forces a delay that is annoying (if
  * realistic.)
  */
-TD.commonCase('bad password login failure', function(T) {
+TD.commonCase('bad password login failure', function(T, RT) {
   T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
@@ -428,6 +487,4 @@ TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
 
 });
 
-function run_test() {
-  runMyTests(15);
-}
+}); // end define
