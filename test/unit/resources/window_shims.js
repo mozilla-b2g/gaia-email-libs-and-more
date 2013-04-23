@@ -168,6 +168,7 @@ var _window_mixin = {
       getAll: function() {},
       remove: function() {},
     },
+
     getDeviceStorage: function(ds) {
       return {
         addNamed: function(blob, name) {
