@@ -1,10 +1,3 @@
-// config.js will be injected above this comment
-
-// baseUrl is different for front end
-require.config({
-  baseUrl: 'js/ext'
-});
-
 (function () {
   // Send fake API object to allow UI to finish bootstrapping, and finish
   // back-end loading when viewAccounts is called.
@@ -27,7 +20,7 @@ require.config({
           if (acctSlice.oncomplete) {
               acctSlice.oncomplete();
           }
-          require(['mailapi/main-frame-setup']);
+          App.loader.load(['js/ext/mailapi/main-frame-setup.js']);
       }, 0);
       return acctSlice;
     }
