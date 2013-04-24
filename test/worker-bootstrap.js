@@ -27,6 +27,17 @@ window.console = {
   info: consoleHelper.bind(null, '\x1b[36mWINF'),
   warn: consoleHelper.bind(null, '\x1b[33mWWAR')
 };
+window.navigator.mozContacts = {
+  find: function(opts) {
+    var req = { onsuccess: null, onerror: null, result: null };
+    window.setZeroTimeout(function() {
+      if (req.onsuccess)
+        req.onsuccess({ target: req });
+    });
+    return req;
+  },
+};
+
 
 var document = { cookie: null };
 
