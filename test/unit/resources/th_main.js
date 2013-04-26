@@ -907,6 +907,9 @@ var TestImapAccountMixins = {
     if (!opts.universe.__testAccounts)
       throw new Error("Universe is not of the right type: " + opts.universe);
 
+    // turn on SMTP logging for our unit tests
+    $smtpacct.ENABLE_SMTP_LOGGING = true;
+
     self.accountId = null;
     self.universe = null;
     self.MailAPI = null;
