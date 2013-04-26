@@ -42,6 +42,10 @@ require.config({
     'mailapi/imap/protocol/snippetparser': 'mailapi/imap/protocollayer',
     'mailapi/imap/protocol/bodyfetcher': 'mailapi/imap/protocollayer',
 
+    // 'tls' is actually in both the SMTP probe and IMAP probe, but the SMTP
+    // probe is much smaller, so if someone requests it outright, just use that.
+    'tls': 'mailapi/smtp/probe',
+
     // The imap probe layer also contains the imap module
     'imap': 'mailapi/imap/probe',
 

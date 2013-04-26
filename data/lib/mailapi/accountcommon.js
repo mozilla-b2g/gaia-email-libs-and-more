@@ -90,6 +90,15 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
       username: '%EMAILADDRESS%',
     },
   },
+  // like slocalhost, really just exists to generate a test failure
+  'saslocalhost': {
+    type: 'activesync',
+    displayName: 'Test',
+    incoming: {
+      server: 'https://localhost:443',
+      username: '%EMAILADDRESS%',
+    },
+  },
   // Mapping for a nonexistent domain for testing a bad domain without it being
   // detected ahead of time by the autoconfiguration logic or otherwise.
   'nonesuch.nonesuch': {

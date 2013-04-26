@@ -9,7 +9,6 @@
     "test_imap_internals.js",
     "test_imap_lazybodies.js",
     "test_imap_partialbodyfetching.js",
-    "test_imap_just_auth.js",
     "test_imap_mime.js",
     "test_imap_errors.js",
     "test_imap_proto.js",
@@ -21,6 +20,7 @@
     "test_compose.js",
     "test_body_observers.js",
 
+    "test_just_auth.js",
     "test_autoconfig.js",
     "test_account_logic.js",
     "test_account_create_unit.js",
