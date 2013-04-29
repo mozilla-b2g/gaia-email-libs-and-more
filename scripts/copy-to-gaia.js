@@ -256,7 +256,7 @@ var runner = configs.reduceRight(function (prev, cfg) {
       indexPaths.map(function (name) {
 
         return indent + '<script ' +
-          'defer src="' +
+          'type="text/javascript" defer src="' +
           'js/ext/' + name + '.js' +
           '"></script>';
       }).join('\n') + '\n' + indent;

@@ -90,6 +90,11 @@ function getCookieCache() {
 var CACHE_VERSION = 1;
 
 /**
+ * The number of header wire messages to cache in the recvCache
+ */
+var HEADER_CACHE_LIMIT = 8;
+
+/**
  *
  */
 function MailAccount(api, wireRep) {
@@ -1085,12 +1090,18 @@ function BridgedViewSlice(api, ns, handle) {
    */
   this._growing = 0;
 
+  /**
+   * Indicates if this slice holds fake, cached data used only for fast startup.
+   */
+  this._fake = false;
+
   this.onadd = null;
   this.onchange = null;
   this.onsplice = null;
   this.onremove = null;
   this.onstatus = null;
   this.oncomplete = null;
+  this.oncachereset = null;
   this.ondead = null;
 }
 BridgedViewSlice.prototype = {
@@ -1154,6 +1165,7 @@ BridgedViewSlice.prototype = {
     this.onremove = null;
     this.onstatus = null;
     this.oncomplete = null;
+    this.oncachereset = null;
     this._api.__bridgeSend({
         type: 'killSlice',
         handle: this._handle
@@ -1732,11 +1744,6 @@ MailAPI.prototype = {
         fakeMessage = cache.folders;
       } else if (msg.type === 'viewFolderMessages') {
         fakeMessage = cache.headers;
-      } else {
-        // Did not expect this, but not really a problem,
-        // just delayed action on it until back end comes up.
-        // Log for info cases
-        console.log('MailAPI.__bridgeSend no cache hit for : ' + msg.type);
       }
 
       if (fakeMessage) {
@@ -1808,10 +1815,12 @@ MailAPI.prototype = {
       return true;
     }
 
-    // Track that this is a fake splice, so the slice can
-    // clean up the cached data later.
+    // Track if this is a slice with some fake data, so the slice can
+    // clean up the cached data later. This will be reset later to
+    // true once splice wraps up in _fire_sliceSplice, when real data
+    // comes in.
     if (fake)
-      slice._fake = fake;
+      slice._fake = true;
 
     var transformedItems = this._transform_sliceSplice(msg, slice);
     // It's possible that a transformed representation is depending on an async
@@ -1875,27 +1884,49 @@ MailAPI.prototype = {
 
   _fire_sliceSplice: function ma__fire_sliceSplice(msg, slice,
                                                    transformedItems, fake) {
-    var i, stopIndex, items;
+    var i, stopIndex, items, tempMsg;
 
     // If slice is still in fake mode, and the transformed items
     // all match current values, just bail early.
     if (!fake && slice._fake) {
       // a slice can only be in a fake mode once, on startup.
-      delete slice._fake;
+      slice._fake = false;
 
-      var mismatched = transformedItems.some(function (item, i) {
-        return !slice.items[i] || slice.items[i].id !== item.id;
-      });
+      var fakeLength = slice.items.length;
+      var mismatched = transformedItems.length !== fakeLength ||
+        transformedItems.some(function (item, i) {
+          return !slice.items[i] || slice.items[i].id !== item.id;
+        });
 
-      if (transformedItems.length !== slice.items.length || mismatched) {
-        // Something weird in the cached items, clear them.
-        console.log('Slice cache mismatch, resetting slice items for ' +
-                    slice._ns);
-
+      if (mismatched) {
+        // Clear out the cached data from the slice as it is no
+        // longer valid.
         this._fire_sliceSplice({
           index: 0,
-          howMany: slice.items.length
+          howMany: fakeLength
         }, slice, [], true);
+
+        // In an extreme edge case where cache has data but the IndexedDB
+        // has been wiped or corrupted, need to clear out the cache, as
+        // the accounts result may have addedItems: [] but the slice will
+        // have cached bad data.
+        if (slice._ns === 'accounts' && !transformedItems.length &&
+            !msg.moreExpected && msg.requested && msg.howMany === 0 &&
+            msg.index === 0 && fakeLength) {
+          this._resetCache();
+          this._setHasAccounts();
+
+          console.log('Account cache not valid, issuing slice.oncachereset');
+          if (slice.oncachereset) {
+            try {
+              slice.oncachereset();
+            }
+            catch (ex) {
+              reportClientCodeError('oncachereset notification error', ex,
+                                    '\n', ex.stack);
+            }
+          }
+        }
       } else {
         console.log('Slice cache match, ignoring sliceSplice for ' + slice._ns);
         return;
@@ -1987,9 +2018,12 @@ MailAPI.prototype = {
         this._resetCache();
 
       switch (slice._ns) {
+
         case 'accounts':
+          // Cache the first / default account.
           var firstItem = slice.items[0] && slice.items[0]._wireRep;
-          // Clear cache if no accounts.
+
+          // Clear cache if no accounts or the first account has changed.
           if (!slice.items.length || this._recvCache.accountId !== firstItem.id)
             this._resetCache();
 
@@ -2001,14 +2035,15 @@ MailAPI.prototype = {
             this._recvCache.accountId = firstItem.id;
           }
           this._recvCache.accounts = tempMsg;
-          this._saveCache();
           this._setHasAccounts();
+          this._saveCache();
           break;
 
         case 'folders':
+          // Cache the (first) inbox for the default account.
           items = slice.items;
           if (this._recvCache.accountId &&
-              this._recvCache.accountId === slice.argumentId) {
+              this._recvCache.accountId === slice.accountId) {
             for (i = 0; i < items.length; i++) {
               var folderItem = items[i];
               // Find first inbox item.
@@ -2027,6 +2062,7 @@ MailAPI.prototype = {
           break;
 
         case 'headers':
+          // Cache the top HEADER_CACHE_LIMIT messages for the default inbox.
           if (msg.atTop && slice.folderId === this._recvCache.folderId) {
             tempMsg = {
               "type": "sliceSplice",
@@ -2037,7 +2073,7 @@ MailAPI.prototype = {
             };
             tempMsg.addItems = [];
             items = slice.items;
-            for (i = 0; i < 8 && i < items.length; i++)
+            for (i = 0; i < HEADER_CACHE_LIMIT && i < items.length; i++)
               tempMsg.addItems[i] = items[i]._wireRep;
             this._recvCache.headers = tempMsg;
             this._saveCache();
@@ -2439,9 +2475,11 @@ MailAPI.prototype = {
     var handle = this._nextHandle++,
         slice = new FoldersViewSlice(this, handle);
 
-    // Hold on to the ID for use in recvCache
-    if (argument) {
-      slice.argumentId = argument.id;
+    // Hold on to the ID for use in recvCache. In the
+    // recvCache case, this is only needed when fetching
+    // accounts.
+    if (argument && mode === 'account') {
+      slice.accountId = argument.id;
     }
 
     this._slices[handle] = slice;
