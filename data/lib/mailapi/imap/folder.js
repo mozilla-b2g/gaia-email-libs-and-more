@@ -486,16 +486,23 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     var self = this;
 
     require(
-      ['./imapchew', './protocol/bodyfetcher', './protocol/textparser'],
+      [
+        './imapchew',
+        './protocol/bodyfetcher',
+        './protocol/textparser',
+        './protocol/snippetparser'
+      ],
       function(
         _imapchew,
         _bodyfetcher,
-        _textparser
+        _textparser,
+        _snippetparser
       ) {
 
         $imapchew =_imapchew;
         $imapbodyfetcher = _bodyfetcher;
         $imaptextparser = _textparser;
+        $imapsnippetparser = _snippetparser;
 
         (self.downloadBodyReps = self._lazyDownloadBodyReps).apply(self, args);
     });
@@ -522,6 +529,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       // assume user always wants entire email unless option is given...
       var overallMaximumBytes = options.maximumBytesToFetch;
 
+      var bodyParser = $imaptextparser.TextParser;
+
       // build the list of requests based on downloading required.
       var requests = [];
       bodyInfo.bodyReps.forEach(function(rep, idx) {
@@ -545,6 +554,9 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         var bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
 
         if (overallMaximumBytes !== undefined) {
+          // when we fetch partial results we need to use the snippet parser.
+          bodyParser = $imapsnippetparser.SnippetParser;
+
           // issued enough downloads
           if (overallMaximumBytes <= 0) {
             return;
@@ -578,7 +590,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 
       var fetch = new $imapbodyfetcher.BodyFetcher(
         self._conn,
-        $imaptextparser.TextParser,
+        bodyParser,
         requests
       );
 
