@@ -24,6 +24,7 @@ buildOptions = {
   useStrict: true,
   paths: {
     'alameda': 'deps/alameda',
+    'amd-shim': 'deps/amd-shim',
     'config': 'scripts/config',
 
     // NOP's
@@ -95,8 +96,8 @@ var configs = [
 
   // root aggregate loaded in main frame context
   {
-    name: 'mailapi/main-frame-setup',
-    include: [],
+    name: null,
+    include: ['amd-shim', 'mailapi/main-frame-setup'],
     out: jsPath + '/mailapi/main-frame-setup.js'
   },
 
@@ -232,7 +233,6 @@ var runner = configs.reduceRight(function (prev, cfg) {
 
   try {
     var scriptText,
-      endPath = path.join(jsPath, 'end.js'),
       indexContents = fs.readFileSync(indexPath, 'utf8'),
       startComment = '<!-- START BACKEND INJECT - do not modify -->',
       endComment = '<!-- END BACKEND INJECT -->',
@@ -248,29 +248,15 @@ var runner = configs.reduceRight(function (prev, cfg) {
 
     // List of tags used in gaia
     var indexPaths = [
-      'alameda',
-      'end'
+      'mailapi/main-frame-setup'
     ];
-
-    // Copy some bootstrap scripts over to gaia
-    fs.writeFileSync(path.join(jsPath, 'alameda.js'),
-      fs.readFileSync(path.join(__dirname, '..', 'deps', 'alameda.js')),
-      'utf8');
-    fs.writeFileSync(endPath,
-      fs.readFileSync(path.join(__dirname, 'end.js')),
-      'utf8');
-
-    // Modify end.js to include config.js
-    var configContents = fs.readFileSync(path.join(__dirname, 'config.js'),
-                                         'utf8');
-    fs.writeFile(endPath, configContents + fs.readFileSync(endPath, 'utf8'));
 
     // Update gaia email index.html with the right script tags.
     scriptText = startComment + '\n' +
       indexPaths.map(function (name) {
 
-        return indent + '<script type="application/javascript;version=1.8" ' +
-          'defer src="' +
+        return indent + '<script ' +
+          'type="text/javascript" defer src="' +
           'js/ext/' + name + '.js' +
           '"></script>';
       }).join('\n') + '\n' + indent;
