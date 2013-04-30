@@ -43,17 +43,21 @@ define(
 
   var worker;
   function init() {
-    worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
+    // Do on a timeout to allow other startup logic to complete without
+    // this code interfering
+    setTimeout(function() {
+      worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
 
-    $router.useWorker(worker);
+      $router.useWorker(worker);
 
-    $router.register(control);
-    $router.register(bridge);
-    $router.register($configparser);
-    $router.register($cronsync);
-    $router.register($devicestorage);
-    $router.register($maildb);
-    $router.register($net);
+      $router.register(control);
+      $router.register(bridge);
+      $router.register($configparser);
+      $router.register($cronsync);
+      $router.register($devicestorage);
+      $router.register($maildb);
+      $router.register($net);
+    });
   }
 
   var control = {
@@ -82,7 +86,11 @@ define(
   };
 
 
-  var mailAPI;
+  // Create a purposely global MailAPI, and indicate it is fake for
+  // now, waiting on real back end to boot up.
+  MailAPI = new $mailapi.MailAPI();
+  MailAPI._fake = true;
+
   var bridge = {
     name: 'bridge',
     sendMessage: null,
@@ -90,8 +98,8 @@ define(
       var msg = args;
 
       if (msg.type === 'hello') {
-        mailAPI = new $mailapi.MailAPI();
-        mailAPI.__bridgeSend = function(msg) {
+        delete MailAPI._fake;
+        MailAPI.__bridgeSend = function(msg) {
           worker.postMessage({
             uid: uid,
             type: 'bridge',
@@ -99,14 +107,15 @@ define(
           });
         };
 
-        mailAPI.config = msg.config;
+        MailAPI.config = msg.config;
 
-        var evtObject = document.createEvent('Event');
-        evtObject.initEvent('mailapi', false, false);
-        evtObject.mailAPI = mailAPI;
-        window.dispatchEvent(evtObject);
+        // Send up all the queued messages to real backend now.
+        MailAPI._storedSends.forEach(function (msg) {
+          MailAPI.__bridgeSend(msg);
+        });
+        MailAPI._storedSends = [];
       } else {
-        mailAPI.__bridgeReceive(msg);
+        MailAPI.__bridgeReceive(msg);
       }
     },
   };
