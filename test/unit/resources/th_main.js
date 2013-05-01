@@ -2163,7 +2163,7 @@ var TestActiveSyncAccountMixins = {
         if (totalExpected) {
           self.expect_messageSubjects(
             testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.subject; }));
+              .map(function(x) { return x.header.subject; }));
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,

@@ -5,16 +5,14 @@
 define(
   [
     'rdcommon/log',
-    'activesync/codepages',
-    'wbxml',
+    './messageGenerator',
     'mailapi/accountcommon',
     'module',
     'exports'
   ],
   function(
     $log,
-    $ascp,
-    $wbxml,
+    $msggen,
     $accountcommon,
     $module,
     exports
@@ -35,6 +33,9 @@ var TestActiveSyncServerMixins = {
       self.serverBaseUrl = 'http://localhost:8880';
       $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
         self.serverBaseUrl;
+      self.msggen = new $msggen.MessageGenerator();
+      // XXX: We'll need to sync this with the server
+      self.msggen._clock = Date.now();
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
     });
@@ -61,14 +62,14 @@ var TestActiveSyncServerMixins = {
     });
   },
 
-  addFolder: function(name, type, parentId, messageSetDef) {
-    return this._backdoor({
+  addFolder: function(name, type, parentId, args) {
+    var result = this._backdoor({
       command: 'addFolder',
       name: name,
       type: type,
-      parentId: parentId,
-      args: messageSetDef
+      parentId: parentId
     });
+    return this.addMessagesToFolder(result.id, args);
   },
 
   removeFolder: function(folderId) {
@@ -78,19 +79,23 @@ var TestActiveSyncServerMixins = {
     });
   },
 
-  addMessageToFolder: function(folderId, messageDef) {
+  addMessageToFolder: function(folderId, args) {
+    var newMessage = args instanceof $msggen.SyntheticPart ? args :
+                     this.msggen.makeMessage(args);
     return this._backdoor({
       command: 'addMessageToFolder',
       folderId: folderId,
-      args: messageDef
+      message: newMessage
     });
   },
 
-  addMessagesToFolder: function(folderId, messageSetDef) {
+  addMessagesToFolder: function(folderId, args) {
+   var newMessages = Array.isArray(args) ? args :
+                     this.msggen.makeMessages(args);
     return this._backdoor({
       command: 'addMessagesToFolder',
       folderId: folderId,
-      args: messageSetDef
+      messages: newMessages
     });
   },
 

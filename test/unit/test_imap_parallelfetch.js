@@ -1,4 +1,4 @@
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/messageGenerator', './resources/fault_injecting_socket',
         'exports'],
        function($tc, $th_imap, $msggen, $fawlty, exports) {

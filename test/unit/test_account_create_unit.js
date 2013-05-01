@@ -8,7 +8,7 @@
  * of IMAP+SMTP we handle either of the two generating failures.
  */
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         'mailapi/accountcommon',
         'mailapi/imap/probe', 'mailapi/smtp/probe', 'activesync/protocol',
         'exports'],

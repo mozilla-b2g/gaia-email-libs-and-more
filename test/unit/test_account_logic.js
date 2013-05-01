@@ -3,7 +3,7 @@
  * db reuse makes this test unhappy.
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_activesync_server',
         'activesync/codepages', 'exports'],
        function($tc, $th_imap, $th_as_srv, $ascp, exports) {

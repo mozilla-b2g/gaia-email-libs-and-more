@@ -5,7 +5,7 @@
  * mailparser lib itself.
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         'mailapi/quotechew', 'exports'],
        function($tc, $th_imap, $quotechew, exports) {
 

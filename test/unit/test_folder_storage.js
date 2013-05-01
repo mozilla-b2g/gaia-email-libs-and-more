@@ -13,7 +13,7 @@
  * because do_check_eq kills the event loop when it fails.)
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_activesync_server',
         'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase', 'exports'],
        function($tc, $th_imap, $th_as_server, $date, $mailslice, $syncbase,
