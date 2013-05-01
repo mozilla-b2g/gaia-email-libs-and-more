@@ -296,13 +296,12 @@ ActiveSyncFolder.prototype = {
 /**
  * Create a new ActiveSync server instance. Currently, this server only supports
  * one user.
- *
- * @param startDate (optional) a timestamp to set the server's clock to
  */
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
+
   // TODO: get the date from the test helper somehow...
-  this._clock = new Date();
+  this._clock = Date.now();
 
   const folderType = $_ascp.FolderHierarchy.Enums.Type;
   this._folders = [];
@@ -1019,7 +1018,7 @@ ActiveSyncServer.prototype = {
     let bodyPart = message.body.bodyReps[0];
 
     // TODO: make this match the requested type
-    let bodyType = bodyPart.type === 'plain' ?
+    let bodyType = bodyPart.type === 'html' ?
                    asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
     w.tag(em.From, message.header.author);

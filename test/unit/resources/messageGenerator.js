@@ -532,6 +532,9 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
         srvid: this.messageId,
         suid: null,
         guid: null,
+        // XXX: These header fields should really be split out into an array;
+        // right now they're just the raw header values (which makes life easier
+        // on the ActiveSync fake server).
         author: this.headers['From'],
         to: this.headers['To'],
         cc: this.headers['Cc'],
@@ -550,7 +553,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
         relatedParts: [],
         references: null,
         bodyReps: [{
-          type: bodyPart.contentType === 'text/html' ? 'html' : 'plain',
+          type: bodyPart._contentType === 'text/html' ? 'html' : 'plain',
           sizeEstimate: bodyPart.body.length,
           content: bodyPart.body
         }]
