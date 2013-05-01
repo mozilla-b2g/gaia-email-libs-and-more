@@ -515,6 +515,48 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   toMboxString: function() {
     return "From " + this._from[1] + "\r\n" + this.toMessageString() + "\r\n";
   },
+
+  toJSON: function() {
+    // TODO: this could be smarter, and accept more complicated MIME structures
+    var bodyPart = this.bodyPart;
+    var attachments = [];
+    if (!(bodyPart instanceof SyntheticPartLeaf)) {
+      // TODO: make attachments look like our mailapi stuff
+      attachments = bodyPart.parts.slice(1);
+      bodyPart = bodyPart.parts[0];
+    }
+
+    return {
+      header: {
+        id: this.messageId,
+        srvid: this.messageId,
+        suid: null,
+        guid: null,
+        author: this.headers['From'],
+        to: this.headers['To'],
+        cc: this.headers['Cc'],
+        bcc: this.headers['Bcc'],
+        replyTo: this.headers['Reply-To'],
+        date: this.date.valueOf(),
+        flags: [],
+        hasAttachments: attachments.length !== 0,
+        subject: this.subject,
+        snippet: null
+      },
+      body: {
+        date: this.date.valueOf(),
+        size: 0,
+        attachments: attachments,
+        relatedParts: [],
+        references: null,
+        bodyReps: [{
+          type: bodyPart.contentType === 'text/html' ? 'html' : 'plain',
+          sizeEstimate: bodyPart.body.length,
+          content: bodyPart.body
+        }]
+      }
+    };
+  },
 }, {
   messageId: {
     /** @returns the Message-Id header value. */

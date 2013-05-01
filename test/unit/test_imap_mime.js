@@ -8,7 +8,7 @@
  * - the (external) bleach.js lib
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/messageGenerator', 'exports'],
        function($tc, $th_imap, $msggen, exports) {
 

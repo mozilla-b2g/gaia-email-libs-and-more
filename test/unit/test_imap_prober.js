@@ -7,7 +7,7 @@
  * are set/cleared and we can control exactly when the timers fire.
  */
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/fault_injecting_socket', 'mailapi/imap/probe', 'imap',
         'exports'],
        function($tc, $th_imap, $fawlty, $probe, $imap, exports) {

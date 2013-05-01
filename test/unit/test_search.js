@@ -2,7 +2,7 @@
  * Test the search filters.
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         'mailapi/searchfilter', 'exports'],
        function($tc, $th_imap, $filters, exports) {
 

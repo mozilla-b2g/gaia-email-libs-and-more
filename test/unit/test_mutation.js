@@ -28,7 +28,7 @@
  *   server.  (While these tests can and should be run against real servers.)
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_activesync_server',
         'activesync/codepages/AirSync', 'exports'],
        function($tc, $th_imap, $th_as_server, $airsync, exports) {

@@ -3,7 +3,7 @@
  * permutations and a few failures.
  */
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/fake_xhr', 'mailapi/accountcommon',
         'exports'],
        function($tc, $th_imap, $fakexhr, $accountcommon, exports) {

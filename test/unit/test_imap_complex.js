@@ -4,7 +4,7 @@
  * lot of the growth logic cases.
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+define(['rdcommon/testcontext', './resources/th_main', 'exports'],
        function($tc, $th_imap, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(

@@ -3,7 +3,7 @@
  * received messages.
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
         'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
         'exports'],
