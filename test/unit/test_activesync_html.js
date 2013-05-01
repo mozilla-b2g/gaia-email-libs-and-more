@@ -75,7 +75,7 @@ TD.commonCase('folder sync', function(T) {
         'Have an image! <img src="cid:waffles@mozilla.com">',
       bstrSanitizedImageHtml =
         'Have an image! <img cid-src="waffles@mozilla.com" ' +
-        'class="moz-embedded-image">',
+        'class="moz-embedded-image"/>',
       bpartImageHtml =
         new $msggen.SyntheticPartLeaf(
           bstrImageHtml, { contentType: 'text/html' });
@@ -149,9 +149,10 @@ TD.commonCase('folder sync', function(T) {
   // -- check each message in its own step
   testMessages.forEach(function checkMessage(msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
-      //eCheck.expect_namedValue('body', msgDef.checkBody);
-      //if (msgDef.checkSnippet)
-      //  eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
+      eCheck.expect_namedValue('body', msgDef.checkBody);
+
+      if (msgDef.checkSnippet)
+        eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           var prefix = msgDef.attachments[i].contentId ?
@@ -163,39 +164,46 @@ TD.commonCase('folder sync', function(T) {
         }
       }
 
-      var header = folderView.slice.items[iMsg];
-      header.getBody(function(body) {
-        var bodyValue;
-        if (!body.bodyReps.length) {
-          bodyValue = '';
-        }
-        else if (body.bodyReps[0].type === 'plain') {
-          bodyValue = body.bodyReps[0].content || '';
-        }
-        else if (body.bodyReps[0].type === 'html') {
-          bodyValue = body.bodyReps[0].content;
-        }
 
-        //eCheck.namedValue('body', bodyValue);
-        //if (msgDef.checkSnippet)
-        //  eCheck.namedValue('snippet', header.snippet);
-        if (body.attachments && body.attachments.length) {
-          for (var i = 0; i < body.attachments.length; i++) {
-            eCheck.namedValue('attachment-name', body.attachments[i].filename);
-            eCheck.namedValue('attachment-size',
-                              body.attachments[i].sizeEstimateInBytes);
+      var header = folderView.slice.items[iMsg];
+      testAccount.getMessageBodyWithReps(
+        header,
+        function(body) {
+          eCheck.namedValue('body', body.bodyReps[0].content);
+          if (msgDef.checkSnippet)
+            eCheck.namedValue('snippet', header.snippet);
+
+          if (body.attachments && body.attachments.length) {
+            for (var i = 0; i < body.attachments.length; i++) {
+              eCheck.namedValue('attachment-name',
+                                body.attachments[i].filename);
+              eCheck.namedValue('attachment-size',
+                                body.attachments[i].sizeEstimateInBytes);
+            }
           }
-        }
-        if (body._relatedParts && body._relatedParts.length) {
-          for (var i = 0; i < body._relatedParts.length; i++) {
-            eCheck.namedValue('relatedpart-name',
-                              body._relatedParts[i].name);
-            eCheck.namedValue('relatedpart-size',
-                              body._relatedParts[i].sizeEstimate);
+          if (body._relatedParts && body._relatedParts.length) {
+            for (var i = 0; i < body._relatedParts.length; i++) {
+              eCheck.namedValue('relatedpart-name',
+                                body._relatedParts[i].name);
+              eCheck.namedValue('relatedpart-size',
+                                body._relatedParts[i].sizeEstimate);
+            }
           }
-        }
-        body.die();
-      });
+
+          body.die();
+        },
+        null,
+        function mainThreadFunc(arg, fancyBody, sendResults) {
+          var displayDoc = null, displayElem = null;
+
+          displayDoc = document.implementation.createHTMLDocument('');
+          displayElem = displayDoc.body;
+          displayElem.innerHTML = fancyBody.bodyReps[0].content;
+
+          sendResults(fancyBody.checkForExternalImages(displayElem));
+        },
+        function withMainThreadResults(results) {}
+      );
     });
   });
 
