@@ -12,7 +12,7 @@ var $log = require('rdcommon/log'),
     $activesyncacct = require('mailapi/activesync/account'),
     $activesyncfolder = require('mailapi/activesync/folder'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
-    $fakeacct = require('mailapi/fake/account'),
+    $msggen = require('tests/resources/messageGenerator'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
@@ -1198,11 +1198,13 @@ var TestImapAccountMixins = {
         // duplicate subject.
         if (!self.testUniverse.messageGenerator) {
           self.testUniverse.messageGenerator =
-            new $fakeacct.MessageGenerator(self._useDate, 'body');
+            new $msggen.MessageGenerator(self._useDate);
         }
         var generator = self.testUniverse.messageGenerator;
         generator._clock = new Date(self._useDate);
         messageBodies = generator.makeMessages(messageSetDef);
+        for (var i = 0; i < messageBodies.length; i++)
+          messageBodies[i] = messageBodies[i].toJSON();
       }
 
       if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
@@ -1220,7 +1222,7 @@ var TestImapAccountMixins = {
               // we only compare based on date because we require distinct dates
               // for this ordering, but we could track insertion sequence
               // which would correlate with UID and then be viable...
-              return b.date - a.date;
+              return b.headerInfo.date - a.headerInfo.date;
             });
           testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
         }
@@ -2163,7 +2165,7 @@ var TestActiveSyncAccountMixins = {
         if (totalExpected) {
           self.expect_messageSubjects(
             testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.header.subject; }));
+              .map(function(x) { return x.headerInfo.subject; }));
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,

@@ -83,7 +83,7 @@ ActiveSyncFolder.prototype = {
   _messageInFilterRange: function(filterType, message) {
     return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
            (this.server._clock - this.filterTypeToMS[filterType] <=
-            message.header.date);
+            message.headerInfo.date);
   },
 
   /**
@@ -95,7 +95,7 @@ ActiveSyncFolder.prototype = {
   addMessage: function(newMessage) {
     this.messages.unshift(newMessage);
     this.messages.sort(function(a, b) {
-      return b.header.date - a.header.date;
+      return b.headerInfo.date - a.headerInfo.date;
     });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
@@ -113,7 +113,7 @@ ActiveSyncFolder.prototype = {
   addMessages: function(newMessages) {
     this.messages.unshift.apply(this.messages, newMessages);
     this.messages.sort(function(a, b) {
-      return b.header.date - a.header.date;
+      return b.headerInfo.date - a.headerInfo.date;
     });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
@@ -130,7 +130,7 @@ ActiveSyncFolder.prototype = {
    */
   findMessageById: function(id) {
     for (let message of this.messages) {
-      if (message.header.srvid === id)
+      if (message.headerInfo.srvid === id)
         return message;
     }
     return null;
@@ -145,11 +145,11 @@ ActiveSyncFolder.prototype = {
    */
   changeMessage: function(message, changes) {
     function updateFlag(flag, state) {
-      let idx = message.header.flags.indexOf(flag);
+      let idx = message.headerInfo.flags.indexOf(flag);
       if (state && idx !== -1)
-        message.header.flags.push(flag);
+        message.headerInfo.flags.push(flag);
       if (!state && idx === -1)
-        message.header.flags.splice(idx, 1);
+        message.headerInfo.flags.splice(idx, 1);
     }
 
     if ('read' in changes)
@@ -161,7 +161,8 @@ ActiveSyncFolder.prototype = {
       // TODO: Handle the case where we already have this message in the command
       // list.
       if (this._messageInFilterRange(syncState.filterType, message))
-        syncState.commands.push({ type: 'change', srvid: message.header.srvid,
+        syncState.commands.push({ type: 'change',
+                                  srvid: message.headerInfo.srvid,
                                   changes: changes });
     }
   },
@@ -180,7 +181,7 @@ ActiveSyncFolder.prototype = {
         for (let [,syncState] in Iterator(this._messageSyncStates)) {
           if (this._messageInFilterRange(syncState.filterType, message))
             syncState.commands.push({ type: 'delete',
-                                      srvid: message.header.srvid });
+                                      srvid: message.headerInfo.srvid });
         }
 
         return message;
@@ -719,7 +720,7 @@ ActiveSyncServer.prototype = {
       for (let command of syncState.commands) {
         if (command.type === 'add') {
           w.stag(as.Add)
-             .tag(as.ServerId, command.message.header.srvid)
+             .tag(as.ServerId, command.message.headerInfo.srvid)
              .stag(as.ApplicationData);
 
           this._writeEmail(w, command.message, truncationSize);
@@ -1015,31 +1016,32 @@ ActiveSyncServer.prototype = {
     const asb = $_ascp.AirSyncBase.Tags;
     const asbEnum = $_ascp.AirSyncBase.Enums;
 
-    let bodyPart = message.body.bodyReps[0];
+    let bodyPart = message.bodyInfo.bodyReps[0];
 
     // TODO: make this match the requested type
     let bodyType = bodyPart.type === 'html' ?
                    asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
-    w.tag(em.From, message.header.author);
+    w.tag(em.From, message.headerInfo.author);
 
     if (message.to)
-      w.tag(em.To, message.header.to);
+      w.tag(em.To, message.headerInfo.to);
     if (message.cc)
-      w.tag(em.Cc, message.header.cc);
+      w.tag(em.Cc, message.headerInfo.cc);
 
-    w.tag(em.Subject, message.header.subject)
-     .tag(em.DateReceived, new Date(message.header.date).toISOString())
+    w.tag(em.Subject, message.headerInfo.subject)
+     .tag(em.DateReceived, new Date(message.headerInfo.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, message.header.flags.indexOf('\\Seen') !== -1 ? '1' : '0')
+     .tag(em.Read, message.headerInfo.flags.indexOf('\\Seen') !== -1 ?
+                   '1' : '0')
      .stag(em.Flag)
-       .tag(em.Status, message.header.flags.indexOf('\\Flagged') !== -1 ?
+       .tag(em.Status, message.headerInfo.flags.indexOf('\\Flagged') !== -1 ?
                        '1' : '0')
      .etag();
 
-    if (message.header.hasAttachments) {
+    if (message.headerInfo.hasAttachments) {
       w.stag(asb.Attachments);
-      for (let [i, attachment] in Iterator(message.body.attachments)) {
+      for (let [i, attachment] in Iterator(message.bodyInfo.attachments)) {
         w.stag(asb.Attachment)
            .tag(asb.DisplayName, attachment._filename)
            // We intentionally mimic Gmail's style of naming FileReferences here
@@ -1059,6 +1061,8 @@ ActiveSyncServer.prototype = {
     }
 
     let body = bodyPart.content;
+    if (bodyPart.type === 'plain')
+      body = body[1];
     if (truncSize !== undefined)
       body = body.substring(0, truncSize);
 

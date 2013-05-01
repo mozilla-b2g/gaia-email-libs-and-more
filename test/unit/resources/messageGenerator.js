@@ -527,7 +527,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     }
 
     return {
-      header: {
+      headerInfo: {
         id: this.messageId,
         srvid: this.messageId,
         suid: null,
@@ -541,12 +541,13 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
         bcc: this.headers['Bcc'],
         replyTo: this.headers['Reply-To'],
         date: this.date.valueOf(),
+        // TODO: handle flags
         flags: [],
         hasAttachments: attachments.length !== 0,
         subject: this.subject,
         snippet: null
       },
-      body: {
+      bodyInfo: {
         date: this.date.valueOf(),
         size: 0,
         attachments: attachments,
@@ -555,9 +556,14 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
         bodyReps: [{
           type: bodyPart._contentType === 'text/html' ? 'html' : 'plain',
           sizeEstimate: bodyPart.body.length,
-          content: bodyPart.body
+          content: bodyPart._contentType === 'text/html' ? bodyPart.body :
+            [0x1, bodyPart.body]
         }]
-      }
+      },
+      messageText: this.toMessageString(),
+      date: this.date,
+      // TODO: handle flags
+      flags: []
     };
   },
 }, {
