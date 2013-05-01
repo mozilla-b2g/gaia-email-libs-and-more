@@ -29,7 +29,7 @@
  *    state and re-establishes.)
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/fault_injecting_socket', 'mailapi/errbackoff', 'exports'],
        function($tc, $th_imap, $fawlty, $errbackoff, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;

@@ -7,7 +7,7 @@
  * - Auth failure.
  */
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/fault_injecting_socket', 'mailapi/smtp/probe',
         'exports'],
        function($tc, $th_imap, $fawlty, $smtpprobe, exports) {
