@@ -83,19 +83,34 @@ ActiveSyncFolder.prototype = {
   _messageInFilterRange: function(filterType, message) {
     return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
            (this.server._clock - this.filterTypeToMS[filterType] <=
-            message.header.date);
+            message.date);
   },
 
   /**
    * Add a single message to this folder.
    *
-   * @param newMessage either a message object created by messageGenerator.js
-   *        and converted to JSON via toJSON()
+   * @param newMessage an object with the following members:
+   *        id: (string) a unique message id
+   *        from: (string) the sender of the message
+   *        to: (string, optional) the recipient(s) of the message
+   *        cc: (string, optional) the cc(s) of the message
+   *        replyTo: (string, optional) the reply-to address
+   *        date: (number) the message's date, in ms since the UNIX epoch
+   *        flags: (array) an array of flags representing the message's state;
+   *          valid flags are "flagged" and "read"
+   *        body: (object) the message's body, with the following members:
+   *          type: (string) the body's MIME type
+   *          content: (string) the body's data
+   *        attachments: (array, optional) an array of attachments, represented
+   *          as objects with the following members:
+   *          filename: (string) the attachment's filename
+   *          contentId: (string, optional) the content ID for the attachment
+   *          content: (string) the attachment's data
    */
   addMessage: function(newMessage) {
     this.messages.unshift(newMessage);
     this.messages.sort(function(a, b) {
-      return b.header.date - a.header.date;
+      return b.date - a.date;
     });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
@@ -107,13 +122,13 @@ ActiveSyncFolder.prototype = {
   /**
    * Add an array of messages to this folder.
    *
-   * @param newMessages an array of message objects created by
-   *        messageGenerator.js and converted to JSON via toJSON()
+   * @param newMessages an array of message objects; see addMessage() for
+   * details
    */
   addMessages: function(newMessages) {
     this.messages.unshift.apply(this.messages, newMessages);
     this.messages.sort(function(a, b) {
-      return b.header.date - a.header.date;
+      return b.date - a.date;
     });
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
@@ -130,7 +145,7 @@ ActiveSyncFolder.prototype = {
    */
   findMessageById: function(id) {
     for (let message of this.messages) {
-      if (message.header.srvid === id)
+      if (message.id === id)
         return message;
     }
     return null;
@@ -145,23 +160,23 @@ ActiveSyncFolder.prototype = {
    */
   changeMessage: function(message, changes) {
     function updateFlag(flag, state) {
-      let idx = message.header.flags.indexOf(flag);
+      let idx = message.flags.indexOf(flag);
       if (state && idx !== -1)
-        message.header.flags.push(flag);
+        message.flags.push(flag);
       if (!state && idx === -1)
-        message.header.flags.splice(idx, 1);
+        message.flags.splice(idx, 1);
     }
 
     if ('read' in changes)
-      updateFlag('\\Seen', changes.read);
+      updateFlag('read', changes.read);
     if ('flag' in changes)
-      updateFlag('\\Flagged', changes.flag);
+      updateFlag('flagged', changes.flag);
 
     for (let [,syncState] in Iterator(this._messageSyncStates)) {
       // TODO: Handle the case where we already have this message in the command
       // list.
       if (this._messageInFilterRange(syncState.filterType, message))
-        syncState.commands.push({ type: 'change', srvid: message.header.srvid,
+        syncState.commands.push({ type: 'change', srvid: message.id,
                                   changes: changes });
     }
   },
@@ -174,19 +189,34 @@ ActiveSyncFolder.prototype = {
    */
   removeMessageById: function(id) {
     for (let [i, message] in Iterator(this.messages)) {
-      if (message.messageId === id) {
+      if (message.id === id) {
         this.messages.splice(i, 1);
 
         for (let [,syncState] in Iterator(this._messageSyncStates)) {
           if (this._messageInFilterRange(syncState.filterType, message))
-            syncState.commands.push({ type: 'delete',
-                                      srvid: message.header.srvid });
+            syncState.commands.push({ type: 'delete', srvid: message.id });
         }
 
         return message;
       }
     }
+
     return null;
+  },
+
+  /**
+   * Create a JSON representation of this folder, for debugging purposes (and
+   * sending back over the backdoor).
+   *
+   * @return the JSON representation of this folder
+   */
+  toJSON: function() {
+    return {
+      name: this.name,
+      type: this.type,
+      id: this.id,
+      parentId: this.parentId,
+    };
   },
 
   /**
@@ -296,13 +326,12 @@ ActiveSyncFolder.prototype = {
 /**
  * Create a new ActiveSync server instance. Currently, this server only supports
  * one user.
- *
- * @param startDate (optional) a timestamp to set the server's clock to
  */
 function ActiveSyncServer(startDate) {
   this.server = new HttpServer();
+
   // TODO: get the date from the test helper somehow...
-  this._clock = new Date();
+  this._clock = Date.now();
 
   const folderType = $_ascp.FolderHierarchy.Enums.Type;
   this._folders = [];
@@ -720,7 +749,7 @@ ActiveSyncServer.prototype = {
       for (let command of syncState.commands) {
         if (command.type === 'add') {
           w.stag(as.Add)
-             .tag(as.ServerId, command.message.header.srvid)
+             .tag(as.ServerId, command.message.id)
              .stag(as.ApplicationData);
 
           this._writeEmail(w, command.message, truncationSize);
@@ -1016,41 +1045,40 @@ ActiveSyncServer.prototype = {
     const asb = $_ascp.AirSyncBase.Tags;
     const asbEnum = $_ascp.AirSyncBase.Enums;
 
-    let bodyPart = message.body.bodyReps[0];
-
     // TODO: make this match the requested type
-    let bodyType = bodyPart.type === 'plain' ?
+    let bodyType = message.body.type === 'text/html' ?
                    asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
-    w.tag(em.From, message.header.author);
+    w.tag(em.From, message.from);
 
     if (message.to)
-      w.tag(em.To, message.header.to);
+      w.tag(em.To, message.to);
     if (message.cc)
-      w.tag(em.Cc, message.header.cc);
+      w.tag(em.Cc, message.cc);
+    if (message.replyTo)
+      w.tag(em.Cc, message.replyTo);
 
-    w.tag(em.Subject, message.header.subject)
-     .tag(em.DateReceived, new Date(message.header.date).toISOString())
+    w.tag(em.Subject, message.subject)
+     .tag(em.DateReceived, new Date(message.date).toISOString())
      .tag(em.Importance, '1')
-     .tag(em.Read, message.header.flags.indexOf('\\Seen') !== -1 ? '1' : '0')
+     .tag(em.Read, message.flags.indexOf('read') !== -1 ? '1' : '0')
      .stag(em.Flag)
-       .tag(em.Status, message.header.flags.indexOf('\\Flagged') !== -1 ?
-                       '1' : '0')
+       .tag(em.Status, message.flags.indexOf('flagged') !== -1 ? '1' : '0')
      .etag();
 
-    if (message.header.hasAttachments) {
+    if (message.attachments && message.attachments.length) {
       w.stag(asb.Attachments);
-      for (let [i, attachment] in Iterator(message.body.attachments)) {
+      for (let [i, attachment] in Iterator(message.attachments)) {
         w.stag(asb.Attachment)
-           .tag(asb.DisplayName, attachment._filename)
+           .tag(asb.DisplayName, attachment.filename)
            // We intentionally mimic Gmail's style of naming FileReferences here
            // to make testing our Gmail demunger easier.
            .tag(asb.FileReference, 'file_0.' + (i+1))
            .tag(asb.Method, asbEnum.Method.Normal)
-          .tag(asb.EstimatedDataSize, attachment.body.length);
+          .tag(asb.EstimatedDataSize, attachment.content.length);
 
-        if (attachment._contentId) {
-          w.tag(asb.ContentId, attachment._contentId)
+        if (attachment.contentId) {
+          w.tag(asb.ContentId, attachment.contentId)
            .tag(asb.IsInline, '1');
         }
 
@@ -1059,17 +1087,18 @@ ActiveSyncServer.prototype = {
       w.etag();
     }
 
-    let body = bodyPart.content;
+    let bodyContent = message.body.content;
     if (truncSize !== undefined)
-      body = body.substring(0, truncSize);
+      bodyContent = bodyContent.substring(0, truncSize);
 
     w.stag(asb.Body)
        .tag(asb.Type, bodyType)
-       .tag(asb.EstimatedDataSize, bodyPart.sizeEstimate)
-       .tag(asb.Truncated, body.length === bodyPart.content.length ? '0' : '1');
+       .tag(asb.EstimatedDataSize, message.body.content.length)
+       .tag(asb.Truncated, bodyContent.length === message.body.content.length ?
+                           '0' : '1');
 
-    if (body)
-      w.tag(asb.Data, body);
+    if (bodyContent)
+      w.tag(asb.Data, bodyContent);
 
     w.etag(asb.Body);
   },
@@ -1125,13 +1154,11 @@ ActiveSyncServer.prototype = {
   },
 
   _backdoor_getFirstFolderWithType: function(data) {
-    let folder = this.foldersByType[data.type][0];
-    return this._serializeFolder(folder);
+    return this.foldersByType[data.type][0];
   },
 
   _backdoor_getFirstFolderWithName: function(data) {
-    let folder = this.findFolderByName(data.name);
-    return this._serializeFolder(folder);
+    return this.findFolderByName(data.name);
   },
 
   _backdoor_addFolder: function(data) {
@@ -1148,8 +1175,7 @@ ActiveSyncServer.prototype = {
         type = folderType.DefaultDeleted;
     }
 
-    let folder = this.addFolder(data.name, type, data.parentId);
-    return this._serializeFolder(folder);
+    return this.addFolder(data.name, type, data.parentId);
   },
 
   _backdoor_removeFolder: function(data) {
@@ -1159,26 +1185,15 @@ ActiveSyncServer.prototype = {
   _backdoor_addMessageToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessage(data.message);
-    return this._serializeFolder(folder);
   },
 
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.messages);
-    return this._serializeFolder(folder);
   },
 
   _backdoor_removeMessageById: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.removeMessageById(data.messageId);
-  },
-
-  _serializeFolder: function(folder) {
-    if (folder) {
-      return {
-        id: folder.id,
-        messages: folder.messages
-      };
-    }
   },
 };

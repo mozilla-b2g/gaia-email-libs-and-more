@@ -747,7 +747,7 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
     'test_stop_at_1990',
     { count: 1, age: { hours: 1 }, age_incr: { hours: 12 },
       // have the
-      flags: ['Deleted'] });
+      deleted: true });
 
   T.group('go to 1990 but no further!');
   const expectedZeroProbes = 40,

@@ -86,6 +86,8 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
     },
   ];
 
+  var msgIdToPattern = {};
+
   var testFolder = testAccount.do_createTestFolder(
     folderName, function makeMessages() {
     var messageAppends = [],
@@ -95,19 +97,8 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       var msgDef = msgPatterns[i % msgPatterns.length];
       msgDef.age = { days: 1, minutes: i * 20 };
       var synMsg = msgGen.makeMessage(msgDef);
-      messageAppends.push({
-        date: synMsg.date,
-        headerInfo: {
-          subject: synMsg.subject,
-          guid: synMsg.messageId,
-        },
-        bodyInfo: {
-          // HACK: just use the string from the def
-          bodyReps: [{ content: msgDef.bodyStr }],
-          expectedContents: msgDef.expectedContents
-        },
-        messageText: synMsg.toMessageString(),
-      });
+      messageAppends.push(synMsg);
+      msgIdToPattern[synMsg.messageId] = msgDef;
     }
 
     return messageAppends;
@@ -130,7 +121,9 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
 
     folderView.slice.items.forEach(function(header) {
       var serverMsg = testFolder.findServerMessage(header.guid);
-      var snippetBodyRepContent = testFolder.serverMessageContent(header.guid);
+      var msgDef = msgIdToPattern[header.guid];
+      // HACK: just use the string from the def
+      var snippetBodyRepContent = msgDef.bodyStr;
       if (!snippetBodyRepContent)
         throw new Error('no server content for guid: ' + header.guid);
       var snippet = snippetBodyRepContent.slice(0, 20);
@@ -143,7 +136,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
 
       eLazy.expect_namedValue('bodyReps', {
         id: header.id,
-        contents: serverMsg.bodyInfo.expectedContents,
+        contents: msgDef.expectedContents,
         isDownloaded: true
       });
 

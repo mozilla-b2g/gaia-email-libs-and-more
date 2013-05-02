@@ -404,18 +404,18 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
    * Given a tuple containing [a display name, an e-mail address], returns a
    *  string suitable for use in a to/from/cc header line.
    *
-   * @param aNameAndAddress A list with two elements.  The first should be the
-   *     display name (sans wrapping quotes).  The second element should be the
-   *     e-mail address (sans wrapping greater-than/less-than).
+   * @param aNameAndAddress A object two members: "name" should be the display
+   *     name (sans wrapping quotes).  "address" should be the e-mail address
+   *     (sans wrapping greater-than/less-than).
    */
   _formatMailFromNameAndAddress: function(aNameAndAddress) {
-    if (!aNameAndAddress[0])
-      return aNameAndAddress[1];
+    if (!aNameAndAddress.name)
+      return aNameAndAddress.address;
     // if the name is encoded, do not put it in quotes!
-    return (aNameAndAddress[0][0] == "=" ?
-              (aNameAndAddress[0] + " ") :
-              ('"' + aNameAndAddress[0] + '" ')) +
-           '<' + aNameAndAddress[1] + '>';
+    return (aNameAndAddress.name[0] == "=" ?
+              (aNameAndAddress.name + " ") :
+              ('"' + aNameAndAddress.name + '" ')) +
+           '<' + aNameAndAddress.address + '>';
   },
 
   _formatMailListFromNamesAndAddresses: function(aList) {
@@ -513,49 +513,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
   },
 
   toMboxString: function() {
-    return "From " + this._from[1] + "\r\n" + this.toMessageString() + "\r\n";
-  },
-
-  toJSON: function() {
-    // TODO: this could be smarter, and accept more complicated MIME structures
-    var bodyPart = this.bodyPart;
-    var attachments = [];
-    if (!(bodyPart instanceof SyntheticPartLeaf)) {
-      // TODO: make attachments look like our mailapi stuff
-      attachments = bodyPart.parts.slice(1);
-      bodyPart = bodyPart.parts[0];
-    }
-
-    return {
-      header: {
-        id: this.messageId,
-        srvid: this.messageId,
-        suid: null,
-        guid: null,
-        author: this.headers['From'],
-        to: this.headers['To'],
-        cc: this.headers['Cc'],
-        bcc: this.headers['Bcc'],
-        replyTo: this.headers['Reply-To'],
-        date: this.date.valueOf(),
-        flags: [],
-        hasAttachments: attachments.length !== 0,
-        subject: this.subject,
-        snippet: null
-      },
-      body: {
-        date: this.date.valueOf(),
-        size: 0,
-        attachments: attachments,
-        relatedParts: [],
-        references: null,
-        bodyReps: [{
-          type: bodyPart.contentType === 'text/html' ? 'html' : 'plain',
-          sizeEstimate: bodyPart.body.length,
-          content: bodyPart.body
-        }]
-      }
-    };
+    return "From " + this._from.address + "\r\n" + this.toMessageString() +
+           "\r\n";
   },
 }, {
   messageId: {
@@ -631,12 +590,12 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
 
   fromName: {
     /** @returns The display name part of the From header. */
-    get: function() { return this._from[0]; },
+    get: function() { return this._from.name; },
   },
 
   fromAddress: {
     /** @returns The e-mail address part of the From header (no display name). */
-    get: function() { return this._from[1]; },
+    get: function() { return this._from.address; },
   },
 
   to: {
@@ -674,12 +633,12 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
 
   toName: {
     /** @returns The display name of the first intended recipient. */
-    get: function() { return this._to[0][0]; },
+    get: function() { return this._to[0].name; },
   },
 
   toAddress: {
     /** @returns The email address (no display name) of the first recipient. */
-    get: function() { return this._to[0][1]; },
+    get: function() { return this._to[0].address; },
   },
 
   cc: {
@@ -801,15 +760,18 @@ MessageGenerator.prototype = {
    *     unless you don't mind or can ensure no collisions occur between our
    *     number allocation and your uses.  If provided, the number must be
    *     less than MAX_VALID_NAMES.
-   * @return A list containing two elements.  The first is a name produced by
-   *     a call to makeName, and the second an e-mail address produced by a
+   * @return An object containing two members: "name" is a name produced by
+   *     a call to makeName, and "address" an e-mail address produced by a
    *     call to makeMailAddress.  This representation is used by the
    *     SyntheticMessage class when dealing with names and addresses.
    */
   makeNameAndAddress: function(aNameNumber) {
     if (aNameNumber === undefined)
       aNameNumber = this._nextNameNumber++;
-    return [this.makeName(aNameNumber), this.makeMailAddress(aNameNumber)];
+    return {
+      name: this.makeName(aNameNumber),
+      address: this.makeMailAddress(aNameNumber)
+    };
   },
 
   /**
@@ -819,7 +781,7 @@ MessageGenerator.prototype = {
    *  numbers on your own.
    *
    * @param aCount The number of people you want name and address tuples for.
-   * @returns a list of aCount name-and-address tuples.
+   * @returns a list of aCount name-and-address objects.
    */
   makeNamesAndAddresses: function(aCount) {
     var namesAndAddresses = [];
@@ -933,6 +895,7 @@ MessageGenerator.prototype = {
    *     as junk?  We have no concept of marking a message as definitely not
    *     junk at this point.
    * @param [aArgs.read] Should this message be marked as already read?
+   * @param [aArgs.deleted] Should this message be marked as deleted?
    * @returns a SyntheticMessage fashioned just to your liking.
    */
   makeMessage: function(aArgs) {
@@ -1000,11 +963,11 @@ MessageGenerator.prototype = {
         msg.headers[key] = value;
         // clobber helper...
         if (key == "From")
-          msg._from = ["", ""];
+          msg._from = {name: "", address: ""};
         if (key == "To")
-          msg._to = [["", ""]];
+          msg._to = [{name: "", address: ""}];
         if (key == "Cc")
-          msg._cc = [["", ""]];
+          msg._cc = [{name: "", address: ""}];
       }
     }
 
@@ -1012,14 +975,18 @@ MessageGenerator.prototype = {
       msg.metaState.junk = true;
     if ("read" in aArgs && aArgs.read)
       msg.metaState.read = true;
+    if ("deleted" in aArgs && aArgs.deleted)
+      msg.metaState.deleted = true;
 
     var bodyPart;
     if (aArgs.bodyPart)
       bodyPart = aArgs.bodyPart;
     else if (aArgs.body)
       bodyPart = new SyntheticPartLeaf(aArgs.body.body, aArgs.body);
-    else // different messages should have a chance at different bodies
+    else if (msg._to.length) // different messages should have different bodies
       bodyPart = new SyntheticPartLeaf("Hello " + msg.toName + "!");
+    else
+      bodyPart = new SyntheticPartLeaf("Hello stranger!");
 
     // if it has any attachments, create a multipart/mixed to be the body and
     //  have it be the parent of the existing body and all the attachments
@@ -1062,7 +1029,8 @@ MessageGenerator.prototype = {
     count: 10,
   },
   MAKE_MESSAGES_PROPAGATE: ['attachments', 'body', 'cc', 'from', 'inReplyTo',
-                            'subject', 'to', 'clobberHeaders', 'junk', 'read'],
+                            'subject', 'to', 'clobberHeaders', 'junk', 'read',
+                            'deleted'],
   /**
    * Given a set definition, produce a list of synthetic messages.
    *

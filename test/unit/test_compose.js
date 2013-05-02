@@ -5,10 +5,9 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
-        'mailapi/util', 'mailapi/fake/account', 'mailapi/accountcommon',
-        'exports'],
+        'mailapi/util', 'mailapi/accountcommon', 'exports'],
        function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, $fakeacct, $accountcommon, exports) {
+                $util, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_compose' }, null,
@@ -421,7 +420,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
   var msgDef = {
     subject: uniqueSubject,
-    from: [TEST_PARAMS.name, TEST_PARAMS.emailAddress],
+    from: {name: TEST_PARAMS.name, address: TEST_PARAMS.emailAddress},
     messageId: makeRandomSubject().replace(/[: ]+/g, ''),
     bodyPart: bpartHtml,
     checkReply: {
@@ -438,20 +437,12 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
-    var messageAppends = [],
-        msgGen = new $msggen.MessageGenerator(testAccount._useDate);
+    var msgGen = new $msggen.MessageGenerator(testAccount._useDate);
 
     msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
-    messageAppends.push({
-      date: synMsg.date,
-      headerInfo: {
-        subject: synMsg.subject,
-      },
-      messageText: synMsg.toMessageString(),
-    });
-
-    return messageAppends;
+      console.warn(synMsg.toMessageString());
+    return [synMsg];
   });
 
   var expectedReplyBody, header;
@@ -543,35 +534,33 @@ TD.commonCase('reply all', function(T, RT) {
   var testFolder = testAccount.do_createTestFolder(
     'test_compose_reply_all',
     function makeMessages() {
-      // (note: fake account's generator used because it produces names and
-      // addresses that are already aligned with our needs.)
-      var fmsgGen = new $fakeacct.MessageGenerator(testAccount._useDate,
-                                                   'body');
-      senderPair = fmsgGen.makeNameAndAddress();
-      toPairs = fmsgGen.makeNamesAndAddresses(4);
-      ccPairs = fmsgGen.makeNamesAndAddresses(4);
+      var msgGen = new $msggen.MessageGenerator(testAccount._useDate);
+
+      senderPair = msgGen.makeNameAndAddress();
+      toPairs = msgGen.makeNamesAndAddresses(4);
+      ccPairs = msgGen.makeNamesAndAddresses(4);
       var msgs = [];
       // 0: the sender is not already in the to/cc
-      msgs.push(fmsgGen.makeMessage(msgNotIn = {
+      msgs.push(msgGen.makeMessage(msgNotIn = {
           from: senderPair, to: toPairs, cc: ccPairs, age: { hours: 1 }
         }));
       // 1: the sender is in the 'to' list
-      msgs.push(fmsgGen.makeMessage(msgInTo = {
+      msgs.push(msgGen.makeMessage(msgInTo = {
           from: senderPair, to: toPairs.concat([senderPair]), cc: ccPairs,
           age: { hours: 2 }
         }));
       // 2: the sender is in the 'cc' list
-      msgs.push(fmsgGen.makeMessage(msgInCc = {
+      msgs.push(msgGen.makeMessage(msgInCc = {
           from: senderPair, to: toPairs, cc: ccPairs.concat([senderPair]),
           age: { hours: 3 }
         }));
       // 3: no 'cc' list at all; sender not in list
-      msgs.push(fmsgGen.makeMessage(msgNoCc = {
+      msgs.push(msgGen.makeMessage(msgNoCc = {
           from: senderPair, to: toPairs, cc: [],
           age: { hours: 4 }
         }));
       // 4: no 'to' list at all; sender not in list
-      msgs.push(fmsgGen.makeMessage(msgNoTo = {
+      msgs.push(msgGen.makeMessage(msgNoTo = {
           from: senderPair, to: [], cc: ccPairs,
           age: { hours: 5 }
         }));
@@ -612,7 +601,7 @@ TD.commonCase('reply all', function(T, RT) {
     });
 
     eCheck.expect_namedValue('no-cc:to', [senderPair].concat(msgNoCc.to));
-    eCheck.expect_namedValue('no-cc:cc', null);
+    eCheck.expect_namedValue('no-cc:cc', []);
     var composerNoCc = headerNoCc.replyToMessage('all', function() {
       eCheck.namedValue('no-cc:to', composerNoCc.to);
       eCheck.namedValue('no-cc:cc', composerNoCc.cc);

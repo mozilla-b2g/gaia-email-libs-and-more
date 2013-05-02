@@ -12,7 +12,7 @@ var $log = require('rdcommon/log'),
     $activesyncacct = require('mailapi/activesync/account'),
     $activesyncfolder = require('mailapi/activesync/folder'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
-    $fakeacct = require('mailapi/fake/account'),
+    $msggen = require('tests/resources/messageGenerator'),
     $mailslice = require('mailapi/mailslice'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
@@ -73,8 +73,6 @@ var TestUniverseMixins = {
     self.universe = null;
     self.MailAPI = null;
 
-    self.messageGenerator = null;
-
     self._bridgeLog = null;
 
     // self-registered accounts that belong to this universe
@@ -103,6 +101,11 @@ var TestUniverseMixins = {
       self._useDate = new Date();
       $date.TEST_LetsDoTheTimewarpAgain(null);
     }
+
+    // We save/reuse our generator so that the subject numbers don't reset.  It
+    // was very confusing when we would add a new message with a duplicate
+    // subject.
+    self.messageGenerator = new $msggen.MessageGenerator(self._useDate);
 
     if (!checkFlagDefault(opts, 'stockDefaults', false)) {
       // These are all the default values that tests code against by default.
@@ -472,7 +475,7 @@ var TestCommonAccountMixins = {
     if (expected.hasOwnProperty('additions') && expected.additions) {
       for (i = 0; i < expected.additions.length; i++) {
         var msgThing = expected.additions[i], subject;
-        expAdditionRep[msgThing.subject || msgThing.headerInfo.subject] = true;
+        expAdditionRep[msgThing.subject] = true;
       }
     }
     for (i = 0; i < expected.deletions.length; i++) {
@@ -846,7 +849,7 @@ var TestFolderMixins = {
     for (var i = 0; i < msgs.length; i++) {
       var msg = msgs[i];
 
-      if (msg.headerInfo.guid === guid)
+      if (msg.messageId === guid)
         return msg;
     }
 
@@ -854,8 +857,16 @@ var TestFolderMixins = {
   },
 
   serverMessageContent: function(guid, idx) {
-    var msg = this.findServerMessage(guid);
-    return msg.bodyInfo.bodyReps[idx || 0].content;
+    var message = this.findServerMessage(guid);
+    // XXX: this code gets repeated a few times; put it in messageGenerator?
+    var bodyPart = message.bodyPart;
+    while (!(bodyPart instanceof $msggen.SyntheticPartLeaf))
+      bodyPart = bodyPart.parts[0];
+
+    if (bodyPart._contentType === 'text/html')
+      return bodyPart.body;
+    else
+      return [0x1, bodyPart.body];
   },
 
   /**
@@ -1177,7 +1188,7 @@ var TestImapAccountMixins = {
     var self = this;
     var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
                        messageSetDef.count;
-    this.T.convenienceSetup(this, desc, testFolder,function(){
+    this.T.convenienceSetup(this, desc, testFolder, function() {
       self.RT.reportActiveActorThisStep(self.eImapAccount);
       self.universe._testModeDisablingLocalOps = true;
 
@@ -1193,13 +1204,6 @@ var TestImapAccountMixins = {
         messageBodies = messageSetDef();
       }
       else {
-        // We save/reuse our generator so that the subject numbers don't reset.
-        // It was very confusing when we would add a new message with a
-        // duplicate subject.
-        if (!self.testUniverse.messageGenerator) {
-          self.testUniverse.messageGenerator =
-            new $fakeacct.MessageGenerator(self._useDate, 'body');
-        }
         var generator = self.testUniverse.messageGenerator;
         generator._clock = new Date(self._useDate);
         messageBodies = generator.makeMessages(messageSetDef);
@@ -1225,7 +1229,20 @@ var TestImapAccountMixins = {
           testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
         }
       }
-      self.universe.appendMessages(testFolder.id, messageBodies);
+      // turn the messages into something appendable
+      var messagesToAppend = messageBodies.map(function(message) {
+        var flags = [];
+        if (message.metaState.read)
+          flags.push('\\Seen');
+        if (message.metaState.deleted)
+          flags.push('Deleted');
+        return {
+          date: message.date,
+          messageText: message.toMessageString(),
+          flags: flags
+        };
+      });
+      self.universe.appendMessages(testFolder.id, messagesToAppend);
       self.universe.waitForAccountOps(self.compositeAccount, function() {
         self._logger.appendNotified();
         self.universe._testModeDisablingLocalOps = false;
@@ -1375,19 +1392,19 @@ var TestImapAccountMixins = {
       // no need to adjust gibberish indices
       if (idx < 0 || idx >= array.length)
         return idx;
-      var thresh = $date.quantizeDate(array[idx].headerInfo.date +
+      var thresh = $date.quantizeDate(array[idx].date.valueOf() +
                                       (dir === -1 ? 0 : $date.DAY_MILLIS));
       var i;
       if (dir === -1) {
         for (i = idx - 1; i >= 0; i--) {
-          if ($date.STRICTLY_AFTER(array[idx].headerInfo.date, thresh))
+          if ($date.STRICTLY_AFTER(array[idx].date, thresh))
             break;
         }
         return i + 1;
       }
       else {
         for (i = idx + 1; i < array.length; i++) {
-          if ($date.ON_OR_BEFORE(array[idx].headerInfo.date, thresh))
+          if ($date.ON_OR_BEFORE(array[idx].date, thresh))
             break;
         }
         return i - 1;
@@ -1496,7 +1513,7 @@ var TestImapAccountMixins = {
           if (idxDeleted === -1) {
             seenAdded++;
             srvIdx += step;
-            //console.log('MERGE add', knownIdx, serverHeader.headerInfo.subject);
+            //console.log('MERGE add', knownIdx, serverHeader.subject);
             if (dir !== -1) {
               // Add at our current site, displacing the considered header to be
               // be the next header after a normal step.
@@ -1748,7 +1765,7 @@ var TestImapAccountMixins = {
         if (totalExpected) {
           self.expect_messageSubjects(
             testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.headerInfo.subject; }));
+              .map(function(x) { return x.subject; }));
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,
@@ -1863,7 +1880,7 @@ var TestImapAccountMixins = {
         viewThing.testFolder.knownMessages
           .slice(viewThing.offset, idxHighMessage + 1)
           .map(function(x) {
-                 return x.headerInfo.subject;
+                 return x.subject;
                }));
       self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
                              expectedFlags.growUp || false,
@@ -2041,7 +2058,7 @@ var TestActiveSyncAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eAccount);
   },
 
-  do_createTestFolder: function(folderName, messageSetDef) {
+  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
@@ -2058,8 +2075,8 @@ var TestActiveSyncAccountMixins = {
     this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
       self.expect_foundFolder(true);
       testFolder.serverFolder = self.testServer.addFolder(
-        folderName, null, null, messageSetDef);
-      testFolder.serverMessages = testFolder.serverFolder.messages;
+        folderName, null, null);
+
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
       self.universe.syncFolderList(self.account, function() {
         self.MailAPI.ping(function() {
@@ -2076,6 +2093,16 @@ var TestActiveSyncAccountMixins = {
         });
       });
     });
+
+    if (messageSetDef.hasOwnProperty('count') &&
+        messageSetDef.count === 0) {
+      testFolder.serverMessages = [];
+      return testFolder;
+    }
+
+    this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
+                                     messageSetDef, extraFlags);
+
     return testFolder;
   },
 
@@ -2087,15 +2114,12 @@ var TestActiveSyncAccountMixins = {
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup('find test folder', testFolder, function() {
-      if (self.testServer) {
-        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
-                                    folderName);
-        testFolder.serverMessages = testFolder.serverFolder.messages;
-      }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder) {
+        testFolder.serverFolder = oldFolder.serverFolder;
+        testFolder.serverMessages = oldFolder.serverMessages;
         testFolder.knownMessages = oldFolder.knownMessages;
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
@@ -2120,15 +2144,12 @@ var TestActiveSyncAccountMixins = {
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
-      if (self.testServer && folderType !== 'localdrafts') {
-        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
-                                    folderType);
-        testFolder.serverMessages = testFolder.serverFolder.messages;
-      }
       testFolder.mailFolder =
         self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder) {
+        testFolder.serverFolder = oldFolder.serverFolder;
+        testFolder.serverMessages = oldFolder.serverMessages;
         testFolder.knownMessages = oldFolder.knownMessages;
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
@@ -2140,6 +2161,46 @@ var TestActiveSyncAccountMixins = {
         self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
     });
     return testFolder;
+  },
+
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
+                                        extraFlags) {
+    var self = this;
+    this.T.convenienceSetup(this, desc, testFolder, function() {
+      var messageBodies;
+      if (messageSetDef instanceof Function) {
+        messageBodies = messageSetDef();
+      }
+      else {
+        var generator = self.testUniverse.messageGenerator;
+        generator._clock = new Date(self._useDate);
+        messageBodies = generator.makeMessages(messageSetDef);
+      }
+
+      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
+      }
+      // no messages in there yet, just use the list as-is
+      else if (!testFolder.serverMessages) {
+        testFolder.serverMessages = messageBodies;
+      }
+      // messages already in there, need to insert them appropriately
+      else {
+        for (var i = 0; i < messageBodies.length; i++) {
+          var idx = $util.bsearchForInsert(
+            testFolder.serverMessages, messageBodies[i],
+            function (a, b) {
+              // we only compare based on date because we require distinct dates
+              // for this ordering, but we could track insertion sequence
+              // which would correlate with UID and then be viable...
+              return b.date - a.date;
+            });
+          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
+        }
+      }
+
+      self.testServer.addMessagesToFolder(testFolder.serverFolder.id,
+                                          testFolder.serverMessages);
+    });
   },
 
   // XXX experimental attempt to re-create IMAP case; will need more love to
@@ -2163,7 +2224,7 @@ var TestActiveSyncAccountMixins = {
         if (totalExpected) {
           self.expect_messageSubjects(
             testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.header.subject; }));
+              .map(function(x) { return x.subject; }));
         }
         self.expect_sliceFlags(
           expectedFlags.top, expectedFlags.bottom,
@@ -2274,24 +2335,23 @@ var TestActiveSyncAccountMixins = {
     return totalMessageCount;
   },
 
-  do_addMessageToFolder: function(folder, messageDef) {
+  /**
+   * Add a single message to an existing test folder.
+   */
+  do_addMessageToFolder: function(testFolder, messageDef, opts) {
     var self = this;
-    this.T.convenienceSetup(this, 'add message to', folder, function() {
-      self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverMessages =
-        self.testServer.addMessageToFolder(folder.serverFolder.id,
-                                           messageDef).messages;
-    });
+    this._do_addMessagesToTestFolder(testFolder, 'add message to', function() {
+      var generator = self.testUniverse.messageGenerator;
+      return [generator.makeMessage(messageDef)];
+    }, opts);
   },
 
-  do_addMessagesToFolder: function(folder, messageSetDef) {
-    var self = this;
-    this.T.convenienceSetup(this, 'add messages to', folder, function() {
-      self.RT.reportActiveActorThisStep(self.eAccount);
-      folder.serverMessages =
-        self.testServer.addMessagesToFolder(folder.serverFolder.id,
-                                            messageSetDef).messages;
-    });
+  /**
+   * Add messages to an existing test folder.
+   */
+  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
+    this._do_addMessagesToTestFolder(testFolder, 'add messages to',
+                                     messageSetDef, opts);
   },
 };
 
