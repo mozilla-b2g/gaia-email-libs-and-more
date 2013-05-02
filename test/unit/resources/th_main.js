@@ -849,7 +849,7 @@ var TestFolderMixins = {
     for (var i = 0; i < msgs.length; i++) {
       var msg = msgs[i];
 
-      if (msg.guid === guid)
+      if (msg.messageId === guid)
         return msg;
     }
 
@@ -857,8 +857,16 @@ var TestFolderMixins = {
   },
 
   serverMessageContent: function(guid, idx) {
-    var msg = this.findServerMessage(guid);
-    return msg.bodyInfo.bodyReps[idx || 0].content;
+    var message = this.findServerMessage(guid);
+    // XXX: this code gets repeated a few times; put it in messageGenerator?
+    var bodyPart = message.bodyPart;
+    while (!(bodyPart instanceof $msggen.SyntheticPartLeaf))
+      bodyPart = bodyPart.parts[0];
+
+    if (bodyPart._contentType === 'text/html')
+      return bodyPart.body;
+    else
+      return [0x1, bodyPart.body];
   },
 
   /**
