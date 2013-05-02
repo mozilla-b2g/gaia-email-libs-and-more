@@ -88,6 +88,10 @@ function SyntheticPart(aProperties) {
   if (aProperties) {
     if ("contentType" in aProperties)
       this._contentType = aProperties.contentType;
+    // This is primarily intended for sub-classes to contribute something, so
+    // be careful about using this and interfering with said subclasses.
+    if ("contentTypeExtra" in aProperties)
+      this._contentTypeExtra = aProperties.contentTypeExtra;
     if ("charset" in aProperties)
       this._charset = aProperties.charset;
     if ("format" in aProperties)
