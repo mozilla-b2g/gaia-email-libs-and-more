@@ -223,7 +223,7 @@ TD.commonCase('folder sync', function(T) {
         synMessage = msearchView.testFolder.knownMessages[index];
 
     var bodyPart = synMessage.bodyPart;
-    if (!(bodyPart instanceof $msggen.SyntheticPartLeaf))
+    while (!(bodyPart instanceof $msggen.SyntheticPartLeaf))
       bodyPart = bodyPart.parts[0];
 
     eSync.expect_namedValue(
