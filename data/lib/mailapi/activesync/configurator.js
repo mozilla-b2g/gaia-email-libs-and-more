@@ -21,7 +21,7 @@ define(
   ) {
 
 function checkServerCertificate(url, callback) {
-  var match = /^https:\/\/([^./]+)(?::(\d+))\/?/.exec(url);
+  var match = /^https:\/\/([^:/]+)(?::(\d+))?/.exec(url);
   // probably unit test http case?
   if (!match) {
     callback(null);
