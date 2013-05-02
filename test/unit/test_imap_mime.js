@@ -332,6 +332,14 @@ TD.commonCase('MIME hierarchies', function(T) {
         encoding: 'base64', charset: null, format: null,
         body: 'YWJj\n'
       },
+      tachImageMimeWordBase64EucKrName = {
+        filename: '=?EUC-KR?B?waa48SC++LTCIMO3us4gxsTAzyAwMDQxOS5qcGc=?=',
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00419.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
       tachImageDoubleMimeWordName = {
         filename: mwqSammySnake + '-' + mwbMultiBase64 + '.png',
         decodedFilename: rawSammySnake + '-' + rawMultiBase64 + '.png',
@@ -481,6 +489,12 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: bpartQpFlowed,
       checkBody: rawFlowed,
       attachments: [tachImageMimeWordBase64Name],
+    },
+    {
+      name: 'text/plain with base64 mime-word euc-kr attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageMimeWordBase64EucKrName],
     },
     {
       name: 'text/plain with multiple mime words in the attachment name',
