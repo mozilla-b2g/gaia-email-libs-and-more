@@ -54,18 +54,7 @@ function FawltySocket(host, port, options, cmdDict) {
         return;
 
       case 'bad-security':
-        // Fake an nsISSLStatus object, which is what bad crypto engenders
-        var fakeSslError = {
-          serverCert: {},
-          cipherName: 'zob',
-          keyLength: 2048,
-          secretKeyLength: 2048,
-          isDomainMismatch: false,
-          isNotValidAtThisTime: false,
-          isUntrusted: false,
-          isExtendedValidation: false
-        };
-        this._queueEvent('error', fakeSslError);
+        this._queueEvent('error', { name: 'SecurityUntrustedIssuerError' });
         return;
 
       case 'fake':

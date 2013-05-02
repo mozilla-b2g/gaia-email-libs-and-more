@@ -9,6 +9,7 @@
     "test_compose.js",
     "test_body_observers.js",
 
+    "test_just_auth.js",
     "test_autoconfig.js",
     "test_account_logic.js",
     "test_account_create_unit.js",
