@@ -1,4 +1,4 @@
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_activesync_server',
         'exports'],
        function($tc, $th_imap, $th_as_server, exports) {

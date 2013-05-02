@@ -4,7 +4,7 @@
  * coming soon!
  **/
 
-define(['rdcommon/testcontext', 'mailapi/testhelper',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_activesync_server',
         'wbxml', 'activesync/codepages',
         'exports'],

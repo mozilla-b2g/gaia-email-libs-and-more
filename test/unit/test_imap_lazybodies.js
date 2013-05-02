@@ -1,4 +1,4 @@
-define(['rdcommon/testcontext', 'mailapi/testhelper', 'exports'],
+define(['rdcommon/testcontext', './resources/th_main', 'exports'],
        function($tc, $th_imap, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -179,7 +179,12 @@ TD.commonCase('sync headers then download body', function(T, RT) {
     eLazy.expect_namedValue('snippet', snippet);
     eLazy.expect_namedValue('body', {
       isDownloaded: false,
-      amountDownloaded: 4,
+      amountDownloaded: 4
+    });
+
+    eLazy.expect_namedValue('body full', {
+      isDownloaded: true,
+      content: content
     });
 
     // body without bodyReps
@@ -198,6 +203,14 @@ TD.commonCase('sync headers then download body', function(T, RT) {
           isDownloaded: body.bodyReps[0].isDownloaded,
           amountDownloaded: body.bodyReps[0].amountDownloaded
         });
+
+        body.onchange = function() {
+          eLazy.namedValue('body full', {
+            isDownloaded: body.bodyReps[0].isDownloaded,
+            content: body.bodyReps[0].content
+          });
+        };
+        header.getBody({ downloadBodyReps: true }, function() {});
       };
     });
 
