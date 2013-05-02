@@ -26,7 +26,6 @@ var AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
 
 var Configurators = {
   'imap+smtp': './composite/configurator',
-  'fake': './fake/configurator',
   'activesync': './activesync/configurator'
 };
 
@@ -101,9 +100,6 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
     smtpPort: 465,
     smtpCrypto: true,
     usernameIsFullEmail: false,
-  },
-  'example.com': {
-    type: 'fake',
   },
 };
 
