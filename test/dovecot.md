@@ -20,6 +20,25 @@ To make this work, you'll also have to modify a few config files:
 
   ```
   mail_location = sdbox:~/sdbox
+
+  namespace inbox { # this should already exist; append the contents below
+    mailbox Trash {
+      auto = create # autocreate, but don't autosubscribe
+      special_use = \Trash
+    }
+    mailbox Drafts {
+      auto = subscribe # autocreate, autosubscribe
+      special_use = \Drafts
+    }
+    mailbox Sent {
+      auto = subscribe # autocreate, autosubscribe
+      special_use = \Sent
+    }
+    mailbox Spam {
+      auto = create # autocreate, but don't autosubscribe
+      special_use = \Junk
+    }
+  }
   ```
 
 * in `/etc/dovecont/dovecot.conf`, set the following variables:
@@ -29,8 +48,10 @@ To make this work, you'll also have to modify a few config files:
   listen = 127.0.0.1
   ```
 
-* in `/etc/postbox/main.cf`, set the following variables:
+* in `/etc/postfix/main.cf`, set the following variables:
 
   ```
   smtpd_tls_auth_only = no
+  mydestination = localhost
+  mailbox_command = /usr/lib/dovecot/dovecot-lda -f "$SENDER" -a "$RECIPIENT"
   ```
