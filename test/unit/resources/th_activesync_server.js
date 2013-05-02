@@ -33,9 +33,6 @@ var TestActiveSyncServerMixins = {
       self.serverBaseUrl = 'http://localhost:8880';
       $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
         self.serverBaseUrl;
-      self.msggen = new $msggen.MessageGenerator();
-      // XXX: We'll need to sync this with the server
-      self.msggen._clock = Date.now();
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
     });
@@ -63,13 +60,12 @@ var TestActiveSyncServerMixins = {
   },
 
   addFolder: function(name, type, parentId, args) {
-    var result = this._backdoor({
+    return this._backdoor({
       command: 'addFolder',
       name: name,
       type: type,
       parentId: parentId
     });
-    return this.addMessagesToFolder(result.id, args);
   },
 
   removeFolder: function(folderId) {
@@ -79,23 +75,44 @@ var TestActiveSyncServerMixins = {
     });
   },
 
-  addMessageToFolder: function(folderId, args) {
-    var newMessage = args instanceof $msggen.SyntheticPart ? args :
-                     this.msggen.makeMessage(args);
-    return this._backdoor({
-      command: 'addMessageToFolder',
-      folderId: folderId,
-      message: newMessage
-    });
-  },
+  addMessagesToFolder: function(folderId, messages) {
+    // We need to clean the passed-in messages to something the fake server
+    // understands.
+    var cleanedMessages = messages.map(function(message) {
+      var bodyPart = message.bodyPart;
+      var attachments = [];
+      if (!(bodyPart instanceof $msggen.SyntheticPartLeaf)) {
+        attachments = bodyPart.parts.slice(1);
+        bodyPart = bodyPart.parts[0];
+      }
 
-  addMessagesToFolder: function(folderId, args) {
-   var newMessages = Array.isArray(args) ? args :
-                     this.msggen.makeMessages(args);
+      return {
+        id: message.messageId,
+        from: message.headers['From'],
+        to: message.headers['To'],
+        cc: message.headers['Cc'],
+        replyTo: message.headers['Reply-To'],
+        date: message.date.valueOf(),
+        subject: message.subject,
+        flags: [], // TODO: handle flags
+        body: {
+          type: bodyPart._contentType,
+          content: bodyPart.body
+        },
+        attachments: attachments.map(function(attachment) {
+          return {
+            filename: attachment._filename,
+            contentId: attachment._contentId,
+            content: attachment.body
+          };
+        })
+      };
+    });
+
     return this._backdoor({
       command: 'addMessagesToFolder',
       folderId: folderId,
-      messages: newMessages
+      messages: cleanedMessages
     });
   },
 
