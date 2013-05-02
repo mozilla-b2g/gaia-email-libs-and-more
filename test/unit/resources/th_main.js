@@ -1233,7 +1233,9 @@ var TestImapAccountMixins = {
       var messagesToAppend = messageBodies.map(function(message) {
         var flags = [];
         if (message.metaState.read)
-          flags.push("\\Seen");
+          flags.push('\\Seen');
+        if (message.metaState.deleted)
+          flags.push('Deleted');
         return {
           date: message.date,
           messageText: message.toMessageString(),

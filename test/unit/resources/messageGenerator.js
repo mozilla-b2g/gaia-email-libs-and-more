@@ -895,6 +895,7 @@ MessageGenerator.prototype = {
    *     as junk?  We have no concept of marking a message as definitely not
    *     junk at this point.
    * @param [aArgs.read] Should this message be marked as already read?
+   * @param [aArgs.deleted] Should this message be marked as deleted?
    * @returns a SyntheticMessage fashioned just to your liking.
    */
   makeMessage: function(aArgs) {
@@ -974,6 +975,8 @@ MessageGenerator.prototype = {
       msg.metaState.junk = true;
     if ("read" in aArgs && aArgs.read)
       msg.metaState.read = true;
+    if ("deleted" in aArgs && aArgs.deleted)
+      msg.metaState.deleted = true;
 
     var bodyPart;
     if (aArgs.bodyPart)
@@ -1026,7 +1029,8 @@ MessageGenerator.prototype = {
     count: 10,
   },
   MAKE_MESSAGES_PROPAGATE: ['attachments', 'body', 'cc', 'from', 'inReplyTo',
-                            'subject', 'to', 'clobberHeaders', 'junk', 'read'],
+                            'subject', 'to', 'clobberHeaders', 'junk', 'read',
+                            'deleted'],
   /**
    * Given a set definition, produce a list of synthetic messages.
    *

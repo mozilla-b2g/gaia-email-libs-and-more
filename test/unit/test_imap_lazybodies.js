@@ -73,7 +73,7 @@ TD.commonCase('sync headers then download body', function(T, RT) {
 
     // expect the additions
     testFolder.serverMessages.forEach(function(msg) {
-      var guid = msg.headerInfo.guid;
+      var guid = msg.messageId;
 
       eLazy.expect_namedValue(
         'add header', { guid: guid, snippet: null }
@@ -83,8 +83,8 @@ TD.commonCase('sync headers then download body', function(T, RT) {
         guid: guid,
         bodyReps: [{
           hasSize: true,
-          type: msg.bodyInfo.bodyReps[0].type,
-          part: String(msg.bodyInfo.bodyReps[0].content[0]),
+          type: msg.bodyPart._contentType === 'text/html' ? 'html' : 'plain',
+          part: '1',
           amountDownloaded: 0,
           isDownloaded: false
         }]
