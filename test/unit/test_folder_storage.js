@@ -1110,7 +1110,7 @@ TD.commonCase('body insertion size', function(T, RT) {
 TD.commonCase('events while updating body blocks', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse,
+                            { universe: testUniverse, restored: true,
                               realAccountNeeded: false });
 
   var bodyLogger = T.lazyLogger('bodyLogger');
