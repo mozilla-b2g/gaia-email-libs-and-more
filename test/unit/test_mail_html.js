@@ -80,14 +80,7 @@ TD.commonCase('embedded and remote images', function(T) {
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];
       msgDef.age = { days: 1, hours: i };
-      var synMsg = msgGen.makeMessage(msgDef);
-      messageAppends.push({
-        date: synMsg.date,
-        headerInfo: {
-          subject: synMsg.subject,
-        },
-        messageText: synMsg.toMessageString(),
-      });
+      messageAppends.push(msgGen.makeMessage(msgDef));
     }
 
     return messageAppends;

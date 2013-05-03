@@ -17,8 +17,9 @@
  *   deleted messages, and flag changes.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(['rdcommon/testcontext', './resources/th_main',
+        './resources/messageGenerator', 'exports'],
+       function($tc, $th_imap, $msggen, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -221,13 +222,17 @@ TD.commonCase('folder sync', function(T) {
     var index = 5,
         synMessage = msearchView.testFolder.knownMessages[index];
 
-    var synRep = synMessage.bodyInfo.bodyReps[0];
+    var bodyPart = synMessage.bodyPart;
+    while (!(bodyPart instanceof $msggen.SyntheticPartLeaf))
+      bodyPart = bodyPart.parts[0];
+
     eSync.expect_namedValue(
       'bodyInfo',
       {
-        content: synRep.content,
-        type: synRep.type,
-        length: synMessage.bodyInfo.bodyReps.length
+        content: bodyPart._contentType === 'text/html' ? bodyPart.body :
+          [0x1, bodyPart.body],
+        type: bodyPart._contentType === 'text/html' ? 'html' : 'plain',
+        length: 1
       });
 
     var header = msearchView.slice.items[index];

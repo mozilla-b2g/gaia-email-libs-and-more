@@ -27,7 +27,7 @@ $(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
 	$(RSYNC_JS) node-transformed-deps/$(notdir $@)/ $@/
 	touch $@
 
-OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/lib/mailapi/fake/*.js) $(wildcard data/deps/rdcommon/*.js)
+OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/deps/rdcommon/*.js)
 
 install-into-gaia: gaia-symlink $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 	node scripts/copy-to-gaia.js gaia-symlink/apps/email

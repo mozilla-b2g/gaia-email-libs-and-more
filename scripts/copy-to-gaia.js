@@ -192,13 +192,6 @@ var configs = [
     name: 'mailapi/composite/configurator',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/composite/configurator.js'
-  },
-
-  // bundles up all fake account logic
-  {
-    name: 'mailapi/fake/configurator',
-    exclude: standardPlusComposerExcludes,
-    out: jsPath + '/mailapi/fake/configurator.js'
   }
 ];
 

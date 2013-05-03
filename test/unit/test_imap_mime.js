@@ -51,22 +51,27 @@ TD.commonCase('message encodings', function(T) {
       eBodies = T.lazyLogger('bodies');
 
   var fullSyncFolder = testAccount.do_createTestFolder(
-    'test_mime_encodings',
-    { count: 2, age: { days: 0 }, age_incr: { days: 1 },
-      from: { name: mwqSammySnake, address: 'sammy@snake.nul' },
-      to: [{ name: mwqSammySnake, address: 'sammy@snake.nul' },
-           { name: mwbMultiBase64, address: 'raw@multi.nul' },
-           { name: mwbBase64Gibberish, address: 'gibber@ish.nul'}],
-      cc: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }],
-      // replace the actual encoding with these values...
-      replaceHeaders: [
-        { 'Content-Transfer-Encoding': 'quoted-printable' },
-        { 'Content-Transfer-Encoding': 'base64' },
-      ],
-      rawBodies: [
-        qpTruthBeauty,
-        b64TruthBeauty
-      ]
+    'test_mime_encodings', function makeMessages() {
+      var msgGen = new $msggen.MessageGenerator(testAccount._useDate);
+      var baseMsgDef = {
+        from: { name: mwqSammySnake, address: 'sammy@snake.nul' },
+        to: [{ name: mwqSammySnake, address: 'sammy@snake.nul' },
+             { name: mwbMultiBase64, address: 'raw@multi.nul' },
+             { name: mwbBase64Gibberish, address: 'gibber@ish.nul'}],
+        cc: [{ name: mwqSammySnake, address: 'sammy@snake.nul' }]
+      };
+      var msgBodies = [
+        {body: qpTruthBeauty, encoding: 'quoted-printable'},
+        {body: b64TruthBeauty, encoding: 'base64'}
+      ];
+
+      var messageAppends = [];
+      for (var i = 0; i < msgBodies.length; i++) {
+        baseMsgDef.age = {days: i};
+        baseMsgDef.body = msgBodies[i];
+        messageAppends.push(msgGen.makeMessage(baseMsgDef));
+      }
+      return messageAppends;
     });
 
   var folderView = testAccount.do_openFolderView(
@@ -524,14 +529,7 @@ TD.commonCase('MIME hierarchies', function(T) {
     for (var i = 0; i < testMessages.length; i++) {
       var msgDef = testMessages[i];
       msgDef.age = { days: 1, hours: i };
-      var synMsg = msgGen.makeMessage(msgDef);
-      messageAppends.push({
-        date: synMsg.date,
-        headerInfo: {
-          subject: synMsg.subject,
-        },
-        messageText: synMsg.toMessageString(),
-      });
+      messageAppends.push(msgGen.makeMessage(msgDef));
     }
 
     return messageAppends;
