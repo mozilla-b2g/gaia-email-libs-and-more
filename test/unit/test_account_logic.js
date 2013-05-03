@@ -35,7 +35,8 @@ TD.commonCase('account creation/deletion', function(T, RT) {
 
   T.group('create second account');
   var testAccountB = T.actor('testAccount', 'B',
-                             { universe: testUniverse, name: 'B' });
+                             { universe: testUniverse, name: 'B',
+                               forceCreate: true });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
     eSliceCheck.expect_namedValue('accounts[1].id', testAccountB.accountId);
@@ -65,7 +66,7 @@ TD.commonCase('account creation/deletion', function(T, RT) {
 
   T.group('create third account');
   var testAccountC = T.actor('testAccount', 'C',
-                             { universe: testUniverse });
+                             { universe: testUniverse, forceCreate: true });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
     eSliceCheck.expect_namedValue('accounts[1].id', testAccountB.accountId);
@@ -142,6 +143,31 @@ TD.commonCase('account creation/deletion', function(T, RT) {
   });
 
   T.group('cleanup');
+});
+
+TD.commonCase('try to create a duplicate account', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
+  var testUniverse = T.actor('testUniverse', 'U'),
+      eSync = T.lazyLogger('sync');
+  T.action('create account', testUniverse, eSync, function(T) {
+    eSync.expect_namedValue('account-creation-error', 'user-account-exists');
+    // XXX: This is a bit of a hack to get the right address for the ActiveSync
+    // fake server.
+    var address = TEST_PARAMS.type === 'imap' ? TEST_PARAMS.emailAddress :
+                 'test@aslocalhost';
+    testUniverse.MailAPI.tryToCreateAccount(
+      {
+        displayName: TEST_PARAMS.name,
+        emailAddress: address,
+        password: TEST_PARAMS.password,
+        accountName: null
+      },
+      null,
+      function accountMaybeCreated(error) {
+        eSync.namedValue('account-creation-error', error);
+      }
+    );
+  });
 });
 
 /**
@@ -254,8 +280,8 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   }
 
   var testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse,
-                              server: testServer});
+                            { universe: testUniverse, restored: true,
+                              server: testServer });
 
   T.group('check folder list');
   T.check('check folder list', testAccount, eSync, function(T) {

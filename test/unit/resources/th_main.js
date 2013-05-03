@@ -1013,6 +1013,7 @@ var TestImapAccountMixins = {
           emailAddress: TEST_PARAMS.emailAddress,
           password: TEST_PARAMS.password,
           accountName: self._opts.name || null,
+          forceCreate: self._opts.forceCreate
         },
         null,
         function accountMaybeCreated(error, errorDetails, account) {
@@ -2008,6 +2009,7 @@ var TestActiveSyncAccountMixins = {
           password:
             self._opts.realAccountNeeded ? TEST_PARAMS.password : 'test',
           accountName: self._opts.name || null,
+          forceCreate: self._opts.forceCreate
         },
         null,
         function accountMaybeCreated(error, errorDetails, account) {
