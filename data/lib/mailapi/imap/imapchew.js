@@ -339,7 +339,7 @@ exports.chewHeaderAndBodyStructure =
     size: 0,
     attachments: parts.attachments,
     relatedParts: parts.relatedParts,
-    references: msg.msg.meta.references,
+    references: msg.msg.references,
     bodyReps: parts.bodyReps
   };
 
