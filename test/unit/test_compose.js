@@ -62,7 +62,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   T.action('begin composition', eLazy, function() {
     eLazy.expect_event('compose setup completed');
     composer = testUniverse.MailAPI.beginMessageComposition(
-      null, gAllFoldersSlice.getFirstFolderWithType('inbox'), null,
+      null, testUniverse.allFoldersSlice.getFirstFolderWithType('inbox'), null,
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
 
@@ -164,6 +164,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
                       draftHeader.id);
     lastDraftId = draftHeader.id;
   });
+  var sentMessageId;
   T.action(testAccount, 'send', eLazy, function() {
     // sending is not tracked as an op, but appending is
     testAccount.expect_runOp(
@@ -178,7 +179,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
     eLazy.expect_event('sent');
 
-    composer.finishCompositionSendMessage(function(err, badAddrs) {
+    composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
+      sentMessageId = debugInfo.messageId.slice(1, -1); // lose < > wrapping
       if (err)
         eLazy.error(err);
       else
@@ -198,6 +200,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       RT.reportActiveActorThisStep(eLazy);
       RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
+      eLazy.expect_namedValue('message-id', sentMessageId);
       eLazy.expect_namedValue(
         'attachments',
         [{
@@ -217,6 +220,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
+      eLazy.namedValue('message-id', header.guid);
       header.getBody(function(body) {
         var attachments = [];
         body.attachments.forEach(function(att, iAtt) {
@@ -259,9 +263,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
   // - see the new message, start to reply to the message!
+  T.group('see sent message, reply');
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
+      eLazy.expect_namedValue('source message-id', sentMessageId);
       // We are top-posting biased, so we automatically insert two blank lines;
       // one for typing to start at, and one for whitespace purposes.
       expectedReplyBody = {
@@ -282,15 +288,18 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
                                        address: TEST_PARAMS.emailAddress }]);
       eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
+      eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
       eLazy.expect_namedValue('body text', expectedReplyBody.text);
       eLazy.expect_namedValue('body html', expectedReplyBody.html);
     },
     // trigger the reply composer
     withMessage: function(header) {
+      eLazy.namedValue('source message-id', header.guid);
       replyComposer = header.replyToMessage('sender', function() {
         eLazy.event('reply setup completed');
         eLazy.namedValue('to', replyComposer.to);
         eLazy.namedValue('subject', replyComposer.subject);
+        eLazy.namedValue('references', replyComposer._references);
         eLazy.namedValue('body text', replyComposer.body.text);
         eLazy.namedValue('body html', replyComposer.body.html);
       });
@@ -298,14 +307,16 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
   // - complete and send the reply
-  var replySentDate;
+  var replySentDate, replyMessageId, replyReferences;
   T.action('reply', eLazy, function() {
     eLazy.expect_event('sent');
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
-                                                        sentDate) {
-      replySentDate = new Date(sentDate);
+                                                        debugInfo) {
+      replySentDate = new Date(debugInfo.sentDate);
+      replyMessageId = debugInfo.messageId.slice(1, -1); // lose <> wrapping
+      replyReferences = [sentMessageId];
       if (err)
         eLazy.error(err);
       else
@@ -323,46 +334,103 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     return s.replace(/ \d{2}:\d{2}:\d{2} /, 'XX:XX:XX');
   }
 
+  var replyHeader;
+  T.group('check reply');
   var forwardComposer, expectedForwardBody;
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
-      var formattedMail = $util.formatAddresses(
-                            [{ name: TEST_PARAMS.name,
-                               address: TEST_PARAMS.emailAddress }]);
-      expectedForwardBody = {
-        text: [
-          '', '',
-          // XXX when signatures get enabled/tested:
-          // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
-          '-------- Original Message --------',
-          'Subject: Re: ' + uniqueSubject,
-          'Date: ' + safeifyTime(replySentDate + ''),
-          'From: ' + formattedMail,
-          'To: ' + formattedMail,
-          '',
-          expectedReplyBody.text
-        ].join('\n'),
-        html: null
-      };
 
-      eLazy.expect_event('forward setup completed');
-      // these are expectations on the forward...
-      eLazy.expect_namedValue('to', []);
-      eLazy.expect_namedValue('subject', 'Fwd: Re: ' + uniqueSubject);
-      eLazy.expect_namedValue('body text', expectedForwardBody.text);
-      eLazy.expect_namedValue('body html', expectedForwardBody.html);
+      eLazy.expect_namedValue('replied message-id', replyMessageId);
+      eLazy.expect_namedValue('replied references', replyReferences);
     },
     withMessage: function(header) {
-      forwardComposer = header.forwardMessage('inline', function() {
-        eLazy.event('forward setup completed');
-        eLazy.namedValue('to', forwardComposer.to);
-        eLazy.namedValue('subject', forwardComposer.subject);
-        eLazy.namedValue('body text', safeifyTime(forwardComposer.body.text));
-        eLazy.namedValue('body html', forwardComposer.body.html);
+      replyHeader = header;
+      eLazy.namedValue('replied message-id', header.guid);
+      header.getBody(function(repliedBody) {
+        eLazy.namedValue('replied references', repliedBody._references);
       });
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+  T.group('check forward generation logic');
+  T.check('check forward', eLazy, function() {
+    var formattedMail = $util.formatAddresses(
+                          [{ name: TEST_PARAMS.name,
+                             address: TEST_PARAMS.emailAddress }]);
+    expectedForwardBody = {
+      text: [
+        '', '',
+        // XXX when signatures get enabled/tested:
+        // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
+        '-------- Original Message --------',
+        'Subject: Re: ' + uniqueSubject,
+        'Date: ' + safeifyTime(replySentDate + ''),
+        'From: ' + formattedMail,
+        'To: ' + formattedMail,
+        '',
+        expectedReplyBody.text
+      ].join('\n'),
+      html: null
+    };
+
+    eLazy.expect_event('forward setup completed');
+    // these are expectations on the forward...
+    eLazy.expect_namedValue('to', []);
+    eLazy.expect_namedValue('subject', 'Fwd: Re: ' + uniqueSubject);
+    eLazy.expect_namedValue('body text', expectedForwardBody.text);
+    eLazy.expect_namedValue('body html', expectedForwardBody.html);
+
+    forwardComposer = replyHeader.forwardMessage('inline', function() {
+      eLazy.event('forward setup completed');
+      eLazy.namedValue('to', forwardComposer.to);
+      eLazy.namedValue('subject', forwardComposer.subject);
+      eLazy.namedValue('body text', safeifyTime(forwardComposer.body.text));
+      eLazy.namedValue('body html', forwardComposer.body.html);
+
+      forwardComposer.die();
+    });
+  });
+
+  T.group('reply to the reply');
+  var secondReplySentDate, secondReplyMessageId, secondReplyReferences;
+  T.action('reply to the reply', eLazy, function() {
+    eLazy.expect_event('sent');
+
+    var secondReplyComposer = replyHeader.replyToMessage('sender', function() {
+      secondReplyComposer.body.text = expectedReplyBody.text =
+        'And now this bit is new.' + replyComposer.body.text;
+      // XXX hack to let us match by subject, but we should just modify/augment
+      // do_waitForMessage to support matching on message-id since we surface
+      // that as the 'guid'.
+      secondReplyComposer.subject += '[2]';
+      secondReplyComposer.finishCompositionSendMessage(function(err, badAddrs,
+                                                                debugInfo) {
+        secondReplySentDate = new Date(debugInfo.sentDate);
+        secondReplyMessageId = debugInfo.messageId.slice(1, -1);
+        secondReplyReferences = replyReferences.concat([replyMessageId]);
+        if (err)
+          eLazy.error(err);
+        else
+          eLazy.event('sent');
+      });
+    });
+  });
+  testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject + '[2]', {
+    expect: function() {
+      RT.reportActiveActorThisStep(eLazy);
+
+      eLazy.expect_namedValue('replied message-id', secondReplyMessageId);
+      eLazy.expect_namedValue('replied references', secondReplyReferences);
+    },
+    withMessage: function(header) {
+      replyHeader = header;
+      eLazy.namedValue('replied message-id', header.guid);
+      header.getBody(function(body) {
+        eLazy.namedValue('replied references', body._references);
+      });
+    },
+  }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+
 
   T.group('cleanup');
   // Make sure the append operation's success gets persisted; this is a testing
