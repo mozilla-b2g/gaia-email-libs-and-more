@@ -96,14 +96,15 @@ var TestActiveSyncServerMixins = {
         subject: message.subject,
         flags: [], // TODO: handle flags
         body: {
-          type: bodyPart._contentType,
+          contentType: bodyPart._contentType,
           content: bodyPart.body
         },
         attachments: attachments.map(function(attachment) {
           return {
             filename: attachment._filename,
             contentId: attachment._contentId,
-            content: attachment.body
+            contentType: attachment._contentType,
+            content: attachment.body,
           };
         })
       };

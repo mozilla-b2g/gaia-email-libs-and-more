@@ -752,7 +752,7 @@ ActiveSyncServer.prototype = {
              .tag(as.ServerId, command.message.id)
              .stag(as.ApplicationData);
 
-          this._writeEmail(w, command.message, truncationSize);
+          this._writeEmail(w, folder, command.message, truncationSize);
 
           w  .etag(as.ApplicationData)
             .etag(as.Add);
@@ -814,10 +814,10 @@ ActiveSyncServer.prototype = {
   _handleCommand_ItemOperations: function(requestData) {
     const io = $_ascp.ItemOperations.Tags;
     const as = $_ascp.AirSync.Tags;
+    const asb = $_ascp.AirSyncBase.Tags;
 
     let fetches = [];
 
-    let server = this;
     let e = new $_wbxml.EventParser();
     e.addEventListener([io.ItemOperations, io.Fetch], function(node) {
       let fetch = {};
@@ -830,12 +830,12 @@ ActiveSyncServer.prototype = {
         case as.ServerId:
           fetch.srvid = child.children[0].textContent;
           break;
+        case asb.FileReference:
+          fetch.fileReference = child.children[0].textContent;
+          break;
         }
       }
 
-      // XXX: Implement error handling
-      let folder = server._findFolderById(fetch.collectionId);
-      fetch.message = folder.findMessageById(fetch.srvid);
       fetches.push(fetch);
     });
     e.run(requestData);
@@ -848,15 +848,35 @@ ActiveSyncServer.prototype = {
     for (let fetch of fetches) {
       w.stag(io.Fetch)
          .tag(io.Status, '1')
-         .tag(as.CollectionId, fetch.collectionId)
+
+      // XXX: Add error handling
+      if ('fileReference' in fetch) {
+        let [folderId, messageId, attIdx] = fetch.fileReference.split('/'),
+            folder = this._findFolderById(folderId),
+            message = folder.findMessageById(messageId),
+            attachment = message.attachments[parseInt(attIdx)];
+
+        w.tag(asb.FileReference, fetch.fileReference)
+         .stag(io.Properties)
+           .tag(asb.ContentType, attachment.contentType)
+           .tag(io.Data, attachment.content)
+         .etag(io.Properties);
+      }
+      else {
+        let folder = this._findFolderById(fetch.collectionId),
+            message = folder.findMessageById(fetch.srvid);
+
+        w.tag(as.CollectionId, fetch.collectionId)
          .tag(as.ServerId, fetch.srvid)
          .tag(as.Class, 'Email')
          .stag(io.Properties);
 
-      this._writeEmail(w, fetch.message);
+        this._writeEmail(w, folder, message);
 
-      w  .etag(io.Properties)
-       .etag(io.Fetch);
+        w.etag(io.Properties);
+      }
+
+      w.etag(io.Fetch);
     }
 
     w  .etag(io.Response)
@@ -1036,17 +1056,18 @@ ActiveSyncServer.prototype = {
    * Write the WBXML for an individual message.
    *
    * @param w the WBXML writer
+   * @param folder the folder the message belongs to
    * @param message the message object
    * @param truncSize the truncation size for the body (optional, defaults to
    *        no truncation)
    */
-  _writeEmail: function(w, message, truncSize) {
+  _writeEmail: function(w, folder, message, truncSize) {
     const em  = $_ascp.Email.Tags;
     const asb = $_ascp.AirSyncBase.Tags;
     const asbEnum = $_ascp.AirSyncBase.Enums;
 
     // TODO: make this match the requested type
-    let bodyType = message.body.type === 'text/html' ?
+    let bodyType = message.body.contentType === 'text/html' ?
                    asbEnum.Type.HTML : asbEnum.Type.PlainText;
 
     w.tag(em.From, message.from);
@@ -1071,9 +1092,7 @@ ActiveSyncServer.prototype = {
       for (let [i, attachment] in Iterator(message.attachments)) {
         w.stag(asb.Attachment)
            .tag(asb.DisplayName, attachment.filename)
-           // We intentionally mimic Gmail's style of naming FileReferences here
-           // to make testing our Gmail demunger easier.
-           .tag(asb.FileReference, 'file_0.' + (i+1))
+           .tag(asb.FileReference, folder.id + '/' + message.id + '/' + i)
            .tag(asb.Method, asbEnum.Method.Normal)
           .tag(asb.EstimatedDataSize, attachment.content.length);
 
