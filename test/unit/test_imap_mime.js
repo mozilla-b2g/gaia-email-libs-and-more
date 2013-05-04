@@ -337,6 +337,57 @@ TD.commonCase('MIME hierarchies', function(T) {
         encoding: 'base64', charset: null, format: null,
         body: 'YWJj\n'
       },
+      tachImageMimeWordBase64EucKrName = {
+        filename: '=?EUC-KR?B?waa48SC++LTCIMO3us4gxsTAzyAwMDQxOS5qcGc=?=',
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00419.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      // an attachment where the filename only comes from the continuation
+      tachImageDispositionMimeWord = {
+        disposition: "attachment;\r\n" +
+' filename="=?UTF-8?B?7KCc66qpIOyXhuuKlCDssqjrtoAg7YyM7J28IDAwNDIyLmpwZw==?="',
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00422.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      tachImageDispositionCharsetContinuation = {
+        disposition: "attachment;\r\n" +
+" filename*0*=UTF-8''%EC%A0%9C%EB%AA%A9%20%EC%97%86%EB%8A%94%20%EC%B2%A8%EB;\r\n" +
+" filename*1*=%B6%80%20%ED%8C%8C%EC%9D%BC%20%30%30%34%31%39%2E%6A%70%67",
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00419.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      // an attachment where the filename only comes from the content type
+      tachImageContentTypeMimeWord = {
+        contentTypeExtra: {
+          name:
+            '=?UTF-8?B?7KCc66qpIOyXhuuKlCDssqjrtoAg7YyM7J28IDAwNDE5LmpwZw==?=',
+        },
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00419.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
+      tachImageContentTypeCharsetContinuation = {
+        contentTypeExtra: {
+          'name*0*': "UTF-8''%EC%A0%9C%EB%AA%A9%20%EC%97%86%EB%8A%94%20%EC%B2%A8%EB",
+          'name*1*': "%B6%80%20%ED%8C%8C%EC%9D%BC%20%30%30%34%31%39%2E%6A%70%67",
+        },
+        decodedFilename:
+          '\uc81c\ubaa9 \uc5c6\ub294 \ucca8\ubd80 \ud30c\uc77c 00419.jpg',
+        contentType: 'image/jpeg',
+        encoding: 'base64', charset: null, format: null,
+        body: 'YWJj\n'
+      },
       tachImageDoubleMimeWordName = {
         filename: mwqSammySnake + '-' + mwbMultiBase64 + '.png',
         decodedFilename: rawSammySnake + '-' + rawMultiBase64 + '.png',
@@ -486,6 +537,36 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: bpartQpFlowed,
       checkBody: rawFlowed,
       attachments: [tachImageMimeWordBase64Name],
+    },
+    {
+      name: 'text/plain with base64 mime-word euc-kr attachment name',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageMimeWordBase64EucKrName],
+    },
+    {
+      name: 'text/plain with utf-8 fn via content-disposition mime-word',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageDispositionMimeWord],
+    },
+    {
+      name: 'text/plain with utf-8 fn via disposition charset continuation',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageDispositionCharsetContinuation],
+    },
+    {
+      name: 'text/plain with utf-8 name via content-type mime-word',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageContentTypeMimeWord],
+    },
+    {
+      name: 'text/plain with utf-8 name via content-type charset continuation',
+      bodyPart: bpartQpFlowed,
+      checkBody: rawFlowed,
+      attachments: [tachImageContentTypeCharsetContinuation],
     },
     {
       name: 'text/plain with multiple mime words in the attachment name',
