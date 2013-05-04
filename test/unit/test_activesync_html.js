@@ -111,7 +111,8 @@ TD.commonCase('folder sync', function(T) {
       bodyPart: bpartTrivialHtml,
       checkBody: bstrSanitizedTrivialHtml,
       attachments: [
-        { filename: 'file.txt', body: "I'm an attachment!" },
+        { filename: 'pancakes.jpg', contentType: 'image/jpeg',
+          body: "I'm an attachment!" },
       ],
     },
     {
@@ -119,8 +120,10 @@ TD.commonCase('folder sync', function(T) {
       bodyPart: bpartTrivialHtml,
       checkBody: bstrSanitizedTrivialHtml,
       attachments: [
-        { filename: 'file.txt', body: "I'm an attachment!" },
-        { filename: 'file2.txt', body: 'So am I!' },
+        { filename: 'eggs.jpg', contentType: 'image/jpeg',
+          body: "I'm an attachment!" },
+        { filename: 'toast.jpg', contentType: 'image/jpeg',
+          body: 'So am I!' },
       ],
     },
     {
@@ -128,7 +131,22 @@ TD.commonCase('folder sync', function(T) {
       bodyPart: bpartImageHtml,
       checkBody: bstrSanitizedImageHtml,
       attachments: [
-        { filename: 'image.png', contentId: 'waffles@mozilla.com',
+        { filename: 'waffles.png', contentType: 'image/png',
+          contentId: 'waffles@mozilla.com',
+          body: 'pretend this is an image' },
+      ],
+    },
+    {
+      name: 'text/html with embedded image and two attachments',
+      bodyPart: bpartImageHtml,
+      checkBody: bstrSanitizedImageHtml,
+      attachments: [
+        { filename: 'bacon.jpg', contentType: 'image/jpeg',
+          body: "I'm an attachment!" },
+        { filename: 'sausage.jpg', contentType: 'image/jpeg',
+          body: 'So am I!' },
+        { filename: 'orange-juice.png', contentType: 'image/png',
+          contentId: 'oj@mozilla.com',
           body: 'pretend this is an image' },
       ],
     },
@@ -146,9 +164,23 @@ TD.commonCase('folder sync', function(T) {
       deleted: 0, filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false }
   );
-  // -- check each message in its own step
+  // -- check each message in its own group
   testMessages.forEach(function checkMessage(msgDef, iMsg) {
-    T.check(eCheck, msgDef.name, function() {
+    T.group(msgDef.name);
+
+    var body, hasRelatedParts = false, hasAttachments = false;
+    // Decide if we should perform steps to download related parts and/or
+    // attachments. This is just to make the logs cleaner.
+    if ('attachments' in msgDef) {
+      hasRelatedParts = msgDef.attachments.some(function(x) {
+        return !!x.contentId;
+      });
+      hasAttachments = msgDef.attachments.some(function(x) {
+        return !x.contentId;
+      });
+    }
+
+    T.check(eCheck, 'check body', function() {
       eCheck.expect_namedValue('body', msgDef.checkBody);
 
       if (msgDef.checkSnippet)
@@ -161,14 +193,16 @@ TD.commonCase('folder sync', function(T) {
                                    msgDef.attachments[i].filename);
           eCheck.expect_namedValue(prefix + '-size',
                                    msgDef.attachments[i].body.length);
+          eCheck.expect_namedValue(prefix + '-contenttype-guess',
+                                   msgDef.attachments[i].contentType);
         }
       }
-
 
       var header = folderView.slice.items[iMsg];
       testAccount.getMessageBodyWithReps(
         header,
-        function(body) {
+        function(_body) {
+          body = _body;
           eCheck.namedValue('body', body.bodyReps[0].content);
           if (msgDef.checkSnippet)
             eCheck.namedValue('snippet', header.snippet);
@@ -179,6 +213,8 @@ TD.commonCase('folder sync', function(T) {
                                 body.attachments[i].filename);
               eCheck.namedValue('attachment-size',
                                 body.attachments[i].sizeEstimateInBytes);
+              eCheck.namedValue('attachment-contenttype-guess',
+                                body.attachments[i].mimetype);
             }
           }
           if (body._relatedParts && body._relatedParts.length) {
@@ -187,10 +223,10 @@ TD.commonCase('folder sync', function(T) {
                                 body._relatedParts[i].name);
               eCheck.namedValue('relatedpart-size',
                                 body._relatedParts[i].sizeEstimate);
+              eCheck.namedValue('relatedpart-contenttype-guess',
+                                body._relatedParts[i].type);
             }
           }
-
-          body.die();
         },
         null,
         function mainThreadFunc(arg, fancyBody, sendResults) {
@@ -204,6 +240,49 @@ TD.commonCase('folder sync', function(T) {
         },
         function withMainThreadResults(results) {}
       );
+    });
+
+    if (hasRelatedParts) {
+      T.check(eCheck, 'download embedded images', function() {
+        eCheck.expect_event('downloaded');
+        if ('attachments' in msgDef) {
+          for (var i = 0; i < msgDef.attachments.length; i++) {
+            if (msgDef.attachments[i].contentId) {
+              eCheck.expect_namedValue('relatedpart', true);
+              eCheck.expect_namedValue('relatedpart-contenttype',
+                                       msgDef.attachments[i].contentType);
+            }
+          }
+        }
+
+        body.downloadEmbeddedImages(function() {
+          eCheck.event('downloaded');
+          for (var i = 0; i < body._relatedParts.length; i++) {
+            eCheck.namedValue('relatedpart', !!body._relatedParts[i].file);
+            eCheck.namedValue('relatedpart-contenttype',
+                              body._relatedParts[i].type);
+          }
+        });
+      });
+    }
+
+    if (hasAttachments) {
+      T.check(eCheck, 'download attachments', function() {
+        for (var i = 0; i < body.attachments.length; i++) {
+          eCheck.expect_event('downloaded');
+          eCheck.expect_namedValue('attachment', true);
+
+          body.attachments[i].download((function(attachment) {
+            eCheck.event('downloaded');
+            eCheck.namedValue('attachment', !!attachment._file);
+          }).bind(this, body.attachments[i]));
+        }
+      });
+    }
+
+    T.action(eCheck, 'kill body', function() {
+      body.die();
+      body = null;
     });
   });
 
