@@ -145,6 +145,20 @@ TD.commonCase('account creation/deletion', function(T, RT) {
   T.group('cleanup');
 });
 
+TD.commonCase('create a second (unique) account', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
+  // XXX: we can only create multiple accounts on ActiveSync for now!
+  if (TEST_PARAMS.type === 'activesync') {
+    var testUniverse = T.actor('testUniverse', 'U'),
+        testAccountA = T.actor('testAccount', 'A',
+                              { universe: testUniverse, restored: true }),
+        testAccountB = T.actor('testAccount', 'B',
+                              { universe: testUniverse,
+                                emailAddress: 'test2@aslocalhost' }),
+        eSync = T.lazyLogger('sync');
+  }
+});
+
 TD.commonCase('try to create a duplicate account', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U'),
