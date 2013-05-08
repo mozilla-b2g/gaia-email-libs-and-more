@@ -2001,16 +2001,25 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
-      var TEST_PARAMS = self.RT.envOptions;
+      var TEST_PARAMS = self.RT.envOptions,
+          displayName, emailAddress, password;
+
+      if (self._opts.realAccountNeeded) {
+        displayName = TEST_PARAMS.name;
+        emailAddress = TEST_PARAMS.emailAddress;
+        password = TEST_PARAMS.password;
+      }
+      else {
+        displayName = self._opts.displayName || 'test';
+        emailAddress = self._opts.emailAddress || 'test@aslocalhost';
+        password = self._opts.password || 'test';
+      }
+
       self.MailAPI.tryToCreateAccount(
         {
-          displayName:
-            self._opts.realAccountNeeded ? TEST_PARAMS.name : 'test',
-          emailAddress:
-            self._opts.realAccountNeeded ? TEST_PARAMS.emailAddress
-                                          : 'test@aslocalhost',
-          password:
-            self._opts.realAccountNeeded ? TEST_PARAMS.password : 'test',
+          displayName: displayName,
+          emailAddress: emailAddress,
+          password: password,
           accountName: self._opts.name || null,
           forceCreate: self._opts.forceCreate
         },
