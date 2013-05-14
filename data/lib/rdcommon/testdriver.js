@@ -198,6 +198,7 @@ TestRuntimeContext.prototype = {
       return this._loggerStack[this._loggerStack.length - 1];
     return null;
   },
+
 };
 
 /**
@@ -408,6 +409,9 @@ TestDefinerRunner.prototype = {
     // -- create / setup the context
     testCase.log.run_begin();
     var defContext = new $testcontext.TestContext(testCase, 0);
+    // Hackish way to let the test variant be explicitly passed in so that unit
+    if (this._exposeToTestOptions && this._exposeToTestOptions.variant)
+      defContext.setPermutationVariant(this._exposeToTestOptions.variant);
     defContext._log.run_begin();
 
     // - push the context's logger on the runtime logging stack

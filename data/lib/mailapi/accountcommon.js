@@ -64,6 +64,21 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
       username: '%EMAILLOCALPART%',
     },
   },
+  'fakehost': {
+    type: 'imap+smtp',
+    incoming: {
+      hostname: 'localhost',
+      port: 0,
+      socketType: 'plain',
+      username: '%EMAILLOCALPART%',
+    },
+    outgoing: {
+      hostname: 'localhost',
+      port: 0,
+      socketType: 'plain',
+      username: '%EMAILLOCALPART%',
+    },
+  },
   'slocalhost': {
     type: 'imap+smtp',
     incoming: {

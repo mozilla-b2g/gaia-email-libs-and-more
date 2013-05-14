@@ -428,6 +428,9 @@ ProgressListener.prototype = {
 //
 // --test-name is a required argument currently.
 const ENVIRON_MAPPINGS = [
+  // ex: '*@fakehost' for fake-server, 'testy@localhost' for local real
+  // IMAP server, '*@aslocalhost' for an activesync localhost account which
+  // implies a fake-server that you're already running.
   {
     name: 'emailAddress',
     envVar: 'GELAM_TEST_ACCOUNT',
@@ -438,6 +441,7 @@ const ENVIRON_MAPPINGS = [
     envVar: 'GELAM_TEST_PASSWORD',
     coerce: function (x) { return x; },
   },
+  // 'imap' or 'activesync'
   {
     name: 'type',
     envVar: 'GELAM_TEST_ACCOUNT_TYPE',
@@ -451,10 +455,10 @@ const ENVIRON_MAPPINGS = [
 ];
 var TEST_PARAMS = {
   name: 'Baron von Testendude',
-  emailAddress: 'testy@localhost',
-  password: 'testy',
+  emailAddress: null,
+  password: null,
   slow: false,
-  type: 'imap',
+  type: null,
 
   defaultArgs: true
 };
@@ -732,7 +736,10 @@ ActiveSyncServerProxy.prototype = {
   }
 };
 
-function summaryFromLoggest(testFileName, logData) {
+/**
+ * Create a summary object for the given log run.
+ */
+function summaryFromLoggest(testFileName, variant, logData) {
   var summary = {
     filename: testFileName,
     tests: []
@@ -741,7 +748,9 @@ function summaryFromLoggest(testFileName, logData) {
     if (logData.fileFailure) {
       summary.tests.push({
         name: '*file level problem*',
-        result: 'fail'
+        result: 'fail',
+        // in the case of a file failure, we need the variant hint...
+        variant: variant
       });
     }
     var definerLog = logData.log;
@@ -754,7 +763,10 @@ function summaryFromLoggest(testFileName, logData) {
       var testCaseLog = definerLog.kids[iKid];
       summary.tests.push({
         name: '' + testCaseLog.semanticIdent,
-        result: testCaseLog.latched.result
+        result: testCaseLog.latched.result,
+        // although the latched variant should match up with the passed-in
+        // variant, let's avoid non-obvious clobbering and just propagate
+        variant: testCaseLog.latched.variant
       });
     }
   }
@@ -783,7 +795,7 @@ function printTestSummary(summary) {
         str += '??? ' + test.result + '???';
         break;
     }
-    str += '\x1b[0m ' + test.name + '\n';
+    str += '\x1b[0m ' + test.name + ' (' + summary.variant + ')\n';
     dump(str);
   });
 }
@@ -792,21 +804,58 @@ function printTestSummary(summary) {
 // reference here or it can go away prematurely!
 var gProgress = null;
 
-function runTestFile(testFileName, thoroughCleanup) {
+function runTestFile(testFileName, variant, thoroughCleanup) {
   try {
-    return _runTestFile(testFileName, thoroughCleanup);
+    return _runTestFile(testFileName, variant, thoroughCleanup);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, thoroughCleanup) {
-  console.harness('running', testFileName);
+function _runTestFile(testFileName, variant, thoroughCleanup) {
+  console.harness('running', testFileName, 'variant', variant);
+
+  var testParams;
+  switch (variant) {
+    case 'noserver':
+      testParams = {};
+      break;
+    case 'imap:fake':
+      testParams = {
+        name: 'Baron von Testendude',
+        emailAddress: 'testy@fakehost',
+        password: 'testy',
+        slow: false,
+        type: 'imap',
+
+        defaultArgs: true,
+      };
+      break;
+    case 'activesync:fake':
+      testParams = {
+        name: 'Baron von Testendude',
+        emailAddress: 'testy@fakehost',
+        password: 'testy',
+        slow: false,
+        type: 'activesync',
+
+        defaultArgs: true,
+      };
+      break;
+    // these variants should only be run if info has been provided explicitly
+    case 'imap:real':
+      testParams = TEST_PARAMS;
+      break;
+    case 'activesync:real':
+      testParams = TEST_PARAMS;
+      break;
+  }
 
   var passToRunner = {
     testName: testFileName,
-    testParams: JSON.stringify(TEST_PARAMS)
+    testParams: JSON.stringify(testParams),
+    variant: variant
   };
 
   // Our testfile protocol allows us to use the test file as an origin, so every
@@ -884,8 +933,8 @@ console.harness('calling writeTestLog and resolving');
         var jsonStr = data.data,
             logData = JSON.parse(jsonStr);
         // this must be done prior to the compartment getting killed
-        var summary = summaryFromLoggest(testFileName, logData);
-        writeTestLog(testFileName, jsonStr).then(function() {
+        var summary = summaryFromLoggest(testFileName, variant, logData);
+        writeTestLog(testFileName, variant, jsonStr).then(function() {
           console.harness('write completed!');
           deferred.resolve(summary);
         });
@@ -941,11 +990,12 @@ console.harness('calling writeTestLog and resolving');
   return deferred.promise;
 }
 
-function writeTestLog(testFileName, jsonStr) {
+function writeTestLog(testFileName, variant, jsonStr) {
   try {
     var encoder = new TextEncoder('utf-8');
-    var logFilename = testFileName + '.log';
-    var logPath = do_get_file('test-logs/' + TEST_PARAMS.type).path +
+    var logFilename = testFileName + '-' +
+                      variant.replace(/:/g, '_') + '.log';
+    var logPath = do_get_file('test-logs').path +
                   '/' + logFilename;
     console.harness('writing to', logPath);
     var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
@@ -960,23 +1010,60 @@ function writeTestLog(testFileName, jsonStr) {
   }
 }
 
+
+/**
+ *
+ */
 function runTests(configData) {
   var deferred = Promise.defer();
 
   var summaries = [];
 
-  var iTest = 0;
+  var useVariants = [];
+  for (var variantName in configData.variants) {
+    var variantData = configData.variants[variantName];
+    if (!variantData.optional ||
+        (variantName === 'imap:real' && TEST_PARAMS.type === 'imap') ||
+        (variantName === 'activesync:real' &&
+         TEST_PARAMS.type === 'activesync')) {
+      useVariants.push(variantName);
+    }
+  }
+  console.log('using variants:', useVariants);
+
+  var runTests = [];
+  for (var testName in configData.tests) {
+    var testData = configData.tests[testName];
+    runTests.push(
+      {
+        name: testName.replace(/\.js$/, ''),
+        // filter out the variants that we don't want to run right now
+        variants: testData.variants.filter(function(v) {
+            return useVariants.indexOf(v) !== -1;
+          }),
+      });
+    console.log('planning to run test:', testName);
+  }
+
+  var iTest = 0, iVariant = 0, curTestInfo = null;
   function runNextTest(summary) {
     if (summary)
       summaries.push(summary);
 
-    if (iTest >= configData.tests.length) {
+    if (curTestInfo && iVariant >= curTestInfo.variants.length) {
+      iTest++;
+      iVariant = 0;
+    }
+    if (iTest >= runTests.length) {
       deferred.resolve(summaries);
       return;
     }
 
-    var testName = configData.tests[iTest++].replace(/\.js$/, '');
-    runTestFile(testName).then(runNextTest, /* thorough cleanup */ true);
+    curTestInfo = runTests[iTest];
+
+    runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
+                /* thorough cleanup */ true)
+      .then(runNextTest);
   }
   runNextTest();
 
@@ -986,17 +1073,27 @@ function runTests(configData) {
 function DOMLoaded() {
   OS.File.read(TEST_CONFIG).then(function(dataArr) {
     var decoder = new TextDecoder('utf-8');
-    var configData = JSON.parse(decoder.decode(dataArr));
-
-    if (TEST_NAME) {
-      runTestFile(TEST_NAME).then(function(summary) {
-        dump('\n\n***** 1 test run: *****\n');
-        printTestSummary(summary);
-        dump('************************\n\n');
-        quitApp();
-      });
+    try {
+      var configData = JSON.parse(decoder.decode(dataArr));
     }
-    else {
+    catch (ex) {
+      console.error('Problem with JSON config file:', ex);
+    }
+
+    // If there's a TEST_NAME, we use it to filter the list of tests to things
+    // that have a substring match.  So if a full filename is provided, we
+    // should still correctly only run that file.
+    if (TEST_NAME) {
+      var lowerCheck = TEST_NAME.toLowerCase();
+      var keepTests = {};
+      for (var testName in configData.tests) {
+        if (testName.toLowerCase().indexOf(lowerCheck) !== -1) {
+          keepTests[testName] = configData.tests[testName];
+        }
+      }
+      configData.tests = keepTests;
+    }
+    try {
       runTests(configData).then(function(summaries) {
         dump('\n\n***** ' + summaries.length + ' tests run: *****\n\n');
         summaries.forEach(function(summary) {
@@ -1005,6 +1102,9 @@ function DOMLoaded() {
         dump('\n************************\n\n');
         quitApp();
       });
+    }
+    catch (ex) {
+      console.error('runTests explosion:', ex, '\n', ex.stack);
     }
   });
 

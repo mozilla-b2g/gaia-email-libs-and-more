@@ -15,3 +15,7 @@ To perform the update, please run the "pull-files-from-thunderbird" script in
 this directory.  If you need more files, please update the script and then run
 it.
 
+NOTE: Thunderbird code is GPL/LGPL/MPL tri-licensed unless otherwise labeled.
+
+NOTE: Some files are not from Thunderbird.  Namely:
+- subscript/httpd.js: this is from mozilla-central/network/test/httpserver
