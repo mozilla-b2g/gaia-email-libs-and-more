@@ -31,26 +31,6 @@ const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URI = IOService.newURI.bind(IOService);
 
 ////////////////////////////////////////////////////////////////////////////////
-// have all console.log usages in this file be pretty to dump()
-
-Services.prefs.setBoolPref('browser.dom.window.dump.enabled', true);
-
-function consoleHelper() {
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
-}
-window.console = {
-  log: consoleHelper.bind(null, '\x1b[32mLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mERR'),
-  info: consoleHelper.bind(null, '\x1b[36mINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWAR'),
-  harness: consoleHelper.bind(null, '\x1b[36mRUN')
-};
-
 console.log('Initial loggest-chrome-runner.js bootstrap begun');
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -466,6 +446,12 @@ var TEST_PARAMS = {
 var TEST_NAME = null;
 var TEST_CONFIG = null;
 /**
+ * Command issued via an argument that causes us to not actually run a test, but
+ * causes us to spin up a fake-server using the same infrastructure we would
+ * have used to spin it up from a unit test.
+ */
+var TEST_COMMAND = null;
+/**
  * Pull test name and arguments out of command-line and/or environment
  */
 function populateTestParams() {
@@ -482,6 +468,10 @@ function populateTestParams() {
   // make absolute if it's not already absolute
   if (TEST_CONFIG[0] !== '/')
     TEST_CONFIG = do_get_file(TEST_CONFIG).path;
+
+  // test-command is optional
+  if (args.findFlag('test-command', false) !== -1)
+    TEST_COMMAND = args.handleFlagWithParam('test-command', false);
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -1078,6 +1068,37 @@ function DOMLoaded() {
     }
     catch (ex) {
       console.error('Problem with JSON config file:', ex);
+    }
+
+    if (TEST_COMMAND) {
+      console.log('got command:', TEST_COMMAND);
+      switch (TEST_COMMAND) {
+        case 'imap-fake-server':
+          try {
+            window.imapServer = FakeServerSupport.makeIMAPServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up IMAP server', ex, '\n',
+                          ex.stack);
+          }
+          try {
+            window.smtpServer = FakeServerSupport.makeSMTPServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up SMTP server', ex, '\n',
+                          ex.stack);
+          }
+
+          console.log('IMAP server up on port', window.imapServer.port);
+          console.log('SMTP server up on port', window.smtpServer.port);
+          break;
+
+        case 'activesync-fake-server':
+          break;
+      }
+      return;
     }
 
     // If there's a TEST_NAME, we use it to filter the list of tests to things

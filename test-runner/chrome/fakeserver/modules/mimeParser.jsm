@@ -3,14 +3,14 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 // vim:set ts=2 sw=2 sts=2 et ft=javascript:
 
-Components.utils.import("resource:///modules/XPCOMUtils.jsm");
-Components.utils.import("resource:///modules/Services.jsm");
+Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
+Components.utils.import("resource://gre/modules/Services.jsm");
 
 // Load the core MIME parser. Since it doesn't define EXPORTED_SYMBOLS, we must
 // use the subscript loader instead.
 Services.scriptloader.loadSubScript("resource://fakeserver/modules/mimeParserCore.js");
 
-var EXPORTED_SYMBOLS = ["MimeParser"];
+this.EXPORTED_SYMBOLS = ["MimeParser"];
 
 // Emitter helpers, for internal functions later on.
 var ExtractHeadersEmitter = {

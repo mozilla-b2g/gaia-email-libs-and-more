@@ -87,7 +87,7 @@ endef
 define run-no-test #(call run-no-test,command,profdir)
 	-rm -rf $(2)
 	-mkdir -p $(2)
-	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/$(2) --test-config $(CURDIR)/test/test-files.json --test-app $(1)
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/$(2) --test-config $(CURDIR)/test/test-files.json --test-command $(1)
 endef
 
 ######################

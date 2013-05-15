@@ -30,8 +30,8 @@
  * - smtpd.js: SMTP_RFC2821_handler does everything.  The daemon just
  *   accumulates a 'post' attribute when a message is sent.
  **/
-
 var FakeServerSupport = (function(Components, inGELAM) {
+try {
 var Cc = Components.classes;
 var Ci = Components.interfaces;
 var Cu = Components.utils;
@@ -84,27 +84,46 @@ function synchronousReadFile(nsfile) {
   return data;
 }
 function loadInSandbox(relpath, sandbox) {
-  var jsstr = synchronousReadFile();
+  // XXX parameterize on inGELAM
+  relpath = ['test-runner', 'chrome', 'fakeserver'].concat(relpath);
+  var nsfile = fu.FileUtils.getFile('CurWorkD', relpath);
+  console.log('loadInSandbox resolved', relpath, 'to', nsfile.path);
+  var jsstr = synchronousReadFile(nsfile);
   // the moz idiom is that synchronous file loading is okay for unit test
   // situations like this.  xpcshell load or even normal Cu.import would sync
   // load.
-  Cu.evalInSandbox(jsstr, sandbox, null, relpath);
+  Cu.evalInSandbox(jsstr, sandbox, '1.8', nsfile.path);
+}
+
+var httpdSandbox = null;
+function createHttpdSandbox() {
+  if (httpdSandbox)
+    return;
+
+  httpdSandbox = makeSandbox('imap-backdoor');
+
+  // for back-door control
+  loadInSandbox(['subscript', 'httpd.js'], httpdSandbox);
 }
 
 var imapSandbox = null;
 function createImapSandbox() {
+  if (imapSandbox)
+    return;
+
   imapSandbox = makeSandbox('imap-fakeserver');
-  // for back-door control
-  loadInSandbox('subscript/httpd.js', imapSandbox);
   // all the fakeserver stuff
-  loadInSandbox('subscript/maild.js', imapSandbox);
-  loadInSandbox('subscript/auth.js', imapSandbox);
-  loadInSandbox('subscript/imapd.js', imapSandbox);
-  loadInSandbox('subscript/smtpd.js', imapSandbox);
+  loadInSandbox(['subscript', 'maild.js'], imapSandbox);
+  loadInSandbox(['subscript', 'auth.js'], imapSandbox);
+  loadInSandbox(['subscript', 'imapd.js'], imapSandbox);
+  loadInSandbox(['subscript', 'smtpd.js'], imapSandbox);
 }
 
 var activesyncSandbox = null;
 function createActiveSyncSandbox() {
+  if (activesyncSandbox)
+    return;
+
   activesyncSandbox = makeSandbox('activesync-fakeserver');
 
   // for the backdoor
@@ -121,12 +140,14 @@ function createActiveSyncSandbox() {
  * IMAP server only services a single fake account.
  */
 function makeIMAPServer(creds) {
+  createImapSandbox();
+
   var infoString = 'RFC2195';
 
-  var daemon = new sandbox.imapDaemon();
+  var daemon = new imapSandbox.imapDaemon();
 
   function createHandler(d) {
-    var handler = new sandbox.IMAP_RFC3501_handler(d);
+    var handler = new imapSandbox.IMAP_RFC3501_handler(d);
 
     // hardcoded defaults are "username" and "password"
     handler.kUsername = creds.username;
@@ -135,11 +156,12 @@ function makeIMAPServer(creds) {
     var parts = infoString.split(/ *, */);
     for each (var part in parts) {
       if (part.startsWith("RFC"))
-        sandbox.mixinExtension(handler, eval("IMAP_" + part + "_extension"));
+        imapSandbox.mixinExtension(handler,
+                                   imapSandbox["IMAP_" + part + "_extension"]);
     }
     return handler;
   }
-  var server = new sandbox.nsMailServer(createHandler, daemon);
+  var server = new imapSandbox.nsMailServer(createHandler, daemon);
   // take an available port
   server.start(0);
   return {
@@ -150,10 +172,12 @@ function makeIMAPServer(creds) {
 }
 
 function makeSMTPServer(creds) {
-  var daemon = new sandbox.smtpDaemon();
+  createImapSandbox();
+
+  var daemon = new imapSandbox.smtpDaemon();
 
   function createHandler(d) {
-    var handler = new sandbox.SMTP_RFC2821_handler(d);
+    var handler = new imapSandbox.SMTP_RFC2821_handler(d);
 
     handler.kUsername = creds.username;
     handler.kPassword = creds.password;
@@ -161,7 +185,7 @@ function makeSMTPServer(creds) {
     return handler;
   }
 
-  var server = new sandbox.nsMailServer(createHandler, daemon);
+  var server = new imapSandbox.nsMailServer(createHandler, daemon);
   // take an available port
   server.start(0);
   return {
@@ -175,6 +199,9 @@ return {
   makeIMAPServer: makeIMAPServer,
   makeSMTPServer: makeSMTPServer
 };
-
-})(xpcComponents || Components,
-   xpcComponents ? false : true);
+} catch (ex) {
+  console.error('Problem initializing FakeServerSupport', ex, '\n',
+                ex.stack);
+}
+})(window.xpcComponents || Components,
+   window.xpcComponents ? false : true);

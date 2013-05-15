@@ -9,4 +9,5 @@ b2g-srcdir-symlink
 arbpl-dir-symlink
 test-profile
 test-logs
+fake-imap-server-profile
 *~

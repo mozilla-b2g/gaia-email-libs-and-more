@@ -45,7 +45,7 @@
 Components.utils.import("resource://gre/modules/Services.jsm");
 
 if (!("MimeParser" in this))
-  Components.utils.import("resource:///modules/mimeParser.jsm", this);
+  Components.utils.import("resource://fakeserver/modules/mimeParser.jsm", this);
 
 function imapDaemon(flags, syncFunc) {
   this._flags = flags;
