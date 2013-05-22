@@ -615,15 +615,16 @@ TD.commonCase('MIME hierarchies', function(T) {
 
     return messageAppends;
   }, { messageCount: testMessages.length }); // give count for timeout purposes
+  T.group('full message download');
   // -- open the folder
-  var folderView = testAccount.do_openFolderView(
-    'syncs', fullSyncFolder,
+  var folderView1 = testAccount.do_openFolderView(
+    'full download view', fullSyncFolder,
     { count: testMessages.length, full: testMessages.length, flags: 0,
       deleted: 0 },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
   // -- check each message in its own step
-  testMessages.forEach(function checkMessage(msgDef, iMsg) {
+  function checkMessage(folderView, msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
       eCheck.expect_namedValue('body', msgDef.checkBody);
       if (msgDef.checkSnippet)
@@ -668,7 +669,38 @@ TD.commonCase('MIME hierarchies', function(T) {
         body.die();
       });
     });
+  }
+  testMessages.forEach(checkMessage.bind(null, folderView1));
+  // The re-creation will reset the slice, so we could try and just keep using
+  // this slice, but we'd need to change the sync settings to match our explicit
+  // open call up above.
+  testAccount.do_closeFolderView(folderView1);
+
+  T.group('reset folder state');
+  testAccount.do_recreateFolder(fullSyncFolder);
+
+  T.group('snippet fetch followed by full message download');
+  // sync
+  var folderView2 = testAccount.do_openFolderView(
+    'snippet download view', fullSyncFolder,
+    { count: testMessages.length, full: testMessages.length, flags: 0,
+      deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  // request up to 4k of partial bodies for all messages!
+  T.action(eCheck, 'fetch body snippets', function() {
+    eCheck.expect_event('got snippets');
+    folderView2.slice.maybeRequestBodies(
+      0, folderView2.slice.items.length,
+      { maximumBytesToFetch: 4096 },
+      function() {
+        eCheck.event('got snippets');
+    });
   });
+
+  // same exact thing as above, but it will automatically only fetch the extra
+  // data needed
+  testMessages.forEach(checkMessage.bind(null, folderView2));
 
   T.group('cleanup');
 });
