@@ -1,4 +1,4 @@
-{ 
+{
   "account": "imap", "torture": "false",
   "tests": [
     "test_mail_html.js",
@@ -23,6 +23,7 @@
     "test_just_auth.js",
     "test_autoconfig.js",
     "test_account_logic.js",
+    "test_account_defaults.js",
     "test_account_create_unit.js",
     "test_folder_storage.js",
     "test_linkify.js",

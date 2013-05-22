@@ -1073,6 +1073,9 @@ var TestImapAccountMixins = {
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState();
 
+      if (self._opts.timeWarp)
+        $date.TEST_LetsDoTheTimewarpAgain(self._opts.timeWarp);
+
       var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {

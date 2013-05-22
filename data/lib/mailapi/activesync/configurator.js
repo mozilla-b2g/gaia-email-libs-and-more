@@ -8,6 +8,7 @@ define(
     '../accountcommon',
     '../a64',
     './account',
+    '../date',
     'require',
     'exports'
   ],
@@ -16,6 +17,7 @@ define(
     $accountcommon,
     $a64,
     $asacct,
+    $date,
     require,
     exports
   ) {
@@ -130,6 +132,7 @@ exports.configurator = {
         var accountDef = {
           id: accountId,
           name: userDetails.accountName || userDetails.emailAddress,
+          defaultPriority: $date.NOW(),
 
           type: 'activesync',
           syncRange: 'auto',
