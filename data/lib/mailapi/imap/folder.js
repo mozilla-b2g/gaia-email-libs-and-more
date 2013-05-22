@@ -28,6 +28,7 @@ define(
 var $imaptextparser = null;
 var $imapsnippetparser = null;
 var $imapbodyfetcher = null;
+var $imapchew = null;
 var $imapsync = null;
 
 var allbackMaker = $allback.allbackMaker,
@@ -571,6 +572,14 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
           // subtract the estimated byte size
           overallMaximumBytes -= rep.sizeEstimate;
         }
+
+        // For a byte-serve request, we need to request at least 1 byte, so
+        // request some bytes.  This is a logic simplification that should not
+        // need to be used because imapchew.js should declare 0-byte files
+        // fully downloaded when their parts are created, but better a wasteful
+        // network request than breaking here.
+        if (bytesToFetch <= 0)
+          bytesToFetch = 64;
 
         // we may only need a subset of the total number of bytes.
         if (overallMaximumBytes !== undefined || rep.amountDownloaded) {
