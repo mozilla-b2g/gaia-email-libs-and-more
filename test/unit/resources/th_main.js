@@ -1911,6 +1911,10 @@ var TestImapAccountMixins = {
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
@@ -1920,11 +1924,7 @@ var TestImapAccountMixins = {
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+        if (!_saveToThing) {
           slice.die();
         }
       };
@@ -2380,6 +2380,11 @@ var TestActiveSyncAccountMixins = {
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
+
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
@@ -2389,11 +2394,7 @@ var TestActiveSyncAccountMixins = {
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+        if (!_saveToThing) {
           slice.die();
         }
       };
