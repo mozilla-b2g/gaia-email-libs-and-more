@@ -15,6 +15,7 @@ var TD = exports.TD = $tc.defineTestsFor(
 
 TD.commonCase('create, recreate offline', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
+  const DEFAULT_MESSAGE_COUNT = 10;
 
   T.group('create old db');
   // create a database that will get migrated at next universe
@@ -22,6 +23,11 @@ TD.commonCase('create, recreate offline', function(T) {
       TA1 = T.actor('testAccount', 'A1',
                     { universe: TU1 }),
       eCheck = T.lazyLogger('check');
+
+  // add some messages to the inbox
+  var inbox1 = TA1.do_useExistingFolderWithType('inbox', '1');
+  TA1.do_addMessagesToFolder(inbox1, { count: DEFAULT_MESSAGE_COUNT,
+                                       age: { hours: 1 } });
 
   T.group('go offline, shutdown');
   TU1.do_pretendToBeOffline(true);
@@ -34,7 +40,7 @@ TD.commonCase('create, recreate offline', function(T) {
       TA2 = T.actor('testAccount', 'A2',
                     { universe: TU2, restored: true });
   // check that the inbox exists
-  var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2');
+  var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2', inbox1);
 
   T.group('kill folder sync, go online, try and sync');
   // Killing the folder sync means that when we go online, we don't try and sync
@@ -52,10 +58,10 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('sync folder list triggers sync');
   TU2.do_restoreQueuedOperationsAndWait(TA2, savedFolderSyncOpList, function() {
-    TA2.expect_messagesReported(inbox2.knownMessages.length);
+    TA2.expect_messagesReported(DEFAULT_MESSAGE_COUNT);
     TA2.expect_headerChanges(
       view2,
-      { additions: inbox2.knownMessages, changes: [], deletions: [] });
+      { additions: inbox2.serverMessages, changes: [], deletions: [] });
   });
   TA2.do_closeFolderView(view2);
 
@@ -77,8 +83,7 @@ TD.commonCase('create, recreate offline', function(T) {
   var TU4 = T.actor('testUniverse', 'U4', { dbDelta: 2 }),
       TA4 = T.actor('testAccount', 'A4',
                     { universe: TU4, restored: true });
-  const DEFAULT_MESSAGE_COUNT = 10;
-  var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4');
+  var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4', inbox1);
   TA4.do_viewFolder('sync', inbox4,
                     { count: DEFAULT_MESSAGE_COUNT,
                       full: DEFAULT_MESSAGE_COUNT, flags: 0, deleted: 0,

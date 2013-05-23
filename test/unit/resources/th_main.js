@@ -2271,6 +2271,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
+          folderName);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -2300,6 +2305,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.knownMessages = oldFolder.knownMessages;
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
+      }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+          folderType);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
       }
 
       testFolder.connActor.__attachToLogger(
