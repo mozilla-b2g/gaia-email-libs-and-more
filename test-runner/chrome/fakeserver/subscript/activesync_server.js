@@ -1,6 +1,6 @@
 'use strict';
 
-Components.utils.import('resource://testing-common/httpd.js');
+Components.utils.import('resource://fakeserver/modules/httpd.js');
 Components.utils.import('resource://gre/modules/NetUtil.jsm');
 
 /**
@@ -40,7 +40,7 @@ function decodeWBXML(stream) {
   for (let i = 0; i < str.length; i++)
     bytes[i] = str.charCodeAt(i);
 
-  return new $_wbxml.Reader(bytes, $_ascp);
+  return new WBXML.Reader(bytes, ActiveSyncCodepages);
 }
 
 /**
@@ -55,7 +55,7 @@ function decodeWBXML(stream) {
 function ActiveSyncFolder(server, name, type, parentId) {
   this.server = server;
   this.name = name;
-  this.type = type || $_ascp.FolderHierarchy.Enums.Type.Mail;
+  this.type = type || ActiveSyncCodepages.FolderHierarchy.Enums.Type.Mail;
   this.id = 'folder-' + (this.server._nextCollectionId++);
   this.parentId = parentId || '0';
 
@@ -81,7 +81,7 @@ ActiveSyncFolder.prototype = {
    * @return true if the message is in the filter range, false otherwise
    */
   _messageInFilterRange: function(filterType, message) {
-    return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
+    return filterType === ActiveSyncCodepages.AirSync.Enums.FilterType.NoFilter ||
            (this.server._clock - this.filterTypeToMS[filterType] <=
             message.date);
   },
@@ -333,7 +333,7 @@ function ActiveSyncServer(startDate) {
   // TODO: get the date from the test helper somehow...
   this._clock = Date.now();
 
-  const folderType = $_ascp.FolderHierarchy.Enums.Type;
+  const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
   this._folders = [];
   this.foldersByType = {
     inbox:  [],
@@ -509,12 +509,12 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_FolderSync: function(requestData) {
-    const fh = $_ascp.FolderHierarchy.Tags;
-    const folderType = $_ascp.FolderHierarchy.Enums.Type;
+    const fh = ActiveSyncCodepages.FolderHierarchy.Tags;
+    const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
 
     let syncKey;
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
       syncKey = node.children[0].textContent;
     });
@@ -523,7 +523,7 @@ ActiveSyncServer.prototype = {
     let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
     this._folderSyncStates[nextSyncKey] = [];
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
        .tag(fh.SyncKey, nextSyncKey)
@@ -584,9 +584,9 @@ ActiveSyncServer.prototype = {
     if (!requestData)
       requestData = this._cachedSyncRequest;
 
-    const as = $_ascp.AirSync.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
-    const asEnum = $_ascp.AirSync.Enums;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
+    const asEnum = ActiveSyncCodepages.AirSync.Enums;
 
     let syncKey, collectionId, getChanges,
         server = this,
@@ -595,7 +595,7 @@ ActiveSyncServer.prototype = {
         truncationSize = 0,
         clientCommands = [];
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
 
     e.addEventListener(base.concat(as.SyncKey), function(node) {
@@ -660,7 +660,7 @@ ActiveSyncServer.prototype = {
     if (syncKey === '0') {
       // Initial sync can't change anything, in either direction.
       if (getChanges || clientCommands.length) {
-        let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+        let w = new WBXML.Writer('1.3', 1, 'UTF-8');
         w.stag(as.Sync)
            .tag(as.Status, asEnum.Status.ProtocolError)
          .etag();
@@ -727,14 +727,14 @@ ActiveSyncServer.prototype = {
     }
     // - A sync without changes requested and no commands to run -> error!
     else {
-      let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+      let w = new WBXML.Writer('1.3', 1, 'UTF-8');
       w.stag(as.Sync)
          .tag(as.Status, asEnum.Status.ProtocolError)
        .etag();
       return w;
     }
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
 
     w.stag(as.Sync)
        .stag(as.Collections)
@@ -812,13 +812,13 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_ItemOperations: function(requestData) {
-    const io = $_ascp.ItemOperations.Tags;
-    const as = $_ascp.AirSync.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
+    const io = ActiveSyncCodepages.ItemOperations.Tags;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
 
     let fetches = [];
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([io.ItemOperations, io.Fetch], function(node) {
       let fetch = {};
 
@@ -840,7 +840,7 @@ ActiveSyncServer.prototype = {
     });
     e.run(requestData);
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations)
        .tag(io.Status, '1')
        .stag(io.Response);
@@ -892,14 +892,14 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_GetItemEstimate: function(requestData) {
-    const ie = $_ascp.ItemEstimate.Tags;
-    const as = $_ascp.AirSync.Tags;
-    const ieStatus = $_ascp.ItemEstimate.Enums.Status;
+    const ie = ActiveSyncCodepages.ItemEstimate.Tags;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const ieStatus = ActiveSyncCodepages.ItemEstimate.Enums.Status;
 
     let syncKey, collectionId;
 
     let server = this;
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection],
                        function(node) {
       for (let child of node.children) {
@@ -928,7 +928,7 @@ ActiveSyncServer.prototype = {
       estimate = folder.numCommandsForSyncState(syncKey);
     }
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Response)
          .tag(ie.Status, status);
@@ -953,11 +953,11 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_MoveItems: function(requestData) {
-    const mo = $_ascp.Move.Tags;
-    const moStatus = $_ascp.Move.Enums.Status;
+    const mo = ActiveSyncCodepages.Move.Tags;
+    const moStatus = ActiveSyncCodepages.Move.Enums.Status;
 
     let moves = [];
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([mo.MoveItems, mo.Move], function(node) {
       let move = {};
 
@@ -981,7 +981,7 @@ ActiveSyncServer.prototype = {
     });
     e.run(requestData);
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(mo.MoveItems);
 
     for (let move of moves) {
@@ -1062,9 +1062,9 @@ ActiveSyncServer.prototype = {
    *        no truncation)
    */
   _writeEmail: function(w, folder, message, truncSize) {
-    const em  = $_ascp.Email.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
-    const asbEnum = $_ascp.AirSyncBase.Enums;
+    const em  = ActiveSyncCodepages.Email.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
+    const asbEnum = ActiveSyncCodepages.AirSyncBase.Enums;
 
     // TODO: make this match the requested type
     let bodyType = message.body.contentType === 'text/html' ?
@@ -1129,7 +1129,7 @@ ActiveSyncServer.prototype = {
    * @return an object enumerating the changes requested
    */
   _parseEmailChange: function(node) {
-    const em = $_ascp.Email.Tags;
+    const em = ActiveSyncCodepages.Email.Tags;
     let changes = {};
 
     for (let child of node.children) {
@@ -1183,7 +1183,7 @@ ActiveSyncServer.prototype = {
   _backdoor_addFolder: function(data) {
     // XXX: Come up with a smarter way to preserve folder types when deleting
     // and recreating them!
-    const folderType = $_ascp.FolderHierarchy.Enums.Type;
+    const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
     let type = data.type;
     if (!type) {
       if (data.name === 'Inbox')

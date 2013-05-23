@@ -5,10 +5,9 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_activesync_server',
         'wbxml', 'activesync/codepages',
         'exports'],
-       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
+       function($tc, $th_main, $wbxml, $ascp, exports) {
 
 // This is the number of messages after which the sync logic will
 // declare victory and stop filling.
@@ -16,7 +15,7 @@ const INITIAL_FILL_SIZE = 15;
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_activesync_general' }, null,
-  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
+  [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;

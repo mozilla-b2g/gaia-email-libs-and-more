@@ -28,10 +28,12 @@ var TestActiveSyncServerMixins = {
   __constructor: function(self, opts) {
     if (!opts.universe)
       throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup(self, 'created, listening to get port',
+    self.T.convenienceSetup('creating fake', self,
                             function() {
+
+
       self.serverBaseUrl = 'http://localhost:8880';
-      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
+      $accountcommon._autoconfigByDomain['fakeashost'].incoming.server =
         self.serverBaseUrl;
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {

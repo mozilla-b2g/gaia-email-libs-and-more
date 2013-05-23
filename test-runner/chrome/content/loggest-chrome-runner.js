@@ -814,7 +814,7 @@ function _runTestFile(testFileName, variant, thoroughCleanup) {
     case 'imap:fake':
       testParams = {
         name: 'Baron von Testendude',
-        emailAddress: 'testy@fakehost',
+        emailAddress: 'testy@fakeimaphost',
         password: 'testy',
         slow: false,
         type: 'imap',
@@ -825,7 +825,7 @@ function _runTestFile(testFileName, variant, thoroughCleanup) {
     case 'activesync:fake':
       testParams = {
         name: 'Baron von Testendude',
-        emailAddress: 'testy@fakehost',
+        emailAddress: 'testy@fakeashost',
         password: 'testy',
         slow: false,
         type: 'activesync',
@@ -1096,6 +1096,16 @@ function DOMLoaded() {
           break;
 
         case 'activesync-fake-server':
+          try {
+            window.activesyncServer = FakeServerSupport.makeActiveSyncServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up ActiveSync server', ex, '\n',
+                          ex.stack);
+          }
+          console.log('ActiveSync server up on port',
+                      window.activesyncServer.port);
           break;
       }
       return;

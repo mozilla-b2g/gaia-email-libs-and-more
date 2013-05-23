@@ -64,7 +64,7 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
       username: '%EMAILLOCALPART%',
     },
   },
-  'fakehost': {
+  'fakeimaphost': {
     type: 'imap+smtp',
     incoming: {
       hostname: 'localhost',
@@ -94,12 +94,12 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
       username: '%EMAILLOCALPART%',
     },
   },
-  'aslocalhost': {
+  'fakeashost': {
     type: 'activesync',
     displayName: 'Test',
     incoming: {
-      // This string may be clobbered with the correct port number when
-      // running as a unit test.
+      // This string will be clobbered with the correct port number when running
+      // as a unit test.
       server: 'http://localhost:8880',
       username: '%EMAILADDRESS%',
     },

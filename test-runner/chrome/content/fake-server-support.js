@@ -1,8 +1,7 @@
 /**
- * Support for loading Thunderbird-derived IMAP and SMTP fake-servers.
- * ActiveSync's fake-server has nothing to do with this file right now.  Were we
- * ever to support NNTP (scope creep for now) or POP3 (boo, hiss!), Thunderbird
- * has those too.
+ * Support for loading Thunderbird-derived IMAP and SMTP fake-servers as well
+ * as our ActiveSync fake-server.  Thunderbird has NNTP and POP3 that we could
+ * steal too.
  *
  * Thunderbird's fake-servers are primarily used to being executed in an
  * xpcshell "global soup" type of context.  load(path) loads things in the
@@ -10,15 +9,41 @@
  * in TB's mozmill tests a little somehow.)  To this end, we create a sandbox
  * to load them in.
  *
- * These servers are intended to be used in one of two primary modes:
- * - In unit tests in the same process.
+ * These servers are intended to be used in one of three primary modes:
+ * - In unit tests in the same process, such as our GELAM tests.  In this case,
+ *   the unit test is in complete control of what folders are created.  Note
+ *   that our unit tests run from a worker thread, but the fake-servers run in
+ *   the main thread (with chrome privileges.)
+ *
  * - In integration tests where the e-mail app is running in a b2g-desktop
- *   instance or on a real device and is being controlled by marionette and
- *   the fake-server is in a different xulrunner-ish process
+ *   instance or on a real device and is being controlled by marionette.  In
+ *   this case, we are expecting to be running inside an xpcwindow xpcshell
+ *   instance and the test is in control of what folders are created.  In this
+ *   case, the unit test is running with chrome privileges in the main thread,
+ *   just like the fake servers.
  *
- * ===
+ * - As standalone servers initiated by GELAM's Makefile.  Eventually we will
+ *   automatically put some messages in to make the accounts more interesting,
+ *   but not yet.  The fake servers are run using our GELAM unit test harness.
  *
- * Overview of fake server files we use:
+ * === Communication and control ===
+ *
+ * If our unit tests are running against a real IMAP server, our manipulation
+ * of the server must be asynchronous since we are reusing the e-mail app's
+ * own implementation (like APPEND) and there's no way we could do any evil
+ * tricks to make things seem synchronous.  This means that all of our test APIs
+ * for manipulating servers are async.
+ *
+ * However, for our fake-servers, we can do things somewhat synchronously.
+ *
+ * For our unit tests, changes to the fake-servers are issued via synchronous
+ * XHR requests to 'backdoor' JSON-over-HTTP servers from the worker thread
+ * where the back-end and our unit tests run.  If run in the same thread, we
+ * could bypass the HTTP thing.
+ *
+ *
+ * === Overview of fake server files we use ===
+ *
  * - maild.js: nsMailServer does all the network stuff, takes a handle-creator
  *   to invoke when a connection is received and a daemon to pass to it.
  *
@@ -38,8 +63,6 @@ var Cu = Components.utils;
 
 var fu = {};
 Cu.import('resource://gre/modules/FileUtils.jsm', fu);
-
-var baseFakeserver = '';
 
 // -- create a sandbox
 // We could use a scoped subscript load, but keeping the fake-servers in their
@@ -83,11 +106,11 @@ function synchronousReadFile(nsfile) {
 
   return data;
 }
-function loadInSandbox(relpath, sandbox) {
-  // XXX parameterize on inGELAM
-  relpath = ['test-runner', 'chrome', 'fakeserver'].concat(relpath);
+
+function loadInSandbox(base, relpath, sandbox) {
+  relpath = base.concat(relpath);
   var nsfile = fu.FileUtils.getFile('CurWorkD', relpath);
-  console.log('loadInSandbox resolved', relpath, 'to', nsfile.path);
+  //console.log('loadInSandbox resolved', relpath, 'to', nsfile.path);
   var jsstr = synchronousReadFile(nsfile);
   // the moz idiom is that synchronous file loading is okay for unit test
   // situations like this.  xpcshell load or even normal Cu.import would sync
@@ -95,44 +118,53 @@ function loadInSandbox(relpath, sandbox) {
   Cu.evalInSandbox(jsstr, sandbox, '1.8', nsfile.path);
 }
 
-var httpdSandbox = null;
-function createHttpdSandbox() {
-  if (httpdSandbox)
-    return;
-
-  httpdSandbox = makeSandbox('imap-backdoor');
-
-  // for back-door control
-  loadInSandbox(['subscript', 'httpd.js'], httpdSandbox);
-}
-
 var imapSandbox = null;
+var baseFakeserver = ['test-runner', 'chrome', 'fakeserver'];
 function createImapSandbox() {
   if (imapSandbox)
     return;
 
   imapSandbox = makeSandbox('imap-fakeserver');
   // all the fakeserver stuff
-  loadInSandbox(['subscript', 'maild.js'], imapSandbox);
-  loadInSandbox(['subscript', 'auth.js'], imapSandbox);
-  loadInSandbox(['subscript', 'imapd.js'], imapSandbox);
-  loadInSandbox(['subscript', 'smtpd.js'], imapSandbox);
+  loadInSandbox(baseFakeserver, ['subscript', 'maild.js'], imapSandbox);
+  loadInSandbox(baseFakeserver, ['subscript', 'auth.js'], imapSandbox);
+  loadInSandbox(baseFakeserver, ['subscript', 'imapd.js'], imapSandbox);
+  loadInSandbox(baseFakeserver, ['subscript', 'smtpd.js'], imapSandbox);
 }
 
 var activesyncSandbox = null;
+var baseActiveSync = ['deps', 'activesync'];
+var codepages = ['AirSyncBase.js', 'AirSync.js', 'Calendar.js', 'Common.js',
+                 'ComposeMail.js', 'Contacts2.js', 'Contacts.js',
+                 'DocumentLibrary.js', 'Email2.js', 'Email.js',
+                 'FolderHierarchy.js', 'GAL.js', 'ItemEstimate.js',
+                 'ItemOperations.js', 'MeetingResponse.js', 'Move.js',
+                 'Notes.js', 'Ping.js', 'Provision.js', 'ResolveRecipients.js',
+                 'RightsManagement.js', 'Search.js', 'Settings.js', 'Tasks.js',
+                 'ValidateCert.js'];
 function createActiveSyncSandbox() {
   if (activesyncSandbox)
     return;
 
   activesyncSandbox = makeSandbox('activesync-fakeserver');
 
-  // for the backdoor
-  loadInSandbox('subscript/httpd.js', activesyncSandbox);
-
   // load wbxml and all the codepages.
+  if (inGELAM) {
+    loadInSandbox(baseActiveSync, ['wbxml', 'wbxml.js'], activesyncSandbox);
+
+    for (var i = 0; i < codepages.length; i++) {
+      loadInSandbox(baseActiveSync, ['codepages', codepages[i]],
+                    activesyncSandbox);
+    }
+    loadInSandbox(baseActiveSync, ['codepages.js'], activesyncSandbox);
+  }
+  else {
+    throw new Error("XXX implement using aggregate JS file!");
+  }
 
   // the actual activesync server logic
-  loadInSandbox('subscript/activesync_server.js', activesyncSandbox);
+  loadInSandbox(baseFakeserver, ['subscript', 'activesync_server.js'],
+                activesyncSandbox);
 }
 
 /**
@@ -195,9 +227,64 @@ function makeSMTPServer(creds) {
   };
 }
 
+function makeActiveSyncServer(creds, logToDump) {
+  createActiveSyncSandbox();
+  var server = new activesyncSandbox.ActiveSyncServer();
+  server.start(0);
+
+  var httpServer = server.server;
+  var port = httpServer._socket.port;
+  httpServer._port = port;
+  // it had created the identity on port 0, which is not helpful to anyone
+  httpServer._identity._initialize(port, httpServer._host, true);
+
+  if (logToDump) {
+    server.logRequest = function(request, body) {
+      let path = request.path;
+      if (request.queryString)
+        path += '?' + request.queryString;
+      dump('>>> ' + path + '\n');
+      if (body) {
+        if (body instanceof activesyncSandbox.WBXML.Reader) {
+          dump(body.dump());
+          body.rewind();
+        }
+        else {
+          dump(JSON.stringify(body, null, 2) + '\n');
+        }
+      }
+      dump('\n');
+    };
+
+    server.logResponse = function(request, response, body) {
+      dump('<<<\n');
+      if (body) {
+        if (body instanceof activesyncSandbox.WBXML.Writer) {
+          dump(new activesyncSandbox.WBXML.Reader(
+                 body, activesyncSandbox.ActiveSyncCodepages).dump());
+        }
+        else {
+          dump(JSON.stringify(body, null, 2) + '\n');
+        }
+      }
+      dump('\n');
+    };
+
+    server.logResponseError = function(err) {
+      dump("ERR " + err + '\n\n');
+    };
+  }
+
+  return {
+    server: server,
+    port: port
+  };
+}
+
 return {
   makeIMAPServer: makeIMAPServer,
-  makeSMTPServer: makeSMTPServer
+  makeSMTPServer: makeSMTPServer,
+  makeActiveSyncServer: makeActiveSyncServer
 };
 } catch (ex) {
   console.error('Problem initializing FakeServerSupport', ex, '\n',

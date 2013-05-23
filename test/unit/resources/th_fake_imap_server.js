@@ -31,8 +31,8 @@ var TestIMAPServerMixins = {
     self.T.convenienceSetup(self, 'created, listening to get port',
                             function() {
       self.serverBaseUrl = 'http://localhost:8880';
-      $accountcommon._autoconfigByDomain['aslocalhost'].incoming.server =
-        self.serverBaseUrl;
+      var configEntry = $accountcommon._autoconfigByDomain['fakeimaphost'];
+      configEntry.incoming.port = self.serverBaseUrl;
     });
   },
 

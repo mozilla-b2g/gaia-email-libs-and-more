@@ -4,14 +4,13 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_activesync_server',
         'wbxml', 'activesync/codepages',
         'exports'],
-       function($tc, $th_imap, $th_as_server, $wbxml, $ascp, exports) {
+       function($tc, $th_main, $wbxml, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_activesync_recreate' }, null,
-  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
+  [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('create, recreate offline', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;

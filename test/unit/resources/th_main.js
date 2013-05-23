@@ -21,7 +21,10 @@ var $log = require('rdcommon/log'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account'),
-    $router = require('mailapi/worker-router');
+    $router = require('mailapi/worker-router'),
+
+    $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
+    $th_fake_as_server = require('tests/resources/th_fake_activesync_server');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -2446,6 +2449,10 @@ exports.TESTHELPER = {
     $smtpacct.LOGFAB,
     // ActiveSync!
     $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB, $activesyncjobs.LOGFAB,
+  ],
+  TESTHELPER_DEPS: [
+    $th_fake_as_server.TESTHELPER,
+    $th_fake_imap_server.TESTHELPER,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,

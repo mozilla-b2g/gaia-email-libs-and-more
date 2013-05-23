@@ -580,6 +580,15 @@ exports.defineTestsFor = function defineTestsFor(testModule, logfabs,
           logfabs.push(logfab);
       }
     }
+    // transitively traverse/(idempotent) merge testhelpers; works because
+    // we're adding stuff to the outer loop as we go and length is not cached
+    if ('TESTHELPER_DEPS' in testHelper) {
+      for (var iSub = 0; iSub < testHelper.TESTHELPER_DEPS.length; iSub++) {
+        var subHelper = testHelper.TESTHELPER_DEPS[iSub];
+        if (testHelpers.indexOf(subHelper) === -1)
+          testHelpers.push(subHelper);
+      }
+    }
   }
 console.log("defining tests for", testModule.id);
   return new TestDefiner(testModule.id, logfabs, testHelpers, tags);

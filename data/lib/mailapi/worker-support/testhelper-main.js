@@ -59,28 +59,31 @@ var testHelper = {
      * Support testAccount.getMessageBodyWithReps
      */
     else if (cmd === 'runWithBody') {
-console.log('func source:', args.func);
-try {
-      var func;
-      eval('func = ' + args.func + ';');
-  console.warn('FUNC', func);
-      gMailAPI._getBodyForMessage(
-        { id: args.headerId, date: args.headerDate },
-        null,
-        function(body) {
-          console.log('got body, invoking func!');
-          try {
-            func(args.arg, body, function(results) {
-              testHelper.sendMessage(uid, cmd, [results]);
-              body.die();
-            });
-          }
-          catch (ex) {
-            console.error('problem in runWithBody func', ex, '\n', ex.stack);
-          }
-        });
-} catch (ex) { console.error('problem with runWithBody', ex, '\n', ex.stack); }
+      try {
+        var func;
+        eval('func = ' + args.func + ';');
+        gMailAPI._getBodyForMessage(
+          { id: args.headerId, date: args.headerDate },
+          null,
+          function(body) {
+            console.log('got body, invoking func!');
+            try {
+              func(args.arg, body, function(results) {
+                testHelper.sendMessage(uid, cmd, [results]);
+                body.die();
+              });
+            }
+            catch (ex) {
+              console.error('problem in runWithBody func', ex, '\n', ex.stack);
+            }
+          });
+      } catch (ex) {
+        console.error('problem with runWithBody', ex, '\n', ex.stack);
+      }
     }
+    /**
+     * Support testUniverse.help_checkDatabaseDoesNotContain
+     */
     else if (cmd === 'checkDatabaseDoesNotContain') {
       var tablesAndKeyPrefixes = args;
       var idb = $maildb._debugDB._db,
@@ -118,6 +121,12 @@ try {
             sendResults();
         };
       });
+    }
+    /**
+     * Support fake-server stand-up.
+     */
+    else if (cmd === 'startFakeServer') {
+
     }
   }
 };
