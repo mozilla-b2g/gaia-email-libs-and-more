@@ -59,12 +59,12 @@ function Composer(mode, wireRep, account, identity) {
   // - fetch attachments if sending
   if (mode === 'send' && wireRep.attachments) {
     wireRep.attachments.forEach(function(attachmentDef) {
-      var reader = new FileReaderSync();
       try {
         this._attachments.push({
           filename: attachmentDef.name,
           contentType: attachmentDef.blob.type,
-          contents: new Uint8Array(reader.readAsArrayBuffer(attachmentDef.blob)),
+          filePath: attachmentDef.name,
+          fileBlob: attachmentDef.blob
         });
       }
       catch (ex) {
@@ -114,6 +114,15 @@ Composer.prototype = {
       mcomposer.addHeader('References', wireRep.referencesStr);
   },
 
+  _findAttachmentByName: function(name) {
+    for (var iAtt = 0; iAtt < this._attachments.length; iAtt++) {
+      if (name === this._attachments[iAtt].filePath) {
+        return this._attachments[iAtt].fileBlob;
+      }
+    }
+    return null;
+  },
+
   /**
    * Build the body consistent with the requested options.  If this is our
    * first time building a body, we can use the existing _mcomposer.  If the
@@ -121,7 +130,7 @@ Composer.prototype = {
    * have changed, we need to create a new _mcomposer because it accumulates
    * state and then generate the body.
    */
-  _ensureBodyWithOpts: function(opts) {
+  _ensureBodyWithOpts: function(opts, callback) {
     // reuse the existing body if possible
     if (this._mcomposerOpts &&
         this._mcomposerOpts.includeBcc === opts.includeBcc) {
@@ -139,6 +148,7 @@ Composer.prototype = {
       this._mcomposer.addAttachment(this._attachments[iAtt]);
     }
 
+    var _this = this;
     // Render the message to its output buffer.
     var mcomposer = this._mcomposer;
     mcomposer._cacheOutput = true;
@@ -146,9 +156,37 @@ Composer.prototype = {
     mcomposer._processBufferedOutput = function() {
       // we are stopping the DKIM logic from firing.
     };
+    // overwrite _serveFile to chunk file.
+    mcomposer._serveFile = function(filePath, nodeCallback) {
+      //flush buffer
+      callback(mcomposer._outputBuffer);
+      mcomposer._outputBuffer = '';
+      var fileBlob = _this._findAttachmentByName(filePath);
+      if (!file) {
+        process.nextTick(nodeCallback);
+        return;
+      }
+      var reader = new FileReaderSync();
+      var current = 0;
+      // 48K, we need to make this value is exactly
+      // divided by 3 (base64 padding problem).
+      var chunkSize = 49152;
+
+      while (current < fileBlob.size) {
+          var chunk = fileBlob.slice(current, current + chunkSize);
+          var chunkBuf = new Uint8Array(reader.readAsArrayBuffer(chunk));
+          var data = new Buffer(chunkBuf, "utf-8").toString("base64").replace(/.{76}/g,"$&\r\n");
+          callback(data);
+          current += chunk.size;
+      }
+      callback('\r\n');
+      // invoke next node.
+      process.nextTick(nodeCallback);
+    };
+
     mcomposer._composeMessage();
     process.immediate = false;
-
+    callback(mcomposer._outputBuffer);
     // (the data is now in mcomposer._outputBuffer)
   },
 
@@ -192,8 +230,7 @@ Composer.prototype = {
       return;
     }
 
-    this._ensureBodyWithOpts(opts);
-    callback(this._mcomposer._outputBuffer);
+    this._ensureBodyWithOpts(opts, callback);
   },
 };
 

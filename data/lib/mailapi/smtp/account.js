@@ -145,8 +145,8 @@ SmtpAccount.prototype = {
           sendingMessage = true;
           composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
             conn.write(buffer);
-            conn.end();
           });
+          conn.end();
         });
       // And close the connection and be done once it has been sent
       conn.on('ready', function() {
