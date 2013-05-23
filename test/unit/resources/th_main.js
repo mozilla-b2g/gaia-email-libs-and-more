@@ -173,7 +173,7 @@ var TestUniverseMixins = {
         fakeNavigator: self.fakeNavigator
       };
       if (opts.dbDelta)
-        testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
+        testOpts.dbDelta = opts.dbDelta;
       if (opts.dbVersion)
         testOpts.dbVersion = opts.dbVersion;
       if (opts.nukeDb)
