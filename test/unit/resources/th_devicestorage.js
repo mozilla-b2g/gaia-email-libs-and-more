@@ -1,6 +1,6 @@
 /**
- * Testhelper for DeviceStorage stuff; it adds a chance listener for the device
- * storage so we can generate log entries.
+ * Testhelper for DeviceStorage stuff for use on the worker thread; depends on
+ * matching logic in testhelper-main.js for the actual main-thread logic.
  **/
 
 define(

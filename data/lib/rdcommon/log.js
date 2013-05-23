@@ -1284,6 +1284,10 @@ LoggestClassMaker.prototype = {
       return true;
     };
   },
+  /**
+   * Call like: loggedCall(logArg1, ..., logArgN, useAsThis, func,
+   *                       callArg1, ... callArgN);
+   */
   addCall: function(name, logArgs, testOnlyLogArgs) {
     this._define(name, 'call');
 
