@@ -399,12 +399,16 @@ ActiveSyncJobDriver.prototype = {
 
   do_downloadBodies: $jobmixins.do_downloadBodies,
 
+  check_downloadBodies: $jobmixins.check_downloadBodies,
+
   //////////////////////////////////////////////////////////////////////////////
   // downloadBodyReps: Download the bodies from a single message
 
   local_do_downloadBodyReps: $jobmixins.local_do_downloadBodyReps,
 
   do_downloadBodyReps: $jobmixins.do_downloadBodyReps,
+
+  check_downloadBodyReps: $jobmixins.check_downloadBodyReps,
 
   //////////////////////////////////////////////////////////////////////////////
   // download: Download one or more attachments from a single message

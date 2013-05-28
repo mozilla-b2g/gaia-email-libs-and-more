@@ -695,7 +695,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    * Download snippets for a set of headers.
    */
   _lazyDownloadBodies: function(headers, options, callback) {
-    var pending = 1;
+    var pending = 1, downloadsNeeded = 0;
 
     var self = this;
     var anyErr;
@@ -705,17 +705,26 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
 
       if (!--pending) {
         self._storage.runAfterDeferredCalls(function() {
-          callback(anyErr);
+          callback(anyErr, /* number downloaded */ downloadsNeeded - pending);
         });
       }
     }
 
     for (var i = 0; i < headers.length; i++) {
-      if (!headers[i] || headers[i].snippet) {
+      // We obviously can't do anything with null header references.
+      // To avoid redundant work, we also don't want to do any fetching if we
+      // already have a snippet.  This could happen because of the extreme
+      // potential for a caller to spam multiple requests at us before we
+      // service any of them.  (Callers should only have one or two outstanding
+      // jobs of this and do their own suppression tracking, but bugs happen.)
+      if (!headers[i] || headers[i].snippet !== null) {
         continue;
       }
 
       pending++;
+      // This isn't absolutely guaranteed to be 100% correct, but is good enough
+      // for indicating to the caller that we did some work.
+      downloadsNeeded++;
       this.downloadBodyReps(headers[i], options, next);
     }
 
