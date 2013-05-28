@@ -375,14 +375,23 @@ MailSlice.prototype = {
       // XXX remove concat() once our bridge sending makes rep sharing
       // impossible by dint of actual postMessage or JSON roundtripping.
       this._bridgeHandle.sendSplice(0, 0, this.headers.concat(),
-                                    requested, moreExpected);
+                                    requested, moreExpected,
+                                    this._storage.newEmailCount);
       // If we're no longer synchronizing, we want to update desiredHeaders
       // to avoid accumulating extra 'desire'.
       if (status !== 'synchronizing')
         this.desiredHeaders = this.headers.length;
     }
     else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
+      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress,
+                                    this._storage.newEmailCount);
+    }
+
+    if (!moreExpected) {
+      // Once no more are expected we'll set these to null since we've
+      // already sent the new email count over the bridge.
+      this._storage.newEmailCount = null;
+      this._storage._onAddingHeader = null;
     }
   },
 
@@ -1057,6 +1066,19 @@ FolderStorage.prototype = {
   get hasActiveSlices() {
     return this._slices.length > 0;
   },
+
+  /**
+   * Function that we call with header whenever addMessageHeader gets called.
+   * @type {Function}
+   * @private
+   */
+  _onAddingHeader: null,
+
+  /**
+   * Number of new, unread messages synced in the most recent slice req.
+   * @type {number}
+   */
+  newEmailCount: 0,
 
   /**
    * Reset all active slices.
@@ -2641,6 +2663,7 @@ FolderStorage.prototype = {
   _refreshSlice: function fs__refreshSlice(slice, checkOpenRecency,
                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
+    this.newEmailCount = 0;
 
     var startTS = slice.startTS, endTS = slice.endTS,
         // In the event we grow the startTS to the dawn of time, then we want
@@ -2653,6 +2676,21 @@ FolderStorage.prototype = {
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
+      var prevTS = endTS;
+
+      /**
+       * Increment our new email count if the following conditions are met:
+       * 1. This header is younger than the youngest one before sync
+       * 2. and this hasn't already been seen.
+       * @param {HeaderInfo} header The header being added.
+       */
+      this._onAddingHeader = function(header) {
+        if (SINCE(header.date, prevTS) &&
+            (!header.flags || header.flags.indexOf('\\Seen') === -1)) {
+          this.newEmailCount +=1;
+        }
+      }.bind(this);
+
       endTS = null;
     }
     else {
@@ -3651,6 +3689,9 @@ FolderStorage.prototype = {
           slice.desiredHeaders++;
         }
 
+        if (this._onAddingHeader !== null) {
+          this._onAddingHeader(header);
+        }
         slice.onHeaderAdded(header, false, true);
       }
     }
