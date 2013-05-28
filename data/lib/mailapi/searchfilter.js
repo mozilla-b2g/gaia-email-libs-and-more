@@ -353,8 +353,8 @@ BodyFilter.prototype = {
         idx;
 
     for (var iBodyRep = 0; iBodyRep < body.bodyReps.length; iBodyRep += 2) {
-      var bodyType = body.bodyReps[iBodyRep],
-          bodyRep = body.bodyReps[iBodyRep + 1];
+      var bodyType = body.bodyReps[iBodyRep].type,
+          bodyRep = body.bodyReps[iBodyRep].content;
 
       if (bodyType === 'plain') {
         for (var iRep = 0; iRep < bodyRep.length && matches.length < stopAfter;
