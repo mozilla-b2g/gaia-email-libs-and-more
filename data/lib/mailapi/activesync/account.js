@@ -172,6 +172,7 @@ ActiveSyncAccount.prototype = {
       name: this.accountDef.name,
       path: this.accountDef.name,
       type: this.accountDef.type,
+      customConfig: this.accountDef.customConfig,
 
       defaultPriority: this.accountDef.defaultPriority,
 

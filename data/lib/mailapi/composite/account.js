@@ -86,6 +86,7 @@ CompositeAccount.prototype = {
       id: this.accountDef.id,
       name: this.accountDef.name,
       type: this.accountDef.type,
+      customConfig: this.accountDef.customConfig,
 
       defaultPriority: this.accountDef.defaultPriority,
 

@@ -110,6 +110,7 @@ function MailAccount(api, wireRep, acctsSlice) {
   this.type = wireRep.type;
   this.name = wireRep.name;
   this.syncRange = wireRep.syncRange;
+  this.customConfig = wireRep.customConfig;
 
   /**
    * Is the account currently enabled, as in will we talk to the server?
@@ -2384,6 +2385,7 @@ MailAPI.prototype = {
    *     }
    *     @key[emailAddress String]
    *     @key[password String]
+   *     @key[customConfig @object]
    *   ]]
    *   @param[callback @func[
    *     @args[
