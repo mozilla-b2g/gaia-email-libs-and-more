@@ -764,7 +764,24 @@ MailSlice.prototype = {
  *   @key[flags @listof[String]]
  *   @key[hasAttachments Boolean]
  *   @key[subject String]
- *   @key[snippet String]
+ *   @key[snippet @oneof[
+ *     @case[null]{
+ *       We haven't tried to generate a snippet yet.
+ *     }
+ *     @case['']{
+ *       We tried to generate a snippet, but got nothing useful.  Note that we
+ *       may try and generate a snippet from a partial body fetch; this does not
+ *       indicate that we should avoid computing a better snippet.  Whenever the
+ *       snippet is falsey and we have retrieved more body data, we should
+ *       always try and derive a snippet.
+ *     }
+ *     @case[String]{
+ *       A non-empty string means we managed to produce some snippet data.  It
+ *        is still appropriate to regenerate the snippet if more body data is
+ *        fetched since our snippet may be a fallback where we chose quoted text
+ *        instead of authored text, etc.
+ *     }
+ *   ]]
  * ]]
  * @typedef[HeaderBlock @dict[
  *   @key[ids @listof[ID]]{
@@ -1568,7 +1585,7 @@ FolderStorage.prototype = {
         // These variables let us detect if the deletion happened fully
         // synchronously and thereby avoid blowing up the stack.
         callActive = false, deleteTriggered = false;
-    var deleteNextHeader = function deleteNextHeader() {
+    var deleteNextHeader = function() {
       // if things are happening synchronously, bail out
       if (callActive) {
         deleteTriggered = true;

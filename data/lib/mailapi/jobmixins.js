@@ -61,7 +61,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
     function() {
       doneCallback(null, null, true);
     },
-    null,
+    null, // connection loss does not happen for local-only ops
     undo,
     'modtags');
 };
@@ -173,7 +173,7 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
     function() {
       doneCallback(null, null, true);
     },
-    null,
+    null, // connection loss does not happen for local-only ops
     false,
     'local move source');
 };
@@ -330,8 +330,8 @@ exports.local_do_download = function(op, callback) {
 };
 
 exports.check_download = function(op, callback) {
-  // If we had download the file and persisted it successfully, this job would
-  // be marked done because of the atomicity guarantee on our commits.
+  // If we downloaded the file and persisted it successfully, this job would be
+  // marked done because of the atomicity guarantee on our commits.
   callback(null, 'coherent-notyet');
 };
 exports.local_undo_download = function(op, callback) {
@@ -347,12 +347,13 @@ exports.local_do_downloadBodies = function(op, callback) {
 };
 
 exports.do_downloadBodies = function(op, callback) {
-  var aggrErr;
+  var aggrErr, totalDownloaded = 0;
   this._partitionAndAccessFoldersSequentially(
     op.messages,
     true,
     function perFolder(folderConn, storage, headers, namers, callWhenDone) {
-      folderConn.downloadBodies(headers, op.options, function(err) {
+      folderConn.downloadBodies(headers, op.options, function(err, numDownloaded) {
+        totalDownloaded += numDownloaded;
         if (err && !aggrErr) {
           aggrErr = err;
         }
@@ -360,7 +361,9 @@ exports.do_downloadBodies = function(op, callback) {
       });
     },
     function allDone() {
-      callback(aggrErr, null, true);
+      callback(aggrErr, null,
+               // save if we might have done work.
+               totalDownloaded > 0);
     },
     function deadConn() {
       aggrErr = 'aborted-retry';
@@ -371,6 +374,21 @@ exports.do_downloadBodies = function(op, callback) {
   );
 };
 
+exports.check_downloadBodies = function(op, callback) {
+  // If we had downloaded the bodies and persisted them successfully, this job
+  // would be marked done because of the atomicity guarantee on our commits.  It
+  // is possible this request might only be partially serviced, in which case we
+  // will avoid redundant body fetches, but redundant folder selection is
+  // possible if this request spans multiple folders.
+  callback(null, 'coherent-notyet');
+};
+
+exports.check_downloadBodyReps = function(op, callback) {
+  // If we downloaded all of the body parts and persisted them successfully,
+  // this job would be marked done because of the atomicity guarantee on our
+  // commits.  But it's not, so there's more to do.
+  callback(null, 'coherent-notyet');
+};
 
 exports.do_downloadBodyReps = function(op, callback) {
   var self = this;
@@ -391,8 +409,10 @@ exports.do_downloadBodyReps = function(op, callback) {
 
   var gotHeader = function gotHeader(header) {
     // header may have been deleted by the time we get here...
-    if (!header)
-      return callback();
+    if (!header) {
+      callback();
+      return;
+    }
 
     folderConn.downloadBodyReps(header, onDownloadReps);
   };
@@ -401,7 +421,8 @@ exports.do_downloadBodyReps = function(op, callback) {
     if (err) {
       console.error('Error downloading reps', err);
       // fail we cannot download for some reason?
-      return callback('unknown');
+      callback('unknown');
+      return;
     }
 
     // success
@@ -556,6 +577,11 @@ exports.allJobsDone =  function() {
  * Its possible that entire folders will be skipped if no headers requested are
  * now present.
  *
+ * Connection loss by default causes this method to stop trying to traverse
+ * folders, calling callOnConnLoss and callWhenDone in that order.  If you want
+ * to do something more clever, extend this method so that you can return a
+ * sentinel value or promise or something and do your clever thing.
+ *
  * @args[
  *   @param[messageNamers @listof[MessageNamer]]
  *   @param[needConn Boolean]{
@@ -576,8 +602,19 @@ exports.allJobsDone =  function() {
  *       @param[callWhenDoneWithFolder Function]
  *     ]
  *   ]]
- *   @param[callWhenDone Function]
- *   @param[callOnConnLoss Function]
+ *   @param[callWhenDone @func[
+ *     @args[err @oneof[null 'connection-list']]
+ *   ]]{
+ *     The function to invoke when all of the folders have been processed or the
+ *     connection has been lost and we're giving up.  This will be invoked after
+ *     `callOnConnLoss` in the event of a conncetion loss.
+ *   }
+ *   @param[callOnConnLoss Function]{
+ *     This function we invoke when we lose a connection.  Traditionally, you would
+ *     use this to flag an error in your function that you would then return when
+ *     we invoke `callWhenDone`.  Then your check function will be invoked and you
+ *     can laboriously check what actually happened on the server, etc.
+ *   }
  *   @param[reverse #:optional Boolean]{
  *     Should we walk the partitions in reverse order?
  *   }
@@ -601,13 +638,20 @@ exports._partitionAndAccessFoldersSequentially = function(
   var partitions = $util.partitionMessagesByFolderId(allMessageNamers);
   var folderConn, storage, self = this,
       folderId = null, folderMessageNamers = null, serverIds = null,
-      iNextPartition = 0, curPartition = null, modsToGo = 0;
+      iNextPartition = 0, curPartition = null, modsToGo = 0,
+      // Set to true immediately before calling callWhenDone; causes us to
+      // immediately bail out of any of our callbacks in order to avoid
+      // continuing beyond the point when we should have stopped.
+      terminated = false;
 
   if (reverse)
     partitions.reverse();
 
   var openNextFolder = function openNextFolder() {
+    if (terminated)
+      return;
     if (iNextPartition >= partitions.length) {
+      terminated = true;
       callWhenDone(null);
       return;
     }
@@ -629,10 +673,26 @@ exports._partitionAndAccessFoldersSequentially = function(
     if (curPartition.folderId !== folderId) {
       folderId = curPartition.folderId;
       self._accessFolderForMutation(folderId, needConn, gotFolderConn,
-                                    callOnConnLoss, label);
+                                    connDied, label);
     }
   };
+  var connDied = function connDied() {
+    if (terminated)
+      return;
+    if (callOnConnLoss) {
+      try {
+        callOnConnLoss();
+      }
+      catch (ex) {
+        self._LOG.callbackErr(ex);
+      }
+    }
+    terminated = true;
+    callWhenDone('connection-lost');
+  };
   var gotFolderConn = function gotFolderConn(_folderConn, _storage) {
+    if (terminated)
+      return;
     folderConn = _folderConn;
     storage = _storage;
     // - Get headers or resolve current server id from name map
@@ -670,6 +730,8 @@ exports._partitionAndAccessFoldersSequentially = function(
     }
   };
   var gotNeededHeaders = function gotNeededHeaders(headers) {
+    if (terminated)
+      return;
     var iNextServerId = serverIds.indexOf(null);
     for (var i = 0; i < headers.length; i++) {
       var header = headers[i];
@@ -693,7 +755,8 @@ exports._partitionAndAccessFoldersSequentially = function(
     // skip entering this folder as the job cannot do anything with an empty
     // header.
     if (!serverIds.length) {
-      return openNextFolder();
+      openNextFolder();
+      return;
     }
 
     try {
@@ -705,10 +768,13 @@ exports._partitionAndAccessFoldersSequentially = function(
     }
   };
   var gotHeaders = function gotHeaders(headers) {
+    if (terminated)
+      return;
     // its unlikely but entirely possible that all pending headers have been
     // removed somehow between when the job was queued and now.
     if (!headers.length) {
-      return openNextFolder();
+      openNextFolder();
+      return;
     }
 
     // Sort the headers in ascending-by-date order so that slices hear about

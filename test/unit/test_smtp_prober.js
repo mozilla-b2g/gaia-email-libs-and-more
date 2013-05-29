@@ -114,8 +114,24 @@ function cannedLoginTest(T, RT, opts) {
         data: SMTP_GREETING,
       },
       [
-        opts.ehloResponse || SMTP_EHLO_RESPONSE,
-        opts.loginErrorString
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: opts.ehloResponse || SMTP_EHLO_RESPONSE
+            },
+          ],
+        },
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: opts.loginErrorString
+            }
+          ],
+        },
       ]);
     prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
     prober.onresult = function(err) {

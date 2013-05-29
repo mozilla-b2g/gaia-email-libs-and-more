@@ -134,8 +134,24 @@ function cannedLoginTest(T, RT, opts) {
         data: opts.openResponse || OPEN_RESPONSE,
       },
       [
-        opts.capabilityResponse || CAPABILITY_RESPONSE,
-        'A2 ' + opts.loginErrorString + '\r\n',
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: opts.capabilityResponse || CAPABILITY_RESPONSE,
+            },
+          ],
+        },
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: 'A2 ' + opts.loginErrorString + '\r\n',
+            }
+          ],
+        },
       ]);
     prober = new $probe.ImapProber(cci.credentials, cci.connInfo,
                                     eCheck._logger);

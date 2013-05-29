@@ -713,8 +713,54 @@ var TestCommonAccountMixins = {
     storageActor.ignore_deleteFromBlock();
   },
 
+  /**
+   * @args[
+   *   @param[jobName String]{
+   *     What job are we expecting to run? ex: 'syncFolderList', 'doownload',
+   *     'modtags'.
+   *   }
+   *   @param[flags @dict[
+   *     @key[mode #:default 'do' @oneof['do' 'undo' 'check']]
+   *     @key[local #:default true]{
+   *       Is a local version of the op expected to run?  Defaults to true for
+   *       do/undo, false for check.
+   *     }
+   *     @key[server #:default true]{
+   *       Is a server version of the op expected to be run (which just means no
+   *       'local_' prefix)?  Defaults to true.  'check' is considered to be a
+   *       server operation for the purposes of our tests.
+   *     }
+   *     @key[save #:default false @oneof[
+   *       @case[false]{
+   *         No save operation expected.
+   *       }
+   *       @case[true]{
+   *         Expect a save operation to occur after the local operation.
+   *       }
+   *       @case['server']{
+   *         Expect a save operation to occur after the "server" operation.
+   *       }
+   *     }
+   *     @key[conn #:default false @oneof[false true 'deadconn']{
+   *       Expect a connection to be aquired if truthy.  Expect the conncetion
+   *       to die if 'deadconn'.  Expect the connection to be released if `true`
+   *       unless explicitly specified othrewise by `release`.
+   *     }
+   *     @key[release #:optional @oneof[false true 'deadconn']]{
+   *       Expect a connection to be released.  If `conn` is true, this
+   *       defaults to true, otherwise it defaults to false.  If this is set to
+   *       'deadconn', the death of the connection rather than a proper release
+   *       is expected (but is only relevant if `conn` is not specified.)
+   *     }
+   *     @key[error #:default null String]{
+   *       The error to expect the job to complete with.
+   *     }
+   *   ]]
+   * ]
+   */
   expect_runOp: function(jobName, flags) {
-    var mode = checkFlagDefault(flags, 'mode', 'do'), localMode;
+    var mode = checkFlagDefault(flags, 'mode', 'do'), localMode,
+        err = checkFlagDefault(flags, 'error', null);
     switch (mode) {
       case 'do':
       case 'undo':
@@ -725,8 +771,8 @@ var TestCommonAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
-      this.eOpAccount.expect_runOp_begin(localMode, jobName);
-      this.eOpAccount.expect_runOp_end(localMode, jobName);
+      this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
     if (checkFlagDefault(flags, 'save', false) === true)
@@ -738,11 +784,18 @@ var TestCommonAccountMixins = {
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('expect_connection' in this)) {
       this.expect_connection();
+      if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
+        this.eOpAccount.expect_deadConnection();
+      }
       // (release is expected by default if we open a conn)
-      if (checkFlagDefault(flags, 'release', true))
+      else if (checkFlagDefault(flags, 'release', true)) {
         this.eOpAccount.expect_releaseConnection();
+      }
     }
     // - release (without conn)
+    else if (checkFlagDefault(flags, 'release', false) === 'deadconn') {
+      this.eOpAccount.expect_deadConnection();
+    }
     else if (checkFlagDefault(flags, 'release', false)) {
       this.eOpAccount.expect_releaseConnection();
     }
@@ -1717,7 +1770,8 @@ var TestImapAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     var totalMessageCount = 0,
-        nonet = checkFlagDefault(extraFlags, 'nonet', false);
+        nonet = checkFlagDefault(extraFlags, 'nonet', false),
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
 
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
@@ -1727,7 +1781,7 @@ var TestImapAccountMixins = {
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
-        if (this.universe.online && !nonet) {
+        if (this.universe.online && !nonet && !isFailure) {
           propState = this._propagateToKnownMessages(
             viewThing, propState,
             einfo.count, einfo.full, einfo.deleted, syncDir);
@@ -1781,8 +1835,10 @@ var TestImapAccountMixins = {
    *       expect_saveAccountState should be issued when we are in the online
    *       state.
    *     }
-   *     @key[failure #:default false Boolean]{
-   *       If true, indicates that we should expect a 'syncfailed' result.
+   *     @key[failure #:default false @oneof[false true 'die']]{
+   *       If true, indicates that we should expect a 'syncfailed' result and no
+   *       connection expectations.  If 'deadconn', it means the connection will
+   *       die during the sync.
    *     }
    *     @key[nonet #:default false Boolean]{
    *       Indicate that no network traffic is expected.  This is only relevant
@@ -1814,13 +1870,22 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        if (!isFailure &&
+        if (isFailure !== true &&
             !checkFlagDefault(extraFlags, 'nonet', false)) {
           self.expect_connection();
-          if (!_saveToThing)
-            self.eImapAccount.expect_releaseConnection();
-          else
+          if (isFailure === 'deadconn') {
+            self.eImapAccount.expect_deadConnection();
+            // dead connection will be removed from the pool
             self._unusedConnections--;
+          }
+          else if (!_saveToThing) {
+            self.eImapAccount.expect_releaseConnection();
+          }
+          else {
+            // The connection will be held by the folder/slice, so it's no
+            // longer unused.
+            self._unusedConnections--;
+          }
         }
       }
 
