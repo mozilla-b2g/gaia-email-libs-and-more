@@ -147,6 +147,7 @@ function MailAccount(api, wireRep, acctsSlice) {
   }
 
   this.username = wireRep.credentials.username;
+  this.password = wireRep.credentials.password;
   this.servers = wireRep.servers;
 
   // build a place for the DOM element and arbitrary data into our shape

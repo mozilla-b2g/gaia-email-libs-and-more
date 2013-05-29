@@ -99,7 +99,7 @@ CompositeAccount.prototype = {
 
       credentials: {
         username: this.accountDef.credentials.username,
-        // no need to send the password to the UI.
+        password: this.accountDef.credentials.password
       },
 
       servers: [

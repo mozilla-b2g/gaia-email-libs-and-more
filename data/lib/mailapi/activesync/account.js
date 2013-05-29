@@ -185,6 +185,7 @@ ActiveSyncAccount.prototype = {
 
       credentials: {
         username: this.accountDef.credentials.username,
+        password: this.accountDef.credentials.password
       },
 
       servers: [
