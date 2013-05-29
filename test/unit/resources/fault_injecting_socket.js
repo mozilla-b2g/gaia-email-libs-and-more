@@ -151,16 +151,66 @@ FawltySocket.prototype = {
   // XXX This is currently a hack and just operates based on the number of
   // times send() has been called.  I'm not sure it's worth actually finishing
   // this out; the IMAP fake-server might be better for most of this.
-  doOnSendText: function(desc) {
+  /**
+   * @args[
+   *   @param[triggerDescs @listof[
+   *     @dict[
+   *       @key[match @oneof[true RegExp]]{
+   *         The send pattern to look for.  If 'true', that means just match on the
+   *         basis of the function call.  If it's a regexp, we wait for the regexp
+   *         to match, then fire.  Note that a regexp effectively consumes the
+   *         entire buffer for the given write/send call; we don't just consume
+   *         half the buffer.
+   *       }
+   *       @key[actions @listof[FawltyAction]]
+   *     ]
+   *   ]]
+   * ]
+   */
+  doOnSendText: function(triggerDescs) {
     // concat detects arrays/single values
-    this._sendWatches = this._sendWatches.concat(desc);
+    this._sendWatches = this._sendWatches.concat(triggerDescs);
   },
 
   _queueEvent: function(type, data) {
     window.setZeroTimeout(this.emit.bind(this, type, data));
   },
 
-  doNow: function(actions, payload) {
+  /**
+   *
+   * @typedef[FawltyActionCommand @oneof[
+   *   @case['instant-close']{
+   *     Enqueue close/end events and 'detach' the socket.
+   *   }
+   *   @case['detach']{
+   *     Stop all events from the real socket from reaching us, then close the
+   *     real socket.  This action will not generate close/end events, allowing
+   *     you to then use 'fake-receive' or whatever you want.
+   *   }
+   *   @case['fake-receive']{
+   *     Pretend to receive the data from the 'data' attribute of the action def
+   *     (which we automatically encode into utf-8 for you).
+   *   }
+   * ]]
+   * @typedef[FawltyAction @oneof[
+   *   @case[FawltyActionCommand]{
+   *     For actions that don't have a payload, you can just provide the name as
+   *     a string.
+   *   }
+   *   @case[@dict[
+   *     @key[cmd FawltyActionCommand]
+   *     @key[data #:optional]
+   *   ]]{
+   *     For more complex actions, provide a `cmd` and anything else needed,
+   *     usually `data`.
+   *   }
+   * ]
+   *
+   * @args[
+   *   @param[actions @listof[FawltyAction]]
+   * ]
+   */
+  doNow: function(actions) {
     if (!Array.isArray(actions))
       actions = [actions];
     for (var i = 0; i < actions.length; i++) {
@@ -172,8 +222,7 @@ FawltySocket.prototype = {
         case 'instant-close':
           // Emit a close event locally in the next turn of the event loop, and
           // detach the real socket so that we don't generate any more events
-          // from it.  We will optionally generate an error event with the
-          // provided string.
+          // from it.
           this._queueEvent('close');
           this._queueEvent('end');
           this._sock.end();
@@ -188,6 +237,7 @@ FawltySocket.prototype = {
           FawltySocketFactory.__deadSocket(this);
           break;
         case 'fake-receive':
+          console.log('Fake-receiving:', action.data);
           var encoder = new TextEncoder('utf-8');
           this._queueEvent('data', encoder.encode(action.data));
           break;
@@ -211,19 +261,15 @@ FawltySocket.prototype = {
     var sendText;
     if (this._sendWatches.length) {
       sendText = new TextDecoder('utf-8').decode(data);
-      console.log('In response to send of: ', data);
-      var responseAction = this._sendWatches.shift();
-      if (typeof(responseAction) === 'string') {
-        var responseText = responseAction;
-        console.log('Fake-receiving:', responseText);
-        var responseData = new TextEncoder('utf-8').encode(responseText);
-        this._queueEvent('data', responseData);
-        // it's okay to send more data
+      var firstWatch = this._sendWatches[0];
+
+      if (firstWatch.match === true ||
+          firstWatch.match.test(sendText)) {
+        this._sendWatches.shift();
+        console.log('In response to send of: ', data);
+        this.doNow(firstWatch.actions);
+        return true;
       }
-      else {
-        this.doNow(responseAction);
-      }
-      return true;
     }
 
     if (!this._sock) {

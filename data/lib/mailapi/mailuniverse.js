@@ -1525,7 +1525,7 @@ MailUniverse.prototype = {
           type: 'downloadBodies',
           longtermId: 'session', // don't persist this job.
           lifecycle: 'do',
-          localStatus: null,
+          localStatus: 'done',
           serverStatus: null,
           tryCount: 0,
           humanOp: 'downloadBodies',

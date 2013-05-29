@@ -1,3 +1,8 @@
+/**
+ * Test the downloadBodies job for snippet fetching in parallel.  The connection
+ * loss variant for downloadBodies is in test_imap_errors.js.
+ **/
+
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/messageGenerator', './resources/fault_injecting_socket',
         'exports'],
