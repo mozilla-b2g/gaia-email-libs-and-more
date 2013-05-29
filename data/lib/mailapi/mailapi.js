@@ -2432,9 +2432,8 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    // The account info here is currently for unit testing only; it's our wire
-    // protocol instead of a full MailAccount.
-    req.callback.call(null, msg.error, msg.errorDetails, msg.account);
+    var account = new MailAccount(this, msg.account, null);
+    req.callback.call(null, msg.error, msg.errorDetails, account);
     return true;
   },
 
