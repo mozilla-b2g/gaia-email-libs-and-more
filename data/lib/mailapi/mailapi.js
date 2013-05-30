@@ -681,6 +681,20 @@ var ContactCache = exports.ContactCache = {
               peep.name = contact.name[0];
             if (contact.photo && contact.photo.length)
               peep._thumbnailBlob = contact.photo[0];
+
+            // If no one is waiting for our/any request to complete, generate an
+            // onchange notification.
+            if (!self.callbacks.length) {
+              if (peep.onchange) {
+                try {
+                  peep.onchange(peep);
+                }
+                catch (ex) {
+                  reportClientCodeError('peep.onchange error', ex, '\n',
+                                        ex.stack);
+                }
+              }
+            }
           }
         }
         else {
@@ -868,6 +882,27 @@ MailHeader.prototype = {
       type: 'MailHeader',
       id: this.id
     };
+  },
+
+  /**
+   * The use-case is the message list providing the message reader with a
+   * header.  The header really wants to get update notifications from the
+   * backend and therefore not be inert, but that's a little complicated and out
+   * of scope for the current bug.
+   *
+   * We clone at all because our MailPeep.onchange and MailPeep.element values
+   * were getting clobbered.  All the instances are currently intended to map
+   * 1:1 to a single UI widget, so cloning seems like the right thing to do.
+   *
+   * A deeper issue is whether the message reader will want to have its own
+   * slice since the reader will soon allow forward/backward navigation.  I
+   * assume we'll want the message list to track that movement, which suggests
+   * that it really doesn't want to do that.  This suggests we'll either want
+   * non-inert clones or to just use a list-of-handlers model with us using
+   * closures and being careful about removing event handlers.
+   */
+  inertClone: function() {
+    return new MailHeader(this._slice, this._wireRep);
   },
 
   __update: function(wireRep) {
@@ -2395,7 +2430,7 @@ MailAPI.prototype = {
           tempMsg.howMany = 0;
           tempMsg.index = 0;
           if (defaultItem) {
-            tempMsg.addItems = [defaultItem];
+            tempMsg.addItems = [defaultItem._wireRep];
             this._recvCache.accountId = defaultItem.id;
           }
           this._recvCache.accounts = tempMsg;

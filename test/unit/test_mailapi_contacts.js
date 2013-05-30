@@ -400,6 +400,16 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
     postChange: [{ isContact: false, name: 'D' }]
   });
 
+  T.group('Contact hit on 2nd email, 2nd email removed, no longer a hit');
+  checkMutation({
+    create: [{ name: 'Dalt', emails: ['d1@example.nul', 'd2@example.nul'] }],
+    resolve: [{ name: 'blah', address: 'd2@example.nul' }],
+    preChange: [{ isContact: true, name: 'Dalt' }],
+    change: [{ name: 'Dalt2', emails: ['d1@example.nul'] }],
+    // the name change does not get applied because the e-mail no longer applies
+    postChange: [{ isContact: false, name: 'Dalt' }]
+  });
+
   T.group('Contact miss, new contact created with e-mail, now a hit');
   checkMutation({
     create: [],
