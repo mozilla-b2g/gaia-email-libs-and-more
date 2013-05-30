@@ -173,7 +173,7 @@ var TestUniverseMixins = {
         fakeNavigator: self.fakeNavigator
       };
       if (opts.dbDelta)
-        testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
+        testOpts.dbDelta = opts.dbDelta;
       if (opts.dbVersion)
         testOpts.dbVersion = opts.dbVersion;
       if (opts.nukeDb)
@@ -1911,6 +1911,10 @@ var TestImapAccountMixins = {
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
@@ -1920,11 +1924,7 @@ var TestImapAccountMixins = {
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+        if (!_saveToThing) {
           slice.die();
         }
       };
@@ -2271,6 +2271,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
+          folderName);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -2300,6 +2305,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.knownMessages = oldFolder.knownMessages;
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
+      }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+          folderType);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
       }
 
       testFolder.connActor.__attachToLogger(
@@ -2380,6 +2390,11 @@ var TestActiveSyncAccountMixins = {
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
+
       slice.oncomplete = function() {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
@@ -2389,11 +2404,7 @@ var TestActiveSyncAccountMixins = {
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
                                 slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+        if (!_saveToThing) {
           slice.die();
         }
       };

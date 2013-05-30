@@ -224,6 +224,8 @@ function MailDB(testOptions, successCb, errorCb, upgradeCb) {
   };
 
   var dbVersion = CUR_VERSION;
+  if (testOptions && testOptions.dbDelta)
+    dbVersion += testOptions.dbDelta;
   if (testOptions && testOptions.dbVersion)
     dbVersion = testOptions.dbVersion;
   var openRequest = IndexedDB.open('b2g-email', dbVersion), self = this;
