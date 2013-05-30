@@ -238,6 +238,10 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
   /**
    * Helper to create and resolve contacts.
    *
+   * We duplicate the contents of our resolve/preChange/postChange argument lists
+   * in order to make sure that our event notifications fire for all of their
+   * live peeps, not just the first one/last one/etc.
+   *
    * @typedef[ContactSetArgs @dict[
    *   @key[name #:optional String]
    *   @key[emails #:optional @listof[String]]
@@ -258,6 +262,20 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
    * ]
    */
   function checkMutation(args) {
+    function dupeList(list) {
+      var duped = [];
+      for (var i = 0; i < list.length; i++) {
+        duped.push(list[i]);
+      }
+      return duped;
+    }
+    args = {
+      create: args.create,
+      resolve: dupeList(args.resolve),
+      preChange: dupeList(args.preChange),
+      change: args.change,
+      postChange: dupeList(args.postChange),
+    };
     var mailPeeps;
     T.action(eCheck, 'it', function() {
       // - create the contacts, trigger resolution

@@ -524,12 +524,13 @@ var ContactCache = exports.ContactCache = {
             var contactEmails = contact.email ?
                   contact.email.map(function(e) { return e.value; }) :
                 [];
-            // iterate down for more straighforward splicing
-            for (iPeep = livePeeps.length - 1; iPeep >= 0; iPeep--) {
+            for (iPeep = 0; iPeep < livePeeps.length; iPeep++) {
               peep = livePeeps[iPeep];
               if (contactEmails.indexOf(peep.address) === -1) {
-                // the contact no longer covers this peep, remove.
-                livePeeps.splice(iPeep, 1);
+                // Need to fix-up iPeep because of the splice; reverse iteration
+                // reorders our notifications and we don't want that, hence
+                // this.
+                livePeeps.splice(iPeep--, 1);
                 peep.contactId = null;
                 if (peep.onchange) {
                   try {
