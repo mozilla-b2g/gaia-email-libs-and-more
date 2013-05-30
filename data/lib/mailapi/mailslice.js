@@ -2243,16 +2243,19 @@ FolderStorage.prototype = {
     // other synchronizations already in progress.
     this._slices.push(slice);
 
-    var doneCallback = function doneSyncCallback(err, reportSyncStatusAs) {
+    var doneCallback = function doneSyncCallback(err, reportSyncStatusAs,
+                                                 moreExpected) {
       if (!reportSyncStatusAs) {
         if (err)
           reportSyncStatusAs = 'syncfailed';
         else
           reportSyncStatusAs = 'synced';
       }
+      if (moreExpected === undefined)
+        moreExpected = false;
 
       slice.waitingOnData = false;
-      slice.setStatus(reportSyncStatusAs, true, false, true);
+      slice.setStatus(reportSyncStatusAs, true, moreExpected, true);
       this._curSyncSlice = null;
 
       releaseMutex();
@@ -2298,7 +2301,7 @@ FolderStorage.prototype = {
     // blocked. We'll update it soon enough.
     if (!this.folderSyncer.syncable) {
       console.log('Synchronization is currently blocked; waiting...');
-      doneCallback(null, 'syncblocked');
+      doneCallback(null, 'syncblocked', true);
       return;
     }
 
@@ -2315,6 +2318,7 @@ FolderStorage.prototype = {
       }
       this._curSyncSlice = slice;
     }.bind(this);
+
     this.folderSyncer.initialSync(
       slice, $sync.INITIAL_SYNC_DAYS,
       syncCallback, doneCallback, progressCallback);
@@ -2557,7 +2561,8 @@ FolderStorage.prototype = {
       if (!this._account.universe.online ||
           !this.folderSyncer.canGrowSync ||
           !userRequestsGrowth) {
-        slice.sendEmptyCompletion();
+        if (this.folderSyncer.syncable)
+          slice.sendEmptyCompletion();
         releaseMutex();
         return;
       }
