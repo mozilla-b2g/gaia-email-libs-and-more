@@ -744,7 +744,8 @@ TD.commonCase('bcc self', function(T, RT) {
         // IMAP (except gmail where we will error) can report BCC addresses,
         // but ActiveSync can't report BCC contents.
         TEST_PARAMS.type === 'imap' ?
-          [{ name: 'Myself', address: TEST_PARAMS.emailAddress }] : null);
+          [{ name: 'Myself', address: TEST_PARAMS.emailAddress,
+             contactId: null }] : null);
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
