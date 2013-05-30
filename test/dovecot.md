@@ -10,6 +10,9 @@ First, install dovecot and postfix:
 sudo apt-get install dovecot-imapd dovecot-postfix
 ```
 
+You may be asked to configure postfix! Yay! You don't to talk to anyone over  
+the network in order to run the tests, so go ahead and choose 'Local only'.  
+
 Next, create a user named `testy` with password `testy` (or, if you prefer,
 create any user you like and use the environment variables `GELAM_TEST_ACCOUNT`
 and `GELAM_TEST_PASSWORD` to hold the username and password).
