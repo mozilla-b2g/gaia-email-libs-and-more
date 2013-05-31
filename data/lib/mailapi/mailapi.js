@@ -901,7 +901,7 @@ MailHeader.prototype = {
    * non-inert clones or to just use a list-of-handlers model with us using
    * closures and being careful about removing event handlers.
    */
-  inertClone: function() {
+  makeCopy: function() {
     return new MailHeader(this._slice, this._wireRep);
   },
 
