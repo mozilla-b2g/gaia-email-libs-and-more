@@ -352,7 +352,7 @@ MailSlice.prototype = {
   },
 
   setStatus: function(status, requested, moreExpected, flushAccumulated,
-                      progress) {
+                      progress, newEmailCount) {
     if (!this._bridgeHandle)
       return;
 
@@ -376,7 +376,7 @@ MailSlice.prototype = {
       // impossible by dint of actual postMessage or JSON roundtripping.
       this._bridgeHandle.sendSplice(0, 0, this.headers.concat(),
                                     requested, moreExpected,
-                                    this._storage.newEmailCount);
+                                    newEmailCount);
       // If we're no longer synchronizing, we want to update desiredHeaders
       // to avoid accumulating extra 'desire'.
       if (status !== 'synchronizing')
@@ -384,14 +384,7 @@ MailSlice.prototype = {
     }
     else {
       this._bridgeHandle.sendStatus(status, requested, moreExpected, progress,
-                                    this._storage.newEmailCount);
-    }
-
-    if (!moreExpected) {
-      // Once no more are expected we'll set these to null since we've
-      // already sent the new email count over the bridge.
-      this._storage.newEmailCount = null;
-      this._storage._onAddingHeader = null;
+                                    newEmailCount);
     }
   },
 
@@ -1073,12 +1066,6 @@ FolderStorage.prototype = {
    * @private
    */
   _onAddingHeader: null,
-
-  /**
-   * Number of new, unread messages synced in the most recent slice req.
-   * @type {number}
-   */
-  newEmailCount: 0,
 
   /**
    * Reset all active slices.
@@ -2663,13 +2650,16 @@ FolderStorage.prototype = {
   _refreshSlice: function fs__refreshSlice(slice, checkOpenRecency,
                                            releaseMutex) {
     slice.waitingOnData = 'refresh';
-    this.newEmailCount = 0;
 
     var startTS = slice.startTS, endTS = slice.endTS,
         // In the event we grow the startTS to the dawn of time, then we want
         // to also provide the original startTS so that the bisection does not
         // need to scan through years of empty space.
-        origStartTS = null;
+        origStartTS = null,
+        // If we are refreshing through 'now', we will count the new messages we
+        // hear about and update this.newEmailCount once the sync completes.  If
+        // we are performing any othe sync, the value will not be updated.
+        newEmailCount = null;
 
     // - Grow endTS
     // If the endTS lines up with the most recent known message for the folder,
@@ -2677,6 +2667,7 @@ FolderStorage.prototype = {
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
       var prevTS = endTS;
+      newEmailCount = 0;
 
       /**
        * Increment our new email count if the following conditions are met:
@@ -2687,7 +2678,7 @@ FolderStorage.prototype = {
       this._onAddingHeader = function(header) {
         if (SINCE(header.date, prevTS) &&
             (!header.flags || header.flags.indexOf('\\Seen') === -1)) {
-          this.newEmailCount +=1;
+          newEmailCount += 1;
         }
       }.bind(this);
 
@@ -2721,6 +2712,8 @@ FolderStorage.prototype = {
 
     var doneCallback = function refreshDoneCallback(err, bisectInfo,
                                                     numMessages) {
+      this._onAddingHeader = null;
+
       var reportSyncStatusAs = 'synced';
       switch (err) {
         case 'aborted':
@@ -2731,7 +2724,8 @@ FolderStorage.prototype = {
 
       releaseMutex();
       slice.waitingOnData = false;
-      slice.setStatus(reportSyncStatusAs, true, false);
+      slice.setStatus(reportSyncStatusAs, true, false, false, null,
+                      newEmailCount);
       return undefined;
     }.bind(this);
 
