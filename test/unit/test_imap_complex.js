@@ -132,20 +132,20 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: true });
+    { top: true, bottom: true, grow: true, newCount: null });
 
   T.group('no change: refresh');
   testAccount.do_viewFolder(
     'show no refresh', c1Folder,
     { count: 9 },
-    { top: true, bottom: true, grow: true },
+    { top: true, bottom: true, grow: true, newCount: 0 },
     { nonet: true });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   testAccount.do_viewFolder(
     'sync refresh', c1Folder,
     { count: 9, full: 0, flags: 9, deleted: 0 },
-    { top: true, bottom: true, grow: true });
+    { top: true, bottom: true, grow: true, newCount: 0 });
 
   T.group('no change: still refresh after timewarp');
   // Jump time so that the messages are just under the old threshold.  They
@@ -157,7 +157,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testAccount.do_viewFolder(
     'sync refresh', c1Folder,
     { count: 9, full: 0, flags: 9, deleted: 0 },
-    { top: true, bottom: true, grow: true });
+    { top: true, bottom: true, grow: true, newCount: 0 });
 
 
   T.group('minimal changes: add, no refresh, sync refresh');
@@ -167,14 +167,14 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testAccount.do_viewFolder(
     'show no refresh', c1Folder,
     { count: 9 },
-    { top: true, bottom: true, grow: true },
+    { top: true, bottom: true, grow: true, newCount: 0 },
     { nonet: true });
   staticNow += HOUR_MILLIS;
   testUniverse.do_timewarpNow(staticNow, '+1 hour');
   testAccount.do_viewFolder(
     'sync refresh', c1Folder,
     { count: 10, full: 1, flags: 9, deleted: 0 },
-    { top: true, bottom: true, grow: true });
+    { top: true, bottom: true, grow: true, newCount: 1 });
 
 
   T.group('minimal changes: add, sync refresh, still 9 base');
@@ -186,7 +186,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   testAccount.do_viewFolder(
     'sync refresh', c1Folder,
     { count: 10, full: 1, flags: 9, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: 1 });
 
 
   T.group('lots of messages: setup');
@@ -209,7 +209,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 },
      { count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false },
+    { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
 
   T.group('lots of messages: refresh open with overflow');
@@ -240,14 +240,14 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
        startTS: 1337472000000, endTS: 1338422400000 }],
     // This will result in us covering the entire span, so we will be at the
     // bottom too.
-    { top: true, bottom: true, grow: true },
+    { top: true, bottom: true, grow: true, newCount: 21 },
     { extraMutex: 'sync' });
 
   testAccount.do_growFolderView(
     f2View, 15, true, 30,
     [{ count: 2, full: 2, flags: 0, deleted: 0 },
      { count: 2, full: 2, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: false },
+    { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
 
   T.group('cleanup');
@@ -568,11 +568,11 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
   var folderView = testAccount.do_openFolderView(
     'syncs', testFolder,
     [{ count: 3, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: true, grow: true });
+    { top: true, bottom: true, grow: true, newCount: null });
   testAccount.do_growFolderView(
     folderView, 3, true, 3,
     [{ count: 3, full: 3, flags: 0, deleted: 0}],
-    { top: true, bottom: true, grow: false },
+    { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
   testAccount.do_closeFolderView(folderView);
 
@@ -586,14 +586,14 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
     'reopens with refresh', testFolder,
     { count: 3, full: 0, flags: 3, deleted: 0,
       startTS: 1327536000000, endTS: 1327708800000 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: 0 });
 
   T.group('grow pastwards');
   testAccount.do_growFolderView(
     folderView, 3, false, 3,
     { count: 5, full: 2, flags: 3, deleted: 0
       },
-    { top: true, bottom: true, grow: false },
+    { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
 
   T.group('cleanup');

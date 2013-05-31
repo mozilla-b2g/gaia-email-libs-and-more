@@ -1147,9 +1147,11 @@ function SliceBridgeProxy(bridge, ns, handle) {
 SliceBridgeProxy.prototype = {
   /**
    * Issue a splice to add and remove items.
+   * @param {number} newEmailCount Number of new emails synced during this
+   *     slice request.
    */
   sendSplice: function sbp_sendSplice(index, howMany, addItems, requested,
-                                      moreExpected) {
+                                      moreExpected, newEmailCount) {
     this._bridge.__sendMessage({
       type: 'sliceSplice',
       handle: this._handle,
@@ -1164,6 +1166,7 @@ SliceBridgeProxy.prototype = {
       atBottom: this.atBottom,
       userCanGrowUpwards: this.userCanGrowUpwards,
       userCanGrowDownwards: this.userCanGrowDownwards,
+      newEmailCount: newEmailCount,
     });
   },
 
@@ -1178,12 +1181,16 @@ SliceBridgeProxy.prototype = {
     });
   },
 
+  /**
+   * @param {number} newEmailCount Number of new emails synced during this
+   *     slice request.
+   */
   sendStatus: function sbp_sendStatus(status, requested, moreExpected,
-                                      progress) {
+                                      progress, newEmailCount) {
     this.status = status;
     if (progress != null)
       this.progress = progress;
-    this.sendSplice(0, 0, [], requested, moreExpected);
+    this.sendSplice(0, 0, [], requested, moreExpected, newEmailCount);
   },
 
   sendSyncProgress: function(progress) {
