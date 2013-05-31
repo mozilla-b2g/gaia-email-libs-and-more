@@ -66,35 +66,40 @@ TD.commonCase('folder sync', function(T) {
   T.group('initial interval is full sync');
   var fullSyncFolder = testAccount.do_createTestFolder(
     'test_initial_full_sync',
-    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  testAccount.do_viewFolder('syncs', fullSyncFolder,
-                            { count: 4, full: 4, flags: 0, deleted: 0,
-                              filterType: FilterType.NoFilter },
-                            { top: true, bottom: true, grow: false });
+    { count: 4, age: { days: 0, hours: 2 }, age_incr: { days: 1 } });
+  testAccount.do_viewFolder(
+    'syncs', fullSyncFolder,
+    { count: 4, full: 4, flags: 0, deleted: 0,
+    filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(true);
-  testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
-                            { count: 4, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'checks persisted data of', fullSyncFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', fullSyncFolder,
-                            { count: 4, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'resyncs', fullSyncFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: 0 });
 
 
   T.group('sync detects additions');
-  testAccount.do_addMessagesToFolder(fullSyncFolder, { count: 1,
-                                                       age: { hours: 1 } });
+  testAccount.do_addMessagesToFolder(
+    fullSyncFolder,
+    { count: 2, age: { hours: 1 }, age_incr: { days: 1 } });
   var folderView = testAccount.do_openFolderView(
     'fullSyncFolder', fullSyncFolder,
-    { count:  5, full: 1, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false });
+    { count: 6, full: 2, flags: 0, deleted: 0 },
+    // only one of the messages is newer than the most recent message!
+    { top: true, bottom: true, grow: false, newCount: 1 });
 
   T.group('sync detects deletions');
   T.action('blah', testAccount, eSync, function() {
     var headers = folderView.slice.items,
         toDelete = headers[0],
         toDeleteId = fullSyncFolder.knownMessages[0].messageId,
-        expectedValues = { count: 4, full: 0, flags: 0, deleted: 1 },
+        expectedValues = { count: 5, full: 0, flags: 0, deleted: 1 },
         checkExpected = { changes: [], deletions: [toDelete] },
         expectedFlags = { top: true, bottom: true, grow: false };
 

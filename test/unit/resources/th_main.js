@@ -452,7 +452,18 @@ var TestCommonAccountMixins = {
    *       The MailHeader that we expect to be deleted.
    *     }
    *   ]]
-   *  @param[expectedFlags]
+   *  @param[expectedFlags @dict[
+   *    @key[top]
+   *    @key[bottom]
+   *    @key[growUp #:default false]
+   *    @key[grow]
+   *    @key[newCount #:optional]{
+   *      The number of new messages we expect to be reported with the
+   *      conclusion of this sync.  If omitted, no expectation is placed on this
+   *      number.  'new' messages are messages that are newer than the most
+   *      recent known message (as of the start of the sync) which are unread.
+   *    }
+   *  ]]
    *  @param[completeCheckOn #:optional @oneof[
    *    @default{
    *      The slice's oncomplete method is used.
@@ -495,11 +506,15 @@ var TestCommonAccountMixins = {
       }
     }
     this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
-    if (expectedFlags)
-      this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.growUp || false,
-                             expectedFlags.grow,
-                             isFailure ? 'syncfailed' : 'synced');
+    if (expectedFlags) {
+      var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                      expectedFlags.growUp || false,
+                      expectedFlags.grow,
+                      isFailure ? 'syncfailed' : 'synced'];
+      if (expectedFlags.newCount !== undefined)
+        callArgs.push(expectedFlags.newCount);
+      this.expect_sliceFlags.apply(this, callArgs);
+    }
 
     // - listen for the changes
     var additionRep = {}, changeRep = {}, deletionRep = {},
@@ -507,7 +522,7 @@ var TestCommonAccountMixins = {
     viewThing.slice.onadd = function(item) {
       additionRep[item.subject] = true;
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
@@ -521,14 +536,14 @@ var TestCommonAccountMixins = {
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
       });
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
     viewThing.slice.onremove = function(item) {
       deletionRep[item.subject] = true;
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
-    var completed = function completed() {
+    var completed = function completed(newEmailCount) {
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(additionRep, changeRep, deletionRep);
@@ -536,7 +551,9 @@ var TestCommonAccountMixins = {
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
                                 viewThing.slice.userCanGrowUpwards,
                                 viewThing.slice.userCanGrowDownwards,
-                                viewThing.slice.status);
+                                viewThing.slice.status,
+                                newEmailCount === undefined ?
+                                  null : newEmailCount);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -1904,10 +1921,14 @@ var TestImapAccountMixins = {
             testFolder.knownMessages.slice(0, totalExpected)
               .map(function(x) { return x.subject; }));
         }
-        self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom,
-          expectedFlags.growUp || false, expectedFlags.grow,
-          isFailure ? 'syncfailed' : 'synced');
+        var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                        expectedFlags.growUp || false,
+                        expectedFlags.grow,
+                        isFailure ? 'syncfailed' : 'synced'];
+        if (expectedFlags.newCount !== undefined) {
+          callArgs.push(expectedFlags.newCount);
+        }
+        self.expect_sliceFlags.apply(self, callArgs);
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -1915,7 +1936,7 @@ var TestImapAccountMixins = {
         _saveToThing.slice = slice;
         testFolder._liveSliceThings.push(_saveToThing);
       }
-      slice.oncomplete = function() {
+      slice.oncomplete = function(newEmailCount) {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
           self._logger.messageSubjects(
@@ -1923,7 +1944,9 @@ var TestImapAccountMixins = {
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
-                                slice.userCanGrowDownwards, slice.status);
+                                slice.userCanGrowDownwards, slice.status,
+                                newEmailCount === undefined ?
+                                  null : newEmailCount);
         if (!_saveToThing) {
           slice.die();
         }
@@ -2019,16 +2042,19 @@ var TestImapAccountMixins = {
           .map(function(x) {
                  return x.subject;
                }));
-      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.growUp || false,
-                             expectedFlags.grow, 'synced');
-
+      var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                      expectedFlags.growUp || false,
+                      expectedFlags.grow,
+                      'synced'];
+      if (expectedFlags.newCount !== undefined)
+        callArgs.push(expectedFlags.newCount);
+      self.expect_sliceFlags.apply(self, callArgs);
 
       viewThing.slice.onsplice = function(index, howMany, added,
                                           requested, moreExpected) {
         self._logger.splice(index, howMany);
       };
-      viewThing.slice.oncomplete = function() {
+      viewThing.slice.oncomplete = function(newEmailCount) {
         viewThing.slice.onsplice = null;
 
         self._logger.messagesReported(viewThing.slice.items.length);
@@ -2038,7 +2064,8 @@ var TestImapAccountMixins = {
           viewThing.slice.atTop, viewThing.slice.atBottom,
           viewThing.slice.userCanGrowUpwards,
           viewThing.slice.userCanGrowDownwards,
-          viewThing.slice.status);
+          viewThing.slice.status,
+          newEmailCount === undefined ? null : newEmailCount);
       };
 
       viewThing.slice.requestShrinkage(useLow, useHigh);
@@ -2383,10 +2410,12 @@ var TestActiveSyncAccountMixins = {
             testFolder.knownMessages.slice(0, totalExpected)
               .map(function(x) { return x.subject; }));
         }
-        self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom,
-          expectedFlags.growUp || false, expectedFlags.grow,
-          isFailure ? 'syncfailed' : 'synced');
+        var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                        expectedFlags.growUp || false, expectedFlags.grow,
+                        isFailure ? 'syncfailed' : 'synced'];
+        if (expectedFlags.newCount !== undefined)
+          callArgs.push(expectedFlags.newCount);
+        self.expect_sliceFlags.apply(self, callArgs);
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -2395,15 +2424,17 @@ var TestActiveSyncAccountMixins = {
         testFolder._liveSliceThings.push(_saveToThing);
       }
 
-      slice.oncomplete = function() {
+      slice.oncomplete = function(newEmailCount) {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
           self._logger.messageSubjects(
             slice.items.map(function(x) { return x.subject; }));
         }
-        self._logger.sliceFlags(slice.atTop, slice.atBottom,
-                                slice.userCanGrowUpwards,
-                                slice.userCanGrowDownwards, slice.status);
+        self._logger.sliceFlags(
+          slice.atTop, slice.atBottom,
+          slice.userCanGrowUpwards,
+          slice.userCanGrowDownwards, slice.status,
+          newEmailCount === undefined ? null : newEmailCount);
         if (!_saveToThing) {
           slice.die();
         }
@@ -2551,7 +2582,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       splice: { index: true, howMany: true },
       sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
-                    status: true },
+                    status: true, newCount: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
       messageSubjects: { subjects: true },

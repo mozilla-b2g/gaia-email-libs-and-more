@@ -47,19 +47,25 @@ TD.commonCase('folder sync', function(T) {
   T.group('sync empty folder');
   var emptyFolder = testAccount.do_createTestFolder(
     'test_empty_sync', { count: 0 });
-  testAccount.do_viewFolder('syncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false },
-                            { syncedToDawnOfTime: true });
+  testAccount.do_viewFolder(
+    'syncs', emptyFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0 },
+    // initial syncs do not report 'new' messages since they're all new
+    { top: true, bottom: true, grow: false, newCount: null },
+    { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
-  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'checks persisted data of', emptyFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0 },
+    // offline syncs do not report 'new' messages since no sync happens!
+    { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false },
-                            { syncedToDawnOfTime: true });
+  testAccount.do_viewFolder(
+    'resyncs', emptyFolder,
+    { count: 0, full: 0, flags: 0, deleted: 0 },
+    // refreshes do report new messages; but we have none
+    { top: true, bottom: true, grow: false, newCount: 0 },
+    { syncedToDawnOfTime: true });
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
@@ -69,19 +75,22 @@ TD.commonCase('folder sync', function(T) {
   var fullSyncFolder = testAccount.do_createTestFolder(
     'test_initial_full_sync',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
-  testAccount.do_viewFolder('syncs', fullSyncFolder,
-                            { count: 4, full: 4, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false },
-                            { syncedToDawnOfTime: true });
+  testAccount.do_viewFolder(
+    'syncs', fullSyncFolder,
+    { count: 4, full: 4, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: null },
+    { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
-  testAccount.do_viewFolder('checks persisted data of', fullSyncFolder,
-                            { count: 4, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'checks persisted data of', fullSyncFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', fullSyncFolder,
-                            { count: 4, full: 0, flags: 4, deleted: 0 },
-                            { top: true, bottom: true, grow: false },
-                            { syncedToDawnOfTime: true });
+  testAccount.do_viewFolder(
+    'resyncs', fullSyncFolder,
+    { count: 4, full: 0, flags: 4, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: 0 },
+    { syncedToDawnOfTime: true });
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
@@ -95,13 +104,13 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_viewFolder(
     'syncs', saturatedFolder,
     { count: INITIAL_FILL_SIZE, full: 15, flags: 0, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
   testAccount.do_viewFolder('checks persisted data of', saturatedFolder,
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
   // this is a refresh now, so we only refresh the date range covered by
   // initial fill.  This used to be a day-based sync for the 5 sync days,
@@ -109,7 +118,7 @@ TD.commonCase('folder sync', function(T) {
   testAccount.do_viewFolder(
     'resyncs', saturatedFolder,
     { count: INITIAL_FILL_SIZE, full: 0, flags: INITIAL_FILL_SIZE, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: 0 });
 
   /**
    * Perform a folder sync where we need to search multiple time ranges in order
@@ -124,20 +133,20 @@ TD.commonCase('folder sync', function(T) {
     [{ count: 5, full: 5, flags: 0, deleted: 0 },
      { count: 5, full: 5, flags: 0, deleted: 0 },
      { count: 2, full: 3, flags: 0, deleted: 0 }],
-    { top: true, bottom: false, grow: false },
+    { top: true, bottom: false, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
   testAccount.do_viewFolder('checks persisted data of', msearchFolder,
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
   // this used to be [5, 5, 2] like the initial sync.  Now it's just a refresh.
   testAccount.do_viewFolder(
     'resyncs', msearchFolder,
     [{ count: 12, full: 0, flags: 12, deleted: 0 }],
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: 0 });
 
   /**
    * Use our mutation mechanism with speculative application disabled in order
@@ -178,7 +187,8 @@ TD.commonCase('folder sync', function(T) {
     // because the new messages are interleaved rather than at the end, we will
     // end up with more than 12/INITIAL_FILL_SIZE in the second case.
     [{ count: 16, full: 7, flags: 9, deleted: 3 }],
-    { top: true, bottom: false, grow: false });
+    // these messages are all older than the newest message, none are 'new'
+    { top: true, bottom: false, grow: false, newCount: 0 });
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
@@ -214,7 +224,7 @@ TD.commonCase('folder sync', function(T) {
     // the entire date range in question.
     { count: 14, full: 0, flags: 14, deleted: 2 },
     expectedRefreshChanges,
-    { top: true, bottom: false, grow: false });
+    { top: true, bottom: false, grow: false, newCount: 0 });
 
   T.group('get the message body for an existing message');
   T.action(eSync, 'request message body from', msearchView, function() {
