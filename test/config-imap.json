@@ -29,6 +29,7 @@
     "test_linkify.js",
     "test_mutation.js",
     "test_search.js",
-    "test_intl_unit.js"
+    "test_intl_unit.js",
+    "test_mailapi_contacts.js"
   ]
 }

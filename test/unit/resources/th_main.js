@@ -1334,6 +1334,10 @@ var TestImapAccountMixins = {
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
+      if (extraFlags && extraFlags.pushMessagesTo) {
+        var pushMessagesTo = extraFlags.pushMessagesTo;
+        pushMessagesTo.push.apply(pushMessagesTo, messageBodies);
+      }
       if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
@@ -1378,9 +1382,9 @@ var TestImapAccountMixins = {
   /**
    * Add messages to an existing test folder.
    */
-  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
+  do_addMessagesToFolder: function(testFolder, messageSetDef, extraFlags) {
     this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef, opts);
+                                     messageSetDef, extraFlags);
   },
 
   /**
