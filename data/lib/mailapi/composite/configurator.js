@@ -9,6 +9,7 @@ define(
     '../a64',
     '../allback',
     './account',
+    '../date',
     'require',
     'exports'
   ],
@@ -18,6 +19,7 @@ define(
     $a64,
     $allback,
     $account,
+    $date,
     require,
     exports
   ) {
@@ -144,6 +146,7 @@ exports.configurator = {
     var accountDef = {
       id: accountId,
       name: userDetails.accountName || userDetails.emailAddress,
+      defaultPriority: $date.NOW(),
 
       type: 'imap+smtp',
       receiveType: 'imap',

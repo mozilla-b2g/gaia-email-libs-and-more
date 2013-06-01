@@ -118,6 +118,10 @@ var TestUniverseMixins = {
         days: 7,
         growDays: 7,
         scaleFactor: 1.6,
+
+        // Don't trigger the whole-folder sync logic except when we explicitly
+        // want to test it.
+        SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 0,
         // We don't want to test this at scale as part of our unit tests, so
         // crank it way up so we don't ever accidentally run into this.
         bisectThresh: 2000,
@@ -176,7 +180,7 @@ var TestUniverseMixins = {
         fakeNavigator: self.fakeNavigator
       };
       if (opts.dbDelta)
-        testOpts.dbVersion = $maildb.CUR_VERSION + opts.dbDelta;
+        testOpts.dbDelta = opts.dbDelta;
       if (opts.dbVersion)
         testOpts.dbVersion = opts.dbVersion;
       if (opts.nukeDb)
@@ -455,7 +459,18 @@ var TestCommonAccountMixins = {
    *       The MailHeader that we expect to be deleted.
    *     }
    *   ]]
-   *  @param[expectedFlags]
+   *  @param[expectedFlags @dict[
+   *    @key[top]
+   *    @key[bottom]
+   *    @key[growUp #:default false]
+   *    @key[grow]
+   *    @key[newCount #:optional]{
+   *      The number of new messages we expect to be reported with the
+   *      conclusion of this sync.  If omitted, no expectation is placed on this
+   *      number.  'new' messages are messages that are newer than the most
+   *      recent known message (as of the start of the sync) which are unread.
+   *    }
+   *  ]]
    *  @param[completeCheckOn #:optional @oneof[
    *    @default{
    *      The slice's oncomplete method is used.
@@ -498,11 +513,15 @@ var TestCommonAccountMixins = {
       }
     }
     this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
-    if (expectedFlags)
-      this.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.growUp || false,
-                             expectedFlags.grow,
-                             isFailure ? 'syncfailed' : 'synced');
+    if (expectedFlags) {
+      var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                      expectedFlags.growUp || false,
+                      expectedFlags.grow,
+                      isFailure ? 'syncfailed' : 'synced'];
+      if (expectedFlags.newCount !== undefined)
+        callArgs.push(expectedFlags.newCount);
+      this.expect_sliceFlags.apply(this, callArgs);
+    }
 
     // - listen for the changes
     var additionRep = {}, changeRep = {}, deletionRep = {},
@@ -510,7 +529,7 @@ var TestCommonAccountMixins = {
     viewThing.slice.onadd = function(item) {
       additionRep[item.subject] = true;
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
     viewThing.slice.onchange = function(item) {
       changeRep[item.subject] = true;
@@ -524,14 +543,14 @@ var TestCommonAccountMixins = {
           self._logger.changeMismatch(changeEntry.field, changeEntry.value);
       });
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
     viewThing.slice.onremove = function(item) {
       deletionRep[item.subject] = true;
       if (eventCounter && --eventCounter === 0)
-        completed();
+        completed(null);
     };
-    var completed = function completed() {
+    var completed = function completed(newEmailCount) {
       if (!completeCheckOn)
         self._logger.messagesReported(viewThing.slice.items.length);
       self._logger.changesReported(additionRep, changeRep, deletionRep);
@@ -539,7 +558,9 @@ var TestCommonAccountMixins = {
         self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
                                 viewThing.slice.userCanGrowUpwards,
                                 viewThing.slice.userCanGrowDownwards,
-                                viewThing.slice.status);
+                                viewThing.slice.status,
+                                newEmailCount === undefined ?
+                                  null : newEmailCount);
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -692,9 +713,9 @@ var TestCommonAccountMixins = {
     else {
       switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
         case true:
-          // per the comment on do_viewFolder, this flag has no meaning when we are
-          // refreshing now that we sync FUTUREWARDS.  If we toggle it back to
-          // PASTWARDS, comment out this line and things should work.
+          // per the comment on do_viewFolder, this flag has no meaning when we
+          // are refreshing now that we sync FUTUREWARDS.  If we toggle it back
+          // to PASTWARDS, comment out this line and things should work.
           if ((syncType === 'sync' && !testFolder.initialSynced) ||
               (syncType === 'grow'))
             storageActor.expect_syncedToDawnOfTime();
@@ -716,8 +737,54 @@ var TestCommonAccountMixins = {
     storageActor.ignore_deleteFromBlock();
   },
 
+  /**
+   * @args[
+   *   @param[jobName String]{
+   *     What job are we expecting to run? ex: 'syncFolderList', 'doownload',
+   *     'modtags'.
+   *   }
+   *   @param[flags @dict[
+   *     @key[mode #:default 'do' @oneof['do' 'undo' 'check']]
+   *     @key[local #:default true]{
+   *       Is a local version of the op expected to run?  Defaults to true for
+   *       do/undo, false for check.
+   *     }
+   *     @key[server #:default true]{
+   *       Is a server version of the op expected to be run (which just means no
+   *       'local_' prefix)?  Defaults to true.  'check' is considered to be a
+   *       server operation for the purposes of our tests.
+   *     }
+   *     @key[save #:default false @oneof[
+   *       @case[false]{
+   *         No save operation expected.
+   *       }
+   *       @case[true]{
+   *         Expect a save operation to occur after the local operation.
+   *       }
+   *       @case['server']{
+   *         Expect a save operation to occur after the "server" operation.
+   *       }
+   *     }
+   *     @key[conn #:default false @oneof[false true 'deadconn']{
+   *       Expect a connection to be aquired if truthy.  Expect the conncetion
+   *       to die if 'deadconn'.  Expect the connection to be released if `true`
+   *       unless explicitly specified othrewise by `release`.
+   *     }
+   *     @key[release #:optional @oneof[false true 'deadconn']]{
+   *       Expect a connection to be released.  If `conn` is true, this
+   *       defaults to true, otherwise it defaults to false.  If this is set to
+   *       'deadconn', the death of the connection rather than a proper release
+   *       is expected (but is only relevant if `conn` is not specified.)
+   *     }
+   *     @key[error #:default null String]{
+   *       The error to expect the job to complete with.
+   *     }
+   *   ]]
+   * ]
+   */
   expect_runOp: function(jobName, flags) {
-    var mode = checkFlagDefault(flags, 'mode', 'do'), localMode;
+    var mode = checkFlagDefault(flags, 'mode', 'do'), localMode,
+        err = checkFlagDefault(flags, 'error', null);
     switch (mode) {
       case 'do':
       case 'undo':
@@ -728,8 +795,8 @@ var TestCommonAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
-      this.eOpAccount.expect_runOp_begin(localMode, jobName);
-      this.eOpAccount.expect_runOp_end(localMode, jobName);
+      this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
     if (checkFlagDefault(flags, 'save', false) === true)
@@ -741,11 +808,18 @@ var TestCommonAccountMixins = {
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('expect_connection' in this)) {
       this.expect_connection();
+      if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
+        this.eOpAccount.expect_deadConnection();
+      }
       // (release is expected by default if we open a conn)
-      if (checkFlagDefault(flags, 'release', true))
+      else if (checkFlagDefault(flags, 'release', true)) {
         this.eOpAccount.expect_releaseConnection();
+      }
     }
     // - release (without conn)
+    else if (checkFlagDefault(flags, 'release', false) === 'deadconn') {
+      this.eOpAccount.expect_deadConnection();
+    }
     else if (checkFlagDefault(flags, 'release', false)) {
       this.eOpAccount.expect_releaseConnection();
     }
@@ -823,6 +897,67 @@ var TestCommonAccountMixins = {
         });
       });
   },
+
+
+  /**
+   * Re-create the folder from scratch so that we can reset all the state on
+   * the folder.  This means all the headers and bodies will go away, etc.
+   */
+  do_recreateFolder: function(testFolder) {
+    var self = this;
+    this.T.action(this, 're-create folder', testFolder, 'of',
+                  self.eFolderAccount, function() {
+      // - runtime flags!
+      // (serverMessages is unchanged)
+      testFolder.knownMessages = [];
+      // (serverDelete is unchanged)
+      testFolder.initialSynced = false;
+
+      self.expect_folderRecreated();
+      self._expect_recreateFolder(testFolder);
+      self.folderAccount._recreateFolder(testFolder.id, function() {
+        self._logger.folderRecreated();
+      });
+    });
+  },
+
+  /**
+   * Common log for folder re-creations.  Exists so that ActiveSync and IMAP
+   * can expect a folder re-creation during the sync process when they realize
+   * the SyncKey is or UIDVALIDITY has rolled, while unit tests can explicitly
+   * trigger a folder re-creation.
+   */
+  _expect_recreateFolder: function(testFolder) {
+    var self = this;
+    this.eFolderAccount.expect_recreateFolder();
+    this.eFolderAccount.expect_saveAccountState('recreateFolder');
+
+    var oldConnActor = testFolder.connActor;
+    // Give the new actor a good name.
+    var existingActorMatch =
+          /^([^#]+)(?:#(\d+))?$/.exec(oldConnActor.__name),
+        newActorName;
+    if (existingActorMatch[2])
+      newActorName = existingActorMatch[1] + '#' +
+      (parseInt(existingActorMatch[2], 10) + 1);
+    else
+      newActorName = existingActorMatch[1] + '#2';
+    // Because only one actor will be created in this process, we don't
+    // need to reach into the 'soup' to establish the link and the test
+    // infrastructure will do it automatically for us.
+    var newConnActor = this.T.actor(
+          this.type === 'imap' ? 'ImapFolderConn' : 'ActiveSyncFolderConn',
+          newActorName),
+        newStorageActor = this.T.actor('FolderStorage', newActorName);
+    this.RT.reportActiveActorThisStep(newConnActor);
+    this.RT.reportActiveActorThisStep(newStorageActor);
+
+    testFolder.connActor = newConnActor;
+    testFolder.storageActor = newStorageActor;
+
+    return newConnActor;
+  },
+
 };
 
 var TestFolderMixins = {
@@ -830,6 +965,7 @@ var TestFolderMixins = {
     this.connActor = null;
     this.storageActor = null;
     this.id = null;
+    // the front-end MailAPI MailFolder instance for the folder
     this.mailFolder = null;
     // fake-server folder rep, if we are using a fake-server
     this.serverFolder = null;
@@ -839,6 +975,7 @@ var TestFolderMixins = {
     // messages that should be known to the client based on the sync operations
     //  we have generated expectations for.
     this.knownMessages = [];
+    // this is a runtime flag!
     this.initialSynced = false;
 
     this._approxMessageCount = 0;
@@ -898,7 +1035,7 @@ var TestFolderMixins = {
 var TestImapAccountMixins = {
   exactAttachmentSizes: false,
   __constructor: function(self, opts) {
-    self.eImapAccount = self.eOpAccount =
+    self.eImapAccount = self.eOpAccount = self.eFolderAccount =
       self.T.actor('ImapAccount', self.__name, null, self);
     self.eJobDriver = self.T.actor('ImapJobDriver', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
@@ -977,7 +1114,8 @@ var TestImapAccountMixins = {
       self.account = self.compositeAccount =
              self.universe.accounts[
                self.testUniverse.__testAccounts.indexOf(self)];
-      self.imapAccount = self.compositeAccount._receivePiece;
+      self.folderAccount = self.imapAccount =
+        self.compositeAccount._receivePiece;
       self.smtpAccount = self.compositeAccount._sendPiece;
       self.accountId = self.compositeAccount.id;
     });
@@ -1012,6 +1150,9 @@ var TestImapAccountMixins = {
       // we expect the account state to be saved after syncing folders
       self.eImapAccount.expect_saveAccountState();
 
+      if (self._opts.timeWarp)
+        $date.TEST_LetsDoTheTimewarpAgain(self._opts.timeWarp);
+
       var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
@@ -1044,7 +1185,8 @@ var TestImapAccountMixins = {
             do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
                      ' (id: ' + self.accountId + ')');
 
-          self.imapAccount = self.compositeAccount._receivePiece;
+          self.folderAccount = self.imapAccount =
+            self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
 
           // Because folder list synchronizing happens as an operation, we want
@@ -1216,6 +1358,10 @@ var TestImapAccountMixins = {
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
+      if (extraFlags && extraFlags.pushMessagesTo) {
+        var pushMessagesTo = extraFlags.pushMessagesTo;
+        pushMessagesTo.push.apply(pushMessagesTo, messageBodies);
+      }
       if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
       }
       // no messages in there yet, just use the list as-is
@@ -1260,9 +1406,9 @@ var TestImapAccountMixins = {
   /**
    * Add messages to an existing test folder.
    */
-  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
+  do_addMessagesToFolder: function(testFolder, messageSetDef, extraFlags) {
     this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef, opts);
+                                     messageSetDef, extraFlags);
   },
 
   /**
@@ -1652,7 +1798,8 @@ var TestImapAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eImapAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     var totalMessageCount = 0,
-        nonet = checkFlagDefault(extraFlags, 'nonet', false);
+        nonet = checkFlagDefault(extraFlags, 'nonet', false),
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
 
     if (expectedValues) {
       if (!Array.isArray(expectedValues))
@@ -1662,7 +1809,7 @@ var TestImapAccountMixins = {
       for (var i = 0; i < expectedValues.length; i++) {
         var einfo = expectedValues[i];
         totalMessageCount += einfo.count;
-        if (this.universe.online && !nonet) {
+        if (this.universe.online && !nonet && !isFailure) {
           propState = this._propagateToKnownMessages(
             viewThing, propState,
             einfo.count, einfo.full, einfo.deleted, syncDir);
@@ -1716,8 +1863,10 @@ var TestImapAccountMixins = {
    *       expect_saveAccountState should be issued when we are in the online
    *       state.
    *     }
-   *     @key[failure #:default false Boolean]{
-   *       If true, indicates that we should expect a 'syncfailed' result.
+   *     @key[failure #:default false @oneof[false true 'die']]{
+   *       If true, indicates that we should expect a 'syncfailed' result and no
+   *       connection expectations.  If 'deadconn', it means the connection will
+   *       die during the sync.
    *     }
    *     @key[nonet #:default false Boolean]{
    *       Indicate that no network traffic is expected.  This is only relevant
@@ -1749,13 +1898,22 @@ var TestImapAccountMixins = {
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
         self.eImapAccount.expectUseSetMatching();
-        if (!isFailure &&
+        if (isFailure !== true &&
             !checkFlagDefault(extraFlags, 'nonet', false)) {
           self.expect_connection();
-          if (!_saveToThing)
-            self.eImapAccount.expect_releaseConnection();
-          else
+          if (isFailure === 'deadconn') {
+            self.eImapAccount.expect_deadConnection();
+            // dead connection will be removed from the pool
             self._unusedConnections--;
+          }
+          else if (!_saveToThing) {
+            self.eImapAccount.expect_releaseConnection();
+          }
+          else {
+            // The connection will be held by the folder/slice, so it's no
+            // longer unused.
+            self._unusedConnections--;
+          }
         }
       }
 
@@ -1774,14 +1932,22 @@ var TestImapAccountMixins = {
             testFolder.knownMessages.slice(0, totalExpected)
               .map(function(x) { return x.subject; }));
         }
-        self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom,
-          expectedFlags.growUp || false, expectedFlags.grow,
-          isFailure ? 'syncfailed' : 'synced');
+        var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                        expectedFlags.growUp || false,
+                        expectedFlags.grow,
+                        isFailure ? 'syncfailed' : 'synced'];
+        if (expectedFlags.newCount !== undefined) {
+          callArgs.push(expectedFlags.newCount);
+        }
+        self.expect_sliceFlags.apply(self, callArgs);
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      slice.oncomplete = function() {
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
+      slice.oncomplete = function(newEmailCount) {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
           self._logger.messageSubjects(
@@ -1789,12 +1955,10 @@ var TestImapAccountMixins = {
         }
         self._logger.sliceFlags(slice.atTop, slice.atBottom,
                                 slice.userCanGrowUpwards,
-                                slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+                                slice.userCanGrowDownwards, slice.status,
+                                newEmailCount === undefined ?
+                                  null : newEmailCount);
+        if (!_saveToThing) {
           slice.die();
         }
       };
@@ -1889,16 +2053,19 @@ var TestImapAccountMixins = {
           .map(function(x) {
                  return x.subject;
                }));
-      self.expect_sliceFlags(expectedFlags.top, expectedFlags.bottom,
-                             expectedFlags.growUp || false,
-                             expectedFlags.grow, 'synced');
-
+      var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                      expectedFlags.growUp || false,
+                      expectedFlags.grow,
+                      'synced'];
+      if (expectedFlags.newCount !== undefined)
+        callArgs.push(expectedFlags.newCount);
+      self.expect_sliceFlags.apply(self, callArgs);
 
       viewThing.slice.onsplice = function(index, howMany, added,
                                           requested, moreExpected) {
         self._logger.splice(index, howMany);
       };
-      viewThing.slice.oncomplete = function() {
+      viewThing.slice.oncomplete = function(newEmailCount) {
         viewThing.slice.onsplice = null;
 
         self._logger.messagesReported(viewThing.slice.items.length);
@@ -1908,7 +2075,8 @@ var TestImapAccountMixins = {
           viewThing.slice.atTop, viewThing.slice.atBottom,
           viewThing.slice.userCanGrowUpwards,
           viewThing.slice.userCanGrowDownwards,
-          viewThing.slice.status);
+          viewThing.slice.status,
+          newEmailCount === undefined ? null : newEmailCount);
       };
 
       viewThing.slice.requestShrinkage(useLow, useHigh);
@@ -1919,7 +2087,7 @@ var TestImapAccountMixins = {
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
   __constructor: function(self, opts) {
-    self.eAccount = self.eOpAccount =
+    self.eAccount = self.eOpAccount = self.eFolderAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
     self.eJobDriver =
       self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
@@ -1981,7 +2149,7 @@ var TestActiveSyncAccountMixins = {
       self.MailAPI = self.testUniverse.MailAPI;
 
       var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
-      self.account = self.universe.accounts[idxAccount];
+      self.folderAccount = self.account = self.universe.accounts[idxAccount];
       self.accountId = self.account.id;
     });
   },
@@ -2004,16 +2172,25 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
-      var TEST_PARAMS = self.RT.envOptions;
+      var TEST_PARAMS = self.RT.envOptions,
+          displayName, emailAddress, password;
+
+      if (self._opts.realAccountNeeded) {
+        displayName = TEST_PARAMS.name;
+        emailAddress = TEST_PARAMS.emailAddress;
+        password = TEST_PARAMS.password;
+      }
+      else {
+        displayName = self._opts.displayName || 'test';
+        emailAddress = self._opts.emailAddress || 'test@aslocalhost';
+        password = self._opts.password || 'test';
+      }
+
       self.MailAPI.tryToCreateAccount(
         {
-          displayName:
-            self._opts.realAccountNeeded ? TEST_PARAMS.name : 'test',
-          emailAddress:
-            self._opts.realAccountNeeded ? TEST_PARAMS.emailAddress
-                                          : 'test@aslocalhost',
-          password:
-            self._opts.realAccountNeeded ? TEST_PARAMS.password : 'test',
+          displayName: displayName,
+          emailAddress: emailAddress,
+          password: password,
           accountName: self._opts.name || null,
           forceCreate: self._opts.forceCreate
         },
@@ -2031,7 +2208,7 @@ var TestActiveSyncAccountMixins = {
           // callback.
           for (var i = 0; i < self.universe.accounts.length; i++) {
             if (self.universe.accounts[i].id === account.id) {
-              self.account = self.universe.accounts[i];
+              self.folderAccount = self.account = self.universe.accounts[i];
               break;
             }
           }
@@ -2132,6 +2309,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
+          folderName);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
+      }
 
       testFolder.connActor.__attachToLogger(
         self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
@@ -2161,6 +2343,11 @@ var TestActiveSyncAccountMixins = {
         testFolder.knownMessages = oldFolder.knownMessages;
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
+      }
+      else {
+        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
+          folderType);
+        testFolder.serverMessages = []; // XXX: We should try to fill this in
       }
 
       testFolder.connActor.__attachToLogger(
@@ -2234,27 +2421,32 @@ var TestActiveSyncAccountMixins = {
             testFolder.knownMessages.slice(0, totalExpected)
               .map(function(x) { return x.subject; }));
         }
-        self.expect_sliceFlags(
-          expectedFlags.top, expectedFlags.bottom,
-          expectedFlags.growUp || false, expectedFlags.grow,
-          isFailure ? 'syncfailed' : 'synced');
+        var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                        expectedFlags.growUp || false, expectedFlags.grow,
+                        isFailure ? 'syncfailed' : 'synced'];
+        if (expectedFlags.newCount !== undefined)
+          callArgs.push(expectedFlags.newCount);
+        self.expect_sliceFlags.apply(self, callArgs);
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      slice.oncomplete = function() {
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
+
+      slice.oncomplete = function(newEmailCount) {
         self._logger.messagesReported(slice.items.length);
         if (totalExpected) {
           self._logger.messageSubjects(
             slice.items.map(function(x) { return x.subject; }));
         }
-        self._logger.sliceFlags(slice.atTop, slice.atBottom,
-                                slice.userCanGrowUpwards,
-                                slice.userCanGrowDownwards, slice.status);
-        if (_saveToThing) {
-          _saveToThing.slice = slice;
-          testFolder._liveSliceThings.push(_saveToThing);
-        }
-        else {
+        self._logger.sliceFlags(
+          slice.atTop, slice.atBottom,
+          slice.userCanGrowUpwards,
+          slice.userCanGrowDownwards, slice.status,
+          newEmailCount === undefined ? null : newEmailCount);
+        if (!_saveToThing) {
           slice.die();
         }
       };
@@ -2291,36 +2483,14 @@ var TestActiveSyncAccountMixins = {
           if (einfo.filterType)
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
           if (einfo.recreateFolder) {
-            this.eAccount.expect_recreateFolder(testFolder.id);
-            this.eAccount.expect_saveAccountState();
-
             var oldConnActor = testFolder.connActor;
-            oldConnActor.expect_sync_end(null, null, null);
+            var newConnActor = this._expect_recreateFolder(testFolder);
 
-            // Give the new actor a good name.
-            var existingActorMatch =
-                  /^([^#]+)(?:#(\d+))?$/.exec(oldConnActor.__name),
-                newActorName;
-            if (existingActorMatch[2])
-              newActorName = existingActorMatch[1] + '#' +
-                               (parseInt(existingActorMatch[2], 10) + 1);
-            else
-              newActorName = existingActorMatch[1] + '#2';
-            // Because only one actor will be created in this process, we don't
-            // need to reach into the 'soup' to establish the link and the test
-            // infrastructure will do it automatically for us.
-            var newConnActor = this.T.actor('ActiveSyncFolderConn',
-                                            newActorName),
-                newStorageActor = this.T.actor('FolderStorage', newActorName);
-            this.RT.reportActiveActorThisStep(newConnActor);
-            this.RT.reportActiveActorThisStep(newStorageActor);
+            oldConnActor.expect_sync_end(null, null, null);
 
             newConnActor.expect_sync_begin(null, null, null);
             newConnActor.expect_sync_end(
               einfo.full, einfo.flags, einfo.deleted);
-
-            testFolder.connActor = newConnActor;
-            testFolder.storageActor = newStorageActor;
           }
           else {
             testFolder.connActor.expect_sync_end(
@@ -2410,6 +2580,10 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       accountCreated: {},
       foundFolder: { found: true, rep: false },
 
+      // the accounts recreateFolder notification should be converted to an
+      // async process with begin/end, replacing this.
+      folderRecreated: {},
+
       deletionNotified: { count: true },
       creationNotified: { count: true },
       sliceDied: { handle: true },
@@ -2419,7 +2593,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       splice: { index: true, howMany: true },
       sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
-                    status: true },
+                    status: true, newCount: true },
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
       messageSubjects: { subjects: true },

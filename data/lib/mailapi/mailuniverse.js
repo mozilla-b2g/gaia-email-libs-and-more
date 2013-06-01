@@ -673,7 +673,8 @@ MailUniverse.prototype = {
     }
     if (!userDetails.forceCreate) {
       for (var i = 0; i < this.accounts.length; i++) {
-        if (userDetails.emailAddress = this.accounts[i].identities[0].address) {
+        if (userDetails.emailAddress ===
+            this.accounts[i].identities[0].address) {
           callback('user-account-exists');
           return;
         }
@@ -729,6 +730,12 @@ MailUniverse.prototype = {
 
   saveAccountDef: function(accountDef, folderInfo) {
     this._db.saveAccountDef(this.config, accountDef, folderInfo);
+    var account = this.getAccountForAccountId(accountDef.id);
+
+    // If account exists, notify of modification. However on first
+    // save, the account does not exist yet.
+    if (account)
+      this.__notifyModifiedAccount(account);
   },
 
   /**
@@ -1518,7 +1525,7 @@ MailUniverse.prototype = {
           type: 'downloadBodies',
           longtermId: 'session', // don't persist this job.
           lifecycle: 'do',
-          localStatus: null,
+          localStatus: 'done',
           serverStatus: null,
           tryCount: 0,
           humanOp: 'downloadBodies',

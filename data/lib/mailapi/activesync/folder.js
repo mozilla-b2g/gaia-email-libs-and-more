@@ -815,6 +815,10 @@ ActiveSyncFolderConn.prototype = {
 
   /**
    * Download the bodies for a set of headers.
+   *
+   * XXX This method is a slightly modified version of
+   * ImapFolderConn._lazyDownloadBodies; we should attempt to remove the
+   * duplication.
    */
   downloadBodies: function(headers, options, callback) {
     if (this._account.conn.currentVersion.lt('12.0'))
@@ -822,6 +826,7 @@ ActiveSyncFolderConn.prototype = {
 
     var anyErr,
         pending = 1,
+        downloadsNeeded = 0,
         folderConn = this;
 
     function next(err) {
@@ -830,16 +835,26 @@ ActiveSyncFolderConn.prototype = {
 
       if (!--pending) {
         folderConn._storage.runAfterDeferredCalls(function() {
-          callback(anyErr);
+          callback(anyErr, /* number downloaded */ downloadsNeeded - pending);
         });
       }
     }
 
     for (var i = 0; i < headers.length; i++) {
-      if (!headers[i] || headers[i].snippet)
+      // We obviously can't do anything with null header references.
+      // To avoid redundant work, we also don't want to do any fetching if we
+      // already have a snippet.  This could happen because of the extreme
+      // potential for a caller to spam multiple requests at us before we
+      // service any of them.  (Callers should only have one or two outstanding
+      // jobs of this and do their own suppression tracking, but bugs happen.)
+      if (!headers[i] || headers[i].snippet !== null) {
         continue;
+      }
 
       pending++;
+      // This isn't absolutely guaranteed to be 100% correct, but is good enough
+      // for indicating to the caller that we did some work.
+      downloadsNeeded++;
       this.downloadBodyReps(headers[i], options, next);
     }
 
@@ -1113,14 +1128,19 @@ ActiveSyncFolderConn.prototype = {
       if (!moreAvailable) {
         var messagesSeen = addedMessages + changedMessages + deletedMessages;
 
-        // Note: For the second argument here, we report the number of messages
-        // we saw that *changed*. This differs from IMAP, which reports the
-        // number of messages it *saw*.
-        folderConn._LOG.sync_end(addedMessages, changedMessages,
-                                 deletedMessages);
-        storage.markSyncRange($sync.OLDEST_SYNC_DATE, accuracyStamp, 'XXX',
-                              accuracyStamp);
-        doneCallback(null, null, messagesSeen);
+        // Do not report completion of sync until all of our operations have
+        // been persisted to our in-memory database.  (We do not wait for
+        // things to hit the disk.)
+        storage.runAfterDeferredCalls(function() {
+          // Note: For the second argument here, we report the number of
+          // messages we saw that *changed*. This differs from IMAP, which
+          // reports the number of messages it *saw*.
+          folderConn._LOG.sync_end(addedMessages, changedMessages,
+                                   deletedMessages);
+          storage.markSyncRange($sync.OLDEST_SYNC_DATE, accuracyStamp, 'XXX',
+                                accuracyStamp);
+          doneCallback(null, null, messagesSeen);
+        });
       }
     },
     progressCallback);

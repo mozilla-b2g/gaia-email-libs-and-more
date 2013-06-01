@@ -12,8 +12,11 @@
  * helper function.
  *
  * We test the following here:
- * - Sync connect failure: Can't talk to the server at all.
- * - Sync login failure: The server does not like our credentials.
+ * - connect failures with reconnect logic (connection level)
+ * - error handlers properly tracked on reused connections (sync level)
+ * - bad password (connection/account level)
+ * - connection loss during a sync on each of our SELECT, SEARCH and FETCH
+ *   requests
  *
  * We test these things elsewhere:
  * - IMAP prober issues: test_imap_prober.js
@@ -58,7 +61,8 @@ function thunkErrbackoffTimer(lazyLogger) {
 
 function zeroTimeoutErrbackoffTimer(lazyLogger) {
   $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
-    lazyLogger.namedValue('errbackoff:schedule', delay);
+    if (lazyLogger)
+      lazyLogger.namedValue('errbackoff:schedule', delay);
     window.setZeroTimeout(func);
   });
 }
@@ -278,7 +282,7 @@ TD.commonCase('error handler fires on reused connection', function(T, RT) {
         // Have the socket close on us when we go to say more stuff to the
         // server.  The sync process should be active at this point.
         FawltySocketFactory.getMostRecentLiveSocket().doOnSendText(
-          [['instant-close']]);
+          [{ match: true, actions: ['instant-close'] }]);
       }});
 });
 
@@ -420,71 +424,233 @@ TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
 });
 
 /**
- * Verify that we handle connection loss when entering a folder.  Do this by
- * opening a slice to display the contents of a folder and verifying that the
- * slice still opens after the connection loss.
+ * Verify that we handle connection loss during sync by generating a syncfailed
+ * notification.  Ideally we would retry opening the folder at least once, but
+ * right now this just codifies our current behaviour to avoid regressions.
  *
- * THIS TEST IS NOT COMPLETE
+ * XXX Expand this test to cover our existing-header update FETCH.  Right now
+ * this only checks the new-header update FETCH.
  */
-TD.DISABLED_commonCase('IMAP connection loss on SELECT', function(T) {
+TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
+              function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
+
+  // we already tested the backoff logic up above; don't need it here.
+  zeroTimeoutErrbackoffTimer(eSync);
 
   // we would ideally extract this in case we are running against other servers
   var testHost = 'localhost', testPort = 143;
 
   var testFolder = testAccount.do_createTestFolder(
-    'test_err_select_loss',
+    'test_err_sync_loss',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+  // Because initial syncs enter the folder before we begin the sync process in
+  // order to get a count of the messages in the folder, we need to initiate a
+  // sync here so the SELECT test below is not an initial sync.
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 4, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
+    { syncedToDawnOfTime: true });
 
   T.group('SELECT time');
   T.action('queue up SELECT to result in connection loss', function() {
+    // the connection is already established because we created a folder.
+    FawltySocketFactory.getMostRecentLiveSocket().doOnSendText([
+      {
+        match: /SELECT/,
+        actions: ['instant-close'],
+      }
+    ]);
+  });
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
+    { failure: 'deadconn' });
+
+  T.group('SEARCH time');
+  T.action('queue up SEARCH to result in connection loss', function() {
     FawltySocketFactory.precommand(
       testHost, testPort, null,
-      {
-        match: 'SELECT',
-        actions: [
-          'instant-close',
-        ]
-      });
+      [
+        {
+          match: /SEARCH/,
+          actions: ['instant-close'],
+        }
+      ]);
   });
-  testAccount.do_viewFolder('syncs', testFolder,
-                            { count: 4, full: 4, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
+    { failure: 'deadconn' });
+
+  T.group('FETCH time');
+  T.action('queue up FETCH to result in connection loss', function() {
+    FawltySocketFactory.precommand(
+      testHost, testPort, null,
+      [
+        {
+          match: /FETCH/,
+          actions: ['instant-close'],
+        }
+      ]);
+  });
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
+    { failure: 'deadconn' });
+
+  T.group('cleanup');
 });
 
 /**
- * Verify that a folder still synchronizes correctly even though we lose the
- * connection in the middle of the synchronization.
- *
- * THIS TEST IS NOT COMPLETE
+ * Generate a connection loss during a "downloadBodies" job; the job should
+ * experience an aborted-retry error, then get retried and the bodies should
+ * still show up.
  */
-TD.DISABLED_commonCase('IMAP connection loss on FETCH', function(T) {
+TD.commonCase('Connection loss during bulk body fetches', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
+      eCheck = T.lazyLogger('check');
 
+  // we already tested the backoff logic up above; don't need it here.
+  zeroTimeoutErrbackoffTimer();
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_err_downloadBodies',
+    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+
+  var folderView = testAccount.do_openFolderView(
+    'sync', testFolder,
+    null,
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  T.action('download bodies: fail, check, succeed', function() {
+    // the first time will fail and the (already owned/used) connection will die
+    testAccount.expect_runOp(
+      'downloadBodies',
+      // no save because nothing will be accomplished and we optimize that case
+      { local: false, server: true, save: false,
+        release: 'deadconn', error: 'aborted-retry' });
+
+    // we will have to run a check!
+    testAccount.expect_runOp(
+      'downloadBodies',
+      { mode: 'check', local: false, server: true, save: false });
+
+    // the second time will get a new connection and succeed
+    testAccount.expect_runOp(
+      'downloadBodies',
+      { local: false, server: true, conn: true, release: false, save: 'server' });
+
+    // rig the connection to explode on our fetch.
+    FawltySocketFactory.getMostRecentLiveSocket().doOnSendText([
+      {
+        match: /FETCH/,
+        actions: ['instant-close'],
+      }
+    ]);
+
+    // trigger the download
+    folderView.slice.maybeRequestBodies(0, folderView.slice.items.length - 1);
+  });
+  // If we have snippets now, then the above must have happened!
+  T.check(eCheck, 'check download success via the existence of snippets', function() {
+    eCheck.expect_namedValue('snippets present', folderView.slice.items.length);
+    testUniverse.MailAPI.ping(function() {
+      var snippetsPresent = 0;
+      for (var i = 0; i < folderView.slice.items.length; i++) {
+        var header = folderView.slice.items[i];
+        // Technically '' would be a snippet too, but all of these messages
+        // should have proper snippets
+        if (header.snippet)
+          snippetsPresent++;
+      }
+      eCheck.namedValue('snippets present', snippetsPresent);
+    });
+  });
+
+  T.group('cleanup');
 });
 
 /**
- * Synchronize a folder so growth is possible, have the connection drop, then
- * issue a growth request and make sure we sync the additional messages as
- * expected.
- *
- * THIS TEST IS NOT COMPLETE
+ * Generate a connection loss during a "downloadBodyReps" job caused by
+ * getBody() with the downloadBodyReps option specified; the job should
+ * experience an aborted-retry error, then get retried and the body should still
+ * show up.
  */
-TD.DISABLED_commonCase('Incremental sync after connection loss', function(T) {
+TD.commonCase('Connection loss during single body fetch', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
+      eCheck = T.lazyLogger('check');
 
+  // we already tested the backoff logic up above; don't need it here.
+  zeroTimeoutErrbackoffTimer();
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_err_downloadBodyReps',
+    { count: 1, age: { days: 0 }, age_incr: { days: 1 } });
+
+  var folderView = testAccount.do_openFolderView(
+    'sync', testFolder,
+    null,
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+  T.action(eCheck, 'download body: fail, check, succeed', function() {
+    // the first time will fail and the (already owned/used) connection will die
+    testAccount.expect_runOp(
+      'downloadBodyReps',
+      // no save because nothing will be accomplished and we optimize that case
+      { local: false, server: true, save: false,
+        release: 'deadconn', error: 'aborted-retry' });
+
+    // we will have to run a check!
+    testAccount.expect_runOp(
+      'downloadBodyReps',
+      { mode: 'check', local: false, server: true, save: false });
+
+    // the second time will get a new connection and succeed
+    testAccount.expect_runOp(
+      'downloadBodyReps',
+      { local: false, server: true, conn: true, release: false, save: 'server' });
+
+    // rig the connection to explode on our fetch.
+    FawltySocketFactory.getMostRecentLiveSocket().doOnSendText([
+      {
+        match: /FETCH/,
+        actions: ['instant-close'],
+      }
+    ]);
+
+    // expect the body to be present
+    eCheck.expect_namedValueD('body downloaded', true);
+
+    // trigger the download
+    var header = folderView.slice.items[0], body;
+    header.getBody({ downloadBodyReps: true }, function(_body) {
+      body = _body;
+
+      // the body gets returned immediately and the body fetch happens
+      // asynchronously after that.
+      body.onchange = function() {
+        eCheck.namedValueD('body downloaded',
+                          body.bodyReps[0].isDownloaded,
+                          body);
+      };
+    });
+  });
+  T.group('cleanup');
 });
 
 }); // end define

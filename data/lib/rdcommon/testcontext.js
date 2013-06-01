@@ -246,6 +246,7 @@ TestContext.prototype = {
     // directly copy across/bind the logger's event method for simplicity
     // XXX this is brittle if we add other methods
     actor.event = logger.event.bind(logger);
+    actor.eventD = logger.eventD.bind(logger);
     actor.value = logger.value.bind(logger);
     actor.namedValue = logger.namedValue.bind(logger);
     actor.namedValueD = logger.namedValueD.bind(logger);
@@ -338,6 +339,7 @@ TestContext.prototype = {
     if (!this._deferredSteps)
       this._deferredSteps = [];
     this._deferredSteps.push([kind, args, isBoring]);
+    return null;
   },
 
   __postSetupFunc: function() {
@@ -707,6 +709,7 @@ var LAZYLOGFAB = exports.__LAZYLOGFAB = $log.register(null, {
     subtype: $log.TEST_LAZY,
     events: {
       event: { name: true },
+      eventD: { name: true, detail: false },
       value: { value: true },
       namedValue: { name: true, value: true },
       // provide detail that should not be part of the expectation

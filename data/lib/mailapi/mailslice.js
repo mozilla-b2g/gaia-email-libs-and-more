@@ -352,7 +352,7 @@ MailSlice.prototype = {
   },
 
   setStatus: function(status, requested, moreExpected, flushAccumulated,
-                      progress) {
+                      progress, newEmailCount) {
     if (!this._bridgeHandle)
       return;
 
@@ -375,14 +375,16 @@ MailSlice.prototype = {
       // XXX remove concat() once our bridge sending makes rep sharing
       // impossible by dint of actual postMessage or JSON roundtripping.
       this._bridgeHandle.sendSplice(0, 0, this.headers.concat(),
-                                    requested, moreExpected);
+                                    requested, moreExpected,
+                                    newEmailCount);
       // If we're no longer synchronizing, we want to update desiredHeaders
       // to avoid accumulating extra 'desire'.
       if (status !== 'synchronizing')
         this.desiredHeaders = this.headers.length;
     }
     else {
-      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress);
+      this._bridgeHandle.sendStatus(status, requested, moreExpected, progress,
+                                    newEmailCount);
     }
   },
 
@@ -764,7 +766,24 @@ MailSlice.prototype = {
  *   @key[flags @listof[String]]
  *   @key[hasAttachments Boolean]
  *   @key[subject String]
- *   @key[snippet String]
+ *   @key[snippet @oneof[
+ *     @case[null]{
+ *       We haven't tried to generate a snippet yet.
+ *     }
+ *     @case['']{
+ *       We tried to generate a snippet, but got nothing useful.  Note that we
+ *       may try and generate a snippet from a partial body fetch; this does not
+ *       indicate that we should avoid computing a better snippet.  Whenever the
+ *       snippet is falsey and we have retrieved more body data, we should
+ *       always try and derive a snippet.
+ *     }
+ *     @case[String]{
+ *       A non-empty string means we managed to produce some snippet data.  It
+ *        is still appropriate to regenerate the snippet if more body data is
+ *        fetched since our snippet may be a fallback where we chose quoted text
+ *        instead of authored text, etc.
+ *     }
+ *   ]]
  * ]]
  * @typedef[HeaderBlock @dict[
  *   @key[ids @listof[ID]]{
@@ -1040,6 +1059,13 @@ FolderStorage.prototype = {
   get hasActiveSlices() {
     return this._slices.length > 0;
   },
+
+  /**
+   * Function that we call with header whenever addMessageHeader gets called.
+   * @type {Function}
+   * @private
+   */
+  _onAddingHeader: null,
 
   /**
    * Reset all active slices.
@@ -1568,7 +1594,7 @@ FolderStorage.prototype = {
         // These variables let us detect if the deletion happened fully
         // synchronously and thereby avoid blowing up the stack.
         callActive = false, deleteTriggered = false;
-    var deleteNextHeader = function deleteNextHeader() {
+    var deleteNextHeader = function() {
       // if things are happening synchronously, bail out
       if (callActive) {
         deleteTriggered = true;
@@ -2226,16 +2252,19 @@ FolderStorage.prototype = {
     // other synchronizations already in progress.
     this._slices.push(slice);
 
-    var doneCallback = function doneSyncCallback(err, reportSyncStatusAs) {
+    var doneCallback = function doneSyncCallback(err, reportSyncStatusAs,
+                                                 moreExpected) {
       if (!reportSyncStatusAs) {
         if (err)
           reportSyncStatusAs = 'syncfailed';
         else
           reportSyncStatusAs = 'synced';
       }
+      if (moreExpected === undefined)
+        moreExpected = false;
 
       slice.waitingOnData = false;
-      slice.setStatus(reportSyncStatusAs, true, false, true);
+      slice.setStatus(reportSyncStatusAs, true, moreExpected, true);
       this._curSyncSlice = null;
 
       releaseMutex();
@@ -2281,7 +2310,7 @@ FolderStorage.prototype = {
     // blocked. We'll update it soon enough.
     if (!this.folderSyncer.syncable) {
       console.log('Synchronization is currently blocked; waiting...');
-      doneCallback(null, 'syncblocked');
+      doneCallback(null, 'syncblocked', true);
       return;
     }
 
@@ -2298,6 +2327,7 @@ FolderStorage.prototype = {
       }
       this._curSyncSlice = slice;
     }.bind(this);
+
     this.folderSyncer.initialSync(
       slice, $sync.INITIAL_SYNC_DAYS,
       syncCallback, doneCallback, progressCallback);
@@ -2540,7 +2570,8 @@ FolderStorage.prototype = {
       if (!this._account.universe.online ||
           !this.folderSyncer.canGrowSync ||
           !userRequestsGrowth) {
-        slice.sendEmptyCompletion();
+        if (this.folderSyncer.syncable)
+          slice.sendEmptyCompletion();
         releaseMutex();
         return;
       }
@@ -2624,13 +2655,33 @@ FolderStorage.prototype = {
         // In the event we grow the startTS to the dawn of time, then we want
         // to also provide the original startTS so that the bisection does not
         // need to scan through years of empty space.
-        origStartTS = null;
+        origStartTS = null,
+        // If we are refreshing through 'now', we will count the new messages we
+        // hear about and update this.newEmailCount once the sync completes.  If
+        // we are performing any othe sync, the value will not be updated.
+        newEmailCount = null;
 
     // - Grow endTS
     // If the endTS lines up with the most recent known message for the folder,
     // then remove the timestamp constraint so it goes all the way to now.
     // OR if we just have no known messages
     if (this.headerIsYoungestKnown(endTS, slice.endUID)) {
+      var prevTS = endTS;
+      newEmailCount = 0;
+
+      /**
+       * Increment our new email count if the following conditions are met:
+       * 1. This header is younger than the youngest one before sync
+       * 2. and this hasn't already been seen.
+       * @param {HeaderInfo} header The header being added.
+       */
+      this._onAddingHeader = function(header) {
+        if (SINCE(header.date, prevTS) &&
+            (!header.flags || header.flags.indexOf('\\Seen') === -1)) {
+          newEmailCount += 1;
+        }
+      }.bind(this);
+
       endTS = null;
     }
     else {
@@ -2661,6 +2712,8 @@ FolderStorage.prototype = {
 
     var doneCallback = function refreshDoneCallback(err, bisectInfo,
                                                     numMessages) {
+      this._onAddingHeader = null;
+
       var reportSyncStatusAs = 'synced';
       switch (err) {
         case 'aborted':
@@ -2671,7 +2724,8 @@ FolderStorage.prototype = {
 
       releaseMutex();
       slice.waitingOnData = false;
-      slice.setStatus(reportSyncStatusAs, true, false);
+      slice.setStatus(reportSyncStatusAs, true, false, false, null,
+                      newEmailCount);
       return undefined;
     }.bind(this);
 
@@ -3327,7 +3381,9 @@ FolderStorage.prototype = {
 
     aranges.splice.apply(aranges, [newInfo[0], delCount].concat(insertions));
 
-    this.folderMeta.lastSyncedAt = endTS;
+    /*lastSyncedAt depends on current timestamp of the client device
+     should not be added timezone offset*/
+    this.folderMeta.lastSyncedAt = NOW();
     if (this._account.universe)
       this._account.universe.__notifyModifiedFolder(this._account,
                                                     this.folderMeta);
@@ -3627,6 +3683,9 @@ FolderStorage.prototype = {
           slice.desiredHeaders++;
         }
 
+        if (this._onAddingHeader !== null) {
+          this._onAddingHeader(header);
+        }
         slice.onHeaderAdded(header, false, true);
       }
     }

@@ -129,6 +129,10 @@
 
     "test_intl_unit.js": {
       "variants": ["noserver"]
+    },
+
+    "test_mailapi_contacts.js": {
+      "variants": ["imap:fake", "activesync:fake"]
     }
   }
 }

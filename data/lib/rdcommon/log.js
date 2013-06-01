@@ -1116,7 +1116,7 @@ LoggestClassMaker.prototype = {
         throw new Error("Attempt to add expectations when already resolved!");
 
       var exp = [name];
-      for (var iArg = 0; iArg < numArgs; iArg++) {
+      for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION) {
           exp.push(arguments[iArg]);
         }
@@ -1249,7 +1249,7 @@ LoggestClassMaker.prototype = {
         throw new Error("Attempt to add expectations when already resolved!");
 
       var exp = [name_begin];
-      for (var iArg = 0; iArg < numArgs; iArg++) {
+      for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
@@ -1266,7 +1266,7 @@ LoggestClassMaker.prototype = {
         throw new Error("Attempt to add expectations when already resolved!");
 
       var exp = [name_end];
-      for (var iArg = 0; iArg < numArgs; iArg++) {
+      for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
@@ -1284,6 +1284,10 @@ LoggestClassMaker.prototype = {
       return true;
     };
   },
+  /**
+   * Call like: loggedCall(logArg1, ..., logArgN, useAsThis, func,
+   *                       callArg1, ... callArgN);
+   */
   addCall: function(name, logArgs, testOnlyLogArgs) {
     this._define(name, 'call');
 
@@ -1479,7 +1483,7 @@ LoggestClassMaker.prototype = {
         throw new Error("Attempt to add expectations when already resolved!");
 
       var exp = [name];
-      for (var iArg = 0; iArg < numArgs; iArg++) {
+      for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
