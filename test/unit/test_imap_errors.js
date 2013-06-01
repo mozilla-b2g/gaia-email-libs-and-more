@@ -448,6 +448,14 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   var testFolder = testAccount.do_createTestFolder(
     'test_err_sync_loss',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+  // Because initial syncs enter the folder before we begin the sync process in
+  // order to get a count of the messages in the folder, we need to initiate a
+  // sync here so the SELECT test below is not an initial sync.
+  testAccount.do_viewFolder(
+    'syncs', testFolder,
+    { count: 4, full: 4, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
+    { syncedToDawnOfTime: true });
 
   T.group('SELECT time');
   T.action('queue up SELECT to result in connection loss', function() {
@@ -461,8 +469,8 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   });
   testAccount.do_viewFolder(
     'syncs', testFolder,
-    { count: 0, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: true, growUp: true },
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
     { failure: 'deadconn' });
 
   T.group('SEARCH time');
@@ -478,8 +486,8 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   });
   testAccount.do_viewFolder(
     'syncs', testFolder,
-    { count: 0, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: true, growUp: true },
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
     { failure: 'deadconn' });
 
   T.group('FETCH time');
@@ -495,8 +503,8 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   });
   testAccount.do_viewFolder(
     'syncs', testFolder,
-    { count: 0, full: 0, flags: 0, deleted: 0 },
-    { top: true, bottom: true, grow: true, growUp: true },
+    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, growUp: false },
     { failure: 'deadconn' });
 
   T.group('cleanup');

@@ -246,7 +246,11 @@ ImapJobDriver.prototype = {
           });
 
           action();
-        }, deathback, label);
+        },
+        // Always pass true for dieOnConnectFailure; we don't want any of our
+        // operations hanging out waiting for retry backoffs.  The ops want to
+        // only run when we believe we are online with a good connection.
+        deathback, label, true);
       } else {
         action();
       }

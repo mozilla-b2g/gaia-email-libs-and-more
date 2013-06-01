@@ -750,7 +750,7 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
       deleted: true });
 
   T.group('go to 1990 but no further!');
-  const expectedZeroProbes = 40,
+  const expectedZeroProbes = 21,
         expectsTo1990 = [];
   for (var iProbe = 0; iProbe < expectedZeroProbes; iProbe++) {
     expectsTo1990.push({ count: 0, full: 0, flags: 0, deleted: 0 });
@@ -827,5 +827,48 @@ TD.commonCase('repeated refresh is stable', function(T) {
 
   T.group('cleanup');
 });
+
+TD.commonCase('sync entire folder with limited messages in one pass ',
+              function(T) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U', {}),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true });
+
+  var HOUR_MILLIS = 60 * 60 * 1000;
+  testUniverse.do_adjustSyncValues({
+    fillSize: 2, // have it be less than the whole folder...
+    days: 3,
+    SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 4
+  });
+
+  var testWholeYesFolder = testAccount.do_createTestFolder(
+    'test_complex_whole_yes',
+    { count: 3, age: { weeks: 52 }, age_incr: { weeks: 52 } });
+  var testWholeNoFolder = testAccount.do_createTestFolder(
+    'test_complex_whole_no',
+    { count: 4, age: { days: 1 }, age_incr: { days: 3 } });
+
+  T.group('whole folder sync happens');
+  testAccount.do_viewFolder(
+    'syncs', testWholeYesFolder,
+    // it will fetch all 3, but only tell us about the 2 in our fill request
+    [{ count: 2, full: 3, flags: 0, deleted: 0 }],
+    // we're not at the bottom since we only are displaying 2 of the 3
+    { top: true, bottom: false, grow: false, newCount: null },
+    { syncedToDawnOfTime: true });
+
+  T.group('whole folder sync does NOT happen');
+  testAccount.do_viewFolder(
+    'syncs', testWholeNoFolder,
+    [{ count: 1, full: 1, flags: 0, deleted: 0 },
+     { count: 1, full: 1, flags: 0, deleted: 0 }],
+    // we are displaying 2 of 2 synced messages, growth is possible
+    { top: true, bottom: true, grow: true, newCount: null },
+    { syncedToDawnOfTime: false });
+
+  T.group('cleanup');
+});
+
 
 }); // end define
