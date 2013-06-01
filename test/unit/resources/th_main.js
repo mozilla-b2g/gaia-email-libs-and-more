@@ -115,6 +115,10 @@ var TestUniverseMixins = {
         days: 7,
         growDays: 7,
         scaleFactor: 1.6,
+
+        // Don't trigger the whole-folder sync logic except when we explicitly
+        // want to test it.
+        SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 0,
         // We don't want to test this at scale as part of our unit tests, so
         // crank it way up so we don't ever accidentally run into this.
         bisectThresh: 2000,

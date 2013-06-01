@@ -361,13 +361,12 @@ TD.commonCase('grow with deepening required', function(T) {
     { top: true, bottom: true, grow: true });
 
 
-  T.group('grow older with deepending');
+  T.group('grow older with deepening');
   testAccount.do_growFolderView(
     syncView, 15, true, 15,
     [{ count: 0, full: 0, flags: 0, deleted: 0 },
      { count: 0, full: 0, flags: 0, deleted: 0 },
-     { count: 11, full: 11, flags: 0, deleted: 0 },
-     { count: 4, full: 4, flags: 0, deleted: 0 }],
+     { count: 15, full: 15, flags: 0, deleted: 0 }],
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 

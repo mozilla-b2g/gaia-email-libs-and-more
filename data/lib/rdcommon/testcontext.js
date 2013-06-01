@@ -330,6 +330,7 @@ TestContext.prototype = {
     if (!this._deferredSteps)
       this._deferredSteps = [];
     this._deferredSteps.push([kind, args, isBoring]);
+    return null;
   },
 
   __postSetupFunc: function() {
