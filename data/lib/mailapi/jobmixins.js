@@ -258,11 +258,11 @@ exports.do_download = function(op, callback) {
   function saveToStorage(blob, storage, filename, partInfo, isRetry) {
     pendingStorageWrites++;
 
-    var callback = function(success, error) {
+    var callback = function(success, error, savedFilename) {
       if (success) {
         self._LOG.savedAttachment(storage, blob.type, blob.size);
-        console.log('saved attachment to', storage, filename, 'type:', blob.type);
-        partInfo.file = [storage, filename];
+        console.log('saved attachment to', storage, savedFilename, 'type:', blob.type);
+        partInfo.file = [storage, savedFilename];
         if (--pendingStorageWrites === 0)
           done();
       } else {
