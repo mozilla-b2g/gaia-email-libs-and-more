@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
 <script type="application/javascript">
+  // so we can detect if we are in a test...
+  window.IS_GELAM_TEST = true;
+
   function consoleHelper() {
     var msg = arguments[0] + ':';
     for (var i = 1; i < arguments.length; i++) {
