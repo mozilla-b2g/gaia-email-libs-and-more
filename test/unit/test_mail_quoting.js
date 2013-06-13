@@ -6,8 +6,8 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/quotechew', 'exports'],
-       function($tc, $th_imap, $quotechew, exports) {
+        'mailapi/quotechew', 'mailapi/mailchew', 'exports'],
+       function($tc, $th_imap, $quotechew, $mailchew, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mail_quoting' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -436,6 +436,45 @@ TD.commonCase('Quoting', function(T) {
       eCheck.event('done');
     });
   });
+});
+
+TD.commonSimple('Empty subject reply', function(eLazy) {
+  var scenarios = [
+    [null, 'Re: '],
+    ['', 'Re: '],
+    ['RE:', 'RE:'],
+    ['test', 'Re: test'],
+    ['Re: test', 'Re: test']
+  ];
+
+  for (i = 0; i < scenarios.length; i++) {
+    scenario = scenarios[i];
+    eLazy.expect_namedValue(scenario[0], scenario[1]);
+  }
+  for (i = 0; i < scenarios.length; i++) {
+    scenario = scenarios[i];
+    eLazy.namedValue(scenario[0], $mailchew.generateReplySubject(scenario[0]));
+  }
+});
+
+TD.commonSimple('Empty forward reply', function(eLazy) {
+  var scenarios = [
+    [null, 'Fwd: '],
+    ['', 'Fwd: '],
+    ['FWD:', 'FWD:'],
+    ['test', 'Fwd: test'],
+    ['Fwd: test', 'Fwd: test']
+  ];
+
+  for (i = 0; i < scenarios.length; i++) {
+    scenario = scenarios[i];
+    eLazy.expect_namedValue(scenario[0], scenario[1]);
+  }
+  for (i = 0; i < scenarios.length; i++) {
+    scenario = scenarios[i];
+    eLazy.namedValue(scenario[0],
+      $mailchew.generateForwardSubject(scenario[0]));
+  }
 });
 
 }); // end define
