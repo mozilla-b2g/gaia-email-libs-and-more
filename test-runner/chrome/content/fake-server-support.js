@@ -63,6 +63,9 @@ var Cu = Components.utils;
 
 var fu = {};
 Cu.import('resource://gre/modules/FileUtils.jsm', fu);
+// exposes HttpServer
+Cu.import('resource://fakeserver/modules/httpd.js');
+Cu.import('resource://gre/modules/NetUtil.jsm');
 
 // -- create a sandbox
 // We could use a scoped subscript load, but keeping the fake-servers in their
@@ -83,6 +86,9 @@ function makeSandbox(name) {
       // don't care about XHR
       wantXHRConstructor: false
     });
+  // provide some globals our subscript loves...
+  sandbox.atob = window.atob.bind(window);
+  sandbox.btoa = window.btoa.bind(window);
   return sandbox;
 }
 // from:
@@ -176,7 +182,7 @@ function makeIMAPServer(creds) {
 
   var infoString = 'RFC2195';
 
-  var daemon = new imapSandbox.imapDaemon();
+  var daemon = new imapSandbox.imapDaemon(0);
 
   function createHandler(d) {
     var handler = new imapSandbox.IMAP_RFC3501_handler(d);
@@ -199,6 +205,9 @@ function makeIMAPServer(creds) {
   return {
     daemon: daemon,
     server: server,
+    // create a handler that isn't talking to anything in order to let us do
+    // IMAP protocol-ish things magicly/directly
+    dummyHandler: createHandler(daemon),
     port: server._socket.port
   };
 }
@@ -281,10 +290,216 @@ function makeActiveSyncServer(creds, logToDump) {
   };
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Control server; spawns IMAP/SMTP and ActiveSync servers, manipulates IMAP
+//
+// It might make some sense for this to also be the means that we use to return
+// test results some day.
+//
+// This class and/or its IMAP-specific bits could/should probably live in
+// another file.
+
+/**
+ * Convert an nsIInputStream into a string.
+ *
+ * @param stream the nsIInputStream
+ * @return the string
+ */
+function stringifyStream(stream) {
+  if (!stream.available())
+    return '';
+  return NetUtil.readInputStreamToString(stream, stream.available());
+}
+
+/**
+ * The control HTTP provides a JSON API to start/stop IMAP servers as well as a
+ * JSON API to manipulate the state of those servers in an out-of-band fashion.
+ */
+function ControlServer() {
+  // maps IMAP port to an object with a coupled IMAP and SMTP server
+  this.imapServerPairsByPort = Object.create(null);
+  this.activeSyncServersByPort = Object.create(null);
+
+  this._httpServer = new HttpServer();
+  this._bindJsonHandler('/control', null, this._handleControl);
+
+  this._httpServer.start(0);
+  this.port = this._httpServer._port = this._httpServer._socket.port;
+  // it had created the identity on port 0, which is not helpful to anyone
+  this._httpServer._identity._initialize(
+    this.port, this._httpServer._host, true);
+
+  this.baseUrl = 'http://localhost:' + this.port;
+}
+ControlServer.prototype = {
+  _bindJsonHandler: function(path, data, funcOnThis) {
+    var self = this;
+    this._httpServer.registerPathHandler(path, function(request, response) {
+      try {
+        var postData = JSON.parse(stringifyStream(request.bodyInputStream));
+        var responseData = funcOnThis.call(self, data, postData);
+        response.setStatusLine('1.1', 200, 'OK');
+console.log('responseData:::', responseData);
+        if (responseData)
+          response.write(JSON.stringify(responseData));
+      }
+      catch (ex) {
+        console.error('Problem in control server for path', path, '-',
+                      ex, '\n', ex.stack);
+      }
+    });
+
+  },
+
+  _handleControl: function(_unusedData, reqObj) {
+    if (reqObj.command === 'make_imap_and_smtp') {
+      // credentials should be { username, password }
+      var imapServer = makeIMAPServer(reqObj.credentials);
+      var smtpServer = makeSMTPServer(reqObj.credentials);
+
+      console.log('IMAP server started on port', imapServer.port);
+      console.log('SMTP server started on port', smtpServer.port);
+
+      var relPath = '/imap-' + imapServer.port;
+      var pairInfo = this.imapServerPairsByPort[imapServer.port] = {
+        relPath: relPath,
+        imap: imapServer,
+        smtp: smtpServer
+      };
+
+      this._bindJsonHandler(relPath, pairInfo, this._handleImapBackdoor);
+
+      return {
+        controlUrl: 'http://localhost:' + this.port + relPath,
+        imapHost: 'localhost',
+        imapPort: imapServer.port,
+        smtpHost: 'localhost',
+        smtpPort: smtpServer.port,
+      };
+    }
+    else if (reqObj.command === 'make_activesync') {
+      var serverInfo = makeActiveSyncServer(reqObj.credentials);
+      this.activeSyncServersByPort[serverInfo.port] = serverInfo;
+      return {
+        // the control URL is also the ActiveSync server
+        url: 'http://localhost:' + serverInfo.port,
+      };
+    }
+    else {
+      throw new Error('Unsupported command: ' + reqObj.command);
+    }
+  },
+
+  _handleImapBackdoor: function(pairInfo, reqObj) {
+    var imapDaemon = pairInfo.imap.daemon,
+        imapHandler = pairInfo.imap.dummyHandler;
+    var responseData =
+          this['_imap_backdoor_' + reqObj.command](imapDaemon, reqObj,
+                                                   imapHandler);
+    return responseData;
+  },
+
+  _imap_backdoor_getFirstFolderWithType: function(imapDaemon, req) {
+    console.error('getFirstFolderWithType is currently unsupported here');
+    throw new Error('not yet supported');
+  },
+
+  _imap_backdoor_getFolderByPath: function(imapDaemon, req) {
+    var mailbox = imapDaemon.getMailbox(req.name);
+    if (!mailbox)
+      return null;
+    return mailbox.name;
+  },
+
+  _imap_backdoor_addFolder: function(imapDaemon, req) {
+    var success = imapDaemon.createMailbox(req.name);
+    if (!success)
+      return null;
+    return req.name;
+  },
+
+  _imap_backdoor_removeFolder: function(imapDaemon, req) {
+    var mailbox = imapDaemon.getMailbox(req.name);
+    if (mailbox)
+      imapDaemon.deleteMailbox(mailbox);
+  },
+
+  _imap_backdoor_addMessagesToFolder: function(imapDaemon, req, imapHandler) {
+    req.messages.forEach(function(msg) {
+      try {
+        // [folder name, flags array, Date, text]
+        imapHandler.APPEND([req.name, msg.flags, new Date(msg.date),
+                            msg.msgString]);
+      }
+      catch (ex) {
+        console.error('IMAP fake-server APPEND error:', ex, '\n', ex.stack);
+      }
+    });
+  },
+
+  killActiveServers: function() {
+    var portStr;
+    for (portStr in this.imapServerPairsByPort) {
+      var servers = this.imapServerPairsByPort[portStr];
+      try {
+        servers.imap.server.stop();
+      }
+      catch (ex) {
+        console.warn('Problem shutting down IMAP server on port',
+                     servers.imap.port, '-', ex, '\n', ex.stack);
+      }
+      try {
+        servers.smtp.server.stop();
+      }
+      catch (ex) {
+        console.warn('Problem shutting down SMTP server on port',
+                     servers.smtp.port, '-', ex, '\n', ex.stack);
+      }
+    }
+
+    for (portStr in this.activeSyncServersByPort) {
+      var info = this.activeSyncServersByPort[portStr];
+      try {
+        info.server.stop();
+      }
+      catch (ex) {
+        console.warn('Problem shutting down ActiveSync server on port',
+                     info.port, '-', ex, '\n', ex.stack);
+      }
+    }
+
+    this.imapServerPairsByPort = Object.create(null);
+    this.activeSyncServersByPort = Object.create(null);
+  },
+
+  /**
+   * per-test cleanup function; does not shut down the control server itself.
+   */
+  cleanup: function() {
+    this.killActiveServers();
+  },
+};
+
+/**
+ * Make an HTTP server that can spawn IMAP servers and control the IMAP servers
+ * that it spawns.
+ */
+function makeControlHttpServer() {
+  var controlServer = new ControlServer();
+  console.log('Control server started on port', controlServer.port);
+  return {
+    server: controlServer,
+    port: controlServer.port
+  };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 return {
   makeIMAPServer: makeIMAPServer,
   makeSMTPServer: makeSMTPServer,
-  makeActiveSyncServer: makeActiveSyncServer
+  makeActiveSyncServer: makeActiveSyncServer,
+  makeControlHttpServer: makeControlHttpServer,
 };
 } catch (ex) {
   console.error('Problem initializing FakeServerSupport', ex, '\n',

@@ -30,7 +30,8 @@ var TestActiveSyncServerMixins = {
       throw new Error('You need to provide a universe!');
     self.T.convenienceSetup('creating fake', self,
                             function() {
-
+      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
+                                                        self.__name));
 
       self.serverBaseUrl = 'http://localhost:8880';
       $accountcommon._autoconfigByDomain['fakeashost'].incoming.server =
@@ -38,6 +39,9 @@ var TestActiveSyncServerMixins = {
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
     });
+  },
+
+  finishSetup: function(testAccount) {
   },
 
   _backdoor: function(request) {
@@ -54,26 +58,27 @@ var TestActiveSyncServerMixins = {
     });
   },
 
-  getFirstFolderWithName: function(folderName) {
+  getFolderByPath: function(folderPath) {
     return this._backdoor({
       command: 'getFirstFolderWithName',
-      name: folderName
+      name: folderPath
     });
   },
 
-  addFolder: function(name, type, parentId, args) {
+  SYNC_FOLDER_LIST_AFTER_ADD: true,
+  addFolder: function(name) {
     return this._backdoor({
       command: 'addFolder',
       name: name,
-      type: type,
-      parentId: parentId
+      type: undefined,
+      parentId: undefined
     });
   },
 
-  removeFolder: function(folderId) {
+  removeFolder: function(serverFolderInfo) {
     return this._backdoor({
       command: 'removeFolder',
-      folderId: folderId
+      folderId: serverFolderInfo.id
     });
   },
 

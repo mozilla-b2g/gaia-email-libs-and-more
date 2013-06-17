@@ -1,5 +1,6 @@
 /**
- * Fake IMAP server spin-up
+ * Fake IMAP server spin-up and control.  Created on-demand by sending HTTP
+ * requests to the control server via HTTP.
  **/
 
 define(
@@ -18,31 +19,73 @@ define(
     exports
   ) {
 
-/**
- * For now, we create at most one server for the lifetime of the xpcshell test.
- * So we spin it up the first time we need it, and we never actually clean up
- * after it.
- */
-var gIMAPServer = null;
-var TestIMAPServerMixins = {
+var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// from (node-imap) imap.js
+function formatImapDateTime(date) {
+  var s;
+  s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + '-' +
+       MONTHS[date.getMonth()] + '-' +
+       date.getFullYear() + ' ' +
+       ('0'+date.getHours()).slice(-2) + ':' +
+       ('0'+date.getMinutes()).slice(-2) + ':' +
+       ('0'+date.getSeconds()).slice(-2) +
+       ((date.getTimezoneOffset() > 0) ? ' -' : ' +' ) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) / 60)).slice(-2) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) % 60)).slice(-2);
+  return s;
+}
+
+function extractUsernameFromEmail(str) {
+  var idx = str.indexOf('@');
+  if (idx === -1)
+    return str;
+  return str.substring(0, idx);
+}
+
+var TestFakeIMAPServerMixins = {
   __constructor: function(self, opts) {
-    if (!opts.universe)
-      throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup(self, 'created, listening to get port',
+    self.T.convenienceSetup('creating', self,
                             function() {
-      self.serverBaseUrl = 'http://localhost:8880';
+      self.__attachToLogger(LOGFAB.testFakeIMAPServer(self, null, self.__name));
+
+      var TEST_PARAMS = self.RT.envOptions;
+      // talk to the control server to get it to create our server
+      self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
+      var serverInfo = self._backdoor(
+        {
+          command: 'make_imap_and_smtp',
+          credentials: {
+            username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
+            password: TEST_PARAMS.password
+          },
+        });
+
+      // now we only want to talk to our specific server control endpoint
+      self.backdoorUrl = serverInfo.controlUrl;
+
       var configEntry = $accountcommon._autoconfigByDomain['fakeimaphost'];
-      configEntry.incoming.port = self.serverBaseUrl;
+      configEntry.incoming.hostname = serverInfo.imapHost;
+      configEntry.incoming.port = serverInfo.imapPort;
+      configEntry.outgoing.hostname = serverInfo.smtpHost;
+      configEntry.outgoing.port = serverInfo.smtpPort;
     });
   },
 
-  _backdoor: function(request) {
-    var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
-    xhr.open('POST', this.serverBaseUrl + '/backdoor', false);
-    xhr.send(JSON.stringify(request));
-    return xhr.response ? JSON.parse(xhr.response) : null;
+  finishSetup: function(testAccount) {
   },
 
+  _backdoor: function(request, explicitPath) {
+    var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
+    xhr.open('POST', this.backdoorUrl, false);
+    xhr.send(JSON.stringify(request));
+    var response = xhr.response ? JSON.parse(xhr.response) : null;
+    this._logger.backdoor(request, response);
+    return response;
+  },
+
+  // => folderPath or falsey
   getFirstFolderWithType: function(folderType) {
     return this._backdoor({
       command: 'getFirstFolderWithType',
@@ -50,76 +93,54 @@ var TestIMAPServerMixins = {
     });
   },
 
-  getFirstFolderWithName: function(folderName) {
+  // => folderPath or falsey
+  getFolderByPath: function(folderPath) {
     return this._backdoor({
-      command: 'getFirstFolderWithName',
-      name: folderName
+      command: 'getFolderByPath',
+      name: folderPath
     });
   },
 
-  addFolder: function(name, type, parentId, args) {
+  SYNC_FOLDER_LIST_AFTER_ADD: true,
+  addFolder: function(folderPath, testFolder) {
+    // returns the canonical folder path (probably)
     return this._backdoor({
       command: 'addFolder',
-      name: name,
-      type: type,
-      parentId: parentId
+      name: folderPath,
     });
   },
 
-  removeFolder: function(folderId) {
+  removeFolder: function(folderPath) {
     return this._backdoor({
       command: 'removeFolder',
-      folderId: folderId
+      name: folderPath
     });
   },
 
-  addMessagesToFolder: function(folderId, messages) {
-    // We need to clean the passed-in messages to something the fake server
-    // understands.
-    var cleanedMessages = messages.map(function(message) {
-      var bodyPart = message.bodyPart;
-      var attachments = [];
-      if (!(bodyPart instanceof $msggen.SyntheticPartLeaf)) {
-        attachments = bodyPart.parts.slice(1);
-        bodyPart = bodyPart.parts[0];
-      }
+  addMessagesToFolder: function(folderPath, messages) {
+    var transformedMessages = messages.map(function(message) {
+      // Generate an rfc822 message, prefixing on a fake 'received' line so that
+      // our INTERNALDATE detecting logic can be happy.
+      //
+      // XXX this currently requires the timezone to be the computer's local tz
+      // since we can't force a timezone offset into a Date object; it's locale
+      // dependent.
+      var msgString =
+        'Received: from 127.1.2.3 by 127.1.2.3; ' +
+        formatImapDateTime(message.date) + '\r\n' +
+        message.toMessageString();
 
       return {
-        id: message.messageId,
-        from: message.headers['From'],
-        to: message.headers['To'],
-        cc: message.headers['Cc'],
-        replyTo: message.headers['Reply-To'],
+        flags: [],
         date: message.date.valueOf(),
-        subject: message.subject,
-        flags: [], // TODO: handle flags
-        body: {
-          contentType: bodyPart._contentType,
-          content: bodyPart.body
-        },
-        attachments: attachments.map(function(attachment) {
-          return {
-            filename: attachment._filename,
-            contentId: attachment._contentId,
-            contentType: attachment._contentType,
-            content: attachment.body,
-          };
-        })
+        msgString: msgString
       };
     });
 
     return this._backdoor({
       command: 'addMessagesToFolder',
-      folderId: folderId,
-      messages: cleanedMessages
-    });
-  },
-
-  removeMessageById: function(folderId, messageId) {
-    return this._backdoor({
-      command: 'removeMessageById',
-      folderId: folderId,
-      messageId: messageId
+      name: folderPath,
+      messages: transformedMessages
     });
   },
 };
@@ -127,7 +148,7 @@ var TestIMAPServerMixins = {
 
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testIMAPServer: {
+  testFakeIMAPServer: {
     type: $log.SERVER,
     topBilling: true,
 
@@ -135,18 +156,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       started: { port: false },
       stopped: {},
 
-      request: { method: false, path: false, headers: false },
-      requestBody: { },
-      response: { status: false, headers: false },
+      backdoor: { request: false, response: false },
     },
     errors: {
-      responseError: { err: false },
     },
-    // I am putting these under TEST_ONLY_ as a hack to get these displayed
-    // differently since they are walls of text.
     TEST_ONLY_events: {
-      requestBody: { body: false },
-      response: { body: false },
     },
   },
 });
@@ -156,7 +170,7 @@ exports.TESTHELPER = {
     LOGFAB,
   ],
   actorMixins: {
-    testIMAPServer: TestIMAPServerMixins,
+    testFakeIMAPServer: TestFakeIMAPServerMixins,
   }
 };
 

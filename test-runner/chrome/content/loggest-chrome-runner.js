@@ -24,6 +24,7 @@ const CC = Components.Constructor;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+// XXX this path only exists on b2g18; need to work on b2g18 and MC
 Cu.import("resource://gre/modules/commonjs/promise/core.js");
 Cu.import("resource://gre/modules/osfile.jsm");
 
@@ -60,7 +61,7 @@ var ErrorTrapperHelper = {
         if (aMessage.flags & nsIScriptError.strictFlag)
           return;
 
-        console.error(aMessage.errorMessage + ' [' + aMessage.category + ']',
+         console.error(aMessage.errorMessage + ' [' + aMessage.category + ']',
                       aMessage.sourceName, aMessage.lineNumber);
 
         if (gRunnerWindow && gRunnerWindow.ErrorTrapper) {
@@ -794,18 +795,23 @@ function printTestSummary(summary) {
 // reference here or it can go away prematurely!
 var gProgress = null;
 
-function runTestFile(testFileName, variant, thoroughCleanup) {
+/**
+ * @param controlServer The ControlServer to point the test at.
+ * @param thoroughCleanup Should we trigger a full cycle collecting GC?
+ */
+function runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
   try {
-    return _runTestFile(testFileName, variant, thoroughCleanup);
+    return _runTestFile(testFileName, variant, controlServer, thoroughCleanup);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, variant, thoroughCleanup) {
+function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
   console.harness('running', testFileName, 'variant', variant);
 
+  // Parameters to pass into the test.
   var testParams;
   switch (variant) {
     case 'noserver':
@@ -820,6 +826,8 @@ function _runTestFile(testFileName, variant, thoroughCleanup) {
         type: 'imap',
 
         defaultArgs: true,
+
+        controlServerBaseUrl: controlServer.baseUrl,
       };
       break;
     case 'activesync:fake':
@@ -831,6 +839,8 @@ function _runTestFile(testFileName, variant, thoroughCleanup) {
         type: 'activesync',
 
         defaultArgs: true,
+
+        controlServerBaseUrl: controlServer.baseUrl,
       };
       break;
     // these variants should only be run if info has been provided explicitly
@@ -870,6 +880,8 @@ function _runTestFile(testFileName, variant, thoroughCleanup) {
   var deferred = Promise.defer();
 
   var cleanupList = [];
+  if (controlServer)
+    cleanupList.push(controlServer);
   function cleanupWindow() {
     try {
       runnerIframe.parentNode.removeChild(runnerIframe);
@@ -1002,7 +1014,7 @@ function writeTestLog(testFileName, variant, jsonStr) {
 
 
 /**
- *
+ * Run one or more tests.
  */
 function runTests(configData) {
   var deferred = Promise.defer();
@@ -1019,7 +1031,9 @@ function runTests(configData) {
       useVariants.push(variantName);
     }
   }
-  console.log('using variants:', useVariants);
+  console.log('legal variants for tests:', useVariants);
+
+  var controlServer = FakeServerSupport.makeControlHttpServer().server;
 
   var runTests = [];
   for (var testName in configData.tests) {
@@ -1052,6 +1066,7 @@ function runTests(configData) {
     curTestInfo = runTests[iTest];
 
     runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
+                controlServer,
                 /* thorough cleanup */ true)
       .then(runNextTest);
   }

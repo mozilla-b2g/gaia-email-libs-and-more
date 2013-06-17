@@ -1201,11 +1201,6 @@ ActiveSyncServer.prototype = {
     this.removeFolder(data.folderId);
   },
 
-  _backdoor_addMessageToFolder: function(data) {
-    let folder = this._findFolderById(data.folderId);
-    folder.addMessage(data.message);
-  },
-
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.messages);

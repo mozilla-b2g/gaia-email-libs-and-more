@@ -47,21 +47,46 @@ Components.utils.import("resource://gre/modules/Services.jsm");
 if (!("MimeParser" in this))
   Components.utils.import("resource://fakeserver/modules/mimeParser.jsm", this);
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+                'Oct', 'Nov', 'Dec'];
+
 function imapDaemon(flags, syncFunc) {
   this._flags = flags;
 
   this.namespaces = [];
   this.idResponse = "NIL";
-  this.root = new imapMailbox("", null, {type : IMAP_NAMESPACE_PERSONAL});
+  this.root = new imapMailbox("", null,
+                              {
+                                type : IMAP_NAMESPACE_PERSONAL,
+                                flags: ['\\Noselect']
+                              });
   this.uidvalidity = Math.round(Date.now()/1000);
+
   this.inbox = new imapMailbox("INBOX", null, this.uidvalidity++);
   this.root.addMailbox(this.inbox);
+  this.drafts = new imapMailbox("Drafts", null, this.uidvalidity++);
+  this.root.addMailbox(this.drafts);
+  this.sent = new imapMailbox("Sent", null, this.uidvalidity++);
+  this.root.addMailbox(this.sent);
+
   this.namespaces.push(this.root);
   this.syncFunc = syncFunc;
   // This can be used to cause the artificial failure of any given command.
   this.commandToFail = "";
   // This can be used to simulate timeouts on large copies
   this.copySleep = 0;
+
+  // SEARCH date operations are impacted by the timezone in use on the server,
+  // usually.  The spec actually calls for just looking at the date string and
+  // ignoring the time part including the timezone.  That could result in
+  // craziness; for efficiency it seems like most servers just apply a fixed
+  // timezone offset based on the local time.
+  //
+  // This offset is the number of milliseconds behind (positive) or ahead of
+  // (negative) UTC we are.  As such, if you want to transform an IMAP date,
+  // from UTC midnight on the given date to your local midnight, you add this
+  // offset to the UTC timestamp.
+  this.tzOffsetMillis = new Date().getTimezoneOffset() * 60000;
 }
 imapDaemon.prototype = {
   synchronize : function (mailbox, update) {
@@ -1223,19 +1248,64 @@ IMAP_RFC3501_handler.prototype = {
     this._daemon.synchronize(this._selectedMailbox);
     return response + "OK EXPUNGE completed";
   },
+  /*
+   * Supported: NO, BEFORE, DELETED, SINCE, UNDELETED
+   */
   SEARCH : function (args, uid) {
-    if (args[0] == "UNDELETED") {
-      let response = "* SEARCH";
-      let messages = this._selectedMailbox._messages;
-      for (let i = 0; i < messages.length; i++) {
-        if (messages[i].flags.indexOf("\\Deleted") == -1)
-          response += " " + messages[i].uid;
-      }
-      response += '\0';
-      return response + "OK SEARCH COMPLETED\0";
+    let iArg = 0, self = this;
+    // parse the date and apply our timezone offset
+    function parseDateArg() {
+      let pieces = args[iArg++].split('-');
+      var day = parseInt(pieces[0], 10),
+          zeroMonth = MONTHS.indexOf(pieces[1]),
+          year = parseInt(pieces[2], 10);
+      return Date.UTC(year, zeroMonth, day) + self._daemon.tzOffsetMillis;
     }
-    else
-      return "BAD not here yet";
+
+    // We perform iterative filtering for the clauses in the search.  This is
+    // not intended to be super fast.
+    let messages = this._selectedMailbox._messages;
+    while (iArg < args.length) {
+      let invert = false, date;
+      if (args[iArg] === 'NOT') {
+        invert = true;
+        iArg++;
+      }
+      switch (args[iArg++]) {
+        // - flag checks
+        case 'UNDELETED':
+          invert = !invert;
+        case 'DELETED':
+          var wantDeleted = !invert;
+          messages = messages.filter(function(msg) {
+            var deleted = (msg.flags.indexOf('\\Deleted') !== -1);
+            return deleted === wantDeleted;
+          });
+          break;
+        // - date checks
+        // XXX currently we won't invert correctly...
+        case 'BEFORE':
+          date = parseDateArg();
+          messages = messages.filter(function(msg) {
+            return msg.date.valueOf() < date;
+          });
+          break;
+        case 'SINCE':
+          date = parseDateArg();
+          messages = messages.filter(function(msg) {
+            return msg.date.valueOf() >= date;
+          });
+          break;
+        default:
+          return "BAD not here yet: " + args[iArg-1];
+      }
+    }
+    let response = "* SEARCH";
+    for (let i = 0; i < messages.length; i++) {
+      response += " " + messages[i].uid;
+    }
+    response += '\0';
+    return response + "OK SEARCH COMPLETED\0";
   },
   FETCH : function (args, uid) {
     // Step 1: Get the messages to fetch

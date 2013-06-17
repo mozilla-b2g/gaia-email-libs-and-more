@@ -798,6 +798,7 @@ ActiveSyncAccount.prototype = {
 
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+  getFolderByPath: $acctmixins.getFolderByPath,
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
