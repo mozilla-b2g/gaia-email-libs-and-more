@@ -151,7 +151,9 @@ exports.configurator = {
               replyTo: null,
               signature: null
             },
-          ]
+          ],
+
+          customConfig: userDetails.customConfig
         };
 
         self._loadAccount(universe, accountDef, conn, function (account) {

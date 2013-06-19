@@ -86,6 +86,7 @@ CompositeAccount.prototype = {
       id: this.accountDef.id,
       name: this.accountDef.name,
       type: this.accountDef.type,
+      customConfig: this.accountDef.customConfig,
 
       defaultPriority: this.accountDef.defaultPriority,
 
@@ -98,7 +99,7 @@ CompositeAccount.prototype = {
 
       credentials: {
         username: this.accountDef.credentials.username,
-        // no need to send the password to the UI.
+        password: this.accountDef.credentials.password
       },
 
       servers: [

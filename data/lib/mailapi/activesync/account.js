@@ -172,6 +172,7 @@ ActiveSyncAccount.prototype = {
       name: this.accountDef.name,
       path: this.accountDef.name,
       type: this.accountDef.type,
+      customConfig: this.accountDef.customConfig,
 
       defaultPriority: this.accountDef.defaultPriority,
 
@@ -184,6 +185,7 @@ ActiveSyncAccount.prototype = {
 
       credentials: {
         username: this.accountDef.credentials.username,
+        password: this.accountDef.credentials.password
       },
 
       servers: [
