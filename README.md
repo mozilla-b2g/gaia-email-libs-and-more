@@ -3,43 +3,21 @@ get r.js optimized into a single JS file that gets loaded into the Gaia email
 client.  The library can also potentially be used for other clients too, as
 long as you are cool with our design decisions.
 
-## Design Decisions ##
+## Submodules ##
 
-We are targeting B2G phone devices where resources are relatively precious.
-We:
+To make sure the submodules are initialized properly, please make sure to
+check out the repository recursively:
 
-- Optimize for only synchronizing a subset of (recent) messages in each folder.
-- Try and cache as much as possible for latency and network utilization reasons.
-- Present messages to the UI as part of a "view slice" where the UI asks for
-  the most recent set of messages for a folder and we provide that in a slice.
-  If the users wants to scroll further back in time, the UI asks the backend
-  for more messages which may in turn trigger the synchronization logic as
-  needed.  The takeaway is that the UI is presented with a stream as opposed
-  to some random access database that contains the fully replicated state of
-  the entire IMAP folder.
-- Use IndexedDB for storage, optimizing for Firefox's specific SQLite-backed
-  implementation that uses 32K pages with snappy compression on a per-value
-  basis.
-- Support the UI running in a separate thread/JS context from the back-end with
-  only JSON or structured-clone communication possible between the two.
-- Are targeting Yahoo and GMail IMAP for good support which means we need to
-  work on relatively bare-bones IMAP implementations.  For example, Yahoo
-  does not support IDLE and GMail barely supports it.  Neither support CONDSTORE
-  or QRESYNC, etc.
+```
+git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.git
+```
 
+If you already checked out without the --recursive flag, you can try the
+following command inside the repository directory:
 
-## What Works / Will Work ##
-
-We have working IMAP and ActiveSync implementations.  There are some current
-limitations that we are working to resolve, such as message moves and
-auto-configuration.
-
-All bug tracking happens on https://bugzilla.mozilla.org/ under the "Boot2Gecko"
-product and the "Gaia::E-Mail" component.
-
-Find more links from the wiki page at:
-https://wiki.mozilla.org/Gaia/Email
-
+```
+git submodule update --init --recursive
+```
 
 ## New Code ##
 
@@ -51,10 +29,6 @@ This repo provides:
 - MailAPI, for use by the UI/front-end.  It communicates asynchronously with
   the back-end over the JSON bridge.
 
-Currently, the client daemon and the MailAPI live in the same page and we are
-not round-tripping the data through JSON because it would needlessly create
-garbage and slow things down.  But the idea is that the client daemon can
-live in a background page or a (sufficiently powerful) worker, etc.
 
 ## Code Reuse ##
 
@@ -78,7 +52,7 @@ code from the following projects or converted projects:
 
 We shim the following ourselves to the minimum required:
 - node's Buffer implementation
-- node's crypto module, for crypto.createHash('md5") to support hash.update and
+- node's crypto module, for crypto.createHash("md5") to support hash.update and
    hash.digest("hex").
 
 We fork the following:
@@ -94,6 +68,7 @@ We fork the following:
    no other library offers it and node-imap is willing to accept patches for
    doing so, we will likely stick with node-imap.)
 
+
 ## The "And More" bit ##
 
 This repo started out life as a restartless Jetpack extension for Firefox to
@@ -103,21 +78,6 @@ this stuff is still in here in various states of workingness, but is not a
 priority or goal and a lot of it has now been removed.  That which remains
 is planned to be deleted or moved to a separate repository.
 
-## Submodules ##
-
-To make sure the submodules are initialized properly, please make sure to
-check out the repository recursively:
-
-```
-git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.git
-```
-
-If you already checked out without the --recursive flag, you can try the
-following command inside the repository directory:
-
-```
-git submodule update --init --recursive
-```
 
 ## Installing Into Gaia ##
 
@@ -246,18 +206,10 @@ make post-all-tests
 ```
 
 
-### Adding Tests ###
-
-Because we are using xpcshell and xpcshell requires manifests to be used, if you
-add a new test, then you need to add it to test/unit/xpcshell.ini if you
-actually want it to be run.
-
 ## Legal Disclaimers, Notes, Etc. ##
 
 We are including ActiveSync support because it's the only sane option for
-Hotmail.  (It also is potentially a better protocol to speak for various other
-e-mail services such as GMail where enabling IMAP requires user interaction
-and/or the IMAP mapping potentially requires special handling.)
+Hotmail.
 
 Microsoft asserts that they have some patents on the ActiveSync protocol.  If
 you want to use/ship/distribute this library, you are either going to want to
