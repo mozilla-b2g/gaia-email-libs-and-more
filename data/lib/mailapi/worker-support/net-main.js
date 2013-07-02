@@ -1,84 +1,224 @@
+/**
+ * The main-thread counterpart to our node-net.js wrapper.
+ *
+ * Provides the smarts for streaming the content of blobs.  An alternate
+ * implementation would be to provide a decorating proxy to implement this
+ * since smart Blob transmission is on the W3C raw-socket hit-list (see
+ * http://www.w3.org/2012/sysapps/raw-sockets/), but we're already acting like
+ * node.js's net implementation on the other side of the equation and a totally
+ * realistic implementation is more work and complexity than our needs require.
+ *
+ * Important implementation notes that affect us:
+ *
+ * - mozTCPSocket generates ondrain notifications when the send buffer is
+ *   completely empty, not when when we go below the target buffer level.
+ *
+ * - bufferedAmount in the child process mozTCPSocket implementation only gets
+ *   updated when the parent process relays a messages to the child process.
+ *   When we are performing bulks sends, this means we will only see
+ *   bufferedAmount go down when we receive an 'ondrain' notification and the
+ *   buffer has hit zero.  As such, trying to do anything clever involving
+ *   bufferedAmount other than seeing if it's at zero is not going to do
+ *   anything useful.
+ *
+ * Leading to our strategy:
+ *
+ * - Always have a pre-fetched block of disk I/O to hand to the socket when we
+ *   get a drain event so that disk I/O does not stall our pipeline.
+ *   (Obviously, if the network is faster than our disk, there is very little
+ *   we can do.)
+ *
+ * - Pick a page-size so that in the case where the network is extremely fast
+ *   we are able to maintain good throughput even when our IPC overhead
+ *   dominates.  We just pick one page-size; we intentionally avoid any
+ *   excessively clever buffering regimes because those could back-fire and
+ *   such effort is better spent on enhancing TCPSocket.
+ */
 define(function() {
-  'use strict';
+'use strict';
 
-  function debug(str) {
-    //dump('NetSocket: ' + str + '\n');
-  }
+/**
+ * What size bites (in bytes) should we take of the Blob for streaming purposes?
+ *
+ */
+var BLOB_BLOCK_READ_SIZE = 32 * 1024;
 
-  // Maintain a list of active sockets
-  var socks = {};
+// Active sockets
+var sockInfoByUID = {};
 
-  function open(uid, host, port, options) {
-    var socket = navigator.mozTCPSocket;
-    var sock = socks[uid] = socket.open(host, port, options);
+function open(uid, host, port, options) {
+  var socket = navigator.mozTCPSocket;
+  var sock = socket.open(host, port, options);
 
-    sock.onopen = function(evt) {
-      //debug('onopen ' + uid + ": " + evt.data.toString());
-      self.sendMessage(uid, 'onopen');
-    };
+  var sockInfo = sockInfoByUID[uid] = {
+    sock: sock,
+    // Are we in the process of sending a blob?  The blob if so.
+    activeBlob: null,
+    // Current offset into the blob, if any
+    blobOffset: 0,
+    queuedData: null,
+    // Queued write() calls that are ordering dependent on the Blob being
+    // fully sent first.
+    backlog: [],
+  };
 
-    sock.onerror = function(evt) {
-      //debug('onerror ' + uid + ": " + new Uint8Array(evt.data));
-      var err = evt.data;
-      var wrappedErr;
-      if (err && typeof(err) === 'object') {
-        wrappedErr = {
-          name: err.name,
-          type: err.type,
-          message: err.message
-        };
-      }
-      else {
-        wrappedErr = err;
-      }
-      self.sendMessage(uid, 'onerror', wrappedErr);
-    };
+  sock.onopen = function(evt) {
+    self.sendMessage(uid, 'onopen');
+  };
 
-    sock.ondata = function(evt) {
-      var buf = evt.data;
-      self.sendMessage(uid, 'ondata', buf, [buf]);
-    };
+  sock.onerror = function(evt) {
+    var err = evt.data;
+    var wrappedErr;
+    if (err && typeof(err) === 'object') {
+      wrappedErr = {
+        name: err.name,
+        type: err.type,
+        message: err.message
+      };
+    }
+    else {
+      wrappedErr = err;
+    }
+    self.sendMessage(uid, 'onerror', wrappedErr);
+  };
 
-    sock.onclose = function(evt) {
-      //debug('onclose ' + uid + ": " + evt.data.toString());
-      self.sendMessage(uid, 'onclose');
-    };
-  }
+  sock.ondata = function(evt) {
+    var buf = evt.data;
+    self.sendMessage(uid, 'ondata', buf, [buf]);
+  };
 
-  function close(uid) {
-    var sock = socks[uid];
-    if (!sock)
-      return;
-    sock.close();
-    sock.onopen = null;
-    sock.onerror = null;
-    sock.ondata = null;
-    sock.onclose = null;
-    delete socks[uid];
-  }
-
-  function write(uid, data, offset, length) {
-    // XXX why are we doing this? ask Vivien or try to remove...
-    socks[uid].send(data, offset, length);
-  }
-
-  var self = {
-    name: 'netsocket',
-    sendMessage: null,
-    process: function(uid, cmd, args) {
-      debug('process ' + cmd);
-      switch (cmd) {
-        case 'open':
-          open(uid, args[0], args[1], args[2]);
-          break;
-        case 'close':
-          close(uid);
-          break;
-        case 'write':
-          write(uid, args[0], args[1], args[2]);
-          break;
-      }
+  sock.ondrain = function(evt) {
+    // If we have an activeBlob and data already to send, then send it.
+    // If we have an activeBlob but no data, then fetchNextBlobChunk has
+    // an outstanding chunk fetch and it will issue the write directly.
+    if (sockInfo.activeBlob && sockInfo.queuedData) {
+      sock.send(sockInfo.queuedData);
+      sockInfo.queuedData = null;
+      // fetch the next chunk or close out the blob; this method does both
+      fetchNextBlobChunk();
     }
   };
-  return self;
+
+  sock.onclose = function(evt) {
+    self.sendMessage(uid, 'onclose');
+  };
+}
+
+function beginBlobSend(sockInfo, blob) {
+  sockInfo.activeBlob = blob;
+  sockInfo.blobOffset = 0;
+  sockInfo.queuedData = null;
+  fetchNextBlobChunk();
+}
+
+/**
+ * Fetch the next portion of the Blob we are currently sending.  Once the read
+ * completes we will either send the data immediately if the socket's buffer is
+ * empty or queue it up for sending once the buffer does drain.
+ *
+ * This logic is used both in the starting case and to help us reach a steady
+ * state where (ideally) we always have a pre-fetched buffer of data ready for
+ * when we hear the next drain event.
+ *
+ * We are also responsible for noticing that we're all done sending the Blob.
+ */
+function fetchNextBlobChunk(sockInfo) {
+  // We are all done if the next fetch would be beyond the end of the blob
+  if (sockInfo.nextOffset >= sockInfo.activeBlob.size) {
+    sockInfo.activeBlob = null;
+
+    // Drain as much of the backlog as possible.
+    var backlog = sockInfo.backlog;
+    while (backlog.length) {
+      var sendArgs = backlog.shift();
+      var data = sendArgs[0];
+      if (data instanceof Blob) {
+        beginBlobSend(sockInfo, data);
+        return;
+      }
+      sockInfo.sock.send(data, sendArgs[1], sendArgs[2]);
+    }
+    // (the backlog is now empty)
+    return;
+  }
+
+  var reader = new FileReader();
+  var nextOffset =
+        Math.min(sockInfo.blobOffset + BLOB_BLOCK_READ_SIZE,
+                 sockInfo.activeBlob.size);
+  var blobSlice = sockInfo.activeBlob.slice(
+                    sockInfo.blobOffset,
+                    nextOffset);
+  sockInfo.blobOffset = nextOffset;
+
+  reader.onload = function() {
+    // If the socket has already drained its buffer, then just send the data
+    // right away and re-schedule ourselves.
+    if (sockInfo.sock.bufferedAmount === 0) {
+      sockInfo.sock.send(reader.result);
+      fetchNextBlobChunk();
+      return;
+    }
+
+    sockInfo.queuedData = reader.result;
+  };
+  // I/O errors are fatal to the connection; our abstraction does not let us
+  // bubble the error.  The good news is that errors are highly unlikely.
+  reader.onerror = function() {
+    sockInfo.sock.close();
+  };
+
+  reader.readAsArrayBuffer(blobSlice);
+}
+
+function close(uid) {
+  var sockInfo = sockInfoByUID[uid];
+  if (!sockInfo)
+    return;
+  var sock = sockInfo.sock;
+  sock.close();
+  sock.onopen = null;
+  sock.onerror = null;
+  sock.ondata = null;
+  sock.ondrain = null;
+  sock.onclose = null;
+  delete sockInfoByUID[uid];
+}
+
+function write(uid, data, offset, length) {
+  var sockInfo = sockInfoByUID[uid];
+
+  // If there is an activeBlob, then the write must be queued or we would end up
+  // mixing this write in with our Blob and that would be embarassing.
+  if (sockInfo.activeBlob) {
+    sockInfo.backlog.push([data, offset, length]);
+    return;
+  }
+
+  if (data instanceof Blob) {
+    beginBlobSend(sockInfo, data);
+  }
+  else {
+    sockInfo.sock.send(data, offset, length);
+  }
+}
+
+var self = {
+  name: 'netsocket',
+  sendMessage: null,
+  process: function(uid, cmd, args) {
+    switch (cmd) {
+      case 'open':
+        open(uid, args[0], args[1], args[2]);
+        break;
+      case 'close':
+        close(uid);
+        break;
+      case 'write':
+        write(uid, args[0], args[1], args[2]);
+        break;
+    }
+  }
+};
+return self;
 });

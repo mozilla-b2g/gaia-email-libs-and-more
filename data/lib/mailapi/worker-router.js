@@ -80,10 +80,11 @@ function registerInstanceType(type) {
       instanceMap[thisUid] = instanceListener;
 
       return {
-        sendMessage: function sendInstanceMessage(cmd, args) {
+        sendMessage: function sendInstanceMessage(cmd, args, transferArgs) {
 //dump('\x1b[34mw => M: send: ' + type + ' ' + thisUid + ' ' + cmd + '\x1b[0m\n');
           window.postMessage({ type: type, uid: thisUid,
-                               cmd: cmd, args: args });
+                               cmd: cmd, args: args },
+                             transferArgs);
         },
         unregister: function unregisterInstance() {
           delete instanceMap[thisUid];

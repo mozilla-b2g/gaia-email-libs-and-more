@@ -997,6 +997,12 @@ MailBridge.prototype = {
     });
   },
 
+  /**
+   * Save a draft, delete a draft, or try and send a message.
+   *
+   * Drafts are saved in our IndexedDB storage. This is notable because we are
+   * told about attachments via their Blobs.
+   */
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
     require(['./composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle], self = this;

@@ -22,16 +22,43 @@ exports.mailchew = $mailchew;
 exports.MailComposer = $mailcomposer;
 
 /**
- * Abstraction around the mailcomposer helper library that exists to consolidate
- * our hackish uses of it, as well as to deal with our need to create variations
- * of a message with and without the Bcc headers present.  This is also being
- * used as a vehicle to eventually support streams instead of generating a
- * single big buffer.
+ * Abstraction around the mailcomposer helper library and our efforts to avoid
+ * filling up the device's memory and crashing when we send large messages.  We
+ * produce a Blob that is made up of some combination of strings and Blobs.
  *
- * Our API is currently synchronous for getting envelope data and asynchronous
- * for generating the body.  The asynchronous bit comes because we chose to
- * internalize our fetching of the contents of attachments from Blobs which is
- * an inherently asynchronous thing.
+ *
+ * There are 3 main endpoints for our data:
+ *
+ * 1) SMTP transmission.  SMTP does not require us to know the size of what we
+ * are sending up front.  It usually does NOT want the BCC header included in
+ * the message.
+ *
+ * 2) IMAP APPEND.  APPEND needs to know the size of the message we are
+ * appending up front.  It DOES want the BCC header included for archival
+ * purposes, so this needs to be a different body.
+ *
+ * 3) ActiveSync sending.  There are actually two paths here; ActiveSync <= 12.x
+ * does a more traditional POST of just the MIME data.  ActiveSync >= 14.0
+ * generates a WBXML command, but it's basically just a wrapper around the MIME
+ * data.  Because we use XHR's to communicate with the server, the size
+ * effectively needs to be known ahead of time.
+ *
+ *
+ * The actual data that goes into our message is either finite-ish (headers),
+ * variable in size but arguably manageable (the contents of the message), or
+ * potentially very large in size (attachments).  Besides being potentially
+ * huge, attachments are also notable because they are immutable once attached.
+ * Also, they arguably need to be redundantly stored once attached.  That is,
+ * if a user attaches an image from DeviceStorage and then later deletes it
+ * before the message is sent, you can make a convincing case that the
+ * attachment should still be sent with the message.  Previously, this would
+ * happen as a side-effect of IndexedDB's need to duplicate the contents of
+ * Blobs passed into it so it could persist them and manage its life-cycle.
+ *
+ * However, the problem with letting IndexedDB do this is that our internal
+ * storage is modeled as extremely limited.
+ *
+ *
  */
 function Composer(mode, wireRep, account, identity) {
   this.mode = mode;

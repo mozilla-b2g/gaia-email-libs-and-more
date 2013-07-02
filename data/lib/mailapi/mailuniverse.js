@@ -1680,7 +1680,22 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Save a new draft or update an existing draft.
+   * Process the given attachment blob in slices into base64-encoded Blobs
+   * that we store in IndexedDB (currently).  This is a local-only operation.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.  But do keep in mind that you need
+   * to make sure to not destroy the underlying storage for the Blob (ex: when
+   * using DeviceStorage) until the callback has fired.
+   */
+  attachBlobToDraft: function(account, attachmentDef, callback) {
+  },
+
+  /**
+   * Save a new (local) draft or update an existing (local) draft.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.
    */
   saveDraft: function(account, existingNamer, header, body, callback) {
     this._queueAccountOp(
@@ -1701,6 +1716,12 @@ MailUniverse.prototype = {
     );
   },
 
+  /**
+   * Delete an existing (local) draft.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.
+   */
   deleteDraft: function(account, messageNamer, callback) {
     this._queueAccountOp(
       account,

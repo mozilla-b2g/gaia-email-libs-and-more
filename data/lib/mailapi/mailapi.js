@@ -1680,6 +1680,20 @@ MessageComposition.prototype = {
   },
 
   /**
+   * Add an attachment to this composition.  This is an asynchronous process
+   * that incrementally converts the Blob we are provided into a line-wrapped
+   * base64-encoded message suitable for use in the rfc2822 message generation
+   * process.  We will perform the conversion in slices whose sizes are
+   * chosen to avoid causing a memory usage explosion that causes us to be
+   * reaped.  Once the conversion is completed we will forget the Blob reference
+   * provided to us.
+   *
+   * From the perspective of our drafts, an attachment is not fully attached
+   * until it has been completely encoded, sliced, and persisted to our
+   * IndexedDB database.  In the event of a crash during this time window,
+   * the attachment will effectively have not been attached.  Our logic will
+   * discard the partially-translated attachment when de-persisting the draft.
+   *
    * @args[
    *   @param[attachmentDef @dict[
    *     @key[name String]
