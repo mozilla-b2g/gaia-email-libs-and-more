@@ -41,25 +41,6 @@ define(
     $net
   ) {
 
-  var worker;
-  function init() {
-    // Do on a timeout to allow other startup logic to complete without
-    // this code interfering
-    setTimeout(function() {
-      worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
-
-      $router.useWorker(worker);
-
-      $router.register(control);
-      $router.register(bridge);
-      $router.register($configparser);
-      $router.register($cronsync);
-      $router.register($devicestorage);
-      $router.register($maildb);
-      $router.register($net);
-    });
-  }
-
   var control = {
     name: 'control',
     sendMessage: null,
@@ -85,11 +66,7 @@ define(
     },
   };
 
-
-  // Create a purposely global MailAPI, and indicate it is fake for
-  // now, waiting on real back end to boot up.
-  MailAPI = new $mailapi.MailAPI();
-  MailAPI._fake = true;
+  var MailAPI = new $mailapi.MailAPI();
 
   var bridge = {
     name: 'bridge',
@@ -120,5 +97,16 @@ define(
     },
   };
 
-  init();
+  // Wire up the worker to the router
+  var worker = new Worker('js/ext/mailapi/worker-bootstrap.js');
+  $router.useWorker(worker);
+  $router.register(control);
+  $router.register(bridge);
+  $router.register($configparser);
+  $router.register($cronsync);
+  $router.register($devicestorage);
+  $router.register($maildb);
+  $router.register($net);
+
+  return MailAPI;
 }); // end define
