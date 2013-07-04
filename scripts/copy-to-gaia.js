@@ -24,7 +24,6 @@ buildOptions = {
   useStrict: true,
   paths: {
     'alameda': 'deps/alameda',
-    'amd-shim': 'deps/amd-shim',
     'config': 'scripts/config',
 
     // NOP's
@@ -96,8 +95,7 @@ var configs = [
 
   // root aggregate loaded in main frame context
   {
-    name: null,
-    include: ['amd-shim', 'mailapi/main-frame-setup'],
+    name: 'mailapi/main-frame-setup',
     out: jsPath + '/mailapi/main-frame-setup.js'
   },
 
@@ -223,47 +221,6 @@ var runner = configs.reduceRight(function (prev, cfg) {
   };
 }, function (buildReportText) {
   console.log(buildReportText);
-
-  try {
-    var scriptText,
-      indexContents = fs.readFileSync(indexPath, 'utf8'),
-      startComment = '<!-- START BACKEND INJECT - do not modify -->',
-      endComment = '<!-- END BACKEND INJECT -->',
-      startIndex = indexContents.indexOf(startComment),
-      endIndex = indexContents.indexOf(endComment),
-      indent = '  ';
-
-    // Write out the script tags in gaia email index.html
-    if (startIndex === -1 || endIndex === -1) {
-      console.log('Updating email index.html failed. Cannot find insertion comments.');
-      process.exit(1);
-    }
-
-    // List of tags used in gaia
-    var indexPaths = [
-      'mailapi/main-frame-setup'
-    ];
-
-    // Update gaia email index.html with the right script tags.
-    scriptText = startComment + '\n' +
-      indexPaths.map(function (name) {
-
-        return indent + '<script ' +
-          'type="text/javascript" defer src="' +
-          'js/ext/' + name + '.js' +
-          '"></script>';
-      }).join('\n') + '\n' + indent;
-
-    indexContents = indexContents.substring(0, startIndex) +
-      scriptText +
-      indexContents.substring(endIndex);
-
-    fs.writeFileSync(indexPath, indexContents, 'utf8');
-
-  } catch (e) {
-    console.error(e);
-    process.exit(1);
-  }
 });
 
 //Run the builds
