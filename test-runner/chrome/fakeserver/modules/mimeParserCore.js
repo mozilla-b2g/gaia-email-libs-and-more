@@ -4,7 +4,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                        JavaScript Raw MIME Parser                          //
 ////////////////////////////////////////////////////////////////////////////////
-
+try {
 /**
  * The parser implemented in this file produces a MIME part tree for a given
  * input message via a streaming callback interface. It does not, by itself,
@@ -773,3 +773,4 @@ StructuredDecoders['content-type'] = function structure_content_type(value) {
 var HeaderParser = Object.freeze({
   extractParameters: extractParameters
 });
+} catch (ex) { dump("!!!!!!!!!!!!!! PROBLEM WITH MPC.js: " + ex + "\n"); }

@@ -337,9 +337,10 @@ ControlServer.prototype = {
     this._httpServer.registerPathHandler(path, function(request, response) {
       try {
         var postData = JSON.parse(stringifyStream(request.bodyInputStream));
+console.log('<---- request:::', postData.command);
         var responseData = funcOnThis.call(self, data, postData);
         response.setStatusLine('1.1', 200, 'OK');
-console.log('responseData:::', responseData);
+console.log('----> responseData:::', responseData);
         if (responseData)
           response.write(JSON.stringify(responseData));
       }
