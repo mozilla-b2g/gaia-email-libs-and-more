@@ -44,8 +44,7 @@
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 
-if (!("MimeParser" in this))
-  Components.utils.import("resource://fakeserver/modules/mimeParser.jsm", this);
+Components.utils.import("resource://fakeserver/modules/mimeParser.jsm");
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
                 'Oct', 'Nov', 'Dec'];
@@ -404,6 +403,8 @@ imapMessage.prototype = {
     var partMap = {};
     var emitter = {
       startPart: function imap_buildMap_startPart(partNum, headers) {
+        if (partNum === '')
+          partNum = '1$';
         var imapPartNum = partNum.replace('$','');
         // If there are multiple imap parts that this represents, we'll
         // overwrite with the latest. This is what we want (most deeply nested).
@@ -790,7 +791,8 @@ IMAP_RFC3501_handler.prototype = {
     return this._dispatchCommand(command, args);
   },
   onServerFault: function (e) {
-    return this._tag + " BAD internal server error: " + e;
+    return this._tag + " BAD internal server error: " + e + ": " +
+             e.stack.replace(/\n/g, '; ');
   },
   onMultiline : function (line) {
     // A multiline arising form a literal being passed
@@ -1224,7 +1226,7 @@ IMAP_RFC3501_handler.prototype = {
       var date = Date.now();
       var text = args[1];
     }
-    var msg = new imapMessage("data:text/plain," + encodeURI(text),
+    var msg = new imapMessage("data:text/plain," + encodeURIComponent(text),
                               mailbox.uidnext++, flags);
     msg.recent = true;
     msg.date = date;
@@ -1305,7 +1307,7 @@ IMAP_RFC3501_handler.prototype = {
       response += " " + messages[i].uid;
     }
     response += '\0';
-    return response + "OK SEARCH COMPLETED\0";
+    return response + "OK SEARCH COMPLETED";
   },
   FETCH : function (args, uid) {
     // Step 1: Get the messages to fetch
@@ -1365,7 +1367,8 @@ IMAP_RFC3501_handler.prototype = {
           parts.push(this[functionName](messages[i], item));
         } catch (ex) {
 
-          return "BAD error in fetching: "+ex;
+          return "BAD error in fetching: "+ex + ": " +
+                   ex.stack.replace(/\n/g, '; ');
         }
       }
       response += parts.join(" ") + ')\0';
@@ -1583,7 +1586,7 @@ IMAP_RFC3501_handler.prototype = {
       var partNum = data[1];
       query = data[2];
     } else {
-      var partNum = "";
+      var partNum = "1";
       if (parts[1].contains(" ", 1))
         query = parts[1].substring(0, parts[1].indexOf(" "));
       else
@@ -1606,7 +1609,7 @@ IMAP_RFC3501_handler.prototype = {
     if (parts[3])
       response += "<" + parts[3][0] + ">";
     response += " ";
-
+dump("QUERY: '" + query + "' for '" + partNum + "'\n");
     var data = "";
     switch (query) {
     case "":

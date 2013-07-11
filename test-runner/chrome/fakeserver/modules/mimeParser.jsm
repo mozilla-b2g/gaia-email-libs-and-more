@@ -3,15 +3,10 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 // vim:set ts=2 sw=2 sts=2 et ft=javascript:
 
-dump("@@@@@@@@@@@@@@@ LOADING MIMEPARSER\n");
-try {
-
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
 
-// Load the core MIME parser. Since it doesn't define EXPORTED_SYMBOLS, we must
-// use the subscript loader instead.
-Services.scriptloader.loadSubScript("resource://fakeserver/modules/mimeParserCore.js");
+Components.utils.import("resource://fakeserver/modules/mimeParserCore.js");
 
 this.EXPORTED_SYMBOLS = ["MimeParser"];
 
@@ -43,7 +38,7 @@ function setDefaultParserOptions(opts) {
   }
 }
 
-var MimeParser = {
+var MimeParser = this.MimeParser = {
   /**
    * Triggers an asynchronous parse of the given input.
    *
@@ -220,6 +215,3 @@ var MimeParser = {
     }
   },
 };
-
-} catch (ex) { dump("!!!!!!!!!!!!!!!!!!!!!!! PROBLEM WITH MP.jsm: " + ex + "\n"); }
-dump("@@@@@@@@@@@@@@@ LOADED MIMEPARSER\n");

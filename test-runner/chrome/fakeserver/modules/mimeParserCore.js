@@ -4,7 +4,9 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                        JavaScript Raw MIME Parser                          //
 ////////////////////////////////////////////////////////////////////////////////
-try {
+
+this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
+
 /**
  * The parser implemented in this file produces a MIME part tree for a given
  * input message via a streaming callback interface. It does not, by itself,
@@ -126,6 +128,7 @@ function Parser(emitter, options) {
   // Reset the parser
   this.resetParser();
 }
+this.Parser = Parser;
 
 /// Resets the parser to read a new message.
 Parser.prototype.resetParser = function Parser_resetParser() {
@@ -333,6 +336,8 @@ const SEND_TO_SUBPARSER = 4;
  */
 Parser.prototype._dispatchData = function Parser_dispatchData(partNum, buffer,
     checkSplit) {
+  if (!partNum)
+    partNum = '1$';
   // Are we parsing headers?
   if (this._state == PARSING_HEADERS) {
     this._headerData += buffer;
@@ -431,7 +436,7 @@ Parser.prototype._dispatchEOF = function Parser_dispatchEOF(partNum) {
     this._subparser = null;
   } else if (this._convertData && this._savedBuffer) {
     // Convert lingering data
-    [buffer, ] = this._convertData(this._savedBuffer, false);
+    let [buffer, ] = this._convertData(this._savedBuffer, false);
     buffer = this._coerceData(buffer, this._options["strformat"], false);
     if (buffer.length > 0)
       this._callEmitter("deliverPartData", partNum, buffer);
@@ -770,7 +775,6 @@ StructuredDecoders['content-type'] = function structure_content_type(value) {
 
 
 // Gather up the header parsing things for easier export as symbols.
-var HeaderParser = Object.freeze({
+var HeaderParser = this.HeaderParser = Object.freeze({
   extractParameters: extractParameters
 });
-} catch (ex) { dump("!!!!!!!!!!!!!! PROBLEM WITH MPC.js: " + ex + "\n"); }

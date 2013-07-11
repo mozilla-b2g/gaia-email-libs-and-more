@@ -1068,7 +1068,7 @@ var TestCommonAccountMixins = {
       }
 
       self.testServer.addMessagesToFolder(testFolder.serverFolder,
-                                          testFolder.serverMessages);
+                                          messageBodies);
     }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
   },
 
