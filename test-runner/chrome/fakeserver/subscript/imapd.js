@@ -356,9 +356,7 @@ function imapMessage(URI, uid, flags) {
   this._URI = URI;
   this.uid = uid;
   this.size = 0;
-  this.flags = new Array;
-  for each (flag in flags)
-    this.flags.push(flag);
+  this.flags = flags.concat(); // copy the array
   this.recent = false;
 }
 imapMessage.prototype = {
@@ -374,6 +372,7 @@ imapMessage.prototype = {
     this.size = size;
   },
   clearFlag : function (flag) {
+    let index;
     if ((index = this.flags.indexOf(flag)) != -1)
       this.flags.splice(index, 1);
   },
@@ -1609,7 +1608,7 @@ IMAP_RFC3501_handler.prototype = {
     if (parts[3])
       response += "<" + parts[3][0] + ">";
     response += " ";
-dump("QUERY: '" + query + "' for '" + partNum + "'\n");
+
     var data = "";
     switch (query) {
     case "":

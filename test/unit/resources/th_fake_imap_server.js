@@ -46,24 +46,38 @@ function extractUsernameFromEmail(str) {
 
 var TestFakeIMAPServerMixins = {
   __constructor: function(self, opts) {
-    self.T.convenienceSetup('creating', self,
+    if (!("fakeIMAPServers" in self.RT.fileBlackboard))
+      self.RT.fileBlackboard.fakeIMAPServers = {};
+
+    var serverExists = self.__name in self.RT.fileBlackboard.fakeIMAPServers;
+    var setupVerb = serverExists ? 'reusing' : 'creating';
+
+    self.T.convenienceSetup(setupVerb, self,
                             function() {
       self.__attachToLogger(LOGFAB.testFakeIMAPServer(self, null, self.__name));
 
-      var TEST_PARAMS = self.RT.envOptions;
-      // talk to the control server to get it to create our server
-      self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
-      var serverInfo = self._backdoor(
-        {
-          command: 'make_imap_and_smtp',
-          credentials: {
-            username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-            password: TEST_PARAMS.password
-          },
-        });
+      var TEST_PARAMS = self.RT.envOptions, serverInfo;
 
-      // now we only want to talk to our specific server control endpoint
-      self.backdoorUrl = serverInfo.controlUrl;
+      if (!serverExists) {
+        // talk to the control server to get it to create our server
+        self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
+        serverInfo = self._backdoor(
+          {
+            command: 'make_imap_and_smtp',
+            credentials: {
+              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
+              password: TEST_PARAMS.password
+            },
+          });
+
+        // now we only want to talk to our specific server control endpoint
+        self.backdoorUrl = serverInfo.controlUrl;
+        self.RT.fileBlackboard.fakeIMAPServers[self.__name] = serverInfo;
+      }
+      else {
+        serverInfo = self.RT.fileBlackboard.fakeIMAPServers[self.__name];
+        self.backdoorUrl = serverInfo.controlUrl;
+      }
 
       var configEntry = $accountcommon._autoconfigByDomain['fakeimaphost'];
       configEntry.incoming.hostname = serverInfo.imapHost;
@@ -130,11 +144,18 @@ var TestFakeIMAPServerMixins = {
         formatImapDateTime(message.date) + '\r\n' +
         message.toMessageString();
 
-      return {
+      var rep = {
         flags: [],
         date: message.date.valueOf(),
         msgString: msgString
       };
+
+      if (message.metaState.deleted)
+        rep.flags.push('\\Deleted');
+      if (message.metaState.read)
+        rep.flags.push('\\Seen');
+
+      return rep;
     });
 
     return this._backdoor({

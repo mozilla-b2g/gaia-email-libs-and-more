@@ -69,12 +69,17 @@ var DEFAULT_STEP_TIMEOUT_MS = $testcontext.STEP_TIMEOUT_MS;
  * The runtime context interacts with the log fab subsystem to indicate that we
  *  are in a testing mode and to associate actors with loggers.
  */
-function TestRuntimeContext(envOptions) {
+function TestRuntimeContext(envOptions, fileBlackboard) {
   this._loggerStack = [];
   this._pendingActorsByLoggerType = {};
   this._captureAllLoggersByType = {};
   this.envOptions = envOptions || {};
-  this.blackboard = {};
+  // Scratch space (aka blackboard) for the current test case.
+  this.caseBlackboard = {};
+  // Scratch space for the current test file; intended to be used for test
+  // resources that might get spun up and left up for efficiency, legacy, or
+  // other reasons.
+  this.fileBlackboard = fileBlackboard;
 
   /**
    * Strictly increasing value for use in tests that want a relative time
@@ -209,7 +214,10 @@ function TestDefinerRunner(testDefiner, superDebug, exposeToTestOptions,
   if (!testDefiner)
     throw new Error("No test definer provided!");
   this._testDefiner = testDefiner;
+  // Dictionary passed in from higher up the stack to expose to the tests
   this._exposeToTestOptions = exposeToTestOptions;
+  // Scratchpad that lasts for the duration of all included tests
+  this._fileBlackboard = {};
   this._resultsReporter = resultsReporter;
   // created before each test case is run
   this._runtimeContext = null;
@@ -470,7 +478,8 @@ TestDefinerRunner.prototype = {
 
   runTestCase: function(testCase) {
     // create a fresh context every time
-    this._runtimeContext = new TestRuntimeContext(this._exposeToTestOptions);
+    this._runtimeContext = new TestRuntimeContext(this._exposeToTestOptions,
+                                                  this._fileBlackboard);
     // mark things as under test, and tell them about the new context
     this._markDefinerUnderTest(this._testDefiner);
     return this.runTestCasePermutation(testCase, 0);

@@ -1284,10 +1284,12 @@ var TestImapAccountMixins = {
     self._unusedConnections = 0;
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
-      self.testServer = self.T.actor('testFakeIMAPServer', self.__name);
+      self.testServer = self.T.actor('testFakeIMAPServer', self.__name,
+                                     { restored: opts.restored });
     }
     else {
-      self.testServer = self.T.actor('testRealIMAPServer', self.__name);
+      self.testServer = self.T.actor('testRealIMAPServer', self.__name,
+                                     { restored: opts.restored });
     }
 
     if (opts.restored) {
@@ -2134,12 +2136,12 @@ var TestActiveSyncAccountMixins = {
     // instead of the universe because a freshly started universe currently
     // does not know about the universe it is replacing.
     else if (!opts.server) {
-      if (!self.RT.blackboard.testActiveSyncServer) {
-        self.RT.blackboard.testActiveSyncServer =
+      if (!self.RT.caseBlackboard.testActiveSyncServer) {
+        self.RT.caseBlackboard.testActiveSyncServer =
           self.T.actor('testActiveSyncServer', 'S',
                        { universe: opts.universe });
       }
-      self.testServer = self.RT.blackboard.testActiveSyncServer;
+      self.testServer = self.RT.caseBlackboard.testActiveSyncServer;
     }
     else {
       self.testServer = opts.server;
