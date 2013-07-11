@@ -752,12 +752,13 @@ function summaryFromLoggest(testFileName, variant, logData) {
       return summary;
     for (var iKid = 0; iKid < definerLog.kids.length; iKid++) {
       var testCaseLog = definerLog.kids[iKid];
+      var testPermLog = testCaseLog.kids[0];
       summary.tests.push({
         name: '' + testCaseLog.semanticIdent,
         result: testCaseLog.latched.result,
         // although the latched variant should match up with the passed-in
         // variant, let's avoid non-obvious clobbering and just propagate
-        variant: testCaseLog.latched.variant
+        variant: testPermLog.latched.variant
       });
     }
   }
@@ -786,7 +787,7 @@ function printTestSummary(summary) {
         str += '??? ' + test.result + '???';
         break;
     }
-    str += '\x1b[0m ' + test.name + ' (' + summary.variant + ')\n';
+    str += '\x1b[0m ' + test.name + ' (' + test.variant + ')\n';
     dump(str);
   });
 }
@@ -852,10 +853,11 @@ function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
       break;
   }
 
+  testParams.variant = variant;
+
   var passToRunner = {
     testName: testFileName,
     testParams: JSON.stringify(testParams),
-    variant: variant
   };
 
   // Our testfile protocol allows us to use the test file as an origin, so every
