@@ -865,7 +865,8 @@ function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
   // than deleting the database every time because at the end of the run we
   // will have all the untouched IndexedDB databases around so we can poke at
   // them if we need/want.
-  var baseUrl = 'testfile://' + testFileName + '/';
+  var baseUrl = 'testfile://' + testFileName + '-' +
+                  variant.replace(/:/g, '_') + '/';
   grantEmailPermissions(baseUrl);
 
   var runnerIframe = document.createElement('iframe');
