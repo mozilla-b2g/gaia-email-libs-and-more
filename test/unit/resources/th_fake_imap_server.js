@@ -49,8 +49,14 @@ var TestFakeIMAPServerMixins = {
     if (!("fakeIMAPServers" in self.RT.fileBlackboard))
       self.RT.fileBlackboard.fakeIMAPServers = {};
 
-    var serverExists = self.__name in self.RT.fileBlackboard.fakeIMAPServers;
+    var normName = self.__name.replace(/\d+/g, '');
+    var serverExists = normName in self.RT.fileBlackboard.fakeIMAPServers;
     var setupVerb = serverExists ? 'reusing' : 'creating';
+    // Flag the value to true so that static checks of whether it exists return
+    // true.  Use of the value for data purposes must only be done at step-time
+    // since 'true' is not very useful on its own.
+    if (!serverExists)
+      self.RT.fileBlackboard.fakeIMAPServers[normName] = true;
 
     self.T.convenienceSetup(setupVerb, self,
                             function() {
@@ -72,10 +78,10 @@ var TestFakeIMAPServerMixins = {
 
         // now we only want to talk to our specific server control endpoint
         self.backdoorUrl = serverInfo.controlUrl;
-        self.RT.fileBlackboard.fakeIMAPServers[self.__name] = serverInfo;
+        self.RT.fileBlackboard.fakeIMAPServers[normName] = serverInfo;
       }
       else {
-        serverInfo = self.RT.fileBlackboard.fakeIMAPServers[self.__name];
+        serverInfo = self.RT.fileBlackboard.fakeIMAPServers[normName];
         self.backdoorUrl = serverInfo.controlUrl;
       }
 
@@ -95,7 +101,7 @@ var TestFakeIMAPServerMixins = {
     xhr.open('POST', this.backdoorUrl, false);
     xhr.send(JSON.stringify(request));
     var response = xhr.response ? JSON.parse(xhr.response) : null;
-    this._logger.backdoor(request, response);
+    this._logger.backdoor(request, response, this.backdoorUrl);
     return response;
   },
 
@@ -177,7 +183,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       started: { port: false },
       stopped: {},
 
-      backdoor: { request: false, response: false },
+      backdoor: { request: false, response: false, url: false },
     },
     errors: {
     },
