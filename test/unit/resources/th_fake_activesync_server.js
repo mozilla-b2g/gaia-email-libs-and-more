@@ -18,6 +18,13 @@ define(
     exports
   ) {
 
+function extractUsernameFromEmail(str) {
+  var idx = str.indexOf('@');
+  if (idx === -1)
+    return str;
+  return str.substring(0, idx);
+}
+
 /**
  * For now, we create at most one server for the lifetime of the xpcshell test.
  * So we spin it up the first time we need it, and we never actually clean up
@@ -28,12 +35,45 @@ var TestActiveSyncServerMixins = {
   __constructor: function(self, opts) {
     if (!opts.universe)
       throw new Error('You need to provide a universe!');
-    self.T.convenienceSetup('creating fake', self,
+    if (!("fakeActiveSyncServers" in self.RT.fileBlackboard))
+      self.RT.fileBlackboard.fakeActiveSyncServers = {};
+
+    var normName = self.__name.replace(/\d+/g, '');
+    var serverExists = normName in self.RT.fileBlackboard.fakeActiveSyncServers;
+    var setupVerb = serverExists ? 'reusing' : 'creating';
+    // Flag the value to true so that static checks of whether it exists return
+    // true.  Use of the value for data purposes must only be done at step-time
+    // since 'true' is not very useful on its own.
+    if (!serverExists)
+      self.RT.fileBlackboard.fakeActiveSyncServers[normName] = true;
+
+    self.T.convenienceSetup(setupVerb, self,
                             function() {
       self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
                                                         self.__name));
 
-      self.serverBaseUrl = 'http://localhost:8880';
+      var TEST_PARAMS = self.RT.envOptions, serverInfo;
+      if (!serverExists) {
+        // talk to the control server to get it to create our server
+        self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
+        serverInfo = self._backdoor(
+          {
+            command: 'make_activesync',
+            credentials: {
+              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
+              password: TEST_PARAMS.password
+            },
+          });
+
+        // now we only want to talk to our specific server control endpoint
+        self.serverBaseUrl = serverInfo.url;
+        self.RT.fileBlackboard.fakeActiveSyncServers[normName] = serverInfo;
+      }
+      else {
+        serverInfo = self.RT.fileBlackboard.fakeActiveSyncServers[normName];
+        self.serverBaseUrl = serverInfo.url;
+      }
+
       $accountcommon._autoconfigByDomain['fakeashost'].incoming.server =
         self.serverBaseUrl;
     });

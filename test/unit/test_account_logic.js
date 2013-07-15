@@ -4,13 +4,12 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_activesync_server',
         'activesync/codepages', 'exports'],
-       function($tc, $th_imap, $th_as_srv, $ascp, exports) {
+       function($tc, $th_main, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_logic' }, null,
-  [$th_imap.TESTHELPER, $th_as_srv.TESTHELPER], ['app']);
+  [$th_main.TESTHELPER], ['app']);
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly

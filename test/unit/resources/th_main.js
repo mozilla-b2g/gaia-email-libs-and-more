@@ -2201,7 +2201,7 @@ var TestActiveSyncAccountMixins = {
       }
       else {
         displayName = self._opts.displayName || 'test';
-        emailAddress = self._opts.emailAddress || 'test@aslocalhost';
+        emailAddress = self._opts.emailAddress || 'test@fakeashost';
         password = self._opts.password || 'test';
       }
 
