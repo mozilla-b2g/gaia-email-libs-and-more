@@ -617,6 +617,12 @@ var LOGFAB = exports.LOGFAB = $log.register(null, {
     },
     latchState: {
       result: false,
+      /**
+       * Optional string that identifies the variant of the test.  For example,
+       * "imap" for a test case run against an IMAP server, "activesync" for
+       * the same test run against an activesync server, etc.
+       */
+      variant: false
     },
   },
   testCasePermutation: {
@@ -632,11 +638,7 @@ var LOGFAB = exports.LOGFAB = $log.register(null, {
     },
     latchState: {
       result: false,
-      /**
-       * Optional string that identifies the variant of the test.  For example,
-       * "imap" for a test case run against an IMAP server, "activesync" for
-       * the same test run against an activesync server, etc.
-       */
+      /** Same as on testCase. */
       variant: false
     }
   },

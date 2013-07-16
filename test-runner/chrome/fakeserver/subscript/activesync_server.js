@@ -375,6 +375,9 @@ ActiveSyncServer.prototype = {
    * @param callback A callback to call when the server is stopped.
    */
   stop: function(callback) {
+    // httpd.js explodes if you don't provide a callback.
+    if (!callback)
+      callback = function() {};
     this.server.stop({ onStopped: callback });
   },
 

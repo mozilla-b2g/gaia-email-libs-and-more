@@ -86,9 +86,11 @@ function makeSandbox(name) {
       // don't care about XHR
       wantXHRConstructor: false
     });
-  // provide some globals our subscript loves...
+  // provide some globals our subscripts love...
   sandbox.atob = window.atob.bind(window);
   sandbox.btoa = window.btoa.bind(window);
+  sandbox.TextEncoder = window.TextEncoder;
+  sandbox.TextDecoder = window.TextDecoder;
   return sandbox;
 }
 // from:

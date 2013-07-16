@@ -2194,16 +2194,9 @@ var TestActiveSyncAccountMixins = {
       var TEST_PARAMS = self.RT.envOptions,
           displayName, emailAddress, password;
 
-      if (self._opts.realAccountNeeded) {
-        displayName = TEST_PARAMS.name;
-        emailAddress = TEST_PARAMS.emailAddress;
-        password = TEST_PARAMS.password;
-      }
-      else {
-        displayName = self._opts.displayName || 'test';
-        emailAddress = self._opts.emailAddress || 'test@fakeashost';
-        password = self._opts.password || 'test';
-      }
+      displayName = self._opts.displayName || TEST_PARAMS.name;
+      emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
+      password = self._opts.password || TEST_PARAMS.password;
 
       self.MailAPI.tryToCreateAccount(
         {

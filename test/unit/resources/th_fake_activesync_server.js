@@ -66,16 +66,16 @@ var TestActiveSyncServerMixins = {
           });
 
         // now we only want to talk to our specific server control endpoint
-        self.serverBaseUrl = serverInfo.url;
+        self.backdoorUrl = serverInfo.url + '/backdoor';
         self.RT.fileBlackboard.fakeActiveSyncServers[normName] = serverInfo;
       }
       else {
         serverInfo = self.RT.fileBlackboard.fakeActiveSyncServers[normName];
-        self.serverBaseUrl = serverInfo.url;
+        self.backdoorUrl = serverInfo.url + '/backdoor';
       }
 
       $accountcommon._autoconfigByDomain['fakeashost'].incoming.server =
-        self.serverBaseUrl;
+        serverInfo.url;
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', function() {
     });
@@ -86,8 +86,15 @@ var TestActiveSyncServerMixins = {
 
   _backdoor: function(request) {
     var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
-    xhr.open('POST', this.serverBaseUrl + '/backdoor', false);
-    xhr.send(JSON.stringify(request));
+    xhr.open('POST', this.backdoorUrl, false);
+    try {
+      xhr.send(JSON.stringify(request));
+    }
+    catch (ex) {
+      // wrap the error with some hint in the log.
+      console.error('Problem contacting backdoor at:', this.serverBaseUrl);
+      throw ex;
+    }
     return xhr.response ? JSON.parse(xhr.response) : null;
   },
 

@@ -417,9 +417,12 @@ TestDefinerRunner.prototype = {
     // -- create / setup the context
     testCase.log.run_begin();
     var defContext = new $testcontext.TestContext(testCase, 0);
-    // Hackish way to let the test variant be explicitly passed in so that unit
-    if (this._exposeToTestOptions && this._exposeToTestOptions.variant)
+    // Expose test variants at the testCase and testCasePermutation levels
+    // (which have always been and likely will continue to remain equivalent.)
+    if (this._exposeToTestOptions && this._exposeToTestOptions.variant) {
+      testCase.log.variant(this._exposeToTestOptions.variant);
       defContext.setPermutationVariant(this._exposeToTestOptions.variant);
+    }
     defContext._log.run_begin();
 
     // - push the context's logger on the runtime logging stack
@@ -683,13 +686,14 @@ function detectAndReportJsonCycles(obj) {
  * In the event require()ing a test module fails, we want to report this
  *  so it's not just like the test disappears from the radar.
  */
-function reportTestModuleRequireFailures(testModuleName, moduleName,
+function reportTestModuleRequireFailures(testModuleName, moduleName, variant,
                                          exceptions, resultsReporter) {
   var dumpObj = {
     schema: $testcontext.LOGFAB._rawDefs,
     fileFailure: {
       fileName: testModuleName,
       moduleName: moduleName,
+      variant: variant,
       exceptions: exceptions.map($extransform.transformException),
     }
   };
@@ -720,6 +724,10 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
         runOptions.resultsReporter ||
         makeStreamResultsReporter(ErrorTrapper.reliableOutput);
 
+  var variant = null;
+  if (runOptions && runOptions.variant)
+    variant = runOptions.variant;
+
   // nutshell:
   // * r.js previously would still invoke our require callback function in
   //    the event of a failure because our error handler did not actually
@@ -735,8 +743,8 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
 //console.error("ERROR TRAPPAH");
     if (alreadyBailed)
       return;
-    reportTestModuleRequireFailures(testModuleName, moduleName, [err],
-                                    resultsReporter);
+    reportTestModuleRequireFailures(testModuleName, moduleName, variant,
+                                    [err], resultsReporter);
     deferred.resolve(true);
     alreadyBailed = true;
 //console.error("ERROR TRAPPAH2");
@@ -751,15 +759,15 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
     if (alreadyBailed)
       return;
     if (trappedErrors.length) {
-      reportTestModuleRequireFailures(testModuleName, '', trappedErrors,
-                                      resultsReporter);
+      reportTestModuleRequireFailures(testModuleName, '', variant,
+                                      trappedErrors, resultsReporter);
       deferred.resolve(true);
       return;
     }
     if (!tmod.TD) {
       var fakeError = new Error("Test module: '" + testModuleName +
                                  "' does not export a 'TD' symbol!");
-      reportTestModuleRequireFailures(testModuleName, testModuleName,
+      reportTestModuleRequireFailures(testModuleName, testModuleName, variant,
                                       [fakeError], resultsReporter);
       deferred.resolve(true);
       return;
