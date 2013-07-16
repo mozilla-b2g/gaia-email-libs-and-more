@@ -17,6 +17,7 @@ this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
  * This file requires some external code for processing. The following are
  * things that are presumed to exist in the global scope:
  * function atob(str): Converts a JS string to a JS binary string
+ * TextDecoder: An implementation of http://wiki.whatwg.org/wiki/StringEncoding
  *
  * Charsets:
  * The MIME specifications permit a single message to contain multiple charsets
@@ -28,6 +29,17 @@ this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
  * represent the individual octets. Even if this is the case, the data in the
  * strings are likely to be passed through unchanged no matter their charset
  * unless charset conversion happens on an 8-bit or binary string.
+ *
+ * The output charset is trickier. The parser only attempts to convert charsets
+ * if the output format is "unicode". If the force option is set, then all parts
+ * have their contents translated using the charset option (even if the content
+ * type is not a text type). If it is not set, then the charset option is used
+ * to determine the default charset for only text types (all other types are
+ * translated as binary strings). If the charset option is a function, then that
+ * function may be used to sniff for a possible content-type before translation.
+ * If it is an empty string, then no translation is performed for media types
+ * without explicit charsets. In any case, no translation of the headers are
+ * done--they are always in a binary string format.
  *
  * Part numbering:
  * Since the output is a streaming format, individual parts are identified by a
@@ -97,6 +109,19 @@ this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
  *        raw: the body of the part is passed through raw
  *        nodecode: the body is passed through without decoding QP/Base64
  *        decode: quoted-printable and base64 are fully decoded
+ *    strformat: one of {binarystring, unicode, typedarray} [default=binarystring]
+ *      How to treat output strings:
+ *        binarystring: Data is a JS string with chars in the range [\x00-\xff]
+ *        unicode: Data is a JS string with all parts with explicit charset data
+ *          converted to UTF-16. See above note on charsets for more details.
+ *        typedarray: Data is a JS typed array buffer
+ *    charset: <string> [default=""]
+ *      What charset to assume if no charset information is explicitly provided.
+ *      This only matters if strformat is unicode. See above note on charsets
+ *      for more details.
+ *    force-charset: <boolean> [default=false]
+ *      If true, this coerces all types to use the charset option, even if the
+ *      message specifies a different content-type.
  *    stripcontinuations: <boolean> [default=true]
  *      If true, then the newlines in headers are removed in the returned
  *      header objects.
@@ -113,6 +138,9 @@ function Parser(emitter, options) {
     pruneat: "",
     bodyformat: "nodecode",
     stripcontinuations: true,
+    strformat: "binarystring",
+    charset: "",
+    "force-charset": false,
     onerror: function swallow(error) {}
   };
   // Load the options as a copy here (prevents people from changing on the fly).
@@ -413,9 +441,23 @@ Parser.prototype._applyDataConversion = function Parser_convertData(buf, type) {
 
 /// Coerces the buffer (a string or typedarray) into a given type
 Parser.prototype._coerceData = function Parser_coerce(buffer, type, more) {
-  // Note: This function is a placeholder for later code primarily relating to
-  // charsets and strformat options.
-  return buffer;
+  if (typeof buffer == "string") {
+    // string -> binarystring is a nop
+    if (type == "binarystring")
+      return buffer;
+    // Either we're going to array or unicode. Both people need the array
+    var typedarray = stringToTypedArray(buffer);
+    // If it's unicode, do the coercion from the array
+    // If its typedarray, just return the synthesized one
+    return type == "unicode" ? this._coerceData(typedarray, "unicode", more)
+                             : typedarray;
+  } else if (type == "binarystring") {
+    // Doing array -> binarystring; String.fromCharCode does this nicely
+    return String.fromCharCode.apply(undefined, buffer);
+  } else if (type == "unicode") {
+    // Doing array-> unicode: Use the decoder set up earlier to convert
+    return this._decoder.decode(buffer, {stream: more});
+  }
 }
 
 /**
@@ -597,6 +639,37 @@ Parser.prototype._startBody = function Parser_startBody(partNum) {
         this._convertData = ContentDecoders[cte];
     }
   }
+
+  // Set up the encoder for charset conversions; only do this for text parts.
+  // Other parts are almost certainly binary, so no translation should be
+  // applied to them.
+  if (this._options["strformat"] == "unicode" &&
+      contentType.mediatype == "text") {
+    var charset = "";
+    // Forced charset
+    if (this._options["force-charset"])
+      charset = this._options["charset"];
+    // ... If not forced, try the Content-Type
+    else if ("param-charset" in contentType)
+      charset = contentType["param-charset"];
+    // ... otherwise, use the default
+    else
+      charset = this._options["charset"];
+
+
+    // If the charset is nonempty, initialize the decoder
+    if (charset !== "") {
+      this._decoder = new TextDecoder(charset);
+    } else {
+      // There's no charset we can use for decoding, so pass through as an
+      // identity encoder or otherwise this._coerceData will complain.
+      this._decoder = {
+        decode: function identity_decoder(buffer) {
+          return Parser.prototype._coerceData(buffer, "binarystring", true);
+        }
+      };
+    }
+  }
 }
 
 // Internal split handling for multipart messages.
@@ -646,17 +719,14 @@ Parser.prototype._whenMultipart = function Parser_mpart(partNum, lastResult) {
 // Extract a header. This is for internal purposes.
 // This calls the structured decoder if it exists. If it does not, it just trims
 // the value and makes it lower case.
-Parser.prototype._extractHeader = function extractHeader(name, dflt) {
-  let value = this._headers.has(name) ? this._headers.get(name)[0] : dflt;
-  if (name in StructuredDecoders)
-    return StructuredDecoders[name](value);
-  // In lieu of anything else, just return lower-case version
-  return value.trim().toLowerCase();
+Parser.prototype._extractHeader = function Parser_extractHeader(name, dflt) {
+  return extractHeader(this._headers, name, dflt);
 }
 
-// Content transfer decoders
-var ContentDecoders = {};
-ContentDecoders['quoted-printable'] = function decode_qp(buffer, more) {
+// Buffer parsing functions, including both qp/base64 decoding and coercing to
+// different datatypes.
+
+function decode_qp(buffer, more) {
   // Unlike base64, quoted-printable isn't stateful across multiple lines, so
   // there is no need to buffer input, so we can always ignore more.
   let decoded = buffer.replace(
@@ -671,7 +741,7 @@ ContentDecoders['quoted-printable'] = function decode_qp(buffer, more) {
     });
   return [decoded, ''];
 }
-ContentDecoders['base64'] = function decode_base64(buffer, more) {
+function decode_base64(buffer, more) {
   // Drop all non-base64 characters
   let sanitize = buffer.replace(/[^A-Za-z0-9+\/=]/g,'');
   // We need to encode in groups of 4 chars. If we don't have enough, leave the
@@ -686,95 +756,14 @@ ContentDecoders['base64'] = function decode_base64(buffer, more) {
   return [atob(sanitize), buffer];
 }
 
-///////////////////////////////
-// Structured field decoders //
-///////////////////////////////
+var ContentDecoders = {};
+ContentDecoders['quoted-printable'] = decode_qp;
+ContentDecoders['base64'] = decode_base64;
 
-// Structured decoders exist in two pieces. There are the basic methods, for
-// decoding headers based on their type rather than full semantic decomposition.
-// All of these methods take as their first parameter the string to be parsed.
-// In addition to these, we have specific structurers for individual headers
-// that are useful for the parser (e.g., Content-Type).
-
-function extractParameters(headerValue) {
-  // The basic syntax of headerValue is token [; token = token-or-qstring]*
-  // Copying more or less liberally from nsMIMEHeaderParamImpl:
-  // The first token is the text to the first whitespace or semicolon.
-  var semi = headerValue.indexOf(";");
-  if (semi < 0) {
-    var start = headerValue;
-    var rest = '';
-  } else {
-    var start = headerValue.substring(0, semi);
-    var rest = headerValue.substring(semi); // Include the semicolon
-  }
-  // Strip start to be <WSP><nowsp><WSP>
-  start = start.trim().split(/[ \t\r\n]/)[0];
-
-  // Now, match parameters. The RFC 2231 processing comes later, just yank out
-  // all of the parameters for now. This is doing via a regex which is
-  // continually executed to find each pair. The match to try to find is this:
-  // ;<WSP><token><WSP>=<WSP><token> or ;<WSP><token><WSP>=<WSP><quote string>
-  // where the first token is any string that isn't whitespace and doesn't
-  // contain an = or ; and the second token merely doesn't contain ;.
-  var wsp = "[ \t\r\n]*";
-  var token = "[^ \t\r\n=;]*";
-  var qstring = '"(?:[^\\\\"]|\\\\.)*"?';
-  var qstring_or_tok = qstring + "|[^ \t\r\n;]*";
-  var regex = new RegExp(";" + wsp + "(" + token + ")" + wsp + "=" + wsp +
-    "(" + qstring_or_tok + ")", "g");
-
-  // Actually do the matching
-  var matches = [], match;
-  while ((match = regex.exec(rest)) != null) {
-    var name = match[1];
-    var value = match[2];
-    if (value.length > 0 && value[0] == '"') {
-      let end = value.length > 1 && value[value.length - 1] == '"' ?
-        value.length - 1 : value.length;
-      value = value.substring(1, end).replace(/\\(.)/g, "$1");
-    }
-    matches.push([name, value]);
-  }
-
-  // Now matches holds the parameters. Clean up for RFC 2231. There are four
-  // cases: param=val, param*=us-ascii'en-US'blah, and param*n= variants. The
-  // order of preference is to pick the middle, then the last, then the first.
-  // TODO: RFC 2231 is yet to be implemented
-  var simpleValues = {};
-  for (let [name, value] of matches) {
-    // The first match of simple param=val wins.
-    if (!(name in simpleValues))
-      simpleValues[name] = value;
-  }
-  return [start, simpleValues];
+/// Converts the input binary string to a Uint8Array buffer
+function stringToTypedArray(buffer) {
+  var typedarray = new Uint8Array(buffer.length);
+  for (var i = 0; i < buffer.length; i++)
+    typedarray[i] = buffer.charCodeAt(i);
+  return typedarray;
 }
-
-var StructuredDecoders = {};
-StructuredDecoders['content-type'] = function structure_content_type(value) {
-  let [type, params] = extractParameters(value);
-  let parts = type.split('/');
-  if (parts.length != 2) {
-    // Malformed. Return to text/plain. Evil, ain't it?
-    params = {};
-    parts = ["text", "plain"];
-  }
-  let mediatype = parts[0].toLowerCase();
-  let subtype = parts[1].toLowerCase();
-  let type = mediatype + '/' + subtype;
-  let structure = {
-    'mediatype': mediatype,
-    'subtype': subtype,
-    'type': type,
-  };
-  for (let name in params) {
-    structure['param-' + name.toLowerCase()] = params[name];
-  }
-  return structure;
-};
-
-
-// Gather up the header parsing things for easier export as symbols.
-var HeaderParser = this.HeaderParser = Object.freeze({
-  extractParameters: extractParameters
-});

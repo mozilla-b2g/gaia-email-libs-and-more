@@ -26,6 +26,7 @@ OUT_MODULES=modules
 cp $JSMIME_DIR/mimeParserCore.js $OUT_MODULES
 # mimeParser is normally JSM loaded from "resource:///modules/mimeParser.jsm"
 cp $JSMIME_DIR/mimeParser.jsm $OUT_MODULES
+cp $JSMIME_DIR/mimeParserHeaders.js $OUT_MODULES
 
 
 ### Subscript-loaded code
