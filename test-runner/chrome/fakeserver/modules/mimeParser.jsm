@@ -6,8 +6,8 @@
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
 
-Components.utils.import("resource://fakeserver/modules/mimeParserCore.js");
 Components.utils.import("resource://fakeserver/modules/mimeParserHeaders.js");
+Components.utils.import("resource://fakeserver/modules/mimeParserCore.js");
 
 this.EXPORTED_SYMBOLS = ["MimeParser"];
 

@@ -5,6 +5,10 @@
 //                        JavaScript Raw MIME Parser                          //
 ////////////////////////////////////////////////////////////////////////////////
 
+"use strict";
+
+Components.utils.import("resource://fakeserver/modules/mimeParserHeaders.js");
+
 this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
 
 /**
@@ -61,8 +65,6 @@ this.EXPORTED_SYMBOLS = ["HeaderParser", "Parser"];
  *   message part as a whole by appending a `$' character. This does not apply
  *   to the outermost message/rfc822 envelope.
  */
-
-"use strict";
 
 /**
  * A MIME parser.

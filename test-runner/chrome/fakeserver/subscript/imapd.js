@@ -352,17 +352,15 @@ imapMailbox.prototype = {
   }
 }
 
-function imapMessage(URI, uid, flags) {
-  this._URI = URI;
+function imapMessage(str, uid, flags) {
+  this._str = str;
+  this.size = str.length;
   this.uid = uid;
   this.size = 0;
   this.flags = flags.concat(); // copy the array
   this.recent = false;
 }
 imapMessage.prototype = {
-  get channel() {
-    return Services.io.newChannel(this._URI, null, null);
-  },
   setFlag : function (flag) {
    if (this.flags.indexOf(flag) == -1)
      this.flags.push(flag);
@@ -380,30 +378,22 @@ imapMessage.prototype = {
     if (!start)
       start = 0;
     if (!length)
-      length = -1;
-    var channel = this.channel;
-    var istream = channel.open();
-    var bstream = Cc["@mozilla.org/binaryinputstream;1"]
-                    .createInstance(Ci.nsIBinaryInputStream);
-    bstream.setInputStream(istream);
-    var str = bstream.readBytes(start);
-    if (str.length != start)
-      throw "Erm, we didn't just pass through 8-bit";
-    length = length == -1 ? istream.available() : length;
-    if (length > istream.available())
-      length = istream.available();
-    str = bstream.readBytes(length);
-    return str;
+      length = undefined;
+
+    return this._str.substr(start, length);
   },
 
   get _partMap() {
     if (this.__partMap)
       return this.__partMap;
     var partMap = {};
+    this.partCount = 0;
+    var self = this;
     var emitter = {
       startPart: function imap_buildMap_startPart(partNum, headers) {
         if (partNum === '')
           partNum = '1$';
+        self.partCount++;
         var imapPartNum = partNum.replace('$','');
         // If there are multiple imap parts that this represents, we'll
         // overwrite with the latest. This is what we want (most deeply nested).
@@ -418,6 +408,18 @@ imapMessage.prototype = {
     return this._partMap[partNum][1];
   },
   getPartBody: function (partNum) {
+    // The part number situation is a little confusing to me right now.
+    // Basically, it appears the parser is using libmime-style part numbers
+    // which have an extra '1.' path element for the root versus IMAP part
+    // numbers.  So the main idea is if there is more than one part number,
+    // we check an extra '1.' on the front.  We need to do this because a
+    // single part IMAP message's sole body has a path of '1', but the first
+    // sub-part in a multi-part message like multipart/alternative has a path
+    // of '1' as well.  If we don't transform that, we'll end up fetching the
+    // whole multipart/alternative body, which is definitely not what we want.
+    if (this.partCount > 1)
+      partNum = '1.' + partNum;
+
     var body = '';
     var emitter = {
       deliverPartData: function (partNum, data) {
@@ -1225,8 +1227,7 @@ IMAP_RFC3501_handler.prototype = {
       var date = Date.now();
       var text = args[1];
     }
-    var msg = new imapMessage("data:text/plain," + encodeURIComponent(text),
-                              mailbox.uidnext++, flags);
+    var msg = new imapMessage(text, mailbox.uidnext++, flags);
     msg.recent = true;
     msg.date = date;
     mailbox.addMessage(msg);
@@ -1680,14 +1681,7 @@ IMAP_RFC3501_handler.prototype = {
                  .replace("BODY[TEXT]", "RFC822.TEXT");
 
     if (query == "RFC822.SIZE") {
-      var channel = message.channel;
-      var length = message.size ? message.size : channel.contentLength;
-      if (length == -1) {
-        var inputStream = channel.open();
-        length = inputStream.available();
-        inputStream.close();
-      }
-      return "RFC822.SIZE " + length;
+      return "RFC822.SIZE " + message.size;
     } else {
       throw "Unknown item "+query;
     }
@@ -2277,6 +2271,15 @@ function bodystructure(msg, extension) {
           bodystruct += ' NIL NIL NIL';
         }
       } else {
+        // - body type
+        // - body subtype
+        // - body parameter parenthesized list = from content-type
+        // - body id = from content-id
+        // - body description = from content-description (Human readable text
+        //    that is almost never present)
+        // - body encoding = from content-transfer-encoding
+        // - body size = in octets
+        // - (if TEXT, size in lines)
         bodystruct += '"' + media + '" "' + sub + '"';
         bodystruct += ' ' + paramToString(params);
 
@@ -2291,9 +2294,29 @@ function bodystructure(msg, extension) {
         if (media == "TEXT")
           bodystruct += ' ' + this.numLines;
 
-        // XXX: I don't want to implement these yet
-        if (extension)
-          bodystruct += ' NIL NIL NIL NIL';
+        // EXTENSION
+        // - body MD5
+        // - body disposition = content-disposition in paren-list form where the
+        //    bare value is then followed by the encoded parameters
+        // - body language
+        // - body location
+        if (extension) {
+          bodystruct += ' NIL'; // MD5
+          if (headers.has('content-disposition')) {
+            let contentDisposition = headers.get('content-disposition')[0];
+            let [cdValue, cdParams] = MimeParser.parseHeaderField(
+                                        contentDisposition,
+                                        MimeParser.HEADER_PARAMETER);
+            // XXX paramToString will return NIL if there are no params; that
+            // might not be right?  Possibly should just be empty?
+            bodystruct += ' ("' + cdValue.toUpperCase() + '" ' +
+                            paramToString(cdParams) + ')';
+          }
+          else {
+            bodystruct += ' NIL';
+          }
+          bodystruct += ' NIL NIL'; // language, location
+        }
       }
       bodystruct += ')';
     }

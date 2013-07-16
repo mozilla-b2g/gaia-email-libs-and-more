@@ -569,34 +569,41 @@ function extractParameters(headerValue, doRFC2047, doRFC2231) {
       .decode(typedarray, {stream: false});
   }
 
-  if (doRFC2231) {
-    // Continuation values come next
-    for (let name in continuationValues) {
-      var data = continuationValues[name];
-      //if (data[0] == false) continue; // Invalid
-      if (data[1] === undefined) continue; // Also invalid
-      // Did we find all continuations?
-      let valid = true;
-      for (var i = 2; valid && i < data.length; i++)
-        if (data[i] === undefined)
-          valid = false;
-      //if (!valid)
-      //  continue;
+  // Continuation values come next
+  for (let name in continuationValues) {
+    var data = continuationValues[name];
+    //if (data[0] == false) continue; // Invalid
+    if (data[1] === undefined) continue; // Also invalid
+    // Did we find all continuations?
+    let valid = true;
+    for (var i = 2; valid && i < data.length; i++)
+      if (data[i] === undefined)
+        valid = false;
+    //if (!valid)
+    //  continue;
 
-      // Concatenate the parameters
-      var value = data.slice(2, i).join('');
-      if (data[1]) {
-        try {
-          value = decode2231Value(value);
-        } catch (e) {
-          // Bad charset, don't add anything.
-          continue;
-        }
+    // Concatenate the parameters
+    var value = data.slice(2, i).join('');
+    if (doRFC2231 && data[1]) {
+      try {
+        value = decode2231Value(value);
+      } catch (e) {
+        // Bad charset, don't add anything.
+        continue;
       }
-      values[name] = value;
+    }
+    // If we are leaving the value RFC2231-encoded, then have the name indicate
+    // the presence of the encoding.  This is consistent with how IMAP servers
+    // behave (and is really just being added for imapd.js.)
+    else if (!doRFC2231 && data[1]) {
+      name += '*';
     }
 
-    // Highest priority is the charset conversion
+    values[name] = value;
+  }
+
+  // Highest priority is the charset conversion
+  if (doRFC2231) {
     for (let name in charsetValues) {
       try {
         values[name] = decode2231Value(charsetValues[name]);
