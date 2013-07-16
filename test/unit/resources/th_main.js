@@ -1274,6 +1274,10 @@ var TestImapAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
     self._useDate = self.testUniverse._useDate;
+
+    self.imapHost = null;
+    self.imapPort = null;
+
     /**
      * Very simple/primitive connection book-keeping.  We only alter this in
      * a test step if the connection will outlive the step, such as when
@@ -1345,6 +1349,10 @@ var TestImapAccountMixins = {
         self.compositeAccount._receivePiece;
       self.smtpAccount = self.compositeAccount._sendPiece;
       self.accountId = self.compositeAccount.id;
+
+      var receiveConnInfo = self.compositeAccount.accountDef.receiveConnInfo;
+      self.imapHost = receiveConnInfo.hostname;
+      self.imapPort = receiveConnInfo.port;
     });
   },
 
@@ -1415,6 +1423,11 @@ var TestImapAccountMixins = {
           self.folderAccount = self.imapAccount =
             self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
+
+          var receiveConnInfo =
+                self.compositeAccount.accountDef.receiveConnInfo;
+          self.imapHost = receiveConnInfo.hostname;
+          self.imapPort = receiveConnInfo.port;
 
           self.testServer.finishSetup(self);
 

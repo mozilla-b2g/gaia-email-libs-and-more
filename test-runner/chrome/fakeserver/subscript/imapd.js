@@ -991,7 +991,7 @@ IMAP_RFC3501_handler.prototype = {
       return "OK authenticated";
     }
     else
-      return "BAD invalid password, I won't authenticate you";
+      return "NO invalid password, I won't authenticate you";
   },
   SELECT : function (args) {
     var box = this._daemon.getMailbox(args[0]);
@@ -2284,7 +2284,14 @@ function bodystructure(msg, extension) {
         bodystruct += ' ' + paramToString(params);
 
         // XXX: Content ID, Content description
-        bodystruct += ' NIL NIL';
+        if (headers.has('content-id')) {
+          bodystruct += ' "' + headers.get('content-id')[0] + '"';
+        }
+        else {
+          bodystruct += ' NIL';
+        }
+        bodystruct += ' NIL';
+
 
         let cte = headers.has('content-transfer-encoding') ?
           headers.get('content-transfer-encoding')[0].toUpperCase() : '7BIT';
