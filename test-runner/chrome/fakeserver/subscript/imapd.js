@@ -1564,7 +1564,8 @@ IMAP_RFC3501_handler.prototype = {
       message.setFlag("\\Seen");
 
     if (parts[3])
-      parts[3] = parts[3].split(/\./).map(function (e) { return parseInt(e); });
+      parts[3] = parts[3].split(/\./).map(
+        function (e) { return parseInt(e, 10); });
 
     if (parts[1].length == 0) {
       // Easy case: we have BODY[], just send the message...
@@ -1614,7 +1615,12 @@ IMAP_RFC3501_handler.prototype = {
     switch (query) {
     case "":
     case "TEXT":
-      data += message.getPartBody(partNum);
+    default:
+      let bodyData = message.getPartBody(partNum);
+      if (parts[3])
+        data += bodyData.substr(parts[3][0], parts[3][1]);
+      else
+        data += bodyData;
       break;
     case "HEADER": // I believe this specifies mime for an RFC822 message only
       data += message.getPartHeaders(partNum).rawHeaderText + "\r\n";
@@ -1643,8 +1649,6 @@ IMAP_RFC3501_handler.prototype = {
       }
       data += joinList.join('\r\n') + "\r\n";
       break;
-    default:
-      data += message.getPartBody(partNum);
     }
 
     this.sendingLiteral = true;
