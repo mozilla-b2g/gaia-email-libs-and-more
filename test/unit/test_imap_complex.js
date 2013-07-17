@@ -785,7 +785,12 @@ TD.commonCase('repeated refresh is stable', function(T) {
     growRefreshThresh: HOUR_MILLIS,
   });
 
-  var staticNow = new Date(2000, 0, 3, 23, 0, 0).valueOf();
+  // XXX I just changed this from 11pm to 10:30pm to hack around DST issues.
+  // This may or may not compromise the effectiveness of the test.  The fact
+  // that we have explicitly-set refresh start/end time spans probably does
+  // help rule out the original regression.  It might be worth doing the
+  // limited archaeology work required.
+  var staticNow = new Date(2000, 0, 3, 22, 30, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
 
   var testFolder = testAccount.do_createTestFolder(
