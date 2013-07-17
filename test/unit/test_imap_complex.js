@@ -301,9 +301,10 @@ TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
   });
 
 
-  // timewarp to 10 minute ago
-  var staticNow = Date.now() - 20 * 60 * 1000;
-  testUniverse.do_timewarpNow(staticNow, '20 mins ago');
+  // We used to use a relative timestamp for this, but that made understanding
+  // a regression of this test harder to understand.
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th, 2012 noon-ish');
 
   // Note: 6 messages only differing in age by 1 second!
   var oneFolder = testAccount.do_createTestFolder(

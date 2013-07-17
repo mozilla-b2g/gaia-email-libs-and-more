@@ -45,6 +45,8 @@ function extractUsernameFromEmail(str) {
 }
 
 var TestFakeIMAPServerMixins = {
+  NEEDS_REL_TZ_OFFSET_ADJUSTMENT: false,
+
   __constructor: function(self, opts) {
     if (!("fakeIMAPServers" in self.RT.fileBlackboard))
       self.RT.fileBlackboard.fakeIMAPServers = {};

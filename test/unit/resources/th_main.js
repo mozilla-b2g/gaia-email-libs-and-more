@@ -271,15 +271,16 @@ var TestUniverseMixins = {
       // to our message generator.
       //
       // This is a stop-gap solution that currently only affects
-      // test_imap_complex.js's "repeated refresh is stable" unit test which cares
-      // about the edge case.  It needs to be using a fake IMAP server to have the
-      // desired control.  We will predicate that test on using the IMAP fake
-      // server.
+      // test_imap_complex.js's "repeated refresh is stable" unit test which
+      // cares about the edge case.  It needs to be using a fake IMAP server to
+      // have the desired control.  We will predicate that test on using the
+      // IMAP fake server.
       var thenTzOffset = new Date(useAsNowTS).getTimezoneOffset() * -60000;
       for (var i = 0; i < self.__testAccounts.length; i++) {
         var testAccount = self.__testAccounts[i];
         testAccount._useDate = useAsNowTS;
-        if (testAccount.imapAccount) {
+        if (testAccount.imapAccount &&
+            testAccount.testServer.NEEDS_REL_TZ_OFFSET_ADJUSTMENT) {
           var nowTzOffset = testAccount.imapAccount.tzOffset;
           if (nowTzOffset !== thenTzOffset) {
             console.log('current offset', nowTzOffset, 'versus', thenTzOffset,
