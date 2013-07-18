@@ -133,10 +133,12 @@ var TestFakeIMAPServerMixins = {
   },
 
   removeFolder: function(folderPath) {
-    return this._backdoor({
+    var result = this._backdoor({
       command: 'removeFolder',
       name: folderPath
     });
+    if (result !== true)
+      this._logger.folderDeleteFailure(folderPath);
   },
 
   addMessagesToFolder: function(folderPath, messages) {
@@ -188,6 +190,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       backdoor: { request: false, response: false, url: false },
     },
     errors: {
+      folderDeleteFailure: { folderPath: false }
     },
     TEST_ONLY_events: {
     },

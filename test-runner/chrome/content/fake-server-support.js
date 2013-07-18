@@ -423,8 +423,12 @@ console.log('----> responseData:::', responseData);
 
   _imap_backdoor_removeFolder: function(imapDaemon, req) {
     var mailbox = imapDaemon.getMailbox(req.name);
-    if (mailbox)
-      imapDaemon.deleteMailbox(mailbox);
+    // For now it's a sign of an upstream logic bug to request that we remove a
+    // folder that doesn't exist.
+    if (!mailbox)
+      return 'no-such-folder';
+    imapDaemon.deleteMailbox(mailbox);
+    return true;
   },
 
   _imap_backdoor_addMessagesToFolder: function(imapDaemon, req, imapHandler) {
@@ -438,6 +442,10 @@ console.log('----> responseData:::', responseData);
         console.error('IMAP fake-server APPEND error:', ex, '\n', ex.stack);
       }
     });
+    // return the total number of messages in the folder now; this is a
+    // debugging aid.
+    var mailbox = imapDaemon.getMailbox(req.name);
+    return mailbox._messages.length;
   },
 
   killActiveServers: function() {

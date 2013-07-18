@@ -2436,6 +2436,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // async process with begin/end, replacing this.
       folderRecreated: {},
 
+      deletionNotified: { count: true },
       sliceDied: { handle: true },
 
       manipulationNotified: {},
