@@ -327,8 +327,8 @@ ActiveSyncFolder.prototype = {
  * Create a new ActiveSync server instance. Currently, this server only supports
  * one user.
  */
-function ActiveSyncServer(startDate) {
-  this.server = new HttpServer();
+function ActiveSyncServer(options) {
+  this.server = new HttpServer(options);
 
   // TODO: get the date from the test helper somehow...
   this._clock = Date.now();
@@ -1175,11 +1175,7 @@ ActiveSyncServer.prototype = {
     }
   },
 
-  _backdoor_getFirstFolderWithType: function(data) {
-    return this.foldersByType[data.type][0];
-  },
-
-  _backdoor_getFirstFolderWithName: function(data) {
+  _backdoor_getFolderByPath: function(data) {
     return this.findFolderByName(data.name);
   },
 
@@ -1207,6 +1203,16 @@ ActiveSyncServer.prototype = {
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.messages);
+  },
+
+  _backdoor_getMessagesInFolder: function(data) {
+    let folder = this._findFolderById(data.folderId);
+    return this.messages.map(function(msg) {
+      return {
+        date: msg.date,
+        subject: msg.subject
+      };
+    });
   },
 
   _backdoor_removeMessageById: function(data) {

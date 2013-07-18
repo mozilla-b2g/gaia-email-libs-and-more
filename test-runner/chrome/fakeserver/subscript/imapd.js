@@ -407,6 +407,13 @@ imapMessage.prototype = {
   getPartHeaders: function (partNum) {
     return this._partMap[partNum][1];
   },
+  getHeader: function(headerName) {
+    var headers = this._partMap['1$'][1];
+    headerName = headerName.toLowerCase();
+    if (headers.has(headerName))
+      return headers.get(headerName)[0];
+    return null;
+  },
   getPartBody: function (partNum) {
     // The part number situation is a little confusing to me right now.
     // Basically, it appears the parser is using libmime-style part numbers

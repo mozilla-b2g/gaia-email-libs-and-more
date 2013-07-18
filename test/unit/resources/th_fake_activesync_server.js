@@ -98,19 +98,23 @@ var TestActiveSyncServerMixins = {
       console.error('Problem contacting backdoor at:', this.serverBaseUrl);
       throw ex;
     }
-    return xhr.response ? JSON.parse(xhr.response) : null;
-  },
-
-  getFirstFolderWithType: function(folderType) {
-    return this._backdoor({
-      command: 'getFirstFolderWithType',
-      type: folderType
-    });
+    var response = xhr.response || null;
+    try {
+      if (response)
+        response = JSON.parse(response);
+    }
+    catch (ex) {
+      console.error('JSON parsing problem!');
+      this._logger.backdoorError(request, response, this.backdoorUrl);
+      return null;
+    }
+    this._logger.backdoor(request, response, this.backdoorUrl);
+    return response;
   },
 
   getFolderByPath: function(folderPath) {
     return this._backdoor({
-      command: 'getFirstFolderWithName',
+      command: 'getFolderByPath',
       name: folderPath
     });
   },
@@ -126,16 +130,16 @@ var TestActiveSyncServerMixins = {
   },
 
   removeFolder: function(serverFolderInfo) {
-    // Make the account forget about the folder, do generate notifications so
-    // nothing weird happens to our slices.
-    this.testAccount._deletedFolder(serverFolderInfo.id, false);
+    // ActiveSync will hear about this deletion when it triggers syncFolderList
+    // next.  Which in a remove-then-add idiom happens immediately after this.
+    // But the real point is we don't need to delete the folder info locally.
     return this._backdoor({
       command: 'removeFolder',
       folderId: serverFolderInfo.id
     });
   },
 
-  addMessagesToFolder: function(folderId, messages) {
+  addMessagesToFolder: function(serverFolderInfo, messages) {
     // We need to clean the passed-in messages to something the fake server
     // understands.
     var cleanedMessages = messages.map(function(message) {
@@ -172,15 +176,22 @@ var TestActiveSyncServerMixins = {
 
     return this._backdoor({
       command: 'addMessagesToFolder',
-      folderId: folderId,
+      folderId: serverFolderInfo.id,
       messages: cleanedMessages
     });
   },
 
-  removeMessageById: function(folderId, messageId) {
+  getMessagesInFolder: function(serverFolderInfo) {
+    return this._backdoor({
+      command: 'getMessagesInFolder',
+      folderId: serverFolderInfo.id
+    });
+  },
+
+  removeMessageById: function(serverFolderInfo, messageId) {
     return this._backdoor({
       command: 'removeMessageById',
-      folderId: folderId,
+      folderId: serverFolderInfo.id,
       messageId: messageId
     });
   },
@@ -200,9 +211,11 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       request: { method: false, path: false, headers: false },
       requestBody: { },
       response: { status: false, headers: false },
+
+      backdoor: { request: false, response: false, url: false },
     },
     errors: {
-      responseError: { err: false },
+      backdoorError: { request: false, response: false, url: false },
     },
     // I am putting these under TEST_ONLY_ as a hack to get these displayed
     // differently since they are walls of text.

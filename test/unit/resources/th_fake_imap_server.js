@@ -105,17 +105,18 @@ var TestFakeIMAPServerMixins = {
     var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
     xhr.open('POST', this.backdoorUrl, false);
     xhr.send(JSON.stringify(request));
-    var response = xhr.response ? JSON.parse(xhr.response) : null;
+    var response = xhr.response || null;
+    try {
+      if (response)
+        response = JSON.parse(response);
+    }
+    catch (ex) {
+      console.error('JSON parsing problem!');
+      this._logger.backdoorError(request, response, this.backdoorUrl);
+      return null;
+    }
     this._logger.backdoor(request, response, this.backdoorUrl);
     return response;
-  },
-
-  // => folderPath or falsey
-  getFirstFolderWithType: function(folderType) {
-    return this._backdoor({
-      command: 'getFirstFolderWithType',
-      type: folderType
-    });
   },
 
   // => folderPath or falsey
@@ -180,6 +181,17 @@ var TestFakeIMAPServerMixins = {
       messages: transformedMessages
     });
   },
+
+  /**
+   * Return a list of the messages currently in the given folder, where each
+   * messages is characterized by { date, subject }.
+   */
+  getMessagesInFolder: function(folderPath) {
+    return this._backdoor({
+      command: 'getMessagesInFolder',
+      name: folderPath
+    });
+  },
 };
 
 
@@ -196,6 +208,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       backdoor: { request: false, response: false, url: false },
     },
     errors: {
+      backdoorError: { request: false, response: false, url: false },
+
       folderDeleteFailure: { folderPath: false }
     },
     TEST_ONLY_events: {

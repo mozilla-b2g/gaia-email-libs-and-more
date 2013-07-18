@@ -240,7 +240,7 @@ function makeSMTPServer(creds) {
 
 function makeActiveSyncServer(creds, logToDump) {
   createActiveSyncSandbox();
-  var server = new activesyncSandbox.ActiveSyncServer();
+  var server = new activesyncSandbox.ActiveSyncServer({ debug: false });
   server.start(0);
 
   var httpServer = server.server;
@@ -402,11 +402,6 @@ console.log('----> responseData:::', responseData);
     return responseData;
   },
 
-  _imap_backdoor_getFirstFolderWithType: function(imapDaemon, req) {
-    console.error('getFirstFolderWithType is currently unsupported here');
-    throw new Error('not yet supported');
-  },
-
   _imap_backdoor_getFolderByPath: function(imapDaemon, req) {
     var mailbox = imapDaemon.getMailbox(req.name);
     if (!mailbox)
@@ -446,6 +441,17 @@ console.log('----> responseData:::', responseData);
     // debugging aid.
     var mailbox = imapDaemon.getMailbox(req.name);
     return mailbox._messages.length;
+  },
+
+  _imap_backdoor_getMessagesInFolder: function(imapDaemon, req, imapHandler) {
+    var mailbox = imapDaemon.getMailbox(req.name);
+    var messages = mailbox._messages.map(function(imapMessage) {
+      return {
+        date: imapMessage.date,
+        subject: imapMessage.getHeader('subject')
+      };
+    });
+    return messages;
   },
 
   killActiveServers: function() {

@@ -74,14 +74,9 @@ TD.commonCase('deleting headers midflight', function(T, RT) {
   });
 
   T.group('cleanup');
-
-  testAccount.do_createTestFolder(
-    'test_mutation_midflight_deletion',
-    { count: 0, age_incr: { days: 1 } });
-
   testAccount.do_closeFolderView(folderView);
+  // we must do this to ensure the operation's success state gets persisted
   testUniverse.do_saveState();
-  testUniverse.do_shutdown();
 });
 
 TD.commonCase('mutate flags', function(T, RT) {

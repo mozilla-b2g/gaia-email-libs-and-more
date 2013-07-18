@@ -913,7 +913,8 @@ var TestCommonAccountMixins = {
                                         folderName);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName);
 
-    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
+    this.T.convenienceSetup('delete test folder', testFolder,
+                            'if it exists',
                             function() {
       var existingFolder = self.testServer.getFolderByPath(folderName);
       if (!existingFolder)
@@ -929,7 +930,8 @@ var TestCommonAccountMixins = {
       self.testServer.removeFolder(existingFolder);
     });
 
-    this.T.convenienceSetup(self.eImapAccount, 'create test folder', testFolder,
+    this.T.convenienceSetup(this.eFolderAccount, 'create test folder',
+                            testFolder,
                             function(){
 
       testFolder.serverFolder = self.testServer.addFolder(folderName,
@@ -1105,7 +1107,8 @@ var TestCommonAccountMixins = {
 
   /**
    * Use a folder that should already exist because of a prior test step or
-   * because it's a special folder that should already exist on the server.
+   * because it's a special folder that should already exist on the server,
+   * identifying the folder by name.
    */
   do_useExistingFolder: function(folderName, suffix, oldFolder) {
     var self = this,
@@ -1127,14 +1130,12 @@ var TestCommonAccountMixins = {
         testFolder.initialSynced = oldFolder.initialSynced;
       }
       else {
-        // XXX blindly propagating this from activesync variant for de-dupe
-        // right now, but I'm not sure this is correct.  I think the idea here
-        // was to use a folder that's already known to the back-end but to
-        // expose it to our testing layer (which otherwise only knows how to
-        // blow away existing folders.)
-        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
-          folderName);
-        testFolder.serverMessages = []; // XXX: We should try to fill this in
+        // Establish a testing layer linkage.  In order to manipulate the
+        // folder further we need a serverFolder handle, and our expectation
+        // logic needs to know the messages already present on the server.
+        testFolder.serverFolder = self.testServer.getFolderByPath(folderName);
+        testFolder.serverMessages =
+          self.testServer.getMessagesInFolder(testFolder.serverFolder);
       }
 
       testFolder.connActor.__attachToLogger(
@@ -1145,6 +1146,11 @@ var TestCommonAccountMixins = {
     return testFolder;
   },
 
+  /**
+   * Use a folder that should already exist because of a prior test step or
+   * because it's a special folder that should already exist on the server,
+   * identifying the folder by type.
+   */
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
         folderName = folderType + suffix,
@@ -1165,15 +1171,15 @@ var TestCommonAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
-      else {
-        // XXX blindly propagating this from activesync variant for de-dupe
-        // right now, but I'm not sure this is correct.  I think the idea here
-        // was to use a folder that's already known to the back-end but to
-        // expose it to our testing layer (which otherwise only knows how to
-        // blow away existing folders.)
-        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
-          folderType);
-        testFolder.serverMessages = []; // XXX: We should try to fill this in
+      // localdrafts does not exist on the server; don't bother the server!
+      else if (folderType !== 'localdrafts') {
+        // Establish a testing layer linkage.  In order to manipulate the
+        // folder further we need a serverFolder handle, and our expectation
+        // logic needs to know the messages already present on the server.
+        testFolder.serverFolder = self.testServer.getFolderByPath(
+          testFolder.mailFolder.path);
+        testFolder.serverMessages =
+          self.testServer.getMessagesInFolder(testFolder.serverFolder);
       }
 
       testFolder.connActor.__attachToLogger(

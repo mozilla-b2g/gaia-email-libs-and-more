@@ -351,8 +351,13 @@ function printObj(o, showMembers)
 /**
  * Instantiates a new HTTP server.
  */
-function nsHttpServer()
+function nsHttpServer(options)
 {
+  if (options) {
+    if (options.hasOwnProperty('debug'))
+      DEBUG = options.debug;
+  }
+
   if (!gThreadManager)
     gThreadManager = Cc["@mozilla.org/thread-manager;1"].getService();
 
