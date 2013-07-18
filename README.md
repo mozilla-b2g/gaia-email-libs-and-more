@@ -121,11 +121,17 @@ INTERNALDATE value, which makes it useless for many synchronization unit tests.
 For more details on setting up a Dovecot server, see
 [test/dovecot.md](test/dovecot.md).
 
+### ActiveSync ###
+
+The ActiveSync tests like to run against fake servers.
+You could use `make activesync-server` to start the server.
+
 ### Setup ###
 
 Create the symlink described above for xulrunner:
 ```
 ln -s /path/to/b2g-desktop b2g-bindir-symlink
+# You could download it in http://ftp.mozilla.org/pub/mozilla.org/b2g/nightly/latest-mozilla-b2g18/
 ```
 
 On OSX: `/path/to/b2g-desktop` will be something like:
@@ -134,7 +140,27 @@ On OSX: `/path/to/b2g-desktop` will be something like:
 /Applications/B2G.app/Contents/MacOS/
 ```
 
+Build the B2G desktop client.
+For more details, see https://developer.mozilla.org/en-US/docs/Mozilla/Firefox_OS/Using_the_B2G_desktop_client
+
+After build the B2G, create these below symlinks:
+```
+ln -s /path/to/mozilla-central b2g-srcdir-symlink
+```
+
+```
+ln -s /path/to/build b2g-builddir-symlink
+```
+
+Create the symlink for arbitrarypushlog:
+```
+ln -s /path/to/arbitrarypushlog arbpl-dir-symlink
+```
+
 ### Running the Tests ###
+
+Before you run the tests, make sure that the Dovecot/Postfix is running for IMAP tests and
+ActiveSync server is running for ActiveSync tests.
 
 To run a single test, in this case, test_imap_general.js which is located at
 test/unit/test_imap_general.js in the repo:
@@ -164,6 +190,7 @@ https://github.com/asutherland/arbitrarypushlog
 The easiest and most fun way to use ArbPL is to run the server.  This is because
 the UI is able to use Socket.IO to update as new test runs come in.  To be
 able to do this, the setup process looks generally like this:
+(And make sure your nodejs version is between v0.6 and v0.8.)
 
 ```
 sudo apt-get install graphviz
