@@ -99,7 +99,7 @@ var TestRealIMAPServerMixins = {
       allFoldersSlice.onsplice = null;
       self._logger.deletionNotified(howMany);
     };
-    this.universe.accounts[0].deleteFolder(folderMeta.id);
+    this.testAccount.account.deleteFolder(folderMeta.id);
   },
 
   addMessagesToFolder: function(testFolder, messages) {

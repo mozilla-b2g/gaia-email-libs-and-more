@@ -47,6 +47,8 @@ var TestActiveSyncServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakeActiveSyncServers[normName] = true;
 
+    self.testAccount = null;
+
     self.T.convenienceSetup(setupVerb, self,
                             function() {
       self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
@@ -82,6 +84,7 @@ var TestActiveSyncServerMixins = {
   },
 
   finishSetup: function(testAccount) {
+    this.testAccount = testAccount;
   },
 
   _backdoor: function(request) {
@@ -123,6 +126,9 @@ var TestActiveSyncServerMixins = {
   },
 
   removeFolder: function(serverFolderInfo) {
+    // Make the account forget about the folder, do generate notifications so
+    // nothing weird happens to our slices.
+    this.testAccount._deletedFolder(serverFolderInfo.id, false);
     return this._backdoor({
       command: 'removeFolder',
       folderId: serverFolderInfo.id

@@ -60,6 +60,8 @@ var TestFakeIMAPServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakeIMAPServers[normName] = true;
 
+    self.testAccount = null;
+
     self.T.convenienceSetup(setupVerb, self,
                             function() {
       self.__attachToLogger(LOGFAB.testFakeIMAPServer(self, null, self.__name));
@@ -96,6 +98,7 @@ var TestFakeIMAPServerMixins = {
   },
 
   finishSetup: function(testAccount) {
+    this.testAccount = testAccount;
   },
 
   _backdoor: function(request, explicitPath) {
@@ -133,6 +136,9 @@ var TestFakeIMAPServerMixins = {
   },
 
   removeFolder: function(folderPath) {
+    var folderMeta = this.testAccount.imapAccount.getFolderByPath(folderPath);
+    // do generate notifications; don't want the slice to get out of date
+    this.testAccount.imapAccount._forgetFolder(folderMeta.id, false);
     var result = this._backdoor({
       command: 'removeFolder',
       name: folderPath

@@ -901,7 +901,10 @@ var TestCommonAccountMixins = {
   },
 
   /**
-   * Create a folder and populate it with a set of messages.
+   * Create a folder and populate it with a set of messages.  If the folder
+   * already exists, remove the folder.  We should already have run
+   * syncFolderList by the time this step runs, so we will locally know about
+   * the folder and the local folder's state will have to be destroyed.
    */
   do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
     var self = this,
@@ -915,6 +918,14 @@ var TestCommonAccountMixins = {
       var existingFolder = self.testServer.getFolderByPath(folderName);
       if (!existingFolder)
         return;
+
+      // The contract for this is that our helper here will ensure that our
+      // account has forgotten about the folder too.  This is because for real
+      // IMAP we use an actual job/operation to remove the folder.  For our
+      // fake implementations we use a backdoor to fast-path the removal of
+      // the folder.  We could then trigger a syncFolderList, but the theory
+      // is that is both slower and generates more potentially distracting
+      // debug, but I don't really feel strongly about how we're handling this.
       self.testServer.removeFolder(existingFolder);
     });
 
@@ -1354,6 +1365,8 @@ var TestImapAccountMixins = {
       var receiveConnInfo = self.compositeAccount.accountDef.receiveConnInfo;
       self.imapHost = receiveConnInfo.hostname;
       self.imapPort = receiveConnInfo.port;
+
+      self.testServer.finishSetup(self);
     });
   },
 
@@ -2184,6 +2197,8 @@ var TestActiveSyncAccountMixins = {
       var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
       self.folderAccount = self.account = self.universe.accounts[idxAccount];
       self.accountId = self.account.id;
+
+      self.testServer.finishSetup(self);
     });
   },
 
@@ -2242,6 +2257,8 @@ var TestActiveSyncAccountMixins = {
           if (!self.account)
             do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
                      ' (id: ' + self.accountId + ')');
+
+          self.testServer.finishSetup(self);
 
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
