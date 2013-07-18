@@ -39,8 +39,8 @@ var TD = exports.TD = $tc.defineTestsFor(
 
 TD.commonCase('deleting headers midflight', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'UDel'),
-      testAccount = T.actor('testAccount', 'ADel', { universe: testUniverse }),
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       numMessages = 2,
       toDelete = {};
 
