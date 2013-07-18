@@ -1424,9 +1424,10 @@ IMAP_RFC3501_handler.prototype = {
       return "NO [TRYCREATE] what mailbox?";
 
     for each (var message in messages) {
-      let newMessage = new imapMessage(message._URI, dest.uidnext++,
+      let newMessage = new imapMessage(message._str, dest.uidnext++,
                                        message.flags);
       newMessage.recent = false;
+      newMessage.date = message.date;
       dest.addMessage(newMessage);
     }
     if (this._daemon.copySleep > 0) {
@@ -1872,9 +1873,10 @@ var IMAP_MOVE_extension = {
       return "NO [TRYCREATE] what mailbox?";
 
     for each (var message in messages) {
-      let newMessage = new imapMessage(message._URI, dest.uidnext++,
+      let newMessage = new imapMessage(message._str, dest.uidnext++,
                                        message.flags);
       newMessage.recent = false;
+      newMessage.date = message.date;
       dest.addMessage(newMessage);
     }
     let mailbox = this._selectedMailbox;
