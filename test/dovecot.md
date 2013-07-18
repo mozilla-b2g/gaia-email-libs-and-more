@@ -23,25 +23,6 @@ To make this work, you'll also have to modify a few config files:
 
   ```
   mail_location = sdbox:~/sdbox
-
-  namespace inbox { # this should already exist; append the contents below
-    mailbox Trash {
-      auto = create # autocreate, but don't autosubscribe
-      special_use = \Trash
-    }
-    mailbox Drafts {
-      auto = subscribe # autocreate, autosubscribe
-      special_use = \Drafts
-    }
-    mailbox Sent {
-      auto = subscribe # autocreate, autosubscribe
-      special_use = \Sent
-    }
-    mailbox Spam {
-      auto = create # autocreate, but don't autosubscribe
-      special_use = \Junk
-    }
-  }
   ```
 
 * in `/etc/dovecont/dovecot.conf`, set the following variables:
@@ -58,3 +39,10 @@ To make this work, you'll also have to modify a few config files:
   mydestination = localhost
   mailbox_command = /usr/lib/dovecot/dovecot-lda -f "$SENDER" -a "$RECIPIENT"
   ```
+
+And remember that after you modify the config files, please restart the servers.
+
+Use Thunderbird to connect the Dovecot server, and create the below folders:
+* Drafts
+* Sent
+* Spam
