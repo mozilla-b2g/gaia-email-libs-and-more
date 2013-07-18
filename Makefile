@@ -1,3 +1,35 @@
+.PHONY: help
+help:
+	@echo "(this is 'make help')"
+	@echo "## BUILDING ##"
+	@echo ""
+	@echo "make build"
+	@echo "  Just build."
+	@echo "make clean"
+	@echo "  Nuke all build byproducts."
+	@echo "make install-into-gaia"
+	@echo "  Clean, build and copy tests into gaia"
+	@echo ""
+	@echo "## FAKE SERVERS (for use by you, not for testing) ##"
+	@echo ""
+	@echo "make imap-server"
+	@echo "  Run the IMAP fake-server"
+	@echo "make activesync-server"
+	@echo "  Run the ActiveSync fake-server"
+	@echo ""
+	@echo "## TESTING ##"
+	@echo ""
+	@echo "make tests"
+	@echo "  Run all tests, do not post results to ArbPL"
+	@echo "make post-tests"
+	@echo "  Run all tests, post results to ArbPL"
+	@echo ""
+	@echo "make one-test SOLO_FILE=test_name.js"
+	@echo "  Run one test file (all variants), do not post results to ArbPL"
+	@echo "make post-one-test SOLO_FILE=test_name.js"
+	@echo "  Run one test file (all variants), post results to ArbPL"
+	@echo ""
+
 # full rsync
 RSYNC=rsync -avL
 # rsync JS files only, ignore jsdoc subdir.
@@ -38,8 +70,6 @@ build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
-PYTHON=python
-B2GSD := b2g-srcdir-symlink
 B2GBD := b2g-builddir-symlink
 ifeq ($(wildcard b2g-bindir-symlink),)
   B2GBIND := $(B2GBD)/dist/bin
@@ -50,7 +80,6 @@ else
 endif
 
 ARBPLD=arbpl-dir-symlink
-PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
 
 # Best effort use RUNMOZ if its available otherwise ignore it.
 RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
@@ -126,5 +155,5 @@ clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
 
-.DEFAULT_GOAL=install-into-gaia
+.DEFAULT_GOAL=help
 .PHONY: build install-into-gaia
