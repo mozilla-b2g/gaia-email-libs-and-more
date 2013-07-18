@@ -911,7 +911,7 @@ MailUniverse.prototype = {
 
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      curTrans = account.saveAccountState(curTrans);
+      curTrans = account.saveAccountState(curTrans, null, 'saveUniverse');
     }
   },
 
@@ -1119,7 +1119,7 @@ MailUniverse.prototype = {
       // This is a suggestion; in the event of high-throughput on operations,
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested)
-        account.saveAccountState();
+        account.saveAccountState(null, null, 'localOp');
     }
 
     if (removeFromServerQueue) {
@@ -1348,7 +1348,7 @@ MailUniverse.prototype = {
       // This is a suggestion; in the event of high-throughput on operations,
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested)
-        account.saveAccountState();
+        account.saveAccountState(null, null, 'serverOp');
     }
 
     if (localQueue.length) {

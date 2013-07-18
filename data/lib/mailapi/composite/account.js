@@ -131,8 +131,8 @@ CompositeAccount.prototype = {
     this._enabled = this._receivePiece.enabled = val;
   },
 
-  saveAccountState: function(reuseTrans) {
-    return this._receivePiece.saveAccountState(reuseTrans);
+  saveAccountState: function(reuseTrans, callback, reason) {
+    return this._receivePiece.saveAccountState(reuseTrans, callback, reason);
   },
 
   /**

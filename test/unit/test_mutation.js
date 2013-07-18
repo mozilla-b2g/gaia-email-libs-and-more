@@ -744,12 +744,13 @@ TD.commonCase('move/trash messages', function(T, RT) {
     moveStarMailHeader.moveMessage(targetFolder.mailFolder);
   });
   T.action('go online, wait for ops to complete', eSync, function() {
+    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
     testAccount.expect_runOp(
       'modtags',
       { local: false, server: true, save: false });
     testAccount.expect_runOp(
       'move',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
 
     testUniverse.pretendToBeOffline(false);
@@ -1027,9 +1028,10 @@ TD.commonCase('trash drafts', function(T, RT) {
   // This was going to be a homestar runner 'balete' reference, but would have
   // proved confusing.
   T.action(testAccount, 'delete', function() {
+    var save = TEST_PARAMS.type === 'imap' ? true : 'both';
     testAccount.expect_runOp(
       'delete',
-      { local: true, server: true, save: true });
+      { local: true, server: true, save: save });
 
     var header = localDraftsView.slice.items[0];
     header.deleteMessage();
