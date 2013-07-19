@@ -41,7 +41,7 @@ TD.commonCase('account persistence', function(T) {
   // rebind to new universe / (loaded) account
   testUniverse = T.actor('testUniverse', 'U2', { old: testUniverse });
   var TA2 = testAccount = T.actor('testAccount', 'A2',
-                        { universe: testUniverse, restored: true });
+                                  { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
   var TF2 = testFolder = testAccount.do_useExistingFolder(
@@ -68,27 +68,24 @@ TD.commonCase('account persistence', function(T) {
   // rebind to new universe / (loaded) account
   var TU3 = testUniverse = T.actor('testUniverse', 'U3', { old: testUniverse });
   var TA3 = testAccount = T.actor('testAccount', 'A3',
-                            { universe: testUniverse, restored: true });
+                                  { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
   var TF3 = testFolder = testAccount.do_useExistingFolder(
                            'test_internals', '#3', testFolder);
+  var TV3 = testAccount.do_openFolderView(
+    'open for mutation', TF3,
+    { count: 6, full: 0, flags: 6, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
 
   T.group('delete messages, sync');
   var deletedHeader;
-  testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
-    deletedHeader = slice.items[0];
-    MailAPI.modifyMessageTags([deletedHeader], ['\\Deleted'], null, 'delete');
-
-    // (this is low-level IMAP Deletion and is just a flag change)
-    for (var i = 0; i < 1; i++) {
-      TA3.expect_runOp('modtags',
-                       { local: false, server: true, save: false });
-    }
-
-    // update our test's idea of what messages exist where.
-    TF3.beAwareOfDeletion(0);
+  T.action('delete messages from', TF3, function() {
+    deletedHeader = TA3.deleteMessagesOnServerButNotLocally(TV3, [0])[0];
   });
+  testAccount.do_closeFolderView(TV3);
+
   testAccount.do_viewFolder(
     're-syncs', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 1 },
@@ -114,33 +111,32 @@ TD.commonCase('account persistence', function(T) {
   var TF4 = testFolder = testAccount.do_useExistingFolder(
                            'test_internals', '#4', testFolder);
 
-  var s0subject, s1subject;
-  testAccount.do_manipulateFolder(testFolder, 'nolocal', function(slice) {
-    s0subject = slice.items[0].subject;
-    slice.items[0].setRead(true);
-    s1subject = slice.items[1].subject;
-    slice.items[1].setStarred(true);
-    for (var i = 0; i < 2; i++) {
-      TA4.expect_runOp('modtags',
-                       { local: false, server: true, save: false });
-    }
-  });
   var TV4 = testAccount.do_openFolderView(
-    're-syncs', testFolder,
+    'sync to check', testFolder,
     { count: 5, full: 0, flags: 5, deleted: 0 },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
-  T.check('check modified message flags', eSync, function() {
-    eSync.expect_namedValue('0:subject', s0subject);
-    eSync.expect_namedValue('0:read', true);
-    eSync.expect_namedValue('1:subject', s1subject);
-    eSync.expect_namedValue('1:starred', true);
 
-    eSync.namedValue('0:subject', TV4.slice.items[0].subject);
-    eSync.namedValue('0:read', TV4.slice.items[0].isRead);
-    eSync.namedValue('1:subject', TV4.slice.items[1].subject);
-    eSync.namedValue('1:starred', TV4.slice.items[1].isStarred);
+  var expectedRefreshChanges = {
+    changes: null,
+    deletions: []
+  };
+  T.action('modify message flags of', testFolder, function() {
+    var read = TA4.modifyMessageFlagsOnServerButNotLocally(
+                 TV4, [0], ['\\Seen'], null)[0];
+    var starred = TA4.modifyMessageFlagsOnServerButNotLocally(
+                    TV4, [1], ['\\Flagged'], null)[0];
+    expectedRefreshChanges.changes = [
+      [read, 'isRead', true],
+      [starred, 'isStarred', true],
+    ];
   });
+  testAccount.do_refreshFolderView(
+    TV4,
+    { count: 5, full: 0, flags: 5, deleted: 0 },
+    expectedRefreshChanges,
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
   testAccount.do_closeFolderView(TV4);
 
   T.group('save account state');

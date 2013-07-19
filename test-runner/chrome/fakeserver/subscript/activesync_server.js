@@ -349,8 +349,8 @@ function ActiveSyncServer(options) {
   this._folderSyncStates = {};
 
   this.addFolder('Inbox', folderType.DefaultInbox);
-  this.addFolder('Sent Mail', folderType.DefaultSent, null, {count: 5});
-  this.addFolder('Trash', folderType.DefaultDeleted, null, {count: 0});
+  this.addFolder('Sent Mail', folderType.DefaultSent);
+  this.addFolder('Trash', folderType.DefaultDeleted);
 
   this.logRequest = null;
   this.logResponse = null;
@@ -399,8 +399,7 @@ ActiveSyncServer.prototype = {
    * @param type (optional) the folder's type, as an enum from
    *        FolderHierarchy.Enums.Type
    * @param parentId (optional) the id of the folder to contain this folder
-   * @param args (optional) arguments to pass to makeMessages() to generate
-   *        initial messages for this folder
+   * @param args (optional)
    */
   addFolder: function(name, type, parentId, args) {
     if (type && !this._folderTypes.hasOwnProperty(type))
@@ -1207,7 +1206,7 @@ ActiveSyncServer.prototype = {
 
   _backdoor_getMessagesInFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
-    return this.messages.map(function(msg) {
+    return folder.messages.map(function(msg) {
       return {
         date: msg.date,
         subject: msg.subject
@@ -1215,8 +1214,10 @@ ActiveSyncServer.prototype = {
     });
   },
 
-  _backdoor_removeMessageById: function(data) {
+  _backdoor_removeMessagesByServerId: function(data) {
     let folder = this._findFolderById(data.folderId);
-    folder.removeMessageById(data.messageId);
+    data.serverIds.forEach(function(serverId) {
+      folder.removeMessageById(serverId);
+    });
   },
 };

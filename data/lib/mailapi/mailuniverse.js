@@ -274,7 +274,7 @@ var MAX_LOG_BACKLOG = 30;
  *   }
  * ]]
  */
-function MailUniverse(callAfterBigBang, testOptions) {
+function MailUniverse(callAfterBigBang, online, testOptions) {
   /** @listof[Account] */
   this.accounts = [];
   this._accountsById = {};
@@ -330,7 +330,7 @@ function MailUniverse(callAfterBigBang, testOptions) {
   // Events for online/offline are now pushed into us externally.  They need
   // to be bridged from the main thread anyways, so no point faking the event
   // listener.
-  this._onConnectionChange();
+  this._onConnectionChange(online);
 
   /**
    * A setTimeout handle for when we next dump deferred operations back onto

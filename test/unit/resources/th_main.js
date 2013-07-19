@@ -68,8 +68,11 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
-    var consoleLogger = LOGFAB.console(null, null, self.__name);
-    makeConsoleForLogger(consoleLogger);
+    // no need to keep creating consoles if one already got created...
+    if (!opts || !opts.old) {
+      var consoleLogger = LOGFAB.console(null, null, self.__name);
+      makeConsoleForLogger(consoleLogger);
+    }
 
     if (!opts)
       opts = {};
@@ -229,6 +232,7 @@ var TestUniverseMixins = {
             self.MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
         },
+        self.fakeNavigator.onLine,
         testOpts);
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
@@ -310,6 +314,9 @@ var TestUniverseMixins = {
   },
 
   cleanShutdown: function() {
+    if (this.universe === null)
+      return;
+
     for (var i = 0; i < this.__testAccounts.length; i++) {
       this.__testAccounts[i].expect_shutdown();
     }
@@ -317,6 +324,7 @@ var TestUniverseMixins = {
 
     this.universe.shutdown(function() {
       this._logger.cleanShutdown();
+      this.universe = null;
     }.bind(this));
   },
 
@@ -380,11 +388,12 @@ var TestUniverseMixins = {
   do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {
     var self = this;
     this.T.action(this, 'kill operations for', testAccount, function() {
-      self.expect_killedOperations(count);
+      self.expect_killedOperations(opsType, count);
 
       var ops = self.universe._opsByAccount[testAccount.accountId][opsType];
       var killed = ops.splice(0, ops.length);
-      self._logger.killedOperations(killed.length, killed);
+      self._logger.killedOperations(opsType, killed.length, killed,
+                                    ops);
       if (saveTo)
         saveTo.ops = killed;
     });
@@ -582,6 +591,7 @@ var TestCommonAccountMixins = {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
+    // offset of the slice into testFolder.knownMessages
     viewThing.offset = 0;
     viewThing.initialSynced = false;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
@@ -595,6 +605,32 @@ var TestCommonAccountMixins = {
    * and keep it open and detect changes, etc.
    *
    * @args[
+   *   @param[expectedValues @listof[@dict[
+   *     @key[count Number]{
+   *       The number of messages that will be returned by the sync.
+   *     }
+   *     @key[full Number]{
+   *       The number of new messages that will be retrieved.
+   *     }
+   *     @key[flags Number]{
+   *       The number of IMAP flag updates that will be received.  This is not
+   *       relevant for ActiveSync (see changed).  If we start doing fancier
+   *       CONDSTORE/QRESYNC things for IMAP, this may not be relevant in those
+   *       cases.
+   *     }
+   *     @key[changed Number]{
+   *       The number of changed messages we will hear about.  Currently only
+   *       relevant for ActiveSync.
+   *     }
+   *     @key[deleted Number]{
+   *       The number of deletions we will hear about/infer.
+   *     }
+   *   ]]]{
+   *     A dict should exist for each (date-range) sync that is a part of the
+   *     over-arching sync associated with this request.  If there is only one
+   *     dict, you don't need to wrap it in an array.  For ActiveSync, we
+   *     always only perceive one sync.  For IMAP there can be multiple.
+   *   }
    *   @param[extraFlags @dict[
    *     @key[expectFunc #:optional Function]{
    *       A function to invoke inside our action step after we have expected
@@ -629,7 +665,8 @@ var TestCommonAccountMixins = {
   do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
                           extraFlags, _saveToThing) {
     var self = this,
-        isFailure = checkFlagDefault(extraFlags, 'failure', false);
+        isFailure = checkFlagDefault(extraFlags, 'failure', false),
+        syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false);
     var testStep = this.T.action(this, desc, testFolder, 'using',
                                  testFolder.connActor, function() {
       self._expect_storage_mutexed(testFolder, 'sync', extraFlags);
@@ -667,6 +704,18 @@ var TestCommonAccountMixins = {
                                 offset: 0, slice: null },
                             expectedValues, extraFlags, null);
       if (expectedValues) {
+        if (syncblocked === 'resolve') {
+          self.expect_syncblocked();
+          // XXX these extra checks in here ideally wouldn't go here, but this
+          // is an easy way to make things go without too many extra headaches.
+          self.eAccount.expect_runOp_end('do', 'syncFolderList', null);
+          self.eAccount.expect_saveAccountState();
+          self.eAccount.expect_saveAccountState();
+          testFolder.storageActor.expect_mutexedCall_begin('sync');
+          testFolder.storageActor.expect_syncedToDawnOfTime();
+          testFolder.storageActor.expect_mutexedCall_end('sync');
+        }
+
         // Generate overall count expectation and first and last message
         // expectations by subject.
         self.expect_messagesReported(totalExpected);
@@ -684,8 +733,14 @@ var TestCommonAccountMixins = {
         }
         self.expect_sliceFlags.apply(self, callArgs);
       }
-      else {
+      // If we don't have specific expectations, we still want to wait for the
+      // sync to complete.  The exception is that if a syncblocked is reported,
+      // then we just expect that...
+      else if (!syncblocked) {
         self.expect_viewWithoutExpectationsCompleted();
+      }
+      else {
+        self.expect_syncblocked();
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -693,26 +748,34 @@ var TestCommonAccountMixins = {
         _saveToThing.slice = slice;
         testFolder._liveSliceThings.push(_saveToThing);
       }
-      slice.oncomplete = function(newEmailCount) {
-        if (expectedValues) {
-          self._logger.messagesReported(slice.items.length);
-          if (totalExpected) {
-            self._logger.messageSubjects(
-              slice.items.map(function(x) { return x.subject; }));
+      if (syncblocked) {
+        slice.onstatus = function(status) {
+          if (status === 'syncblocked')
+            self._logger.syncblocked();
+        };
+      }
+      if (syncblocked !== 'bail') {
+        slice.oncomplete = function(newEmailCount) {
+          if (expectedValues) {
+            self._logger.messagesReported(slice.items.length);
+            if (totalExpected) {
+              self._logger.messageSubjects(
+                slice.items.map(function(x) { return x.subject; }));
+            }
+            self._logger.sliceFlags(
+              slice.atTop, slice.atBottom,
+              slice.userCanGrowUpwards,
+              slice.userCanGrowDownwards, slice.status,
+              newEmailCount === undefined ? null : newEmailCount);
+            if (!_saveToThing) {
+              slice.die();
+            }
           }
-          self._logger.sliceFlags(
-            slice.atTop, slice.atBottom,
-            slice.userCanGrowUpwards,
-            slice.userCanGrowDownwards, slice.status,
-            newEmailCount === undefined ? null : newEmailCount);
-          if (!_saveToThing) {
-            slice.die();
+          else {
+            self._logger.viewWithoutExpectationsCompleted();
           }
-        }
-        else {
-          self._logger.viewWithoutExpectationsCompleted();
-        }
-      };
+        };
+      }
     });
     // (varies with N)
     testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
@@ -757,6 +820,127 @@ var TestCommonAccountMixins = {
 
       viewThing.slice.refresh();
     });
+  },
+
+  /**
+   * Alter the flag-equivalents on the server without affecting our local state.
+   */
+  modifyMessageFlagsOnServerButNotLocally: function(viewThing, indices,
+                                                    addFlags, delFlags) {
+    var messages = [];
+    var testFolder = viewThing.testFolder;
+    indices.forEach(function(index) {
+      messages.push(viewThing.slice.items[index]);
+    });
+    this.testServer.modifyMessagesInFolder(
+      testFolder.serverFolder, messages, addFlags, delFlags);
+    return messages;
+  },
+
+  /**
+   * Cause a deletion of the given mail headers to occur on the server without
+   * our local state being aware of the changes.  You will need to trigger a
+   * refresh for us to see the changes.  (Our model of the server's state,
+   * however, will be updated.)
+   *
+   * For fake servers, this is handled by using our backdoor to manipulate the
+   * server directly.  For real servers, this is handled by using our built-in
+   * manipulation functions without running the local manipulation.
+   *
+   * @args[
+   *   @param[viewThing folderView]
+   *   @param[indices @listof[Number]]{
+   *     The indices of the messages to delete in the slice.
+   *   }
+   * ]
+   */
+  deleteMessagesOnServerButNotLocally: function(viewThing, indices) {
+    var messages = [];
+    // sort the indices in descending order so the splices don't mess up
+    indices.sort(function(a, b) { return b - a; });
+    // - folderView
+    var testFolder = viewThing.testFolder;
+    indices.forEach(function(index) {
+      messages.push(viewThing.slice.items[index]);
+      var knownMessage =
+            testFolder.knownMessages[viewThing.offset + index];
+      var serverIdx = testFolder.serverMessages.indexOf(knownMessage);
+      testFolder.serverDeleted.push(knownMessage);
+      // XXX the edge cases are concerning, but this logic path is a fallback
+      // for a very bounded set of cases, so problems will probably just
+      // be dealt with by adding more messages/deleting different messages.
+      testFolder.serverDeleted.push({
+        below: testFolder.serverMessages[serverIdx - 1],
+        above: testFolder.serverMessages[serverIdx + 1]
+      });
+      testFolder.serverMessages.splice(serverIdx, 1);
+    });
+    this.testServer.deleteMessagesFromFolder(testFolder.serverFolder,
+                                             messages);
+    return messages;
+  },
+
+  /**
+   * Delete one or more messages on the server given a viewThing, then trigger
+   * a synchronization so we hear about the deletion.
+   *
+   * You would want to do this to:
+   * - Cause a message header to disappear without a forwarding address.  When
+   *   we delete a message and move it to the trash or move a message between
+   *   folders, we locally track the movement of the message so that future
+   *   references to it can be resolved.  Using this method does not result
+   *   in those entries being created because the servers don't tell us these
+   *   things.  (At least they don't right now; they might in the future; in
+   *   which case we might need to change the name of this method to better
+   *   reflect its intended semantics.
+   * - Simulate a move or deletion on the server triggered by another client.
+   *
+   * Under the hood this is just a helper step that calls
+   * deleteMessagesOnServerButNotLocally and then calls do_refreshFolderView
+   * expecting the given number of deletions to occur.
+   */
+  do_deleteMessagesOnServerThenRefresh: function(viewThing, indices) {
+    var self = this;
+    // apart from viewThing the arguments to do_refreshFolderView aren't
+    // actually used until step time, so it's fine to compute the values in
+    // our first step.
+    var expectedValues = {}, checkExpected = {}, expectedFlags = {},
+        extraFlags = {};
+
+    this.T.action('delete ' + indices.length + ' headers on server',
+                  function() {
+      var sliceMessages = viewThing.slice.items;
+      var mailHeaders = [];
+      indices.forEach(function(index) {
+        mailHeaders.push(sliceMessages[index]);
+      });
+      var preCount = sliceMessages.length,
+          postCount = preCount - indices.length;
+      expectedValues.count = postCount;
+      expectedValues.full = 0;
+      expectedValues.flags = postCount;
+      expectedValues.changed = 0;
+      expectedValues.deleted = indices.length;
+
+      checkExpected.additions = [];
+      checkExpected.changes = [];
+      checkExpected.deletions = mailHeaders;
+
+      // flags should not change
+      expectedFlags.top = viewThing.slice.atTop;
+      expectedFlags.bottom = viewThing.slice.atBottom;
+      expectedFlags.grow = viewThing.slice.userCanGrowDownwards;
+
+      // We are going to be syncing to the dawn of time if our refresh range
+      // covers the most recent message.
+      var serverMessages = viewThing.testFolder.serverMessages;
+      if (expectedFlags.top)
+        extraFlags.syncedToDawnOfTime = true;
+
+      self.deleteMessagesOnServerButNotLocally(viewThing, indices);
+    });
+    this.do_refreshFolderView(
+      viewThing, expectedValues, checkExpected, expectedFlags, extraFlags);
   },
 
   /**
@@ -838,11 +1022,21 @@ var TestCommonAccountMixins = {
   _expect_storage_mutexed: function(testFolder, syncType, extraFlags) {
     var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
+
+    // If we are going to re-create the folder during this call, we do not
+    // expect the mutex to get closed out, and we do not expect the dawn-of-time
+    // to happen.
+    var recreateFolder = checkFlagDefault(extraFlags, 'recreateFolder', false);
+    // Syncblocked bails similarly
+    var syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false);
+
     storageActor.expect_mutexedCall_begin(syncType);
     // activesync always syncs the entire folder
     if (this.type === 'activesync') {
       // activesync only syncs when online and when it's a real folder
-      if (this.universe.online && testFolder.mailFolder.type !== 'localdrafts')
+      if (this.universe.online &&
+          testFolder.mailFolder.type !== 'localdrafts' &&
+          !recreateFolder && !syncblocked)
         storageActor.expect_syncedToDawnOfTime();
     }
     else {
@@ -860,7 +1054,8 @@ var TestCommonAccountMixins = {
           break;
       }
     }
-    storageActor.expect_mutexedCall_end(syncType);
+    if (!recreateFolder)
+      storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
     // all of these manipulations are interesting, but they're new and we haven't
@@ -1019,6 +1214,14 @@ var TestCommonAccountMixins = {
    * Locally delete the message like we heard it was deleted on the server; but
    * we won't have actually heard it from the server.  We do this outside a
    * mutex because we're a unit test hack and nothing should be going on.
+   *
+   * This should *only* be used when your test involves jobs/operations where
+   * you want the header gone and we are currently offline, presumably because
+   * you are testing that we don't explode if we encounter a missing header.
+   *
+   * If your test is currently in the online state and/or you won't race the
+   * thing you are testing (or suffer from massive lack of realism), you should
+   * use do_deleteMessagesOnServerThenRefresh instead of this method.
    */
   fakeServerMessageDeletion: function(mailHeader) {
     var self = this;
@@ -1031,7 +1234,6 @@ var TestCommonAccountMixins = {
 
     var folderStorage =
           this.universe.getFolderStorageForMessageSuid(mailHeader.id);
-
 
     folderStorage.getMessageHeader(
       suid, dateMS,
@@ -1381,28 +1583,6 @@ var TestFolderMixins = {
     else
       return [0x1, bodyPart.body];
   },
-
-  /**
-   * Used by a unit test to tell us that the (server) message at the given index
-   * is being deleted.  For IMAP, this is accomplished by the IMAP code directly
-   * manipulating flags via using modifyMessageTags, expecting the operation,
-   * then expecting the operation.  We should then be called to be aware of
-   * the change.
-   *
-   * For ActiveSync, a fake-server is currently assumed, and the manipulation
-   * occurs via testFolder.serverFolder.removeMessageById().
-   *
-   * Ideally, in the future, we might just provide a helper method to
-   * bundle all of that up into one call to manipulate the server state, be it
-   * fake-server or real server.  The ActiveSync way is probably what we should
-   * normalize to.
-   */
-  beAwareOfDeletion: function(index) {
-    this.serverDeleted.push(this.serverMessages[index]);
-    this.serverDeleted.push({ below: this.serverMessages[index - 1],
-                              above: this.serverMessages[index + 1] });
-    this.serverMessages.splice(index, 1);
-  },
 };
 
 var TestImapAccountMixins = {
@@ -1601,73 +1781,6 @@ var TestImapAccountMixins = {
           });
         });
     }).timeoutMS = 10000; // there can be slow startups...
-  },
-
-  /**
-   * Provide a context in which to manipulate the contents of a folder by
-   * getting a view of the messages in the folder, calling a user function
-   * to trigger manipulations, then waiting for the mutation queue to get
-   * drained.
-   */
-  do_manipulateFolder: function(testFolder, noLocal, manipFunc) {
-    var self = this;
-    this.T.action(this, 'manipulates folder', testFolder, function() {
-      if (noLocal)
-        self.universe._testModeDisablingLocalOps = true;
-      self.expect_manipulationNotified();
-      self.RT.reportActiveActorThisStep(self.eImapAccount);
-      if (self.universe.online) {
-        // Turn on set matching since connection reuse and account saving are
-        // not strongly ordered, nor do they need to be.
-        self.eImapAccount.expectUseSetMatching();
-        self.help_expect_connection();
-        self.expect_saveState();
-      }
-      self.eImapAccount.asyncEventsAreComingDoNotResolve();
-
-      // XXX we want to put the system in a mode where the manipulations are
-      // not played locally.
-      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      slice.oncomplete = function() {
-        manipFunc(slice);
-        if (self.universe.online)
-          self.eImapAccount.expect_releaseConnection();
-        self.eImapAccount.asyncEventsAllDoneDoResolve();
-
-        // Only wait on the operations completing after we are sure the bridge
-        // has heard about them.
-        self.MailAPI.ping(function() {
-          self.universe.waitForAccountOps(self.universe.accounts[0], function(){
-            // Only kill the slice after the ops complete so the slice stays
-            // alive and so there is less connection reuse flapping.
-            slice.ondead = function() {
-              self._logger.manipulationNotified();
-            };
-            slice.die();
-
-            if (noLocal)
-              self.universe._testModeDisablingLocalOps = false;
-          });
-        });
-      };
-    });
-  },
-
-  do_manipulateFolderView: function(viewThing, noLocal, manipFunc) {
-    var self = this;
-    this.T.action(this, 'manipulates folder view', viewThing, function() {
-      if (noLocal)
-        self.universe._testModeDisablingLocalOps = true;
-      self.expect_manipulationNotified();
-      manipFunc(viewThing.slice);
-      self.MailAPI.ping(function() {
-        self.universe.waitForAccountOps(self.universe.accounts[0], function() {
-          self._logger.manipulationNotified();
-          if (noLocal)
-            self.universe._testModeDisablingLocalOps = false;
-        });
-      });
-    });
   },
 
   /**
@@ -2339,11 +2452,11 @@ var TestActiveSyncAccountMixins = {
           testFolder.knownMessages = testFolder.serverMessages.concat();
 
           testFolder.connActor.expect_sync_begin(null, null, null);
-          // TODO: have filterType and recreateFolder be specified in extraFlags
-          // for consistency with IMAP.
+          // TODO: have filterType be specified in extraFlags for consistency
+          // with IMAP.
           if (einfo.filterType)
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
-          if (einfo.recreateFolder) {
+          if (checkFlagDefault(extraFlags, 'recreateFolder', false)) {
             var oldConnActor = testFolder.connActor;
             var newConnActor = this._expect_recreateFolder(testFolder);
 
@@ -2351,11 +2464,11 @@ var TestActiveSyncAccountMixins = {
 
             newConnActor.expect_sync_begin(null, null, null);
             newConnActor.expect_sync_end(
-              einfo.full, einfo.flags, einfo.deleted);
+              einfo.full, einfo.changed || 0, einfo.deleted);
           }
           else {
             testFolder.connActor.expect_sync_end(
-              einfo.full, einfo.flags, einfo.deleted);
+              einfo.full, einfo.changed || 0, einfo.deleted);
           }
         }
       }
@@ -2364,7 +2477,10 @@ var TestActiveSyncAccountMixins = {
         !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eAccount.expect_saveAccountState();
     }
-    else {
+    // (the accountActive check is a hack for test_activesync_recreate
+    // right now. It passes in nosave because the expected save comes at a
+    // bad time, but then we want to generate other expectations...)
+    else if (!checkFlagDefault(extraFlags, 'accountActive', false)) {
       // Make account saving cause a failure; also, connection reuse, etc.
       this.eAccount.expectNothing();
       if (nonet)
@@ -2404,7 +2520,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       dbRowPresent: { table: true, prefix: true, present: true },
 
-      killedOperations: { length: true, ops: false },
+      killedOperations: { type: true, length: true, ops: false,
+                          remaining: false  },
       operationsDone: {},
 
       cleanShutdown: {},
@@ -2434,6 +2551,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       splice: { index: true, howMany: true },
       sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
                     status: true, newCount: true },
+      syncblocked: {},
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
       messageSubjects: { subjects: true },

@@ -265,9 +265,9 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
                          { universe: testUniverse });
     T.action('create test folders', function() {
       const folderType = $ascp.FolderHierarchy.Enums.Type;
-      var inbox = testServer.getFirstFolderWithType('inbox'),
-          sent  = testServer.getFirstFolderWithType('sent'),
-          trash = testServer.getFirstFolderWithType('trash');
+      var inbox = testServer.getFolderByPath('Inbox'),
+          sent  = testServer.getFolderByPath('Sent Mail'),
+          trash = testServer.getFolderByPath('Trash');
 
       var subinbox = testServer.addFolder(
         'Subinbox', folderType.Mail, inbox.folderId);

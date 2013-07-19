@@ -192,6 +192,47 @@ var TestFakeIMAPServerMixins = {
       name: folderPath
     });
   },
+
+  /**
+   * Modify the flags on one or more messages in a folder.
+   */
+  modifyMessagesInFolder: function(folderPath, messages, addFlags, delFlags) {
+    var uids = messages.map(function(header) {
+      // XXX We currently use the UID.  It's available off of the header because
+      // we keep the wire rep around (which is just the HeaderInfo dict);
+      // that was available before because of our now-moot cookie caching, but
+      // then the makeCopy() method made it temporarily required.  So we'll
+      // use it for now, but we should potentially just use the guid and change
+      // our fake-server to use that instead.  It's only slightly slower and
+      // we could just cache it.
+      return header._wireRep.srvid;
+    });
+
+    return this._backdoor({
+      command: 'modifyMessagesInFolder',
+      name: folderPath,
+      uids: uids,
+      addFlags: addFlags,
+      delFlags: delFlags
+    });
+  },
+
+  /**
+   * Delete one or more messages from a folder.
+   *
+   * @args[
+   *   @param[messages @listof[MailHeader]]{
+   *     MailHeaders from which we can extract the message-id header values.
+   *     Although the upstream caller may have a variant where it is not
+   *     provided from MailHeaders, it's not allowed to call into IMAP with
+   *     that.
+   *   }
+   * ]
+   */
+  deleteMessagesFromFolder: function(folderPath, messages) {
+    this.modifyMessagesInFolder(
+      folderPath, messages, ['\\Deleted'], null);
+  }
 };
 
 

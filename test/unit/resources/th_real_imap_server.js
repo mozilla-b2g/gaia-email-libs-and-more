@@ -133,6 +133,60 @@ var TestRealIMAPServerMixins = {
       self.universe._testModeDisablingLocalOps = false;
     });
   },
+
+  getMessagesInFolder: function() {
+    // XXX So, we can't psychically know what's in an IMAP server's real folder.
+    // We have to talk to it, which implies running a sync or doing a naive
+    // approximation of a sync.  Of course, in general, our tests don't really
+    // need to know what's in there... so for now we're just going to stub this
+    // out and hope that it's good enough.  It would probably be more
+    // appropriate for us to just explode and make sure we simply aren't called
+    // in inappropriate cases, possibly through use of an indicator flag to our
+    // would-be callers.
+    console.warn('getMessagesInFolder does not/cannot work on real IMAP');
+    return [];
+  },
+
+  /**
+   * Modify the flags on one or more messages in a folder.
+   */
+  modifyMessagesInFolder: function(folderPath, messages, addFlags, delFlags) {
+    var self = this;
+    this.expect_modifyNotified(messages.length);
+
+    this.testAccount.expect_runOp(
+      'modtags', { local: false, server: true, save: false });
+
+    // Don't run this local op against the server!
+    this.universe._testModeDisablingLocalOps = true;
+    this.testUniverse.MailAPI.modifyMessageTags([messages],
+                                                addFlags, delFlags, 'backdoor');
+
+    // XXX The runOp expectation above might actually be sufficient?
+    this.testUniverse.MailAPI.ping(function() {
+      self.universe.waitForAccountOps(self.account, function() {
+        self.universe._testModeDisablingLocalOps = false;
+        self._logger.modifyNotified(messages.length);
+      });
+    });
+  },
+
+  /**
+   * Delete one or more messages from a folder.
+   *
+   * @args[
+   *   @param[messages @listof[MailHeader]]{
+   *     MailHeaders from which we can extract the message-id header values.
+   *     Although the upstream caller may have a variant where it is not
+   *     provided from MailHeaders, it's not allowed to call into IMAP with
+   *     that.
+   *   }
+   * ]
+   */
+  deleteMessagesFromFolder: function(folderPath, messages) {
+    return this.modifyMessagesInFolder(folderPath, messages,
+                                       ['\\Deleted'], null);
+  }
 };
 
 
@@ -145,6 +199,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       creationNotified: { count: true },
       deletionNotified: { count: true },
       appendNotified: {},
+
+      modifyNotified: { count: true },
     },
     errors: {
       folderCreationError: { err: false },

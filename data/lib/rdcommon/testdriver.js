@@ -270,7 +270,7 @@ TestDefinerRunner.prototype = {
     // any kind of exception in the function is a failure.
     if (rval instanceof Error) {
       if (superDebug)
-        superDebug(" encountered an error in the step func:", rval);
+        superDebug(" :( encountered an error in the step func:", rval);
       step.log.run_end();
       step.log.result('fail');
       return false;
@@ -292,6 +292,18 @@ TestDefinerRunner.prototype = {
       }
       // if it's not a promise, it must be a boolean
       else if (!waitVal) {
+        if (superDebug) {
+          var whySad;
+          if (actor._expectNothing &&
+              (actor._expectations.length || actor._iExpectation))
+            whySad = 'expected nothing, got something';
+          else if (!actor._expectationsMetSoFar)
+            whySad = 'expectations not met after ' + actor._iExpectation;
+          else
+            whySad = 'unsure';
+          superDebug(" :( waitVal synchronously resolved to false on " + actor +
+                     " because: " + whySad);
+        }
         allGood = false;
       }
     }
@@ -334,6 +346,8 @@ TestDefinerRunner.prototype = {
           }
         }
 
+        if (superDebug)
+          superDebug(' :( timeout, fail');
         step.log.timeout();
         step.log.result('fail');
         deferred.resolve(false);
@@ -364,8 +378,11 @@ TestDefinerRunner.prototype = {
         for (var iActor = 0; iActor < liveActors.length; iActor++) {
           actor = liveActors[iActor];
           // detect if we ended up with a weird error.
-          if (!actor.__resetExpectations())
+          if (!actor.__resetExpectations()) {
             passed = false;
+            if (superDebug)
+              superDebug(' :( weird actor error on: ' + actor);
+          }
         }
         self._runtimeContext._liveActors = null;
 
@@ -438,6 +455,8 @@ TestDefinerRunner.prototype = {
                                          self._runtimeContext);
     if (rval instanceof Error) {
       // in the event we threw during the case setup phase, it's a failure.
+      if (self._superDebug)
+        self._superDebug(' :( setup func error thrown!');
       defContext._log.result('fail');
       testCase.log.result('fail');
       return false;

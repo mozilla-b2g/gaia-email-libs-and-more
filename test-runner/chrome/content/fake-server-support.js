@@ -443,6 +443,26 @@ console.log('----> responseData:::', responseData);
     return mailbox._messages.length;
   },
 
+  _imap_backdoor_modifyMessagesInFolder: function(imapDaemon, req,
+                                                  imapHandler) {
+    var uids = req.uids, addFlags = req.addFlags, delFlags = req.delFlags;
+    var mailbox = imapDaemon.getMailbox(req.name);
+    mailbox._messages.forEach(function(msg) {
+      if (uids.indexOf(msg.uid) === -1)
+        return;
+      if (addFlags) {
+        addFlags.forEach(function(flag) {
+          msg.setFlag(flag);
+        });
+      }
+      if (delFlags) {
+        delFlags.forEach(function(flag) {
+          msg.clearFlag(flag);
+        });
+      }
+    });
+  },
+
   _imap_backdoor_getMessagesInFolder: function(imapDaemon, req, imapHandler) {
     var mailbox = imapDaemon.getMailbox(req.name);
     var messages = mailbox._messages.map(function(imapMessage) {

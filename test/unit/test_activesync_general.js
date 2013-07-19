@@ -45,18 +45,21 @@ TD.commonCase('folder sync', function(T) {
   T.group('sync empty folder');
   var emptyFolder = testAccount.do_createTestFolder(
     'test_empty_sync', { count: 0 });
-  testAccount.do_viewFolder('syncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0,
-                              filterType: FilterType.NoFilter },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'syncs', emptyFolder,
+    { count: 0, full: 0, flags: 0, changed: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(true);
-  testAccount.do_viewFolder('checks persisted data of', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'checks persisted data of', emptyFolder,
+    { count: 0, full: 0, flags: 0, changed: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
   testUniverse.do_pretendToBeOffline(false);
-  testAccount.do_viewFolder('resyncs', emptyFolder,
-                            { count: 0, full: 0, flags: 0, deleted: 0 },
-                            { top: true, bottom: true, grow: false });
+  testAccount.do_viewFolder(
+    'resyncs', emptyFolder,
+    { count: 0, full: 0, flags: 0, changed: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false });
 
   /**
    * Perform a folder sync where our initial time fetch window contains all of
@@ -68,18 +71,18 @@ TD.commonCase('folder sync', function(T) {
     { count: 4, age: { days: 0, hours: 2 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', fullSyncFolder,
-    { count: 4, full: 4, flags: 0, deleted: 0,
+    { count: 4, full: 4, flags: 0, changed: 0, deleted: 0,
     filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder(
     'checks persisted data of', fullSyncFolder,
-    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { count: 4, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: true, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', fullSyncFolder,
-    { count: 4, full: 0, flags: 0, deleted: 0 },
+    { count: 4, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: true, grow: false, newCount: 0 });
 
 
@@ -89,30 +92,13 @@ TD.commonCase('folder sync', function(T) {
     { count: 2, age: { hours: 1 }, age_incr: { days: 1 } });
   var folderView = testAccount.do_openFolderView(
     'fullSyncFolder', fullSyncFolder,
-    { count: 6, full: 2, flags: 0, deleted: 0 },
+    { count: 6, full: 2, flags: 0, changed: 0, deleted: 0 },
     // only one of the messages is newer than the most recent message!
     { top: true, bottom: true, grow: false, newCount: 1 });
 
   T.group('sync detects deletions');
-  T.action('blah', testAccount, eSync, function() {
-    var headers = folderView.slice.items,
-        toDelete = headers[0],
-        toDeleteId = fullSyncFolder.knownMessages[0].messageId,
-        expectedValues = { count: 5, full: 0, flags: 0, deleted: 1 },
-        checkExpected = { changes: [], deletions: [toDelete] },
-        expectedFlags = { top: true, bottom: true, grow: false };
-
-    fullSyncFolder.beAwareOfDeletion(0);
-    testAccount.testServer.removeMessageById(fullSyncFolder.serverFolder.id,
-                                             toDeleteId);
-    var totalExpected = testAccount._expect_dateSyncs(folderView, expectedValues);
-    testAccount.expect_messagesReported(totalExpected);
-    testAccount.expect_headerChanges(folderView, checkExpected, expectedFlags);
-
-    testAccount._expect_storage_mutexed(folderView.testFolder, 'refresh');
-
-    folderView.slice.refresh();
-  });
+  testAccount.do_deleteMessagesOnServerThenRefresh(folderView, [0]);
+  testAccount.do_closeFolderView(folderView);
 
   /**
    * Perform a folder sync where our initial time fetch window contains more
@@ -124,19 +110,19 @@ TD.commonCase('folder sync', function(T) {
     { count: 30, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 30, flags: 0, deleted: 0,
+    { count: INITIAL_FILL_SIZE, full: 30, flags: 0, changed: 0, deleted: 0,
       filterType: FilterType.NoFilter },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   // We get all the headers in one go because we are offline, and they get
   // thresholded to the initial fill size.
   testAccount.do_viewFolder('checks persisted data of', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', saturatedFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   /**
@@ -149,18 +135,18 @@ TD.commonCase('folder sync', function(T) {
     { count: 60, age: { days: 0 }, age_incr: { days: 1 } });
   testAccount.do_viewFolder(
     'syncs', partialSyncFolder,
-    { count: INITIAL_FILL_SIZE, full: 31, flags: 0, deleted: 0,
+    { count: INITIAL_FILL_SIZE, full: 31, flags: 0, changed: 0, deleted: 0,
       filterType: FilterType.TwoWeeksBack },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder(
     'checks persisted data of', partialSyncFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', partialSyncFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   T.group('change sync range to all messages');
@@ -176,9 +162,9 @@ TD.commonCase('folder sync', function(T) {
   });
   testAccount.do_viewFolder(
     'syncs', partialSyncFolder,
-    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, deleted: 0,
-      recreateFolder: true },
-    { top: true, bottom: false, grow: false });
+    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, changed: 0, deleted: 0 },
+    { top: true, bottom: false, grow: false },
+    { recreateFolder: true });
 
   T.group('manual sync range');
   var manualRangeFolder = testAccount.do_createTestFolder(
@@ -186,21 +172,20 @@ TD.commonCase('folder sync', function(T) {
     { count: 60, age: { days: 0 }, age_incr: { hours: 2 } });
   testAccount.do_viewFolder(
     'syncs', manualRangeFolder,
-    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 60, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder(
     'checks persisted data of', manualRangeFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(false);
   testAccount.do_viewFolder(
     'resyncs', manualRangeFolder,
-    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, deleted: 0 },
+    { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
   T.group('cleanup');
-  testAccount.do_closeFolderView(folderView);
 });
 
 }); // end define

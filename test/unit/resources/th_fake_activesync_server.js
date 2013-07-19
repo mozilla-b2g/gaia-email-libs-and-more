@@ -188,11 +188,19 @@ var TestActiveSyncServerMixins = {
     });
   },
 
-  removeMessageById: function(serverFolderInfo, messageId) {
+  deleteMessagesFromFolder: function(serverFolderInfo, messages) {
+    // The server is our friend and uses the message's message-id header value
+    // as its serverId.
+    var serverIds = messages.map(function(message) {
+      // message is either a MailHeader (where srvid is currently available) or
+      // a knownMessage, in which case the rep is what we generated in
+      // addMessagesToFolder where the good stuff is in id
+      return message._wireRep ? message._wireRep.srvid : message.id;
+    });
     return this._backdoor({
-      command: 'removeMessageById',
+      command: 'removeMessagesByServerId',
       folderId: serverFolderInfo.id,
-      messageId: messageId
+      serverIds: serverIds
     });
   },
 };
