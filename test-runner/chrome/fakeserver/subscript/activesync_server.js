@@ -1343,6 +1343,7 @@ ActiveSyncServer.prototype = {
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.messages);
+    return folder.messages.length;
   },
 
   _backdoor_getMessagesInFolder: function(data) {

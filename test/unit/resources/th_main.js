@@ -440,8 +440,23 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+
+    self._opts = opts;
+    if (!opts.universe)
+      throw new Error("Universe not specified!");
+    if (!opts.universe.__testAccounts)
+      throw new Error("Universe is not of the right type: " + opts.universe);
+
+    self.accountId = null;
+    self.universe = null;
+    self.MailAPI = null;
+    self.testUniverse = opts.universe;
+    self.testUniverse.__testAccounts.push(this);
+
+    self._useDate = self.testUniverse._useDate;
+
     var TEST_PARAMS = self.RT.envOptions;
-    this.type = TEST_PARAMS.type;
+    self.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
       mix(TestImapAccountMixins, self);
@@ -1409,7 +1424,7 @@ var TestCommonAccountMixins = {
       }
       else {
         var generator = self.testUniverse.messageGenerator;
-        generator._clock = self._useDate ? new Date(self._useDate) : new Date();
+        generator._clock = self._useDate ? new Date(self._useDate) : null;
         messageBodies = generator.makeMessages(messageSetDef);
       }
 
@@ -1612,21 +1627,8 @@ var TestImapAccountMixins = {
 
     var TEST_PARAMS = self.RT.envOptions;
 
-    self._opts = opts;
-    if (!opts.universe)
-      throw new Error("Universe not specified!");
-    if (!opts.universe.__testAccounts)
-      throw new Error("Universe is not of the right type: " + opts.universe);
-
     // turn on SMTP logging for our unit tests
     $smtpacct.ENABLE_SMTP_LOGGING = true;
-
-    self.accountId = null;
-    self.universe = null;
-    self.MailAPI = null;
-    self.testUniverse = opts.universe;
-    self.testUniverse.__testAccounts.push(this);
-    self._useDate = self.testUniverse._useDate;
 
     self.imapHost = null;
     self.imapPort = null;
@@ -2292,17 +2294,7 @@ var TestActiveSyncAccountMixins = {
     self.eJobDriver =
       self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
 
-    self._opts = opts;
-    if (!opts.universe)
-      throw new Error("Universe not specified!");
-    if (!opts.universe.__testAccounts)
-      throw new Error("Universe is not of the right type: " + opts.universe);
 
-    self.accountId = null;
-    self.universe = null;
-    self.MailAPI = null;
-    self.testUniverse = opts.universe;
-    self.testUniverse.__testAccounts.push(this);
     var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
       if (TEST_PARAMS.defaultArgs)

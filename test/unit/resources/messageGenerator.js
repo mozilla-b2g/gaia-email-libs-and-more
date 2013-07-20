@@ -695,8 +695,8 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
  * Provides mechanisms for creating vaguely interesting, but at least valid,
  *  SyntheticMessage instances.
  */
-function MessageGenerator(startDate) {
-  this._clock = startDate;
+function MessageGenerator(startTimestamp) {
+  this._clock = startTimestamp ? new Date(startTimestamp) : null;
   this._nextNameNumber = 0;
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
