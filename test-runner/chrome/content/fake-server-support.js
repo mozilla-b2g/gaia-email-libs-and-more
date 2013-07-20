@@ -214,10 +214,12 @@ function makeIMAPServer(creds) {
   };
 }
 
-function makeSMTPServer(creds) {
+function makeSMTPServer(creds, imapDaemon) {
   createImapSandbox();
 
-  var daemon = new imapSandbox.smtpDaemon();
+  var daemon = new imapSandbox.smtpDaemon(function gotMessage(msgStr) {
+    imapDaemon.deliverMessage(msgStr);
+  });
 
   function createHandler(d) {
     var handler = new imapSandbox.SMTP_RFC2821_handler(d);
@@ -358,7 +360,8 @@ console.log('----> responseData:::', responseData);
     if (reqObj.command === 'make_imap_and_smtp') {
       // credentials should be { username, password }
       var imapServer = makeIMAPServer(reqObj.credentials);
-      var smtpServer = makeSMTPServer(reqObj.credentials);
+      var smtpServer = makeSMTPServer(reqObj.credentials,
+                                      imapServer.daemon);
 
       console.log('IMAP server started on port', imapServer.port);
       console.log('SMTP server started on port', smtpServer.port);
@@ -400,6 +403,10 @@ console.log('----> responseData:::', responseData);
           this['_imap_backdoor_' + reqObj.command](imapDaemon, reqObj,
                                                    imapHandler);
     return responseData;
+  },
+
+  _imap_backdoor_setDate: function(imapDaemon, req) {
+    imapDaemon._useNowTimestamp = req.timestamp;
   },
 
   _imap_backdoor_getFolderByPath: function(imapDaemon, req) {

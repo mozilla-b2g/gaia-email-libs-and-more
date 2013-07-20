@@ -119,6 +119,13 @@ var TestActiveSyncServerMixins = {
     });
   },
 
+  setDate: function(timestamp) {
+    return this._backdoor({
+      command: 'setDate',
+      timestamp: timestamp
+    });
+  },
+
   SYNC_FOLDER_LIST_AFTER_ADD: true,
   addFolder: function(name) {
     return this._backdoor({
@@ -145,6 +152,7 @@ var TestActiveSyncServerMixins = {
     var cleanedMessages = messages.map(function(message) {
       var bodyPart = message.bodyPart;
       var attachments = [];
+      // XXX FIXME! this is a way too simplified transform of bodies!
       if (!(bodyPart instanceof $msggen.SyntheticPartLeaf)) {
         attachments = bodyPart.parts.slice(1);
         bodyPart = bodyPart.parts[0];

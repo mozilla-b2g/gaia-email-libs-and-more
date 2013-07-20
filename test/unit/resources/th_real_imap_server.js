@@ -47,13 +47,12 @@ var TestRealIMAPServerMixins = {
   },
 
   // => FolderMeta
-  getFirstFolderWithType: function(folderType) {
-    return this.account.getFirstFolderWithType(folderType);
-  },
-
-  // => FolderMeta
   getFolderByPath: function(folderPath) {
     return this.account.getFolderByPath(folderPath);
+  },
+
+  setDate: function(timestamp) {
+    // this is a NOP. We can't affect a real server's perception of time.
   },
 
   SYNC_FOLDER_LIST_AFTER_ADD: false,

@@ -1,7 +1,8 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 // This file implements test SMTP servers
 
-function smtpDaemon(flags) {
+function smtpDaemon(deliverFunc) {
+  this._deliverFunc = deliverFunc;
   this._messages = {};
 }
 smtpDaemon.prototype = {
@@ -229,6 +230,13 @@ SMTP_RFC2821_handler.prototype = {
     if (line == ".") {
       if (this.expectingData) {
         this.expectingData = false;
+        try {
+          this._daemon._deliverFunc(this._daemon.post);
+        }
+        catch (ex) {
+          return "451 Problem delivering message: " + ex + '    ' +
+                   ex.stack.replace(/\n/g, '   ');
+        }
         return "250 Wonderful article, your style is gorgeous!";
       }
       return "503 Huch? How did you get here?";

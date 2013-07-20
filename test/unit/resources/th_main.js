@@ -40,6 +40,15 @@ function consoleHelper(logFunc) {
   }
   logFunc(msg);
   dump(arguments[1] + ":" + msg + "\x1b[0m\n");
+
+  // having trouble figuring out where an error is coming from?
+  // uncomment/modify the below:
+  /*
+  if (arguments[1].indexOf('WAR') !== -1) {
+    var e = new Error();
+    dump('@ ' + e.stack + '\n');
+  }
+  */
 }
 function makeConsoleForLogger(logger) {
   window.console = {
@@ -105,7 +114,7 @@ var TestUniverseMixins = {
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
     }
     else {
-      self._useDate = new Date();
+      self._useDate = null;
       $date.TEST_LetsDoTheTimewarpAgain(null);
     }
 
@@ -283,7 +292,8 @@ var TestUniverseMixins = {
       for (var i = 0; i < self.__testAccounts.length; i++) {
         var testAccount = self.__testAccounts[i];
         testAccount._useDate = useAsNowTS;
-        if (testAccount.imapAccount &&
+        if (testAccount._useDate &&
+            testAccount.imapAccount &&
             testAccount.testServer.NEEDS_REL_TZ_OFFSET_ADJUSTMENT) {
           var nowTzOffset = testAccount.imapAccount.tzOffset;
           if (nowTzOffset !== thenTzOffset) {
@@ -1178,7 +1188,8 @@ var TestCommonAccountMixins = {
   do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
     var self = this;
     var testStep =
-          this.T.action(this, 'wait for message', expectSubject, function() {
+          this.T.action(this, 'wait for message', expectSubject, 'in',
+                        viewThing.testFolder, function() {
       self.expect_messageSubject(null, expectSubject);
       var foundIt = false;
       if (funcOpts.expect)
@@ -1396,7 +1407,7 @@ var TestCommonAccountMixins = {
       }
       else {
         var generator = self.testUniverse.messageGenerator;
-        generator._clock = new Date(self._useDate);
+        generator._clock = self._useDate ? new Date(self._useDate) : new Date();
         messageBodies = generator.makeMessages(messageSetDef);
       }
 

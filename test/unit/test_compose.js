@@ -506,10 +506,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   testAccount.do_addMessagesToFolder(
     inboxFolder, function makeMessages() {
     var msgGen = new $msggen.MessageGenerator(testAccount._useDate);
-
-    msgDef.age = { minutes: 1 };
     var synMsg = msgGen.makeMessage(msgDef);
-      console.warn(synMsg.toMessageString());
     return [synMsg];
   });
 

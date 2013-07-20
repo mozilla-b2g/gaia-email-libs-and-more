@@ -49,8 +49,26 @@ Components.utils.import("resource://fakeserver/modules/mimeParser.jsm");
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
                 'Oct', 'Nov', 'Dec'];
 
+// from (node-imap) imap.js
+// XXX we could probably use toLocaleFormat instead, although I'm worried about
+// running the tests under other (native) locales.
+function formatImapDateTime(date) {
+  var s;
+  s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + '-' +
+       MONTHS[date.getMonth()] + '-' +
+       date.getFullYear() + ' ' +
+       ('0'+date.getHours()).slice(-2) + ':' +
+       ('0'+date.getMinutes()).slice(-2) + ':' +
+       ('0'+date.getSeconds()).slice(-2) +
+       ((date.getTimezoneOffset() > 0) ? ' -' : ' +' ) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) / 60)).slice(-2) +
+       ('0'+(Math.abs(date.getTimezoneOffset()) % 60)).slice(-2);
+  return s;
+}
+
 function imapDaemon(flags, syncFunc) {
   this._flags = flags;
+  this._useNowTimestamp = null;
 
   this.namespaces = [];
   this.idResponse = "NIL";
@@ -88,6 +106,15 @@ function imapDaemon(flags, syncFunc) {
   this.tzOffsetMillis = new Date().getTimezoneOffset() * 60000;
 }
 imapDaemon.prototype = {
+  _makeNowDate: function() {
+    if (this._useNowTimestamp) {
+      var ts = this._useNowTimestamp;
+      this._useNowTimestamp += 1000;
+      return new Date(ts);
+    }
+    return new Date();
+  },
+
   synchronize : function (mailbox, update) {
     if (this.syncFunc)
       this.syncFunc.call(null, this);
@@ -214,8 +241,27 @@ imapDaemon.prototype = {
       mailbox._messages = [];
       mailbox.flags.push("\\Noselect");
     }
+  },
+  /**
+   * Receive a message from the SMTP server.  For simplicity, we add the
+   * 'Received' line ourselves.  We use a now-ish date for the date of
+   * receipt and INTERNALDATE.
+   */
+  deliverMessage: function (msgStr) {
+    var receiveDate = this._makeNowDate();
+    var importStr =
+        'Received: from 127.1.2.3 by 127.1.2.3; ' +
+        formatImapDateTime(receiveDate) + '\r\n' +
+        msgStr;
+
+    // the APPEND method is in the handler, so we can't get at it...
+    var inbox = this.getMailbox('INBOX');
+    var msg = new imapMessage(importStr, inbox.uidnext++, []);
+    msg.recent = true;
+    msg.date = receiveDate;
+    inbox.addMessage(msg);
   }
-}
+};
 
 function imapMailbox(name, parent, state) {
   this.name = name;
@@ -408,7 +454,7 @@ imapMessage.prototype = {
     return this._partMap[partNum][1];
   },
   getHeader: function(headerName) {
-    var headers = this._partMap['1$'][1];
+    var headers = this._partMap['1'][1];
     headerName = headerName.toLowerCase();
     if (headers.has(headerName))
       return headers.get(headerName)[0];
@@ -1222,7 +1268,7 @@ IMAP_RFC3501_handler.prototype = {
         var date = args[1];
       } else {
         var flags = args[1];
-        var date = Date.now();
+        var date = this._daemon._makeNowDate();
       }
       var text = args[2];
     } else if (args.length == 4) {
@@ -1231,9 +1277,10 @@ IMAP_RFC3501_handler.prototype = {
       var text = args[3];
     } else {
       var flags = [];
-      var date = Date.now();
+      var date = this._daemon._makeNowDate();
       var text = args[1];
     }
+
     var msg = new imapMessage(text, mailbox.uidnext++, flags);
     msg.recent = true;
     msg.date = date;

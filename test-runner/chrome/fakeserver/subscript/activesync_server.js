@@ -3,6 +3,101 @@
 Components.utils.import('resource://fakeserver/modules/httpd.js');
 Components.utils.import('resource://gre/modules/NetUtil.jsm');
 
+Components.utils.import("resource://fakeserver/modules/mimeParser.jsm");
+
+/**
+ * Convert an RFC2822 message into a representation the fake-server understands.
+ *
+ * XXX FIXME XXX
+ * Our body part translation is very limited (just like the logic in
+ * th_fake_activesync_server, although not quite as simple), so this can't
+ * handle complex representations all that well.
+ */
+function convertRfc2822RepToMessageRep(mimestr) {
+  var message;
+  var curPartNum = null, curHeaders = null, saveContentTo = null;
+  var emitter = {
+    startPart: function imap_buildMap_startPart(partNum, headers) {
+      if (partNum === '') {
+        message = {
+          id: headers.get('message-id')[0],
+          from: headers.get('from')[0],
+          to: headers.has('to') ? headers.get('to')[0] : null,
+          cc: headers.has('cc') ? headers.get('cc')[0] : null,
+          // ActiveSync is dumb and does not support BCC's
+          replyTo: headers.has('reply-to') ? headers.get('reply-to')[0] : null,
+          date: (new Date(headers.get('date')[0])).valueOf(),
+          subject: headers.get('subject')[0],
+          flags: [],
+          body: null,
+          attachments: [],
+        };
+      }
+      var ct = headers.has('content-type') ? headers.get('content-type')[0]
+                                           : 'text/plain';
+      let [type, params] = MimeParser.parseHeaderField(
+        ct,
+        MimeParser.HEADER_PARAMETER |
+        // we want any filename fully decoded
+          MimeParser.HEADER_OPTION_ALL_I18N);
+      type = type.toLowerCase();
+      let [media, sub] = type.split('/', 2);
+
+      if (media === 'multipart') {
+        // do nothing with these parts! they are boring!
+      }
+      else if (media === 'text') {
+        // Only use this part if it's the first body we've seen or if it's html
+        // and we're not already html.
+        if (!message.body ||
+            (sub === 'html' && message.body.contentType === 'text/plain')) {
+          message.body = {
+            contentType: type,
+            content: ''
+          };
+          saveContentTo = message.body;
+        }
+      }
+      else { // attachment!
+        let filename = null;
+        // the filename might have been on the content-type
+        if ('filename' in params) {
+          filename = params.filename;
+        }
+        // no? maybe it was on the content-disposition
+        else if (headers.has('content-disposition')) {
+          let [cdType, cdParams] = MimeParser.parseHeaderField(
+            headers.get('content-disposition'),
+            MimeParser.HEADER_PARAMETER |
+              MimeParser.HEADER_OPTION_ALL_I18N);
+          if ('filename' in cdParams) {
+            filename = cdParams.filename;
+          }
+        }
+
+        saveContentTo = {
+          filename: filename,
+          contentId: headers.has('content-id') ? headers.get('content-id')[0]
+                                               : null,
+          contentType: type,
+          content: ''
+        };
+        message.attachments.push(saveContentTo);
+      }
+    },
+    endPart: function(partNum) {
+      saveContentTo = null;
+    },
+    deliverPartData: function (partNum, data) {
+      if (saveContentTo)
+        saveContentTo.content += data;
+    },
+  };
+  MimeParser.parseSync(
+    mimestr,  emitter, { bodyformat: 'raw', stripcontinuations: false });
+  return message;
+}
+
 /**
  * Encode a WBXML writer's bytes for sending over the network.
  *
@@ -329,9 +424,7 @@ ActiveSyncFolder.prototype = {
  */
 function ActiveSyncServer(options) {
   this.server = new HttpServer(options);
-
-  // TODO: get the date from the test helper somehow...
-  this._clock = Date.now();
+  this._useNowTimestamp = null;
 
   const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
   this._folders = [];
@@ -358,6 +451,15 @@ function ActiveSyncServer(options) {
 }
 
 ActiveSyncServer.prototype = {
+  _makeNowDate: function() {
+    if (this._useNowTimestamp) {
+      var ts = this._useNowTimestamp;
+      this._useNowTimestamp += 1000;
+      return new Date(ts);
+    }
+    return new Date();
+  },
+
   /**
    * Start the server on a specified port.
    */
@@ -1154,6 +1256,41 @@ ActiveSyncServer.prototype = {
     return changes;
   },
 
+  _handleCommand_SendMail: function(requestData, query, request, response) {
+    const cm = ActiveSyncCodepages.ComposeMail.Tags;
+
+    let e = new WBXML.EventParser();
+    var saveInSentItems = false, mimeBody;
+    e.addEventListener([cm.SaveInSentItems], function(node) {
+      // The presence of this item indicates true; there is no way for it to
+      // convey false.
+      saveInSentItems = true;
+    });
+    e.addEventListener([cm.Mime], function(node) {
+      mimeBody = node.children[0].data; // (opaque, not text)
+    });
+    e.run(requestData);
+
+    // For maximum realism and (more importantly) avoiding weird causality
+    // problems, use a now-ish date rather than the extracted compose date.
+    var receiveTimestamp = this._makeNowDate().valueOf();
+
+    if (saveInSentItems) {
+      var sentMessage = convertRfc2822RepToMessageRep(mimeBody);
+      // this wants a unique-ish id...
+      sentMessage.id += '-sent';
+      sentMessage.date = receiveTimestamp;
+      var sentFolder = this.foldersByType.sent[0];
+      sentFolder.addMessage(message);
+    }
+    var message = convertRfc2822RepToMessageRep(mimeBody);
+    message.date = receiveTimestamp;
+    var inboxFolder = this.foldersByType.inbox[0];
+    inboxFolder.addMessage(message);
+
+    return null;
+  },
+
   _backdoorHandler: function(request, response) {
     try {
       let postData = JSON.parse(stringifyStream(request.bodyInputStream));
@@ -1176,6 +1313,10 @@ ActiveSyncServer.prototype = {
 
   _backdoor_getFolderByPath: function(data) {
     return this.findFolderByName(data.name);
+  },
+
+  _backdoor_setDate: function(data) {
+    this._useNowTimestamp = data.timestamp;
   },
 
   _backdoor_addFolder: function(data) {

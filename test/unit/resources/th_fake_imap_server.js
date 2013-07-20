@@ -127,6 +127,13 @@ var TestFakeIMAPServerMixins = {
     });
   },
 
+  setDate: function(timestamp) {
+    return this._backdoor({
+      command: 'setDate',
+      timestamp: timestamp
+    });
+  },
+
   SYNC_FOLDER_LIST_AFTER_ADD: true,
   addFolder: function(folderPath, testFolder) {
     // returns the canonical folder path (probably)

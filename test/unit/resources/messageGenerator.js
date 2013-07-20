@@ -696,7 +696,7 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
  *  SyntheticMessage instances.
  */
 function MessageGenerator(startDate) {
-  this._clock = startDate || new Date(2012, 5, 14);
+  this._clock = startDate;
   this._nextNameNumber = 0;
   this._nextSubjectNumber = 0;
   this._nextMessageIdNum = 0;
@@ -842,10 +842,13 @@ MessageGenerator.prototype = {
    *
    * @returns A made-up time in JavaScript Date object form.
    */
-  makeDate: function() {
+  makeDate: function(advance) {
+    if (!this._clock)
+      return new Date();
     var date = this._clock;
     // advance time by an hour
-    this._clock = new Date(date.valueOf() + 60 * 60 * 1000);
+    if (advance)
+      this._clock = new Date(date.valueOf() + 60 * 60 * 1000);
     return date;
   },
 
@@ -944,7 +947,7 @@ MessageGenerator.prototype = {
     if (aArgs.age) {
       var age = aArgs.age;
       // start from 'now'
-      var ts = this._clock.valueOf() || Date.now();
+      var ts = this.makeDate(false).valueOf();
       if (age.seconds)
         ts -= age.seconds * 1000;
       if (age.minutes)
@@ -958,7 +961,7 @@ MessageGenerator.prototype = {
       msg.date = new Date(ts);
     }
     else {
-      msg.date = this.makeDate();
+      msg.date = this.makeDate(true);
     }
 
     if ("clobberHeaders" in aArgs) {

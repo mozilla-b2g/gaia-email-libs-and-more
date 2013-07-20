@@ -14,7 +14,7 @@ this.EXPORTED_SYMBOLS = ["MimeParser"];
 // Emitter helpers, for internal functions later on.
 var ExtractHeadersEmitter = {
   startPart: function (partNum, headers) {
-    if (partNum == '') {
+    if (partNum == '' || partNum == '1$') {
       this.headers = headers;
     }
   }
