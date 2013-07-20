@@ -3656,8 +3656,7 @@ FolderStorage.prototype = {
         // Note: the following control flow is to decide when to bail; if we
         // make it through the conditionals, the header gets reported to the
         // slice.
-console.log('HEADER', date, uid, 'start', slice.startTS, slice.startUID,
-            'end', slice.endTS, slice.endUID);
+
         // (if the slice is empty, it cares about any header, so keep going)
         if (slice.startTS !== null) {
           // We never automatically grow a slice into the past if we are full,
