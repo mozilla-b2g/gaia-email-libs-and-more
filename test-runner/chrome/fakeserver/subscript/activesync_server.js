@@ -14,11 +14,14 @@ Components.utils.import("resource://fakeserver/modules/mimeParser.jsm");
  * handle complex representations all that well.
  */
 function convertRfc2822RepToMessageRep(mimestr) {
+  if (mimestr instanceof Uint8Array)
+    mimestr = String.fromCharCode.apply(undefined, mimestr);
+
   var message;
   var curPartNum = null, curHeaders = null, saveContentTo = null;
   var emitter = {
     startPart: function imap_buildMap_startPart(partNum, headers) {
-      if (partNum === '') {
+      if (partNum === '' || partNum === '1$') {
         message = {
           id: headers.get('message-id')[0],
           from: headers.get('from')[0],
@@ -61,13 +64,13 @@ function convertRfc2822RepToMessageRep(mimestr) {
       else { // attachment!
         let filename = null;
         // the filename might have been on the content-type
-        if ('filename' in params) {
-          filename = params.filename;
+        if ('name' in params) {
+          filename = params.name;
         }
         // no? maybe it was on the content-disposition
         else if (headers.has('content-disposition')) {
           let [cdType, cdParams] = MimeParser.parseHeaderField(
-            headers.get('content-disposition'),
+            headers.get('content-disposition')[0],
             MimeParser.HEADER_PARAMETER |
               MimeParser.HEADER_OPTION_ALL_I18N);
           if ('filename' in cdParams) {
@@ -94,7 +97,12 @@ function convertRfc2822RepToMessageRep(mimestr) {
     },
   };
   MimeParser.parseSync(
-    mimestr,  emitter, { bodyformat: 'raw', stripcontinuations: false });
+    mimestr, emitter,
+    // Attachments get decoded, it's just that if we fetch them inline, then
+    // they get base64 encoded for transit purposes only.  So fully decode.
+    { bodyformat: 'decode', stripcontinuations: false });
+  if (!message)
+    throw new Error('Failed to parse a message out of the MIME!');
   return message;
 }
 
@@ -964,7 +972,7 @@ ActiveSyncServer.prototype = {
         w.tag(asb.FileReference, fetch.fileReference)
          .stag(io.Properties)
            .tag(asb.ContentType, attachment.contentType)
-           .tag(io.Data, attachment.content)
+           .tag(io.Data, btoa(attachment.content)) // inline att's are base64'd
          .etag(io.Properties);
       }
       else {
@@ -1262,12 +1270,12 @@ ActiveSyncServer.prototype = {
 
     let e = new WBXML.EventParser();
     var saveInSentItems = false, mimeBody;
-    e.addEventListener([cm.SaveInSentItems], function(node) {
+    e.addEventListener([cm.SendMail, cm.SaveInSentItems], function(node) {
       // The presence of this item indicates true; there is no way for it to
       // convey false.
       saveInSentItems = true;
     });
-    e.addEventListener([cm.Mime], function(node) {
+    e.addEventListener([cm.SendMail, cm.Mime], function(node) {
       mimeBody = node.children[0].data; // (opaque, not text)
     });
     e.run(requestData);
@@ -1282,7 +1290,7 @@ ActiveSyncServer.prototype = {
       sentMessage.id += '-sent';
       sentMessage.date = receiveTimestamp;
       var sentFolder = this.foldersByType.sent[0];
-      sentFolder.addMessage(message);
+      sentFolder.addMessage(sentMessage);
     }
     var message = convertRfc2822RepToMessageRep(mimeBody);
     message.date = receiveTimestamp;

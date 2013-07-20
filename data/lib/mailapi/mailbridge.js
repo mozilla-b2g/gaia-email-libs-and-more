@@ -621,7 +621,7 @@ MailBridge.prototype = {
 
     this._observedBodies[msg.suid][msg.handle] = catchPending;
 
-    folderStorage.getMessageBody(msg.suid, msg.date, function(bodyInfo) {
+    var handler = function(bodyInfo) {
       self.__sendMessage({
         type: 'gotBody',
         handle: msg.handle,
@@ -649,7 +649,12 @@ MailBridge.prototype = {
       // revert to default handler. Note! this is intentionally
       // set to null and not deleted if deleted the observer is removed.
       self._observedBodies[msg.suid][msg.handle] = null;
-    });
+    };
+
+    if (msg.withBodyReps)
+      folderStorage.getMessageBodyWithReps(msg.suid, msg.date, handler);
+    else
+      folderStorage.getMessageBody(msg.suid, msg.date, handler);
   },
 
   _cmd_killBody: function(msg) {
@@ -840,8 +845,12 @@ MailBridge.prototype = {
                               .map(function(x) { return '<' + x + '>'; })
                               .join(' ');
           }
-          else {
+          else if (msg.refGuid) {
             referencesStr = '<' + msg.refGuid + '>';
+          }
+          // ActiveSync does not thread so good
+          else {
+            referencesStr = '';
           }
           req.active = null;
           self.__sendMessage({

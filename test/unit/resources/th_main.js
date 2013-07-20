@@ -2282,6 +2282,13 @@ var TestImapAccountMixins = {
       viewThing.slice.requestShrinkage(useLow, useHigh);
     });
   },
+
+  expect_sendMessage: function() {
+    // sending is not tracked as an op, but appending is
+    this.expect_runOp(
+      'append',
+      { local: false, server: true, save: false });
+  },
 };
 
 var TestActiveSyncAccountMixins = {
@@ -2493,6 +2500,9 @@ var TestActiveSyncAccountMixins = {
     }
 
     return totalMessageCount;
+  },
+
+  expect_sendMessage: function() {
   },
 };
 

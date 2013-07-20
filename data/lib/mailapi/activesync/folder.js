@@ -1057,7 +1057,7 @@ ActiveSyncFolderConn.prototype = {
 
     this._storage.updateMessageHeader(header.date, header.id, false, header);
     this._storage.updateMessageBody(header, bodyInfo, event);
-    this._storage.runAfterDeferredCalls(callback);
+    this._storage.runAfterDeferredCalls(callback.bind(null, null, bodyInfo));
   },
 
   sync: lazyConnection(1, function asfc_sync(accuracyStamp, doneCallback,

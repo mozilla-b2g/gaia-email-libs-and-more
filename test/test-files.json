@@ -82,7 +82,7 @@
 
 
     "test_compose.js": {
-      "variants": ["imap:fake", "imap:real"]
+      "variants": ["imap:rake", "imap:real", "activesync:fake"]
     },
 
 

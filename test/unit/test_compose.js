@@ -1,6 +1,11 @@
 /**
  * Test the composition process and our ability to properly display newly
  * received messages.
+ *
+ * IMPORTANT NOTE: There is no cheap way to get message-id and other threading
+ * headers from ActiveSync.  To do that, we would need to fetch the MIME body
+ * of the message (although we only need through the given header, though we
+ * might not have an easy way to know where the headers stop, etc. etc.)
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
@@ -33,8 +38,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse,
-                              realAccountNeeded: true }),
+                            { universe: testUniverse }),
       testStorage = T.actor('testDeviceStorage', 'sdcard',
                             { storage: 'sdcard' });
 
@@ -166,10 +170,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   });
   var sentMessageId;
   T.action(testAccount, 'send', eLazy, function() {
-    // sending is not tracked as an op, but appending is
-    testAccount.expect_runOp(
-      'append',
-      { local: false, server: true, save: false });
+    testAccount.expect_sendMessage();
+
     // note: the delete op is asynchronously scheduled by the send process once
     // it completes; our callback below will be invoked before the op is
     // guaranteed to run to completion.
@@ -200,7 +202,9 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       RT.reportActiveActorThisStep(eLazy);
       RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
-      eLazy.expect_namedValue('message-id', sentMessageId);
+      // only IMAP exposes message-id's right now
+      if (testAccount.type === 'imap')
+        eLazy.expect_namedValue('message-id', sentMessageId);
       eLazy.expect_namedValue(
         'attachments',
         [{
@@ -220,7 +224,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
-      eLazy.namedValue('message-id', header.guid);
+      if (testAccount.type === 'imap')
+        eLazy.namedValue('message-id', header.guid);
       header.getBody(function(body) {
         var attachments = [];
         body.attachments.forEach(function(att, iAtt) {
@@ -267,7 +272,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
-      eLazy.expect_namedValue('source message-id', sentMessageId);
+      eLazy.expect_namedValue(
+        'received body text',
+        'Antelope banana credenza.\n\nDialog excitement!');
+      if (testAccount.type === 'imap')
+        eLazy.expect_namedValue('source message-id', sentMessageId);
       // We are top-posting biased, so we automatically insert two blank lines;
       // one for typing to start at, and one for whitespace purposes.
       expectedReplyBody = {
@@ -288,20 +297,27 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
                                        address: TEST_PARAMS.emailAddress }]);
       eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
-      eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
+      if (testAccount.type === 'imap')
+        eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
+      else
+        eLazy.expect_namedValue('references', '');
       eLazy.expect_namedValue('body text', expectedReplyBody.text);
       eLazy.expect_namedValue('body html', expectedReplyBody.html);
     },
     // trigger the reply composer
     withMessage: function(header) {
-      eLazy.namedValue('source message-id', header.guid);
-      replyComposer = header.replyToMessage('sender', function() {
-        eLazy.event('reply setup completed');
-        eLazy.namedValue('to', replyComposer.to);
-        eLazy.namedValue('subject', replyComposer.subject);
-        eLazy.namedValue('references', replyComposer._references);
-        eLazy.namedValue('body text', replyComposer.body.text);
-        eLazy.namedValue('body html', replyComposer.body.html);
+      header.getBody({ withBodyReps: true }, function(body) {
+        eLazy.namedValue('received body text', body.bodyReps[0].content[1]);
+        if (testAccount.type === 'imap')
+          eLazy.namedValue('source message-id', header.guid);
+        replyComposer = header.replyToMessage('sender', function() {
+          eLazy.event('reply setup completed');
+          eLazy.namedValue('to', replyComposer.to);
+          eLazy.namedValue('subject', replyComposer.subject);
+          eLazy.namedValue('references', replyComposer._references);
+          eLazy.namedValue('body text', replyComposer.body.text);
+          eLazy.namedValue('body html', replyComposer.body.html);
+        });
       });
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
@@ -341,15 +357,25 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
 
-      eLazy.expect_namedValue('replied message-id', replyMessageId);
-      eLazy.expect_namedValue('replied references', replyReferences);
+      if (testAccount.type === 'imap') {
+        eLazy.expect_namedValue('replied message-id', replyMessageId);
+        eLazy.expect_namedValue('replied references', replyReferences);
+      }
+      else {
+        eLazy.expect_event('ActiveSync is bad for threading');
+      }
     },
     withMessage: function(header) {
       replyHeader = header;
-      eLazy.namedValue('replied message-id', header.guid);
-      header.getBody(function(repliedBody) {
-        eLazy.namedValue('replied references', repliedBody._references);
-      });
+      if (testAccount.type === 'imap') {
+        eLazy.namedValue('replied message-id', header.guid);
+        header.getBody(function(repliedBody) {
+          eLazy.namedValue('replied references', repliedBody._references);
+        });
+      }
+      else {
+        eLazy.event('ActiveSync is bad for threading');
+      }
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   T.group('check forward generation logic');

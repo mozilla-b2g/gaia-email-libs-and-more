@@ -525,9 +525,6 @@ var DEVICE_STORAGE_PATH_CLOBBERINGS = {
   'Vids': 'videos'
 };
 
-var deviceStorageFile = dirService.get('ProfD', Ci.nsILocalFile);
-deviceStorageFile.append('device-storage');
-
   /*
 let replacementDirServiceProvider = {
   getFile: function(prop, persistent) {
@@ -557,14 +554,23 @@ Components.manager
                    replacementDirServiceProvider);
 */
 
-for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
-  // force an undefine
-  try {
-    dirService.undefine(name);
+
+function makeAndSetDeviceStorageTarget(subdirName) {
+  var deviceStorageFile = dirService.get('ProfD', Ci.nsIFile);
+  deviceStorageFile.append('device-storage');
+  deviceStorageFile.append(subdirName);
+
+  deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
+
+  for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
+    // force an undefine
+    try {
+      dirService.undefine(name);
+    }
+    catch(ex) {}
+    dirService.set(name, deviceStorageFile);
+    //console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
   }
-  catch(ex) {}
-  dirService.set(name, deviceStorageFile);
-//console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -859,6 +865,12 @@ function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
     testName: testFileName,
     testParams: JSON.stringify(testParams),
   };
+
+  // This would matter if we actually could control where the sdcard storage
+  // went, which we can't. Uggggggh.  For now, th_devicestorage just runs
+  // a cleanup pass where it deletes everything it saw get created.
+  makeAndSetDeviceStorageTarget(
+    testFileName + '-' + variant.replace(/:/g, '_'));
 
   // Our testfile protocol allows us to use the test file as an origin, so every
   // test file gets its own instance of the e-mail database.  This is better
