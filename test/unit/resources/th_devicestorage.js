@@ -17,6 +17,7 @@ define(
     exports
   ) {
 
+var DEVICE_STORAGE_GET_PREFIX = 'TEST_PREFIX/';
 
 var TestDeviceStorageMixins = {
   __constructor: function(self, opts) {
@@ -90,6 +91,12 @@ var TestDeviceStorageMixins = {
   },
 
   get: function(path, callback) {
+    // remove prefix
+    if (path.indexOf(DEVICE_STORAGE_GET_PREFIX) === -1)
+      throw new Error('saved storage without test prefix');
+
+    path = path.slice(DEVICE_STORAGE_GET_PREFIX.length);
+
     var id = this._nextReqId++;
     this._callbacks[id] = callback;
     this._sendMessage('get', { id: id, path: path });

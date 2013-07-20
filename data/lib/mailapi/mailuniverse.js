@@ -484,9 +484,9 @@ MailUniverse.prototype = {
                             endings: 'transparent'
                           });
       var filename = 'gem-log-' + Date.now() + '.json';
-      sendMessage('save', ['sdcard', blob, filename], function(success) {
+      sendMessage('save', ['sdcard', blob, filename], function(success, err, savedFile) {
         if (success)
-          console.log('saved log to "sdcard" devicestorage:', filename);
+          console.log('saved log to "sdcard" devicestorage:', savedFile);
         else
           console.error('failed to save log to', filename);
 

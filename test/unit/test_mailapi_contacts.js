@@ -26,6 +26,159 @@ function clone(obj) {
 }
 
 /**
+ * The data-model for mozContacts returns lists in places where you might not
+ * really expect a list; check that all code paths subscript properly.  (We
+ * had bugs before where we would return the DOMStringList; this would
+ * stringify okay when there was only one entry, but structured cloning hates
+ * DOMStringList and breaks, so it was bad.)
+ *
+ * There are 3 code paths we need to check:
+ * 1) Cache miss where we have to perform the lookup then pull the data out
+ *    when that call completes.
+ * 2) Cache hit where we pull the data out synchronously.
+ * 3) Cache miss that fails the lookup but then a create or update event
+ *    causes the peep to be covered by a contact.  Both create and update
+ *    use the same code as far as subscripting goes.
+ */
+TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testContacts = T.actor('testContacts', 'contacts'),
+      eCheck = T.lazyLogger('check');
+  var ContactCache = $mailapi.ContactCache;
+
+  // Add our contact.
+  var bobsName = 'Bob Bobbington',
+      bobsEmail = 'bob@bob.nul';
+  T.setup('create bob', function() {
+    testContacts.createContact(bobsName, [bobsEmail], 'quiet');
+  });
+
+  T.group('cache miss, lookup hit');
+  T.action(eCheck, 'bob asynchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect_namedValue('name', bobsName);
+    testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+    });
+  });
+
+  T.group('cache hit');
+  T.action(eCheck, 'bob synchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect_namedValue('name', bobsName);
+    testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+    });
+  });
+
+  T.group('cache miss, lookup miss, event-driven hit');
+  var samsName = 'Sam Sammington',
+      samsEmail = 'sam@sam.nul';
+  T.action(eCheck, 'sam and fail to resolve', function() {
+    eCheck.expect_namedValue('isContact', false);
+    // The name gets coerced to '' so it remains falsey but string coercion
+    // rules avoid us ever having someone named "null"
+    eCheck.expect_namedValue('name', '');
+    testUniverse.MailAPI.resolveEmailAddressToPeep(samsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+
+      // Set this up for the next step.
+      peep.onchange = function() {
+        eCheck.event('onchange');
+        eCheck.namedValue('isContact', peep.isContact);
+        eCheck.namedValue('name', peep.name);
+      };
+    });
+  });
+  T.action('create contact,', eCheck, 'sam', function() {
+    eCheck.expect_event('onchange');
+    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect_namedValue('name', samsName);
+    // this will fire the onchange event we set up in the previous step
+    testContacts.createContact(samsName, [samsEmail]);
+  });
+
+  T.group('cleanup');
+});
+
+/**
+ * Make sure empty names don't cause us to freak out.  (Although freaking out
+ * is a legitimate choice; who doesn't have a name?  Ghosts, that's who.)
+ *
+ * This test is a modified version of the DOMString/DOMStringList one.
+ */
+TD.commonCase('do not die on empty names', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testContacts = T.actor('testContacts', 'contacts'),
+      eCheck = T.lazyLogger('check');
+  var ContactCache = $mailapi.ContactCache;
+
+  // Add our contact.
+  var bobsEmail = 'bob@bob.nul';
+  T.setup('create bob', function() {
+    testContacts.createContact(null, [bobsEmail], 'quiet');
+  });
+
+  T.group('cache miss, lookup hit');
+  T.action(eCheck, 'bob asynchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    // ContactCache coerces to '' for type reasons
+    eCheck.expect_namedValue('name', '');
+    testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+    });
+  });
+
+  T.group('cache hit');
+  T.action(eCheck, 'bob synchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    // (null coerced to '')
+    eCheck.expect_namedValue('name', '');
+    testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+    });
+  });
+
+  T.group('cache miss, lookup miss, event-driven hit');
+  var samsEmail = 'sam@sam.nul';
+  T.action(eCheck, 'sam and fail to resolve', function() {
+    eCheck.expect_namedValue('isContact', false);
+    // The name gets coerced to '' so it remains falsey but string coercion
+    // rules avoid us ever having someone named "null"
+    eCheck.expect_namedValue('name', '');
+    testUniverse.MailAPI.resolveEmailAddressToPeep(samsEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('name', peep.name);
+
+      // Set this up for the next step.
+      peep.onchange = function() {
+        eCheck.event('onchange');
+        eCheck.namedValue('isContact', peep.isContact);
+        eCheck.namedValue('name', peep.name);
+      };
+    });
+  });
+  T.action('create contact,', eCheck, 'sam', function() {
+    eCheck.expect_event('onchange');
+    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect_namedValue('name', '');
+    // this will fire the onchange event we set up in the previous step
+    testContacts.createContact(null, [samsEmail]);
+  });
+
+  T.group('cleanup');
+});
+
+
+
+/**
  * Make sure we clear the cache when we hit the appropriate number of hits
  * and empties.  We directly muck with the cache counters rather than mess
  * with the constants or actually generating all those hits/empties.

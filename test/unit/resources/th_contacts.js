@@ -226,10 +226,12 @@ var TestContactsMixins = {
   createContact: function(name, emails, quiet) {
     var contact = {
       id: this._nextContactID++,
-      name: [name],
       email: this._mapEmails(emails),
       photo: [],
     };
+    if (name)
+      contact.name = [name];
+
     this._logger.createContact(contact.id, contact);
     this.contactsAPI._save(contact, quiet);
 
