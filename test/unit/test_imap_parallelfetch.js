@@ -146,8 +146,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       });
 
       header.onchange = function() {
-        // intentionally omitting options... body should be downloaded here.
-        header.getBody(function(body) {
+        header.getBody({ withBodyReps: true }, function(body) {
           var contents = body.bodyReps.map(function(item) {
             return ((Array.isArray(item.content)) ?
               item.content[1] : item.content).trim();
@@ -160,10 +159,10 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
           });
         });
 
-        eLazy.namedValue('snippet', JSON.stringify({
+        eLazy.namedValue('snippet', {
           id: header.id,
           approxSnippet: header.snippet.slice(0, 20).trim()
-        }));
+        });
       };
     });
 
