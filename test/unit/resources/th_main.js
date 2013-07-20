@@ -302,6 +302,8 @@ var TestUniverseMixins = {
             testAccount._useDate += (thenTzOffset - nowTzOffset);
           }
         }
+        // tell the server about the date we're using
+        testAccount.testServer.setDate(testAccount._useDate);
       }
       $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });

@@ -85,6 +85,8 @@ var TestActiveSyncServerMixins = {
 
   finishSetup: function(testAccount) {
     this.testAccount = testAccount;
+    if (testAccount._useDate)
+      this.setDate(testAccount._useDate);
   },
 
   _backdoor: function(request) {
