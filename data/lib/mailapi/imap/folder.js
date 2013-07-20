@@ -694,7 +694,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
   },
 
   /**
-   * Download snippets for a set of headers.
+   * The actual work of downloadBodies, lazily replaces downloadBodies once
+   * module deps are loaded.
    */
   _lazyDownloadBodies: function(headers, options, callback) {
     var pending = 1, downloadsNeeded = 0;
@@ -736,6 +737,9 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     window.setZeroTimeout(next);
   },
 
+  /**
+   * Download snippets or entire bodies for a set of headers.
+   */
   downloadBodies: function() {
     var args = Array.slice(arguments);
     var self = this;

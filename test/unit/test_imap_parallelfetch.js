@@ -133,11 +133,11 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         throw new Error('no server content for guid: ' + header.guid);
       var snippet = snippetBodyRepContent.slice(0, 20);
 
-      eLazy.expect_namedValue('snippet', JSON.stringify({
+      eLazy.expect_namedValue('snippet', {
         id: header.id,
         // snippets are usually trimmed
         approxSnippet: snippet.trim()
-      }));
+      });
 
       eLazy.expect_namedValue('bodyReps', {
         id: header.id,
