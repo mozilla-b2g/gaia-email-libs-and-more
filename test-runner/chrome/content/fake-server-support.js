@@ -256,7 +256,7 @@ function makeActiveSyncServer(creds, logToDump) {
       let path = request.path;
       if (request.queryString)
         path += '?' + request.queryString;
-      dump('>>> ' + path + '\n');
+      dump('\x1b[34m>>> ' + path + '\n');
       if (body) {
         if (body instanceof activesyncSandbox.WBXML.Reader) {
           dump(body.dump());
@@ -266,11 +266,11 @@ function makeActiveSyncServer(creds, logToDump) {
           dump(JSON.stringify(body, null, 2) + '\n');
         }
       }
-      dump('\n');
+      dump('\x1b[0m\n');
     };
 
     server.logResponse = function(request, response, body) {
-      dump('<<<\n');
+      dump('\x1b[34m<<<\n');
       if (body) {
         if (body instanceof activesyncSandbox.WBXML.Writer) {
           dump(new activesyncSandbox.WBXML.Reader(
@@ -280,7 +280,7 @@ function makeActiveSyncServer(creds, logToDump) {
           dump(JSON.stringify(body, null, 2) + '\n');
         }
       }
-      dump('\n');
+      dump('\x1b[0m\n');
     };
 
     server.logResponseError = function(err) {
@@ -384,7 +384,8 @@ console.log('----> responseData:::', responseData);
       };
     }
     else if (reqObj.command === 'make_activesync') {
-      var serverInfo = makeActiveSyncServer(reqObj.credentials);
+      var serverInfo = makeActiveSyncServer(reqObj.credentials,
+                                            /* debug: log traffic */ false);
       this.activeSyncServersByPort[serverInfo.port] = serverInfo;
       return {
         // the control URL is also the ActiveSync server

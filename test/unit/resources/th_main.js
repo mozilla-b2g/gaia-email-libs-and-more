@@ -2466,8 +2466,12 @@ var TestActiveSyncAccountMixins = {
           testFolder.connActor.expect_sync_begin(null, null, null);
           // TODO: have filterType be specified in extraFlags for consistency
           // with IMAP.
-          if (einfo.filterType)
+          // XXX we might also consider inferring some cases?
+          if (einfo.filterType) {
+            if (einfo.filterType === 'none')
+              einfo.filterType = '0';
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
+          }
           if (checkFlagDefault(extraFlags, 'recreateFolder', false)) {
             var oldConnActor = testFolder.connActor;
             var newConnActor = this._expect_recreateFolder(testFolder);

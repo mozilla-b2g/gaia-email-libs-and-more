@@ -1040,6 +1040,15 @@ ActiveSyncFolderConn.prototype = {
   _updateBody: function(header, bodyInfo, bodyContent, snippetOnly, callback) {
     var bodyRep = bodyInfo.bodyReps[0];
 
+    // XXX We don't want a trailing newline, primarily for unit test reasons
+    // right now... This might be a problem on our compose-side for activesync.
+    if (bodyContent.length && bodyContent[bodyContent.length - 1] === '\n')
+      bodyContent = bodyContent.slice(0, -1);
+
+    // We neither need to store or want to deal with \r in the processing of
+    // the body.
+    bodyContent = bodyContent.replace(/\r/g, '');
+
     var type = snippetOnly ? 'plain' : bodyRep.type;
     var data = $mailchew.processMessageContent(bodyContent, type, !snippetOnly,
                                                true, this._LOG);

@@ -171,7 +171,7 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
  * Generate the body of an inline forward message.  XXX we need to generate
  * the header summary which needs some localized strings.
  */
-exports.generateForwardMessage = 
+exports.generateForwardMessage =
   function(author, date, subject, headerInfo, bodyInfo, identity) {
 
   var textMsg = '\n\n', htmlMsg = null;

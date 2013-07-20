@@ -206,6 +206,9 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       if (testAccount.type === 'imap')
         eLazy.expect_namedValue('message-id', sentMessageId);
       eLazy.expect_namedValue(
+        'sent body text',
+        'Antelope banana credenza.\n\nDialog excitement!');
+      eLazy.expect_namedValue(
         'attachments',
         [{
           filename: 'foo.png',
@@ -226,7 +229,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.namedValue('subject', header.subject);
       if (testAccount.type === 'imap')
         eLazy.namedValue('message-id', header.guid);
-      header.getBody(function(body) {
+      header.getBody({ withBodyReps: true }, function(body) {
+        eLazy.namedValue('sent body text', body.bodyReps[0].content[1]);
         var attachments = [];
         body.attachments.forEach(function(att, iAtt) {
           attachments.push({
@@ -445,15 +449,25 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
 
-      eLazy.expect_namedValue('replied message-id', secondReplyMessageId);
-      eLazy.expect_namedValue('replied references', secondReplyReferences);
+      if (testAccount.type === 'imap') {
+        eLazy.expect_namedValue('replied message-id', secondReplyMessageId);
+        eLazy.expect_namedValue('replied references', secondReplyReferences);
+      }
+      else {
+        eLazy.expect_event('ActiveSync is bad for threading');
+      }
     },
     withMessage: function(header) {
       replyHeader = header;
-      eLazy.namedValue('replied message-id', header.guid);
-      header.getBody(function(body) {
-        eLazy.namedValue('replied references', body._references);
-      });
+      if (testAccount.type === 'imap') {
+        eLazy.namedValue('replied message-id', header.guid);
+        header.getBody(function(body) {
+          eLazy.namedValue('replied references', body._references);
+        });
+      }
+      else {
+        eLazy.event('ActiveSync is bad for threading');
+      }
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
@@ -473,8 +487,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true,
-                              realAccountNeeded: 'append' }),
+                            { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 
   var
@@ -615,8 +628,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
 TD.commonCase('reply all', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true,
-                              realAccountNeeded: true }),
+                            { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 
 
@@ -658,7 +670,8 @@ TD.commonCase('reply all', function(T, RT) {
       return msgs;
     });
   var testView = testAccount.do_openFolderView('syncs', testFolder,
-    { count: 5, full: 5, flags: 0, deleted: 0 },
+    { count: 5, full: 5, flags: 0, change: 0, deleted: 0,
+      filterType: 'none' },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
   T.action(eCheck, 'reply composer variants', function() {
@@ -712,8 +725,7 @@ TD.commonCase('bcc self', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
   var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true,
-                              realAccountNeeded: true });
+                            { universe: testUniverse, restored: true });
 
   var uniqueSubject = makeRandomSubject();
 
