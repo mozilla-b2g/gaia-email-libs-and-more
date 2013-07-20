@@ -176,8 +176,9 @@ ActiveSyncFolder.prototype = {
    * @return true if the message is in the filter range, false otherwise
    */
   _messageInFilterRange: function(filterType, message) {
+    var clockNow = this.server._useNowTimestamp || Date.now();
     return filterType === ActiveSyncCodepages.AirSync.Enums.FilterType.NoFilter ||
-           (this.server._clock - this.filterTypeToMS[filterType] <=
+           (clockNow - this.filterTypeToMS[filterType] <=
             message.date);
   },
 
