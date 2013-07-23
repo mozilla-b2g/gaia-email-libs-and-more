@@ -24,8 +24,16 @@ const CC = Components.Constructor;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-// XXX this path only exists on b2g18; need to work on b2g18 and MC
-Cu.import("resource://gre/modules/commonjs/promise/core.js");
+
+try {
+  // This is the path for MC, NOT b2g18, favor it since it is forward looking
+  Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
+} catch (e) {
+  // This path only exists on b2g18. Try it in case tests need to
+  // test something specific for b2g18-based devices.
+  Cu.import("resource://gre/modules/commonjs/promise/core.js");
+}
+
 Cu.import("resource://gre/modules/osfile.jsm");
 
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
@@ -804,18 +812,17 @@ var gProgress = null;
 
 /**
  * @param controlServer The ControlServer to point the test at.
- * @param thoroughCleanup Should we trigger a full cycle collecting GC?
  */
-function runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
+function runTestFile(testFileName, variant, controlServer) {
   try {
-    return _runTestFile(testFileName, variant, controlServer, thoroughCleanup);
+    return _runTestFile(testFileName, variant, controlServer);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
+function _runTestFile(testFileName, variant, controlServer) {
   console.harness('running', testFileName, 'variant', variant);
 
   // Parameters to pass into the test.
@@ -906,20 +913,6 @@ function _runTestFile(testFileName, variant, controlServer, thoroughCleanup) {
       });
 
       gProgress = null;
-      // there is no need to do a full GC if we're
-      if (thoroughCleanup) {
-        // Defer until after our caller is no longer on the stack since it
-        // might currently preclude a proper full GC.
-        window.setTimeout(function() {
-          // This gets us a JS GC as well as a cycle collection; Cu.forceGC
-          // does not net the cycle collect.  Cu.schedulePreciseGC I think is
-          // comparable but its API is a little ill-defined.  We don't mind if
-          // this closure is on the stack when we GC, so it's not a big deal.
-          var domWindowUtils = window.QueryInterface(Ci.nsIInterfaceRequestor)
-                .getInterface(Ci.nsIDOMWindowUtils);
-          domWindowUtils.garbageCollect();
-        }, 0);
-      }
     }
     catch(ex) {
       console.harness('Problem cleaning up window', ex, '\n', ex.stack);
@@ -1081,8 +1074,7 @@ function runTests(configData) {
     curTestInfo = runTests[iTest];
 
     runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
-                controlServer,
-                /* thorough cleanup */ true)
+                controlServer)
       .then(runNextTest);
   }
   runNextTest();
