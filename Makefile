@@ -37,9 +37,7 @@ RSYNC_JS=rsync -r -f "- jsdoc/" -f "+ */" -f "+ *.js" -f "- *" --prune-empty-dir
 
 VOLO=./scripts/volo
 
-ifndef TEST_VARIANT
-	TEST_VARIANT=all
-endif
+TEST_VARIANT ?= all
 
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.

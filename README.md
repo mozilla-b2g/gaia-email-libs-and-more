@@ -97,23 +97,24 @@ make install-into-gaia
 
 ## Unit Tests ##
 
-Unit tests are intended to be run against b2g-desktop in xulrunner mode, but
-Firefox or Thunderbird should work equally well.  The Makefile has targets for
-`imap-tests` and for `one-imap-test` (likewise for `activesync` and `torture`).
-To run all tests for all account types, use the target `all-tests`.  You can
-also prefix these target with `post-` to post the results to an ArbPL instance.
-For more details on this, see "Viewing the Test Results" below.
+Unit tests are intended to be run against b2g-desktop in xulrunner mode. The
+Makefile has targets for `tests` and for `one-test`. You can also prefix these
+target with `post-` to post the results to an ArbPL instance. For more details
+on this, see "Viewing the Test Results" below.
 
 Running these tests depends on your having `b2g-bindir-symlink` files in the
 root of your gaia-email-libs-and-more checkout so it can build the path
 properly.
 
-### IMAP ###
+The tests by default run against the fakeserver taken from the Thunderbird
+codebase, so no extra setup should be needed. See "fakeserver Notes" for more
+information on how the fakeserver code is tracked.
 
-The IMAP tests like to run against real servers.  We use dovecot installed
-on Ubuntu hooked up to postfix on localhost, but the unit tests can run against
-any server anywhere.  For example, a somewhat recent dovecot on a remote server
-works just as well as localhost, it's just harder to use on a airplane.  Some
+Some of the tests can run against real servers, but that is not enabled by
+default. In the past, we have used dovecot installed on Ubuntu hooked up to
+postfix on localhost, but the unit tests can run against any server anywhere.
+For example, a somewhat recent dovecot on a remote server works just as well as
+localhost, it's just harder to use on a airplane.  Some
 servers, such as Yahoo's IMAP at the current time, are too broken to use the
 unit tests.  For example, Yahoo's APPEND command ignores the specified
 INTERNALDATE value, which makes it useless for many synchronization unit tests.
@@ -121,18 +122,22 @@ INTERNALDATE value, which makes it useless for many synchronization unit tests.
 For more details on setting up a Dovecot server, see
 [test/dovecot.md](test/dovecot.md).
 
-### ActiveSync ###
-
-The ActiveSync tests like to run against fake servers.
-You could use `make activesync-server` to start the server.
-
 ### Setup ###
 
-Create the symlink described above for xulrunner:
+Create the symlink described above for a B2G desktop xulrunner:
 ```
 ln -s /path/to/b2g-desktop b2g-bindir-symlink
-# You could download it in http://ftp.mozilla.org/pub/mozilla.org/b2g/nightly/latest-mozilla-b2g18/
 ```
+
+You should use a mozilla-central nightly build for B2G desktop:
+
+http://ftp.mozilla.org/pub/mozilla.org/b2g/nightly/latest-mozilla-central/
+
+You can use a mozilla-b2g18, but you may need to run the tests in waves,
+using discrete TEST_VARIANT values, as running them all together may have
+problems (segmentation faults):
+
+http://ftp.mozilla.org/pub/mozilla.org/b2g/nightly/latest-mozilla-b2g18/
 
 On OSX: `/path/to/b2g-desktop` will be something like:
 
@@ -140,43 +145,51 @@ On OSX: `/path/to/b2g-desktop` will be something like:
 /Applications/B2G.app/Contents/MacOS/
 ```
 
-Build the B2G desktop client.
-For more details, see https://developer.mozilla.org/en-US/docs/Mozilla/Firefox_OS/Using_the_B2G_desktop_client
-
-After build the B2G, create these below symlinks:
-```
-ln -s /path/to/mozilla-central b2g-srcdir-symlink
-```
-
-```
-ln -s /path/to/build b2g-builddir-symlink
-```
-
 Create the symlink for arbitrarypushlog:
+
 ```
 ln -s /path/to/arbitrarypushlog arbpl-dir-symlink
 ```
 
+See Viewing the Test Results" below for more information about using
+arbitrarypushlog for viewing the test results.
+
 ### Running the Tests ###
 
-Before you run the tests, make sure that the Dovecot/Postfix is running for IMAP tests and
-ActiveSync server is running for ActiveSync tests.
-
-To run a single test, in this case, test_imap_general.js which is located at
-test/unit/test_imap_general.js in the repo:
-```
-make one-imap-test SOLO_FILE=test_imap_general.js
-```
-This will produce a log file of the run at
-test/unit/test_imap_general.js.log
-
 To run all of the unit tests:
+
 ```
 make all-tests
 ```
+
 This will remove all existing log files prior to the run.  Afterwards, all log
 files should be updated/exist, and a log that is the concatenation of all of
-the test logs should exist at test/unit/all.log
+the test logs should exist at `test-logs/all.logs`.
+
+To run just one variant of the tests, set TEST_VARIANT:
+
+```
+make all-tests TEST_VARIANT=imap:fake
+```
+
+The valid TEST_VARIANT values are listed in `test/test-files.json` at the top,
+in the "variants" section:
+
+* noserver
+* imap:fake
+* activesync:fake
+* imap:real
+
+To run a single test, in this case, `test_imap_general.js` which is located at
+`test/unit/test_imap_general.js` in the repo:
+
+```
+make one-test SOLO_FILE=test_imap_general.js
+```
+
+This will produce a log file of the run at
+`test-logs/test_imap_general_VARIANT.log`, where VARIANT is similar to one of
+the TEST_VARIANT values. TEST_VARIANT can also be set for `one-test` targets.
 
 ### Viewing the Test Results ###
 
@@ -217,21 +230,45 @@ To get data in, the command is:
 ```
 
 Alternatively, you can create a symlink "arbpl-dir-symlink", and then use a
-Makefile target such as `post-one-imap-test` to automatically run ./logalchew
+Makefile target such as `post-one-test` to automatically run ./logalchew
 on the result.
 
 To make this more obvious that this is an option for those skimming the page,
 this means:
+
 ```
-make post-one-imap-test SOLO_FILE=test_imap_general.js
+make post-one-test SOLO_FILE=test_imap_general.js
 ```
 
 or
 
 ```
-make post-all-tests
+make post-tests
 ```
 
+### fakeserver Notes ###
+
+The tests use the fakeserver code from Thunderbird. A vendor-branch is used to
+track upstream:
+
+https://github.com/asutherland/gaia-email-libs-and-more/tree/thunderbird-fakeserver-vendor
+
+Everything under `test-runner/chrome/fakeserver` is pretty much just existing
+comm-central or mozilla-central (httpd.js) code, with some outstanding patches
+that  have been reviewed but not yet landed, and a couple of small things that
+will hopefully be upstreamed at some point.
+
+If you just want to start up a fakeserver to use for yourself during
+experimentation or development, there are some Makefile targets:
+
+```
+make imap-server
+make activesync-server
+```
+
+These just start up the fakeservers, and do not run tests. You do not need to
+use these commands before running the automated tests, the test Makefile targets
+will do that automatically.
 
 ## Legal Disclaimers, Notes, Etc. ##
 
