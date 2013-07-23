@@ -460,6 +460,10 @@ var TEST_CONFIG = null;
  * have used to spin it up from a unit test.
  */
 var TEST_COMMAND = null;
+
+// Trigger just one variant of tests to run.
+var TEST_VARIANT = null;
+
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
@@ -477,6 +481,12 @@ function populateTestParams() {
   // make absolute if it's not already absolute
   if (TEST_CONFIG[0] !== '/')
     TEST_CONFIG = do_get_file(TEST_CONFIG).path;
+
+  // variant is optional
+  if (args.findFlag('test-variant', false) !== -1)
+    TEST_VARIANT = args.handleFlagWithParam('test-variant', false);
+  if (TEST_VARIANT === 'all')
+    TEST_VARIANT = null;
 
   // test-command is optional
   if (args.findFlag('test-command', false) !== -1)
@@ -1030,13 +1040,17 @@ function runTests(configData) {
   var summaries = [];
 
   var useVariants = [];
-  for (var variantName in configData.variants) {
-    var variantData = configData.variants[variantName];
-    if (!variantData.optional ||
-        (variantName === 'imap:real' && TEST_PARAMS.type === 'imap') ||
-        (variantName === 'activesync:real' &&
-         TEST_PARAMS.type === 'activesync')) {
-      useVariants.push(variantName);
+  if (TEST_VARIANT) {
+    useVariants.push(TEST_VARIANT);
+  } else {
+    for (var variantName in configData.variants) {
+      var variantData = configData.variants[variantName];
+      if (!variantData.optional ||
+          (variantName === 'imap:real' && TEST_PARAMS.type === 'imap') ||
+          (variantName === 'activesync:real' &&
+           TEST_PARAMS.type === 'activesync')) {
+        useVariants.push(variantName);
+      }
     }
   }
   console.log('legal variants for tests:', useVariants);
@@ -1046,15 +1060,18 @@ function runTests(configData) {
   var runTests = [];
   for (var testName in configData.tests) {
     var testData = configData.tests[testName];
-    runTests.push(
-      {
-        name: testName.replace(/\.js$/, ''),
-        // filter out the variants that we don't want to run right now
-        variants: testData.variants.filter(function(v) {
-            return useVariants.indexOf(v) !== -1;
-          }),
-      });
-    console.log('planning to run test:', testName);
+    var testVariants = testData.variants.filter(function(v) {
+                        return useVariants.indexOf(v) !== -1;
+                       });
+    if (testVariants.length) {
+      runTests.push(
+        {
+          name: testName.replace(/\.js$/, ''),
+          // filter out the variants that we don't want to run right now
+          variants: testVariants,
+        });
+      console.log('planning to run test:', testName);
+    }
   }
 
   var iTest = 0, iVariant = 0, curTestInfo = null;

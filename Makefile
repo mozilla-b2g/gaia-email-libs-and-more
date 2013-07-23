@@ -37,6 +37,10 @@ RSYNC_JS=rsync -r -f "- jsdoc/" -f "+ */" -f "+ *.js" -f "- *" --prune-empty-dir
 
 VOLO=./scripts/volo
 
+ifndef TEST_VARIANT
+	TEST_VARIANT=all
+endif
+
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.
 NODE_PKGS := addressparser mailparser mailcomposer mimelib simplesmtp browserify-builtins
@@ -99,7 +103,7 @@ define run-tests  # $(call run-tests)
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
-	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT)
 	cat test-logs/*.log > test-logs/all.logs
 endef
 
@@ -109,7 +113,7 @@ define run-one-test
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
 	-rm -f test-logs/$(basename $(SOLO_FILE))-*.log
-	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE))
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT)
 	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
 endef
 
