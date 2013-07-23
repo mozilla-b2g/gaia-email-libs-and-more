@@ -914,6 +914,7 @@ function _runTestFile(testFileName, variant, controlServer) {
   var cleanupList = [];
   if (controlServer)
     cleanupList.push(controlServer);
+
   function cleanupWindow() {
     try {
       runnerIframe.parentNode.removeChild(runnerIframe);
@@ -1084,6 +1085,7 @@ function runTests(configData) {
       iVariant = 0;
     }
     if (iTest >= runTests.length) {
+      controlServer.shutdown();
       deferred.resolve(summaries);
       return;
     }

@@ -523,6 +523,14 @@ console.log('----> responseData:::', responseData);
   cleanup: function() {
     this.killActiveServers();
   },
+
+  /**
+   * Shuts down the control server itself. The server is not very usable
+   * after this.
+   */
+  shutdown: function() {
+   this._httpServer.stop(function(){});
+  }
 };
 
 /**
