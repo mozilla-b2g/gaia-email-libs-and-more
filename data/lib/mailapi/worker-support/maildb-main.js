@@ -18,7 +18,10 @@ define(function() {
     args.push(function() {
       self.sendMessage(uid, cmd, Array.prototype.slice.call(arguments));
     });
-    db[cmd].apply(db, args);
+    if (!db._db)
+      console.warn('trying to call', cmd, 'on apparently dead db. skipping.');
+    else
+      db[cmd].apply(db, args);
   }
 
   var self = {
@@ -408,7 +411,7 @@ MailDB.prototype = {
     trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
 
     var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
-        bodyStore = trans.objectStore(TBL_BODY_BLOCKS), 
+        bodyStore = trans.objectStore(TBL_BODY_BLOCKS),
         i;
 
     /**

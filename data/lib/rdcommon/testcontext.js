@@ -134,6 +134,15 @@ TestContext.prototype = {
   },
 
   /**
+   * Allow the test to explicitly set the latched 'variant' on the
+   * TestCasePermutation logger for log consumers.  This is being introduced
+   * so GELAM tests can identify if a run was for an IMAP run or an AS run.
+   */
+  setPermutationVariant: function(variant) {
+    this._log.variant(variant);
+  },
+
+  /**
    * Mix-in contributions from testhelper actorMixins or thingMixins entries.
    */
   _mixinFromHelperDefs: function(target, what, type, invokeConstructor,
@@ -573,6 +582,15 @@ exports.defineTestsFor = function defineTestsFor(testModule, logfabs,
           logfabs.push(logfab);
       }
     }
+    // transitively traverse/(idempotent) merge testhelpers; works because
+    // we're adding stuff to the outer loop as we go and length is not cached
+    if ('TESTHELPER_DEPS' in testHelper) {
+      for (var iSub = 0; iSub < testHelper.TESTHELPER_DEPS.length; iSub++) {
+        var subHelper = testHelper.TESTHELPER_DEPS[iSub];
+        if (testHelpers.indexOf(subHelper) === -1)
+          testHelpers.push(subHelper);
+      }
+    }
   }
 console.log("defining tests for", testModule.id);
   return new TestDefiner(testModule.id, logfabs, testHelpers, tags);
@@ -599,6 +617,12 @@ var LOGFAB = exports.LOGFAB = $log.register(null, {
     },
     latchState: {
       result: false,
+      /**
+       * Optional string that identifies the variant of the test.  For example,
+       * "imap" for a test case run against an IMAP server, "activesync" for
+       * the same test run against an activesync server, etc.
+       */
+      variant: false
     },
   },
   testCasePermutation: {
@@ -614,6 +638,8 @@ var LOGFAB = exports.LOGFAB = $log.register(null, {
     },
     latchState: {
       result: false,
+      /** Same as on testCase. */
+      variant: false
     }
   },
   /**

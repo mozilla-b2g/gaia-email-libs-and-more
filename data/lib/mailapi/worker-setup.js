@@ -53,8 +53,7 @@ var sendControl = $router.registerSimple('control', function(data) {
     case 'hello':
       navigator.hasPendingAlarm = args[1];
 
-      universe = new $mailuniverse.MailUniverse(onUniverse);
-      universe._onConnectionChange(args[0]);
+      universe = new $mailuniverse.MailUniverse(onUniverse, args[0]);
       break;
 
     case 'online':

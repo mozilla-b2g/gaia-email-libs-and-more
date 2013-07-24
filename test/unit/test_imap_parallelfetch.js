@@ -133,11 +133,11 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         throw new Error('no server content for guid: ' + header.guid);
       var snippet = snippetBodyRepContent.slice(0, 20);
 
-      eLazy.expect_namedValue('snippet', JSON.stringify({
+      eLazy.expect_namedValue('snippet', {
         id: header.id,
         // snippets are usually trimmed
         approxSnippet: snippet.trim()
-      }));
+      });
 
       eLazy.expect_namedValue('bodyReps', {
         id: header.id,
@@ -146,8 +146,13 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       });
 
       header.onchange = function() {
-        // intentionally omitting options... body should be downloaded here.
-        header.getBody(function(body) {
+        header.getBody({ withBodyReps: true }, function(body) {
+          if (!body) {
+            // ???!
+            eLazy.namedValue('missing body for header', header.id);
+            return;
+          }
+
           var contents = body.bodyReps.map(function(item) {
             return ((Array.isArray(item.content)) ?
               item.content[1] : item.content).trim();
@@ -158,12 +163,14 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
             contents: contents,
             isDownloaded: body.bodyReps[0].isDownloaded
           });
+
+          body.die();
         });
 
-        eLazy.namedValue('snippet', JSON.stringify({
+        eLazy.namedValue('snippet', {
           id: header.id,
           approxSnippet: header.snippet.slice(0, 20).trim()
-        }));
+        });
       };
     });
 

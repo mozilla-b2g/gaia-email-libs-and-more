@@ -24,33 +24,22 @@ const CC = Components.Constructor;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/commonjs/promise/core.js");
+
+try {
+  // This is the path for MC, NOT b2g18, favor it since it is forward looking
+  Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
+} catch (e) {
+  // This path only exists on b2g18. Try it in case tests need to
+  // test something specific for b2g18-based devices.
+  Cu.import("resource://gre/modules/commonjs/promise/core.js");
+}
+
 Cu.import("resource://gre/modules/osfile.jsm");
 
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URI = IOService.newURI.bind(IOService);
 
 ////////////////////////////////////////////////////////////////////////////////
-// have all console.log usages in this file be pretty to dump()
-
-Services.prefs.setBoolPref('browser.dom.window.dump.enabled', true);
-
-function consoleHelper() {
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
-}
-window.console = {
-  log: consoleHelper.bind(null, '\x1b[32mLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mERR'),
-  info: consoleHelper.bind(null, '\x1b[36mINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWAR'),
-  harness: consoleHelper.bind(null, '\x1b[36mRUN')
-};
-
 console.log('Initial loggest-chrome-runner.js bootstrap begun');
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,7 +69,7 @@ var ErrorTrapperHelper = {
         if (aMessage.flags & nsIScriptError.strictFlag)
           return;
 
-        console.error(aMessage.errorMessage + ' [' + aMessage.category + ']',
+         console.error(aMessage.errorMessage + ' [' + aMessage.category + ']',
                       aMessage.sourceName, aMessage.lineNumber);
 
         if (gRunnerWindow && gRunnerWindow.ErrorTrapper) {
@@ -428,6 +417,9 @@ ProgressListener.prototype = {
 //
 // --test-name is a required argument currently.
 const ENVIRON_MAPPINGS = [
+  // ex: '*@fakehost' for fake-server, 'testy@localhost' for local real
+  // IMAP server, '*@aslocalhost' for an activesync localhost account which
+  // implies a fake-server that you're already running.
   {
     name: 'emailAddress',
     envVar: 'GELAM_TEST_ACCOUNT',
@@ -438,6 +430,7 @@ const ENVIRON_MAPPINGS = [
     envVar: 'GELAM_TEST_PASSWORD',
     coerce: function (x) { return x; },
   },
+  // 'imap' or 'activesync'
   {
     name: 'type',
     envVar: 'GELAM_TEST_ACCOUNT_TYPE',
@@ -451,16 +444,26 @@ const ENVIRON_MAPPINGS = [
 ];
 var TEST_PARAMS = {
   name: 'Baron von Testendude',
-  emailAddress: 'testy@localhost',
-  password: 'testy',
+  emailAddress: null,
+  password: null,
   slow: false,
-  type: 'imap',
+  type: null,
 
   defaultArgs: true
 };
 
 var TEST_NAME = null;
 var TEST_CONFIG = null;
+/**
+ * Command issued via an argument that causes us to not actually run a test, but
+ * causes us to spin up a fake-server using the same infrastructure we would
+ * have used to spin it up from a unit test.
+ */
+var TEST_COMMAND = null;
+
+// Trigger just one variant of tests to run.
+var TEST_VARIANT = null;
+
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
@@ -478,6 +481,16 @@ function populateTestParams() {
   // make absolute if it's not already absolute
   if (TEST_CONFIG[0] !== '/')
     TEST_CONFIG = do_get_file(TEST_CONFIG).path;
+
+  // variant is optional
+  if (args.findFlag('test-variant', false) !== -1)
+    TEST_VARIANT = args.handleFlagWithParam('test-variant', false);
+  if (TEST_VARIANT === 'all')
+    TEST_VARIANT = null;
+
+  // test-command is optional
+  if (args.findFlag('test-command', false) !== -1)
+    TEST_COMMAND = args.handleFlagWithParam('test-command', false);
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -530,9 +543,6 @@ var DEVICE_STORAGE_PATH_CLOBBERINGS = {
   'Vids': 'videos'
 };
 
-var deviceStorageFile = dirService.get('ProfD', Ci.nsILocalFile);
-deviceStorageFile.append('device-storage');
-
   /*
 let replacementDirServiceProvider = {
   getFile: function(prop, persistent) {
@@ -562,14 +572,23 @@ Components.manager
                    replacementDirServiceProvider);
 */
 
-for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
-  // force an undefine
-  try {
-    dirService.undefine(name);
+
+function makeAndSetDeviceStorageTarget(subdirName) {
+  var deviceStorageFile = dirService.get('ProfD', Ci.nsIFile);
+  deviceStorageFile.append('device-storage');
+  deviceStorageFile.append(subdirName);
+
+  deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
+
+  for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
+    // force an undefine
+    try {
+      dirService.undefine(name);
+    }
+    catch(ex) {}
+    dirService.set(name, deviceStorageFile);
+    //console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
   }
-  catch(ex) {}
-  dirService.set(name, deviceStorageFile);
-//console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -732,7 +751,10 @@ ActiveSyncServerProxy.prototype = {
   }
 };
 
-function summaryFromLoggest(testFileName, logData) {
+/**
+ * Create a summary object for the given log run.
+ */
+function summaryFromLoggest(testFileName, variant, logData) {
   var summary = {
     filename: testFileName,
     tests: []
@@ -741,7 +763,9 @@ function summaryFromLoggest(testFileName, logData) {
     if (logData.fileFailure) {
       summary.tests.push({
         name: '*file level problem*',
-        result: 'fail'
+        result: 'fail',
+        // in the case of a file failure, we need the variant hint...
+        variant: variant
       });
     }
     var definerLog = logData.log;
@@ -752,9 +776,13 @@ function summaryFromLoggest(testFileName, logData) {
       return summary;
     for (var iKid = 0; iKid < definerLog.kids.length; iKid++) {
       var testCaseLog = definerLog.kids[iKid];
+      var testPermLog = testCaseLog.kids[0];
       summary.tests.push({
         name: '' + testCaseLog.semanticIdent,
-        result: testCaseLog.latched.result
+        result: testCaseLog.latched.result,
+        // although the latched variant should match up with the passed-in
+        // variant, let's avoid non-obvious clobbering and just propagate
+        variant: testPermLog.latched.variant
       });
     }
   }
@@ -783,7 +811,7 @@ function printTestSummary(summary) {
         str += '??? ' + test.result + '???';
         break;
     }
-    str += '\x1b[0m ' + test.name + '\n';
+    str += '\x1b[0m ' + test.name + ' (' + test.variant + ')\n';
     dump(str);
   });
 }
@@ -792,29 +820,82 @@ function printTestSummary(summary) {
 // reference here or it can go away prematurely!
 var gProgress = null;
 
-function runTestFile(testFileName, thoroughCleanup) {
+/**
+ * @param controlServer The ControlServer to point the test at.
+ */
+function runTestFile(testFileName, variant, controlServer) {
   try {
-    return _runTestFile(testFileName, thoroughCleanup);
+    return _runTestFile(testFileName, variant, controlServer);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, thoroughCleanup) {
-  console.harness('running', testFileName);
+function _runTestFile(testFileName, variant, controlServer) {
+  console.harness('running', testFileName, 'variant', variant);
+
+  // Parameters to pass into the test.
+  var testParams;
+  switch (variant) {
+    case 'noserver':
+      testParams = {};
+      break;
+    case 'imap:fake':
+      testParams = {
+        name: 'Baron von Testendude',
+        emailAddress: 'testy@fakeimaphost',
+        password: 'testy',
+        slow: false,
+        type: 'imap',
+
+        defaultArgs: true,
+
+        controlServerBaseUrl: controlServer.baseUrl,
+      };
+      break;
+    case 'activesync:fake':
+      testParams = {
+        name: 'Baron von Testendude',
+        emailAddress: 'testy@fakeashost',
+        password: 'testy',
+        slow: false,
+        type: 'activesync',
+
+        defaultArgs: true,
+
+        controlServerBaseUrl: controlServer.baseUrl,
+      };
+      break;
+    // these variants should only be run if info has been provided explicitly
+    case 'imap:real':
+      testParams = TEST_PARAMS;
+      break;
+    case 'activesync:real':
+      testParams = TEST_PARAMS;
+      break;
+  }
+
+  testParams.variant = variant;
 
   var passToRunner = {
     testName: testFileName,
-    testParams: JSON.stringify(TEST_PARAMS)
+    testParams: JSON.stringify(testParams),
   };
+
+  // This would matter if we actually could control where the sdcard storage
+  // went, which we can't. Uggggggh.  For now, th_devicestorage just runs
+  // a cleanup pass where it deletes everything it saw get created.
+  makeAndSetDeviceStorageTarget(
+    testFileName + '-' + variant.replace(/:/g, '_'));
 
   // Our testfile protocol allows us to use the test file as an origin, so every
   // test file gets its own instance of the e-mail database.  This is better
   // than deleting the database every time because at the end of the run we
   // will have all the untouched IndexedDB databases around so we can poke at
   // them if we need/want.
-  var baseUrl = 'testfile://' + testFileName + '/';
+  var baseUrl = 'testfile://' + testFileName + '-' +
+                  variant.replace(/:/g, '_') + '/';
   grantEmailPermissions(baseUrl);
 
   var runnerIframe = document.createElement('iframe');
@@ -831,6 +912,9 @@ function _runTestFile(testFileName, thoroughCleanup) {
   var deferred = Promise.defer();
 
   var cleanupList = [];
+  if (controlServer)
+    cleanupList.push(controlServer);
+
   function cleanupWindow() {
     try {
       runnerIframe.parentNode.removeChild(runnerIframe);
@@ -840,20 +924,6 @@ function _runTestFile(testFileName, thoroughCleanup) {
       });
 
       gProgress = null;
-      // there is no need to do a full GC if we're
-      if (thoroughCleanup) {
-        // Defer until after our caller is no longer on the stack since it
-        // might currently preclude a proper full GC.
-        window.setTimeout(function() {
-          // This gets us a JS GC as well as a cycle collection; Cu.forceGC
-          // does not net the cycle collect.  Cu.schedulePreciseGC I think is
-          // comparable but its API is a little ill-defined.  We don't mind if
-          // this closure is on the stack when we GC, so it's not a big deal.
-          var domWindowUtils = window.QueryInterface(Ci.nsIInterfaceRequestor)
-                .getInterface(Ci.nsIDOMWindowUtils);
-          domWindowUtils.garbageCollect();
-        }, 0);
-      }
     }
     catch(ex) {
       console.harness('Problem cleaning up window', ex, '\n', ex.stack);
@@ -884,8 +954,8 @@ console.harness('calling writeTestLog and resolving');
         var jsonStr = data.data,
             logData = JSON.parse(jsonStr);
         // this must be done prior to the compartment getting killed
-        var summary = summaryFromLoggest(testFileName, logData);
-        writeTestLog(testFileName, jsonStr).then(function() {
+        var summary = summaryFromLoggest(testFileName, variant, logData);
+        writeTestLog(testFileName, variant, jsonStr).then(function() {
           console.harness('write completed!');
           deferred.resolve(summary);
         });
@@ -941,11 +1011,12 @@ console.harness('calling writeTestLog and resolving');
   return deferred.promise;
 }
 
-function writeTestLog(testFileName, jsonStr) {
+function writeTestLog(testFileName, variant, jsonStr) {
   try {
     var encoder = new TextEncoder('utf-8');
-    var logFilename = testFileName + '.log';
-    var logPath = do_get_file('test-logs/' + TEST_PARAMS.type).path +
+    var logFilename = testFileName + '-' +
+                      variant.replace(/:/g, '_') + '.log';
+    var logPath = do_get_file('test-logs').path +
                   '/' + logFilename;
     console.harness('writing to', logPath);
     var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
@@ -960,23 +1031,70 @@ function writeTestLog(testFileName, jsonStr) {
   }
 }
 
+
+/**
+ * Run one or more tests.
+ */
 function runTests(configData) {
   var deferred = Promise.defer();
 
   var summaries = [];
 
-  var iTest = 0;
+  var useVariants = [];
+  if (TEST_VARIANT) {
+    useVariants.push(TEST_VARIANT);
+  } else {
+    for (var variantName in configData.variants) {
+      var variantData = configData.variants[variantName];
+      if (!variantData.optional ||
+          (variantName === 'imap:real' && TEST_PARAMS.type === 'imap') ||
+          (variantName === 'activesync:real' &&
+           TEST_PARAMS.type === 'activesync')) {
+        useVariants.push(variantName);
+      }
+    }
+  }
+  console.log('legal variants for tests:', useVariants);
+
+  var controlServer = FakeServerSupport.makeControlHttpServer().server;
+
+  var runTests = [];
+  for (var testName in configData.tests) {
+    var testData = configData.tests[testName];
+    var testVariants = testData.variants.filter(function(v) {
+                        return useVariants.indexOf(v) !== -1;
+                       });
+    if (testVariants.length) {
+      runTests.push(
+        {
+          name: testName.replace(/\.js$/, ''),
+          // filter out the variants that we don't want to run right now
+          variants: testVariants,
+        });
+      console.log('planning to run test:', testName);
+    }
+  }
+
+  var iTest = 0, iVariant = 0, curTestInfo = null;
   function runNextTest(summary) {
     if (summary)
       summaries.push(summary);
 
-    if (iTest >= configData.tests.length) {
+    if (curTestInfo && iVariant >= curTestInfo.variants.length) {
+      iTest++;
+      iVariant = 0;
+    }
+    if (iTest >= runTests.length) {
+      controlServer.shutdown();
       deferred.resolve(summaries);
       return;
     }
 
-    var testName = configData.tests[iTest++].replace(/\.js$/, '');
-    runTestFile(testName).then(runNextTest, /* thorough cleanup */ true);
+    curTestInfo = runTests[iTest];
+
+    runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
+                controlServer)
+      .then(runNextTest);
   }
   runNextTest();
 
@@ -986,17 +1104,68 @@ function runTests(configData) {
 function DOMLoaded() {
   OS.File.read(TEST_CONFIG).then(function(dataArr) {
     var decoder = new TextDecoder('utf-8');
-    var configData = JSON.parse(decoder.decode(dataArr));
-
-    if (TEST_NAME) {
-      runTestFile(TEST_NAME).then(function(summary) {
-        dump('\n\n***** 1 test run: *****\n');
-        printTestSummary(summary);
-        dump('************************\n\n');
-        quitApp();
-      });
+    try {
+      var configData = JSON.parse(decoder.decode(dataArr));
     }
-    else {
+    catch (ex) {
+      console.error('Problem with JSON config file:', ex);
+    }
+
+    if (TEST_COMMAND) {
+      console.log('got command:', TEST_COMMAND);
+      switch (TEST_COMMAND) {
+        case 'imap-fake-server':
+          try {
+            window.imapServer = FakeServerSupport.makeIMAPServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up IMAP server', ex, '\n',
+                          ex.stack);
+          }
+          try {
+            window.smtpServer = FakeServerSupport.makeSMTPServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up SMTP server', ex, '\n',
+                          ex.stack);
+          }
+
+          console.log('IMAP server up on port', window.imapServer.port);
+          console.log('SMTP server up on port', window.smtpServer.port);
+          break;
+
+        case 'activesync-fake-server':
+          try {
+            window.activesyncServer = FakeServerSupport.makeActiveSyncServer(
+              { username: 'testy', password: 'testy' });
+          }
+          catch (ex) {
+            console.error('Problem spinning up ActiveSync server', ex, '\n',
+                          ex.stack);
+          }
+          console.log('ActiveSync server up on port',
+                      window.activesyncServer.port);
+          break;
+      }
+      return;
+    }
+
+    // If there's a TEST_NAME, we use it to filter the list of tests to things
+    // that have a substring match.  So if a full filename is provided, we
+    // should still correctly only run that file.
+    if (TEST_NAME) {
+      var lowerCheck = TEST_NAME.toLowerCase();
+      var keepTests = {};
+      for (var testName in configData.tests) {
+        if (testName.toLowerCase().indexOf(lowerCheck) !== -1) {
+          keepTests[testName] = configData.tests[testName];
+        }
+      }
+      configData.tests = keepTests;
+    }
+    try {
       runTests(configData).then(function(summaries) {
         dump('\n\n***** ' + summaries.length + ' tests run: *****\n\n');
         summaries.forEach(function(summary) {
@@ -1005,6 +1174,9 @@ function DOMLoaded() {
         dump('\n************************\n\n');
         quitApp();
       });
+    }
+    catch (ex) {
+      console.error('runTests explosion:', ex, '\n', ex.stack);
     }
   });
 

@@ -30,12 +30,17 @@ var TestDeviceStorageMixins = {
     self._nextReqId = 0;
     self._callbacks = {};
 
+    var cleanupList = [];
+
     var sendMessage = this._sendMessage = $router.registerSimple(
       'th_devicestorage',
       function(msg) {
         var cmd = msg.cmd, data = msg.args;
         if (cmd === 'attached') {
           self._logger.attached();
+        }
+        else if (cmd === 'nuked') {
+          self._logger.nuked(data.path);
         }
         else if (cmd === 'detached') {
           self._logger.detached();
@@ -45,12 +50,16 @@ var TestDeviceStorageMixins = {
           switch (event.reason) {
             case 'created':
               self._logger.created(event.path);
+              cleanupList.push(event.path);
               break;
             case 'modified':
               self._logger.modified(event.path);
               break;
             case 'deleted':
               self._logger.deleted(event.path);
+              var idx = cleanupList.indexOf(event.path);
+              if (idx !== -1)
+                cleanupList.splice(idx, 1);
               break;
             // we don't care about available/shared/unavailable
           }
@@ -72,8 +81,12 @@ var TestDeviceStorageMixins = {
       sendMessage('attach', 'sdcard');
     });
 
-    self.T.convenienceDeferredCleanup(self, 'detaches', function() {
-      sendMessage('detach');
+    self.T.convenienceDeferredCleanup(self, 'nukes and detaches', function() {
+      cleanupList.forEach(function(path) {
+        self.expect_deleted(path);
+      });
+      self.expect_detached();
+      sendMessage('detach', { nuke: cleanupList });
     });
   },
 

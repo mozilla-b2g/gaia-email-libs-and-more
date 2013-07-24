@@ -1,7 +1,110 @@
 'use strict';
 
-Components.utils.import('resource://testing-common/httpd.js');
+Components.utils.import('resource://fakeserver/modules/httpd.js');
 Components.utils.import('resource://gre/modules/NetUtil.jsm');
+
+Components.utils.import("resource://fakeserver/modules/mimeParser.jsm");
+
+/**
+ * Convert an RFC2822 message into a representation the fake-server understands.
+ *
+ * XXX FIXME XXX
+ * Our body part translation is very limited (just like the logic in
+ * th_fake_activesync_server, although not quite as simple), so this can't
+ * handle complex representations all that well.
+ */
+function convertRfc2822RepToMessageRep(mimestr) {
+  if (mimestr instanceof Uint8Array)
+    mimestr = String.fromCharCode.apply(undefined, mimestr);
+
+  var message;
+  var curPartNum = null, curHeaders = null, saveContentTo = null;
+  var emitter = {
+    startPart: function imap_buildMap_startPart(partNum, headers) {
+      if (partNum === '' || partNum === '1$') {
+        message = {
+          id: headers.get('message-id')[0],
+          from: headers.get('from')[0],
+          to: headers.has('to') ? headers.get('to')[0] : null,
+          cc: headers.has('cc') ? headers.get('cc')[0] : null,
+          // ActiveSync is dumb and does not support BCC's
+          replyTo: headers.has('reply-to') ? headers.get('reply-to')[0] : null,
+          date: (new Date(headers.get('date')[0])).valueOf(),
+          subject: headers.get('subject')[0],
+          flags: [],
+          body: null,
+          attachments: [],
+        };
+      }
+      var ct = headers.has('content-type') ? headers.get('content-type')[0]
+                                           : 'text/plain';
+      let [type, params] = MimeParser.parseHeaderField(
+        ct,
+        MimeParser.HEADER_PARAMETER |
+        // we want any filename fully decoded
+          MimeParser.HEADER_OPTION_ALL_I18N);
+      type = type.toLowerCase();
+      let [media, sub] = type.split('/', 2);
+
+      if (media === 'multipart') {
+        // do nothing with these parts! they are boring!
+      }
+      else if (media === 'text') {
+        // Only use this part if it's the first body we've seen or if it's html
+        // and we're not already html.
+        if (!message.body ||
+            (sub === 'html' && message.body.contentType === 'text/plain')) {
+          message.body = {
+            contentType: type,
+            content: ''
+          };
+          saveContentTo = message.body;
+        }
+      }
+      else { // attachment!
+        let filename = null;
+        // the filename might have been on the content-type
+        if ('name' in params) {
+          filename = params.name;
+        }
+        // no? maybe it was on the content-disposition
+        else if (headers.has('content-disposition')) {
+          let [cdType, cdParams] = MimeParser.parseHeaderField(
+            headers.get('content-disposition')[0],
+            MimeParser.HEADER_PARAMETER |
+              MimeParser.HEADER_OPTION_ALL_I18N);
+          if ('filename' in cdParams) {
+            filename = cdParams.filename;
+          }
+        }
+
+        saveContentTo = {
+          filename: filename,
+          contentId: headers.has('content-id') ? headers.get('content-id')[0]
+                                               : null,
+          contentType: type,
+          content: ''
+        };
+        message.attachments.push(saveContentTo);
+      }
+    },
+    endPart: function(partNum) {
+      saveContentTo = null;
+    },
+    deliverPartData: function (partNum, data) {
+      if (saveContentTo)
+        saveContentTo.content += data;
+    },
+  };
+  MimeParser.parseSync(
+    mimestr, emitter,
+    // Attachments get decoded, it's just that if we fetch them inline, then
+    // they get base64 encoded for transit purposes only.  So fully decode.
+    { bodyformat: 'decode', stripcontinuations: false });
+  if (!message)
+    throw new Error('Failed to parse a message out of the MIME!');
+  return message;
+}
 
 /**
  * Encode a WBXML writer's bytes for sending over the network.
@@ -40,7 +143,7 @@ function decodeWBXML(stream) {
   for (let i = 0; i < str.length; i++)
     bytes[i] = str.charCodeAt(i);
 
-  return new $_wbxml.Reader(bytes, $_ascp);
+  return new WBXML.Reader(bytes, ActiveSyncCodepages);
 }
 
 /**
@@ -55,7 +158,7 @@ function decodeWBXML(stream) {
 function ActiveSyncFolder(server, name, type, parentId) {
   this.server = server;
   this.name = name;
-  this.type = type || $_ascp.FolderHierarchy.Enums.Type.Mail;
+  this.type = type || ActiveSyncCodepages.FolderHierarchy.Enums.Type.Mail;
   this.id = 'folder-' + (this.server._nextCollectionId++);
   this.parentId = parentId || '0';
 
@@ -81,8 +184,9 @@ ActiveSyncFolder.prototype = {
    * @return true if the message is in the filter range, false otherwise
    */
   _messageInFilterRange: function(filterType, message) {
-    return filterType === $_ascp.AirSync.Enums.FilterType.NoFilter ||
-           (this.server._clock - this.filterTypeToMS[filterType] <=
+    var clockNow = this.server._useNowTimestamp || Date.now();
+    return filterType === ActiveSyncCodepages.AirSync.Enums.FilterType.NoFilter ||
+           (clockNow - this.filterTypeToMS[filterType] <=
             message.date);
   },
 
@@ -327,13 +431,11 @@ ActiveSyncFolder.prototype = {
  * Create a new ActiveSync server instance. Currently, this server only supports
  * one user.
  */
-function ActiveSyncServer(startDate) {
-  this.server = new HttpServer();
+function ActiveSyncServer(options) {
+  this.server = new HttpServer(options);
+  this._useNowTimestamp = null;
 
-  // TODO: get the date from the test helper somehow...
-  this._clock = Date.now();
-
-  const folderType = $_ascp.FolderHierarchy.Enums.Type;
+  const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
   this._folders = [];
   this.foldersByType = {
     inbox:  [],
@@ -349,8 +451,8 @@ function ActiveSyncServer(startDate) {
   this._folderSyncStates = {};
 
   this.addFolder('Inbox', folderType.DefaultInbox);
-  this.addFolder('Sent Mail', folderType.DefaultSent, null, {count: 5});
-  this.addFolder('Trash', folderType.DefaultDeleted, null, {count: 0});
+  this.addFolder('Sent Mail', folderType.DefaultSent);
+  this.addFolder('Trash', folderType.DefaultDeleted);
 
   this.logRequest = null;
   this.logResponse = null;
@@ -358,6 +460,15 @@ function ActiveSyncServer(startDate) {
 }
 
 ActiveSyncServer.prototype = {
+  _makeNowDate: function() {
+    if (this._useNowTimestamp) {
+      var ts = this._useNowTimestamp;
+      this._useNowTimestamp += 1000;
+      return new Date(ts);
+    }
+    return new Date();
+  },
+
   /**
    * Start the server on a specified port.
    */
@@ -375,6 +486,9 @@ ActiveSyncServer.prototype = {
    * @param callback A callback to call when the server is stopped.
    */
   stop: function(callback) {
+    // httpd.js explodes if you don't provide a callback.
+    if (!callback)
+      callback = function() {};
     this.server.stop({ onStopped: callback });
   },
 
@@ -396,8 +510,7 @@ ActiveSyncServer.prototype = {
    * @param type (optional) the folder's type, as an enum from
    *        FolderHierarchy.Enums.Type
    * @param parentId (optional) the id of the folder to contain this folder
-   * @param args (optional) arguments to pass to makeMessages() to generate
-   *        initial messages for this folder
+   * @param args (optional)
    */
   addFolder: function(name, type, parentId, args) {
     if (type && !this._folderTypes.hasOwnProperty(type))
@@ -509,12 +622,12 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_FolderSync: function(requestData) {
-    const fh = $_ascp.FolderHierarchy.Tags;
-    const folderType = $_ascp.FolderHierarchy.Enums.Type;
+    const fh = ActiveSyncCodepages.FolderHierarchy.Tags;
+    const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
 
     let syncKey;
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
       syncKey = node.children[0].textContent;
     });
@@ -523,7 +636,7 @@ ActiveSyncServer.prototype = {
     let nextSyncKey = 'folders-' + (this._nextFolderSyncId++);
     this._folderSyncStates[nextSyncKey] = [];
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.Status, '1')
        .tag(fh.SyncKey, nextSyncKey)
@@ -584,9 +697,9 @@ ActiveSyncServer.prototype = {
     if (!requestData)
       requestData = this._cachedSyncRequest;
 
-    const as = $_ascp.AirSync.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
-    const asEnum = $_ascp.AirSync.Enums;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
+    const asEnum = ActiveSyncCodepages.AirSync.Enums;
 
     let syncKey, collectionId, getChanges,
         server = this,
@@ -595,7 +708,7 @@ ActiveSyncServer.prototype = {
         truncationSize = 0,
         clientCommands = [];
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     const base = [as.Sync, as.Collections, as.Collection];
 
     e.addEventListener(base.concat(as.SyncKey), function(node) {
@@ -660,7 +773,7 @@ ActiveSyncServer.prototype = {
     if (syncKey === '0') {
       // Initial sync can't change anything, in either direction.
       if (getChanges || clientCommands.length) {
-        let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+        let w = new WBXML.Writer('1.3', 1, 'UTF-8');
         w.stag(as.Sync)
            .tag(as.Status, asEnum.Status.ProtocolError)
          .etag();
@@ -727,14 +840,14 @@ ActiveSyncServer.prototype = {
     }
     // - A sync without changes requested and no commands to run -> error!
     else {
-      let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+      let w = new WBXML.Writer('1.3', 1, 'UTF-8');
       w.stag(as.Sync)
          .tag(as.Status, asEnum.Status.ProtocolError)
        .etag();
       return w;
     }
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
 
     w.stag(as.Sync)
        .stag(as.Collections)
@@ -812,13 +925,13 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_ItemOperations: function(requestData) {
-    const io = $_ascp.ItemOperations.Tags;
-    const as = $_ascp.AirSync.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
+    const io = ActiveSyncCodepages.ItemOperations.Tags;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
 
     let fetches = [];
 
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([io.ItemOperations, io.Fetch], function(node) {
       let fetch = {};
 
@@ -840,7 +953,7 @@ ActiveSyncServer.prototype = {
     });
     e.run(requestData);
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations)
        .tag(io.Status, '1')
        .stag(io.Response);
@@ -859,7 +972,7 @@ ActiveSyncServer.prototype = {
         w.tag(asb.FileReference, fetch.fileReference)
          .stag(io.Properties)
            .tag(asb.ContentType, attachment.contentType)
-           .tag(io.Data, attachment.content)
+           .tag(io.Data, btoa(attachment.content)) // inline att's are base64'd
          .etag(io.Properties);
       }
       else {
@@ -892,14 +1005,14 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_GetItemEstimate: function(requestData) {
-    const ie = $_ascp.ItemEstimate.Tags;
-    const as = $_ascp.AirSync.Tags;
-    const ieStatus = $_ascp.ItemEstimate.Enums.Status;
+    const ie = ActiveSyncCodepages.ItemEstimate.Tags;
+    const as = ActiveSyncCodepages.AirSync.Tags;
+    const ieStatus = ActiveSyncCodepages.ItemEstimate.Enums.Status;
 
     let syncKey, collectionId;
 
     let server = this;
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([ie.GetItemEstimate, ie.Collections, ie.Collection],
                        function(node) {
       for (let child of node.children) {
@@ -928,7 +1041,7 @@ ActiveSyncServer.prototype = {
       estimate = folder.numCommandsForSyncState(syncKey);
     }
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Response)
          .tag(ie.Status, status);
@@ -953,11 +1066,11 @@ ActiveSyncServer.prototype = {
    * @param requestData the WBXML.Reader for the request
    */
   _handleCommand_MoveItems: function(requestData) {
-    const mo = $_ascp.Move.Tags;
-    const moStatus = $_ascp.Move.Enums.Status;
+    const mo = ActiveSyncCodepages.Move.Tags;
+    const moStatus = ActiveSyncCodepages.Move.Enums.Status;
 
     let moves = [];
-    let e = new $_wbxml.EventParser();
+    let e = new WBXML.EventParser();
     e.addEventListener([mo.MoveItems, mo.Move], function(node) {
       let move = {};
 
@@ -981,7 +1094,7 @@ ActiveSyncServer.prototype = {
     });
     e.run(requestData);
 
-    let w = new $_wbxml.Writer('1.3', 1, 'UTF-8');
+    let w = new WBXML.Writer('1.3', 1, 'UTF-8');
     w.stag(mo.MoveItems);
 
     for (let move of moves) {
@@ -1062,9 +1175,9 @@ ActiveSyncServer.prototype = {
    *        no truncation)
    */
   _writeEmail: function(w, folder, message, truncSize) {
-    const em  = $_ascp.Email.Tags;
-    const asb = $_ascp.AirSyncBase.Tags;
-    const asbEnum = $_ascp.AirSyncBase.Enums;
+    const em  = ActiveSyncCodepages.Email.Tags;
+    const asb = ActiveSyncCodepages.AirSyncBase.Tags;
+    const asbEnum = ActiveSyncCodepages.AirSyncBase.Enums;
 
     // TODO: make this match the requested type
     let bodyType = message.body.contentType === 'text/html' ?
@@ -1129,7 +1242,7 @@ ActiveSyncServer.prototype = {
    * @return an object enumerating the changes requested
    */
   _parseEmailChange: function(node) {
-    const em = $_ascp.Email.Tags;
+    const em = ActiveSyncCodepages.Email.Tags;
     let changes = {};
 
     for (let child of node.children) {
@@ -1152,6 +1265,41 @@ ActiveSyncServer.prototype = {
     return changes;
   },
 
+  _handleCommand_SendMail: function(requestData, query, request, response) {
+    const cm = ActiveSyncCodepages.ComposeMail.Tags;
+
+    let e = new WBXML.EventParser();
+    var saveInSentItems = false, mimeBody;
+    e.addEventListener([cm.SendMail, cm.SaveInSentItems], function(node) {
+      // The presence of this item indicates true; there is no way for it to
+      // convey false.
+      saveInSentItems = true;
+    });
+    e.addEventListener([cm.SendMail, cm.Mime], function(node) {
+      mimeBody = node.children[0].data; // (opaque, not text)
+    });
+    e.run(requestData);
+
+    // For maximum realism and (more importantly) avoiding weird causality
+    // problems, use a now-ish date rather than the extracted compose date.
+    var receiveTimestamp = this._makeNowDate().valueOf();
+
+    if (saveInSentItems) {
+      var sentMessage = convertRfc2822RepToMessageRep(mimeBody);
+      // this wants a unique-ish id...
+      sentMessage.id += '-sent';
+      sentMessage.date = receiveTimestamp;
+      var sentFolder = this.foldersByType.sent[0];
+      sentFolder.addMessage(sentMessage);
+    }
+    var message = convertRfc2822RepToMessageRep(mimeBody);
+    message.date = receiveTimestamp;
+    var inboxFolder = this.foldersByType.inbox[0];
+    inboxFolder.addMessage(message);
+
+    return null;
+  },
+
   _backdoorHandler: function(request, response) {
     try {
       let postData = JSON.parse(stringifyStream(request.bodyInputStream));
@@ -1172,18 +1320,18 @@ ActiveSyncServer.prototype = {
     }
   },
 
-  _backdoor_getFirstFolderWithType: function(data) {
-    return this.foldersByType[data.type][0];
+  _backdoor_getFolderByPath: function(data) {
+    return this.findFolderByName(data.name);
   },
 
-  _backdoor_getFirstFolderWithName: function(data) {
-    return this.findFolderByName(data.name);
+  _backdoor_setDate: function(data) {
+    this._useNowTimestamp = data.timestamp;
   },
 
   _backdoor_addFolder: function(data) {
     // XXX: Come up with a smarter way to preserve folder types when deleting
     // and recreating them!
-    const folderType = $_ascp.FolderHierarchy.Enums.Type;
+    const folderType = ActiveSyncCodepages.FolderHierarchy.Enums.Type;
     let type = data.type;
     if (!type) {
       if (data.name === 'Inbox')
@@ -1201,18 +1349,26 @@ ActiveSyncServer.prototype = {
     this.removeFolder(data.folderId);
   },
 
-  _backdoor_addMessageToFolder: function(data) {
-    let folder = this._findFolderById(data.folderId);
-    folder.addMessage(data.message);
-  },
-
   _backdoor_addMessagesToFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
     folder.addMessages(data.messages);
+    return folder.messages.length;
   },
 
-  _backdoor_removeMessageById: function(data) {
+  _backdoor_getMessagesInFolder: function(data) {
     let folder = this._findFolderById(data.folderId);
-    folder.removeMessageById(data.messageId);
+    return folder.messages.map(function(msg) {
+      return {
+        date: msg.date,
+        subject: msg.subject
+      };
+    });
+  },
+
+  _backdoor_removeMessagesByServerId: function(data) {
+    let folder = this._findFolderById(data.folderId);
+    data.serverIds.forEach(function(serverId) {
+      folder.removeMessageById(serverId);
+    });
   },
 };

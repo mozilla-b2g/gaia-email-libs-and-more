@@ -5,6 +5,10 @@
         onload="DOMLoaded()"
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
   <script type="application/javascript" defer=""
+          src="chrome://test-runner/content/console-helper.js" />
+  <script type="application/javascript" defer=""
+          src="chrome://test-runner/content/fake-server-support.js" />
+  <script type="application/javascript" defer=""
           src="chrome://test-runner/content/loggest-chrome-runner.js" />
   <label value="Test Runner!" />
 </window>

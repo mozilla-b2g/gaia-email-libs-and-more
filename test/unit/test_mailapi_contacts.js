@@ -4,8 +4,10 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_contacts',
+        'activesync/codepages/AirSync',
         'mailapi/mailapi', 'exports'],
-       function($tc, $th_main, $th_contacts, $mailapi, exports) {
+       function($tc, $th_main, $th_contacts, $airsync, $mailapi, exports) {
+const FilterType = $airsync.Enums.FilterType;
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mailapi_contacts' }, null,
@@ -644,7 +646,8 @@ TD.commonCase('live peep tracking', function(T, RT) {
 
   var folderView = testAccount.do_openFolderView(
     'sync', testFolder,
-    [{ count: 2, full: 2, flags: 0, deleted: 0 }],
+    [{ count: 2, full: 2, flags: 0, deleted: 0,
+       filterType: FilterType.NoFilter }],
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 
@@ -652,31 +655,11 @@ TD.commonCase('live peep tracking', function(T, RT) {
   // 2 * (1 + 1) = 4
   expectAndCheckLiveCounts(4);
 
-  T.group('1 deleted = 2 alive');
-  var expectedRefreshChanges = {
-    changes: [],
-    deletions: [],
-  };
-  testAccount.do_manipulateFolderView(
-    folderView, 'delete',
-    function(slice) {
-      expectedRefreshChanges.deletions.push(slice.items[0]);
-      testUniverse.MailAPI.modifyMessageTags([slice.items[0]],
-                                             ['\\Deleted'], null, 'delete');
-      testFolder.beAwareOfDeletion(0);
-    });
-  testAccount.do_refreshFolderView(
-    folderView,
-    // Our expectations happen in a single go here because the refresh covers
-    // the entire date range in question.
-    { count: 1, full: 0, flags: 1, deleted: 1 },
-    expectedRefreshChanges,
-    { top: true, bottom: true, grow: false },
-    { syncedToDawnOfTime: true });
-
+  T.group('1 deleted => 1 message = 2 alive');
+  testAccount.do_deleteMessagesOnServerThenRefresh(folderView, [0]);
   expectAndCheckLiveCounts(2);
 
-  T.group('2 added = 6 alive');
+  T.group('2 added => 3 messages = 6 alive');
   var addedMessages = [];
   testAccount.do_addMessagesToFolder(
     testFolder,

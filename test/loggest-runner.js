@@ -77,7 +77,7 @@ var loggestRouterModule = {
         null, 'run',
         {
           testModuleName: testModuleName,
-          testParams: testParams
+          testParams: testParams,
         });
     }
     else if (cmd === 'done') {

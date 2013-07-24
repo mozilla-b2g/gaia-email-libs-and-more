@@ -90,9 +90,6 @@ TD.commonCase('general reconnect logic', function(T) {
   // (The account is now setup, so we can start meddling.  It does have an
   // outstanding connection which we will need to kill.)
 
-  // we would ideally extract this in case we are running against other servers
-  var testHost = 'localhost', testPort = 143;
-
   T.action('kill the existing connection of', testAccount.eImapAccount,
            function() {
     FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
@@ -105,12 +102,17 @@ TD.commonCase('general reconnect logic', function(T) {
            function() {
     // Queue up all the failures ahead of time: first connect, then 3 retries
     // before giving up.
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
     // Then 1 more failure on the next attempt.
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
 
     testAccount.eBackoff.expect_connectFailure(false);
     eCheck.expect_namedValue('accountCheck:err', true);
@@ -198,10 +200,14 @@ TD.commonCase('general reconnect logic', function(T) {
            function() {
     // Queue up all the failures ahead of time: first connect, then 3 retries
     // before giving up.
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
-    FawltySocketFactory.precommand(testHost, testPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
+    FawltySocketFactory.precommand(
+      testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
 
     testAccount.eBackoff.expect_connectFailure(false);
     eCheck.expect_namedValue('accountCheck:err', true);
@@ -303,9 +309,6 @@ TD.commonCase('bad password login failure', function(T, RT) {
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
-  // we would ideally extract this in case we are running against other servers
-  var testHost = 'localhost', testPort = 143;
-
   // NB: because we restored the account, we do not have a pre-existing
   // connection, so there is no connection to kill.
 
@@ -327,6 +330,8 @@ TD.commonCase('bad password login failure', function(T, RT) {
     // XXX uh, this bit was written speculatively to make things go faster,
     // but FawltySocketFactory doesn't support it yet.  May just want to wait
     // and switch to IMAP fake-server instead.
+    // XXX now I implemented it, but we're using a fake IMAP server right now,
+    // so let's wait on re-enabling the real IMAP server.
     /*
     FawltySocketFactory.precommand(
       testHost, testPort, null,
@@ -442,9 +447,6 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   // we already tested the backoff logic up above; don't need it here.
   zeroTimeoutErrbackoffTimer(eSync);
 
-  // we would ideally extract this in case we are running against other servers
-  var testHost = 'localhost', testPort = 143;
-
   var testFolder = testAccount.do_createTestFolder(
     'test_err_sync_loss',
     { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
@@ -476,7 +478,7 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   T.group('SEARCH time');
   T.action('queue up SEARCH to result in connection loss', function() {
     FawltySocketFactory.precommand(
-      testHost, testPort, null,
+      testAccount.imapHost, testAccount.imapPort, null,
       [
         {
           match: /SEARCH/,
@@ -493,7 +495,7 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
   T.group('FETCH time');
   T.action('queue up FETCH to result in connection loss', function() {
     FawltySocketFactory.precommand(
-      testHost, testPort, null,
+      testAccount.imapHost, testAccount.imapPort, null,
       [
         {
           match: /FETCH/,
