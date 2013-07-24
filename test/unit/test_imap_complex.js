@@ -301,9 +301,10 @@ TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
   });
 
 
-  // timewarp to 10 minute ago
-  var staticNow = Date.now() - 20 * 60 * 1000;
-  testUniverse.do_timewarpNow(staticNow, '20 mins ago');
+  // We used to use a relative timestamp for this, but that made understanding
+  // a regression of this test harder to understand.
+  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th, 2012 noon-ish');
 
   // Note: 6 messages only differing in age by 1 second!
   var oneFolder = testAccount.do_createTestFolder(
@@ -784,7 +785,12 @@ TD.commonCase('repeated refresh is stable', function(T) {
     growRefreshThresh: HOUR_MILLIS,
   });
 
-  var staticNow = new Date(2000, 0, 3, 23, 0, 0).valueOf();
+  // XXX I just changed this from 11pm to 10:30pm to hack around DST issues.
+  // This may or may not compromise the effectiveness of the test.  The fact
+  // that we have explicitly-set refresh start/end time spans probably does
+  // help rule out the original regression.  It might be worth doing the
+  // limited archaeology work required.
+  var staticNow = new Date(2000, 0, 3, 22, 30, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
 
   var testFolder = testAccount.do_createTestFolder(

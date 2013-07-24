@@ -719,6 +719,9 @@ ActiveSyncAccount.prototype = {
         var cm = $ComposeMail.Tags;
         var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(cm.SendMail)
+           // The ClientId is defined to be for duplicate messages suppression
+           // and does not need to have any uniqueness constraints apart from
+           // not being similar to (recently sent) messages by this client.
            .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
            .tag(cm.SaveInSentItems)
            .stag(cm.Mime)
@@ -798,6 +801,7 @@ ActiveSyncAccount.prototype = {
 
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+  getFolderByPath: $acctmixins.getFolderByPath,
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

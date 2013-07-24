@@ -69,12 +69,17 @@ var DEFAULT_STEP_TIMEOUT_MS = $testcontext.STEP_TIMEOUT_MS;
  * The runtime context interacts with the log fab subsystem to indicate that we
  *  are in a testing mode and to associate actors with loggers.
  */
-function TestRuntimeContext(envOptions) {
+function TestRuntimeContext(envOptions, fileBlackboard) {
   this._loggerStack = [];
   this._pendingActorsByLoggerType = {};
   this._captureAllLoggersByType = {};
   this.envOptions = envOptions || {};
-  this.blackboard = {};
+  // Scratch space (aka blackboard) for the current test case.
+  this.caseBlackboard = {};
+  // Scratch space for the current test file; intended to be used for test
+  // resources that might get spun up and left up for efficiency, legacy, or
+  // other reasons.
+  this.fileBlackboard = fileBlackboard;
 
   /**
    * Strictly increasing value for use in tests that want a relative time
@@ -198,6 +203,7 @@ TestRuntimeContext.prototype = {
       return this._loggerStack[this._loggerStack.length - 1];
     return null;
   },
+
 };
 
 /**
@@ -208,7 +214,10 @@ function TestDefinerRunner(testDefiner, superDebug, exposeToTestOptions,
   if (!testDefiner)
     throw new Error("No test definer provided!");
   this._testDefiner = testDefiner;
+  // Dictionary passed in from higher up the stack to expose to the tests
   this._exposeToTestOptions = exposeToTestOptions;
+  // Scratchpad that lasts for the duration of all included tests
+  this._fileBlackboard = {};
   this._resultsReporter = resultsReporter;
   // created before each test case is run
   this._runtimeContext = null;
@@ -261,7 +270,7 @@ TestDefinerRunner.prototype = {
     // any kind of exception in the function is a failure.
     if (rval instanceof Error) {
       if (superDebug)
-        superDebug(" encountered an error in the step func:", rval);
+        superDebug(" :( encountered an error in the step func:", rval);
       step.log.run_end();
       step.log.result('fail');
       return false;
@@ -283,6 +292,18 @@ TestDefinerRunner.prototype = {
       }
       // if it's not a promise, it must be a boolean
       else if (!waitVal) {
+        if (superDebug) {
+          var whySad;
+          if (actor._expectNothing &&
+              (actor._expectations.length || actor._iExpectation))
+            whySad = 'expected nothing, got something';
+          else if (!actor._expectationsMetSoFar)
+            whySad = 'expectations not met after ' + actor._iExpectation;
+          else
+            whySad = 'unsure';
+          superDebug(" :( waitVal synchronously resolved to false on " + actor +
+                     " because: " + whySad);
+        }
         allGood = false;
       }
     }
@@ -325,6 +346,8 @@ TestDefinerRunner.prototype = {
           }
         }
 
+        if (superDebug)
+          superDebug(' :( timeout, fail');
         step.log.timeout();
         step.log.result('fail');
         deferred.resolve(false);
@@ -355,8 +378,11 @@ TestDefinerRunner.prototype = {
         for (var iActor = 0; iActor < liveActors.length; iActor++) {
           actor = liveActors[iActor];
           // detect if we ended up with a weird error.
-          if (!actor.__resetExpectations())
+          if (!actor.__resetExpectations()) {
             passed = false;
+            if (superDebug)
+              superDebug(' :( weird actor error on: ' + actor);
+          }
         }
         self._runtimeContext._liveActors = null;
 
@@ -408,6 +434,12 @@ TestDefinerRunner.prototype = {
     // -- create / setup the context
     testCase.log.run_begin();
     var defContext = new $testcontext.TestContext(testCase, 0);
+    // Expose test variants at the testCase and testCasePermutation levels
+    // (which have always been and likely will continue to remain equivalent.)
+    if (this._exposeToTestOptions && this._exposeToTestOptions.variant) {
+      testCase.log.variant(this._exposeToTestOptions.variant);
+      defContext.setPermutationVariant(this._exposeToTestOptions.variant);
+    }
     defContext._log.run_begin();
 
     // - push the context's logger on the runtime logging stack
@@ -423,6 +455,8 @@ TestDefinerRunner.prototype = {
                                          self._runtimeContext);
     if (rval instanceof Error) {
       // in the event we threw during the case setup phase, it's a failure.
+      if (self._superDebug)
+        self._superDebug(' :( setup func error thrown!');
       defContext._log.result('fail');
       testCase.log.result('fail');
       return false;
@@ -466,7 +500,8 @@ TestDefinerRunner.prototype = {
 
   runTestCase: function(testCase) {
     // create a fresh context every time
-    this._runtimeContext = new TestRuntimeContext(this._exposeToTestOptions);
+    this._runtimeContext = new TestRuntimeContext(this._exposeToTestOptions,
+                                                  this._fileBlackboard);
     // mark things as under test, and tell them about the new context
     this._markDefinerUnderTest(this._testDefiner);
     return this.runTestCasePermutation(testCase, 0);
@@ -670,13 +705,14 @@ function detectAndReportJsonCycles(obj) {
  * In the event require()ing a test module fails, we want to report this
  *  so it's not just like the test disappears from the radar.
  */
-function reportTestModuleRequireFailures(testModuleName, moduleName,
+function reportTestModuleRequireFailures(testModuleName, moduleName, variant,
                                          exceptions, resultsReporter) {
   var dumpObj = {
     schema: $testcontext.LOGFAB._rawDefs,
     fileFailure: {
       fileName: testModuleName,
       moduleName: moduleName,
+      variant: variant,
       exceptions: exceptions.map($extransform.transformException),
     }
   };
@@ -707,6 +743,10 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
         runOptions.resultsReporter ||
         makeStreamResultsReporter(ErrorTrapper.reliableOutput);
 
+  var variant = null;
+  if (runOptions && runOptions.variant)
+    variant = runOptions.variant;
+
   // nutshell:
   // * r.js previously would still invoke our require callback function in
   //    the event of a failure because our error handler did not actually
@@ -722,8 +762,8 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
 //console.error("ERROR TRAPPAH");
     if (alreadyBailed)
       return;
-    reportTestModuleRequireFailures(testModuleName, moduleName, [err],
-                                    resultsReporter);
+    reportTestModuleRequireFailures(testModuleName, moduleName, variant,
+                                    [err], resultsReporter);
     deferred.resolve(true);
     alreadyBailed = true;
 //console.error("ERROR TRAPPAH2");
@@ -738,15 +778,15 @@ exports.runTestsFromModule = function runTestsFromModule(testModuleName,
     if (alreadyBailed)
       return;
     if (trappedErrors.length) {
-      reportTestModuleRequireFailures(testModuleName, '', trappedErrors,
-                                      resultsReporter);
+      reportTestModuleRequireFailures(testModuleName, '', variant,
+                                      trappedErrors, resultsReporter);
       deferred.resolve(true);
       return;
     }
     if (!tmod.TD) {
       var fakeError = new Error("Test module: '" + testModuleName +
                                  "' does not export a 'TD' symbol!");
-      reportTestModuleRequireFailures(testModuleName, testModuleName,
+      reportTestModuleRequireFailures(testModuleName, testModuleName, variant,
                                       [fakeError], resultsReporter);
       deferred.resolve(true);
       return;

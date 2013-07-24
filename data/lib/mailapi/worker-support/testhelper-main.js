@@ -59,28 +59,31 @@ var testHelper = {
      * Support testAccount.getMessageBodyWithReps
      */
     else if (cmd === 'runWithBody') {
-console.log('func source:', args.func);
-try {
-      var func;
-      eval('func = ' + args.func + ';');
-  console.warn('FUNC', func);
-      gMailAPI._getBodyForMessage(
-        { id: args.headerId, date: args.headerDate },
-        null,
-        function(body) {
-          console.log('got body, invoking func!');
-          try {
-            func(args.arg, body, function(results) {
-              testHelper.sendMessage(uid, cmd, [results]);
-              body.die();
-            });
-          }
-          catch (ex) {
-            console.error('problem in runWithBody func', ex, '\n', ex.stack);
-          }
-        });
-} catch (ex) { console.error('problem with runWithBody', ex, '\n', ex.stack); }
+      try {
+        var func;
+        eval('func = ' + args.func + ';');
+        gMailAPI._getBodyForMessage(
+          { id: args.headerId, date: args.headerDate },
+          null,
+          function(body) {
+            console.log('got body, invoking func!');
+            try {
+              func(args.arg, body, function(results) {
+                testHelper.sendMessage(uid, cmd, [results]);
+                body.die();
+              });
+            }
+            catch (ex) {
+              console.error('problem in runWithBody func', ex, '\n', ex.stack);
+            }
+          });
+      } catch (ex) {
+        console.error('problem with runWithBody', ex, '\n', ex.stack);
+      }
     }
+    /**
+     * Support testUniverse.help_checkDatabaseDoesNotContain
+     */
     else if (cmd === 'checkDatabaseDoesNotContain') {
       var tablesAndKeyPrefixes = args;
       var idb = $maildb._debugDB._db,
@@ -119,6 +122,12 @@ try {
         };
       });
     }
+    /**
+     * Support fake-server stand-up.
+     */
+    else if (cmd === 'startFakeServer') {
+
+    }
   }
 };
 $router.register(testHelper);
@@ -144,9 +153,21 @@ var deviceStorageTestHelper = {
       this.sendMessage(null, 'attached', null);
     }
     else if (cmd === 'detach') {
-      this._storage.removeEventListener('change', this._bound_onChange);
-      this._storage = null;
-      this.sendMessage(null, 'detached', null);
+      var detachCount = 1, self = this;
+      function nextDetach() {
+        if (--detachCount > 0)
+          return;
+        self._storage.removeEventListener('change', self._bound_onChange);
+        self._storage = null;
+        self.sendMessage(null, 'detached', null);
+      }
+      args.nuke.forEach(function(path) {
+        detachCount++;
+        var req = self._storage.delete(path);
+        // the deletion notifications will be generated as a side-effect
+        req.onsuccess = req.onerror = nextDetach;
+      });
+      nextDetach();
     }
     else if (cmd === 'get') {
       var req = this._storage.get(args.path);

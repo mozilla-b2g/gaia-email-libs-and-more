@@ -4,13 +4,12 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_activesync_server',
         'activesync/codepages', 'exports'],
-       function($tc, $th_imap, $th_as_srv, $ascp, exports) {
+       function($tc, $th_main, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_logic' }, null,
-  [$th_imap.TESTHELPER, $th_as_srv.TESTHELPER], ['app']);
+  [$th_main.TESTHELPER], ['app']);
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly
@@ -148,13 +147,16 @@ TD.commonCase('account creation/deletion', function(T, RT) {
 TD.commonCase('create a second (unique) account', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
   // XXX: we can only create multiple accounts on ActiveSync for now!
-  if (TEST_PARAMS.type === 'activesync') {
+  if (TEST_PARAMS.variant === 'activesync:fake') {
     var testUniverse = T.actor('testUniverse', 'U'),
+        // at this point 2 duplicate accounts exist...
         testAccountA = T.actor('testAccount', 'A',
                               { universe: testUniverse, restored: true }),
         testAccountB = T.actor('testAccount', 'B',
+                              { universe: testUniverse, restored: true }),
+        testAccountC = T.actor('testAccount', 'C',
                               { universe: testUniverse,
-                                emailAddress: 'test2@aslocalhost' }),
+                                emailAddress: 'test2@fakeashost' }),
         eSync = T.lazyLogger('sync');
   }
 });
@@ -165,14 +167,10 @@ TD.commonCase('try to create a duplicate account', function(T, RT) {
       eSync = T.lazyLogger('sync');
   T.action('create account', testUniverse, eSync, function(T) {
     eSync.expect_namedValue('account-creation-error', 'user-account-exists');
-    // XXX: This is a bit of a hack to get the right address for the ActiveSync
-    // fake server.
-    var address = TEST_PARAMS.type === 'imap' ? TEST_PARAMS.emailAddress :
-                 'test@aslocalhost';
     testUniverse.MailAPI.tryToCreateAccount(
       {
         displayName: TEST_PARAMS.name,
-        emailAddress: address,
+        emailAddress: TEST_PARAMS.emailAddress,
         password: TEST_PARAMS.password,
         accountName: null
       },
@@ -267,9 +265,9 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
                          { universe: testUniverse });
     T.action('create test folders', function() {
       const folderType = $ascp.FolderHierarchy.Enums.Type;
-      var inbox = testServer.getFirstFolderWithType('inbox'),
-          sent  = testServer.getFirstFolderWithType('sent'),
-          trash = testServer.getFirstFolderWithType('trash');
+      var inbox = testServer.getFolderByPath('Inbox'),
+          sent  = testServer.getFolderByPath('Sent Mail'),
+          trash = testServer.getFolderByPath('Trash');
 
       var subinbox = testServer.addFolder(
         'Subinbox', folderType.Mail, inbox.folderId);

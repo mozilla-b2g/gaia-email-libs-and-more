@@ -21,7 +21,11 @@ var $log = require('rdcommon/log'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
     $smtpacct = require('mailapi/smtp/account'),
-    $router = require('mailapi/worker-router');
+    $router = require('mailapi/worker-router'),
+
+    $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
+    $th_real_imap_server = require('tests/resources/th_real_imap_server'),
+    $th_fake_as_server = require('tests/resources/th_fake_activesync_server');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -36,6 +40,15 @@ function consoleHelper(logFunc) {
   }
   logFunc(msg);
   dump(arguments[1] + ":" + msg + "\x1b[0m\n");
+
+  // having trouble figuring out where an error is coming from?
+  // uncomment/modify the below:
+  /*
+  if (arguments[1].indexOf('WAR') !== -1) {
+    var e = new Error();
+    dump('@ ' + e.stack + '\n');
+  }
+  */
 }
 function makeConsoleForLogger(logger) {
   window.console = {
@@ -64,8 +77,11 @@ var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
 
-    var consoleLogger = LOGFAB.console(null, null, self.__name);
-    makeConsoleForLogger(consoleLogger);
+    // no need to keep creating consoles if one already got created...
+    if (!opts || !opts.old) {
+      var consoleLogger = LOGFAB.console(null, null, self.__name);
+      makeConsoleForLogger(consoleLogger);
+    }
 
     if (!opts)
       opts = {};
@@ -98,7 +114,7 @@ var TestUniverseMixins = {
       $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
     }
     else {
-      self._useDate = new Date();
+      self._useDate = null;
       $date.TEST_LetsDoTheTimewarpAgain(null);
     }
 
@@ -225,6 +241,7 @@ var TestUniverseMixins = {
             self.MailAPI.viewFolders('navigation');
           gAllFoldersSlice.oncomplete = callbacks.folders;
         },
+        self.fakeNavigator.onLine,
         testOpts);
     });
     self.T.convenienceDeferredCleanup(self, 'cleans up', self.eUniverse,
@@ -267,15 +284,17 @@ var TestUniverseMixins = {
       // to our message generator.
       //
       // This is a stop-gap solution that currently only affects
-      // test_imap_complex.js's "repeated refresh is stable" unit test which cares
-      // about the edge case.  It needs to be using a fake IMAP server to have the
-      // desired control.  We will predicate that test on using the IMAP fake
-      // server.
+      // test_imap_complex.js's "repeated refresh is stable" unit test which
+      // cares about the edge case.  It needs to be using a fake IMAP server to
+      // have the desired control.  We will predicate that test on using the
+      // IMAP fake server.
       var thenTzOffset = new Date(useAsNowTS).getTimezoneOffset() * -60000;
       for (var i = 0; i < self.__testAccounts.length; i++) {
         var testAccount = self.__testAccounts[i];
         testAccount._useDate = useAsNowTS;
-        if (testAccount.imapAccount) {
+        if (testAccount._useDate &&
+            testAccount.imapAccount &&
+            testAccount.testServer.NEEDS_REL_TZ_OFFSET_ADJUSTMENT) {
           var nowTzOffset = testAccount.imapAccount.tzOffset;
           if (nowTzOffset !== thenTzOffset) {
             console.log('current offset', nowTzOffset, 'versus', thenTzOffset,
@@ -283,6 +302,8 @@ var TestUniverseMixins = {
             testAccount._useDate += (thenTzOffset - nowTzOffset);
           }
         }
+        // tell the server about the date we're using
+        testAccount.testServer.setDate(testAccount._useDate);
       }
       $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });
@@ -305,6 +326,9 @@ var TestUniverseMixins = {
   },
 
   cleanShutdown: function() {
+    if (this.universe === null)
+      return;
+
     for (var i = 0; i < this.__testAccounts.length; i++) {
       this.__testAccounts[i].expect_shutdown();
     }
@@ -312,6 +336,7 @@ var TestUniverseMixins = {
 
     this.universe.shutdown(function() {
       this._logger.cleanShutdown();
+      this.universe = null;
     }.bind(this));
   },
 
@@ -375,11 +400,12 @@ var TestUniverseMixins = {
   do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {
     var self = this;
     this.T.action(this, 'kill operations for', testAccount, function() {
-      self.expect_killedOperations(count);
+      self.expect_killedOperations(opsType, count);
 
       var ops = self.universe._opsByAccount[testAccount.accountId][opsType];
       var killed = ops.splice(0, ops.length);
-      self._logger.killedOperations(killed.length, killed);
+      self._logger.killedOperations(opsType, killed.length, killed,
+                                    ops);
       if (saveTo)
         saveTo.ops = killed;
     });
@@ -414,8 +440,23 @@ var TestCommonAccountMixins = {
         target[key] = source[key];
       }
     }
+
+    self._opts = opts;
+    if (!opts.universe)
+      throw new Error("Universe not specified!");
+    if (!opts.universe.__testAccounts)
+      throw new Error("Universe is not of the right type: " + opts.universe);
+
+    self.accountId = null;
+    self.universe = null;
+    self.MailAPI = null;
+    self.testUniverse = opts.universe;
+    self.testUniverse.__testAccounts.push(this);
+
+    self._useDate = self.testUniverse._useDate;
+
     var TEST_PARAMS = self.RT.envOptions;
-    this.type = TEST_PARAMS.type;
+    self.type = TEST_PARAMS.type;
     // -- IMAP
     if (TEST_PARAMS.type === 'imap') {
       mix(TestImapAccountMixins, self);
@@ -577,12 +618,197 @@ var TestCommonAccountMixins = {
     var viewThing = this.T.thing('folderView', viewName);
     viewThing.testFolder = testFolder;
     viewThing.slice = null;
+    // offset of the slice into testFolder.knownMessages
     viewThing.offset = 0;
     viewThing.initialSynced = false;
     this.do_viewFolder('opens', testFolder, expectedValues, expectedFlags,
                        extraFlags, viewThing);
     return viewThing;
   },
+
+  /**
+   * Perform a one-shot viewing of the contents of the folder to see that we
+   * get back the right thing.  Use do_openFolderView if you want to open it
+   * and keep it open and detect changes, etc.
+   *
+   * @args[
+   *   @param[expectedValues @listof[@dict[
+   *     @key[count Number]{
+   *       The number of messages that will be returned by the sync.
+   *     }
+   *     @key[full Number]{
+   *       The number of new messages that will be retrieved.
+   *     }
+   *     @key[flags Number]{
+   *       The number of IMAP flag updates that will be received.  This is not
+   *       relevant for ActiveSync (see changed).  If we start doing fancier
+   *       CONDSTORE/QRESYNC things for IMAP, this may not be relevant in those
+   *       cases.
+   *     }
+   *     @key[changed Number]{
+   *       The number of changed messages we will hear about.  Currently only
+   *       relevant for ActiveSync.
+   *     }
+   *     @key[deleted Number]{
+   *       The number of deletions we will hear about/infer.
+   *     }
+   *   ]]]{
+   *     A dict should exist for each (date-range) sync that is a part of the
+   *     over-arching sync associated with this request.  If there is only one
+   *     dict, you don't need to wrap it in an array.  For ActiveSync, we
+   *     always only perceive one sync.  For IMAP there can be multiple.
+   *   }
+   *   @param[extraFlags @dict[
+   *     @key[expectFunc #:optional Function]{
+   *       A function to invoke inside our action step after we have expected
+   *       the mutexed call (without enabling set matching), but before doing
+   *       anything else.
+   *     }
+   *     @key[nosave #:default false Boolean]{
+   *       Used by _expect_dateSyncs to determine whether a call to
+   *       expect_saveAccountState should be issued when we are in the online
+   *       state.
+   *     }
+   *     @key[failure #:default false @oneof[false true 'die']]{
+   *       If true, indicates that we should expect a 'syncfailed' result and no
+   *       connection expectations.  If 'deadconn', it means the connection will
+   *       die during the sync.
+   *     }
+   *     @key[nonet #:default false Boolean]{
+   *       Indicate that no network traffic is expected.  This is only relevant
+   *       if we think we are online.
+   *     }
+   *     @key[syncedToDawnOfTime #:optional Boolean]{
+   *       Assert that we are synced to the dawn of time at the end of this
+   *       sync IFF this is known to be a PASTWARDS-sync.  We've recently
+   *       changed the direction of refreshes to be FUTUREWARDS, in which case
+   *       this heuristic does not apply.  Rather than go change all the test
+   *       cases and make it harder to toggle the heuristic, we are building
+   *       the logic in here.
+   *     }
+   *   ]]
+   * ]
+   */
+  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
+                          extraFlags, _saveToThing) {
+    var self = this,
+        isFailure = checkFlagDefault(extraFlags, 'failure', false),
+        syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false);
+    var testStep = this.T.action(this, desc, testFolder, 'using',
+                                 testFolder.connActor, function() {
+      self._expect_storage_mutexed(testFolder, 'sync', extraFlags);
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
+
+      if (self.universe.online && self.USES_CONN) {
+        self.RT.reportActiveActorThisStep(self.eImapAccount);
+        // Turn on set matching since connection reuse and account saving are
+        // not strongly ordered, nor do they need to be.
+        self.eImapAccount.expectUseSetMatching();
+        if (isFailure !== true &&
+            !checkFlagDefault(extraFlags, 'nonet', false)) {
+          self.help_expect_connection();
+          if (isFailure === 'deadconn') {
+            self.eImapAccount.expect_deadConnection();
+            // dead connection will be removed from the pool
+            self._unusedConnections--;
+          }
+          else if (!_saveToThing) {
+            self.eImapAccount.expect_releaseConnection();
+          }
+          else {
+            // The connection will be held by the folder/slice, so it's no
+            // longer unused.
+            self._unusedConnections--;
+          }
+        }
+      }
+
+      // generate expectations for each date sync range
+      var totalExpected = self._expect_dateSyncs(
+                            _saveToThing ||
+                              { testFolder: testFolder,
+                                offset: 0, slice: null },
+                            expectedValues, extraFlags, null);
+      if (expectedValues) {
+        if (syncblocked === 'resolve') {
+          self.expect_syncblocked();
+          // XXX these extra checks in here ideally wouldn't go here, but this
+          // is an easy way to make things go without too many extra headaches.
+          self.eAccount.expect_runOp_end('do', 'syncFolderList', null);
+          self.eAccount.expect_saveAccountState();
+          self.eAccount.expect_saveAccountState();
+          testFolder.storageActor.expect_mutexedCall_begin('sync');
+          testFolder.storageActor.expect_syncedToDawnOfTime();
+          testFolder.storageActor.expect_mutexedCall_end('sync');
+        }
+
+        // Generate overall count expectation and first and last message
+        // expectations by subject.
+        self.expect_messagesReported(totalExpected);
+        if (totalExpected) {
+          self.expect_messageSubjects(
+            testFolder.knownMessages.slice(0, totalExpected)
+              .map(function(x) { return x.subject; }));
+        }
+        var callArgs = [expectedFlags.top, expectedFlags.bottom,
+                        expectedFlags.growUp || false,
+                        expectedFlags.grow,
+                        isFailure ? 'syncfailed' : 'synced'];
+        if (expectedFlags.newCount !== undefined) {
+          callArgs.push(expectedFlags.newCount);
+        }
+        self.expect_sliceFlags.apply(self, callArgs);
+      }
+      // If we don't have specific expectations, we still want to wait for the
+      // sync to complete.  The exception is that if a syncblocked is reported,
+      // then we just expect that...
+      else if (!syncblocked) {
+        self.expect_viewWithoutExpectationsCompleted();
+      }
+      else {
+        self.expect_syncblocked();
+      }
+
+      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
+      if (_saveToThing) {
+        _saveToThing.slice = slice;
+        testFolder._liveSliceThings.push(_saveToThing);
+      }
+      if (syncblocked) {
+        slice.onstatus = function(status) {
+          if (status === 'syncblocked')
+            self._logger.syncblocked();
+        };
+      }
+      if (syncblocked !== 'bail') {
+        slice.oncomplete = function(newEmailCount) {
+          if (expectedValues) {
+            self._logger.messagesReported(slice.items.length);
+            if (totalExpected) {
+              self._logger.messageSubjects(
+                slice.items.map(function(x) { return x.subject; }));
+            }
+            self._logger.sliceFlags(
+              slice.atTop, slice.atBottom,
+              slice.userCanGrowUpwards,
+              slice.userCanGrowDownwards, slice.status,
+              newEmailCount === undefined ? null : newEmailCount);
+            if (!_saveToThing) {
+              slice.die();
+            }
+          }
+          else {
+            self._logger.viewWithoutExpectationsCompleted();
+          }
+        };
+      }
+    });
+    // (varies with N)
+    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
+    return testStep;
+  },
+
 
   do_closeFolderView: function(viewThing) {
     var self = this;
@@ -621,6 +847,127 @@ var TestCommonAccountMixins = {
 
       viewThing.slice.refresh();
     });
+  },
+
+  /**
+   * Alter the flag-equivalents on the server without affecting our local state.
+   */
+  modifyMessageFlagsOnServerButNotLocally: function(viewThing, indices,
+                                                    addFlags, delFlags) {
+    var messages = [];
+    var testFolder = viewThing.testFolder;
+    indices.forEach(function(index) {
+      messages.push(viewThing.slice.items[index]);
+    });
+    this.testServer.modifyMessagesInFolder(
+      testFolder.serverFolder, messages, addFlags, delFlags);
+    return messages;
+  },
+
+  /**
+   * Cause a deletion of the given mail headers to occur on the server without
+   * our local state being aware of the changes.  You will need to trigger a
+   * refresh for us to see the changes.  (Our model of the server's state,
+   * however, will be updated.)
+   *
+   * For fake servers, this is handled by using our backdoor to manipulate the
+   * server directly.  For real servers, this is handled by using our built-in
+   * manipulation functions without running the local manipulation.
+   *
+   * @args[
+   *   @param[viewThing folderView]
+   *   @param[indices @listof[Number]]{
+   *     The indices of the messages to delete in the slice.
+   *   }
+   * ]
+   */
+  deleteMessagesOnServerButNotLocally: function(viewThing, indices) {
+    var messages = [];
+    // sort the indices in descending order so the splices don't mess up
+    indices.sort(function(a, b) { return b - a; });
+    // - folderView
+    var testFolder = viewThing.testFolder;
+    indices.forEach(function(index) {
+      messages.push(viewThing.slice.items[index]);
+      var knownMessage =
+            testFolder.knownMessages[viewThing.offset + index];
+      var serverIdx = testFolder.serverMessages.indexOf(knownMessage);
+      testFolder.serverDeleted.push(knownMessage);
+      // XXX the edge cases are concerning, but this logic path is a fallback
+      // for a very bounded set of cases, so problems will probably just
+      // be dealt with by adding more messages/deleting different messages.
+      testFolder.serverDeleted.push({
+        below: testFolder.serverMessages[serverIdx - 1],
+        above: testFolder.serverMessages[serverIdx + 1]
+      });
+      testFolder.serverMessages.splice(serverIdx, 1);
+    });
+    this.testServer.deleteMessagesFromFolder(testFolder.serverFolder,
+                                             messages);
+    return messages;
+  },
+
+  /**
+   * Delete one or more messages on the server given a viewThing, then trigger
+   * a synchronization so we hear about the deletion.
+   *
+   * You would want to do this to:
+   * - Cause a message header to disappear without a forwarding address.  When
+   *   we delete a message and move it to the trash or move a message between
+   *   folders, we locally track the movement of the message so that future
+   *   references to it can be resolved.  Using this method does not result
+   *   in those entries being created because the servers don't tell us these
+   *   things.  (At least they don't right now; they might in the future; in
+   *   which case we might need to change the name of this method to better
+   *   reflect its intended semantics.
+   * - Simulate a move or deletion on the server triggered by another client.
+   *
+   * Under the hood this is just a helper step that calls
+   * deleteMessagesOnServerButNotLocally and then calls do_refreshFolderView
+   * expecting the given number of deletions to occur.
+   */
+  do_deleteMessagesOnServerThenRefresh: function(viewThing, indices) {
+    var self = this;
+    // apart from viewThing the arguments to do_refreshFolderView aren't
+    // actually used until step time, so it's fine to compute the values in
+    // our first step.
+    var expectedValues = {}, checkExpected = {}, expectedFlags = {},
+        extraFlags = {};
+
+    this.T.action('delete ' + indices.length + ' headers on server',
+                  function() {
+      var sliceMessages = viewThing.slice.items;
+      var mailHeaders = [];
+      indices.forEach(function(index) {
+        mailHeaders.push(sliceMessages[index]);
+      });
+      var preCount = sliceMessages.length,
+          postCount = preCount - indices.length;
+      expectedValues.count = postCount;
+      expectedValues.full = 0;
+      expectedValues.flags = postCount;
+      expectedValues.changed = 0;
+      expectedValues.deleted = indices.length;
+
+      checkExpected.additions = [];
+      checkExpected.changes = [];
+      checkExpected.deletions = mailHeaders;
+
+      // flags should not change
+      expectedFlags.top = viewThing.slice.atTop;
+      expectedFlags.bottom = viewThing.slice.atBottom;
+      expectedFlags.grow = viewThing.slice.userCanGrowDownwards;
+
+      // We are going to be syncing to the dawn of time if our refresh range
+      // covers the most recent message.
+      var serverMessages = viewThing.testFolder.serverMessages;
+      if (expectedFlags.top)
+        extraFlags.syncedToDawnOfTime = true;
+
+      self.deleteMessagesOnServerButNotLocally(viewThing, indices);
+    });
+    this.do_refreshFolderView(
+      viewThing, expectedValues, checkExpected, expectedFlags, extraFlags);
   },
 
   /**
@@ -702,10 +1049,22 @@ var TestCommonAccountMixins = {
   _expect_storage_mutexed: function(testFolder, syncType, extraFlags) {
     var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
+
+    // If we are going to re-create the folder during this call, we do not
+    // expect the mutex to get closed out, and we do not expect the dawn-of-time
+    // to happen.
+    var recreateFolder = checkFlagDefault(extraFlags, 'recreateFolder', false);
+    // Syncblocked bails similarly
+    var syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false);
+
     storageActor.expect_mutexedCall_begin(syncType);
     // activesync always syncs the entire folder
     if (this.type === 'activesync') {
-      storageActor.expect_syncedToDawnOfTime();
+      // activesync only syncs when online and when it's a real folder
+      if (this.universe.online &&
+          testFolder.mailFolder.type !== 'localdrafts' &&
+          !recreateFolder && !syncblocked)
+        storageActor.expect_syncedToDawnOfTime();
     }
     else {
       switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
@@ -722,7 +1081,8 @@ var TestCommonAccountMixins = {
           break;
       }
     }
-    storageActor.expect_mutexedCall_end(syncType);
+    if (!recreateFolder)
+      storageActor.expect_mutexedCall_end(syncType);
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
     // all of these manipulations are interesting, but they're new and we haven't
@@ -761,6 +1121,11 @@ var TestCommonAccountMixins = {
    *       @case['server']{
    *         Expect a save operation to occur after the "server" operation.
    *       }
+   *       @case['both']{
+   *         Expect a save after both the local and server operations.  This
+   *         does suggest either we move to using 2 different keys or have the
+   *         value for local be 'local'.
+   *       }
    *     }
    *     @key[conn #:default false @oneof[false true 'deadconn']{
    *       Expect a connection to be aquired if truthy.  Expect the conncetion
@@ -789,6 +1154,10 @@ var TestCommonAccountMixins = {
         break;
     }
 
+    var saveCmd = checkFlagDefault(flags, 'save', false);
+    var localSave = (saveCmd === true || saveCmd === 'both');
+    var serverSave = (saveCmd === 'server' || saveCmd === 'both');
+
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
@@ -796,15 +1165,15 @@ var TestCommonAccountMixins = {
       this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
-    if (checkFlagDefault(flags, 'save', false) === true)
+    if (localSave)
       this.eOpAccount.expect_saveAccountState();
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
     // - conn, (conn) release
     if (checkFlagDefault(flags, 'conn', false)  &&
-        ('expect_connection' in this)) {
-      this.expect_connection();
+        ('help_expect_connection' in this)) {
+      this.help_expect_connection();
       if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
         this.eOpAccount.expect_deadConnection();
       }
@@ -823,8 +1192,8 @@ var TestCommonAccountMixins = {
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_end(mode, jobName);
-    // - save (local)
-    if (checkFlagDefault(flags, 'save', false) === 'server')
+    // - save (server)
+    if (serverSave)
       this.eOpAccount.expect_saveAccountState();
   },
 
@@ -836,7 +1205,8 @@ var TestCommonAccountMixins = {
   do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
     var self = this;
     var testStep =
-          this.T.action(this, 'wait for message', expectSubject, function() {
+          this.T.action(this, 'wait for message', expectSubject, 'in',
+                        viewThing.testFolder, function() {
       self.expect_messageSubject(null, expectSubject);
       var foundIt = false;
       if (funcOpts.expect)
@@ -872,6 +1242,14 @@ var TestCommonAccountMixins = {
    * Locally delete the message like we heard it was deleted on the server; but
    * we won't have actually heard it from the server.  We do this outside a
    * mutex because we're a unit test hack and nothing should be going on.
+   *
+   * This should *only* be used when your test involves jobs/operations where
+   * you want the header gone and we are currently offline, presumably because
+   * you are testing that we don't explode if we encounter a missing header.
+   *
+   * If your test is currently in the online state and/or you won't race the
+   * thing you are testing (or suffer from massive lack of realism), you should
+   * use do_deleteMessagesOnServerThenRefresh instead of this method.
    */
   fakeServerMessageDeletion: function(mailHeader) {
     var self = this;
@@ -885,7 +1263,6 @@ var TestCommonAccountMixins = {
     var folderStorage =
           this.universe.getFolderStorageForMessageSuid(mailHeader.id);
 
-
     folderStorage.getMessageHeader(
       suid, dateMS,
       function(header) {
@@ -895,6 +1272,76 @@ var TestCommonAccountMixins = {
       });
   },
 
+  /**
+   * Create a folder and populate it with a set of messages.  If the folder
+   * already exists, remove the folder.  We should already have run
+   * syncFolderList by the time this step runs, so we will locally know about
+   * the folder and the local folder's state will have to be destroyed.
+   */
+  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
+                                        folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+
+    this.T.convenienceSetup('delete test folder', testFolder,
+                            'if it exists',
+                            function() {
+      var existingFolder = self.testServer.getFolderByPath(folderName);
+      if (!existingFolder)
+        return;
+
+      // The contract for this is that our helper here will ensure that our
+      // account has forgotten about the folder too.  This is because for real
+      // IMAP we use an actual job/operation to remove the folder.  For our
+      // fake implementations we use a backdoor to fast-path the removal of
+      // the folder.  We could then trigger a syncFolderList, but the theory
+      // is that is both slower and generates more potentially distracting
+      // debug, but I don't really feel strongly about how we're handling this.
+      self.testServer.removeFolder(existingFolder);
+    });
+
+    this.T.convenienceSetup(this.eFolderAccount, 'create test folder',
+                            testFolder,
+                            function(){
+
+      testFolder.serverFolder = self.testServer.addFolder(folderName,
+                                                          testFolder);
+      if (self.testServer.SYNC_FOLDER_LIST_AFTER_ADD) {
+        self.expect_runOp(
+          'syncFolderList',
+          { local: false, save: 'server', conn: self.USES_CONN });
+        self.RT.reportActiveActorThisStep(self);
+        self.expect_foundFolder(true);
+        self.universe.syncFolderList(self.account, function() {
+          self.MailAPI.ping(function() {
+            testFolder.mailFolder = self.testUniverse.allFoldersSlice
+                                        .getFirstFolderWithName(folderName);
+            self._logger.foundFolder(!!testFolder.mailFolder,
+                                     testFolder.mailFolder);
+            testFolder.id = testFolder.mailFolder.id;
+
+            testFolder.connActor.__attachToLogger(
+              self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+            testFolder.storageActor.__attachToLogger(
+              self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+          });
+        });
+      }
+    });
+
+    if (messageSetDef.hasOwnProperty('count') &&
+        messageSetDef.count === 0) {
+      testFolder.serverMessages = [];
+      return testFolder;
+    }
+
+    this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
+                                     messageSetDef, extraFlags);
+
+    return testFolder;
+  },
 
   /**
    * Re-create the folder from scratch so that we can reset all the state on
@@ -955,6 +1402,165 @@ var TestCommonAccountMixins = {
     return newConnActor;
   },
 
+  /**
+   * @args[
+   *   @param[doNotExpect #:optional Boolean]{
+   *     If true, do not add the injected messages into the set of known (to
+   *     testhelper) messages so that we do not generate expectations on the
+   *     headers.  Use this is adding messages to a folder that we expect to
+   *     not learn about because we are testing failures.
+   *   }
+   * ]
+   */
+  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
+                                        extraFlags) {
+    var self = this;
+    var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
+                       messageSetDef.count;
+    this.T.convenienceSetup(this, desc, testFolder, function() {
+      var messageBodies;
+      if (messageSetDef instanceof Function) {
+        messageBodies = messageSetDef();
+      }
+      else {
+        var generator = self.testUniverse.messageGenerator;
+        generator._clock = self._useDate ? new Date(self._useDate) : null;
+        messageBodies = generator.makeMessages(messageSetDef);
+      }
+
+      if (extraFlags && extraFlags.pushMessagesTo) {
+        var pushMessagesTo = extraFlags.pushMessagesTo;
+        pushMessagesTo.push.apply(pushMessagesTo, messageBodies);
+      }
+      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
+      }
+      // no messages in there yet, just use the list as-is
+      else if (!testFolder.serverMessages) {
+        testFolder.serverMessages = messageBodies;
+      }
+      // messages already in there, need to insert them appropriately
+      else {
+        for (var i = 0; i < messageBodies.length; i++) {
+          var idx = $util.bsearchForInsert(
+            testFolder.serverMessages, messageBodies[i],
+            function (a, b) {
+              // we only compare based on date because we require distinct dates
+              // for this ordering, but we could track insertion sequence
+              // which would correlate with UID and then be viable...
+              return b.date - a.date;
+            });
+          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
+        }
+      }
+
+      self.testServer.addMessagesToFolder(testFolder.serverFolder,
+                                          messageBodies);
+    }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
+  },
+
+  /**
+   * Add messages to an existing test folder.
+   */
+  do_addMessagesToFolder: function(testFolder, messageSetDef, extraFlags) {
+    this._do_addMessagesToTestFolder(testFolder, 'add messages to',
+                                     messageSetDef, extraFlags);
+  },
+
+  /**
+   * Add a single message to an existing test folder.
+   */
+  do_addMessageToFolder: function(testFolder, messageDef, extraFlags) {
+    var self = this;
+    this._do_addMessagesToTestFolder(testFolder, 'add message to', function() {
+      var generator = self.testUniverse.messageGenerator;
+      return [generator.makeMessage(messageDef)];
+    }, extraFlags);
+  },
+
+  /**
+   * Use a folder that should already exist because of a prior test step or
+   * because it's a special folder that should already exist on the server,
+   * identifying the folder by name.
+   */
+  do_useExistingFolder: function(folderName, suffix, oldFolder) {
+    var self = this,
+        testFolder = this.T.thing('testFolder', folderName + suffix);
+    testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
+                                        folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+    testFolder._approxMessageCount = 30;
+
+    this.T.convenienceSetup('find test folder', testFolder, function() {
+      testFolder.mailFolder =
+        self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder) {
+        testFolder.serverFolder = oldFolder.serverFolder;
+        testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
+      else {
+        // Establish a testing layer linkage.  In order to manipulate the
+        // folder further we need a serverFolder handle, and our expectation
+        // logic needs to know the messages already present on the server.
+        testFolder.serverFolder = self.testServer.getFolderByPath(folderName);
+        testFolder.serverMessages =
+          self.testServer.getMessagesInFolder(testFolder.serverFolder);
+      }
+
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
+
+  /**
+   * Use a folder that should already exist because of a prior test step or
+   * because it's a special folder that should already exist on the server,
+   * identifying the folder by type.
+   */
+  do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
+    var self = this,
+        folderName = folderType + suffix,
+        testFolder = this.T.thing('testFolder', folderName);
+    testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
+                                        folderName);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+    testFolder._approxMessageCount = 30;
+
+    this.T.convenienceSetup('find test folder', testFolder, function() {
+      testFolder.mailFolder =
+        self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
+      testFolder.id = testFolder.mailFolder.id;
+      if (oldFolder) {
+        testFolder.serverFolder = oldFolder.serverFolder;
+        testFolder.serverMessages = oldFolder.serverMessages;
+        testFolder.knownMessages = oldFolder.knownMessages;
+        testFolder.serverDeleted = oldFolder.serverDeleted;
+        testFolder.initialSynced = oldFolder.initialSynced;
+      }
+      // localdrafts does not exist on the server; don't bother the server!
+      else if (folderType !== 'localdrafts') {
+        // Establish a testing layer linkage.  In order to manipulate the
+        // folder further we need a serverFolder handle, and our expectation
+        // logic needs to know the messages already present on the server.
+        testFolder.serverFolder = self.testServer.getFolderByPath(
+          testFolder.mailFolder.path);
+        testFolder.serverMessages =
+          self.testServer.getMessagesInFolder(testFolder.serverFolder);
+      }
+
+      testFolder.connActor.__attachToLogger(
+        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
+      testFolder.storageActor.__attachToLogger(
+        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
+    });
+    return testFolder;
+  },
 };
 
 var TestFolderMixins = {
@@ -1005,32 +1611,13 @@ var TestFolderMixins = {
     else
       return [0x1, bodyPart.body];
   },
-
-  /**
-   * Used by a unit test to tell us that the (server) message at the given index
-   * is being deleted.  For IMAP, this is accomplished by the IMAP code directly
-   * manipulating flags via using modifyMessageTags, expecting the operation,
-   * then expecting the operation.  We should then be called to be aware of
-   * the change.
-   *
-   * For ActiveSync, a fake-server is currently assumed, and the manipulation
-   * occurs via testFolder.serverFolder.removeMessageById().
-   *
-   * Ideally, in the future, we might just provide a helper method to
-   * bundle all of that up into one call to manipulate the server state, be it
-   * fake-server or real server.  The ActiveSync way is probably what we should
-   * normalize to.
-   */
-  beAwareOfDeletion: function(index) {
-    this.serverDeleted.push(this.serverMessages[index]);
-    this.serverDeleted.push({ below: this.serverMessages[index - 1],
-                              above: this.serverMessages[index + 1] });
-    this.serverMessages.splice(index, 1);
-  },
 };
 
 var TestImapAccountMixins = {
   exactAttachmentSizes: false,
+  FOLDER_CONN_LOGGER_NAME: 'ImapFolderConn',
+  USES_CONN: true,
+
   __constructor: function(self, opts) {
     self.eImapAccount = self.eOpAccount = self.eFolderAccount =
       self.T.actor('ImapAccount', self.__name, null, self);
@@ -1038,21 +1625,14 @@ var TestImapAccountMixins = {
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
-    self._opts = opts;
-    if (!opts.universe)
-      throw new Error("Universe not specified!");
-    if (!opts.universe.__testAccounts)
-      throw new Error("Universe is not of the right type: " + opts.universe);
+    var TEST_PARAMS = self.RT.envOptions;
 
     // turn on SMTP logging for our unit tests
     $smtpacct.ENABLE_SMTP_LOGGING = true;
 
-    self.accountId = null;
-    self.universe = null;
-    self.MailAPI = null;
-    self.testUniverse = opts.universe;
-    self.testUniverse.__testAccounts.push(this);
-    self._useDate = self.testUniverse._useDate;
+    self.imapHost = null;
+    self.imapPort = null;
+
     /**
      * Very simple/primitive connection book-keeping.  We only alter this in
      * a test step if the connection will outlive the step, such as when
@@ -1061,6 +1641,15 @@ var TestImapAccountMixins = {
      * manually handled or update this common logic.
      */
     self._unusedConnections = 0;
+
+    if ('controlServerBaseUrl' in TEST_PARAMS) {
+      self.testServer = self.T.actor('testFakeIMAPServer', self.__name,
+                                     { restored: opts.restored });
+    }
+    else {
+      self.testServer = self.T.actor('testRealIMAPServer', self.__name,
+                                     { restored: opts.restored });
+    }
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
@@ -1083,7 +1672,7 @@ var TestImapAccountMixins = {
     this.eImapAccount.expect_saveAccountState();
   },
 
-  expect_connection: function() {
+  help_expect_connection: function() {
     if (!this._unusedConnections) {
       this.eImapAccount.expect_createConnection();
       // caller will need to decrement this if they are going to keep the
@@ -1115,6 +1704,12 @@ var TestImapAccountMixins = {
         self.compositeAccount._receivePiece;
       self.smtpAccount = self.compositeAccount._sendPiece;
       self.accountId = self.compositeAccount.id;
+
+      var receiveConnInfo = self.compositeAccount.accountDef.receiveConnInfo;
+      self.imapHost = receiveConnInfo.hostname;
+      self.imapPort = receiveConnInfo.port;
+
+      self.testServer.finishSetup(self);
     });
   },
 
@@ -1141,7 +1736,7 @@ var TestImapAccountMixins = {
       // we expect the connection to be reused and release to sync the folders
       self._unusedConnections = 1;
       self.eImapAccount.expect_runOp_begin('do', 'syncFolderList');
-      self.expect_connection();
+      self.help_expect_connection();
       self.eImapAccount.expect_releaseConnection();
       self.eImapAccount.expect_runOp_end('do', 'syncFolderList');
       // we expect the account state to be saved after syncing folders
@@ -1186,6 +1781,13 @@ var TestImapAccountMixins = {
             self.compositeAccount._receivePiece;
           self.smtpAccount = self.compositeAccount._sendPiece;
 
+          var receiveConnInfo =
+                self.compositeAccount.accountDef.receiveConnInfo;
+          self.imapHost = receiveConnInfo.hostname;
+          self.imapPort = receiveConnInfo.port;
+
+          self.testServer.finishSetup(self);
+
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
           // created.
@@ -1194,285 +1796,6 @@ var TestImapAccountMixins = {
           });
         });
     }).timeoutMS = 10000; // there can be slow startups...
-  },
-
-  /**
-   * Create a folder and populate it with a set of messages.
-   */
-  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
-    var self = this,
-        testFolder = this.T.thing('testFolder', folderName);
-    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-
-    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
-                            function() {
-      var existingFolder = gAllFoldersSlice.getFirstFolderWithName(folderName);
-      if (!existingFolder)
-        return;
-      self.RT.reportActiveActorThisStep(self.eImapAccount);
-      self.RT.reportActiveActorThisStep(self);
-      self.expect_connection();
-      self.eImapAccount.expect_releaseConnection();
-      self.eImapAccount.expect_deleteFolder();
-      self.expect_deletionNotified(1);
-
-      gAllFoldersSlice.onsplice = function(index, howMany, added,
-                                           requested, expected) {
-        gAllFoldersSlice.onsplice = null;
-        self._logger.deletionNotified(howMany);
-      };
-      self.universe.accounts[0].deleteFolder(existingFolder.id);
-    });
-
-    this.T.convenienceSetup(self.eImapAccount, 'create test folder', testFolder,
-                            function(){
-      self.RT.reportActiveActorThisStep(self);
-      self.RT.reportActiveActorThisStep(testFolder.connActor);
-      self.RT.reportActiveActorThisStep(testFolder.storageActor);
-      self.eImapAccount.expect_runOp_begin('local_do', 'createFolder');
-      self.eImapAccount.expect_runOp_end('local_do', 'createFolder');
-      self.eImapAccount.expect_runOp_begin('do', 'createFolder');
-      self.expect_connection();
-      self.eImapAccount.expect_releaseConnection();
-      self.eImapAccount.expect_runOp_end('do', 'createFolder');
-      self.expect_creationNotified(1);
-
-      gAllFoldersSlice.onsplice = function(index, howMany, added,
-                                           requested, expected) {
-        gAllFoldersSlice.onsplice = null;
-        self._logger.creationNotified(added.length);
-        testFolder.mailFolder = added[0];
-      };
-      self.universe.createFolder(self.accountId, null, folderName, false,
-        function createdFolder(err, folderMeta) {
-        if (err) {
-          self._logger.folderCreationError(err);
-          return;
-        }
-        testFolder.id = folderMeta.id;
-      });
-    });
-
-    if (messageSetDef.hasOwnProperty('count') &&
-        messageSetDef.count === 0) {
-      testFolder.serverMessages = [];
-      return testFolder;
-    }
-
-    this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
-                                     messageSetDef, extraFlags);
-
-    return testFolder;
-  },
-
-  do_useExistingFolder: function(folderName, suffix, oldFolder) {
-    var self = this,
-        testFolder = this.T.thing('testFolder', folderName + suffix);
-    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder._approxMessageCount = 30;
-
-    this.T.convenienceSetup('find test folder', testFolder, function() {
-      testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithName(
-                                folderName);
-      testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder) {
-        testFolder.serverMessages = oldFolder.serverMessages;
-        testFolder.knownMessages = oldFolder.knownMessages;
-        testFolder.serverDeleted = oldFolder.serverDeleted;
-        testFolder.initialSynced = oldFolder.initialSynced;
-      }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
-    });
-    return testFolder;
-  },
-
-  do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
-    var self = this,
-        folderName = folderType + suffix,
-        testFolder = this.T.thing('testFolder', folderName);
-    testFolder.connActor = this.T.actor('ImapFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder._approxMessageCount = 30;
-
-    this.T.convenienceSetup('find test folder', testFolder, function() {
-      testFolder.mailFolder = gAllFoldersSlice.getFirstFolderWithType(
-                                folderType);
-      testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder) {
-        testFolder.serverMessages = oldFolder.serverMessages;
-        testFolder.knownMessages = oldFolder.knownMessages;
-        testFolder.serverDeleted = oldFolder.serverDeleted;
-        testFolder.initialSynced = oldFolder.initialSynced;
-      }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
-    });
-    return testFolder;
-  },
-
-  /**
-   * @args[
-   *   @param[doNotExpect #:optional Boolean]{
-   *     If true, do not add the injected messages into the set of known (to
-   *     testhelper) messages so that we do not generate expectations on the
-   *     headers.  Use this is adding messages to a folder that we expect to
-   *     not learn about because we are testing failures.
-   *   }
-   * ]
-   */
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
-                                        extraFlags) {
-    var self = this;
-    var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
-                       messageSetDef.count;
-    this.T.convenienceSetup(this, desc, testFolder, function() {
-      self.RT.reportActiveActorThisStep(self.eImapAccount);
-      self.universe._testModeDisablingLocalOps = true;
-
-      // the append will need to check out and check back-in a connection
-      self.expect_runOp(
-        'append',
-        { local: false, server: true, save: false,
-          conn: testFolder._liveSliceThings.length === 0 });
-      self.expect_appendNotified();
-
-      var messageBodies;
-      if (messageSetDef instanceof Function) {
-        messageBodies = messageSetDef();
-      }
-      else {
-        var generator = self.testUniverse.messageGenerator;
-        generator._clock = new Date(self._useDate);
-        messageBodies = generator.makeMessages(messageSetDef);
-      }
-
-      if (extraFlags && extraFlags.pushMessagesTo) {
-        var pushMessagesTo = extraFlags.pushMessagesTo;
-        pushMessagesTo.push.apply(pushMessagesTo, messageBodies);
-      }
-      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
-      }
-      // no messages in there yet, just use the list as-is
-      else if (!testFolder.serverMessages) {
-        testFolder.serverMessages = messageBodies;
-      }
-      // messages already in there, need to insert them appropriately
-      else {
-        for (var i = 0; i < messageBodies.length; i++) {
-          var idx = $util.bsearchForInsert(
-            testFolder.serverMessages, messageBodies[i],
-            function (a, b) {
-              // we only compare based on date because we require distinct dates
-              // for this ordering, but we could track insertion sequence
-              // which would correlate with UID and then be viable...
-              return b.date - a.date;
-            });
-          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
-        }
-      }
-      // turn the messages into something appendable
-      var messagesToAppend = messageBodies.map(function(message) {
-        var flags = [];
-        if (message.metaState.read)
-          flags.push('\\Seen');
-        if (message.metaState.deleted)
-          flags.push('Deleted');
-        return {
-          date: message.date,
-          messageText: message.toMessageString(),
-          flags: flags
-        };
-      });
-      self.universe.appendMessages(testFolder.id, messagesToAppend);
-      self.universe.waitForAccountOps(self.compositeAccount, function() {
-        self._logger.appendNotified();
-        self.universe._testModeDisablingLocalOps = false;
-      });
-    }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
-  },
-
-  /**
-   * Add messages to an existing test folder.
-   */
-  do_addMessagesToFolder: function(testFolder, messageSetDef, extraFlags) {
-    this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef, extraFlags);
-  },
-
-  /**
-   * Provide a context in which to manipulate the contents of a folder by
-   * getting a view of the messages in the folder, calling a user function
-   * to trigger manipulations, then waiting for the mutation queue to get
-   * drained.
-   */
-  do_manipulateFolder: function(testFolder, noLocal, manipFunc) {
-    var self = this;
-    this.T.action(this, 'manipulates folder', testFolder, function() {
-      if (noLocal)
-        self.universe._testModeDisablingLocalOps = true;
-      self.expect_manipulationNotified();
-      self.RT.reportActiveActorThisStep(self.eImapAccount);
-      if (self.universe.online) {
-        // Turn on set matching since connection reuse and account saving are
-        // not strongly ordered, nor do they need to be.
-        self.eImapAccount.expectUseSetMatching();
-        self.expect_connection();
-        self.expect_saveState();
-      }
-      self.eImapAccount.asyncEventsAreComingDoNotResolve();
-
-      // XXX we want to put the system in a mode where the manipulations are
-      // not played locally.
-      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      slice.oncomplete = function() {
-        manipFunc(slice);
-        if (self.universe.online)
-          self.eImapAccount.expect_releaseConnection();
-        self.eImapAccount.asyncEventsAllDoneDoResolve();
-
-        // Only wait on the operations completing after we are sure the bridge
-        // has heard about them.
-        self.MailAPI.ping(function() {
-          self.universe.waitForAccountOps(self.universe.accounts[0], function(){
-            // Only kill the slice after the ops complete so the slice stays
-            // alive and so there is less connection reuse flapping.
-            slice.ondead = function() {
-              self._logger.manipulationNotified();
-            };
-            slice.die();
-
-            if (noLocal)
-              self.universe._testModeDisablingLocalOps = false;
-          });
-        });
-      };
-    });
-  },
-
-  do_manipulateFolderView: function(viewThing, noLocal, manipFunc) {
-    var self = this;
-    this.T.action(this, 'manipulates folder view', viewThing, function() {
-      if (noLocal)
-        self.universe._testModeDisablingLocalOps = true;
-      self.expect_manipulationNotified();
-      manipFunc(viewThing.slice);
-      self.MailAPI.ping(function() {
-        self.universe.waitForAccountOps(self.universe.accounts[0], function() {
-          self._logger.manipulationNotified();
-          if (noLocal)
-            self.universe._testModeDisablingLocalOps = false;
-        });
-      });
-    });
   },
 
   /**
@@ -1789,6 +2112,8 @@ var TestImapAccountMixins = {
     return propState;
   },
 
+  // this is intentionally different between IMAP and ActiveSync because
+  // their sync logic is so different.
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
     var testFolder = viewThing.testFolder;
@@ -1841,128 +2166,6 @@ var TestImapAccountMixins = {
     }
 
     return totalMessageCount;
-  },
-
-  /**
-   * Perform a one-shot viewing of the contents of the folder to see that we
-   * get back the right thing.  Use do_openFolderView if you want to open it
-   * and keep it open and detect changes, etc.
-   *
-   * @args[
-   *   @param[extraFlags @dict[
-   *     @key[expectFunc #:optional Function]{
-   *       A function to invoke inside our action step after we have expected
-   *       the mutexed call (without enabling set matching), but before doing
-   *       anything else.
-   *     }
-   *     @key[nosave #:default false Boolean]{
-   *       Used by _expect_dateSyncs to determine whether a call to
-   *       expect_saveAccountState should be issued when we are in the online
-   *       state.
-   *     }
-   *     @key[failure #:default false @oneof[false true 'die']]{
-   *       If true, indicates that we should expect a 'syncfailed' result and no
-   *       connection expectations.  If 'deadconn', it means the connection will
-   *       die during the sync.
-   *     }
-   *     @key[nonet #:default false Boolean]{
-   *       Indicate that no network traffic is expected.  This is only relevant
-   *       if we think we are online.
-   *     }
-   *     @key[syncedToDawnOfTime #:optional Boolean]{
-   *       Assert that we are synced to the dawn of time at the end of this
-   *       sync IFF this is known to be a PASTWARDS-sync.  We've recently
-   *       changed the direction of refreshes to be FUTUREWARDS, in which case
-   *       this heuristic does not apply.  Rather than go change all the test
-   *       cases and make it harder to toggle the heuristic, we are building
-   *       the logic in here.
-   *     }
-   *   ]]
-   * ]
-   */
-  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          extraFlags, _saveToThing) {
-    var self = this,
-        isFailure = checkFlagDefault(extraFlags, 'failure', false);
-    var testStep = this.T.action(this, desc, testFolder, 'using',
-                                 testFolder.connActor, function() {
-      self._expect_storage_mutexed(testFolder, 'sync', extraFlags);
-      if (extraFlags && extraFlags.expectFunc)
-        extraFlags.expectFunc();
-
-      if (self.universe.online) {
-        self.RT.reportActiveActorThisStep(self.eImapAccount);
-        // Turn on set matching since connection reuse and account saving are
-        // not strongly ordered, nor do they need to be.
-        self.eImapAccount.expectUseSetMatching();
-        if (isFailure !== true &&
-            !checkFlagDefault(extraFlags, 'nonet', false)) {
-          self.expect_connection();
-          if (isFailure === 'deadconn') {
-            self.eImapAccount.expect_deadConnection();
-            // dead connection will be removed from the pool
-            self._unusedConnections--;
-          }
-          else if (!_saveToThing) {
-            self.eImapAccount.expect_releaseConnection();
-          }
-          else {
-            // The connection will be held by the folder/slice, so it's no
-            // longer unused.
-            self._unusedConnections--;
-          }
-        }
-      }
-
-      // generate expectations for each date sync range
-      var totalExpected = self._expect_dateSyncs(
-                            _saveToThing ||
-                              { testFolder: testFolder,
-                                offset: 0, slice: null },
-                            expectedValues, extraFlags, null);
-      if (expectedValues) {
-        // Generate overall count expectation and first and last message
-        // expectations by subject.
-        self.expect_messagesReported(totalExpected);
-        if (totalExpected) {
-          self.expect_messageSubjects(
-            testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.subject; }));
-        }
-        var callArgs = [expectedFlags.top, expectedFlags.bottom,
-                        expectedFlags.growUp || false,
-                        expectedFlags.grow,
-                        isFailure ? 'syncfailed' : 'synced'];
-        if (expectedFlags.newCount !== undefined) {
-          callArgs.push(expectedFlags.newCount);
-        }
-        self.expect_sliceFlags.apply(self, callArgs);
-      }
-
-      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      if (_saveToThing) {
-        _saveToThing.slice = slice;
-        testFolder._liveSliceThings.push(_saveToThing);
-      }
-      slice.oncomplete = function(newEmailCount) {
-        self._logger.messagesReported(slice.items.length);
-        if (totalExpected) {
-          self._logger.messageSubjects(
-            slice.items.map(function(x) { return x.subject; }));
-        }
-        self._logger.sliceFlags(slice.atTop, slice.atBottom,
-                                slice.userCanGrowUpwards,
-                                slice.userCanGrowDownwards, slice.status,
-                                newEmailCount === undefined ?
-                                  null : newEmailCount);
-        if (!_saveToThing) {
-          slice.die();
-        }
-      };
-    });
-    // (varies with N)
-    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
-    return testStep;
   },
 
   /**
@@ -2079,27 +2282,26 @@ var TestImapAccountMixins = {
       viewThing.slice.requestShrinkage(useLow, useHigh);
     });
   },
+
+  expect_sendMessage: function() {
+    // sending is not tracked as an op, but appending is
+    this.expect_runOp(
+      'append',
+      { local: false, server: true, save: false });
+  },
 };
 
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
+  FOLDER_CONN_LOGGER_NAME: 'ActiveSyncFolderConn',
+  USES_CONN: false,
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount = self.eFolderAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
     self.eJobDriver =
       self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
 
-    self._opts = opts;
-    if (!opts.universe)
-      throw new Error("Universe not specified!");
-    if (!opts.universe.__testAccounts)
-      throw new Error("Universe is not of the right type: " + opts.universe);
 
-    self.accountId = null;
-    self.universe = null;
-    self.MailAPI = null;
-    self.testUniverse = opts.universe;
-    self.testUniverse.__testAccounts.push(this);
     var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
       if (TEST_PARAMS.defaultArgs)
@@ -2114,12 +2316,12 @@ var TestActiveSyncAccountMixins = {
     // instead of the universe because a freshly started universe currently
     // does not know about the universe it is replacing.
     else if (!opts.server) {
-      if (!self.RT.blackboard.testActiveSyncServer) {
-        self.RT.blackboard.testActiveSyncServer =
+      if (!self.RT.caseBlackboard.testActiveSyncServer) {
+        self.RT.caseBlackboard.testActiveSyncServer =
           self.T.actor('testActiveSyncServer', 'S',
                        { universe: opts.universe });
       }
-      self.testServer = self.RT.blackboard.testActiveSyncServer;
+      self.testServer = self.RT.caseBlackboard.testActiveSyncServer;
     }
     else {
       self.testServer = opts.server;
@@ -2148,6 +2350,8 @@ var TestActiveSyncAccountMixins = {
       var idxAccount = self.testUniverse.__testAccounts.indexOf(self);
       self.folderAccount = self.account = self.universe.accounts[idxAccount];
       self.accountId = self.account.id;
+
+      self.testServer.finishSetup(self);
     });
   },
 
@@ -2172,16 +2376,9 @@ var TestActiveSyncAccountMixins = {
       var TEST_PARAMS = self.RT.envOptions,
           displayName, emailAddress, password;
 
-      if (self._opts.realAccountNeeded) {
-        displayName = TEST_PARAMS.name;
-        emailAddress = TEST_PARAMS.emailAddress;
-        password = TEST_PARAMS.password;
-      }
-      else {
-        displayName = self._opts.displayName || 'test';
-        emailAddress = self._opts.emailAddress || 'test@aslocalhost';
-        password = self._opts.password || 'test';
-      }
+      displayName = self._opts.displayName || TEST_PARAMS.name;
+      emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
+      password = self._opts.password || TEST_PARAMS.password;
 
       self.MailAPI.tryToCreateAccount(
         {
@@ -2214,6 +2411,8 @@ var TestActiveSyncAccountMixins = {
             do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
                      ' (id: ' + self.accountId + ')');
 
+          self.testServer.finishSetup(self);
+
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
           // created.
@@ -2240,218 +2439,8 @@ var TestActiveSyncAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eAccount);
   },
 
-  do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
-    var self = this,
-        testFolder = this.T.thing('testFolder', folderName);
-    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-
-    this.T.convenienceSetup('delete test folder', testFolder, 'if it exists',
-                            function() {
-      var existingFolder = self.testServer.getFirstFolderWithName(folderName);
-      if (!existingFolder)
-        return;
-      self.testServer.removeFolder(existingFolder.id);
-    });
-
-    this.T.convenienceSetup(this, 'create test folder', testFolder, function() {
-      self.expect_foundFolder(true);
-      testFolder.serverFolder = self.testServer.addFolder(
-        folderName, null, null);
-
-      self.expect_runOp('syncFolderList', { local: false, save: 'server' });
-      self.universe.syncFolderList(self.account, function() {
-        self.MailAPI.ping(function() {
-          testFolder.mailFolder = self.testUniverse.allFoldersSlice
-                                      .getFirstFolderWithName(folderName);
-          self._logger.foundFolder(!!testFolder.mailFolder,
-                                   testFolder.mailFolder);
-          testFolder.id = testFolder.mailFolder.id;
-
-          testFolder.connActor.__attachToLogger(
-            self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-          testFolder.storageActor.__attachToLogger(
-            self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
-        });
-      });
-    });
-
-    if (messageSetDef.hasOwnProperty('count') &&
-        messageSetDef.count === 0) {
-      testFolder.serverMessages = [];
-      return testFolder;
-    }
-
-    this._do_addMessagesToTestFolder(testFolder, 'populate test folder',
-                                     messageSetDef, extraFlags);
-
-    return testFolder;
-  },
-
-  do_useExistingFolder: function(folderName, suffix, oldFolder) {
-    var self = this,
-        testFolder = this.T.thing('testFolder', folderName + suffix);
-    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder._approxMessageCount = 30;
-
-    this.T.convenienceSetup('find test folder', testFolder, function() {
-      testFolder.mailFolder =
-        self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
-      testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder) {
-        testFolder.serverFolder = oldFolder.serverFolder;
-        testFolder.serverMessages = oldFolder.serverMessages;
-        testFolder.knownMessages = oldFolder.knownMessages;
-        testFolder.serverDeleted = oldFolder.serverDeleted;
-        testFolder.initialSynced = oldFolder.initialSynced;
-      }
-      else {
-        testFolder.serverFolder = self.testServer.getFirstFolderWithName(
-          folderName);
-        testFolder.serverMessages = []; // XXX: We should try to fill this in
-      }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
-    });
-    return testFolder;
-  },
-
-
-  // copy-paste-modify of the IMAP by-name variant
-  do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
-    var self = this,
-        folderName = folderType + suffix,
-        testFolder = this.T.thing('testFolder', folderName);
-    testFolder.connActor = this.T.actor('ActiveSyncFolderConn', folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
-    testFolder._approxMessageCount = 30;
-
-    this.T.convenienceSetup(this, 'find test folder', testFolder, function() {
-      testFolder.mailFolder =
-        self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
-      testFolder.id = testFolder.mailFolder.id;
-      if (oldFolder) {
-        testFolder.serverFolder = oldFolder.serverFolder;
-        testFolder.serverMessages = oldFolder.serverMessages;
-        testFolder.knownMessages = oldFolder.knownMessages;
-        testFolder.serverDeleted = oldFolder.serverDeleted;
-        testFolder.initialSynced = oldFolder.initialSynced;
-      }
-      else {
-        testFolder.serverFolder = self.testServer.getFirstFolderWithType(
-          folderType);
-        testFolder.serverMessages = []; // XXX: We should try to fill this in
-      }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
-    });
-    return testFolder;
-  },
-
-  _do_addMessagesToTestFolder: function(testFolder, desc, messageSetDef,
-                                        extraFlags) {
-    var self = this;
-    this.T.convenienceSetup(this, desc, testFolder, function() {
-      var messageBodies;
-      if (messageSetDef instanceof Function) {
-        messageBodies = messageSetDef();
-      }
-      else {
-        var generator = self.testUniverse.messageGenerator;
-        generator._clock = new Date(self._useDate);
-        messageBodies = generator.makeMessages(messageSetDef);
-      }
-
-      if (checkFlagDefault(extraFlags, 'doNotExpect', false)) {
-      }
-      // no messages in there yet, just use the list as-is
-      else if (!testFolder.serverMessages) {
-        testFolder.serverMessages = messageBodies;
-      }
-      // messages already in there, need to insert them appropriately
-      else {
-        for (var i = 0; i < messageBodies.length; i++) {
-          var idx = $util.bsearchForInsert(
-            testFolder.serverMessages, messageBodies[i],
-            function (a, b) {
-              // we only compare based on date because we require distinct dates
-              // for this ordering, but we could track insertion sequence
-              // which would correlate with UID and then be viable...
-              return b.date - a.date;
-            });
-          testFolder.serverMessages.splice(idx, 0, messageBodies[i]);
-        }
-      }
-
-      self.testServer.addMessagesToFolder(testFolder.serverFolder.id,
-                                          testFolder.serverMessages);
-    });
-  },
-
-  // XXX experimental attempt to re-create IMAP case; will need more love to
-  // properly unify things.
-  do_viewFolder: function(desc, testFolder, expectedValues, expectedFlags,
-                          extraFlags, _saveToThing) {
-    var self = this,
-        isFailure = checkFlagDefault(extraFlags, 'failure', false);
-    var testStep =
-      this.T.action(this, desc, testFolder, 'using', testFolder.connActor,
-                  function() {
-      var totalExpected = self._expect_dateSyncs(
-                            _saveToThing ||
-                              { testFolder: testFolder,
-                                offset: 0, slice: null },
-                            expectedValues, extraFlags, 1);
-      if (expectedValues) {
-        self.expect_messagesReported(totalExpected);
-        // Generate overall count expectation and first and last message
-        // expectations by subject.
-        if (totalExpected) {
-          self.expect_messageSubjects(
-            testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.subject; }));
-        }
-        var callArgs = [expectedFlags.top, expectedFlags.bottom,
-                        expectedFlags.growUp || false, expectedFlags.grow,
-                        isFailure ? 'syncfailed' : 'synced'];
-        if (expectedFlags.newCount !== undefined)
-          callArgs.push(expectedFlags.newCount);
-        self.expect_sliceFlags.apply(self, callArgs);
-      }
-
-      var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
-      if (_saveToThing) {
-        _saveToThing.slice = slice;
-        testFolder._liveSliceThings.push(_saveToThing);
-      }
-
-      slice.oncomplete = function(newEmailCount) {
-        self._logger.messagesReported(slice.items.length);
-        if (totalExpected) {
-          self._logger.messageSubjects(
-            slice.items.map(function(x) { return x.subject; }));
-        }
-        self._logger.sliceFlags(
-          slice.atTop, slice.atBottom,
-          slice.userCanGrowUpwards,
-          slice.userCanGrowDownwards, slice.status,
-          newEmailCount === undefined ? null : newEmailCount);
-        if (!_saveToThing) {
-          slice.die();
-        }
-      };
-    });
-    testStep.timeoutMS = 1000 + 400 * testFolder._approxMessageCount;
-    return testStep;
-  },
-
+  // this is intentionally different between IMAP and ActiveSync because
+  // their sync logic is so different.
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
     var testFolder = viewThing.testFolder;
@@ -2475,11 +2464,15 @@ var TestActiveSyncAccountMixins = {
           testFolder.knownMessages = testFolder.serverMessages.concat();
 
           testFolder.connActor.expect_sync_begin(null, null, null);
-          // TODO: have filterType and recreateFolder be specified in extraFlags
-          // for consistency with IMAP.
-          if (einfo.filterType)
+          // TODO: have filterType be specified in extraFlags for consistency
+          // with IMAP.
+          // XXX we might also consider inferring some cases?
+          if (einfo.filterType) {
+            if (einfo.filterType === 'none')
+              einfo.filterType = '0';
             testFolder.connActor.expect_inferFilterType(einfo.filterType);
-          if (einfo.recreateFolder) {
+          }
+          if (checkFlagDefault(extraFlags, 'recreateFolder', false)) {
             var oldConnActor = testFolder.connActor;
             var newConnActor = this._expect_recreateFolder(testFolder);
 
@@ -2487,11 +2480,11 @@ var TestActiveSyncAccountMixins = {
 
             newConnActor.expect_sync_begin(null, null, null);
             newConnActor.expect_sync_end(
-              einfo.full, einfo.flags, einfo.deleted);
+              einfo.full, einfo.changed || 0, einfo.deleted);
           }
           else {
             testFolder.connActor.expect_sync_end(
-              einfo.full, einfo.flags, einfo.deleted);
+              einfo.full, einfo.changed || 0, einfo.deleted);
           }
         }
       }
@@ -2500,7 +2493,10 @@ var TestActiveSyncAccountMixins = {
         !checkFlagDefault(extraFlags, 'nosave', false)) {
       this.eAccount.expect_saveAccountState();
     }
-    else {
+    // (the accountActive check is a hack for test_activesync_recreate
+    // right now. It passes in nosave because the expected save comes at a
+    // bad time, but then we want to generate other expectations...)
+    else if (!checkFlagDefault(extraFlags, 'accountActive', false)) {
       // Make account saving cause a failure; also, connection reuse, etc.
       this.eAccount.expectNothing();
       if (nonet)
@@ -2510,23 +2506,7 @@ var TestActiveSyncAccountMixins = {
     return totalMessageCount;
   },
 
-  /**
-   * Add a single message to an existing test folder.
-   */
-  do_addMessageToFolder: function(testFolder, messageDef, opts) {
-    var self = this;
-    this._do_addMessagesToTestFolder(testFolder, 'add message to', function() {
-      var generator = self.testUniverse.messageGenerator;
-      return [generator.makeMessage(messageDef)];
-    }, opts);
-  },
-
-  /**
-   * Add messages to an existing test folder.
-   */
-  do_addMessagesToFolder: function(testFolder, messageSetDef, opts) {
-    this._do_addMessagesToTestFolder(testFolder, 'add messages to',
-                                     messageSetDef, opts);
+  expect_sendMessage: function() {
   },
 };
 
@@ -2559,7 +2539,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
       dbRowPresent: { table: true, prefix: true, present: true },
 
-      killedOperations: { length: true, ops: false },
+      killedOperations: { type: true, length: true, ops: false,
+                          remaining: false  },
       operationsDone: {},
 
       cleanShutdown: {},
@@ -2582,25 +2563,28 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       folderRecreated: {},
 
       deletionNotified: { count: true },
-      creationNotified: { count: true },
       sliceDied: { handle: true },
 
-      appendNotified: {},
       manipulationNotified: {},
 
       splice: { index: true, howMany: true },
       sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
                     status: true, newCount: true },
+      syncblocked: {},
       messagesReported: { count: true },
       messageSubject: { index: true, subject: true },
       messageSubjects: { subjects: true },
+      // This is used when we've decided to not emit messagesReported/sliceFlags
+      // because we don't care what's in the folder.  This is used primarily
+      // for real servers where we can't destroy the folder and we don't care
+      // what's in it.
+      viewWithoutExpectationsCompleted: {},
 
       changesReported: { additions: true, changes: true, deletions: true },
     },
     errors: {
       accountCreationError: { err: false },
 
-      folderCreationError: { err: false },
       unexpectedChange: { subject: false },
       changeMismatch: { field: false, expectedValue: false },
     },
@@ -2620,6 +2604,11 @@ exports.TESTHELPER = {
     $smtpacct.LOGFAB,
     // ActiveSync!
     $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB, $activesyncjobs.LOGFAB,
+  ],
+  TESTHELPER_DEPS: [
+    $th_fake_as_server.TESTHELPER,
+    $th_fake_imap_server.TESTHELPER,
+    $th_real_imap_server.TESTHELPER,
   ],
   actorMixins: {
     testUniverse: TestUniverseMixins,

@@ -1,9 +1,43 @@
+.PHONY: help
+help:
+	@echo "(this is 'make help')"
+	@echo "## BUILDING ##"
+	@echo ""
+	@echo "make build"
+	@echo "  Just build."
+	@echo "make clean"
+	@echo "  Nuke all build byproducts."
+	@echo "make install-into-gaia"
+	@echo "  Clean, build and copy tests into gaia"
+	@echo ""
+	@echo "## FAKE SERVERS (for use by you, not for testing) ##"
+	@echo ""
+	@echo "make imap-server"
+	@echo "  Run the IMAP fake-server"
+	@echo "make activesync-server"
+	@echo "  Run the ActiveSync fake-server"
+	@echo ""
+	@echo "## TESTING ##"
+	@echo ""
+	@echo "make tests"
+	@echo "  Run all tests, do not post results to ArbPL"
+	@echo "make post-tests"
+	@echo "  Run all tests, post results to ArbPL"
+	@echo ""
+	@echo "make one-test SOLO_FILE=test_name.js"
+	@echo "  Run one test file (all variants), do not post results to ArbPL"
+	@echo "make post-one-test SOLO_FILE=test_name.js"
+	@echo "  Run one test file (all variants), post results to ArbPL"
+	@echo ""
+
 # full rsync
 RSYNC=rsync -avL
 # rsync JS files only, ignore jsdoc subdir.
 RSYNC_JS=rsync -r -f "- jsdoc/" -f "+ */" -f "+ *.js" -f "- *" --prune-empty-dirs
 
 VOLO=./scripts/volo
+
+TEST_VARIANT ?= all
 
 # Volo does its transformations in-place, so we need to copy junk across,
 #  transform it, then copy it to the destination dir.
@@ -38,8 +72,6 @@ build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
-PYTHON=python
-B2GSD := b2g-srcdir-symlink
 B2GBD := b2g-builddir-symlink
 ifeq ($(wildcard b2g-bindir-symlink),)
   B2GBIND := $(B2GBD)/dist/bin
@@ -50,11 +82,6 @@ else
 endif
 
 ARBPLD=arbpl-dir-symlink
-PYTHONINCDIRS=-I$(B2GSD)/build -I$(B2GBD)/_tests/mozbase/mozinfo
-# common xpcshell args
-RUNXPCARGS=--symbols-path=$(B2GBD)/dist/crashreporter-symbols \
-           --build-info-json=$(B2GBD)/mozinfo.json \
-           --testing-modules-dir=$(B2GBD)/_tests/modules
 
 # Best effort use RUNMOZ if its available otherwise ignore it.
 RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
@@ -65,81 +92,70 @@ RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
 
 SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-interactive or check-one)
 
-define run-one-test
-	GELAM_TEST_ACCOUNT_TYPE=$(2) $(PYTHON) $(B2GSD)/config/pythonpath.py $(PYTHONINCDIRS) $(B2GSD)/testing/xpcshell/runxpcshelltests.py $(RUNXPCARGS) --build-info-json=test/config-$(1).json --test-path=$(SOLO_FILE) $(B2GBD)/dist/bin/xpcshell test/unit
-endef
-
-XPCWIN=node_modules/xpcwindow/bin/xpcwindow
 TESTRUNNER=$(CURDIR)/test/loggest-runner.js
 
 
 # run all the tests listed in a test config file
-define run-tests  # $(call run-tests,configName,accountType)
-	-rm -f test-logs/all-$(1).log
-	-rm -f test-logs/$(1)/*.log
+define run-tests  # $(call run-tests)
+	-rm -f test-logs/*.log test-logs/*.logs
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
-	-mkdir -p test-logs/$(1)
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json
-	cat test-logs/$(1)/*.log > test-logs/all-$(1).log
+	-mkdir -p test-logs
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT)
+	cat test-logs/*.log > test-logs/all.logs
 endef
 
 # run one test
 define run-one-test
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
-	-mkdir -p test-logs/$(1)
-	-rm -f test-logs/$(1)/$(basename $(SOLO_FILE)).log
-	-GELAM_TEST_ACCOUNT_TYPE=$(2) $(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/config-$(1).json --test-name $(basename $(SOLO_FILE))
+	-mkdir -p test-logs
+	-rm -f test-logs/$(basename $(SOLO_FILE))-*.log
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT)
+	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
+endef
+
+define run-no-test #(call run-no-test,command,profdir)
+	-rm -rf $(2)
+	-mkdir -p $(2)
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/$(2) --test-config $(CURDIR)/test/test-files.json --test-command $(1)
 endef
 
 ######################
-# IMAP test variations
-imap-tests: build
-	$(call run-tests,imap,imap)
+# All tests
 
-one-imap-test: build
-	$(call run-one-test,imap,imap)
+tests: build
+	$(call run-tests)
 
-post-one-imap-test: one-imap-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/imap/$(basename $(SOLO_FILE)).log
+one-test: build
+	$(call run-one-test)
 
-post-imap-tests: imap-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-imap.log
+post-one-test: one-test
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/$(basename $(SOLO_FILE)).logs
 
-
-######################
-# ActiveSync test variations
-activesync-tests: build
-	$(call run-tests,activesync,activesync)
-
-one-activesync-test: build
-	$(call run-one-test,activesync,activesync)
-
-post-one-activesync-test: one-activesync-test
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/activesync/$(basename $(SOLO_FILE)).log
-
-post-activesync-tests: activesync-tests
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all-activesync.log
-
+post-tests: tests
+	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all.logs
 
 
 ######################
 # Bundle up all the tests!
-all-tests: imap-tests activesync-tests
 
-post-all-tests: post-imap-tests post-activesync-tests post-torture-tests
+all-tests: tests
 
 
 ACTIVESYNC_SERVER_PORT ?= 8880
 
+FAKE_ACTIVESYNC_PROFILE=fake-activesync-server-profile
 activesync-server:
-	$(PYTHON) $(CURDIR)/test/run_server.py $(B2GSD) $(B2GBD) $(CURDIR) \
-	  run_activesync_server.js --port $(ACTIVESYNC_SERVER_PORT)
+	$(call run-no-test,activesync-fake-server,$(FAKE_ACTIVESYNC_PROFILE))
+
+FAKE_IMAP_PROFILE=fake-imap-server-profile
+imap-server:
+	$(call run-no-test,imap-fake-server,$(FAKE_IMAP_PROFILE))
 
 clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
 
-.DEFAULT_GOAL=install-into-gaia
+.DEFAULT_GOAL=help
 .PHONY: build install-into-gaia

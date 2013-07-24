@@ -274,7 +274,7 @@ var MAX_LOG_BACKLOG = 30;
  *   }
  * ]]
  */
-function MailUniverse(callAfterBigBang, testOptions) {
+function MailUniverse(callAfterBigBang, online, testOptions) {
   /** @listof[Account] */
   this.accounts = [];
   this._accountsById = {};
@@ -330,7 +330,7 @@ function MailUniverse(callAfterBigBang, testOptions) {
   // Events for online/offline are now pushed into us externally.  They need
   // to be bridged from the main thread anyways, so no point faking the event
   // listener.
-  this._onConnectionChange();
+  this._onConnectionChange(online);
 
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
@@ -911,7 +911,7 @@ MailUniverse.prototype = {
 
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      curTrans = account.saveAccountState(curTrans);
+      curTrans = account.saveAccountState(curTrans, null, 'saveUniverse');
     }
   },
 
@@ -1119,7 +1119,7 @@ MailUniverse.prototype = {
       // This is a suggestion; in the event of high-throughput on operations,
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested)
-        account.saveAccountState();
+        account.saveAccountState(null, null, 'localOp');
     }
 
     if (removeFromServerQueue) {
@@ -1348,7 +1348,7 @@ MailUniverse.prototype = {
       // This is a suggestion; in the event of high-throughput on operations,
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested)
-        account.saveAccountState();
+        account.saveAccountState(null, null, 'serverOp');
     }
 
     if (localQueue.length) {

@@ -1,0 +1,138 @@
+{
+  "filedoc": "This file defines all the tests we know about and what variations they support.",
+  "variants": {
+    "noserver": {
+      "desc": "There's no server specific stuff involved.",
+      "optional": false
+    },
+    "imap:fake": {
+      "desc": "IMAP tests against our fake-server",
+      "optional": false
+    },
+    "imap:real": {
+      "desc": "IMAP tests against a real server",
+      "optional": true
+    },
+    "activesync:fake": {
+      "desc": "ActiveSync tests against our fake-server",
+      "optional": false
+    }
+  },
+  "tests": {
+    "test_mail_html.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_complex.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_general.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_internals.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_lazybodies.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_partialbodyfetching.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_mime.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_errors.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_proto.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_parallelfetch.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
+    "test_imap_prober.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_smtp_prober.js": {
+      "variants": ["noserver"]
+    },
+
+
+    "test_activesync_general.js": {
+      "variants": ["activesync:fake"]
+    },
+
+    "test_activesync_recreate.js": {
+      "variants": ["activesync:fake"]
+    },
+
+    "test_activesync_html.js": {
+      "variants": ["activesync:fake"]
+    },
+
+
+    "test_compose.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+
+    "test_body_observers.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+    "test_just_auth.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+    "test_account_logic.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+    "test_folder_storage.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+    "test_mutation.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+    },
+
+
+    "test_autoconfig.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_account_create_unit.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_linkify.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_mail_quoting.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_search.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_intl_unit.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_mailapi_contacts.js": {
+      "variants": ["imap:fake", "activesync:fake"]
+    }
+  }
+}

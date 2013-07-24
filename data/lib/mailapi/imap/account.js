@@ -311,7 +311,7 @@ ImapAccount.prototype = {
    * want to consider persisting our state.
    */
   __checkpointSyncCompleted: function() {
-    this.saveAccountState();
+    this.saveAccountState(null, null, 'checkpointSync');
   },
 
   /**
@@ -1049,6 +1049,7 @@ ImapAccount.prototype = {
 
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+  getFolderByPath: $acctmixins.getFolderByPath,
 };
 
 /**

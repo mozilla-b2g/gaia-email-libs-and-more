@@ -461,7 +461,6 @@ MailSlice.prototype = {
       return;
 
     var idx = bsearchForInsert(this.headers, header, cmpHeaderYoungToOld);
-
     var hlen = this.headers.length;
     // Don't append the header if it would expand us beyond our requested amount
     // and there is no subsequent step, like accumulate flushing, that would get
@@ -3658,7 +3657,11 @@ FolderStorage.prototype = {
         if (slice === this._curSyncSlice)
           continue;
 
-        // (if the slice is empty, it cares about any header!)
+        // Note: the following control flow is to decide when to bail; if we
+        // make it through the conditionals, the header gets reported to the
+        // slice.
+
+        // (if the slice is empty, it cares about any header, so keep going)
         if (slice.startTS !== null) {
           // We never automatically grow a slice into the past if we are full,
           // but we do allow it if not full.
@@ -3666,7 +3669,8 @@ FolderStorage.prototype = {
             if (slice.headers.length >= slice.desiredHeaders)
               continue;
           }
-          // We do grow a slice into the present if it's already up-to-date...
+          // We do grow a slice into the present if it's already up-to-date.
+          // We do count messages from the same second as our
           else if (SINCE(date, slice.endTS)) {
             // !(covers most recently known message)
             if(!(this._headerBlockInfos.length &&

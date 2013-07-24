@@ -1,11 +1,10 @@
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_activesync_server',
         'exports'],
-       function($tc, $th_imap, $th_as_server, exports) {
+       function($tc, $th_main, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_just_auth' }, null,
-  [$th_imap.TESTHELPER, $th_as_server.TESTHELPER], ['app']);
+  [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('just auth', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;

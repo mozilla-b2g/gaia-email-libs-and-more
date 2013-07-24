@@ -84,5 +84,13 @@ exports.getFirstFolderWithType = function(type) {
   }
  return null;
 };
+exports.getFolderByPath = function(folderPath) {
+  var folders = this.folders;
+  for (var iFolder = 0; iFolder < folders.length; iFolder++) {
+    if (folders[iFolder].path === folderPath)
+      return folders[iFolder];
+  }
+ return null;
+};
 
 }); // end define

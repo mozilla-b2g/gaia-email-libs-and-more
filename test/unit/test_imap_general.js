@@ -143,7 +143,7 @@ TD.commonCase('folder sync', function(T) {
     { top: true, bottom: false, grow: false, newCount: null });
   testUniverse.do_pretendToBeOffline(false);
   // this used to be [5, 5, 2] like the initial sync.  Now it's just a refresh.
-  testAccount.do_viewFolder(
+  var manipView = testAccount.do_openFolderView(
     'resyncs', msearchFolder,
     [{ count: 12, full: 0, flags: 12, deleted: 0 }],
     { top: true, bottom: false, grow: false, newCount: 0 });
@@ -153,25 +153,16 @@ TD.commonCase('folder sync', function(T) {
    * to cause some apparent flag changes and deletions to occur.
    */
   T.group('sync detects additions/modifications/deletions');
-  // delete 2 from the first interval (of 7), 1 from the second (of 7)
-  testAccount.do_manipulateFolder(msearchFolder, 'nolocal', function(slice) {
-
-    MailAPI.modifyMessageTags([slice.items[1]], ['\\Deleted'], null, 'delete');
-    MailAPI.modifyMessageTags([slice.items[2], slice.items[8]],
-                              ['\\Deleted'], null, 'delete');
-    slice.items[3].setRead(true);
-    slice.items[4].setStarred(true);
-
-    for (var i = 0; i < 4; i++) {
-      testAccount.expect_runOp('modtags',
-                               { local: false, server: true, save: false });
-    }
-
-    // update our test's idea of what messages exist where.
-    msearchFolder.beAwareOfDeletion(8);
-    msearchFolder.beAwareOfDeletion(2);
-    msearchFolder.beAwareOfDeletion(1);
+  T.action('mutate', msearchFolder, function() {
+    testAccount.modifyMessageFlagsOnServerButNotLocally(
+      manipView, [3], ['\\Seen'], null);
+    testAccount.modifyMessageFlagsOnServerButNotLocally(
+      manipView, [4], ['\\Flagged'], null);
+    // delete 2 from the first interval (of 7), 1 from the second (of 7)
+    testAccount.deleteMessagesOnServerButNotLocally(
+      manipView, [1, 2, 8]);
   });
+  testAccount.do_closeFolderView(manipView);
   // add messages (4, 3) to (5-2=3, 5-1=4) so our fetches become: 7, 7
   // (and we are no longer covering all known messages)
   testAccount.do_addMessagesToFolder(
@@ -196,28 +187,21 @@ TD.commonCase('folder sync', function(T) {
    */
   T.group('sync refresh detects mutations and updates in-place');
   var expectedRefreshChanges = {
-    changes: [],
-    deletions: [],
+    changes: null,
+    deletions: null,
   };
-  testAccount.do_manipulateFolderView(
-    msearchView, 'nolocal',
-    function(slice) {
-      expectedRefreshChanges.deletions.push(slice.items[8]);
-      MailAPI.modifyMessageTags([slice.items[8]],
-                                ['\\Deleted'], null, 'delete');
-      expectedRefreshChanges.deletions.push(slice.items[0]);
-      MailAPI.modifyMessageTags([slice.items[0]],
-                                ['\\Deleted'], null, 'delete');
-
-      expectedRefreshChanges.changes.push([slice.items[9], 'isRead', true]);
-      slice.items[9].setRead(true);
-
-      expectedRefreshChanges.changes.push([slice.items[10], 'isStarred', true]);
-      slice.items[10].setStarred(true);
-
-      msearchFolder.beAwareOfDeletion(8);
-      msearchFolder.beAwareOfDeletion(0);
-    });
+  T.action('mutate', msearchFolder, function() {
+    expectedRefreshChanges.deletions =
+      testAccount.deleteMessagesOnServerButNotLocally(msearchView, [0, 8]);
+    var read = testAccount.modifyMessageFlagsOnServerButNotLocally(
+                 msearchView, [9], ['\\Seen'], null)[0];
+    var starred = testAccount.modifyMessageFlagsOnServerButNotLocally(
+                    msearchView, [10], ['\\Flagged'], null)[0];
+    expectedRefreshChanges.changes = [
+      [read, 'isRead', true],
+      [starred, 'isStarred', true],
+    ];
+  });
   testAccount.do_refreshFolderView(
     msearchView,
     // Our expectations happen in a single go here because the refresh covers
