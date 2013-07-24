@@ -596,8 +596,10 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       });
 
       // we may not have any requests bail early if so.
-      if (!requests.length)
-        callback(); // no requests === success
+      if (!requests.length) {
+        callback(null, bodyInfo); // no requests === success
+        return;
+      }
 
       var fetch = new $imapbodyfetcher.BodyFetcher(
         self._conn,

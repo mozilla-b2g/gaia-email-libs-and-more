@@ -147,6 +147,12 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
 
       header.onchange = function() {
         header.getBody({ withBodyReps: true }, function(body) {
+          if (!body) {
+            // ???!
+            eLazy.namedValue('missing body for header', header.id);
+            return;
+          }
+
           var contents = body.bodyReps.map(function(item) {
             return ((Array.isArray(item.content)) ?
               item.content[1] : item.content).trim();
@@ -157,6 +163,8 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
             contents: contents,
             isDownloaded: body.bodyReps[0].isDownloaded
           });
+
+          body.die();
         });
 
         eLazy.namedValue('snippet', {
