@@ -464,6 +464,9 @@ var TEST_COMMAND = null;
 // Trigger just one variant of tests to run.
 var TEST_VARIANT = null;
 
+// Enable/disable the log
+window.TEST_LOG_ENABLE = false;
+
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
@@ -487,6 +490,14 @@ function populateTestParams() {
     TEST_VARIANT = args.handleFlagWithParam('test-variant', false);
   if (TEST_VARIANT === 'all')
     TEST_VARIANT = null;
+
+  // log-enable is optional
+  if (args.findFlag('test-log-enable', false) !== -1)
+    window.TEST_LOG_ENABLE = args.handleFlagWithParam('test-log-enable', false);
+  if (window.TEST_LOG_ENABLE === 'true')
+    window.TEST_LOG_ENABLE = true;
+  else
+    window.TEST_LOG_ENABLE = false;
 
   // test-command is optional
   if (args.findFlag('test-command', false) !== -1)
@@ -816,6 +827,20 @@ function printTestSummary(summary) {
   });
 }
 
+function getTestResult(summaries) {
+  var result = 'success';
+
+  summaries.forEach(function(summary) {
+    summary.tests.forEach(function(test) {
+      if (test.result !== 'pass') {
+        result = 'failure';
+      }
+    });
+  });
+
+  return result;
+}
+
 // Progress listeners are held weakref'ed, so we need to maintain a strong
 // reference here or it can go away prematurely!
 var gProgress = null;
@@ -877,6 +902,12 @@ function _runTestFile(testFileName, variant, controlServer) {
   }
 
   testParams.variant = variant;
+
+  if (window.TEST_LOG_ENABLE) {
+    testParams.testLogEnable = true;
+  } else {
+    testParams.testLogEnable = false;
+  } 
 
   var passToRunner = {
     testName: testFileName,
@@ -1172,6 +1203,11 @@ function DOMLoaded() {
           printTestSummary(summary);
         });
         dump('\n************************\n\n');
+
+        var testResult = getTestResult(summaries);
+        var jsonString = JSON.stringify({ result: testResult });
+        writeTestLog('test', 'result', jsonString);
+
         quitApp();
       });
     }
