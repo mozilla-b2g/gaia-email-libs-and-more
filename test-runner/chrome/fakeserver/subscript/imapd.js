@@ -1725,7 +1725,7 @@ IMAP_RFC3501_handler.prototype = {
   },
   _FETCH_INTERNALDATE : function (message) {
     var response = "INTERNALDATE \"";
-    response += message.date.toLocaleFormat("%d-%b-%Y %H:%M:%S %z");
+    response += formatImapDateTime(message.date);
     response += "\"";
     return response;
   },
