@@ -6,7 +6,12 @@
   // so we can detect if we are in a test...
   window.IS_GELAM_TEST = true;
 
+  var json = JSON.parse(getUrlParam('testParams'));
+  window.TEST_LOG_ENABLE = json.testLogEnable;
+
   function consoleHelper() {
+    if (!this._enabled)
+      return;
     var msg = arguments[0] + ':';
     for (var i = 1; i < arguments.length; i++) {
       msg += ' ' + arguments[i];
@@ -14,12 +19,29 @@
     msg += '\x1b[0m\n';
     dump(msg);
   }
+
+  function getUrlParam (key) {
+    var url = decodeURIComponent(location.href);
+    var params = url.substr(url.indexOf("?") + 1);
+    var value = '';
+    var param = [];
+    params = params.split('&');
+    for (var i = 0; i < params.length; i++) {
+      param = params[i].split('=');
+      if (param[0] === key)
+        value = param[1];
+    }
+    return value;
+  }
+
   window.console = {
+    _enabled: window.TEST_LOG_ENABLE,
     log: consoleHelper.bind(null, '\x1b[32mLOG'),
     error: consoleHelper.bind(null, '\x1b[31mERR'),
     info: consoleHelper.bind(null, '\x1b[36mINF'),
     warn: consoleHelper.bind(null, '\x1b[33mWAR')
   };
+
   window.onerror = function errHandler(msg, url, line) {
     console.error('onerror reporting:', msg, '@', url, ':', line);
     return false;

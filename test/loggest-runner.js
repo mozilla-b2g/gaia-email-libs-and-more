@@ -71,6 +71,15 @@ var loggestRouterModule = {
   name: 'loggest-runner',
   sendMessage: null,
   process: function(uid, cmd, args) {
+    testParams.testLogEnable = window.TEST_LOG_ENABLE | false;
+
+    this.sendMessage(
+      null, null,
+      {
+        testModuleName: testModuleName,
+        testParams: testParams,
+      });
+
     if (cmd === 'ready') {
       console.log('Got ready message, sending test information back.');
       this.sendMessage(
