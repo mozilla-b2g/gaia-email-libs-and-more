@@ -1352,13 +1352,21 @@ IMAP_RFC3501_handler.prototype = {
             return msg.date.valueOf() >= date;
           });
           break;
+        // - UIDs
+        case 'UID':
+          messages = this._parseSequenceSet(args[iArg++], uid);
+          break;
+
         default:
           return "BAD not here yet: " + args[iArg-1];
       }
     }
     let response = "* SEARCH";
     for (let i = 0; i < messages.length; i++) {
-      response += " " + messages[i].uid;
+      if (uid)
+        response += " " + messages[i].uid;
+      else
+        response += " " + (i + 1); // sequence numbers are 1-based
     }
     response += '\0';
     return response + "OK SEARCH COMPLETED";
@@ -1529,6 +1537,14 @@ IMAP_RFC3501_handler.prototype = {
     FAST: ["FLAGS", "INTERNALDATE", "RFC822.SIZE"],
     FULL: ["FLAGS", "INTERNALDATE", "RFC822.SIZE", /*"ENVELOPE", "BODY"*/]
   },
+  /**
+   * Parses an IMAP UID/sequence string, `set`.  `uid` controls whether we are
+   * using UIDs (true), or sequence numbers (false).  If `ids` is provided, it
+   * should be a list and the UIDs/sequence numbers that get parsed out will be
+   * pushed into it.
+   *
+   * A special mode of operation is supported where `set` can be a Number.
+   */
   _parseSequenceSet : function (set, uid, ids /*optional*/) {
     if (typeof set == "number") {
       if (uid) {
