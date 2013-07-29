@@ -83,6 +83,25 @@ var TestFakeIMAPServerMixins = {
         // now we only want to talk to our specific server control endpoint
         self.backdoorUrl = serverInfo.controlUrl;
         self.RT.fileBlackboard.fakeIMAPServers[normName] = serverInfo;
+
+        // XXX because of how our timezone detection logic works, we really need
+        // a message in the Inbox...
+        var fakeMsgDate = new Date();
+        self.addMessagesToFolder('INBOX', [{
+          date: fakeMsgDate,
+          metaState: {},
+          toMessageString: function() {
+            return [
+              'Date: ' + fakeMsgDate,
+              'From: superfake@example.nul',
+              'Subject: blaaaah',
+              'Message-ID: <blaaaaaaaaaah@example.nul>',
+              'Content-Type: text/plain',
+              '',
+              'Hello, shoe.'
+              ].join('\r\n');
+          },
+        }]);
       }
       else {
         serverInfo = self.RT.fileBlackboard.fakeIMAPServers[normName];
