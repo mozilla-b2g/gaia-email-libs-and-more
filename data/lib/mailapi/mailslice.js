@@ -1041,6 +1041,12 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * Active view slices on this folder.
    */
   this._slices = [];
+
+  /**
+   * Search slices on this folder.
+   */
+  this._searchSlices = [];
+
   /**
    * The slice that is driving our current synchronization and wants to hear
    * about all header modifications/notes as they occur.  This will be null
@@ -2196,6 +2202,10 @@ FolderStorage.prototype = {
       processBlock.call(this, blockMap[info.blockId]);
     else
       this._loadBlock(type, info, processBlock.bind(this));
+  },
+
+  sliceOpenSearch: function fs_sliceOpenSearch(slice) {
+    this._searchSlices.push(slice);
   },
 
   /**
@@ -3894,6 +3904,9 @@ FolderStorage.prototype = {
         slice.onHeaderRemoved(header);
       }
     }
+    this._searchSlices.forEach(function(searchslice) {
+      searchslice.onHeaderRemoved(header);
+    });
 
     if (this._serverIdHeaderBlockMapping && header.srvid)
       delete this._serverIdHeaderBlockMapping[header.srvid];
@@ -4191,6 +4204,10 @@ FolderStorage.prototype = {
     for (var i = this._slices.length - 1; i >= 0; i--) {
       this._slices[i].die();
     }
+    this._searchSlices.forEach(function(searchslice) {
+      searchslice.die();
+    });
+    this._searchSlices = [];
     this.folderSyncer.shutdown();
     this._LOG.__die();
   },
