@@ -416,6 +416,14 @@ ProgressListener.prototype = {
 // line arguments too.
 //
 // --test-name is a required argument currently.
+
+
+function parseBoolean(s) {
+  if (!s)
+    return false;
+  return s.toLowerCase() === 'true';
+}
+
 const ENVIRON_MAPPINGS = [
   // ex: '*@fakehost' for fake-server, 'testy@localhost' for local real
   // IMAP server, '*@aslocalhost' for an activesync localhost account which
@@ -449,7 +457,9 @@ var TEST_PARAMS = {
   slow: false,
   type: null,
 
-  defaultArgs: true
+  defaultArgs: true,
+
+  testLogEnable: false,
 };
 
 var TEST_NAME = null;
@@ -464,49 +474,48 @@ var TEST_COMMAND = null;
 // Trigger just one variant of tests to run.
 var TEST_VARIANT = null;
 
-// Enable/disable the log
-window.TEST_LOG_ENABLE = false;
-
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
 function populateTestParams() {
   let args = window.arguments[0].QueryInterface(Ci.nsICommandLine);
 
+  // the second argument to handleFlagWithParam is case sensitivity.
+  var caseInsensitive = false;
+
   // test-name is optional
   if (args.findFlag('test-name', false) !== -1)
-    TEST_NAME = args.handleFlagWithParam('test-name', false)
+    TEST_NAME = args.handleFlagWithParam('test-name', caseInsensitive)
                   .replace(/\.js$/, '');
   else
     TEST_NAME = null;
   // but the configuration is not
-  TEST_CONFIG = args.handleFlagWithParam('test-config', false);
+  TEST_CONFIG = args.handleFlagWithParam('test-config', caseInsensitive);
   // make absolute if it's not already absolute
   if (TEST_CONFIG[0] !== '/')
     TEST_CONFIG = do_get_file(TEST_CONFIG).path;
 
   // variant is optional
   if (args.findFlag('test-variant', false) !== -1)
-    TEST_VARIANT = args.handleFlagWithParam('test-variant', false);
+    TEST_VARIANT = args.handleFlagWithParam('test-variant', caseInsensitive);
   if (TEST_VARIANT === 'all')
     TEST_VARIANT = null;
 
   // log-enable is optional
   if (args.findFlag('test-log-enable', false) !== -1)
-    window.TEST_LOG_ENABLE = args.handleFlagWithParam('test-log-enable', false);
-  if (window.TEST_LOG_ENABLE === 'true')
-    window.TEST_LOG_ENABLE = true;
-  else
-    window.TEST_LOG_ENABLE = false;
+    TEST_PARAMS.testLogEnable =
+      parseBoolean(args.handleFlagWithParam('test-log-enable',
+                                            caseInsensitive));
 
   // test-command is optional
   if (args.findFlag('test-command', false) !== -1)
-    TEST_COMMAND = args.handleFlagWithParam('test-command', false);
+    TEST_COMMAND = args.handleFlagWithParam('test-command', caseInsensitive);
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
   for each (let [, {name, envVar, coerce}] in Iterator(ENVIRON_MAPPINGS)) {
-    let argval = args.handleFlagWithParam('test-param-' + name, false);
+    let argval = args.handleFlagWithParam('test-param-' + name,
+                                          caseInsensitive);
     if (argval) {
       TEST_PARAMS[name] = coerce(argval);
       console.harness('command line:', name, TEST_PARAMS[name]);
@@ -522,6 +531,7 @@ function populateTestParams() {
   }
 }
 populateTestParams();
+window.console._enabled = TEST_PARAMS.testLogEnable;
 
 ////////////////////////////////////////////////////////////////////////////////
 // make device storage operate out of our test-profile dir!
@@ -902,12 +912,7 @@ function _runTestFile(testFileName, variant, controlServer) {
   }
 
   testParams.variant = variant;
-
-  if (window.TEST_LOG_ENABLE) {
-    testParams.testLogEnable = true;
-  } else {
-    testParams.testLogEnable = false;
-  } 
+  testParams.testLogEnable = TEST_PARAMS.testLogEnable;
 
   var passToRunner = {
     testName: testFileName,
@@ -1062,6 +1067,20 @@ function writeTestLog(testFileName, variant, jsonStr) {
   }
 }
 
+function writeFile(dirPath, filename, str) {
+  try {
+    var encoder = new TextEncoder('utf-8');
+    var logPath = do_get_file(dirPath).path +
+                  '/' + filename;
+    var arr = encoder.encode(str);
+    return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
+  }
+  catch (ex) {
+    console.error('Error trying to write file to disk!', ex, '\n', ex.stack);
+    return null;
+  }
+}
+
 
 /**
  * Run one or more tests.
@@ -1206,9 +1225,10 @@ function DOMLoaded() {
 
         var testResult = getTestResult(summaries);
         var jsonString = JSON.stringify({ result: testResult });
-        writeTestLog('test', 'result', jsonString);
 
-        quitApp();
+        writeFile('test-logs', 'test-run.summary', jsonString).then(function() {
+          quitApp();
+        });
       });
     }
     catch (ex) {

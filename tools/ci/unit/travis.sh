@@ -25,7 +25,7 @@ ln -s ./b2g b2g-bindir-symlink
 section_echo 'make all-tests'
 make all-tests
 
-TEST_RESULT=`cat ./test-logs/test-result.log`
+TEST_RESULT=`cat ./test-logs/test-run.summary`
 
 if [ `echo $TEST_RESULT | grep -c "success" ` -gt 0 ]
 then

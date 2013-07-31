@@ -17,22 +17,7 @@ define(
     require
   ) {
 
-function consoleHelper() {
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
-}
-var pconsole = {
-  log: consoleHelper.bind(null, '\x1b[32mWLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mWERR'),
-  info: consoleHelper.bind(null, '\x1b[36mWINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWWAR')
-};
-
-var SUPER_DEBUG = consoleHelper.bind(null, '\x1b[35mWTEST');
+var SUPER_DEBUG = makeConsoleFunc('\x1b[35mWTEST').bind(window.console);
 
 var ErrorTrapper = {
   _trappedErrors: null,
@@ -96,6 +81,7 @@ requirejs.onError = ErrorTrapper.yoAnError.bind(ErrorTrapper);
 
 var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
   var cmd = msg.cmd, args = msg.args, superDebug = null;
+  console._enabled = args.testParams.testLogEnable;
   console.log('GOT', JSON.stringify(args));
   if (cmd === 'run') {
     console.log('requiring module:', args.testModuleName);

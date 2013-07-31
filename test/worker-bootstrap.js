@@ -14,24 +14,26 @@ var testLogEnable = false;
 
 importScripts('../deps/alameda.js');
 
-function consoleHelper() {
-  if (!this._enabled)
-    return;
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
+function makeConsoleFunc(prefix) {
+  return function() {
+    if (!this._enabled)
+      return;
+    var msg = prefix + ':';
+    for (var i = 0; i < arguments.length; i++) {
+      msg += ' ' + arguments[i];
+    }
+    msg += '\x1b[0m\n';
+    dump(msg);
+  };
 }
 
 window.console = {
-  _enabled: testLogEnable,
-  log: consoleHelper.bind(null, '\x1b[32mWLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mWERR'),
-  info: consoleHelper.bind(null, '\x1b[36mWINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWWAR')
-};  
+  _enabled: false,
+  log: makeConsoleFunc('\x1b[32mWLOG'),
+  error: makeConsoleFunc('\x1b[31mWERR'),
+  info: makeConsoleFunc('\x1b[36mWINF'),
+  warn: makeConsoleFunc('\x1b[33mWWAR'),
+};
 
 window.navigator.mozContacts = {
   find: function(opts) {
@@ -43,10 +45,6 @@ window.navigator.mozContacts = {
     return req;
   },
 };
-
-window.addEventListener('message', function(e) {
-  testLogEnable = e.data.args.testParams.testLogEnable;
-}, false);
 
 var document = { cookie: null };
 

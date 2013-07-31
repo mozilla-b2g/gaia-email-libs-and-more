@@ -13,6 +13,9 @@
  * @author Ben Bucksch <ben.bucksch beonex.com>
  */
 
+function authDebug() {
+}
+
 /**
  * Implements AUTH PLAIN
  * @see RFC 4616
@@ -26,7 +29,7 @@ var AuthPLAIN = {
    * @throws {String}   error to return to client
    */
   decodeLine: function(line) {
-    dump("AUTH PLAIN line -" + line + "-\n");
+    authDebug("AUTH PLAIN line -" + line + "-\n");
     line = atob(line); // base64 decode
     aap = line.split("\u0000"); // 0-charater is delimiter
     if (aap.length != 3)
@@ -38,7 +41,7 @@ var AuthPLAIN = {
     var authzid = aap[0];
     result.username = aap[1];
     result.password = aap[2];
-    dump("authorize-id: -" + authzid + "-, username: -" + result.username + "-, password: -" + result.password + "-\n");
+    authDebug("authorize-id: -" + authzid + "-, username: -" + result.username + "-, password: -" + result.password + "-\n");
     if (authzid && authzid != result.username)
       throw "Expecting a authorize-id that's either the same as authenticate-id or empty";
     return result;
@@ -65,7 +68,7 @@ var AuthLOGIN = {
    * @throws {String}   error to return to client
    */
   decodeLine: function (line) {
-    dump("AUTH LOGIN -" + atob(line) + "-\n");
+    authDebug("AUTH LOGIN -" + atob(line) + "-\n");
     return atob(line); // base64 decode
   },
 };
@@ -92,7 +95,7 @@ var AuthCRAM = {
   {
     var timestamp = new Date().getTime(); // unixtime
     var challenge = "<" + timestamp + "@" + domain + ">";
-    dump("CRAM challenge unencoded: " + challenge + "\n");
+    authDebug("CRAM challenge unencoded: " + challenge + "\n");
     return btoa(challenge);
   },
   /**
@@ -108,9 +111,9 @@ var AuthCRAM = {
    */
   decodeLine : function(line)
   {
-    dump("AUTH CRAM-MD5 line -" + line + "-\n");
+    authDebug("AUTH CRAM-MD5 line -" + line + "-\n");
     line = atob(line);
-    dump("base64 decoded -" + line + "-\n");
+    authDebug("base64 decoded -" + line + "-\n");
     sp = line.split(" ");
     if (sp.length != 2)
       throw "Expected one space";
@@ -127,7 +130,7 @@ var AuthCRAM = {
   encodeCRAMMD5 : function(text, key)
   {
     text = atob(text); // createChallenge() returns it already encoded
-    dump("encodeCRAMMD5(text: -" + text + "-, key: -" + key + "-)\n");
+    authDebug("encodeCRAMMD5(text: -" + text + "-, key: -" + key + "-)\n");
     const kInputLen = 64;
     //const kHashLen = 16;
     const kInnerPad = 0x36; // per spec
