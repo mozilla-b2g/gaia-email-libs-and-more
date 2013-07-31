@@ -270,6 +270,15 @@ These just start up the fakeservers, and do not run tests. You do not need to
 use these commands before running the automated tests, the test Makefile targets
 will do that automatically.
 
+## Communication ##
+
+The e-mail list to use is the general dev-gaia list, see
+https://lists.mozilla.org/listinfo/dev-gaia
+
+We hang out on irc.mozilla.org in #gelam.  The Travis CI robot should show up
+there and tell you when pull requests have issues, etc. too.  If people are
+not in #gelam, then #gaia is a reasonable choice.
+
 ## Legal Disclaimers, Notes, Etc. ##
 
 We are including ActiveSync support because it's the only sane option for

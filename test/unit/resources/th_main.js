@@ -33,29 +33,33 @@ function checkFlagDefault(flags, flag, def) {
   return flags[flag];
 }
 
-function consoleHelper(logFunc) {
-  var msg = '';
-  for (var i = 2; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  logFunc(msg);
-  dump(arguments[1] + ":" + msg + "\x1b[0m\n");
-
-  // having trouble figuring out where an error is coming from?
-  // uncomment/modify the below:
-  /*
-  if (arguments[1].indexOf('WAR') !== -1) {
-    var e = new Error();
-    dump('@ ' + e.stack + '\n');
-  }
-  */
+function wrapConsole(type, logFunc) {
+  return function() {
+    var msg = '';
+    for (var i = 0; i < arguments.length; i++) {
+      if (msg)
+        msg += ' ';
+      msg += arguments[i];
+    }
+    logFunc(msg);
+    window.originalConsole[type].apply(window.originalConsole, arguments);
+  };
 }
 function makeConsoleForLogger(logger) {
+  if (!window.originalConsole) {
+    window.originalConsole = window.console;
+  }
   window.console = {
-    log:   consoleHelper.bind(null, logger.log.bind(logger), '\x1b[32mLOG'),
-    error: consoleHelper.bind(null, logger.error.bind(logger), '\x1b[31mERR'),
-    info:  consoleHelper.bind(null, logger.info.bind(logger), '\x1b[36mINF'),
-    warn:  consoleHelper.bind(null, logger.warn.bind(logger), '\x1b[33mWAR'),
+    set _enabled(val) {
+      window.originalConsole._enabled = val;
+    },
+    get _enabled() {
+      return window.originalConsole._enabled;
+    },
+    log:   wrapConsole('log', logger.log.bind(logger)),
+    error: wrapConsole('error', logger.error.bind(logger)),
+    info:  wrapConsole('info', logger.info.bind(logger)),
+    warn:  wrapConsole('warn', logger.warn.bind(logger)),
     trace: function() {
       console.error.apply(null, arguments);
       try {

@@ -69,7 +69,6 @@ SMTP_RFC2821_handler.prototype = {
     var func = this._kAuthSchemeStartFunction[scheme];
     if (!func || typeof(func) != "function")
       return "504 I just pretended to implement AUTH " + scheme + ", but I don't";
-    dump("Starting AUTH " + scheme + "\n");
     return func.call(this, args[1]);
   },
   MAIL: function (args) {
