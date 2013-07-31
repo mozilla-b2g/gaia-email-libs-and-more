@@ -21,21 +21,6 @@ define(
     require
   ) {
 
-function consoleHelper() {
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
-}
-var pconsole = {
-  log: consoleHelper.bind(null, '\x1b[32mMLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mMERR'),
-  info: consoleHelper.bind(null, '\x1b[36mMINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mMWAR')
-};
-
 function getEnv(locSource) {
   if (locSource === undefined)
     locSource = window;
@@ -59,13 +44,13 @@ console.warn('locSource.location.search', locSource.location.search);
   return env;
 };
 
-var SUPER_DEBUG = consoleHelper.bind(null, '\x1b[35mTEST');
-
 var env = getEnv();
 
 // does not include a trailing '.js'!
 var testModuleName = 'tests/' + env.testName;
 var testParams = env.testParams ? JSON.parse(env.testParams) : {};
+
+console._enabled = testParams.testLogEnable;
 
 var loggestRouterModule = {
   name: 'loggest-runner',

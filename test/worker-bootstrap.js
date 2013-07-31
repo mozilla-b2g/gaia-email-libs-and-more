@@ -10,23 +10,31 @@
  * - we load the unit-test driver
  **/
 var window = self;
+var testLogEnable = false;
 
 importScripts('../deps/alameda.js');
 
-function consoleHelper() {
-  var msg = arguments[0] + ':';
-  for (var i = 1; i < arguments.length; i++) {
-    msg += ' ' + arguments[i];
-  }
-  msg += '\x1b[0m\n';
-  dump(msg);
+function makeConsoleFunc(prefix) {
+  return function() {
+    if (!this._enabled)
+      return;
+    var msg = prefix + ':';
+    for (var i = 0; i < arguments.length; i++) {
+      msg += ' ' + arguments[i];
+    }
+    msg += '\x1b[0m\n';
+    dump(msg);
+  };
 }
+
 window.console = {
-  log: consoleHelper.bind(null, '\x1b[32mWLOG'),
-  error: consoleHelper.bind(null, '\x1b[31mWERR'),
-  info: consoleHelper.bind(null, '\x1b[36mWINF'),
-  warn: consoleHelper.bind(null, '\x1b[33mWWAR')
+  _enabled: false,
+  log: makeConsoleFunc('\x1b[32mWLOG'),
+  error: makeConsoleFunc('\x1b[31mWERR'),
+  info: makeConsoleFunc('\x1b[36mWINF'),
+  warn: makeConsoleFunc('\x1b[33mWWAR'),
 };
+
 window.navigator.mozContacts = {
   find: function(opts) {
     var req = { onsuccess: null, onerror: null, result: null };
@@ -37,7 +45,6 @@ window.navigator.mozContacts = {
     return req;
   },
 };
-
 
 var document = { cookie: null };
 
