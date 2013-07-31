@@ -798,12 +798,29 @@ function summaryFromLoggest(testFileName, variant, logData) {
     for (var iKid = 0; iKid < definerLog.kids.length; iKid++) {
       var testCaseLog = definerLog.kids[iKid];
       var testPermLog = testCaseLog.kids[0];
+
+      var result = testCaseLog.latched.result;
+
+      // try and generate a concise summary of what failed.  In this case, we
+      // pick the step that failed to report.
+      var firstFailedStep = null;
+      if (result === 'fail' && testPermLog.kids) {
+        for (var iStep = 0; iStep < testPermLog.kids.length; iStep++) {
+          var step = testPermLog.kids[iStep];
+          if (step.latched && step.latched.result === 'fail') {
+            firstFailedStep = '' + step.semanticIdent;
+            break;
+          }
+        }
+      }
+
       summary.tests.push({
         name: '' + testCaseLog.semanticIdent,
-        result: testCaseLog.latched.result,
+        result: result,
         // although the latched variant should match up with the passed-in
         // variant, let's avoid non-obvious clobbering and just propagate
-        variant: testPermLog.latched.variant
+        variant: testPermLog.latched.variant,
+        firstFailedStep: firstFailedStep
       });
     }
   }
@@ -834,6 +851,11 @@ function printTestSummary(summary) {
     }
     str += '\x1b[0m ' + test.name + ' (' + test.variant + ')\n';
     dump(str);
+
+    // (brief) failure details:
+    if (test.result === 'fail') {
+      dump('             failing step: ' + test.firstFailedStep + '\n');
+    }
   });
 }
 
