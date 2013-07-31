@@ -95,10 +95,15 @@ requirejs.onError = ErrorTrapper.yoAnError.bind(ErrorTrapper);
 
 
 var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
-  var cmd = msg.cmd, args = msg.args;
+  var cmd = msg.cmd, args = msg.args, superDebug = null;
   console.log('GOT', JSON.stringify(args));
   if (cmd === 'run') {
     console.log('requiring module:', args.testModuleName);
+
+    if (args.testParams.testLogEnable) {
+      superDebug = SUPER_DEBUG;
+    }
+
     $td.runTestsFromModule(
       args.testModuleName,
       {
@@ -108,7 +113,7 @@ var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
         }
       },
       ErrorTrapper,
-      SUPER_DEBUG);
+      superDebug);
   }
   else if (cmd === 'error') {
     ErrorTrapper.yoAnError(args);

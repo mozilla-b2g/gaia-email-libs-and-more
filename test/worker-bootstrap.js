@@ -10,10 +10,13 @@
  * - we load the unit-test driver
  **/
 var window = self;
+var testLogEnable = false;
 
 importScripts('../deps/alameda.js');
 
 function consoleHelper() {
+  if (!this._enabled)
+    return;
   var msg = arguments[0] + ':';
   for (var i = 1; i < arguments.length; i++) {
     msg += ' ' + arguments[i];
@@ -21,12 +24,15 @@ function consoleHelper() {
   msg += '\x1b[0m\n';
   dump(msg);
 }
+
 window.console = {
+  _enabled: testLogEnable,
   log: consoleHelper.bind(null, '\x1b[32mWLOG'),
   error: consoleHelper.bind(null, '\x1b[31mWERR'),
   info: consoleHelper.bind(null, '\x1b[36mWINF'),
   warn: consoleHelper.bind(null, '\x1b[33mWWAR')
-};
+};  
+
 window.navigator.mozContacts = {
   find: function(opts) {
     var req = { onsuccess: null, onerror: null, result: null };
@@ -38,6 +44,9 @@ window.navigator.mozContacts = {
   },
 };
 
+window.addEventListener('message', function(e) {
+  testLogEnable = e.data.args.testParams.testLogEnable;
+}, false);
 
 var document = { cookie: null };
 
