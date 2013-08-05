@@ -1060,13 +1060,6 @@ FolderStorage.prototype = {
   },
 
   /**
-   * Function that we call with header whenever addMessageHeader gets called.
-   * @type {Function}
-   * @private
-   */
-  _onAddingHeader: null,
-
-  /**
    * Reset all active slices.
    */
   resetAndRefreshActiveSlices: function() {
@@ -2678,10 +2671,12 @@ FolderStorage.prototype = {
        * 2. and this hasn't already been seen.
        * @param {HeaderInfo} header The header being added.
        */
-      this._onAddingHeader = function(header) {
+      slice._onAddingHeader = function(header, currentSlice) {
         if (SINCE(header.date, prevTS) &&
             (!header.flags || header.flags.indexOf('\\Seen') === -1)) {
           newEmailCount += 1;
+          if (slice.onNewHeader)
+            slice.onNewHeader(header);
         }
       }.bind(this);
 
@@ -2715,7 +2710,7 @@ FolderStorage.prototype = {
 
     var doneCallback = function refreshDoneCallback(err, bisectInfo,
                                                     numMessages) {
-      this._onAddingHeader = null;
+      slice._onAddingHeader = null;
 
       var reportSyncStatusAs = 'synced';
       switch (err) {
@@ -3691,9 +3686,9 @@ FolderStorage.prototype = {
           slice.desiredHeaders++;
         }
 
-        if (this._onAddingHeader !== null) {
-          this._onAddingHeader(header);
-        }
+        if (slice._onAddingHeader)
+          slice._onAddingHeader(header);
+
         slice.onHeaderAdded(header, false, true);
       }
     }

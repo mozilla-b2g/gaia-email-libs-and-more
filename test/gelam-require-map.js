@@ -15,6 +15,7 @@ require({
     // - map similar to the one in copy-to-gaia.js
 
     // NOP's
+    "evt": "data/lib/evt",
     "http": "data/lib/nop",
     "https": "data/lib/nop2",
     "url": "data/lib/nop3",
@@ -63,6 +64,7 @@ require({
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
+  definePrim: 'prim'
 });
 require(['loggest-runner.js'], function() {});
 

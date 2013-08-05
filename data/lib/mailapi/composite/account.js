@@ -93,6 +93,8 @@ CompositeAccount.prototype = {
       problems: this.problems,
 
       syncRange: this.accountDef.syncRange,
+      syncInterval: this.accountDef.syncInterval,
+      notifyOnNew: this.accountDef.notifyOnNew,
 
       identities: this.identities,
 
@@ -133,6 +135,18 @@ CompositeAccount.prototype = {
 
   saveAccountState: function(reuseTrans, callback, reason) {
     return this._receivePiece.saveAccountState(reuseTrans, callback, reason);
+  },
+
+  get _saveAccountIsImminent() {
+    return this.__saveAccountIsImminent;
+  },
+  set _saveAccountIsImminent(val) {
+    this.___saveAccountIsImminent =
+    this._receivePiece._saveAccountIsImminent = val;
+  },
+
+  runAfterSaves: function(callback) {
+    return this._receivePiece.runAfterSaves(callback);
   },
 
   /**

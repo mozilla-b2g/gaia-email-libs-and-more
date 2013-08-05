@@ -1,3 +1,4 @@
+/*global define, console, setTimeout */
 /**
  * Drives periodic synchronization, covering the scheduling, deciding what
  * folders to sync, and generating notifications to relay to the UI.  More
@@ -15,23 +16,27 @@
  * All synchronization occurs in parallel because we want the interval that we
  * force the device's radio into higher power modes to be as short as possible.
  *
- * IMPORTANT ARCHITECTURAL NOTE:  This logic is part of the back-end, not the
- * front-end.  We want to serve up the notifications, but we want the front-end
- * to be the one that services them when the user clicks on them.
+ * This logic is part of the back-end, not the front-end.  We want to notify
+ * the front-end of new messages, but we want the front-end to be the one that
+ * displays and services them to the user.
  **/
 
 define(
   [
     'rdcommon/log',
-    './allback',
     './worker-router',
+    './slice_bridge_proxy',
+    './mailslice',
+    'prim',
     'module',
     'exports'
   ],
   function(
     $log,
-    $allback,
     $router,
+    $sliceBridgeProxy,
+    $mailslice,
+    $prim,
     $module,
     exports
   ) {
@@ -55,198 +60,126 @@ var MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
 var MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
 
 /**
- * Implements the interface of `MailSlice` as presented to `FolderStorage`, but
- * it is only interested in accumulating a list of new messages that have not
- * already been read.
- *
- * FUTURE WORK: Listen for changes that make a message that was previously
- * believed to be new no longer new, such as having been marked read by
- * another client.  We don't care about that right now because we lack the
- * ability to revoke notifications via the mozNotifications API.
+ * How much body snippet to save. Chose a value to match the front end
  */
-function CronSlice(storage, desiredNew, callback) {
-  this._storage = storage;
-  this._callback = callback;
-
-  this.startTS = null;
-  this.startUID = null;
-  this.endTS = null;
-  this.endUID = null;
-  this.waitingOnData = false;
-  this._accumulating = false;
-
-  // Maintain the list of all headers for the IMAP sync logic's benefit for now.
-  // However, we don't bother sorting it; we just care about the length.
-  this.headers = [];
-  this._desiredNew = desiredNew;
-  this._newHeaders = [];
-  // XXX for now, assume that the 10 most recent headers will cover us.  Being
-  // less than (or the same as) the initial fill sync of 15 is advantageous in
-  // that it avoids us triggering a deepening sync on IMAP.
-  this.desiredHeaders = 10;
-  this.ignoreHeaders = false;
-}
-CronSlice.prototype = {
-  set ignoreHeaders(ignored) {
-    // ActiveSync likes to turn on ignoreHeaders mode because it only cares
-    // about the newest messages and it may be told about messages in a stupid
-    // order.  But old 'new' messages are still 'new' to us and we have punted
-    // on analysis, so we are fine with the potential lossage.  Also, the
-    // batch information loses the newness bit we care about...
-    //
-    // And that's why we ignore the manipulation and always return false in
-    // the getter.
-  },
-  get ignoreHeaders() {
-    return false;
-  },
-
-  // (copied verbatim for consistency)
-  sendEmptyCompletion: function() {
-    this.setStatus('synced', true, false);
-  },
-
-  setStatus: function(status, requested, moreExpected, flushAccumulated) {
-    if (requested && !moreExpected && this._callback) {
-console.log('sync done!');
-      this._callback(this._newHeaders);
-      this._callback = null;
-      this.die();
-    }
-  },
-
-  batchAppendHeaders: function(headers, insertAt, moreComing) {
-    this.headers = this.headers.concat(headers);
-    // Do nothing, batch-appended headers are always coming from the database
-    // and so are not 'new' from our perspective.
-  },
-
-  onHeaderAdded: function(header, syncDriven, messageIsNew) {
-    this.headers.push(header);
-    // we don't care if it's not new or was read (on another client)
-    if (!messageIsNew || header.flags.indexOf('\\Seen') !== -1)
-      return;
-
-    // We don't care if we already know about enough new messages.
-    // (We could also try and decide which messages are most important, but
-    // since this behaviour is not really based on any UX-provided guidance, it
-    // would be silly to do that without said guidance.)
-    if (this._newHeaders.length >= this._desiredNew)
-      return;
-    this._newHeaders.push(header);
-  },
-
-  onHeaderModified: function(header) {
-    // Do nothing, modified headers are obviously already known to us.
-  },
-
-  onHeaderRemoved: function(header) {
-    this.headers.pop();
-    // Do nothing, this would be silly.
-  },
-
-  die: function() {
-    this._storage.dyingSlice(this);
-  },
-};
-
-function generateNotificationForMessage(header, onClick, onClose) {
-console.log('generating notification for:', header.suid, header.subject);
-  var notif = header.suid;
-
-  sendMessage(
-    'showNotification',
-    [header.author.name || header.author.address, header.subject],
-    function(click) {
-      click ? onClick(header, notif) : onClose(header, notif);
-    });
-  return notif;
-}
-
+var MAX_SNIPPET_BYTES = 4 * 1024;
 
 function debug(str) {
-  dump("CronSyncer: " + str + "\n");
+  console.log("cronsync: " + str + "\n");
 }
 
-var sendMessage = $router.registerCallbackType('cronsyncer');
+var SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
+
+function makeSlice(storage, callback, parentLog) {
+  var proxy = new SliceBridgeProxy({
+        __sendMessage: function() {}
+      }, 'cron'),
+      slice = new $mailslice.MailSlice(proxy, storage, parentLog),
+      oldStatus = proxy.sendStatus,
+      newHeaders = [];
+
+  slice.onNewHeader = function(header) {
+    console.log('onNewHeader: ' + header);
+    newHeaders.push(header);
+  };
+
+  proxy.sendStatus = function(status, requested, moreExpected,
+                              progress, newEmailCount) {
+    oldStatus.apply(this, arguments);
+    if (requested && !moreExpected && callback) {
+      callback(newHeaders);
+      slice.die();
+    }
+  };
+
+  return slice;
+}
 
 /**
- * Creates the synchronizer.  It is does not do anything until the first call
- * to setSyncInterval.
+ * Creates the cronsync instance. Does not do any actions on creation.
+ * It waits for a router message or a universe call to start the work.
  */
-function CronSyncer(universe, _logParent) {
+function CronSync(universe, _logParent) {
   this._universe = universe;
-  this._syncIntervalMS = 0;
+  this._universeDeferred = $prim();
+  this._isUniverseReady = false;
 
-  this._LOG = LOGFAB.CronSyncer(this, null, _logParent);
-
-  /**
-   * @dictof[
-   *   @key[accountId String]
-   *   @value[@dict[
-   *     @key[clickHandler Function]
-   *     @key[closeHandler Function]
-   *     @key[notes Array]
-   *   ]]
-   * ]{
-   *   Terminology-wise, 'notes' is less awkward than 'notifs'...
-   * }
-   */
-  this._outstandingNotesPerAccount = {};
-
-  this._initialized = false;
+  this._LOG = LOGFAB.CronSync(this, null, _logParent);
 
   this._activeSlices = [];
-}
-exports.CronSyncer = CronSyncer;
-CronSyncer.prototype = {
-  /**
-   * Remove any/all scheduled alarms.
-   */
-  _clearAlarms: function() {
-    sendMessage('clearAlarms');
-  },
 
-  _scheduleNextSync: function() {
-    if (!this._syncIntervalMS)
-      return;
-    //debug("scheduling sync for " + (this._syncIntervalMS / 1000) +
-    //      " seconds in the future.");
+  this._completedEnsureSync = true;
+  this._syncAccountsDone = true;
 
-    sendMessage('addAlarm', [new Date(Date.now() + this._syncIntervalMS)]);
-  },
+  this._synced = [];
 
-  setSyncIntervalMS: function(syncIntervalMS) {
-    console.log('setSyncIntervalMS:', syncIntervalMS);
-    var pendingAlarm = false;
-    if (!this._initialized) {
-      this._initialized = true;
-      pendingAlarm = navigator.hasPendingAlarm;
-
-      window.addEventListener('message', (function(evt) {
-        switch(evt.data.type) {
-          case 'alarm':
-            dump("CronSyncer - receive an alarm via a message handler\n");
-            this.onAlarm(evt.data.args);
-            break;
-        }
-      }).bind(this));
+  this.sendCronSync = $router.registerSimple('cronsync', function(data) {
+    var args = data.args;
+    switch (data.cmd) {
+      case 'alarm':
+        debug('received an alarm via a message handler');
+        this.onAlarm.apply(this, args);
+        break;
+      case 'syncEnsured':
+        debug('received an syncEnsured via a message handler');
+        this.onSyncEnsured.apply(this, args);
+        break;
     }
+  }.bind(this));
+  this.sendCronSync('hello');
+}
 
-    // leave zero intact, otherwise round up to the minimum.
-    if (syncIntervalMS && syncIntervalMS < MINIMUM_SYNC_INTERVAL_MS)
-      syncIntervalMS = MINIMUM_SYNC_INTERVAL_MS;
+exports.CronSync = CronSync;
+CronSync.prototype = {
+  _killSlices: function() {
+    this._activeSlices.forEach(function(slice) {
+      slice.die();
+    });
+  },
 
-    this._syncIntervalMS = syncIntervalMS;
+  onUniverseReady: function() {
+    this._universeDeferred.resolve();
 
-    // If we have a pending alarm, then our app was loaded to service the
-    // alarm, so we should just let the alarm fire which will also take
-    // care of rescheduling everything.
-    if (pendingAlarm)
+    this.ensureSync();
+  },
+
+  whenUniverse: function(fn) {
+    this._universeDeferred.promise.then(fn);
+  },
+
+  /**
+   * Makes sure there is a sync timer set up for all accounts.
+   */
+  ensureSync: function() {
+    // Only execute ensureSync if it is not already in progress.
+    // Otherwise, due to async timing of mozAlarm setting, could
+    // end up with two alarms for the same ID.
+    if (!this._completedEnsureSync)
       return;
 
-    this._clearAlarms();
-    this._scheduleNextSync();
+    this._completedEnsureSync = false;
+
+    debug('ensureSync called');
+
+    this.whenUniverse(function() {
+      var accounts = this._universe.accounts,
+          syncData = {};
+
+      accounts.forEach(function(account) {
+        // Store data by interval, use a more obvious string
+        // key instead of just stringifying a number, which
+        // could be confused with an array construct.
+        var interval = account.accountDef.syncInterval,
+            intervalKey = 'interval' + interval;
+
+        if (!syncData.hasOwnProperty(intervalKey)) {
+          syncData[intervalKey] = [];
+        }
+        syncData[intervalKey].push(account.id);
+      });
+
+      this.sendCronSync('ensureSync', [syncData]);
+    }.bind(this));
   },
 
   /**
@@ -266,9 +199,25 @@ CronSyncer.prototype = {
   syncAccount: function(account, doneCallback) {
     // - Skip syncing if we are offline or the account is disabled
     if (!this._universe.online || !account.enabled) {
-      doneCallback(null);
+      debug('syncAcount early exit: online: ' +
+            this._universe.online + ', enabled: ' + account.enabled);
+      doneCallback();
       return;
     }
+
+    var done = function(result) {
+      // Wait for any in-process job operations to complete, so
+      // that the app is not killed in the middle of a sync.
+      this._universe.waitForAccountOps(account, function() {
+        // Also wait for any account save to finish. Most
+        // likely failure will be new message headers not
+        // getting saved if the callback is not fired
+        // until after account saves.
+        account.runAfterSaves(function() {
+          doneCallback(result);
+        });
+      });
+    }.bind(this);
 
     var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
@@ -276,89 +225,175 @@ CronSyncer.prototype = {
     // XXX check when the folder was most recently synchronized and skip this
     // sync if it is sufficiently recent.
 
-    // - Figure out how many additional notifications we can generate
-    var outstandingInfo;
-    if (this._outstandingNotesPerAccount.hasOwnProperty(account.id)) {
-      outstandingInfo = this._outstandingNotesPerAccount[account.id];
-    }
-    else {
-      outstandingInfo = this._outstandingNotesPerAccount[account.id] = {
-        clickHandler: function(header, note, event) {
-          var idx = outstandingInfo.notes.indexOf(note);
-          if (idx === -1)
-            console.warn('bad note index!');
-          outstandingInfo.notes.splice(idx);
-          // trigger the display of the app!
-          sendMessage('showApp', [header]);
-        },
-        closeHandler: function(header, note, event) {
-          var idx = outstandingInfo.notes.indexOf(note);
-          if (idx === -1)
-            console.warn('bad note index!');
-          outstandingInfo.notes.splice(idx);
-        },
-        notes: [],
-      };
-    }
-
-    var desiredNew = MAX_MESSAGES_TO_REPORT_PER_ACCOUNT -
-                       outstandingInfo.notes.length;
-
     // - Initiate a sync of the folder covering the desired time range.
     this._LOG.syncAccount_begin(account.id);
-    var slice = new CronSlice(storage, desiredNew, function(newHeaders) {
+
+    var slice = makeSlice(storage, function(newHeaders) {
       this._LOG.syncAccount_end(account.id);
-      doneCallback(null);
       this._activeSlices.splice(this._activeSlices.indexOf(slice), 1);
-      for (var i = 0; i < newHeaders.length; i++) {
-        var header = newHeaders[i];
-        outstandingInfo.notes.push(
-          generateNotificationForMessage(header,
-                                         outstandingInfo.clickHandler,
-                                         outstandingInfo.closeHandler));
+
+      // Reduce headers to the minimum number and data set needed for
+      // notifications.
+      var notifyHeaders = [];
+      newHeaders.some(function(header, i) {
+        notifyHeaders.push({
+          from: header.author.name || header.author.address,
+          subject: header.subject,
+          accountId: account.id,
+          messageSuid: header.suid
+        });
+
+        if (i === MAX_MESSAGES_TO_REPORT_PER_ACCOUNT - 1)
+          return true;
+      });
+
+      if (newHeaders.length) {
+        debug('Asking for snippets for ' + notifyHeaders.length + ' headers');
+        if (this._universe.online){
+          this._universe.downloadBodies(
+            newHeaders.slice(0, MAX_MESSAGES_TO_REPORT_PER_ACCOUNT), {
+              maximumBytesToFetch: MAX_SNIPPET_BYTES
+            }, function() {
+              debug('Notifying for ' + newHeaders.length + ' headers');
+              done([newHeaders.length, notifyHeaders]);
+          }.bind(this));
+        } else {
+          debug('UNIVERSE OFFLINE. Notifying for ' + newHeaders.length +
+                ' headers');
+          done([newHeaders.length, notifyHeaders]);
+        }
+      } else {
+        done();
       }
-    }.bind(this));
+    }.bind(this), this._LOG);
+
     this._activeSlices.push(slice);
-    storage.sliceOpenMostRecent(slice);
+    // Pass true to force contacting the server.
+    storage.sliceOpenMostRecent(slice, true);
   },
 
-  onAlarm: function() {
-    this._LOG.alarmFired();
-    // It would probably be better if we only added the new alarm after we
-    // complete our sync, but we could have a problem if our sync progress
-    // triggered our death, so we don't do that.
-    this._scheduleNextSync();
+  onAlarm: function(accountIds) {
+    this.whenUniverse(function() {
+      this._LOG.alarmFired();
 
-    // Kill off any slices that still exist from the last sync.
-    for (var iSlice = 0; iSlice < this._activeSlices.length; iSlice++) {
-      this._activeSlices[iSlice].die();
-    }
+      if (!accountIds)
+        return;
 
-    var doneOrGaveUp = function doneOrGaveUp(results) {
-      // XXX add any life-cycle stuff here, like amending the schedule for the
-      // next firing based on how long it took us.  Or if we need to compute
-      // smarter sync notifications across all accounts, do it here.
-    }.bind(this);
+      var accounts = this._universe.accounts,
+          targetAccounts = [],
+          ids = [];
 
-    var accounts = this._universe.accounts, accountIds = [], account, i;
-    for (i = 0; i < accounts.length; i++) {
-      account = accounts[i];
-      accountIds.push(account.id);
+      this._universe.__notifyStartedCronSync(accountIds);
+
+      // Make sure the acount IDs are still valid. This is to protect agains
+      // an account deletion that did not clean up any alarms correctly.
+      accountIds.forEach(function(id) {
+        accounts.some(function(account) {
+          if (account.id === id) {
+            targetAccounts.push(account);
+            ids.push(id);
+            return true;
+          }
+        });
+      });
+
+      // Flip switch to say account syncing is in progress.
+      this._syncAccountsDone = false;
+
+      // Make sure next alarm is set up. In the case of a cold start
+      // background sync, this is a bit redundant in that the startup
+      // of the mailuniverse would trigger this work. However, if the
+      // app is already running, need to be sure next alarm is set up,
+      // so ensure the next sync is set up here. Do it here instead of
+      // after a sync in case an error in sync would prevent the next
+      // sync from getting scheduled.
+      this.ensureSync();
+
+      var syncMax = targetAccounts.length,
+          syncCount = 0,
+          accountsResults = {
+            accountIds: accountIds
+          };
+
+      var done = function() {
+        syncCount += 1;
+        if (syncCount < syncMax)
+          return;
+
+        // Kill off any slices that still exist from the last sync.
+        this._killSlices();
+
+        // Wrap up the sync
+        this._syncAccountsDone = true;
+        this._onSyncDone = function() {
+          if (this._synced.length) {
+            accountsResults.updates = this._synced;
+            this._synced = [];
+          }
+
+          this._universe.__notifyStoppedCronSync(accountsResults);
+        }.bind(this);
+
+        this._checkSyncDone();
+      }.bind(this);
+
+      // Nothing new to sync, probably old accounts. Just return and indicate
+      // that syncing is done.
+      if (!ids.length) {
+        return done();
+      }
+
+      targetAccounts.forEach(function(account) {
+        this.syncAccount(account, function (result) {
+          if (result) {
+            this._synced.push({
+              id: account.id,
+              address: account.identities[0].address,
+              count: result[0],
+              latestMessageInfos: result[1]
+            });
+          }
+          done();
+        }.bind(this));
+      }.bind(this));
+    }.bind(this));
+  },
+
+  /**
+   * Checks for "sync all done", which means the ensureSync call completed, and
+   * new alarms for next sync are set, and the account syncs have finished. If
+   * those two things are true, then notify the universe that the sync is done.
+   */
+  _checkSyncDone: function() {
+    if (!this._completedEnsureSync || !this._syncAccountsDone)
+      return;
+
+    if (this._onSyncDone) {
+      this._onSyncDone();
+      this._onSyncDone = null;
     }
-    var callbacks = $allback.allbackMaker(accountIds, doneOrGaveUp);
-    for (i = 0; i < accounts.length; i++) {
-      account = accounts[i];
-      this.syncAccount(account, callbacks[account.id]);
-    }
+  },
+
+  /**
+   * Called from cronsync-main once ensureSync as set
+   * any alarms needed. Need to wait for it before
+   * signaling sync is done because otherwise the app
+   * could get closed down before the alarm additions
+   * succeed.
+   */
+  onSyncEnsured: function() {
+    this._completedEnsureSync = true;
+    this._checkSyncDone();
   },
 
   shutdown: function() {
-    // no actual shutdown is required; we want our alarm to stick around.
+    $router.unregister('cronsync');
+    this._killSlices();
   }
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
-  CronSyncer: {
+  CronSync: {
     type: $log.DAEMON,
     events: {
       alarmFired: {},
