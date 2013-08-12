@@ -5,11 +5,13 @@
 define(
   [
     'mimelib',
+    'mailapi/db/mail_rep',
     '../mailchew',
     'exports'
   ],
   function(
     $mimelib,
+    mailRep,
     $mailchew,
     exports
   ) {
@@ -169,7 +171,7 @@ function chewStructure(msg) {
 
     function makePart(partInfo, filename) {
 
-      return {
+      return mailRep.makeAttachmentPart({
         name: filename || 'unnamed-' + (++unnamedPartCounter),
         contentId: partInfo.id ? stripArrows(partInfo.id) : null,
         type: (partInfo.type + '/' + partInfo.subtype).toLowerCase(),
@@ -183,11 +185,11 @@ function chewStructure(msg) {
         textFormat: (partInfo.params && partInfo.params.format &&
                      partInfo.params.format.toLowerCase()) || undefined
          */
-      };
+      });
     }
 
     function makeTextPart(partInfo) {
-      return {
+      return mailRep.makeBodyPart({
         type: partInfo.subtype,
         part: partInfo.partID,
         sizeEstimate: partInfo.size,
@@ -203,7 +205,7 @@ function chewStructure(msg) {
         // the information on the bodyRep directly?
         _partInfo: partInfo.size ? partInfo : null,
         content: ''
-      };
+      });
     }
 
     if (disposition === 'attachment') {
@@ -303,7 +305,7 @@ exports.chewHeaderAndBodyStructure =
   var parts = chewStructure(msg);
   var rep = {};
 
-  rep.header = {
+  rep.header = mailRep.makeHeaderInfo({
     // the FolderStorage issued id for this message (which differs from the
     // IMAP-server-issued UID so we can do speculative offline operations like
     // moves).
@@ -334,17 +336,17 @@ exports.chewHeaderAndBodyStructure =
 
     // we lazily fetch the snippet later on
     snippet: null
-  };
+  });
 
 
-  rep.bodyInfo = {
+  rep.bodyInfo = mailRep.makeBodyInfo({
     date: msg.date,
     size: 0,
     attachments: parts.attachments,
     relatedParts: parts.relatedParts,
     references: msg.msg.references,
     bodyReps: parts.bodyReps
-  };
+  });
 
   return rep;
 };

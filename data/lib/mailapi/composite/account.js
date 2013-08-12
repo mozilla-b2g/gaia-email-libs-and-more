@@ -197,9 +197,9 @@ CompositeAccount.prototype = {
         // the message in the sent folder for us, so if we do it, we're just
         // going to create duplicates.
         if (!err && !this._receivePiece.isGmail) {
-          composer.withMessageBuffer({ includeBcc: true }, function(buffer) {
+          composer.withMessageBlob({ includeBcc: true }, function(blob) {
             var message = {
-              messageText: buffer,
+              messageText: blob,
               // do not specify date; let the server use its own timestamping
               // since we want the approximate value of 'now' anyways.
               flags: ['Seen'],

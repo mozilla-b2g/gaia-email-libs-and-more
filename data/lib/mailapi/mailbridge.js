@@ -461,16 +461,18 @@ MailBridge.prototype = {
   },
 
   /**
-   * Sends a notification of a change in the body.
+   * Sends a notification of a change in the body.  Because FolderStorage is
+   * the authoritative store of body representations and access is currently
+   * mediated through mutexes, this method should really only be called by
+   * FolderStorage.updateMessageBody.
    *
-   *    bridge.notifyBodyModified(
-   *      suid,
-   *      'bodyRep',
-   *      { index: 0 }
-   *      newBodyInfo
-   *    );
-   *
-   *
+   * @param suid {SUID}
+   *   The message whose body representation has been updated
+   * @param detail {Object}
+   *   See {{#crossLink "FolderStorage/updateMessageBody"}{{/crossLink}} for
+   *   more information on the structure of this object.
+   * @param body {BodyInfo}
+   *   The current representation of the body.
    */
   notifyBodyModified: function(suid, detail, body) {
     var handles = this._observedBodies[suid];

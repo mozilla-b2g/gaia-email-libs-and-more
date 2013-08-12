@@ -4,6 +4,7 @@ define(
     '../date',
     '../syncbase',
     '../util',
+    'mailapi/db/mail_rep',
     'activesync/codepages/AirSync',
     'activesync/codepages/AirSyncBase',
     'activesync/codepages/ItemEstimate',
@@ -18,6 +19,7 @@ define(
     $date,
     $sync,
     $util,
+    mailRep,
     $AirSync,
     $AirSyncBase,
     $ItemEstimate,
@@ -597,6 +599,7 @@ ActiveSyncFolderConn.prototype = {
     var header, body, flagHeader;
 
     if (isAdded) {
+      // note: these will be passed through mailRep.make* later
       header = {
         id: null,
         srvid: null,
@@ -794,23 +797,35 @@ ActiveSyncFolderConn.prototype = {
           }
 
           if (isInline)
-            body.relatedParts.push(attachment);
+            body.relatedParts.push(mailRep.makeAttachmentPart(attachment));
           else
-            body.attachments.push(attachment);
+            body.attachments.push(mailRep.makeAttachmentPart(attachment));
         }
         header.hasAttachments = body.attachments.length > 0;
         break;
       }
     }
 
-    body.bodyReps = [{
+    body.bodyReps = [mailRep.makeBodyPart({
       type: bodyType,
       sizeEstimate: bodySize,
       amountDownloaded: 0,
       isDownloaded: false
-    }];
+    })];
 
-    return { header: header, body: body };
+    // If this is an add, then these are new structures so we need to normalize
+    // them.
+    if (isAdded) {
+      return {
+        header: mailRep.makeHeaderInfo(header),
+        body: mailRep.makeBodyInfo(body)
+      };
+    }
+    // It's not an add, so this is a delta, and header/body have mergeInto
+    // methods and we should not attempt to normalize them.
+    else {
+      return { header: header, body: body };
+    }
   },
 
   /**
@@ -1065,7 +1080,7 @@ ActiveSyncFolderConn.prototype = {
     };
 
     this._storage.updateMessageHeader(header.date, header.id, false, header);
-    this._storage.updateMessageBody(header, bodyInfo, event);
+    this._storage.updateMessageBody(header, bodyInfo, {}, event);
     this._storage.runAfterDeferredCalls(callback.bind(null, null, bodyInfo));
   },
 

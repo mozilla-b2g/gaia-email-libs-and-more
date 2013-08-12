@@ -212,10 +212,10 @@ Composer.prototype = {
    *   ]]
    * ]
    */
-  withMessageBuffer: function(opts, callback) {
+  withMessageBlob: function(opts, callback) {
     if (this._asyncPending) {
       this._deferredCalls.push(
-        this.withMessageBuffer.bind(this, opts, callback));
+        this.withMessageBlob.bind(this, opts, callback));
       return;
     }
 

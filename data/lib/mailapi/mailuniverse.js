@@ -1688,7 +1688,22 @@ MailUniverse.prototype = {
    * to make sure to not destroy the underlying storage for the Blob (ex: when
    * using DeviceStorage) until the callback has fired.
    */
-  attachBlobToDraft: function(account, attachmentDef, callback) {
+  attachBlobToDraft: function(account, existingNamer, attachmentDef, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'attachBlobToDraft',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'attachBlobToDraft',
+        existingNamer: existingNamer,
+        attachmentDef: attachmentDef
+      },
+      callback
+    );
   },
 
   /**

@@ -143,8 +143,8 @@ SmtpAccount.prototype = {
           if (bailed)
             return;
           sendingMessage = true;
-          composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
-            conn.write(buffer);
+          composer.withMessageBlob({ includeBcc: false }, function(blob) {
+            conn.write(blob);
             conn.end();
           });
         });

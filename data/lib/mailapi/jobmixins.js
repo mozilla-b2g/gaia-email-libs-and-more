@@ -315,9 +315,12 @@ exports.do_download = function(op, callback) {
   };
 
   function done() {
-    folderStorage.updateMessageBody(header, bodyInfo, function() {
-      callback(downloadErr, bodyInfo, true);
-    });
+    folderStorage.updateMessageBody(
+      header, bodyInfo,
+      { flushBecause: 'blobs' },
+      function() {
+        callback(downloadErr, bodyInfo, true);
+      });
   };
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,
