@@ -543,18 +543,21 @@ exports.generateSnippet = function generateSnippet(htmlString) {
  */
 exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
                                               transformNewlines, attrs) {
-  if (transformNewlines === undefined)
+  if (transformNewlines === undefined) {
     transformNewlines = true;
+  }
 
   wrapTag = wrapTag || 'div';
 
+  text = $bleach.escapePlaintextIntoElementContext(text);
   text = transformNewlines ? text.replace(/\n/g, '<br/>') : text;
 
   var attributes = '';
   if (attrs) {
     var len = attrs.length;
     for (var i = 0; i < len; i += 2) {
-      attributes += ' ' + attrs[i] + '="' + attrs[i + 1] +'"';
+      attributes += ' ' + attrs[i] + '="' +
+        $bleach.escapePlaintextIntoAttribute(attrs[i + 1]) + '"';
     }
   }
 
