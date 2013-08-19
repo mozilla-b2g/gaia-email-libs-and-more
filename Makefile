@@ -29,6 +29,7 @@ help:
 	@echo "make post-one-test SOLO_FILE=test_name.js"
 	@echo "  Run one test file (all variants), post results to ArbPL"
 	@echo ""
+	@echo "To enable verbose log output to the console: TEST_LOG_ENABLE=true"
 
 # full rsync
 RSYNC=rsync -avL

@@ -85,6 +85,19 @@ function imapDaemon(flags, syncFunc) {
   this.root.addMailbox(this.drafts);
   this.sent = new imapMailbox("Sent", null, this.uidvalidity++);
   this.root.addMailbox(this.sent);
+  // Always create a 'Custom' folder that does not have special-use purposes
+  // so that test code can infer that if they know about a 'Custom' folder then
+  // they have synchronized the folder list.  If we only created special folders
+  // then there would be a very real possibility a client might try and create
+  // those folders locally, confusing the unit tests.
+  // NOTE: It's arguable that maybe we should not be doing this in here as a
+  // default and instead should leave it to our initializer.
+  this.customFolder = new imapMailbox("Custom", null, this.uidvalidity++);
+  // And let's mark the folder with a special-use flag that would never be
+  // guessed from the name so we can see when special-use flags are properly
+  // detected.
+  this.customFolder.specialUseFlag = '\\Archive';
+  this.root.addMailbox(this.customFolder);
 
   this.namespaces.push(this.root);
   this.syncFunc = syncFunc;
@@ -1820,22 +1833,122 @@ function mixinExtension(handler, extension) {
   }
 }
 
-// Support for Gmail extensions: XLIST and X-GM-EXT-1
-var IMAP_GMAIL_extension = {
+/**
+ * Emulate the broken daum.net server which advertises SPECIAL-USE but screws
+ * it up.
+ *
+ * Traces:
+ *
+ * ```
+ * A02 CAPABILITY
+ * CAPABILITY IMAP4rev1 LITERAL+ NAMESPACE UIDPLUS SPECIAL-USE
+ * A02 OK CAPABILITY completed
+ * ```
+ *
+ * ```
+ * A05 LIST "" "*" RETURN (SPECIAL-USE)
+ * LIST (\Noinferiors \HasNoChildren) "/" "__Daum_SpecialUse_Mailbox_All"
+ * LIST (\Noinferiors \HasNoChildren) "/" "__Daum_SpecialUse_Mailbox_Unread"
+ * LIST (\Noinferiors \HasNoChildren) "/" "__Daum_SpecialUse_Mailbox_Attached"
+ * LIST (\Noinferiors \HasNoChildren) "/" "__Daum_SpecialUse_Mailbox_Important"
+ * A05 OK LIST completed
+ * ```
+ *
+ * ```
+ * A04 LIST "" "*"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Inbox"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Sent Messages"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Drafts"
+ * LIST (\Noinferiors \HasNoChildren) "/" "&wqTTONO4ycDVaA-"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Deleted Messages"
+ * LIST (\Noinferiors \HasNoChildren) "/" "&sLSsjMT007jJwNVo-"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Outbox"
+ * LIST (\Noinferiors \HasNoChildren) "/" "Temp"
+ * LIST (\Noinferiors \HasNoChildren) "/" "&vPSwvNO4ycDVaA-"
+ * LIST (\Noinferiors \HasNoChildren) "/" "SYCT"
+ * A04 OK LIST completed
+ * ```
+ */
+var IMAP_bad_special_use_extension = {
+  kCapabilities: ["SPECIAL-USE"],
+
   preload: function (toBeThis) {
-    toBeThis._preGMAIL_STORE = toBeThis.STORE;
-    toBeThis._preGMAIL_STORE_argFormat = toBeThis._argFormat.STORE;
-    toBeThis._argFormat.STORE = ["number", "atom", "..."];
+    // (SPECIAL-USE uses the same syntax as LIST-EXTENDED)
+    toBeThis._argFormat.LIST = ["[(atom)]", "mailbox", "mailbox|(mailbox)",
+                                "[atom]", "[(atom)]"];
+    toBeThis._real_LIST = toBeThis.LIST;
   },
-  XLIST : function (args) {
-    // XLIST is really just SPECIAL-USE that does not conform to RFC 6154
-    args.push("RETURN");
-    args.push("SPECIAL-USE");
-    return this.LIST(args);
+
+  LIST: function(args) {
+    // Use the default LIST implementation if this isn't SPECIAL-USE magic.
+    let idxReturn = args.indexOf('RETURN');
+    if (idxReturn === -1)
+      return this._real_LIST(args);
+    let returnOptions = args[3] ? args[3].toString().split(' ') : [];
+    if (returnOptions.indexOf('SPECIAL-USE') === -1)
+      return this._real_LIST(args);
+
+    let listFunctionName = "_LIST";
+
+    let commonFlags = ['\\Noinferiors', '\\HasNoChildren'];
+    let fakeBoxes = [
+      {
+        flags: commonFlags,
+        delimiter: '/',
+        displayName: '__Bad_SpecialUse_Mailbox_All',
+      },
+      {
+        flags: commonFlags,
+        delimiter: '/',
+        displayName: '__Bad_SpecialUse_Mailbox_Unread',
+      },
+      {
+        flags: commonFlags,
+        delimiter: '/',
+        displayName: '__Bad_SpecialUse_Mailbox_Attached',
+      },
+      {
+        flags: commonFlags,
+        delimiter: '/',
+        displayName: '__Bad_SpecialUse_Mailbox_Important',
+      },
+    ];
+
+    let response = "";
+    fakeBoxes.forEach(function(box) {
+      response += this[listFunctionName](box);
+    }.bind(this));
+    return response + "OK LIST completed";
   },
-  _LIST_RETURN_CHILDREN : function (aBox) {
-    return IMAP_RFC5258_extension._LIST_RETURN_CHILDREN(aBox);
+};
+
+/**
+ * SPECIAL-USE: http://tools.ietf.org/html/rfc6154
+ *
+ * XXX implement CREATE-SPECIAL-USE
+ *
+ * LIST already implements support for SPECIAL-USE
+ */
+var IMAP_RFC6154_extension = {
+  kCapabilities: ["SPECIAL-USE"],
+
+  preload: function (toBeThis) {
+    // (SPECIAL-USE uses the same syntax as LIST-EXTENDED)
+    toBeThis._argFormat.LIST = ["[(atom)]", "mailbox", "mailbox|(mailbox)",
+                                "[atom]", "[(atom)]"];
   },
+
+  _LIST_RETURN_SPECIAL_USE : function (aBox) {
+    if (aBox.nonExistent) {
+      return "";
+    }
+    return '* LIST (' + aBox.flags.join(" ") +
+           ((aBox.specialUseFlag && aBox.specialUseFlag.length > 0) ?
+            (' ' + aBox.specialUseFlag) : '') +
+           ') "' + aBox.delimiter +
+           '" "' + aBox.displayName + '"\0';
+  },
+
   _LIST_RETURN_CHILDREN_SPECIAL_USE : function (aBox) {
     if (aBox.nonExistent) {
       return "";
@@ -1850,6 +1963,28 @@ var IMAP_GMAIL_extension = {
             (' ' + aBox.specialUseFlag) : '') +
            ') "' + aBox.delimiter +
            '" "' + aBox.displayName + '"\0';
+  },
+};
+
+// Support for Gmail extensions: XLIST and X-GM-EXT-1
+var IMAP_GMAIL_extension = {
+  preload: function (toBeThis) {
+    toBeThis._preGMAIL_STORE = toBeThis.STORE;
+    toBeThis._preGMAIL_STORE_argFormat = toBeThis._argFormat.STORE;
+    toBeThis._argFormat.STORE = ["number", "atom", "..."];
+  },
+  XLIST : function (args) {
+    // XLIST is really just SPECIAL-USE that does not conform to RFC 6154
+    args.push("RETURN");
+    args.push("SPECIAL-USE");
+    return this.LIST(args);
+  },
+  // these get wrapped in functions for ordering independence
+  _LIST_RETURN_CHILDREN : function (aBox) {
+    return IMAP_RFC5258_extension._LIST_RETURN_CHILDREN(aBox);
+  },
+  _LIST_RETURN_CHILDREN_SPECIAL_USE : function (aBox) {
+    return IMAP_RFC6154_extension._LIST_RETURN_CHILDREN_SPECIAL_USE(aBox);
   },
   STORE : function (args, uid) {
     let regex = /[+-]?FLAGS.*/;
