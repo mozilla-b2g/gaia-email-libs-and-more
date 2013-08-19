@@ -1565,6 +1565,27 @@ var TestCommonAccountMixins = {
     });
     return testFolder;
   },
+
+  /**
+   * Delete the account.  This is done using the front-end MailAPI for no
+   * particular reason other than we need to use ping() to make sure all the
+   * events have hit the ostensible front-end before declaring the step over.
+   *
+   * @param stepType {'action'|'cleanup'}
+   */
+  do_deleteAccount: function(stepType) {
+    var self = this;
+    this.T[stepType]('delete', this, function() {
+      self.expect_accountDeleted();
+
+      // Fake the account because we don't have easy-access to the MailAccount
+      // in here and we don't really need it.
+      self.MailAPI._deleteAccount({ id: self.accountId });
+      self.MailAPI.ping(function() {
+        self._logger.accountDeleted();
+      });
+    });
+  },
 };
 
 var TestFolderMixins = {
@@ -1648,7 +1669,8 @@ var TestImapAccountMixins = {
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
       self.testServer = self.T.actor('testFakeIMAPServer', self.__name,
-                                     { restored: opts.restored });
+                                     { restored: opts.restored,
+                                       imapExtensions: opts.imapExtensions });
     }
     else {
       self.testServer = self.T.actor('testRealIMAPServer', self.__name,
@@ -2560,6 +2582,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
 
     events: {
       accountCreated: {},
+      accountDeleted: {},
       foundFolder: { found: true, rep: false },
 
       // the accounts recreateFolder notification should be converted to an

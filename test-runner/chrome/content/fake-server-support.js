@@ -179,10 +179,10 @@ function createActiveSyncSandbox() {
  * Synchronously create a fake IMAP server operating on an available port.  The
  * IMAP server only services a single fake account.
  */
-function makeIMAPServer(creds) {
+function makeIMAPServer(creds, opts) {
   createImapSandbox();
 
-  var infoString = 'RFC2195';
+  var imapExtensions = (opts && opts.imapExtensions) || ['RFC2195'];
 
   var daemon = new imapSandbox.imapDaemon(0);
 
@@ -193,11 +193,11 @@ function makeIMAPServer(creds) {
     handler.kUsername = creds.username;
     handler.kPassword = creds.password;
 
-    var parts = infoString.split(/ *, */);
-    for each (var part in parts) {
-      if (part.startsWith("RFC"))
-        imapSandbox.mixinExtension(handler,
-                                   imapSandbox["IMAP_" + part + "_extension"]);
+    for (var i = 0; i < imapExtensions.length; i++) {
+      var imapExt = imapExtensions[i];
+      var mixinName = "IMAP_" + imapExt + "_extension";
+      if (mixinName in imapSandbox)
+        imapSandbox.mixinExtension(handler, imapSandbox[mixinName]);
     }
     return handler;
   }
@@ -359,7 +359,7 @@ console.log('----> responseData:::', responseData);
   _handleControl: function(_unusedData, reqObj) {
     if (reqObj.command === 'make_imap_and_smtp') {
       // credentials should be { username, password }
-      var imapServer = makeIMAPServer(reqObj.credentials);
+      var imapServer = makeIMAPServer(reqObj.credentials, reqObj.options);
       var smtpServer = makeSMTPServer(reqObj.credentials,
                                       imapServer.daemon);
 

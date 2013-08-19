@@ -210,12 +210,29 @@ function ImapConnection (options) {
   this.namespaces = { personal: [], other: [], shared: [] };
   this.capabilities = [];
   this.enabledCapabilities = [];
+  // The list of capabilities the server advertises that we want to ignore
+  // because they are broken on the server.  If blacklisting at runtime, use
+  // the blacklistCapability method.
+  this.blacklistedCapabilities = this._options.blacklistedCapabilities || [];
 };
 util.inherits(ImapConnection, EventEmitter);
 exports.ImapConnection = ImapConnection;
 
 ImapConnection.prototype.hasCapability = function(name) {
   return this.capabilities.indexOf(name) !== -1;
+};
+
+ImapConnection.prototype.blacklistCapability = function(name) {
+  var blacklist = this.blacklistedCapabilities;
+  name = up(name); // normalized to upper-case
+  // bail if already blacklisted
+  if (blacklist.indexOf(name) !== -1)
+    return;
+  blacklist.push(name);
+  // remove from known capabilities if present
+  var idx = this.capabilities.indexOf(name);
+  if (idx !== -1)
+    this.capabilities.splice(idx, 1);
 };
 
 ImapConnection.prototype._findAndShiftRequestByPrefix = function(prefix) {
