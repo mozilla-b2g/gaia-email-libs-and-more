@@ -68,6 +68,8 @@ var TestFakeIMAPServerMixins = {
 
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
 
+      var imapExtensions = opts.imapExtensions || ['RFC2195'];
+
       if (!serverExists) {
         // talk to the control server to get it to create our server
         self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
@@ -78,6 +80,9 @@ var TestFakeIMAPServerMixins = {
               username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
               password: TEST_PARAMS.password
             },
+            options: {
+              imapExtensions: imapExtensions
+            }
           });
 
         // now we only want to talk to our specific server control endpoint

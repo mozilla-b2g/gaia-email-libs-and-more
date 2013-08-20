@@ -63,6 +63,10 @@
       "variants": ["noserver"]
     },
 
+    "test_imap_bad_servers.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_smtp_prober.js": {
       "variants": ["noserver"]
     },

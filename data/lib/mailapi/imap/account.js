@@ -648,6 +648,8 @@ ImapAccount.prototype = {
 
         username: this._credentials.username,
         password: this._credentials.password,
+
+        blacklistedCapabilities: this._connInfo.blacklistedCapabilities,
       };
       if (this._LOG) opts._logParent = this._LOG;
       var conn = this._pendingConn = new $imap.ImapConnection(opts);
@@ -814,6 +816,7 @@ ImapAccount.prototype = {
       // Process the attribs for goodness.
       for (var i = 0; i < box.attribs.length; i++) {
         switch (box.attribs[i]) {
+          // TODO: split the 'all' cases into their own type!
           case 'ALL': // special-use
           case 'ALLMAIL': // xlist
           case 'ARCHIVE': // special-use

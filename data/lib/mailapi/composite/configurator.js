@@ -40,6 +40,8 @@ exports.configurator = {
         hostname: domainInfo.incoming.hostname,
         port: domainInfo.incoming.port,
         crypto: domainInfo.incoming.socketType === 'SSL',
+
+        blacklistedCapabilities: null,
       };
       smtpConnInfo = {
         hostname: domainInfo.outgoing.hostname,
@@ -54,11 +56,17 @@ exports.configurator = {
       function probesDone(results) {
         // -- both good?
         if (results.imap[0] === null && results.smtp[0] === null) {
+          var imapConn = results.imap[1],
+              imapTZOffset = results.imap[2],
+              imapBlacklistedCapabilities = results.imap[3];
+
+          imapConnInfo.blacklistedCapabilities = imapBlacklistedCapabilities;
+
           var account = self._defineImapAccount(
             universe,
             userDetails, credentials,
-            imapConnInfo, smtpConnInfo, results.imap[1],
-            results.imap[2],
+            imapConnInfo, smtpConnInfo, imapConn,
+            imapTZOffset,
             callback);
         }
         // -- either/both bad
@@ -111,6 +119,9 @@ exports.configurator = {
         hostname: oldAccountDef.receiveConnInfo.hostname,
         port: oldAccountDef.receiveConnInfo.port,
         crypto: oldAccountDef.receiveConnInfo.crypto,
+
+        blacklistedCapabilities:
+          oldAccountDef.receiveConnInfo.blacklistedCapabilities || null,
       },
       sendConnInfo: {
         hostname: oldAccountDef.sendConnInfo.hostname,
