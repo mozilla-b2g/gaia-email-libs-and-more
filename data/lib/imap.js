@@ -795,15 +795,49 @@ ImapConnection.prototype.connect = function(loginCb) {
     // chewed up a lot of processor by converting all of data rather than
     // just the current line.)
     else if (data[0] === CHARCODE_ASTERISK) {
+      const BODY_FETCH_RE = /BODY\[(.*)\](?:\<\d+\>)?/;
+      
+      // node-imap doesn't handle literals in a generic way at the
+      // parser level, so this loop tries to address a special case: A
+      // FETCH response may include a literal as part of the fetch
+      // header. This means we don't actually have the entire FETCH
+      // header line even if we have CRLF; we must instead check to
+      // see if the end of the line contains the BODY info.
       var strdata;
-      idxCRLF = bufferIndexOfCRLF(data, 0);
-      if (data[idxCRLF - 1] === CHARCODE_RBRACE &&
-          (literalInfo =
-             (strdata = data.toString('ascii', 0, idxCRLF)).match(reFetch))) {
+      var seekIndex = 0;
+      var isFetch = false;
+      while ((idxCRLF = bufferIndexOfCRLF(data, seekIndex)) != -1) {
+        seekIndex = idxCRLF + 2;
+        if (data[idxCRLF - 1] === CHARCODE_RBRACE &&
+            (literalInfo = (strdata = data.toString('ascii', 0, idxCRLF)).match(reFetch))) {
+          isFetch = true;
+          if (!BODY_FETCH_RE.test(strdata)) {
+            // we don't have enough of the fetch header to process
+            // yet. See if we can slurp another CRLF.
+            strdata = null;
+          } else {
+            // We found the end of the actual header line! Break out
+            // and process below. Down the line, parseExpr will
+            // extract the literal.
+            break;
+          }
+        } else {
+          // If we don't have enough to determine that this is a FETCH
+          // response, stop looking.
+          break;
+        }
+      }
+
+      if (isFetch) {
+        if (!strdata) {
+          self._unprocessed.unshift(data); // store for later
+          return;
+        }
+        // At this point, the literal points to the FETCH body.
         self._state.curExpected = parseInt(literalInfo[2], 10);
 
         var desc = strdata.substring(strdata.indexOf('(')+1).trim();
-        var type = /BODY\[(.*)\](?:\<\d+\>)?/.exec(strdata)[1];
+        var type = BODY_FETCH_RE.exec(strdata)[1];
         var uid = reUid.exec(desc)[1];
 
         // figure out which request this belongs to. If its not assigned to a
@@ -2186,6 +2220,7 @@ function parseExpr(o, result, start) {
   var inQuote = false, lastPos = start - 1, isTop = false;
   if (!result)
     result = new Array();
+
   if (typeof o === 'string') {
     var state = new Object();
     state.str = o;
@@ -2194,9 +2229,9 @@ function parseExpr(o, result, start) {
   }
   for (var i=start,len=o.str.length; i<len; ++i) {
     if (!inQuote) {
-      if (o.str[i] === '"')
+      if (o.str[i] === '"') {
         inQuote = true;
-      else if (o.str[i] === ' ' || o.str[i] === ')' || o.str[i] === ']') {
+      } else if (o.str[i] === ' ' || o.str[i] === ')' || o.str[i] === ']') {
         if (i - (lastPos+1) > 0)
           result.push(convStr(o.str.substring(lastPos+1, i)));
         if (o.str[i] === ')' || o.str[i] === ']')
@@ -2207,13 +2242,29 @@ function parseExpr(o, result, start) {
         i = parseExpr(o, innerResult, i+1);
         lastPos = i;
         result.push(innerResult);
+      } else if (o.str[i] === '{') {
+        // Not in node-imap: Parse out literals properly here.
+        var idxCRLF = o.str.indexOf('\r\n', i);
+        if (idxCRLF != -1) {
+          var match = /\{(\d+)\}\r\n/.exec(o.str.substring(i, idxCRLF + 2));
+          if (match) {
+            var count = parseInt(match[1], 10);
+            if (!isNaN(count)) {
+              result.push(convStr(o.str.substr(idxCRLF + 2, count)));
+              i = (idxCRLF + 2 + count) - 1;
+              lastPos = i;
+            }
+          }
+        }
       }
     } else if (o.str[i] === '"' &&
                (o.str[i-1] &&
-                (o.str[i-1] !== '\\' || (o.str[i-2] && o.str[i-2] === '\\'))))
+                (o.str[i-1] !== '\\' || (o.str[i-2] && o.str[i-2] === '\\')))) {
       inQuote = false;
-    if (i+1 === len && len - (lastPos+1) > 0)
+    }
+    if (i+1 === len && len - (lastPos+1) > 0) {
       result.push(convStr(o.str.substring(lastPos+1)));
+    }
   }
   return (isTop ? result : start);
 }
@@ -2304,6 +2355,8 @@ function bufferIndexOfCRLF(buf, start) {
   }
   return -1;
 }
+
+exports.parseExpr = parseExpr; // for testing
 
 var LOGFAB = exports.LOGFAB = $log.register(module, {
   ImapProtoConn: {

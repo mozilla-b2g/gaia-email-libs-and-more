@@ -35,6 +35,10 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_literals.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
     "test_imap_lazybodies.js": {
       "variants": ["imap:fake", "imap:real"]
     },
