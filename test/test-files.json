@@ -119,6 +119,10 @@
       "variants": ["noserver"]
     },
 
+    "test_html_escaping_unit.js": {
+      "variants": ["noserver"]
+    },
+
     "test_linkify.js": {
       "variants": ["noserver"]
     },
