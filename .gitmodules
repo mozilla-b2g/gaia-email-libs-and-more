@@ -18,7 +18,7 @@
 	url = git://github.com/mozilla-b2g/jsas.git
 [submodule "deps/bleach.js"]
 	path = deps/bleach.js
-	url = git://github.com/asutherland/bleach.js.git
+	url = git://github.com/mozilla-b2g/bleach.js.git
 [submodule "node-deps/addressparser"]
 	path = node-deps/addressparser
 	url = git://github.com/andris9/addressparser.git
