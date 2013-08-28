@@ -1848,7 +1848,7 @@ var RE_UNEAT_LAST_URL_CHARS = /(?:[),;.!?]|[.!?]\)|\)[.!?])$/;
 var RE_HTTP = /^https?:/i;
 // Note: the [^\s] is fairly international friendly, but might be too friendly.
 var RE_MAIL =
-  /(^|[\s(,;])([^(,;@\s]+@[^.\s]+.[a-z]+)/m;
+  /(^|[\s(,;])([^(,;@\s]+@[^.\s]+(.[a-z]+)+)/m;
 var RE_MAILTO = /^mailto:/i;
 
 var MailUtils = {
