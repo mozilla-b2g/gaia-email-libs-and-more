@@ -66,11 +66,52 @@ var TEXT_CASES = [
     text: 'sub.mozilla.org/robo/hats?foo=bar&baz#pong',
     url: 'http://sub.mozilla.org/robo/hats?foo=bar&baz#pong',
   },
-  // e-mail
+  // -- e-mail
+  // note: currently our mailto and plain variants are just copied and pasted
+  // variants.  We should probably break this list out into its own separate
+  // list that has 'mailto:' prefixed onto the front in a variation if it
+  // doesn't already start with mailto.
   {
     name: 'simple mailto link',
     text: 'mailto:foo@example.com',
     url: 'mailto:foo@example.com',
+  },
+  {
+    name: 'mailto sub-domain e-mail address',
+    text: 'mailto:foo@bar.example.com',
+    url: 'mailto:foo@bar.example.com',
+  },
+  {
+    name: 'mailto deep sub-domain e-mail address',
+    text: 'mailto:foo@bar.baz.bark.barzak.arrrr.arrrr.arrr.a.r.r.r.example.com',
+    url: 'mailto:foo@bar.baz.bark.barzak.arrrr.arrrr.arrr.a.r.r.r.example.com',
+  },
+  {
+    name: 'mailto UK domain e-mail address',
+    text: 'mailto:foo@example.co.uk',
+    url: 'mailto:foo@example.co.uk',
+  },
+  {
+    name: 'mailto UK sub-domain e-mail address',
+    text: 'mailto:foo@bar.example.co.uk',
+    url: 'mailto:foo@bar.example.co.uk',
+  },
+  {
+    name: 'mailto e-mail with digits',
+    text: 'mailto:foo2@example2.com',
+    url: 'mailto:foo2@example2.com',
+  },
+  {
+    name: 'mailto sub-domain e-mail with digits',
+    text: 'mailto:foo2@bar2.example2.com',
+    url: 'mailto:foo2@bar2.example2.com',
+  },
+  // check lowercase, uppercase, digits, dashes, periods in e-mail addresses,
+  // same for domains.
+  {
+    name: 'mailto e-mail character-set test',
+    text: 'mailto:aAzZ09.a-z@aAzZ09-aZ.aZ0-9.co.uk',
+    url: 'mailto:aAzZ09.a-z@aAzZ09-aZ.aZ0-9.co.uk',
   },
   /*
   {
@@ -88,6 +129,55 @@ var TEXT_CASES = [
     name: 'plain e-mail address',
     text: 'foo@example.com',
     url: 'mailto:foo@example.com',
+  },
+  {
+    name: 'plain sub-domain e-mail address',
+    text: 'foo@bar.example.com',
+    url: 'mailto:foo@bar.example.com',
+  },
+  {
+    name: 'plain deep sub-domain e-mail address',
+    text: 'foo@bar.baz.bark.barzak.arrrr.arrrr.arrr.a.r.r.r.example.com',
+    url: 'mailto:foo@bar.baz.bark.barzak.arrrr.arrrr.arrr.a.r.r.r.example.com',
+  },
+  {
+    name: 'plain UK domain e-mail address',
+    text: 'foo@example.co.uk',
+    url: 'mailto:foo@example.co.uk',
+  },
+  {
+    name: 'plain UK sub-domain e-mail address',
+    text: 'foo@bar.example.co.uk',
+    url: 'mailto:foo@bar.example.co.uk',
+  },
+  {
+    name: 'plain e-mail with digits',
+    text: 'foo2@example2.com',
+    url: 'mailto:foo2@example2.com',
+  },
+  {
+    name: 'plain sub-domain e-mail with digits',
+    text: 'foo2@bar2.example2.com',
+    url: 'mailto:foo2@bar2.example2.com',
+  },
+  // IDN e-mail addresses from: http://idn.icann.org/E-mail_test
+  // These are actually valid e-mail addresses that can respond.
+  {
+    name: 'plain IDN e-mail Greek',
+    text: 'mailtest@xn--hxajbheg2az3al.xn--jxalpdlp',
+    url: 'mailto:mailtest@xn--hxajbheg2az3al.xn--jxalpdlp',
+  },
+  {
+    name: 'plain IDN e-mail Cyrillic',
+    text: 'mailtest@xn--e1afmkfd.xn--80akhbyknj4f',
+    url: 'mailto:mailtest@xn--e1afmkfd.xn--80akhbyknj4f',
+  },
+  // check lowercase, uppercase, digits, dashes, periods in e-mail addresses,
+  // same for domains.
+  {
+    name: 'plain e-mail character-set test',
+    text: 'aAzZ09.az@aAzZ09-aZ.aZ0-9.co.uk',
+    url: 'mailto:aAzZ09.az@aAzZ09-aZ.aZ0-9.co.uk',
   },
 ];
 
