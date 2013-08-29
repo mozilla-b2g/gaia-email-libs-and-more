@@ -136,8 +136,8 @@ TestRuntimeContext.prototype = {
    * Hackish mechanism to deal with the case where a bunch of loggers may be
    * created all at once and where our code only wants a subset of them,
    * indexed by name.  We stash the loggers by their name into the dict IFF
-   * their names are simple strings.  We should probably also support a list
-   * so that more complex names could also be inspected...
+   * their names are simple (string or number).  We should probably also support
+   * a list so that more complex names could also be inspected...
    */
   captureAllLoggersByType: function(type, dict) {
     if (dict)
@@ -173,7 +173,7 @@ TestRuntimeContext.prototype = {
       //  the logger is brand new and cannot have any entries at this point.
     }
     else if (this._captureAllLoggersByType.hasOwnProperty(type) &&
-             typeof(logger._ident) === 'string') {
+             typeof(logger._ident) !== 'object') {
       this._captureAllLoggersByType[type][logger._ident] = logger;
     }
 
