@@ -1,0 +1,28 @@
+{
+  "name": "gaia-email-libs-and-more",
+  "version": "0.0.0",
+  "description": "Gaia's [FirefoxOS's] email backend",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "test": "make test-all"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/mozilla-b2g/gaia-email-libs-and-more.git"
+  },
+  "keywords": [
+    "email",
+    "firefoxos",
+    "fxos",
+    "b2g"
+  ],
+  "author": "",
+  "license": "Apache2",
+  "bugs": {
+    "url": "https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues"
+  },
+  "devDependencies": {
+    "mail-fakeservers": "~0.0.4"
+  }
+}

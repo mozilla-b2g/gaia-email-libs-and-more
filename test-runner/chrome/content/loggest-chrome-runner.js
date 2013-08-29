@@ -279,6 +279,9 @@ function register_resource_alias(alias, file) {
   };
 }
 
+register_resource_alias('fakeserver', do_get_file('node_modules/mail-fakeservers/xpcom'));
+register_resource_alias('activesync', do_get_file('deps/activesync'));
+
 ////////////////////////////////////////////////////////////////////////////////
 // mailnews useful logic
 
@@ -676,6 +679,16 @@ function grantEmailPermissions(originUrl) {
     perm.add(uri, permName, 1);
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+const loader = Cc[
+  '@mozilla.org/moz/jssubscript-loader;1'
+].getService(
+  Components.interfaces.mozIJSSubScriptLoader
+);
+
+loader.loadSubScript('resource://fakeserver/fake-server-support.js');
 
 ////////////////////////////////////////////////////////////////////////////////
 
