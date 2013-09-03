@@ -114,14 +114,7 @@ function cannedLoginTest(T, RT, opts) {
 
   T.action('connect, get error, return', eCheck, function() {
     eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
-    // the keep-alive timer keeps getting reset is what is up
     eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
-    eCheck.expect_event('imap:clearTimeout');
-    if (opts.loginErrorString) {
-      eCheck.expect_event('imap:clearTimeout');
-      eCheck.expect_event('imap:clearTimeout');
-    }
     eCheck.expect_namedValue('probe result', opts.expectResult);
     // Even though we will fail to login, from the IMAP connection's
     // perspective we won't want the connection to die.
