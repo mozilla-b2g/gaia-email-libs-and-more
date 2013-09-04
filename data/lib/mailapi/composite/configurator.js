@@ -39,14 +39,17 @@ exports.configurator = {
       imapConnInfo = {
         hostname: domainInfo.incoming.hostname,
         port: domainInfo.incoming.port,
-        crypto: domainInfo.incoming.socketType === 'SSL',
-
+        crypto: (typeof domainInfo.incoming.socketType === 'string' ?
+                 domainInfo.incoming.socketType.toLowerCase() :
+                 domainInfo.incoming.socketType),
         blacklistedCapabilities: null,
       };
       smtpConnInfo = {
         hostname: domainInfo.outgoing.hostname,
         port: domainInfo.outgoing.port,
-        crypto: domainInfo.outgoing.socketType === 'SSL',
+        crypto: (typeof domainInfo.incoming.socketType === 'string' ?
+                 domainInfo.incoming.socketType.toLowerCase() :
+                 domainInfo.incoming.socketType),
       };
     }
 

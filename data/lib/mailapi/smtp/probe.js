@@ -44,7 +44,8 @@ function SmtpProber(credentials, connInfo) {
   this._conn = $simplesmtp(
     connInfo.port, connInfo.hostname,
     {
-      secureConnection: connInfo.crypto === true,
+      secureConnection: (connInfo.crypto === 'ssl' ||
+                         connInfo.crypto === true),
       ignoreTLS: connInfo.crypto === false,
       auth: { user: credentials.username, pass: credentials.password },
       debug: exports.TEST_USE_DEBUG_MODE,

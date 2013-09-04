@@ -57,6 +57,10 @@ define(function() {
     delete socks[uid];
   }
 
+  function upgradeToSecure(uid) {
+    socks[uid].upgradeToSecure();
+  }
+
   function write(uid, data, offset, length) {
     // XXX why are we doing this? ask Vivien or try to remove...
     socks[uid].send(data, offset, length);
@@ -76,6 +80,9 @@ define(function() {
           break;
         case 'write':
           write(uid, args[0], args[1], args[2]);
+          break;
+        case 'upgradeToSecure':
+          upgradeToSecure(uid);
           break;
       }
     }

@@ -121,7 +121,8 @@ SmtpAccount.prototype = {
       conn = $simplesmtp(
         this.connInfo.port, this.connInfo.hostname,
         {
-          secureConnection: this.connInfo.crypto === true,
+          secureConnection: (this.connInfo.crypto == 'ssl' ||
+                             this.connInfo.crypto === true),
           ignoreTLS: this.connInfo.crypto === false,
           auth: {
             user: this.credentials.username,
