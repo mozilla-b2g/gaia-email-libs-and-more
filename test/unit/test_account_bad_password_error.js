@@ -1,7 +1,6 @@
 /**
- * Test our ActiveSync sync logic under non-pathological conditions.  Currently,
- * this just tests that we can create an account successfully.  More tests
- * coming soon!
+ * Test whether an account responds properly to an invalid password,
+ * both for ActiveSync and IMAP accounts.
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
@@ -9,7 +8,7 @@ define(['rdcommon/testcontext', './resources/th_main',
        function($tc, $th_main, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_errors' }, null,
+  { id: 'test_account_bad_password_error' }, null,
   [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('reports bad password', function(T, RT) {
@@ -32,31 +31,51 @@ TD.commonCase('reports bad password', function(T, RT) {
     });
   });
 
+  // Tests to see that a valid connection can be made to the account.
+  function checkAccount(cb) {
+    if (testAccount.type === 'imap') {
+      testAccount.folderAccount.checkAccount(cb);
+    } else if (testAccount.type === 'activesync') {
+      testAccount.folderAccount.conn.disconnect();
+      testAccount.folderAccount.conn = null;
+      testAccount.folderAccount.withConnection(function(err) {
+        cb(err);
+      }, function() {
+        cb();
+      });
+    }
+  }
+
   T.group('use bad password');
-  T.action('create connection, should fail, generate MailAPI event', eCheck,
-           function() {
+  T.action('create connection, should fail, generate MailAPI event',
+           eCheck, testAccount.eBackoff, function() {
     eCheck.expect_namedValue('accountCheck:err', true);
     eCheck.expect_namedValue('account:enabled', false);
     eCheck.expect_namedValue('account:problems', ['bad-user-or-pass']);
     eCheck.expect_event('badlogin');
 
+    // only IMAP accounts have eBackoff
+    if (testAccount.type === 'imap') {
+      testAccount.eBackoff.expect_connectFailure(true);
+      testAccount.eBackoff.expect_state('broken');
+    }
+
     testUniverse.MailAPI.onbadlogin = function(acct) {
       eCheck.event('badlogin');
     };
 
-    var errAndCallback = function(err) {
+    checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
       eCheck.namedValue('account:enabled',
-                        testAccount.account.enabled);
+                        testAccount.folderAccount.enabled);
       eCheck.namedValue('account:problems',
-                        testAccount.account.problems);
-    };
-    testAccount.account.conn.disconnect();
-    testAccount.account.conn = null;
-    testAccount.account.withConnection(errAndCallback, errAndCallback);
+                        (testAccount.compositeAccount ||
+                         testAccount.folderAccount).problems);
+    });
 
   }).timeoutMS = 5000;
 
+  T.group('use good password');
   T.action('put good password back', eCheck, function() {
     eCheck.expect_event('roundtrip');
     var acct = testUniverse.allAccountsSlice.items[0];
@@ -68,24 +87,21 @@ TD.commonCase('reports bad password', function(T, RT) {
     });
   });
 
-  T.action('healthy connect!', eCheck, testAccount, function() {
-
+  T.action('healthy connect!', eCheck, testAccount,
+           testAccount.eBackoff,
+           testAccount.eImapAccount, function() {
+    if (testAccount.type === 'imap') {
+      testAccount.eBackoff.expect_state('healthy');
+    }
     eCheck.expect_namedValue('accountCheck:err', false);
     eCheck.expect_namedValue('account:enabled', true);
-    eCheck.expect_namedValue('account:problems', []);
 
-    var errAndCallback = function(err) {
+    checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
-      testUniverse.universe.clearAccountProblems(testAccount.account);
+      testUniverse.universe.clearAccountProblems(testAccount.folderAccount);
       eCheck.namedValue('account:enabled',
-                        testAccount.account.enabled);
-      eCheck.namedValue('account:problems',
-                        testAccount.account.problems);
-    };
-
-    testAccount.account.conn.disconnect();
-    testAccount.account.conn = null;
-    testAccount.account.withConnection(errAndCallback, errAndCallback);
+                        testAccount.folderAccount.enabled);
+    });
   }).timeoutMS = 5000;
   T.group('cleanup');
 });
