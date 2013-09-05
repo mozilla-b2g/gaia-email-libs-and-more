@@ -11,6 +11,7 @@ define(
     '../searchfilter',
     'activesync/codepages/FolderHierarchy',
     'activesync/codepages/ComposeMail',
+    'activesync/protocol',
     './folder',
     './jobs',
     '../util',
@@ -26,6 +27,7 @@ define(
     $searchfilter,
     $FolderHierarchy,
     $ComposeMail,
+    $asproto,
     $asfolder,
     $asjobs,
     $util,
@@ -156,13 +158,28 @@ ActiveSyncAccount.prototype = {
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
         if (error) {
+          this._reportErrorIfNecessary(error);
           errback(failString || 'unknown');
           return;
         }
         callback();
-      });
+      }.bind(this));
     } else {
       callback();
+    }
+  },
+
+  /**
+   * Reports the error to the user if necessary.
+   */
+  _reportErrorIfNecessary: function(error) {
+    if (!error) {
+      return;
+    }
+
+    if (error instanceof $asproto.HttpError && error.status === 401) {
+      // prompt the user to try a different password
+      this.universe.__reportAccountProblem(this, 'bad-user-or-pass');
     }
   },
 
@@ -281,6 +298,7 @@ ActiveSyncAccount.prototype = {
 
     this.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
+        account._reportErrorIfNecessary(aError);
         callback(aError);
         return;
       }
@@ -616,6 +634,8 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      account._reportErrorIfNecessary(aError);
+
       var e = new $wbxml.EventParser();
       var status, serverId;
 
@@ -676,6 +696,8 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      account._reportErrorIfNecessary(aError);
+
       var e = new $wbxml.EventParser();
       var status;
 
@@ -731,6 +753,7 @@ ActiveSyncAccount.prototype = {
 
         this.conn.postCommand(w, function(aError, aResponse) {
           if (aError) {
+            account._reportErrorIfNecessary(aError);
             console.error(aError);
             callback('unknown');
             return;
@@ -756,6 +779,7 @@ ActiveSyncAccount.prototype = {
                            encoder.encode(mimeBuffer).buffer,
                            function(aError, aResponse) {
           if (aError) {
+            account._reportErrorIfNecessary(aError);
             console.error(aError);
             callback('unknown');
             return;
