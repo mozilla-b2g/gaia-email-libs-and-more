@@ -76,6 +76,10 @@
     },
 
 
+    "test_activesync_errors.js": {
+      "variants": ["activesync:fake"]
+    },
+
     "test_activesync_general.js": {
       "variants": ["activesync:fake"]
     },
