@@ -51,8 +51,6 @@ var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
-      navigator.hasPendingAlarm = args[1];
-
       universe = new $mailuniverse.MailUniverse(onUniverse, args[0]);
       break;
 

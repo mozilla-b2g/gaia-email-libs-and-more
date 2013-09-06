@@ -26,6 +26,9 @@ buildOptions = {
     'alameda': 'deps/alameda',
     'config': 'scripts/config',
 
+    // front end of mail supplies its own evt
+    'evt': 'empty:',
+
     // NOP's
     'prim': 'empty:',
     'http': 'data/lib/nop',

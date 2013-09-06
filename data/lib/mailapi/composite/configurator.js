@@ -113,6 +113,9 @@ exports.configurator = {
       sendType: 'smtp',
 
       syncRange: oldAccountDef.syncRange,
+      syncInterval: oldAccountDef.syncInterval || 0,
+      notifyOnNew: oldAccountDef.hasOwnProperty('notifyOnNew') ?
+                   oldAccountDef.notifyOnNew : true,
 
       credentials: credentials,
       receiveConnInfo: {
@@ -164,6 +167,9 @@ exports.configurator = {
       sendType: 'smtp',
 
       syncRange: 'auto',
+      syncInterval: userDetails.syncInterval || 0,
+      notifyOnNew: userDetails.hasOwnProperty('notifyOnNew') ?
+                   userDetails.notifyOnNew : true,
 
       credentials: credentials,
       receiveConnInfo: imapConnInfo,

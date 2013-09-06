@@ -112,4 +112,5 @@ require({
     "simplesmtp": "data/deps/simplesmtp",
     "mailcomposer": "data/deps/mailcomposer",
   },
+  definePrim: 'prim'
 }, ['loggest-runner-worker']);

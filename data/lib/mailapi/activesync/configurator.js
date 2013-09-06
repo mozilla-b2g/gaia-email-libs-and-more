@@ -137,6 +137,10 @@ exports.configurator = {
           type: 'activesync',
           syncRange: 'auto',
 
+          syncInterval: userDetails.syncInterval || 0,
+          notifyOnNew: userDetails.hasOwnProperty('notifyOnNew') ?
+                       userDetails.notifyOnNew : true,
+
           credentials: credentials,
           connInfo: {
             server: domainInfo.incoming.server
@@ -175,6 +179,9 @@ exports.configurator = {
 
       type: 'activesync',
       syncRange: oldAccountDef.syncRange,
+      syncInterval: oldAccountDef.syncInterval || 0,
+      notifyOnNew: oldAccountDef.hasOwnProperty('notifyOnNew') ?
+                   oldAccountDef.notifyOnNew : true,
 
       credentials: credentials,
       connInfo: {

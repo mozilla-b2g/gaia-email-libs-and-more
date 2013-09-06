@@ -1,6 +1,7 @@
 /**
  *
  **/
+/*global define, console, window, Blob */
 
 define(
   [
@@ -44,6 +45,23 @@ var MAX_MUTATIONS_FOR_UNDO = 10;
  * we keep?
  */
 var MAX_LOG_BACKLOG = 30;
+
+/**
+ * Creates a method to add to MailUniverse that calls a method
+ * on all bridges.
+ * @param  {String} bridgeMethod name of bridge method to call
+ * @return {Function} function to attach to MailUniverse. Assumes
+ * "this" is the MailUniverse instance, and that up to three args
+ * are passed to the method.
+ */
+function makeBridgeFn(bridgeMethod) {
+  return function(a1, a2, a3) {
+    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
+      var bridge = this._bridges[iBridge];
+      bridge[bridgeMethod](a1, a2, a3);
+    }
+  };
+}
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,
@@ -332,6 +350,13 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   // listener.
   this._onConnectionChange(online);
 
+  // Track the mode of the universe. Values are:
+  // 'cron': started up in background to do tasks like sync.
+  // 'interactive': at some point during its life, it was used to
+  // provide functionality to a user interface. Once it goes
+  // 'interactive', it cannot switch back to 'cron'.
+  this._mode = 'cron';
+
   /**
    * A setTimeout handle for when we next dump deferred operations back onto
    * their operation queues.
@@ -345,7 +370,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._LOG = null;
   this._db = new $maildb.MailDB(testOptions);
-  this._cronSyncer = new $cronsync.CronSyncer(this);
+  this._cronSync = new $cronsync.CronSync(this);
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
@@ -407,8 +432,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         id: 'config',
         nextAccountNum: 0,
         nextIdentityNum: 0,
-        debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false,
-        syncCheckIntervalEnum: $syncbase.DEFAULT_CHECK_INTERVAL_ENUM,
+        debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
       };
       setupLogging();
       self._LOG = LOGFAB.MailUniverse(self, null, null);
@@ -505,8 +529,7 @@ MailUniverse.prototype = {
    * Perform initial initialization based on our configuration.
    */
   _initFromConfig: function() {
-    this._cronSyncer.setSyncIntervalMS(
-      $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[this.config.syncCheckIntervalEnum]);
+    this._cronSync.onUniverseReady();
   },
 
   /**
@@ -515,8 +538,7 @@ MailUniverse.prototype = {
   exposeConfigForClient: function() {
     // eventually, iterate over a whitelist, but for now, it's easy...
     return {
-      debugLogging: this.config.debugLogging,
-      syncCheckIntervalEnum: this.config.syncCheckIntervalEnum,
+      debugLogging: this.config.debugLogging
     };
   },
 
@@ -524,12 +546,6 @@ MailUniverse.prototype = {
     for (var key in changes) {
       var val = changes[key];
       switch (key) {
-        case 'syncCheckIntervalEnum':
-          if (!$syncbase.CHECK_INTERVALS_ENUMS_TO_MS.hasOwnProperty(val))
-            continue;
-          this._cronSyncer.setSyncIntervalMS(
-            $syncbase.CHECK_INTERVALS_ENUMS_TO_MS[val]);
-          break;
         case 'debugLogging':
           break;
         default:
@@ -547,6 +563,10 @@ MailUniverse.prototype = {
       var bridge = this._bridges[iBridge];
       bridge.notifyConfig(config);
     }
+  },
+
+  setInteractive: function() {
+    this._mode = 'interactive';
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -732,6 +752,10 @@ MailUniverse.prototype = {
     this._db.saveAccountDef(this.config, accountDef, folderInfo);
     var account = this.getAccountForAccountId(accountDef.id);
 
+    // Make sure syncs are still accurate, since syncInterval
+    // could have changed.
+    this._cronSync.ensureSync();
+
     // If account exists, notify of modification. However on first
     // save, the account does not exist yet.
     if (account)
@@ -844,61 +868,39 @@ MailUniverse.prototype = {
     this._resumeOpProcessingForAccount(account);
   },
 
-  __notifyBadLogin: function(account, problem) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyBadLogin(account, problem);
-    }
-  },
+  // expects (account, problem)
+  __notifyBadLogin: makeBridgeFn('notifyBadLogin'),
 
-  __notifyAddedAccount: function(account) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyAccountAdded(account);
-    }
-  },
+  // expects (account)
+  __notifyAddedAccount: makeBridgeFn('notifyAccountAdded'),
 
-  __notifyModifiedAccount: function(account) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyAccountModified(account);
-    }
-  },
+  // expects (account)
+  __notifyModifiedAccount: makeBridgeFn('notifyAccountModified'),
 
-  __notifyRemovedAccount: function(accountId) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyAccountRemoved(accountId);
-    }
-  },
+  // expects (accountId)
+  __notifyRemovedAccount: makeBridgeFn('notifyAccountRemoved'),
 
-  __notifyAddedFolder: function(account, folderMeta) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyFolderAdded(account, folderMeta);
-    }
-  },
+  // expects (account, folderMeta)
+  __notifyAddedFolder: makeBridgeFn('notifyFolderAdded'),
 
-  __notifyModifiedFolder: function(account, folderMeta) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyFolderModified(account, folderMeta);
-    }
-  },
+  // expects (account, folderMeta)
+  __notifyModifiedFolder: makeBridgeFn('notifyFolderModified'),
 
-  __notifyRemovedFolder: function(account, folderMeta) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyFolderRemoved(account, folderMeta);
-    }
-  },
+  // expects (account, folderMeta)
+  __notifyRemovedFolder: makeBridgeFn('notifyFolderRemoved'),
 
-  __notifyModifiedBody: function(suid, detail, body) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyBodyModified(suid, detail, body);
-    }
-  },
+  // expects (suid, detail, body)
+  __notifyModifiedBody: makeBridgeFn('notifyBodyModified'),
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  // cronsync Stuff
+
+  // expects (accountIds)
+  __notifyStartedCronSync: makeBridgeFn('notifyCronSyncStart'),
+
+  // expects (accountsResults)
+  __notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
 
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
@@ -939,7 +941,7 @@ MailUniverse.prototype = {
       account.shutdown(callback ? accountShutdownCompleted : null);
     }
 
-    this._cronSyncer.shutdown();
+    this._cronSync.shutdown();
     this._db.close();
     if (this._LOG)
       this._LOG.__die();
@@ -1051,6 +1053,18 @@ MailUniverse.prototype = {
    */
   _queueDeferredOps: function() {
     this._deferredOpTimeout = null;
+
+    // If not in 'interactive' mode, then this is just a short
+    // 'cron' existence that needs to shut down soon. Wait one
+    // more cycle in case the app switches over to 'interactive'
+    // in the meantime.
+    if (this._mode !== 'interactive') {
+      console.log('delaying deferred op since mode is ' + this._mode);
+      this._deferredOpTimeout = window.setTimeout(
+        this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
+      return;
+    }
+
     for (var iAccount = 0; iAccount < this.accounts.length; iAccount++) {
       var account = this.accounts[iAccount],
           queues = this._opsByAccount[account.id];
@@ -1332,6 +1346,13 @@ MailUniverse.prototype = {
     if (consumeOp)
       serverQueue.shift();
 
+    // Some completeOp callbacks want to wait for account
+    // save but they are triggered before save is attempted,
+    // for the account to properly trigger runAfterSaves
+    // callbacks, so set a flag indicating save state here.
+    if (accountSaveSuggested)
+      account._saveAccountIsImminent = true;
+
     if (completeOp) {
       if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
         var callback = this._opCallbacks[op.longtermId];
@@ -1347,8 +1368,10 @@ MailUniverse.prototype = {
 
       // This is a suggestion; in the event of high-throughput on operations,
       // we probably don't want to save the account every tick, etc.
-      if (accountSaveSuggested)
+      if (accountSaveSuggested) {
+        account._saveAccountIsImminent = false;
         account.saveAccountState(null, null, 'serverOp');
+      }
     }
 
     if (localQueue.length) {
@@ -1438,7 +1461,7 @@ MailUniverse.prototype = {
   waitForAccountOps: function(account, callback) {
     var queues = this._opsByAccount[account.id];
     if (queues.local.length === 0 &&
-        queues.server.length === 0)
+       (queues.server.length === 0 || !this.online || !account.enabled))
       callback();
     else
       this._opCompletionListenersByAccount[account.id] = callback;
