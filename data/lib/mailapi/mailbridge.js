@@ -917,6 +917,17 @@ MailBridge.prototype = {
     }.bind(this));
   },
 
+  _cmd_attachBlobToDraft: function(msg) {
+    var req = this._pendingRequests[msg.handle], self = this;
+    if (!req)
+      return;
+
+
+  },
+
+  _cmd_detachAttachmentFromDraft: function(msg) {
+  },
+
   _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
     var req = this._pendingRequests[msg.handle] = {
       type: 'compose',
@@ -1044,9 +1055,7 @@ MailBridge.prototype = {
       }
 
 
-      var wireRep = msg.state,
-          identity = this.universe.getIdentityForSenderIdentityId(
-                       wireRep.senderId);
+      var wireRep = msg.state;
       account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
 
       if (msg.command === 'send') {
@@ -1072,69 +1081,11 @@ MailBridge.prototype = {
         }.bind(this));
       }
       else if (msg.command === 'save') {
-        // -- convert from compose rep to header/body rep
-        var msgTimestamp = Date.now();
-        var header = {
-          id: null, // filled in by the job
-          srvid: null, // stays null
-          suid: null, // filled in by the job
-          guid: null, // unused
-          author: { name: identity.name, address: identity.address},
-          to: wireRep.to,
-          cc: wireRep.cc,
-          bcc: wireRep.bcc,
-          replyTo: null,
-          date: msgTimestamp,
-          flags: [],
-          hasAttachments: !!wireRep.attachments.length,
-          subject: wireRep.subject,
-          snippet: wireRep.body.text.substring(0, 100),
-        };
-        var body = {
-          date: msgTimestamp,
-          size: 0,
-          attachments: [],
-          relatedParts: [],
-          references: wireRep.referencesStr,
-          bodyReps: []
-        };
-        wireRep.attachments.forEach(function(wireAtt) {
-          body.attachments.push({
-            name: wireAtt.name,
-            contentId: null,
-            type: wireAtt.blob.type,
-            part: null,
-            encoding: null,
-            sizeEstimate: wireAtt.blob.size,
-            file: wireAtt.blob
-          });
-        });
-        body.bodyReps.push({
-          type: 'plain',
-          part: null,
-          sizeEstimate: wireRep.body.text.length,
-          amountDownloaded: wireRep.body.text.length,
-          isDownloaded: true,
-          _partInfo: {},
-          content: [0x1, wireRep.body.text]
-        });
-        if (wireRep.body.html) {
-          body.bodyReps.push({
-            type: 'html',
-            part: null,
-            sizeEstimate: wireRep.body.html.length,
-            amountDownloaded: wireRep.body.html.length,
-            isDownloaded: true,
-            _partInfo: {},
-            content: wireRep.body.html
-          });
-        }
-
-        this.universe.saveDraft(
-          account, req.persistedNamer, header, body,
+        // Save the draft, updating our persisted namer.
+        req.persistedNamer = this.universe.saveDraft(
+          account, req.persistedNamer, wireRep,
           function(err, messageNamer) {
             req.active = null;
-            req.persistedNamer = messageNamer;
             if (req.die)
               delete self._pendingRequests[msg.handle];
             self.__sendMessage({

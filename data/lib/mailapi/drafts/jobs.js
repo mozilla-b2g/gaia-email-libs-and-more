@@ -71,7 +71,12 @@ exports.local_do_attachBlobToDraft = function(op, callback) {
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
-      function next() {
+
+      var nextOffset = 0;
+
+      function convertNextChunk() {
+        var slicedBlob =
+
         if (--waitingFor === 0) {
           callback(
             null,
@@ -118,6 +123,11 @@ exports.undo_attachBlobToDraft = function(op, callback) {
 ////////////////////////////////////////////////////////////////////////////////
 // saveDraft
 
+/**
+ * Save a draft; if there already was a draft, it gets replaced.  The new
+ * draft gets a new date and id/SUID so it is logically distinct.  However,
+ * we will propagate attachment and on-server information between drafts.
+ */
 exports.local_do_saveDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
   if (!localDraftsFolder) {
@@ -159,8 +169,22 @@ exports.local_do_saveDraft = function(op, callback) {
     'saveDraft');
 };
 
+/**
+ * FUTURE WORK: Save a draft to the server; this is inherently IMAP only.
+ * Tracked on: https://bugzilla.mozilla.org/show_bug.cgi?id=799822
+ *
+ * It is very possible that we will save local drafts faster / more frequently
+ * than we can update our server state.  It only makes sense to upload the
+ * latest draft state to the server.  Because we delete our old local drafts,
+ * it's obvious when we should skip out on updating the server draft for
+ * something.
+ *
+ * Because IMAP drafts have to replace the prior drafts, we use our old 'srvid'
+ * to know what message to delete as well as what message to pull attachments
+ * from when we're in a mode where we upload attachments to drafts and CATENATE
+ * is available.
+ */
 exports.do_saveDraft = function(op, callback) {
-  // there is no server component for this
   callback(null);
 };
 exports.check_saveDraft = function(op, callback) {
@@ -175,8 +199,6 @@ exports.undo_saveDraft = function(op, callback) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // deleteDraft
-//
-//
 
 exports.local_do_deleteDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');

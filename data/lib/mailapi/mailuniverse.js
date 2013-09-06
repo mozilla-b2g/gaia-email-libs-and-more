@@ -8,6 +8,7 @@ define(
     'rdcommon/log',
     'rdcommon/logreaper',
     './a64',
+    './date',
     './syncbase',
     './worker-router',
     './maildb',
@@ -20,6 +21,7 @@ define(
     $log,
     $logreaper,
     $a64,
+    $date,
     $syncbase,
     $router,
     $maildb,
@@ -1693,7 +1695,11 @@ MailUniverse.prototype = {
       account,
       {
         type: 'attachBlobToDraft',
-        longtermId: null,
+        // We don't persist the operation to disk in order to avoid having the
+        // Blob we are attaching get persisted to IndexedDB.  Better for the
+        // disk I/O to be ours from the base64 encoded writes we do even if
+        // there is a few seconds of data-loss-ish vulnerability.
+        longtermId: 'session',
         lifecycle: 'do',
         localStatus: null,
         serverStatus: 'n/a', // local-only currently
@@ -1706,13 +1712,27 @@ MailUniverse.prototype = {
     );
   },
 
+  detachAttachmentFromDraft: function(account, existingNamer, attachmentIndex,
+                                      callback) {
+  },
+
   /**
-   * Save a new (local) draft or update an existing (local) draft.
+   * Save a new (local) draft or update an existing (local) draft.  A new namer
+   * is synchronously created and returned which will be the name for the draft
+   * assuming the save completes successfully.
    *
    * This function is implemented as a job/operation so it is inherently ordered
    * relative to other draft-related calls.
+   *
+   * @method saveDraft
+   * @param account
+   * @param [existingNamer] {MessageNamer}
+   * @param draftRep
+   * @param callback {Function}
+   * @return {MessageNamer}
+   *
    */
-  saveDraft: function(account, existingNamer, header, body, callback) {
+  saveDraft: function(account, existingNamer, draftRep, callback) {
     this._queueAccountOp(
       account,
       {
@@ -1724,11 +1744,11 @@ MailUniverse.prototype = {
         tryCount: 0,
         humanOp: 'saveDraft',
         existingNamer: existingNamer,
-        header: header,
-        body: body
+        draftRep: draftRep
       },
       callback
     );
+    // XXX return new message namer
   },
 
   /**
