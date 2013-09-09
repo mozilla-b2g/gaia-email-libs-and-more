@@ -213,7 +213,6 @@ MailBridge.prototype = {
   _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;
-
     account.checkAccount(function(err) {
       // If we succeeded or the problem was not an authentication, assume
       // everything went fine and clear the problems.
@@ -231,6 +230,10 @@ MailBridge.prototype = {
         // notifications stack up on inactive UIs.
         self.notifyBadLogin(account);
       }
+      self.__sendMessage({
+        type: 'clearAccountProblems',
+        handle: msg.handle,
+      });
     });
   },
 

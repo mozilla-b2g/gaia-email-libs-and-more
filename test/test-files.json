@@ -76,6 +76,10 @@
     },
 
 
+    "test_account_bad_password_error.js": {
+      "variants": ["activesync:fake", "imap:fake"]
+    },
+
     "test_activesync_general.js": {
       "variants": ["activesync:fake"]
     },
