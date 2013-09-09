@@ -93,4 +93,71 @@ exports.getFolderByPath = function(folderPath) {
  return null;
 };
 
+
+
+/**
+ * Save the state of this account to the database.  This entails updating all
+ * of our highly-volatile state (folderInfos which contains counters, accuracy
+ * structures, and our block info structures) as well as any dirty blocks.
+ *
+ * This should be entirely coherent because the structured clone should occur
+ * synchronously during this call, but it's important to keep in mind that if
+ * that ever ends up not being the case that we need to cause mutating
+ * operations to defer until after that snapshot has occurred.
+ */
+exports.saveAccountState = function(reuseTrans, callback, reason) {
+  if (!this._alive) {
+    this._LOG.accountDeleted('saveAccountState');
+    return null;
+  }
+
+  // Indicate save is active, in case something, like
+  // signaling the end of a sync, needs to run after
+  // a save, via runAfterSaves.
+  this._saveAccountStateActive = true;
+  if (!this._deferredSaveAccountCalls) {
+    this._deferredSaveAccountCalls = [];
+  }
+
+  if (callback)
+    this.runAfterSaves(callback);
+
+  var perFolderStuff = [], self = this;
+  for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
+    var folderPub = this.folders[iFolder],
+        folderStorage = this._folderStorages[folderPub.id],
+        folderStuff = folderStorage.generatePersistenceInfo();
+    if (folderStuff)
+      perFolderStuff.push(folderStuff);
+  }
+  this._LOG.saveAccountState(reason);
+  var trans = this._db.saveAccountFolderStates(
+    this.id, this._folderInfos, perFolderStuff,
+    this._deadFolderIds,
+    function stateSaved() {
+      this._saveAccountStateActive = false;
+
+      // NB: we used to log when the save completed, but it ended up being
+      // annoying to the unit tests since we don't block our actions on
+      // the completion of the save at this time.
+
+      var callbacks = this._deferredSaveAccountCalls;
+      this._deferredSaveAccountCalls = [];
+      callbacks.forEach(function(callback) {
+        callback();
+      });
+    }.bind(this),
+    reuseTrans);
+  this._deadFolderIds = null;
+  return trans;
+};
+
+exports.runAfterSaves = function(callback) {
+  if (this._saveAccountStateActive || this._saveAccountIsImminent) {
+    this._deferredSaveAccountCalls.push(callback);
+  } else {
+    callback();
+  }
+};
+
 }); // end define

@@ -39,6 +39,8 @@ function MailAccount(api, wireRep, acctsSlice) {
   this.type = wireRep.type;
   this.name = wireRep.name;
   this.syncRange = wireRep.syncRange;
+  this.syncInterval = wireRep.syncInterval;
+  this.notifyOnNew = wireRep.notifyOnNew;
 
   /**
    * Is the account currently enabled, as in will we talk to the server?
@@ -96,6 +98,8 @@ MailAccount.prototype = {
   __update: function(wireRep) {
     this.enabled = wireRep.enabled;
     this.problems = wireRep.problems;
+    this.syncInterval = wireRep.syncInterval;
+    this.notifyOnNew = wireRep.notifyOnNew;
     this._wireRep.defaultPriority = wireRep.defaultPriority;
   },
 
@@ -163,7 +167,7 @@ function MailSenderIdentity(api, wireRep) {
   this._api = api;
   this.id = wireRep.id;
 
-  this.name = wireRep.displayName;
+  this.name = wireRep.name;
   this.address = wireRep.address;
   this.replyTo = wireRep.replyTo;
   this.signature = wireRep.signature;
@@ -1769,8 +1773,7 @@ MessageComposition.prototype = {
 
 };
 
-
-var LEGAL_CONFIG_KEYS = ['syncCheckIntervalEnum'];
+var LEGAL_CONFIG_KEYS = [];
 
 /**
  * Error reporting helper; we will probably eventually want different behaviours
@@ -3051,6 +3054,35 @@ MailAPI.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+  // mode setting for back end universe. Set interactive
+  // if the user has been exposed to the UI and it is a
+  // longer lived application, not just a cron sync.
+  setInteractive: function() {
+    this.__bridgeSend({
+      type: 'setInteractive'
+    });
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // cron syncing
+
+  /**
+   * Receive events about the start and stop of periodic syncing
+   */
+  _recv_cronSyncStart: function ma__recv_cronSyncStart(msg) {
+    if (this.oncronsyncstart)
+      this.oncronsyncstart(msg.accountIds);
+    return true;
+  },
+
+  _recv_cronSyncStop: function ma__recv_cronSyncStop(msg) {
+    if (this.oncronsyncstop)
+      this.oncronsyncstop(msg.accountsResults);
+    return true;
+  },
+
+
+  //////////////////////////////////////////////////////////////////////////////
   // Localization
 
   /**
@@ -3102,6 +3134,7 @@ MailAPI.prototype = {
     }
     return name;
   },
+
 
   //////////////////////////////////////////////////////////////////////////////
   // Configuration

@@ -6,12 +6,24 @@ define(function() {
   var worker = null;
 
   function register(module) {
-    var name = module.name;
+    var action,
+        name = module.name;
+
     modules.push(module);
 
-    listeners[name] = function(msg) {
-      module.process(msg.uid, msg.cmd, msg.args);
-    };
+    if (module.process) {
+      action = function(msg) {
+        module.process(msg.uid, msg.cmd, msg.args);
+      };
+    } else if (module.dispatch) {
+      action = function(msg) {
+        if (module.dispatch[msg.cmd]) {
+          module.dispatch[msg.cmd].apply(module.dispatch, msg.args);
+        }
+      };
+    }
+
+    listeners[name] = action;
 
     module.sendMessage = function(uid, cmd, args, transferArgs) {
     //dump('\x1b[34mM => w: send: ' + name + ' ' + uid + ' ' + cmd + '\x1b[0m\n');

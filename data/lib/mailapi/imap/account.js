@@ -315,46 +315,6 @@ ImapAccount.prototype = {
   },
 
   /**
-   * Save the state of this account to the database.  This entails updating all
-   * of our highly-volatile state (folderInfos which contains counters, accuracy
-   * structures, and our block info structures) as well as any dirty blocks.
-   *
-   * This should be entirely coherent because the structured clone should occur
-   * synchronously during this call, but it's important to keep in mind that if
-   * that ever ends up not being the case that we need to cause mutating
-   * operations to defer until after that snapshot has occurred.
-   */
-  saveAccountState: function(reuseTrans, callback, reason) {
-    if (!this._alive) {
-      this._LOG.accountDeleted('saveAccountState');
-      return null;
-    }
-
-    var perFolderStuff = [], self = this;
-    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
-      var folderPub = this.folders[iFolder],
-          folderStorage = this._folderStorages[folderPub.id],
-          folderStuff = folderStorage.generatePersistenceInfo();
-      if (folderStuff)
-        perFolderStuff.push(folderStuff);
-    }
-    this._LOG.saveAccountState(reason);
-    var trans = this._db.saveAccountFolderStates(
-      this.id, this._folderInfos, perFolderStuff,
-      this._deadFolderIds,
-      function stateSaved() {
-        // NB: we used to log when the save completed, but it ended up being
-        // annoying to the unit tests since we don't block our actions on
-        // the completion of the save at this time.
-        if (callback)
-          callback();
-      },
-      reuseTrans);
-    this._deadFolderIds = null;
-    return trans;
-  },
-
-  /**
    * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
    * does not desire this, but the unit tests do.
    *
@@ -1053,6 +1013,8 @@ ImapAccount.prototype = {
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
   getFolderByPath: $acctmixins.getFolderByPath,
+  saveAccountState: $acctmixins.saveAccountState,
+  runAfterSaves: $acctmixins.runAfterSaves
 };
 
 /**
