@@ -31,21 +31,6 @@ TD.commonCase('reports bad password', function(T, RT) {
     });
   });
 
-  // Tests to see that a valid connection can be made to the account.
-  function checkAccount(cb) {
-    if (testAccount.type === 'imap') {
-      testAccount.folderAccount.checkAccount(cb);
-    } else if (testAccount.type === 'activesync') {
-      testAccount.folderAccount.conn.disconnect();
-      testAccount.folderAccount.conn = null;
-      testAccount.folderAccount.withConnection(function(err) {
-        cb(err);
-      }, function() {
-        cb();
-      });
-    }
-  }
-
   T.group('use bad password');
   T.action('create connection, should fail, generate MailAPI event',
            eCheck, testAccount.eBackoff, function() {
@@ -64,7 +49,7 @@ TD.commonCase('reports bad password', function(T, RT) {
       eCheck.event('badlogin');
     };
 
-    checkAccount(function(err) {
+    testAccount.folderAccount.checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
       eCheck.namedValue('account:enabled',
                         testAccount.folderAccount.enabled);
@@ -96,11 +81,14 @@ TD.commonCase('reports bad password', function(T, RT) {
     eCheck.expect_namedValue('accountCheck:err', false);
     eCheck.expect_namedValue('account:enabled', true);
 
-    checkAccount(function(err) {
+    testAccount.folderAccount.checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
-      testUniverse.universe.clearAccountProblems(testAccount.folderAccount);
-      eCheck.namedValue('account:enabled',
-                        testAccount.folderAccount.enabled);
+      var acct = testUniverse.allAccountsSlice.items[0];
+      acct.clearProblems(function() {
+        eCheck.namedValue('account:enabled',
+                          testAccount.folderAccount.enabled);
+
+      });
     });
   }).timeoutMS = 5000;
   T.group('cleanup');

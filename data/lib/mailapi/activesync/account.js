@@ -228,6 +228,24 @@ ActiveSyncAccount.prototype = {
   },
 
   /**
+   * Check that the account is healthy in that we can login at all.
+   */
+  checkAccount: function(callback) {
+    // disconnect first so as to properly check credentials
+    if (this.conn != null) {
+      if (this.conn.connected) {
+        this.conn.disconnect();
+      }
+      this.conn = null;
+    }
+    this.withConnection(function(err) {
+      callback(err);
+    }, function() {
+      callback();
+    });
+  },
+
+  /**
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
