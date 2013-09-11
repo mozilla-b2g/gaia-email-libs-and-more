@@ -146,9 +146,7 @@ define(function(require) {
       var request = mozAlarms.getAll();
 
       request.onsuccess = function(event) {
-        var alarms = event.target.result;
-        if (!alarms)
-          return;
+        var alarms = event.target.result || [];
 
         // Find all IDs being tracked by alarms
         var expiredAlarmIds = [],
