@@ -215,7 +215,8 @@ MailBridge.prototype = {
         self = this;
     account.checkAccount(function(err) {
       // If we succeeded or the problem was not an authentication, assume
-      // everything went fine and clear the problems.
+      // everything went fine and clear the problems.  This includes the case
+      // we're offline.
       if (!err || (
           err !== 'bad-user-or-pass' &&
           err !== 'needs-app-pass' &&
@@ -228,7 +229,7 @@ MailBridge.prototype = {
         // This is only being sent over this, the same bridge the clear request
         // came from rather than sent via the mailuniverse.  No point having the
         // notifications stack up on inactive UIs.
-        self.notifyBadLogin(account);
+        self.notifyBadLogin(account, err);
       }
       self.__sendMessage({
         type: 'clearAccountProblems',
@@ -289,6 +290,7 @@ MailBridge.prototype = {
           break;
       }
     }
+
     this.universe.saveAccountDef(accountDef, null);
   },
 

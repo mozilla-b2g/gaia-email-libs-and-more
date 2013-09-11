@@ -1,6 +1,12 @@
 /**
  * Test whether an account responds properly to an invalid password,
  * both for ActiveSync and IMAP accounts.
+ *
+ * ActiveSync does not use persistent connections, but it has a notion of being
+ * 'connected' in terms of having established the right server endpoint to talk
+ * to and having retrieved the OPTIONS.  Accordingly, we both test
+ * authentication failure on initial connect (OPTIONS) stage, as well as when we
+ * are already connected.
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
@@ -19,19 +25,32 @@ TD.commonCase('reports bad password', function(T, RT) {
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('check');
 
-  T.group('change to the wrong password');
-  T.action('change pw', eCheck, function() {
-    eCheck.expect_event('roundtrip');
-    var acct = testUniverse.allAccountsSlice.items[0];
-    acct.modifyAccount({ password: 'NOTTHERIGHTPASSWORD' });
-    // we don't need to wait for correctness; just to keep any errors in the
-    // right test step rather than letting them smear into the next one.
-    testUniverse.MailAPI.ping(function() {
-      eCheck.event('roundtrip');
+  function changeClientPassword(password, desc) {
+    T.action('change the client password to', password, '(' + desc + ')',
+             eCheck, function() {
+      eCheck.expect_event('roundtrip');
+      var acct = testUniverse.allAccountsSlice.items[0];
+      acct.modifyAccount({ password: password });
+      // we don't need to wait for correctness; just to keep any errors in the
+      // right test step rather than letting them smear into the next one.
+      testUniverse.MailAPI.ping(function() {
+        eCheck.event('roundtrip');
+      });
     });
-  });
+  }
 
-  T.group('use bad password');
+  function changeServerPassword(password, desc) {
+    T.action('change the server password to', password, '(' + desc + ')',
+             eCheck, function() {
+      // this executes synchronously; no expectations required
+      testAccount.testServer.changeCredentials(
+        { password: password });
+    });
+  }
+
+
+  T.group('use bad password on initial connect');
+  changeServerPassword('newPassword1', 'mismatch');
   T.action('create connection, should fail, generate MailAPI event',
            eCheck, testAccount.eBackoff, function() {
     eCheck.expect_namedValue('accountCheck:err', true);
@@ -60,17 +79,8 @@ TD.commonCase('reports bad password', function(T, RT) {
 
   }).timeoutMS = 5000;
 
-  T.group('use good password');
-  T.action('put good password back', eCheck, function() {
-    eCheck.expect_event('roundtrip');
-    var acct = testUniverse.allAccountsSlice.items[0];
-    acct.modifyAccount({ password: TEST_PARAMS.password });
-    // we don't need to wait for correctness; just to keep any errors in the
-    // right test step rather than letting them smear into the next one.
-    testUniverse.MailAPI.ping(function() {
-      eCheck.event('roundtrip');
-    });
-  });
+  T.group('use good password on initial connect');
+  changeClientPassword('newPassword1', 'match');
 
   T.action('healthy connect!', eCheck, testAccount,
            testAccount.eBackoff,
@@ -91,6 +101,42 @@ TD.commonCase('reports bad password', function(T, RT) {
       });
     });
   }).timeoutMS = 5000;
+
+  // ActiveSync only; as discussed in the file block comment, make sure that if
+  // the connection is already 'established' (OPTIONS run) that we still error.
+  // The initial fix did not detect this.)
+  if (testAccount.type === 'activesync') {
+
+    T.group('sync a folder with good password');
+
+    var testFolder = testAccount.do_createTestFolder(
+      'test_bad_password_sync', { count: 1 });
+
+    var folderView = testAccount.do_openFolderView(
+      'syncs', testFolder,
+      { count: 1, full: 1, flags: 0, changed: 0, deleted: 0,
+        filterType: 'none' },
+      { top: true, bottom: true, grow: false },
+      { syncedToDawnOfTime: true });
+
+    T.group('resync folder with bad password');
+    changeServerPassword('newPassword2', 'mismatch');
+
+    // Try and sync; we should fail and badlogin should be generated.
+    // (onbadlogin is still set to generate badlogin events)
+    testAccount.do_refreshFolderView(
+      folderView,
+      { count: 1, full: null, flags: null, changed: null, deleted: null },
+      { changes: [], deletions: [] },
+      { top: true, bottom: true, grow: false },
+      {
+        failure: true,
+        expectFunc: function() {
+          RT.reportActiveActorThisStep(eCheck);
+          eCheck.expect_event('badlogin');
+        }
+      });
+  }
   T.group('cleanup');
 });
 

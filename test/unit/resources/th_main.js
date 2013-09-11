@@ -1059,7 +1059,8 @@ var TestCommonAccountMixins = {
     // to happen.
     var recreateFolder = checkFlagDefault(extraFlags, 'recreateFolder', false);
     // Syncblocked bails similarly
-    var syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false);
+    var syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false),
+        isFailure = checkFlagDefault(extraFlags, 'failure', false);
 
     storageActor.expect_mutexedCall_begin(syncType);
     // activesync always syncs the entire folder
@@ -1067,7 +1068,7 @@ var TestCommonAccountMixins = {
       // activesync only syncs when online and when it's a real folder
       if (this.universe.online &&
           testFolder.mailFolder.type !== 'localdrafts' &&
-          !recreateFolder && !syncblocked)
+          !recreateFolder && !syncblocked && !isFailure)
         storageActor.expect_syncedToDawnOfTime();
     }
     else {
@@ -2506,11 +2507,13 @@ var TestActiveSyncAccountMixins = {
 
             newConnActor.expect_sync_begin(null, null, null);
             newConnActor.expect_sync_end(
-              einfo.full, einfo.changed || 0, einfo.deleted);
+              einfo.full, einfo.changed === undefined ? 0 : einfo.changed,
+              einfo.deleted);
           }
           else {
             testFolder.connActor.expect_sync_end(
-              einfo.full, einfo.changed || 0, einfo.deleted);
+              einfo.full, einfo.changed === undefined ? 0 : einfo.changed,
+              einfo.deleted);
           }
         }
       }

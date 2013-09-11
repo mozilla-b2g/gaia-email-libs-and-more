@@ -213,6 +213,13 @@ var TestActiveSyncServerMixins = {
       serverIds: serverIds
     });
   },
+
+  changeCredentials: function(newCreds) {
+    return this._backdoor({
+      command: 'changeCredentials',
+      credentials: newCreds
+    });
+  },
 };
 
 

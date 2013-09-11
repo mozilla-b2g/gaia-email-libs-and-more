@@ -185,6 +185,7 @@ ActiveSyncFolderConn.prototype = {
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
+        account._reportErrorIfNecessary(aError);
         callback('unknown');
         return;
       }
@@ -227,6 +228,8 @@ ActiveSyncFolderConn.prototype = {
     var ie = $ItemEstimate.Tags;
     var as = $AirSync.Tags;
 
+    var account = this._account;
+
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(ie.GetItemEstimate)
        .stag(ie.Collections)
@@ -255,9 +258,10 @@ ActiveSyncFolderConn.prototype = {
        .etag(ie.Collections)
      .etag(ie.GetItemEstimate);
 
-    this._account.conn.postCommand(w, function(aError, aResponse) {
+    account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
+        account._reportErrorIfNecessary(aError);
         callback('unknown');
         return;
       }
@@ -461,6 +465,7 @@ ActiveSyncFolderConn.prototype = {
 
       if (aError) {
         console.error('Error syncing folder:', aError);
+        folderConn._account._reportErrorIfNecessary(aError);
         callback('aborted');
         return;
       }
@@ -923,6 +928,7 @@ ActiveSyncFolderConn.prototype = {
       account.conn.postCommand(w, function(aError, aResponse) {
         if (aError) {
           console.error(aError);
+          account._reportErrorIfNecessary(aError);
           callback('unknown');
           return;
         }
@@ -988,6 +994,7 @@ ActiveSyncFolderConn.prototype = {
     account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error(aError);
+        account._reportErrorIfNecessary(aError);
         callback('unknown');
         return;
       }
@@ -1091,6 +1098,8 @@ ActiveSyncFolderConn.prototype = {
         return;
       }
       else if (error) {
+        // Sync is over!
+        folderConn._LOG.sync_end(null, null, null);
         doneCallback(error);
         return;
       }
@@ -1159,13 +1168,14 @@ ActiveSyncFolderConn.prototype = {
     var folderConn = this;
 
     var as = $AirSync.Tags;
+    var account = this._account;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(as.Sync)
        .stag(as.Collections)
          .stag(as.Collection);
 
-    if (this._account.conn.currentVersion.lt('12.1'))
+    if (account.conn.currentVersion.lt('12.1'))
           w.tag(as.Class, 'Email');
 
           w.tag(as.SyncKey, this.syncKey)
@@ -1193,9 +1203,10 @@ ActiveSyncFolderConn.prototype = {
        .etag(as.Collections)
      .etag(as.Sync);
 
-    this._account.conn.postCommand(w, function(aError, aResponse) {
+    account.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
         console.error('postCommand error:', aError);
+        account._reportErrorIfNecessary(aError);
         callWhenDone('unknown');
         return;
       }
@@ -1259,6 +1270,7 @@ ActiveSyncFolderConn.prototype = {
     this._account.conn.postCommand(w, function(aError, aResult) {
       if (aError) {
         console.error('postCommand error:', aError);
+        folderConn._account._reportErrorIfNecessary(aError);
         callback('unknown');
         return;
       }

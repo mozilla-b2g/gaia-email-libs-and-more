@@ -324,6 +324,7 @@ function NOP() {
  */
 var DummyLogProtoBase = {
   _kids: undefined,
+  logLevel: 'dummy',
   toString: function() {
     return '[DummyLog]';
   },
@@ -337,7 +338,7 @@ var DummyLogProtoBase = {
 
 /**
  * Full logger prototype; instances accumulate log details but are intended by
- *  policy to not long anything considered user-private.  This differs from
+ *  policy to not log anything considered user-private.  This differs from
  *  `TestLogProtoBase` which, in the name of debugging and system understanding
  *  can capture private data but which should accordingly be test data.
  */
@@ -350,6 +351,7 @@ var LogProtoBase = {
    *  a need is shown or doing monkeypatching; at least for the time-being.
    */
   _named: null,
+  logLevel: 'safe',
   toJSON: function() {
     var jo = {
       loggerIdent: this.__defName,
@@ -406,6 +408,7 @@ var LogProtoBase = {
  *  decorator.
  */
 var TestLogProtoBase = Object.create(LogProtoBase);
+TestLogProtoBase.logLevel = 'dangerous';
 TestLogProtoBase.__unexpectedEntry = function(iEntry, unexpEntry) {
   var entry = ['!unexpected', unexpEntry];
   this._entries[iEntry] = entry;
