@@ -47,9 +47,9 @@ exports.configurator = {
       smtpConnInfo = {
         hostname: domainInfo.outgoing.hostname,
         port: domainInfo.outgoing.port,
-        crypto: (typeof domainInfo.incoming.socketType === 'string' ?
-                 domainInfo.incoming.socketType.toLowerCase() :
-                 domainInfo.incoming.socketType),
+        crypto: (typeof domainInfo.outgoing.socketType === 'string' ?
+                 domainInfo.outgoing.socketType.toLowerCase() :
+                 domainInfo.outgoing.socketType),
       };
     }
 

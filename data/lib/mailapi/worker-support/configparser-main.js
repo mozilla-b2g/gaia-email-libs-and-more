@@ -47,7 +47,7 @@ define(function() {
           config.outgoing[child.tagName] = child.textContent;
         }
 
-        const ALLOWED_SOCKET_TYPES = ['SSL', 'STARTTLS'];
+        var ALLOWED_SOCKET_TYPES = ['SSL', 'STARTTLS'];
 
         // We do not support unencrypted connections outside of unit tests.
         if (ALLOWED_SOCKET_TYPES.indexOf(config.incoming.socketType) === -1 ||
