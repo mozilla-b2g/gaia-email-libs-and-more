@@ -9,8 +9,8 @@ define(
     '../accountmixins',
     '../mailslice',
     '../searchfilter',
-    'activesync/codepages/FolderHierarchy',
-    'activesync/codepages/ComposeMail',
+    'activesync/codepages',
+    'activesync/protocol',
     './folder',
     './jobs',
     '../util',
@@ -24,8 +24,8 @@ define(
     $acctmixins,
     $mailslice,
     $searchfilter,
-    $FolderHierarchy,
-    $ComposeMail,
+    ASCP,
+    $asproto,
     $asfolder,
     $asjobs,
     $util,
@@ -66,14 +66,17 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.id = accountDef.id;
   this.accountDef = accountDef;
 
-  if (receiveProtoConn)
-    this.conn = receiveProtoConn;
-  else
-    this.conn = null;
-
   this._db = dbConn;
 
   this._LOG = LOGFAB.ActiveSyncAccount(this, _parentLog, this.id);
+
+  if (receiveProtoConn) {
+    this.conn = receiveProtoConn;
+    this._attachLoggerToConnection(this.conn);
+  }
+  else {
+    this.conn = null;
+  }
 
   this.enabled = true;
   this.problems = [];
@@ -124,7 +127,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   if (!inboxFolder) {
     // XXX localized Inbox string (bug 805834)
     this._addedFolder(null, '0', 'Inbox',
-                      $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
+                      ASCP.FolderHierarchy.Enums.Type.DefaultInbox, null, true);
   }
 }
 exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
@@ -143,6 +146,7 @@ ActiveSyncAccount.prototype = {
       require(['activesync/protocol'], function (activesync) {
         var accountDef = this.accountDef;
         this.conn = new activesync.Connection();
+        this._attachLoggerToConnection(this.conn);
         this.conn.open(accountDef.connInfo.server,
                        accountDef.credentials.username,
                        accountDef.credentials.password);
@@ -156,13 +160,91 @@ ActiveSyncAccount.prototype = {
     if (!this.conn.connected) {
       this.conn.connect(function(error) {
         if (error) {
+          this._reportErrorIfNecessary(error);
           errback(failString || 'unknown');
           return;
         }
         callback();
-      });
+      }.bind(this));
     } else {
       callback();
+    }
+  },
+
+  /**
+   * Reports the error to the user if necessary.
+   */
+  _reportErrorIfNecessary: function(error) {
+    if (!error) {
+      return;
+    }
+
+    if (error instanceof $asproto.HttpError && error.status === 401) {
+      // prompt the user to try a different password
+      this.universe.__reportAccountProblem(this, 'bad-user-or-pass');
+    }
+  },
+
+
+  _attachLoggerToConnection: function(conn) {
+    // Use a somewhat unique-ish value for the id so that if we re-create the
+    // connection it's obvious it's different from the previous connection.
+    var logger = LOGFAB.ActiveSyncConnection(conn, this._LOG,
+                                             Date.now() % 1000);
+    if (logger.logLevel === 'safe') {
+      conn.onmessage = this._onmessage_safe.bind(this, logger);
+    }
+    else if (logger.logLevel === 'dangerous') {
+      conn.onmessage = this._onmessage_dangerous.bind(this, logger);
+    }
+  },
+
+  /**
+   * Basic onmessage ActiveSync protocol logging function.  This does not
+   * include user data and is intended for safe circular logging purposes.
+   */
+  _onmessage_safe: function onmessage(logger,
+      type, special, xhr, params, extraHeaders, sentData, response) {
+    if (type === 'options') {
+      logger.options(special, xhr.status, response);
+    }
+    else {
+      logger.command(type, special, xhr.status);
+    }
+  },
+
+  /**
+   * Dangerous onmessage ActiveSync protocol logging function.  This is
+   * intended to log user data for unit testing purposes or very specialized
+   * debugging only.
+   */
+  _onmessage_dangerous: function onmessage(logger,
+      type, special, xhr, params, extraHeaders, sentData, response) {
+    if (type === 'options') {
+      logger.options(special, xhr.status, response);
+    }
+    else {
+      var sentXML, receivedXML;
+      if (sentData) {
+        try {
+          var sentReader = new $wbxml.Reader(new Uint8Array(sentData), ASCP);
+          sentXML = sentReader.dump();
+        }
+        catch (ex) {
+          sentXML = 'parse problem';
+        }
+      }
+      if (response) {
+        try {
+          receivedXML = response.dump();
+          response.rewind();
+        }
+        catch (ex) {
+          receivedXML = 'parse problem';
+        }
+      }
+      logger.command(type, special, xhr.status, params, extraHeaders, sentXML,
+                     receivedXML);
     }
   },
 
@@ -211,6 +293,24 @@ ActiveSyncAccount.prototype = {
   },
 
   /**
+   * Check that the account is healthy in that we can login at all.
+   */
+  checkAccount: function(callback) {
+    // disconnect first so as to properly check credentials
+    if (this.conn != null) {
+      if (this.conn.connected) {
+        this.conn.disconnect();
+      }
+      this.conn = null;
+    }
+    this.withConnection(function(err) {
+      callback(err);
+    }, function() {
+      callback();
+    });
+  },
+
+  /**
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
@@ -247,7 +347,7 @@ ActiveSyncAccount.prototype = {
   syncFolderList: lazyConnection(0, function asa_syncFolderList(callback) {
     var account = this;
 
-    var fh = $FolderHierarchy.Tags;
+    var fh = ASCP.FolderHierarchy.Tags;
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderSync)
        .tag(fh.SyncKey, this.meta.syncKey)
@@ -255,6 +355,7 @@ ActiveSyncAccount.prototype = {
 
     this.conn.postCommand(w, function(aError, aResponse) {
       if (aError) {
+        account._reportErrorIfNecessary(aError);
         callback(aError);
         return;
       }
@@ -380,7 +481,7 @@ ActiveSyncAccount.prototype = {
     if (!forceType && !(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
-    var folderType = $FolderHierarchy.Enums.Type;
+    var folderType = ASCP.FolderHierarchy.Enums.Type;
 
     var path = displayName;
     var parentFolderId = null;
@@ -577,9 +678,9 @@ ActiveSyncAccount.prototype = {
     var parentFolderServerId = parentFolderId ?
       this._folderInfos[parentFolderId] : '0';
 
-    var fh = $FolderHierarchy.Tags;
-    var fhStatus = $FolderHierarchy.Enums.Status;
-    var folderType = $FolderHierarchy.Enums.Type.Mail;
+    var fh = ASCP.FolderHierarchy.Tags;
+    var fhStatus = ASCP.FolderHierarchy.Enums.Status;
+    var folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderCreate)
@@ -590,6 +691,8 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      account._reportErrorIfNecessary(aError);
+
       var e = new $wbxml.EventParser();
       var status, serverId;
 
@@ -639,9 +742,9 @@ ActiveSyncAccount.prototype = {
 
     var folderMeta = this._folderInfos[folderId].$meta;
 
-    var fh = $FolderHierarchy.Tags;
-    var fhStatus = $FolderHierarchy.Enums.Status;
-    var folderType = $FolderHierarchy.Enums.Type.Mail;
+    var fh = ASCP.FolderHierarchy.Tags;
+    var fhStatus = ASCP.FolderHierarchy.Enums.Status;
+    var folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderDelete)
@@ -650,6 +753,8 @@ ActiveSyncAccount.prototype = {
      .etag();
 
     this.conn.postCommand(w, function(aError, aResponse) {
+      account._reportErrorIfNecessary(aError);
+
       var e = new $wbxml.EventParser();
       var status;
 
@@ -690,7 +795,7 @@ ActiveSyncAccount.prototype = {
       // ActiveSync 14.0 has a completely different API for sending email. Make
       // sure we format things the right way.
       if (this.conn.currentVersion.gte('14.0')) {
-        var cm = $ComposeMail.Tags;
+        var cm = ASCP.ComposeMail.Tags;
         var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
         w.stag(cm.SendMail)
            // The ClientId is defined to be for duplicate messages suppression
@@ -705,6 +810,7 @@ ActiveSyncAccount.prototype = {
 
         this.conn.postCommand(w, function(aError, aResponse) {
           if (aError) {
+            account._reportErrorIfNecessary(aError);
             console.error(aError);
             callback('unknown');
             return;
@@ -730,6 +836,7 @@ ActiveSyncAccount.prototype = {
                            encoder.encode(mimeBuffer).buffer,
                            function(aError, aResponse) {
           if (aError) {
+            account._reportErrorIfNecessary(aError);
             console.error(aError);
             callback('unknown');
             return;
@@ -800,6 +907,19 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },
     }
+  },
+
+  ActiveSyncConnection: {
+    type: $log.CONNECTION,
+    events: {
+      options: { special: false, status: false, result: false },
+      command: { name: false, special: false, status: false },
+    },
+    TEST_ONLY_events: {
+      options: {},
+      command: { params: false, extraHeaders: false, sent: false,
+                 response: false },
+    },
   },
 });
 
