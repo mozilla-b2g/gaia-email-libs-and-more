@@ -9,8 +9,9 @@ define(
     '../accountmixins',
     '../mailslice',
     '../searchfilter',
-    'activesync/codepages',
-    'activesync/protocol',
+    // We potentially create the synthetic inbox while offline, so this can't be
+    // lazy-loaded.
+    'activesync/codepages/FolderHierarchy',
     './folder',
     './jobs',
     '../util',
@@ -24,8 +25,7 @@ define(
     $acctmixins,
     $mailslice,
     $searchfilter,
-    ASCP,
-    $asproto,
+    $FolderHierarchy,
     $asfolder,
     $asjobs,
     $util,
@@ -36,27 +36,26 @@ define(
 'use strict';
 
 // Lazy loaded vars.
-var $wbxml;
+var $wbxml, $asproto, ASCP;
 
 var bsearchForInsert = $util.bsearchForInsert;
 
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
+/**
+ * Prototype-helper to wrap a method in a call to withConnection.  This exists
+ * largely for historical reasons.  All actual lazy-loading happens within
+ * withConnection.
+ */
 function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
     var args = Array.slice(arguments),
         errback = args[cbIndex],
         self = this;
 
-    require(['wbxml'], function (wbxml) {
-      if (!$wbxml) {
-        $wbxml = wbxml;
-      }
-
-      self.withConnection(errback, function () {
-        fn.apply(self, args);
-      }, failString);
-    });
+    this.withConnection(errback, function () {
+      fn.apply(self, args);
+    }, failString);
   };
 }
 
@@ -127,7 +126,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   if (!inboxFolder) {
     // XXX localized Inbox string (bug 805834)
     this._addedFolder(null, '0', 'Inbox',
-                      ASCP.FolderHierarchy.Enums.Type.DefaultInbox, null, true);
+                      $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
   }
 }
 exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
@@ -142,19 +141,30 @@ ActiveSyncAccount.prototype = {
    * initialized yet.
    */
   withConnection: function (errback, callback, failString) {
-    if (!this.conn) {
-      require(['activesync/protocol'], function (activesync) {
-        var accountDef = this.accountDef;
-        this.conn = new activesync.Connection();
-        this._attachLoggerToConnection(this.conn);
-        this.conn.open(accountDef.connInfo.server,
-                       accountDef.credentials.username,
-                       accountDef.credentials.password);
-        this.conn.timeout = DEFAULT_TIMEOUT_MS;
+    // lazy load our dependencies if they haven't already been fetched.  This
+    // occurs regardless of whether we have a connection already or not.  We
+    // do this because the connection may have been passed-in to us as a
+    // leftover of the account creation process.
+    if (!$wbxml) {
+      require(['wbxml', 'activesync/protocol', 'activesync/codepages'],
+              function (_wbxml, _asproto, _ASCP) {
+        $wbxml = _wbxml;
+        $asproto = _asproto;
+        ASCP = _ASCP;
 
         this.withConnection(errback, callback, failString);
       }.bind(this));
       return;
+    }
+
+    if (!this.conn) {
+      var accountDef = this.accountDef;
+      this.conn = new $asproto.Connection();
+      this._attachLoggerToConnection(this.conn);
+      this.conn.open(accountDef.connInfo.server,
+                     accountDef.credentials.username,
+                     accountDef.credentials.password);
+      this.conn.timeout = DEFAULT_TIMEOUT_MS;
     }
 
     if (!this.conn.connected) {
@@ -481,7 +491,7 @@ ActiveSyncAccount.prototype = {
     if (!forceType && !(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
-    var folderType = ASCP.FolderHierarchy.Enums.Type;
+    var folderType = $FolderHierarchy.Enums.Type;
 
     var path = displayName;
     var parentFolderId = null;
