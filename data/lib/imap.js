@@ -336,7 +336,9 @@ ImapConnection.prototype.connect = function(loginCb) {
     if (self._options.crypto === 'starttls') {
       self._send('STARTTLS', null, function(err) {
         if (err) {
-          loginCb(err);
+          var securityErr = new Error('Server does not support STARTTLS');
+          securityErr.type = 'bad-security';
+          loginCb(securityErr);
         } else {
           self._state.conn.upgradeToSecure();
 	        fnInit();

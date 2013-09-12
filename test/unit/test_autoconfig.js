@@ -49,6 +49,25 @@ var goodImapStarttlsXML =
     '</outgoingServer>' +
   '</emailProvider></clientConfig>';
 
+var goodImapMixedXML =
+  '<?xml version="1.0" encoding="utf-8"?>\n' +
+  '<clientConfig version="1.1"><emailProvider id="blah">' +
+    '<incomingServer type="imap">' +
+      '<hostname>imap.xampl.tld</hostname>' +
+      '<port>143</port>' +
+      '<socketType>STARTTLS</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</incomingServer>' +
+    '<outgoingServer type="smtp">' +
+      '<hostname>smtp.xampl.tld</hostname>' +
+      '<port>465</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</outgoingServer>' +
+  '</emailProvider></clientConfig>';
+
 
 var goodImapConfig = {
   type: 'imap+smtp',
@@ -81,6 +100,24 @@ var goodImapStarttlsConfig = {
     hostname: 'smtp.xampl.tld',
     port: '587',
     socketType: 'STARTTLS',
+    username: 'user@xampl.tld',
+    authentication: 'password-cleartext',
+  },
+};
+
+var goodImapMixedConfig = {
+  type: 'imap+smtp',
+  incoming: {
+    hostname: 'imap.xampl.tld',
+    port: '143',
+    socketType: 'STARTTLS',
+    username: 'user@xampl.tld',
+    authentication: 'password-cleartext',
+  },
+  outgoing: {
+    hostname: 'smtp.xampl.tld',
+    port: '465',
+    socketType: 'SSL',
     username: 'user@xampl.tld',
     authentication: 'password-cleartext',
   },
@@ -234,7 +271,7 @@ TD.commonCase('successful local IMAP', function(T, RT) {
 });
 
 /**
- * local XML config file tells us IMAP.
+ * local XML config file tells us IMAP with STARTTLS.
  */
 TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
   cannedTest(T, RT,
@@ -245,6 +282,22 @@ TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
     {
       error: null,
       config: goodImapStarttlsConfig,
+      errorDetails: null,
+    });
+});
+
+/**
+ * local XML config file tells us IMAP with STARTTLS and SMTP with SSL.
+ */
+TD.commonCase('successful IMAP with STARTTLS, SMTP with SSL', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        data: goodImapMixedXML },
+    ],
+    {
+      error: null,
+      config: goodImapMixedConfig,
       errorDetails: null,
     });
 });
