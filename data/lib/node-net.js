@@ -66,6 +66,9 @@ NetSocket.prototype.setKeepAlive = function(shouldKeepAlive) {
 NetSocket.prototype.write = function(buffer) {
   this._sendMessage('write', [buffer.buffer, buffer.byteOffset, buffer.length]);
 };
+NetSocket.prototype.upgradeToSecure = function() {
+  this._sendMessage('upgradeToSecure', []);
+};
 NetSocket.prototype.end = function() {
   if (this.destroyed)
     return;

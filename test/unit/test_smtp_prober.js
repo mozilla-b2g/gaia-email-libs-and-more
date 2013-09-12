@@ -92,9 +92,55 @@ TD.commonCase('SSL failure', function(T, RT) {
   });
 });
 
-const SMTP_GREETING = '220 localhsot ESMTP Fake\r\n';
-const SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
+var SMTP_GREETING = '220 localhost ESMTP Fake\r\n';
+var SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
 
+TD.commonCase('STARTTLS unsupported', function(T, RT) {
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkSmtpTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  cci.connInfo.port = 25;
+  cci.connInfo.crypto = 'starttls';
+
+  T.action(eCheck, 'create prober, see STARTTLS error', function() {
+  FawltySocketFactory.precommand(
+      HOST, cci.connInfo.port,
+      {
+        cmd: 'fake',
+        data: SMTP_GREETING,
+      },
+      [
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: SMTP_EHLO_RESPONSE
+            },
+          ],
+        },
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: '500 STARTTLS unsupported\r\n',
+            }
+          ],
+        },
+      ]);
+      eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
+    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
+    prober.onresult = function(err) {
+      eCheck.namedValue('probe result', err);
+    };
+    eCheck.expect_event('smtp:clearTimeout');
+    eCheck.expect_namedValue('probe result', 'bad-security');
+  });
+});
 
 function cannedLoginTest(T, RT, opts) {
   var eCheck = T.lazyLogger('check');
