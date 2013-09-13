@@ -94,6 +94,46 @@ TD.commonCase('SSL failure', function(T, RT) {
   });
 });
 
+TD.commonCase('STARTTLS unsupported', function(T, RT) {
+  $th_imap.thunkConsoleForNonTestUniverse();
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkImapTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  cci.connInfo.port = 143;
+  cci.connInfo.crypto = 'starttls';
+
+  T.action(eCheck, 'create prober, no STARTTLS response', function() {
+    FawltySocketFactory.precommand(
+      HOST, cci.connInfo.port,
+      {
+        cmd: 'fake',
+        data: OPEN_RESPONSE.replace('STARTTLS ', ''),
+      },
+      [
+        {
+          match: true,
+          actions: [
+            {
+              cmd: 'fake-receive',
+              data: 'A1 BAD STARTTLS Unsupported\r\n',
+            }
+          ],
+        },
+      ]);
+    eCheck.expect_namedValue('imap:setTimeout', $probe.CONNECT_TIMEOUT_MS);
+    prober = new $probe.ImapProber(cci.credentials, cci.connInfo,
+                                    eCheck._logger);
+    prober.onresult = function(err) {
+      eCheck.namedValue('probe result', err);
+    };
+    eCheck.expect_event('imap:clearTimeout');
+    eCheck.expect_namedValue('probe result', 'bad-security');
+  });
+});
+
 
 const OPEN_RESPONSE =
   '* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE STARTTLS AUTH=PLAIN] Dovecot ready.\r\n';
