@@ -265,7 +265,14 @@ var TestFakeIMAPServerMixins = {
   deleteMessagesFromFolder: function(folderPath, messages) {
     this.modifyMessagesInFolder(
       folderPath, messages, ['\\Deleted'], null);
-  }
+  },
+
+  changeCredentials: function(newCreds) {
+    return this._backdoor({
+      command: 'changeCredentials',
+      credentials: newCreds
+    });
+  },
 };
 
 

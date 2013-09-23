@@ -126,6 +126,9 @@ NetSocket.prototype.write = function(u8array) {
                       [u8array.buffer, u8array.byteOffset, u8array.length]);
   }
 };
+NetSocket.prototype.upgradeToSecure = function() {
+  this._sendMessage('upgradeToSecure', []);
+};
 NetSocket.prototype.end = function() {
   if (this.destroyed)
     return;

@@ -203,6 +203,15 @@ function write(uid, data, offset, length) {
   }
 }
 
+
+function upgradeToSecure(uid) {
+  var sockInfo = sockInfoByUID[uid];
+  if (!sockInfo)
+    return;
+  sockInfo.sock.upgradeToSecure();
+}
+
+
 var self = {
   name: 'netsocket',
   sendMessage: null,
@@ -216,6 +225,9 @@ var self = {
         break;
       case 'write':
         write(uid, args[0], args[1], args[2]);
+        break;
+      case 'upgradeToSecure':
+        upgradeToSecure(uid);
         break;
     }
   }
