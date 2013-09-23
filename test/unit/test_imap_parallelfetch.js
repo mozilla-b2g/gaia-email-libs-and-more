@@ -146,31 +146,41 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
       });
 
       header.onchange = function() {
-        header.getBody({ withBodyReps: true }, function(body) {
-          if (!body) {
-            // ???!
-            eLazy.namedValue('missing body for header', header.id);
-            return;
-          }
+        // We now fire onchange even if the snippet hasn't been
+        // populated yet, so check first to make sure we have a
+        // snippet before providing the namedValue. Since onchange
+        // might now be called more than once, we need to guard the
+        // getBody() call to ensure we don't provide namedValue more
+        // than once per header. Putting that call inside this guard
+        // ensures it only gets called once, as though header.onchange
+        // only got called once.
+        if (header.snippet != null) {
+          header.getBody({ withBodyReps: true }, function(body) {
+            if (!body) {
+              // ???!
+              eLazy.namedValue('missing body for header', header.id);
+              return;
+            }
 
-          var contents = body.bodyReps.map(function(item) {
-            return ((Array.isArray(item.content)) ?
-              item.content[1] : item.content).trim();
+            var contents = body.bodyReps.map(function(item) {
+              return ((Array.isArray(item.content)) ?
+                      item.content[1] : item.content).trim();
+            });
+
+            eLazy.namedValue('bodyReps', {
+              id: header.id,
+              contents: contents,
+              isDownloaded: body.bodyReps[0].isDownloaded
+            });
+
+            body.die();
           });
 
-          eLazy.namedValue('bodyReps', {
+          eLazy.namedValue('snippet', {
             id: header.id,
-            contents: contents,
-            isDownloaded: body.bodyReps[0].isDownloaded
+            approxSnippet: header.snippet.slice(0, 20).trim()
           });
-
-          body.die();
-        });
-
-        eLazy.namedValue('snippet', {
-          id: header.id,
-          approxSnippet: header.snippet.slice(0, 20).trim()
-        });
+        }
       };
     });
 

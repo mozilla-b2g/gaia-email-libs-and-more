@@ -10,10 +10,12 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         'mailapi/accountcommon',
-        'mailapi/imap/probe', 'mailapi/smtp/probe', 'activesync/protocol',
+        'mailapi/imap/probe', 'mailapi/pop3/probe',
+        'mailapi/smtp/probe', 'activesync/protocol',
         'exports'],
        function($tc, $th_imap,
-                $accountcommon, $imapprobe, $smtpprobe, $asproto, exports) {
+                $accountcommon, $imapprobe, $pop3probe,
+                $smtpprobe, $asproto, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_create_unit' }, null, [$th_imap.TESTHELPER], ['app']);
@@ -21,19 +23,19 @@ var TD = exports.TD = $tc.defineTestsFor(
 ////////////////////////////////////////////////////////////////////////////////
 // Stubs!
 
-var gNextImapProbeResult = null,
+var gNextIncomingProbeResult = null,
     gNextSmtpProbeResult = null,
     gNextActivesyncResult = null,
-    gFakeImapConn = null;
+    gFakeIncomingConn = null;
 
-$imapprobe.ImapProber = function() {
+$imapprobe.ImapProber = $pop3probe.Pop3Prober = function() {
   var self = this;
   this.onresult = null;
   window.setZeroTimeout(function() {
-    self.onresult(gNextImapProbeResult, gFakeImapConn,
-                  gNextImapProbeResult && { server: 'imap.example.com' });
-    gNextImapProbeResult = null;
-    gFakeImapConn = null;
+    self.onresult(gNextIncomingProbeResult, gFakeIncomingConn,
+                  gNextIncomingProbeResult && { server: 'mail.example.com' });
+    gNextIncomingProbeResult = null;
+    gFakeIncomingConn = null;
   });
 };
 
@@ -72,8 +74,8 @@ var FakeUserDetails = {
   password: null
 };
 
-var FakeImapDomainInfo = {
-  type: 'imap+smtp',
+var FakeIncomingDomainInfo = {
+  type: null, // populated below
   incoming: {
     hostname: null,
     port: null,
@@ -96,44 +98,47 @@ var FakeActivesyncDomainInfo = {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TD.commonCase('IMAP tryToCreateAccount', function(T, RT) {
-  var eCheck = T.lazyLogger('check');
-  var errorMixtures = [
-    { name: 'imap error only',
-      imap: 'unresponsive-server', smtp: null,
-      reportAs: 'unresponsive-server',  server: 'imap.example.com' },
-    { name: 'smtp error only',
-      imap: null, smtp: 'unresponsive-server',
-      reportAs: 'unresponsive-server', server: 'smtp.example.com' },
-    { name: 'imap and smtp errors prioritize imap',
-      imap: 'server-problem', smtp: 'unresponsive-server',
-      reportAs: 'server-problem', server: 'imap.example.com' },
-  ];
+['imap', 'pop3'].forEach(function (type) {
+  FakeIncomingDomainInfo.type = type + '+smtp';
+  TD.commonCase(type.toUpperCase() + ' tryToCreateAccount', function(T, RT) {
+    var eCheck = T.lazyLogger('check');
+    var errorMixtures = [
+      { name: type + ' error only',
+        incoming: 'unresponsive-server', smtp: null,
+        reportAs: 'unresponsive-server',  server: 'mail.example.com' },
+      { name: 'smtp error only',
+        incoming: null, smtp: 'unresponsive-server',
+        reportAs: 'unresponsive-server', server: 'smtp.example.com' },
+      { name: type + ' and smtp errors prioritize ' + type,
+        incoming: 'server-problem', smtp: 'unresponsive-server',
+        reportAs: 'server-problem', server: 'mail.example.com' },
+    ];
 
-  errorMixtures.forEach(function(mix) {
-    T.action(eCheck, mix.name, function() {
-      gNextImapProbeResult = mix.imap;
-      gNextSmtpProbeResult = mix.smtp;
-      if (!mix.imap) {
-        eCheck.expect_event('imap.die()');
-        gFakeImapConn = {
-          die: function() {
-            eCheck.event('imap.die()');
-          },
-        };
-      }
+    errorMixtures.forEach(function(mix) {
+      T.action(eCheck, mix.name, function() {
+        gNextIncomingProbeResult = mix.incoming;
+        gNextSmtpProbeResult = mix.smtp;
+        if (!mix.incoming) {
+          eCheck.expect_event('incoming.die()');
+          gFakeIncomingConn = {
+            die: function() {
+              eCheck.event('incoming.die()');
+            },
+          };
+        }
 
-      eCheck.expect_namedValue('err', mix.reportAs);
-      eCheck.expect_namedValue('account', null);
-      eCheck.expect_namedValue('errServer', mix.server);
+        eCheck.expect_namedValue('err', mix.reportAs);
+        eCheck.expect_namedValue('account', null);
+        eCheck.expect_namedValue('errServer', mix.server);
 
-      $accountcommon.tryToManuallyCreateAccount(
-        FakeUniverse, FakeUserDetails, FakeImapDomainInfo,
-        function (err, account, errDetails) {
-          eCheck.namedValue('err', err);
-          eCheck.namedValue('account', null);
-          eCheck.namedValue('errServer', errDetails && errDetails.server);
-        });
+        $accountcommon.tryToManuallyCreateAccount(
+          FakeUniverse, FakeUserDetails, FakeIncomingDomainInfo,
+          function (err, account, errDetails) {
+            eCheck.namedValue('err', err);
+            eCheck.namedValue('account', null);
+            eCheck.namedValue('errServer', errDetails && errDetails.server);
+          });
+      });
     });
   });
 });

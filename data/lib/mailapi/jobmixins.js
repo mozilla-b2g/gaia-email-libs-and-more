@@ -145,7 +145,6 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
           header.srvid = null;
 
         stateDelta.moveMap[sourceSuid] = header.suid;
-
         addWait = 2;
         targetStorage.addMessageHeader(header, added);
         targetStorage.addMessageBody(header, body, added);
@@ -250,50 +249,21 @@ exports.do_download = function(op, callback) {
 
     folderConn.downloadMessageAttachments(uid, partsToDownload, gotParts);
   };
-  var pendingStorageWrites = 0, downloadErr = null;
-  /**
-   * Save an attachment to device storage, making the filename unique if we
-   * encounter a collision.
-   */
-  function saveToStorage(blob, storage, filename, partInfo, isRetry) {
-    pendingStorageWrites++;
 
-    var callback = function(success, error, savedFilename) {
-      if (success) {
-        self._LOG.savedAttachment(storage, blob.type, blob.size);
-        console.log('saved attachment to', storage, savedFilename, 'type:', blob.type);
-        partInfo.file = [storage, savedFilename];
-        if (--pendingStorageWrites === 0)
-          done();
-      } else {
-        self._LOG.saveFailure(storage, blob.type, error, filename);
-        console.warn('failed to save attachment to', storage, filename,
-                     'type:', blob.type);
-        pendingStorageWrites--;
-        // if we failed to unique the file after appending junk, just give up
-        if (isRetry) {
-          if (pendingStorageWrites === 0)
-            done();
-          return;
-        }
-        // retry by appending a super huge timestamp to the file before its
-        // extension.
-        var idxLastPeriod = filename.lastIndexOf('.');
-        if (idxLastPeriod === -1)
-          idxLastPeriod = filename.length;
-        filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
-                    filename.substring(idxLastPeriod);
-        saveToStorage(blob, storage, filename, partInfo, true);
-      }
-    };
-    sendMessage('save', [storage, blob, filename], callback);
-  }
+  var downloadErr = null;
   var gotParts = function gotParts(err, bodyBlobs) {
     if (bodyBlobs.length !== partsToDownload.length) {
       callback(err, null, false);
       return;
     }
     downloadErr = err;
+    var pendingCbs = 1;
+    function next() {
+      if (!--pendingCbs) {
+        done();
+      }
+    }
+
     for (var i = 0; i < partsToDownload.length; i++) {
       // Because we should be under a mutex, this part should still be the
       // live representation and we can mutate it.
@@ -304,16 +274,18 @@ exports.do_download = function(op, callback) {
       if (blob) {
         partInfo.sizeEstimate = blob.size;
         partInfo.type = blob.type;
-        if (storeTo === 'idb')
+        if (storeTo === 'idb') {
           partInfo.file = blob;
-        else
-          saveToStorage(blob, storeTo, partInfo.name, partInfo);
+        } else {
+          pendingCbs++;
+          saveToDeviceStorage(
+              self._LOG, blob, storeTo, partInfo.name, partInfo, next);
+        }
       }
     }
-    if (!pendingStorageWrites)
-      done();
-  };
 
+    next();
+  };
   function done() {
     folderStorage.updateMessageBody(header, bodyInfo, function() {
       callback(downloadErr, bodyInfo, true);
@@ -322,7 +294,43 @@ exports.do_download = function(op, callback) {
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,
                                 'download');
-};
+}
+
+/**
+ * Save an attachment to device storage, making the filename unique if we
+ * encounter a collision.
+ */
+var saveToDeviceStorage = exports.saveToDeviceStorage =
+function(_LOG, blob, storeTo, filename, partInfo, cb, isRetry) {
+  var self = this;
+  var callback = function(success, error, savedFilename) {
+    if (success) {
+      _LOG.savedAttachment(storeTo, blob.type, blob.size);
+      console.log('saved attachment to', storeTo, savedFilename,
+                  'type:', blob.type);
+      partInfo.file = [storeTo, savedFilename];
+      cb();
+    } else {
+      _LOG.saveFailure(storeTo, blob.type, error, filename);
+      console.warn('failed to save attachment to', storeTo, filename,
+                   'type:', blob.type);
+      // if we failed to unique the file after appending junk, just give up
+      if (isRetry) {
+        cb(error);
+        return;
+      }
+      // retry by appending a super huge timestamp to the file before its
+      // extension.
+      var idxLastPeriod = filename.lastIndexOf('.');
+      if (idxLastPeriod === -1)
+        idxLastPeriod = filename.length;
+      filename = filename.substring(0, idxLastPeriod) + '-' + Date.now() +
+        filename.substring(idxLastPeriod);
+      saveToDeviceStorage(_LOG, blob, storeTo, filename, partInfo, cb, true);
+    }
+  };
+  sendMessage('save', [storeTo, blob, filename], callback);
+}
 
 exports.local_do_download = function(op, callback) {
   // Downloads are inherently online operations.

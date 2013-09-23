@@ -1,13 +1,16 @@
 /**
- * Fake IMAP server spin-up and control.  Created on-demand by sending HTTP
- * requests to the control server via HTTP.
- **/
+ * Fake POP3 server spin-up and control. Created on-demand by sending
+ * HTTP requests to the control server via HTTP, though because
+ * folders are local-only in POP3, very few operations actually get
+ * sent to the fake server.
+ */
 
 define(
   [
     'rdcommon/log',
     './messageGenerator',
     'mailapi/accountcommon',
+    'pop3/pop3',
     'module',
     'exports'
   ],
@@ -15,6 +18,7 @@ define(
     $log,
     $msggen,
     $accountcommon,
+    pop3,
     $module,
     exports
   ) {
@@ -22,8 +26,7 @@ define(
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
               'Oct', 'Nov', 'Dec'];
 
-// from (node-imap) imap.js
-function formatImapDateTime(date) {
+function formatPop3DateTime(date) {
   var s;
   s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + '-' +
        MONTHS[date.getMonth()] + '-' +
@@ -44,78 +47,59 @@ function extractUsernameFromEmail(str) {
   return str.substring(0, idx);
 }
 
-var TestFakeIMAPServerMixins = {
+var TestFakePOP3ServerMixins = {
   NEEDS_REL_TZ_OFFSET_ADJUSTMENT: false,
 
   __constructor: function(self, opts) {
-    if (!("fakeIMAPServers" in self.RT.fileBlackboard))
-      self.RT.fileBlackboard.fakeIMAPServers = {};
+    if (!("fakePOP3Servers" in self.RT.fileBlackboard))
+      self.RT.fileBlackboard.fakePOP3Servers = {};
 
     var normName = self.__name.replace(/\d+/g, '');
-    var serverExists = normName in self.RT.fileBlackboard.fakeIMAPServers;
+    var serverExists = normName in self.RT.fileBlackboard.fakePOP3Servers;
     var setupVerb = serverExists ? 'reusing' : 'creating';
     // Flag the value to true so that static checks of whether it exists return
     // true.  Use of the value for data purposes must only be done at step-time
     // since 'true' is not very useful on its own.
     if (!serverExists)
-      self.RT.fileBlackboard.fakeIMAPServers[normName] = true;
+      self.RT.fileBlackboard.fakePOP3Servers[normName] = true;
 
     self.testAccount = null;
 
+    self.folderMessages = {};
+
     self.T.convenienceSetup(setupVerb, self,
                             function() {
-      self.__attachToLogger(LOGFAB.testFakeIMAPServer(self, null, self.__name));
+      self.__attachToLogger(LOGFAB.testFakePOP3Server(self, null, self.__name));
 
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
-
-      var imapExtensions = opts.imapExtensions || ['RFC2195'];
 
       if (!serverExists) {
         // talk to the control server to get it to create our server
         self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
         serverInfo = self._backdoor(
           {
-            command: 'make_imap_and_smtp',
+            command: 'make_pop3_and_smtp',
             credentials: {
               username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
               password: TEST_PARAMS.password
             },
             options: {
-              imapExtensions: imapExtensions
+
             }
           });
 
         // now we only want to talk to our specific server control endpoint
         self.backdoorUrl = serverInfo.controlUrl;
-        self.RT.fileBlackboard.fakeIMAPServers[normName] = serverInfo;
-
-        // XXX because of how our timezone detection logic works, we really need
-        // a message in the Inbox...
-        var fakeMsgDate = new Date();
-        self.addMessagesToFolder('INBOX', [{
-          date: fakeMsgDate,
-          metaState: {},
-          toMessageString: function() {
-            return [
-              'Date: ' + fakeMsgDate,
-              'From: superfake@example.nul',
-              'Subject: blaaaah',
-              'Message-ID: <blaaaaaaaaaah@example.nul>',
-              'Content-Type: text/plain',
-              '',
-              'Hello, shoe.'
-              ].join('\r\n');
-          },
-        }]);
+        self.RT.fileBlackboard.fakePOP3Servers[normName] = serverInfo;
       }
       else {
-        serverInfo = self.RT.fileBlackboard.fakeIMAPServers[normName];
+        serverInfo = self.RT.fileBlackboard.fakePOP3Servers[normName];
         self.backdoorUrl = serverInfo.controlUrl;
       }
 
-      var configEntry = $accountcommon._autoconfigByDomain['fakeimaphost'];
-      configEntry.incoming.hostname = serverInfo.imapHost;
-      configEntry.incoming.port = serverInfo.imapPort;
+      var configEntry = $accountcommon._autoconfigByDomain['fakepop3host'];
+      configEntry.incoming.hostname = serverInfo.pop3Host;
+      configEntry.incoming.port = serverInfo.pop3Port;
       configEntry.outgoing.hostname = serverInfo.smtpHost;
       configEntry.outgoing.port = serverInfo.smtpPort;
     });
@@ -149,10 +133,8 @@ var TestFakeIMAPServerMixins = {
 
   // => folderPath or falsey
   getFolderByPath: function(folderPath) {
-    return this._backdoor({
-      command: 'getFolderByPath',
-      name: folderPath
-    });
+    var account = this.testAccount.pop3Account;
+    return account.getFolderByPath(folderPath);
   },
 
   setDate: function(timestamp) {
@@ -165,36 +147,23 @@ var TestFakeIMAPServerMixins = {
   SYNC_FOLDER_LIST_AFTER_ADD: true,
   addFolder: function(folderPath, testFolder) {
     // returns the canonical folder path (probably)
-    return this._backdoor({
-      command: 'addFolder',
-      name: folderPath,
-    });
+    var account = this.testAccount.pop3Account;
+    account._learnAboutFolder(folderPath, folderPath, null,
+                              folderPath, '/', 0, false);
+    return folderPath;
   },
 
   removeFolder: function(folderPath) {
-    var folderMeta = this.testAccount.imapAccount.getFolderByPath(folderPath);
-    // do generate notifications; don't want the slice to get out of date
-    this.testAccount.imapAccount._forgetFolder(folderMeta.id, false);
-    var result = this._backdoor({
-      command: 'removeFolder',
-      name: folderPath
-    });
-    if (result !== true)
-      this._logger.folderDeleteFailure(folderPath);
+    var account = this.testAccount.pop3Account;
+    account._forgetFolder(folderPath.id, false);
+    var name = folderPath.path || folderPath;
+    delete this.folderMessages[name];
   },
 
   addMessagesToFolder: function(folderPath, messages) {
     var transformedMessages = messages.map(function(message) {
-      // Generate an rfc822 message, prefixing on a fake 'received' line so that
-      // our INTERNALDATE detecting logic can be happy.
-      //
-      // XXX this currently requires the timezone to be the computer's local tz
-      // since we can't force a timezone offset into a Date object; it's locale
-      // dependent.
-      var msgString =
-        'Received: from 127.1.2.3 by 127.1.2.3; ' +
-        formatImapDateTime(message.date) + '\r\n' +
-        message.toMessageString();
+      // Generate an rfc822 message.
+      var msgString = message.toMessageString();
 
       var rep = {
         flags: [],
@@ -209,13 +178,26 @@ var TestFakeIMAPServerMixins = {
 
       return rep;
     });
-
-    var ret = this._backdoor({
-      command: 'addMessagesToFolder',
-      name: folderPath,
-      messages: transformedMessages
-    });
-    return ret;
+    if ((folderPath.path || folderPath) === 'INBOX') {
+      var ret = this._backdoor({
+        command: 'addMessagesToFolder',
+        name: folderPath,
+        messages: transformedMessages
+      });
+      return ret;
+    } else {
+      var account = this.testAccount.pop3Account;
+      var folderMeta = account.getFolderByPath(folderPath);
+      var storage = account.getFolderStorageForFolderId(folderMeta.id);
+      if (!folderMeta._TEST_pendingAdds) {
+        folderMeta._TEST_pendingAdds = [];
+      }
+      transformedMessages.forEach(function(obj) {
+        var msg = pop3.Pop3Client.parseMime(obj.msgString);
+        folderMeta._TEST_pendingAdds.push(msg);
+      }, this);
+      return null;
+    }
   },
 
   /**
@@ -223,10 +205,17 @@ var TestFakeIMAPServerMixins = {
    * messages is characterized by { date, subject }.
    */
   getMessagesInFolder: function(folderPath) {
-    return this._backdoor({
-      command: 'getMessagesInFolder',
-      name: folderPath
-    });
+    if ((folderPath.path || folderPath) === 'INBOX') {
+      return this._backdoor({
+        command: 'getMessagesInFolder',
+        name: folderPath
+      });
+    } else {
+      var name = folderPath.path || folderPath;
+      return (this.folderMessages[name] || []).map(function(msg) {
+        return {subject: msg.subject, date: msg.date};
+      });
+    }
   },
 
   /**
@@ -260,14 +249,38 @@ var TestFakeIMAPServerMixins = {
    *   @param[messages @listof[MailHeader]]{
    *     MailHeaders from which we can extract the message-id header values.
    *     Although the upstream caller may have a variant where it is not
-   *     provided from MailHeaders, it's not allowed to call into IMAP with
+   *     provided from MailHeaders, it's not allowed to call into POP3 with
    *     that.
    *   }
    * ]
    */
   deleteMessagesFromFolder: function(folderPath, messages) {
-    this.modifyMessagesInFolder(
-      folderPath, messages, ['\\Deleted'], null);
+    if ((folderPath.path || folderPath) === 'INBOX') {
+      return this._backdoor({
+        command: 'deleteMessagesFromFolder',
+        name: folderPath,
+        ids: messages.map(function(msg) { return msg.guid; })
+      });
+    } else {
+      var account = this.testAccount.pop3Account;
+      var folderMeta = account.getFolderByPath(folderPath);
+      var storage = account.getFolderStorageForFolderId(folderMeta.id);
+
+      if (!folderMeta._TEST_pendingHeaderDeletes) {
+        folderMeta._TEST_pendingHeaderDeletes = [];
+      }
+      messages.forEach(function(msg) {
+        folderMeta._TEST_pendingHeaderDeletes.push(msg);
+        var name = folderPath.path || folderPath;
+        this.folderMessages[name] =
+          (this.folderMessages[name] || []).filter(function(m) {
+            return m.header.guid !== msg.guid;
+          });
+      }, this);
+      return null;
+    }
+    // this.modifyMessagesInFolder(
+    //   folderPath, messages, ['\\Deleted'], null);
   },
 
   changeCredentials: function(newCreds) {
@@ -281,7 +294,7 @@ var TestFakeIMAPServerMixins = {
 
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testFakeIMAPServer: {
+  testFakePOP3Server: {
     type: $log.SERVER,
     topBilling: true,
 
@@ -306,7 +319,7 @@ exports.TESTHELPER = {
     LOGFAB,
   ],
   actorMixins: {
-    testFakeIMAPServer: TestFakeIMAPServerMixins,
+    testFakePOP3Server: TestFakePOP3ServerMixins,
   }
 };
 

@@ -800,7 +800,6 @@ MailBridge.prototype = {
 
       var folderStorage =
         this.universe.getFolderStorageForMessageSuid(msg.refSuid);
-
       var self = this;
       folderStorage.getMessage(
         msg.refSuid, msg.refDate, { withBodyReps: true }, function(res) {
@@ -809,7 +808,7 @@ MailBridge.prototype = {
           // cannot compose a reply/fwd message without a header/body
           return console.warn(
             'Cannot compose message missing header/body: ',
-            msg.suid
+            msg.refSuid
           );
         }
 
@@ -873,6 +872,7 @@ MailBridge.prototype = {
             referencesStr = '';
           }
           req.active = null;
+
           self.__sendMessage({
             type: 'composeBegun',
             handle: msg.handle,

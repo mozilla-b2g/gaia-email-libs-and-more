@@ -11,6 +11,18 @@ define(
   ) {
 
 /**
+ * The no-op operation for job operations that are not implemented.
+ * Returns successs in a future turn of the event loop.
+ */
+function unimplementedJobOperation(op, callback) {
+  window.setZeroTimeout(function() {
+    callback(null, null);
+  });
+}
+
+
+
+/**
  * @args[
  *   @param[op MailOp]
  *   @param[mode @oneof[
@@ -46,19 +58,24 @@ exports.runOp = function runOp(op, mode, callback) {
 
   var methodName = mode + '_' + op.type, self = this;
 
-  if (!(methodName in this._jobDriver)) {
+  // If the job driver doesn't support the operation, assume that it
+  // is a moot operation that will succeed. Assign it a no-op callback
+  // that completes in the next tick, so as to maintain job ordering.
+  var method = this._jobDriver[methodName];
+  if (!method) {
     console.warn('Unsupported op:', op.type, 'mode:', mode);
-    callback('failure-give-up');
-    return;
+    method = unimplementedJobOperation;
   }
 
   this._LOG.runOp_begin(mode, op.type, null, op);
   // _LOG supports wrapping calls, but we want to be able to strip out all
   // logging, and that wouldn't work.
   try {
-    this._jobDriver[methodName](op, function(error, resultIfAny,
-                                             accountSaveSuggested) {
+    method.call(this._jobDriver, op,
+    function(error, resultIfAny, accountSaveSuggested) {
       self._jobDriver.postJobCleanup(!error);
+      console.log('runOp_end(' + mode + ': ' +
+                  JSON.stringify(op).substring(0, 160) + ')\n');
       self._LOG.runOp_end(mode, op.type, error, op);
       // defer the callback to the next tick to avoid deep recursion
       window.setZeroTimeout(function() {

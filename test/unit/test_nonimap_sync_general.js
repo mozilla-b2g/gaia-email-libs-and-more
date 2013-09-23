@@ -14,11 +14,12 @@ define(['rdcommon/testcontext', './resources/th_main',
 const INITIAL_FILL_SIZE = 15;
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_general' }, null,
+  { id: 'test_nonimap_sync_general' }, null,
   [$th_main.TESTHELPER], ['app']);
 
-TD.commonCase('folder sync', function(T) {
+TD.commonCase('folder sync', function(T, RT) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
+  var type = RT.envOptions.type;
 
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
@@ -28,12 +29,12 @@ TD.commonCase('folder sync', function(T) {
 
   T.action(eSync, 'check initial folder list', testAccount, function() {
     eSync.expect_namedValue('inbox', {
-      syncKey: '0',
+      syncKey: (type === 'activesync' ? '0' : null),
       hasServerId: true
     });
     var folder = testAccount.account.getFirstFolderWithType('inbox');
     eSync.namedValue('inbox', {
-      syncKey: folder.syncKey,
+      syncKey: (type === 'activesync' ? folder.syncKey : null),
       hasServerId: folder.serverId !== null
     });
   });

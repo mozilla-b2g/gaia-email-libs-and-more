@@ -359,7 +359,6 @@ ActiveSyncJobDriver.prototype = {
         inboxStorage;
     if (inboxFolder && inboxFolder.serverId === null)
       inboxStorage = account.getFolderStorageForFolderId(inboxFolder.id);
-
     account.syncFolderList(function(err) {
       if (!err)
         account.meta.lastFolderSyncAt = Date.now();

@@ -132,6 +132,7 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
   type: 'activesync',
+  supportsServerFolders: true,
   toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
   },

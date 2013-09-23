@@ -9,6 +9,7 @@ define(
     '../a64',
     '../accountmixins',
     '../imap/account',
+    '../pop3/account',
     '../smtp/account',
     'exports'
   ],
@@ -18,14 +19,15 @@ define(
     $a64,
     $acctmixins,
     $imapacct,
+    $pop3acct,
     $smtpacct,
     exports
   ) {
 
 var PIECE_ACCOUNT_TYPE_TO_CLASS = {
   'imap': $imapacct.ImapAccount,
+  'pop3': $pop3acct.Pop3Account,
   'smtp': $smtpacct.SmtpAccount,
-  //'gmail-imap': GmailAccount,
 };
 
 /**
@@ -81,6 +83,9 @@ CompositeAccount.prototype = {
   toString: function() {
     return '[CompositeAccount: ' + this.id + ']';
   },
+  get supportsServerFolders() {
+    return this._receivePiece.supportsServerFolders;
+  },
   toBridgeWire: function() {
     return {
       id: this.accountDef.id,
@@ -107,12 +112,12 @@ CompositeAccount.prototype = {
         {
           type: this.accountDef.receiveType,
           connInfo: this.accountDef.receiveConnInfo,
-          activeConns: this._receivePiece.numActiveConns,
+          activeConns: this._receivePiece.numActiveConns || 0,
         },
         {
           type: this.accountDef.sendType,
           connInfo: this.accountDef.sendConnInfo,
-          activeConns: this._sendPiece.numActiveConns,
+          activeConns: this._sendPiece.numActiveConns || 0,
         }
       ],
     };

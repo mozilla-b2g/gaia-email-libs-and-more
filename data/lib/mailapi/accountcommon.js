@@ -26,6 +26,7 @@ var AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
 
 var Configurators = {
   'imap+smtp': './composite/configurator',
+  'pop3+smtp': './composite/configurator',
   'activesync': './activesync/configurator'
 };
 
@@ -66,6 +67,21 @@ var autoconfigByDomain = exports._autoconfigByDomain = {
   },
   'fakeimaphost': {
     type: 'imap+smtp',
+    incoming: {
+      hostname: 'localhost',
+      port: 0,
+      socketType: 'plain',
+      username: '%EMAILLOCALPART%',
+    },
+    outgoing: {
+      hostname: 'localhost',
+      port: 0,
+      socketType: 'plain',
+      username: '%EMAILLOCALPART%',
+    },
+  },
+  'fakepop3host': {
+    type: 'pop3+smtp',
     incoming: {
       hostname: 'localhost',
       port: 0,

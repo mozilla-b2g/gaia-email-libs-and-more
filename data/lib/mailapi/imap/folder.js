@@ -576,8 +576,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
             return;
           }
 
-          // if our estimate is greater then expected number of bytes request the
-          // maximum allowed.
+          // if our estimate is greater then expected number of bytes
+          // request the maximum allowed.
           if (rep.sizeEstimate > overallMaximumBytes) {
             bytesToFetch = overallMaximumBytes;
           }
@@ -670,8 +670,9 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
    */
   _handleBodyFetcher: function(fetcher, header, body, callback) {
     var event = {
-      changeType: 'bodyReps',
-      indexes: []
+      changeDetails: {
+        bodyReps: []
+      }
     };
 
     var self = this;
@@ -679,16 +680,20 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
     fetcher.onparsed = function(req, resp) {
       $imapchew.updateMessageWithFetch(header, body, req, resp, self._LOG);
 
-      if (req.createSnippet) {
-        self._storage.updateMessageHeader(
-          header.date,
-          header.id,
-          false,
-          header
-        );
-      }
+      header.bytesToDownloadForBodyDisplay =
+        $imapchew.calculateBytesToDownloadForImapBodyDisplay(body);
 
-      event.indexes.push(req.bodyRepIndex);
+      // Always update the header so that we can save
+      // bytesToDownloadForBodyDisplay, which will tell the UI whether
+      // or not we can show the message body right away.
+      self._storage.updateMessageHeader(
+        header.date,
+        header.id,
+        false,
+        header
+      );
+
+      event.changeDetails.bodyReps.push(req.bodyRepIndex);
     };
 
     fetcher.onerror = function(e) {

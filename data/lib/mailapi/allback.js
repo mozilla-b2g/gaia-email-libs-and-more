@@ -5,10 +5,12 @@
 
 define(
   [
-    'exports'
+    'exports',
+    'prim'
   ],
   function(
-    exports
+    exports,
+    prim
   ) {
 
 /**
@@ -55,5 +57,78 @@ exports.allbackMaker = function allbackMaker(names, allDoneCallback) {
 
   return callbacks;
 };
+
+
+/**
+ * A lightweight deferred 'run-all'-like construct for waiting for
+ * multiple callbacks to finish executing, with a final completion
+ * callback at the end. Neither promises nor Q provide a construct
+ * quite like this; Q.all and Promise.all tend to either require all
+ * promises to be created up front, or they return when the first
+ * error occurs. This is designed to allow you to wait for an unknown
+ * number of callbacks, with the knowledge that they're going to
+ * execute anyway -- no sense trying to abort early.
+ *
+ * Results passed to each callback can be passed along to the final
+ * result by adding a `name` parameter when calling latch.defer().
+ *
+ * Example usage:
+ *
+ * var latch = allback.latch();
+ * setTimeout(latch.defer('timeout1'), 200);
+ * var cb = latch.defer('timeout2');
+ * cb('foo');
+ * latch.then(function(results) {
+ *   console.log(results.timeout2[0]); // => 'foo'
+ * });
+ *
+ * The returned latch is an A+ Promises-compatible thennable, so you
+ * can chain multiple callbacks to the latch.
+ *
+ * The promise will never fail; it will always succeed. Each
+ * `.defer()` call can be passed a `name`; if a name is provided, that
+ * callback's arguments will be made available as a key on the result
+ * object.
+ *
+ * NOTE: The latch will not actually fire completion until you've
+ * attached a callback handler. This way, you can create the latch
+ * before you know how many callbacks you'll need; when you've called
+ * .defer() as many times as necessary, you can call `then()` to
+ * actually fire the completion function (when they have all
+ * completed).
+ */
+exports.latch = function() {
+  var ready = false;
+  var deferred = prim();
+  var results = {};
+  var count = 0;
+  function defer(name) {
+    count++;
+    var resolved = false;
+    return function resolve() {
+      if (resolved) { return; }
+      if (name) {
+        results[name] = Array.slice(arguments);
+      }
+      if (--count === 0) {
+        setZeroTimeout(function() {
+          deferred.resolve(results);
+        });
+      }
+    };
+  }
+  var unlatch = defer();
+  return {
+    defer: defer,
+    then: function () {
+      var ret = deferred.promise.then.apply(deferred.promise, arguments);
+      if (!ready) {
+        ready = true;
+        unlatch();
+      }
+      return ret;
+    }
+  };
+}
 
 }); // end define

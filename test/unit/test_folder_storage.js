@@ -1165,7 +1165,7 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
   });
 
   T.action('update with event', bodyLogger, function() {
-    var details = { changeType: 'bodyReps' };
+    var details = { changeDetails: { bodyReps: [] } };
 
     var expectedMessage = {
       suid: header.suid,

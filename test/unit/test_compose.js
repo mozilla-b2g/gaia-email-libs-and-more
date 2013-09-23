@@ -181,6 +181,15 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
     eLazy.expect_event('sent');
 
+    if (testAccount.type === 'pop3') {
+      RT.reportActiveActorThisStep(sentFolder.connActor);
+      RT.reportActiveActorThisStep(testStorage);
+      // pop3 doesn't save attachments here, it saves them on downloadBodyReps
+      sentFolder.connActor.expect_savedAttachment('sdcard', 'image/png', 256);
+      // adding a file sends created and modified
+      testStorage.expect_created('foo.png');
+      testStorage.expect_modified('foo.png');
+    }
     composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
       sentMessageId = debugInfo.messageId.slice(1, -1); // lose < > wrapping
       if (err)
@@ -215,11 +224,15 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
           mimetype: 'image/png',
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
-         }]);
-      testAccount.eJobDriver.expect_savedAttachment('sdcard', 'image/png', 256);
-      // adding a file sends created and modified
-      testStorage.expect_created('foo.png');
-      testStorage.expect_modified('foo.png');
+        }]);
+      if (testAccount.type !== 'pop3') {
+        // pop3 doesn't save attachments here, it saves them on downloadBodyReps
+        testAccount.eJobDriver.expect_savedAttachment(
+            'sdcard', 'image/png', 256);
+        // adding a file sends created and modified
+        testStorage.expect_created('foo.png');
+        testStorage.expect_modified('foo.png');
+      }
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(
@@ -279,7 +292,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.expect_namedValue(
         'received body text',
         'Antelope banana credenza.\n\nDialog excitement!');
-      if (testAccount.type === 'imap')
+      if (testAccount.type !== 'activesync')
         eLazy.expect_namedValue('source message-id', sentMessageId);
       // We are top-posting biased, so we automatically insert two blank lines;
       // one for typing to start at, and one for whitespace purposes.
@@ -301,7 +314,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
                                        address: TEST_PARAMS.emailAddress }]);
       eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
-      if (testAccount.type === 'imap')
+      if (testAccount.type !== 'activesync')
         eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
       else
         eLazy.expect_namedValue('references', '');
@@ -312,7 +325,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     withMessage: function(header) {
       header.getBody({ withBodyReps: true }, function(body) {
         eLazy.namedValue('received body text', body.bodyReps[0].content[1]);
-        if (testAccount.type === 'imap')
+        if (testAccount.type !== 'activesync')
           eLazy.namedValue('source message-id', header.guid);
         replyComposer = header.replyToMessage('sender', function() {
           eLazy.event('reply setup completed');
@@ -361,24 +374,22 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
 
-      if (testAccount.type === 'imap') {
+      if (testAccount.type === 'activesync') {
+        eLazy.expect_event('ActiveSync is bad for threading');
+      } else {
         eLazy.expect_namedValue('replied message-id', replyMessageId);
         eLazy.expect_namedValue('replied references', replyReferences);
-      }
-      else {
-        eLazy.expect_event('ActiveSync is bad for threading');
       }
     },
     withMessage: function(header) {
       replyHeader = header;
-      if (testAccount.type === 'imap') {
+      if (testAccount.type === 'activesync') {
+        eLazy.event('ActiveSync is bad for threading');
+      } else {
         eLazy.namedValue('replied message-id', header.guid);
         header.getBody(function(repliedBody) {
           eLazy.namedValue('replied references', repliedBody._references);
         });
-      }
-      else {
-        eLazy.event('ActiveSync is bad for threading');
       }
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
@@ -449,7 +460,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     expect: function() {
       RT.reportActiveActorThisStep(eLazy);
 
-      if (testAccount.type === 'imap') {
+      if (testAccount.type !== 'activesync') {
         eLazy.expect_namedValue('replied message-id', secondReplyMessageId);
         eLazy.expect_namedValue('replied references', secondReplyReferences);
       }
@@ -459,7 +470,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     },
     withMessage: function(header) {
       replyHeader = header;
-      if (testAccount.type === 'imap') {
+      if (testAccount.type !== 'activesync') {
         eLazy.namedValue('replied message-id', header.guid);
         header.getBody(function(body) {
           eLazy.namedValue('replied references', body._references);
@@ -778,7 +789,7 @@ TD.commonCase('bcc self', function(T, RT) {
         'bcc',
         // IMAP (except gmail where we will error) can report BCC addresses,
         // but ActiveSync can't report BCC contents.
-        TEST_PARAMS.type === 'imap' ?
+        TEST_PARAMS.type !== 'activesync' ?
           [{ name: 'Myself', address: TEST_PARAMS.emailAddress,
              contactId: null }] : null);
     },

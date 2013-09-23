@@ -478,7 +478,7 @@ const ENVIRON_MAPPINGS = [
     envVar: 'GELAM_TEST_PASSWORD',
     coerce: function (x) { return x; },
   },
-  // 'imap' or 'activesync'
+  // 'imap' or 'pop3' or 'activesync'
   {
     name: 'type',
     envVar: 'GELAM_TEST_ACCOUNT_TYPE',
@@ -1005,9 +1005,6 @@ function _runTestFile(testFileName, variant, controlServer) {
   // Parameters to pass into the test.
   var testParams;
   switch (variant) {
-    case 'noserver':
-      testParams = {};
-      break;
     case 'imap:fake':
       testParams = {
         name: 'Baron von Testendude',
@@ -1015,6 +1012,19 @@ function _runTestFile(testFileName, variant, controlServer) {
         password: 'testy',
         slow: false,
         type: 'imap',
+
+        defaultArgs: true,
+
+        controlServerBaseUrl: controlServer.baseUrl,
+      };
+      break;
+    case 'pop3:fake':
+      testParams = {
+        name: 'Baron von Testendude',
+        emailAddress: 'testy@fakepop3host',
+        password: 'testy',
+        slow: false,
+        type: 'pop3',
 
         defaultArgs: true,
 
@@ -1040,6 +1050,16 @@ function _runTestFile(testFileName, variant, controlServer) {
       break;
     case 'activesync:real':
       testParams = TEST_PARAMS;
+      break;
+    case 'imap:noserver':
+      testParams = {type: 'imap'};
+      break;
+    case 'pop3:noserver':
+      testParams = {type: 'pop3'};
+      break;
+    case 'noserver':
+    default:
+      testParams = {};
       break;
   }
 

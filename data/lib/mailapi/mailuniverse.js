@@ -2,7 +2,6 @@
  *
  **/
 /*global define, console, window, Blob */
-
 define(
   [
     'rdcommon/log',
@@ -140,8 +139,8 @@ function makeBridgeFn(bridgeMethod) {
  *   }
  *   @key[identities @listof[IdentityDef]]
  *
- *   @key[type @oneof['imap+smtp' 'activesync']]
- *   @key[receiveType @oneof['imap' 'activesync']]
+ *   @key[type @oneof['pop3+smtp' 'imap+smtp' 'activesync']]
+ *   @key[receiveType @oneof['pop3' 'imap' 'activesync']]
  *   @key[sendType @oneof['smtp' 'activesync']]
  *   @key[receiveConnInfo ConnInfo]
  *   @key[sendConnInfo ConnInfo]
@@ -1083,6 +1082,7 @@ MailUniverse.prototype = {
 
   _localOpCompleted: function(account, op, err, resultIfAny,
                               accountSaveSuggested) {
+
     var queues = this._opsByAccount[account.id],
         serverQueue = queues.server,
         localQueue = queues.local;
@@ -1165,6 +1165,11 @@ MailUniverse.prototype = {
       op = serverQueue[0];
       this._dispatchServerOpForAccount(account, op);
     }
+    else if (this._opCompletionListenersByAccount[account.id]) {
+      this._opCompletionListenersByAccount[account.id](account);
+      this._opCompletionListenersByAccount[account.id] = null;
+    }
+
   },
 
   /**
@@ -1430,6 +1435,8 @@ MailUniverse.prototype = {
     if (optionalCallback)
       this._opCallbacks[op.longtermId] = optionalCallback;
 
+
+
     // - Enqueue
     var queues = this._opsByAccount[account.id];
     // Local processing needs to happen if we're not in the right local state.
@@ -1669,8 +1676,14 @@ MailUniverse.prototype = {
         type: 'append',
         longtermId: null,
         lifecycle: 'do',
-        localStatus: 'done',
-        serverStatus: null,
+        // XXX supportsServerFolders is a bit of a misnomer in this
+        // case; we are doing this to make the unit tests happy.
+        // ActiveSync does not support appending messages via the
+        // ActiveSync protocol, but it supports server folders. POP3
+        // doesn't support anything. Changing this will result in some
+        // hassle we don't want to deal with right now.
+        localStatus: (account.supportsServerFolders ? 'done' : null),
+        serverStatus: (account.supportsServerFolders ? null : 'n/a'),
         tryCount: 0,
         humanOp: 'append',
         messages: messages,
