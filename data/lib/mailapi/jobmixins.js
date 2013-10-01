@@ -318,8 +318,12 @@ exports.do_download = function(op, callback) {
     folderStorage.updateMessageBody(
       header, bodyInfo,
       { flushBecause: 'blobs' },
+      {
+        changeType: 'attachments',
+        indexes: op.attachmentIndices,
+      },
       function() {
-        callback(downloadErr, bodyInfo, true);
+        callback(downloadErr, null, true);
       });
   };
 

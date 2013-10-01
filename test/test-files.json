@@ -127,6 +127,10 @@
       "variants": ["noserver"]
     },
 
+    "test_b64_unit.js": {
+      "variants": ["noserver"]
+    },
+
     "test_html_escaping_unit.js": {
       "variants": ["noserver"]
     },

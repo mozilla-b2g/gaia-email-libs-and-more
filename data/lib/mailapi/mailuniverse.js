@@ -1712,8 +1712,29 @@ MailUniverse.prototype = {
     );
   },
 
+  /**
+   * Remove an attachment from a draft.  This will not interrupt an active
+   * attaching operation or moot a pending one.  This is a local-only operation.
+   */
   detachAttachmentFromDraft: function(account, existingNamer, attachmentIndex,
                                       callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'detachAttachmentFromDraft',
+        // This is currently non-persisted for symmetry with attachBlobToDraft
+        // but could be persisted if we wanted.
+        longtermId: 'session',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'detachAttachmentFromDraft',
+        existingNamer: existingNamer,
+        attachmentIndex: attachmentIndex
+      },
+      callback
+    );
   },
 
   /**
@@ -1744,7 +1765,17 @@ MailUniverse.prototype = {
         tryCount: 0,
         humanOp: 'saveDraft',
         existingNamer: existingNamer,
-        draftRep: draftRep
+        draftRep: draftRep,
+        // There are really 3 possible values we could use for this; when the
+        // front-end initiates the draft saving, when we, the back-end
+        // observe and enqueue the request (now), or when the draft actually
+        // gets saved to disk.
+        //
+        // This value does get surfaced to the user, so we ideally want it to
+        // occur within a few seconds of when the save is initiated.  We do
+        // this here right now because we have access to $date, and we should
+        // generally be timely about receiving messages.
+        draftDate: $date.NOW(),
       },
       callback
     );

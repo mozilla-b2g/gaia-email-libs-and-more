@@ -599,9 +599,10 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     },
     // trigger the reply composer
     withMessage: function(header) {
-      testAccount.getMessageBodyWithReps(header, function(body) {
+      header.getBody({ withBodyReps: true }, function(body) {
         eCheck.namedValue('rep type', body.bodyReps[0].type);
         eCheck.namedValue('rep', body.bodyReps[0].content);
+        body.die();
       });
     }
   });

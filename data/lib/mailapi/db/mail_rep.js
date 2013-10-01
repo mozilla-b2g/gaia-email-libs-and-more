@@ -51,7 +51,7 @@ define(function(require) {
  *   @key[date DateMS]
  *   @key[flags @listof[String]]
  *   @key[hasAttachments Boolean]
- *   @key[subject String]
+ *   @key[subject @oneof [String null]]
  *   @key[snippet @oneof[
  *     @case[null]{
  *       We haven't tried to generate a snippet yet.
@@ -79,9 +79,13 @@ function makeHeaderInfo(raw) {
     throw new Error('No author?!');
   if (!raw.date)
     throw new Error('No date?!');
+  // Numeric 0 is a valid value, so a null-check is the right thing to do here;
+  // absolutely no '||' fail-over!
+  if (raw.id == null)
+    throw new Error('No id?!');
 
   return {
-    id: raw.id || null,
+    id: raw.id,
     srvid: raw.srvid || null,
     suid: raw.suid || null,
     guid: raw.guid || null,
@@ -93,8 +97,9 @@ function makeHeaderInfo(raw) {
     date: raw.date,
     flags: raw.flags || [],
     hasAttachments: raw.hasAttachments || false,
-    subject: raw.subject || null,
-    snippet: raw.snippet || null
+    // These can be empty strings which are falsey, so no ||
+    subject: (raw.subject != null) ? raw.subject : null,
+    snippet: (raw.snippet != null) ? raw.snippet : null
   };
 }
 
@@ -181,7 +186,7 @@ function makeBodyInfo(raw) {
  */
 function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
-  if (raw.type !== 'text' &&
+  if (raw.type !== 'plain' &&
       raw.type !== 'html')
     throw new Error('Bad body type: ' + raw.type);
   // 0 is an okay body size, but not giving us a guess is not!

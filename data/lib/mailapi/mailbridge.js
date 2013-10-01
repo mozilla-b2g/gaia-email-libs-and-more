@@ -490,7 +490,6 @@ MailBridge.prototype = {
         // aggregate pending notifications while fetching the bodies so updates
         // never come before the actual body.
         var emit = handles[handle] || defaultHandler;
-
         emit.call(this, {
           type: 'bodyModified',
           handle: handle,
@@ -705,11 +704,10 @@ MailBridge.prototype = {
     var self = this;
     this.universe.downloadMessageAttachments(
       msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
-      function(err, bodyInfo) {
+      function(err) {
         self.__sendMessage({
           type: 'downloadedAttachments',
-          handle: msg.handle,
-          bodyInfo: err ? null : bodyInfo
+          handle: msg.handle
         });
       });
   },
@@ -766,7 +764,7 @@ MailBridge.prototype = {
 
 
   _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
-    require(['./composer'], function ($composer) {
+    require(['mailapi/drafts/composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle] = {
         type: 'compose',
         active: 'begin',
@@ -1022,7 +1020,7 @@ MailBridge.prototype = {
    * told about attachments via their Blobs.
    */
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
-    require(['./composer'], function ($composer) {
+    require(['mailapi/drafts/composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle], self = this;
       if (!req)
         return;

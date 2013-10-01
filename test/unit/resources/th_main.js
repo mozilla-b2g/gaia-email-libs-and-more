@@ -975,18 +975,15 @@ var TestCommonAccountMixins = {
   },
 
   /**
-   * Currently IMAP will fetch the contents and then notify the client via an
-   * update event where as AS sends everything at once... This may be change
-   * soon but this provides a wrapper to wait for the bodies .onchange event for
-   * the bodyReps if they are not downloaded at the time...
-   *
-   * This function can optionally also fetch the body on the main thread
-   * context as well, and remote a function across that will be run there with
-   * the message body passed-in.
+   * A wrapper around mailHeader.getBody({withBodyReps: true}) that will also
+   * remote a request to fetch the body to the main thread where test logic that
+   * needs to be on the main thread (ex: instantiating DOM elements or using the
+   * HTML parser) can run.  Just use mailHeader.getBody({withBodyReps}) if you
+   * don't need the main-thread stuff.
    *
    *    var myHeader;
    *
-   *    testAccount.getMessageBodyWithReps(
+   *    testAccount.getMessageBodyOnMainThread(
    *      myHeader,
    *      function workerThreadTestContextFunc(body) {
    *      },
@@ -999,9 +996,9 @@ var TestCommonAccountMixins = {
    *      });
    *
    */
-  getMessageBodyWithReps: function(myHeader, callback,
-                                   mainThreadArg, onMainThreadFunc,
-                                   withMainThreadResults) {
+  getMessageBodyOnMainThread: function(myHeader, callback,
+                                       mainThreadArg, onMainThreadFunc,
+                                       withMainThreadResults) {
     var testUniverse = this.testUniverse;
     if (onMainThreadFunc) {
       testUniverse.ensureMainThreadMailAPI();
@@ -1024,24 +1021,9 @@ var TestCommonAccountMixins = {
         });
     }
 
-    myHeader.getBody({ downloadBodyReps: true }, function(body) {
-      // wait for all body reps if they are not here...
-      var needBodReps = body.bodyReps.some(function(item) {
-        return !item.isDownloaded;
-      });
-
-      if (needBodReps) {
-        body.onchange = function(evt) {
-          if (evt.changeType === 'bodyReps') {
-            callback(body);
-            sendToMain();
-          }
-        };
-
-      } else {
-        callback(body);
-        sendToMain();
-      }
+    myHeader.getBody({ withBodyReps: true }, function(body) {
+      callback(body);
+      sendToMain();
     });
   },
 
@@ -1131,6 +1113,14 @@ var TestCommonAccountMixins = {
    *         does suggest either we move to using 2 different keys or have the
    *         value for local be 'local'.
    *       }
+   *     ]]
+   *     @key[flushBodySave #:default @oneof[
+   *       @case['server']{
+   *       }
+   *     ]]{
+   *       Does a flush-body save occur?  If so, when?  This happens when we
+   *       need to put a Blob in the database and then want to immediately
+   *       re-fetch it so we can free the in-memory Blob.
    *     }
    *     @key[conn #:default false @oneof[false true 'deadconn']{
    *       Expect a connection to be aquired if truthy.  Expect the conncetion
@@ -1162,6 +1152,8 @@ var TestCommonAccountMixins = {
     var saveCmd = checkFlagDefault(flags, 'save', false);
     var localSave = (saveCmd === true || saveCmd === 'both');
     var serverSave = (saveCmd === 'server' || saveCmd === 'both');
+    var flushBodyServerSave =
+          checkFlagDefault(flags, 'flushBodySave') === 'server';
 
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
@@ -1175,6 +1167,8 @@ var TestCommonAccountMixins = {
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
+    if (flushBodyServerSave)
+      this.eOpAccount.expect_saveAccountState('flushBody');
     // - conn, (conn) release
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('help_expect_connection' in this)) {

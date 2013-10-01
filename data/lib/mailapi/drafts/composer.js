@@ -5,8 +5,8 @@
 define(
   [
     'mailcomposer',
-    './mailchew',
-    './util',
+    'mailapi/mailchew',
+    'mailapi/util',
     'exports'
   ],
   function(

@@ -257,7 +257,7 @@ MailFolder.prototype = {
   },
   toJSON: function() {
     return {
-      type: 'MailFolder',
+      type: this.type,
       path: this.path
     };
   },
@@ -1723,6 +1723,9 @@ MessageComposition.prototype = {
    * IndexedDB database.  In the event of a crash during this time window,
    * the attachment will effectively have not been attached.  Our logic will
    * discard the partially-translated attachment when de-persisting the draft.
+   * We will, however, create an entry in the attachments array immediately;
+   * we also return it to you.  You should be able to safely call
+   * removeAttachment with it regardless of what has happened on the backend.
    *
    * The caller *MUST* forget all references to the Blob that is being attached
    * after issuing this call.
@@ -1739,7 +1742,16 @@ MessageComposition.prototype = {
     if (!this.hasDraft)
       this.saveDraft();
     this._api._composeAttach(this._handle, attachmentDef);
-    this.attachments.push(attachmentDef);
+
+    var placeholderAttachment = {
+      name: attachmentDef.name,
+      blob: {
+        size: attachmentDef.blob.name,
+        type: attachmentDef.blob.type
+      }
+    };
+    this.attachments.push(placeholderAttachment);
+    return placeholderAttachment;
   },
 
   /**

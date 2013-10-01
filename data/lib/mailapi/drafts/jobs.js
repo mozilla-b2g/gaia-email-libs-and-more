@@ -4,27 +4,28 @@
 
 define(function(require, exports) {
 
+var draftRep = require('mailapi/drafts/draft_rep');
+
 ////////////////////////////////////////////////////////////////////////////////
 // attachBlobToDraft
 //
 //
 
 /**
- * Asynchronously fetch the contents of a Blob, returning a binary string.
+ * Asynchronously fetch the contents of a Blob, returning a Uint8Array.
  * Exists because there is no FileReader in Gecko workers and this totally
  * works.  In discussion, it sounds like :sicking wants to deprecate the
  * FileReader API anyways.
  *
- * Our consumer in this case wants a binary string so we can easily do
- * window.btoa() on it.  Blobs are out by definition, arraybuffers don't really
- * help.  Everything else is more structured.  moz-chunked-text is workable but
- * is non-standard and creates bounary conditions for our consumer because it
- * works in chunks.
+ * Our consumer in this case is our specialized base64 encode that wants a
+ * Uint8Array since that is more compactly represented than a binary string
+ * would be.
  */
-function asyncFetchBlobAsBinaryString(blob, callback) {
+function asyncFetchBlobAsUint8Array(blob, callback) {
   var blobUrl = URL.createObjectURL(blob);
   var xhr = new XMLHttpRequest();
   xhr.open('GET', blobUrl, true);
+  xhr.responseType = 'arraybuffer';
   // binary string, regardless of the source
   xhr.overrideMimeType('text\/plain; charset=x-user-defined');
   xhr.onload = function() {
@@ -33,7 +34,7 @@ function asyncFetchBlobAsBinaryString(blob, callback) {
       callback(xhr.status);
       return;
     }
-    callback(null, xhr.responseText);
+    callback(null, new Uint8Array(xhr.response));
   };
   xhr.onerror = function() {
     callback('error');
@@ -43,6 +44,23 @@ function asyncFetchBlobAsBinaryString(blob, callback) {
 }
 
 /**
+ * How big a chunk of an attachment should we encode in a single read?  Because
+ * we want our base64-encoded lines to be 76 bytes long (before newlines) and
+ * there's a 4/3 expansion factor, we want to read a multiple of 57 bytes.
+ *
+ * Right now I'm choosing the largest value just under 1MiB, calculated via:
+ * Math.floor(1024 * 1024 / 57) = 18396.  The encoded size of this ends up to be
+ * 18396 * 78 which is ~1.37 MiB.  So together that's ~2.5 megs if we don't
+ * generate a ton of garbage by creating a lot of intermediary strings.
+ *
+ * This seems reasonable given goals of not requiring the GC to run after every
+ * block and not having us tie up the CPU too long during our encoding.
+ */
+var BLOB_BASE64_BATCH_CONVERT_SIZE = 18396 * 57;
+
+
+
+/**
  * Incrementally convert an attachment into its base64 encoded attachment form
  * which we save in chunks to IndexedDB to avoid using too much memory now or
  * during the sending process.
@@ -50,7 +68,10 @@ function asyncFetchBlobAsBinaryString(blob, callback) {
  * - Retrieve the body the draft is persisted to,
  * - Repeat until the attachment is fully attached:
  *   - take a chunk of the source attachment
- *   - base64 encode it into a Blob
+ *   - base64 encode it into a Blob by creating a Uint8Array and manually
+ *     encoding into that.  (We need to put a \r\n after every 76 bytes, and
+ *     doing that using window.btoa is going to create a lot of garbage. And
+ *     addressing that is no longer premature optimization.)
  *   - update the body with that Blob
  *   - trigger a save of the account so that IndexedDB writes the account to
  *     disk.
@@ -71,11 +92,11 @@ exports.local_do_attachBlobToDraft = function(op, callback) {
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
-
+      var wholeBlob = op.attachmenDef.blob;
       var nextOffset = 0;
 
       function convertNextChunk() {
-        var slicedBlob =
+        var slicedBlob = XXXX; // NEEEEEEEEEEEEEEXT
 
         if (--waitingFor === 0) {
           callback(
@@ -121,6 +142,31 @@ exports.undo_attachBlobToDraft = function(op, callback) {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
+// detachAttachmentFromDraft
+
+exports.local_do_detachAttachmentFromDraft = function(op, callback) {
+  callback(null);
+};
+
+exports.do_detachAttachmentFromDraft = function(op, callback) {
+  // there is no server component for this at this time.
+  callback(null);
+};
+
+exports.check_detachAttachmentFromDraft = function(op, callback) {
+  callback(null);
+};
+
+exports.local_undo_detachAttachmentFromDraft = function(op, callback) {
+  callback(null);
+};
+
+exports.undo_detachAttachmentFromDraft = function(op, callback) {
+  callback(null);
+};
+
+
+////////////////////////////////////////////////////////////////////////////////
 // saveDraft
 
 /**
@@ -138,32 +184,48 @@ exports.local_do_saveDraft = function(op, callback) {
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
-      function next() {
-        if (--waitingFor === 0) {
+      // there's always a header add and a body add
+      var waitingForDbMods = 2;
+      function gotMessage(oldRecords) {
+        var newId = folderStorage._issueNewHeaderId();
+        var newRecords = draftRep.mergeDraftStates(
+          oldRecords.header, oldRecords.body,
+          op.draftRep,
+          {
+            id: newId,
+            suid: folderStorage.folderId + '/' + newId,
+            date: op.draftDate
+          });
+
+        // If there already was a draft saved, delete it.
+        // Note that ordering of the removal and the addition doesn't really
+        // matter here because of our use of transactions.
+        if (op.existingNamer) {
+          waitingForDbMods++;
+          folderStorage.deleteMessageHeaderAndBody(
+            op.existingNamer.suid, op.existingNamer.date, dbModCompleted);
+        }
+
+        folderStorage.addMessageHeader(header, dbModCompleted);
+        folderStorage.addMessageBody(header, body, dbModCompleted);
+      }
+
+      function dbModCompleted() {
+        if (--waitingForDbMods === 0) {
           callback(
             null,
             { suid: header.suid, date: header.date },
             /* save account */ true);
         }
       }
-      var waitingFor = 2;
 
-      var header = op.header, body = op.body;
-      // fill-in header id's
-      header.id = folderStorage._issueNewHeaderId();
-      header.suid = folderStorage.folderId + '/' + header.id;
-
-      // If there already was a draft saved, delete it.
-      // Note that ordering of the removal and the addition doesn't really
-      // matter here because of our use of transactions.
       if (op.existingNamer) {
-        waitingFor++;
-        folderStorage.deleteMessageHeaderAndBody(
-          op.existingNamer.suid, op.existingNamer.date, next);
+        folderStorage.getMessage(
+          op.existingNamer.suid, op.existingNamer.date, null, gotMessage);
       }
-
-      folderStorage.addMessageHeader(header, next);
-      folderStorage.addMessageBody(header, body, next);
+      else {
+        gotMessage({ header: null, body: null });
+      }
     },
     /* no conn => no deathback required */ null,
     'saveDraft');

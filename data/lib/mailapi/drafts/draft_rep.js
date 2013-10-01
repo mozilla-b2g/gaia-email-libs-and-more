@@ -4,7 +4,8 @@
  * Drafts are saved to folder storage and look almost exactly like received
  * messages.  The primary difference is that attachments that are in the
  * process of being attached are stored in an `attaching` field on the
- * `BodyInfo` instance and that they are discarded on load
+ * `BodyInfo` instance and that they are discarded on load if still present
+ * (indicating a crash/something like a crash during the save process).
  *
  **/
 

@@ -510,7 +510,8 @@ ActiveSyncFolderConn.prototype = {
             break;
           case as.ApplicationData:
             try {
-              msg = folderConn._parseMessage(child, node.tag === as.Add);
+              msg = folderConn._parseMessage(child, node.tag === as.Add,
+                                             storage);
             }
             catch (ex) {
               // If we get an error, just log it and skip this message.
@@ -521,13 +522,7 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        if (node.tag === as.Add) {
-          msg.header.id = id = storage._issueNewHeaderId();
-          msg.header.suid = folderConn._storage.folderId + '/' + id;
-          msg.header.guid = '';
-        }
         msg.header.srvid = guid;
-        // XXX need to get the message's message-id header value!
 
         var collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
@@ -596,7 +591,7 @@ ActiveSyncFolderConn.prototype = {
    *   changed one
    * @return {object} An object containing the header and body for the message
    */
-  _parseMessage: function asfc__parseMessage(node, isAdded) {
+  _parseMessage: function asfc__parseMessage(node, isAdded, storage) {
     var em = $Email.Tags;
     var asb = $AirSyncBase.Tags;
     var asbEnum = $AirSyncBase.Enums;
@@ -604,12 +599,16 @@ ActiveSyncFolderConn.prototype = {
     var header, body, flagHeader;
 
     if (isAdded) {
+      var newId = storage._issueNewHeaderId();
       // note: these will be passed through mailRep.make* later
       header = {
-        id: null,
+        id: newId,
+        // This will be fixed up afterwards for control flow paranoia.
         srvid: null,
-        suid: null,
-        guid: null,
+        suid: storage.folderId + '/' + newId,
+        // ActiveSync does not/cannot tell us the Message-ID header unless we
+        // fetch the entire MIME body
+        guid: '',
         author: null,
         to: null,
         cc: null,
