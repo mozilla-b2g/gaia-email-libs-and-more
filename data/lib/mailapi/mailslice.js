@@ -4227,11 +4227,19 @@ FolderStorage.prototype = {
    *   memory management.  There are currently no extenuating circumstances
    *   where you should lie to us about this.
    *
+   *   This inherently causes saveAccountState to be invoked, so callers should
+   *   sanity-check they aren't doing something weird to the database that could
+   *   cause a non-coherent state to appear.
+   *
    *   If you pass a value for this, you *must* forget your reference to the
    *   bodyInfo you pass in in order for our garbage collection to work!
    * @param eventDetails {Object}
    *   An event details object that describes the changes being made to the
    *   body representation.  This object will be directly reported to clients.
+   *   If omitted, no event will be generated.  Only do this if you're doing
+   *   something that should not be made visible to anything; like while the
+   *   process of attaching
+   *
    *   Please be sure to document everything here for now.
    * @param eventDetails.changeType {'bodyReps'|'attachments'|'relatedParts'}
    *   If body parts were downloaded or otherwise affected, 'bodyReps'.
@@ -4249,7 +4257,8 @@ FolderStorage.prototype = {
    *   were changed.
    * @param callback {Function}
    *   A callback to be invoked after the body has been updated and after any
-   *   body change notifications have been handed off to the MailUniverse.
+   *   body change notifications have been handed off to the MailUniverse.  The
+   *   callback receives a reference to the updated BodyInfo object.
    */
   updateMessageBody: function(header, bodyInfo, options, eventDetails,
                               callback) {

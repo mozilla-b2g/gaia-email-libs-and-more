@@ -4,12 +4,12 @@
 
 define(function(require, exports) {
 
+var mailRep = require('mailapi/db/mail_rep');
 var draftRep = require('mailapi/drafts/draft_rep');
+var b64 = require('mailapi/b64');
 
 ////////////////////////////////////////////////////////////////////////////////
 // attachBlobToDraft
-//
-//
 
 /**
  * Asynchronously fetch the contents of a Blob, returning a Uint8Array.
@@ -20,6 +20,9 @@ var draftRep = require('mailapi/drafts/draft_rep');
  * Our consumer in this case is our specialized base64 encode that wants a
  * Uint8Array since that is more compactly represented than a binary string
  * would be.
+ *
+ * @param blob {Blob}
+ * @param callback {Function(err, Uint8Array)}
  */
 function asyncFetchBlobAsUint8Array(blob, callback) {
   var blobUrl = URL.createObjectURL(blob);
@@ -58,8 +61,6 @@ function asyncFetchBlobAsUint8Array(blob, callback) {
  */
 var BLOB_BASE64_BATCH_CONVERT_SIZE = 18396 * 57;
 
-
-
 /**
  * Incrementally convert an attachment into its base64 encoded attachment form
  * which we save in chunks to IndexedDB to avoid using too much memory now or
@@ -93,18 +94,69 @@ exports.local_do_attachBlobToDraft = function(op, callback) {
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
       var wholeBlob = op.attachmenDef.blob;
-      var nextOffset = 0;
 
-      function convertNextChunk() {
-        var slicedBlob = XXXX; // NEEEEEEEEEEEEEEXT
+      // - Retrieve the message
+      var header, body;
+      folderStorage.getMessage(
+        op.existingNamer.suid, op.existingNamer.date, {}, gotMessage);
+      function gotMessage(records) {
+        header = records.header;
+        body = records.body;
 
-        if (--waitingFor === 0) {
-          callback(
-            null,
-            { suid: header.suid, date: header.date },
-            /* save account */ true);
+        if (!header || !body) {
+          // No header/body suggests either some major invariant is busted or
+          // one or more UIs issued attach commands after the draft was mooted.
+          callback('failure-give-up');
+          return;
         }
+
+        body.attaching = mailRep.makeAttachmentPart({
+          name: op.attachmentDef.name,
+          type: wholeBlob.type,
+          sizeEstimate: wholeBlob.size,
+          // this is where we put the Blob segments...
+          file: [],
+        });
       }
+
+      var blobOffset = 0;
+      function convertNextChunk() {
+        // - Done?
+        if (blobOffset >= wholeBlob.size) {
+        }
+
+        var nextOffset = Math.min(wholeBlob.size,
+                                  blobOffset + BLOB_BASE64_BATCH_CONVERT_SIZE);
+        var slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
+        blobOffset = nextOffset;
+
+        asyncFetchBlobAsUint8Array(slicedBlob, gotChunk);
+      }
+
+      function gotChunk(binaryDataU8) {
+        var lastChunk = (blobOffset >= wholeBlob.size);
+
+        var encodedU8 = b64.mimeStyleBase64Encode(binaryDataU8);
+        body.attaching.file.push(new Blob(encodedU8, wholeBlob.type));
+
+        if (lastChunk) {
+          var superBlob = new Blob(body.attaching.file, wholeBlob.type);
+          var attachmentIndex = body.attachments.length;
+          body.attachments.push(body.attaching);
+          delete body.attaching; // bad news for shapes, but drafts are rare.
+        }
+        else {
+        }
+
+        folderStorage.updateMessageBody(
+          header, body, { flushBecause: 'blobs' },
+          wholeBlob ? {
+      }
+
+      function bodyUpdated(newBodyInfo) {
+      }
+
+
       var waitingFor = 2;
 
       var header = op.header, body = op.body;

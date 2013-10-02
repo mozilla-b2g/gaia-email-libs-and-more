@@ -119,7 +119,8 @@ function makeHeaderInfo(raw) {
  *   @key[attaching #:optional AttachmentInfo]{
  *     Because of memory limitations, we need to encode and attach attachments
  *     in small pieces.  An attachment in the process of being attached is
- *     stored here until fully processed.
+ *     stored here until fully processed.  Its 'file' field contains a list of
+ *     Blobs.
  *   }
  *   @key[attachments @listof[AttachmentInfo]]{
  *     Proper attachments for explicit downloading.
@@ -267,7 +268,7 @@ function makeAttachmentPart(raw) {
     // XXX ActiveSync may leave this null, although it's conceivable the
     // server might do normalization to save us.  This needs a better treatment.
     // IMAP generates a made-up name for us if there isn't one.
-    name: raw.name || null,
+    name: (raw.name != null) ? raw.name : null,
     contentId: raw.contentId || null,
     type: raw.type || 'application/octet-stream',
     part: raw.part || null,
