@@ -376,8 +376,6 @@ TD.commonCase('successful activesync autodiscover.domain autodiscovery',
         status: 404 },
       { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
         status: 404 },
-      // if we return a 404, we won't try the second autodiscover location, so
-      // return some XML.
       { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
         method: 'POST', data: gibberishXML },
       { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
@@ -390,6 +388,34 @@ TD.commonCase('successful activesync autodiscover.domain autodiscovery',
     });
 });
 
+/**
+ * Auth failure (401: bad-user-or-pass) in autodiscover process ends the
+ * autoconfig process.  Note that this is different from the 403 case (see
+ * below) where we keep going because 403 has been used to indicate that the
+ * user needs to pay money to use ActiveSync but can use IMAP for free.
+ */
+TD.commonCase('ActiveSync autodiscover 401 tries ISPDB but fails',
+              function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      // here's the autodiscover failure!
+      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 401 },
+    ],
+    {
+      error: 'bad-user-or-pass',
+      config: null,
+      errorDetails: {},
+    });
+});
 
 /**
  * ISPDB lookup found the domain and told us IMAP.
@@ -407,6 +433,40 @@ TD.commonCase('successful ISPDB IMAP', function(T, RT) {
         method: 'POST', status: 404 },
       { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
         method: 'POST', status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        data: goodImapXML },
+    ],
+    {
+      error: null,
+      config: goodImapConfig,
+      errorDetails: null,
+    });
+});
+
+/**
+ * Verify that even if there is an ActiveSync autodiscover mechanism that fails
+ * to auth us that we keep going to perform a successful ISPDB IMAP lookup.
+ * This is the case for t-online.de right now where ActiveSync is provided as
+ * a premium service but free IMAP is available.  (Note that we are also
+ * going to address the t-online.de case by using a local config XML since we
+ * prefer to use IMAP over ActiveSync.)
+ */
+TD.commonCase('ActiveSync auth failure followed by successful ISPDB IMAP',
+              function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      // for t-online.de, there is no server at the base domain
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 'error' },
+      // 403 is 'not-authorized'
+      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 403 },
       { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
         data: goodImapXML },
     ],
@@ -564,6 +624,45 @@ TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
       error: 'no-config-info',
       config: null,
       errorDetails: { status: 'unsafe' },
+    });
+});
+
+/**
+ * See the t-online.de notes above.  Basically, if ActiveSync autodiscover
+ * doesn't work, we want to try all other setup options but then report the
+ * original autodiscover error as our error.
+ *
+ * This case is for a 403 which we map to not-authorized.  This is what a
+ * well behaved server will do and there's very little ambiguity here.
+ */
+TD.commonCase('ActiveSync autodiscover 403 tries ISPDB but fails',
+              function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        status: 404 },
+      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
+        status: 404 },
+      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 404 },
+      // here's the autodiscover failure!
+      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
+        method: 'POST', status: 403 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
+        data: MXtext },
+      { url: '/autoconfig/mx-xampl.tld',
+        status: 404 },
+      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
+        status: 404 },
+    ],
+    {
+      error: 'not-authorized',
+      config: null,
+      errorDetails: {},
     });
 });
 
