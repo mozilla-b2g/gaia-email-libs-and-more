@@ -3094,24 +3094,44 @@ MailAPI.prototype = {
     return true;
   },
 
-
-  _composeAttach: function(handle, attachmentDef) {
-    if (!handle)
-      return;
-    var req = this._pendingRequests[handle];
-    if (!req) {
+  _composeAttach: function(draftHandle, attachmentDef, callback) {
+    if (!draftHandle) {
       return;
     }
+    var draftReq = this._pendingRequests[draftHandle];
+    if (!draftReq) {
+      return;
+    }
+    var callbackHandle = this._nextHandle++;
+    this._pendingRequests[callbackHandle] = {
+      type: 'attachBlobToDraft',
+      callback: callback
+    };
     this.__bridgeSend({
       type: 'attachBlobToDraft',
-      handle: handle,
+      handle: callbackHandle,
+      draftHandle: draftHandle,
       attachmentDef: attachmentDef
     });
   },
 
-  _composeDetach: function(handle, attachmentIndex) {
-    if (!handle)
+  _recv_attachedBlobToDraft: function(msg) {
+    var callbackReq = this._pendingRequests[msg.handle];
+    var draftReq = this._pendingRequests[msg.draftHandle];
+    if (!callbackReq) {
       return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    if (callbackReq.callback && draftReq && draftReq.composer) {
+      callbackReq.callback(msg.err, draftReq.composer);
+    }
+  },
+
+  _composeDetach: function(handle, attachmentIndex, callback) {
+    if (!handle) {
+      return;
+    }
     var req = this._pendingRequests[handle];
     if (!req) {
       return;
@@ -3121,6 +3141,19 @@ MailAPI.prototype = {
       handle: handle,
       attachmentIndex: attachmentIndex
     });
+  },
+
+  _recv_detachedAttachmentFromDraft: function(msg) {
+    var callbackReq = this._pendingRequests[msg.handle];
+    var draftReq = this._pendingRequests[msg.draftHandle];
+    if (!callbackReq) {
+      return;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    if (callbackReq.callback && draftReq && draftReq.composer) {
+      callbackReq.callback(msg.err, draftReq.composer);
+    }
   },
 
   _composeDone: function(handle, command, state, callback) {

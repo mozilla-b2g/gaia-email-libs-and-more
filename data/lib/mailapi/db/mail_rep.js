@@ -248,6 +248,11 @@ function makeBodyPart(raw) {
  *       block size since they are not part of the direct I/O burden for the
  *       block.
  *     }
+ *     @case[@listof[HTMLBlob]]{
+ *       For draft messages, a list of one or more pre-base64-encoded attachment
+ *       pieces that were sliced up in chunks due to Gecko's inability to stream
+ *       Blobs to disk off the main thread.
+ *     }
  *   ]]
  *   @key[charset @oneof[undefined String]]{
  *     The character set, for example "ISO-8859-1".  If not specified, as is

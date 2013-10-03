@@ -66,6 +66,7 @@
 define(
   [
     'rdcommon/log',
+    'mix',
     '../jobmixins',
     'mailapi/drafts/jobs',
     'module',
@@ -73,6 +74,7 @@ define(
   ],
   function(
     $log,
+    mix,
     $jobmixins,
     draftsJobs,
     $module,
@@ -774,57 +776,6 @@ ImapJobDriver.prototype = {
     doneCallback('moot');
   },
 
-  //////////////////////////////////////////////////////////////////////////////
-  // drafts stuff
-
-  local_do_attachBlobToDraft: draftsJobs.local_do_attachBlobToDraft,
-
-  do_attachBlobToDraft: draftsJobs.do_attachBlobToDraft,
-
-  check_attachBlobToDraft: draftsJobs.check_attachBlobToDraft,
-
-  local_undo_attachBlobToDraft: draftsJobs.local_undo_attachBlobToDraft,
-
-  undo_attachBlobToDraft: draftsJobs.undo_attachBlobToDraft,
-
-
-
-  local_do_detachAttachmentFromDraft:
-    draftsJobs.local_do_detachAttachmentFromDraft,
-
-  do_detachAttachmentFromDraft: draftsJobs.do_detachAttachmentFromDraft,
-
-  check_detachAttachmentFromDraft: draftsJobs.check_detachAttachmentFromDraft,
-
-  local_undo_detachAttachmentFromDraft:
-    draftsJobs.local_undo_detachAttachmentFromDraft,
-
-  undo_detachAttachmentFromDraft: draftsJobs.undo_detachAttachmentFromDraft,
-
-
-
-  local_do_saveDraft: draftsJobs.local_do_saveDraft,
-
-  do_saveDraft: draftsJobs.do_saveDraft,
-
-  check_saveDraft: draftsJobs.check_saveDraft,
-
-  local_undo_saveDraft: draftsJobs.local_undo_saveDraft,
-
-  undo_saveDraft: draftsJobs.undo_saveDraft,
-
-
-
-  local_do_deleteDraft: draftsJobs.local_do_deleteDraft,
-
-  do_deleteDraft: draftsJobs.do_deleteDraft,
-
-  check_deleteDraft: draftsJobs.check_deleteDraft,
-
-  local_undo_deleteDraft: draftsJobs.local_undo_deleteDraft,
-
-  undo_deleteDraft: draftsJobs.undo_deleteDraft,
-
 
   //////////////////////////////////////////////////////////////////////////////
   // append: Add a message to a folder
@@ -1143,6 +1094,8 @@ HighLevelJobDriver.prototype = {
   undo_xcopy: function() {
   },
 };
+
+mix(ImapJobDriver.prototype, draftsJobs.draftsMixins);
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {

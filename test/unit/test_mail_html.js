@@ -140,7 +140,7 @@ TD.commonCase('embedded and remote images', function(T) {
 
     testAccount.expect_runOp(
       'download',
-      { local: true, server: true, save: 'server', flushBodySave: 'server' });
+      { local: true, server: true, save: 'server', flushBodyServerSaves: 1 });
 
     fancyBody.downloadEmbeddedImages(function() {
       eCheck.event('downloaded');

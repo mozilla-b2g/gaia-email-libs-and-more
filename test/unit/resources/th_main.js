@@ -1114,13 +1114,11 @@ var TestCommonAccountMixins = {
    *         value for local be 'local'.
    *       }
    *     ]]
-   *     @key[flushBodySave #:default @oneof[
-   *       @case['server']{
-   *       }
-   *     ]]{
-   *       Does a flush-body save occur?  If so, when?  This happens when we
-   *       need to put a Blob in the database and then want to immediately
-   *       re-fetch it so we can free the in-memory Blob.
+   *     @key[flushBodyLocalSaves #:default 0 Number]{
+   *       Number of flush saves that occur during the local op.
+   *     }
+   *     @key[flushBodyServerSaves #:default 0 Number]{
+   *       Number of flush saves that occur during the server op.
    *     }
    *     @key[conn #:default false @oneof[false true 'deadconn']{
    *       Expect a connection to be aquired if truthy.  Expect the conncetion
@@ -1152,13 +1150,18 @@ var TestCommonAccountMixins = {
     var saveCmd = checkFlagDefault(flags, 'save', false);
     var localSave = (saveCmd === true || saveCmd === 'both');
     var serverSave = (saveCmd === 'server' || saveCmd === 'both');
-    var flushBodyServerSave =
-          checkFlagDefault(flags, 'flushBodySave') === 'server';
+    var flushBodyLocalSaves =
+          checkFlagDefault(flags, 'flushBodyLocalSaves', 0);
+    var flushBodyServerSaves =
+          checkFlagDefault(flags, 'flushBodyServerSaves', 0);
 
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
       this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      while (flushBodyLocalSaves--) {
+        this.eOpAccount.expect_saveAccountState('flushBody');
+      }
       this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
@@ -1167,8 +1170,9 @@ var TestCommonAccountMixins = {
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
-    if (flushBodyServerSave)
+    while (flushBodyServerSaves--) {
       this.eOpAccount.expect_saveAccountState('flushBody');
+    }
     // - conn, (conn) release
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('help_expect_connection' in this)) {

@@ -8,6 +8,8 @@ var mailRep = require('mailapi/db/mail_rep');
 var draftRep = require('mailapi/drafts/draft_rep');
 var b64 = require('mailapi/b64');
 
+var draftsMixins = exports.draftsMixins = {};
+
 ////////////////////////////////////////////////////////////////////////////////
 // attachBlobToDraft
 
@@ -59,7 +61,7 @@ function asyncFetchBlobAsUint8Array(blob, callback) {
  * This seems reasonable given goals of not requiring the GC to run after every
  * block and not having us tie up the CPU too long during our encoding.
  */
-var BLOB_BASE64_BATCH_CONVERT_SIZE = 18396 * 57;
+draftsMixins.BLOB_BASE64_BATCH_CONVERT_SIZE = 18396 * 57;
 
 /**
  * Incrementally convert an attachment into its base64 encoded attachment form
@@ -81,9 +83,10 @@ var BLOB_BASE64_BATCH_CONVERT_SIZE = 18396 * 57;
  *     disk and we have forgotten all references to the in-memory Blob we wrote
  *     to the database.  (The Blob does not magically get turned into a
  *     reference to the database.)
- * - Be done.
+ * - Be done.  Note that we leave the "small" Blobs independent; we do not
+ *   create a super Blob.
  */
-exports.local_do_attachBlobToDraft = function(op, callback) {
+draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
   if (!localDraftsFolder) {
     callback('moot');
@@ -121,12 +124,9 @@ exports.local_do_attachBlobToDraft = function(op, callback) {
 
       var blobOffset = 0;
       function convertNextChunk() {
-        // - Done?
-        if (blobOffset >= wholeBlob.size) {
-        }
-
-        var nextOffset = Math.min(wholeBlob.size,
-                                  blobOffset + BLOB_BASE64_BATCH_CONVERT_SIZE);
+        var nextOffset =
+              Math.min(wholeBlob.size,
+                       blobOffset + this.BLOB_BASE64_BATCH_CONVERT_SIZE);
         var slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
         blobOffset = nextOffset;
 
@@ -139,81 +139,69 @@ exports.local_do_attachBlobToDraft = function(op, callback) {
         var encodedU8 = b64.mimeStyleBase64Encode(binaryDataU8);
         body.attaching.file.push(new Blob(encodedU8, wholeBlob.type));
 
+        var eventDetails;
         if (lastChunk) {
-          var superBlob = new Blob(body.attaching.file, wholeBlob.type);
           var attachmentIndex = body.attachments.length;
           body.attachments.push(body.attaching);
           delete body.attaching; // bad news for shapes, but drafts are rare.
+
+          eventDetails = {
+            changeType: 'attachments',
+            indexes: [attachmentIndex]
+          };
         }
         else {
+          // Do not generate an event for intermediary states; there is nothing
+          // to observe.
+          eventDetails = null;
         }
 
         folderStorage.updateMessageBody(
-          header, body, { flushBecause: 'blobs' },
-          wholeBlob ? {
+          header, body, { flushBecause: 'blobs' }, eventDetails, bodyUpdated);
       }
 
       function bodyUpdated(newBodyInfo) {
+        callback(null);
       }
-
-
-      var waitingFor = 2;
-
-      var header = op.header, body = op.body;
-      // fill-in header id's
-      header.id = folderStorage._issueNewHeaderId();
-      header.suid = folderStorage.folderId + '/' + header.id;
-
-      // If there already was a draft saved, delete it.
-      // Note that ordering of the removal and the addition doesn't really
-      // matter here because of our use of transactions.
-      if (op.existingNamer) {
-        waitingFor++;
-        folderStorage.deleteMessageHeaderAndBody(
-          op.existingNamer.suid, op.existingNamer.date, next);
-      }
-
-      folderStorage.addMessageHeader(header, next);
-      folderStorage.addMessageBody(header, body, next);
     },
     /* no conn => no deathback required */ null,
     'attachBlobToDraft');
 };
-exports.do_attachBlobToDraft = function(op, callback) {
+draftsMixins.do_attachBlobToDraft = function(op, callback) {
   // there is no server component for this
   callback(null);
 };
-exports.check_attachBlobToDraft = function(op, callback) {
+draftsMixins.check_attachBlobToDraft = function(op, callback) {
   callback(null, 'moot');
 };
-exports.local_undo_attachBlobToDraft = function(op, callback) {
+draftsMixins.local_undo_attachBlobToDraft = function(op, callback) {
   callback(null);
 };
-exports.undo_attachBlobToDraft = function(op, callback) {
+draftsMixins.undo_attachBlobToDraft = function(op, callback) {
   callback(null);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 // detachAttachmentFromDraft
 
-exports.local_do_detachAttachmentFromDraft = function(op, callback) {
+draftsMixins.local_do_detachAttachmentFromDraft = function(op, callback) {
   callback(null);
 };
 
-exports.do_detachAttachmentFromDraft = function(op, callback) {
+draftsMixins.do_detachAttachmentFromDraft = function(op, callback) {
   // there is no server component for this at this time.
   callback(null);
 };
 
-exports.check_detachAttachmentFromDraft = function(op, callback) {
+draftsMixins.check_detachAttachmentFromDraft = function(op, callback) {
   callback(null);
 };
 
-exports.local_undo_detachAttachmentFromDraft = function(op, callback) {
+draftsMixins.local_undo_detachAttachmentFromDraft = function(op, callback) {
   callback(null);
 };
 
-exports.undo_detachAttachmentFromDraft = function(op, callback) {
+draftsMixins.undo_detachAttachmentFromDraft = function(op, callback) {
   callback(null);
 };
 
@@ -226,7 +214,7 @@ exports.undo_detachAttachmentFromDraft = function(op, callback) {
  * draft gets a new date and id/SUID so it is logically distinct.  However,
  * we will propagate attachment and on-server information between drafts.
  */
-exports.local_do_saveDraft = function(op, callback) {
+draftsMixins.local_do_saveDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
   if (!localDraftsFolder) {
     callback('moot');
@@ -298,23 +286,23 @@ exports.local_do_saveDraft = function(op, callback) {
  * from when we're in a mode where we upload attachments to drafts and CATENATE
  * is available.
  */
-exports.do_saveDraft = function(op, callback) {
+draftsMixins.do_saveDraft = function(op, callback) {
   callback(null);
 };
-exports.check_saveDraft = function(op, callback) {
+draftsMixins.check_saveDraft = function(op, callback) {
   callback(null, 'moot');
 };
-exports.local_undo_saveDraft = function(op, callback) {
+draftsMixins.local_undo_saveDraft = function(op, callback) {
   callback(null);
 };
-exports.undo_saveDraft = function(op, callback) {
+draftsMixins.undo_saveDraft = function(op, callback) {
   callback(null);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 // deleteDraft
 
-exports.local_do_deleteDraft = function(op, callback) {
+draftsMixins.local_do_deleteDraft = function(op, callback) {
   var localDraftsFolder = this.account.getFirstFolderWithType('localdrafts');
   if (!localDraftsFolder) {
     callback('moot');
@@ -334,17 +322,17 @@ exports.local_do_deleteDraft = function(op, callback) {
     'deleteDraft');
 };
 
-exports.do_deleteDraft = function(op, callback) {
+draftsMixins.do_deleteDraft = function(op, callback) {
   // there is no server component for this
   callback(null);
 };
-exports.check_deleteDraft = function(op, callback) {
+draftsMixins.check_deleteDraft = function(op, callback) {
   callback(null, 'moot');
 };
-exports.local_undo_deleteDraft = function(op, callback) {
+draftsMixins.local_undo_deleteDraft = function(op, callback) {
   callback(null);
 };
-exports.undo_deleteDraft = function(op, callback) {
+draftsMixins.undo_deleteDraft = function(op, callback) {
   callback(null);
 };
 
