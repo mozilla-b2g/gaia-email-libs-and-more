@@ -6,9 +6,9 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
-        'mailapi/util', 'mailapi/accountcommon', 'exports'],
+        'mailapi/util', 'exports'],
        function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, $accountcommon, exports) {
+                $util, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_compose_blobs' }, null,
@@ -125,11 +125,14 @@ TD.commonCase('large attachments', function(T, RT) {
       for (var i = 0; i < numBlobs; i++) {
         expectedBlobSizes.push(Math.min(57, numBytes - (i * 57)));
       }
-      eLazy.expect_namedValue('blobs', expectedBlobSizes);
+      eLazy.expect_namedValue('blob sizes', expectedBlobSizes);
 
       var draftHeader = localDraftsView.slice.items[0];
       draftHeader.getBody(function(body) {
-        var blobSizes = body.attachments[0].
+        var blobSizes = body.attachments[0].file.map(function(blob) {
+          return blob.size;
+        });
+        eLazy.namedValue('blob sizes', blobSizes);
       });
     });
     T.action(eLazy, 'send the message', function() {

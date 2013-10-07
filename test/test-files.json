@@ -143,6 +143,10 @@
       "variants": ["noserver"]
     },
 
+    "test_net_main_blob_streaming.js": {
+      "variants": ["noserver"]
+    },
+
     "test_search.js": {
       "variants": ["noserver"]
     },

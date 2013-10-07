@@ -7,46 +7,13 @@ define(function(require, exports) {
 var mailRep = require('mailapi/db/mail_rep');
 var draftRep = require('mailapi/drafts/draft_rep');
 var b64 = require('mailapi/b64');
+var asyncFetchBlobAsUint8Array =
+      require('mailapi/async_blob_fetcher').asyncFetchBlobAsUint8Array;
 
 var draftsMixins = exports.draftsMixins = {};
 
 ////////////////////////////////////////////////////////////////////////////////
 // attachBlobToDraft
-
-/**
- * Asynchronously fetch the contents of a Blob, returning a Uint8Array.
- * Exists because there is no FileReader in Gecko workers and this totally
- * works.  In discussion, it sounds like :sicking wants to deprecate the
- * FileReader API anyways.
- *
- * Our consumer in this case is our specialized base64 encode that wants a
- * Uint8Array since that is more compactly represented than a binary string
- * would be.
- *
- * @param blob {Blob}
- * @param callback {Function(err, Uint8Array)}
- */
-function asyncFetchBlobAsUint8Array(blob, callback) {
-  var blobUrl = URL.createObjectURL(blob);
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', blobUrl, true);
-  xhr.responseType = 'arraybuffer';
-  // binary string, regardless of the source
-  xhr.overrideMimeType('text\/plain; charset=x-user-defined');
-  xhr.onload = function() {
-    // blobs currently result in a status of 0 since there is no server.
-    if (xhr.status !== 0 && (xhr.status < 200 || xhr.status >= 300)) {
-      callback(xhr.status);
-      return;
-    }
-    callback(null, new Uint8Array(xhr.response));
-  };
-  xhr.onerror = function() {
-    callback('error');
-  };
-  xhr.send();
-  URL.revokeObjectURL(blobUrl);
-}
 
 /**
  * How big a chunk of an attachment should we encode in a single read?  Because
@@ -133,7 +100,14 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
         asyncFetchBlobAsUint8Array(slicedBlob, gotChunk);
       }
 
-      function gotChunk(binaryDataU8) {
+      function gotChunk(err, binaryDataU8) {
+        // The Blob really should not be disappear out from under us, but it
+        // could happen.
+        if (err) {
+          callback('failure-give-up');
+          return;
+        }
+
         var lastChunk = (blobOffset >= wholeBlob.size);
 
         var encodedU8 = b64.mimeStyleBase64Encode(binaryDataU8);

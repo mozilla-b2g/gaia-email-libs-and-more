@@ -768,6 +768,7 @@ MailBridge.prototype = {
       var req = this._pendingRequests[msg.handle] = {
         type: 'compose',
         active: 'begin',
+        account: null,
         persistedNamer: null,
         die: false
       };
@@ -778,6 +779,7 @@ MailBridge.prototype = {
         account = this.universe.getAccountForFolderId(msg.refSuid);
       else
         account = this.universe.getAccountForMessageSuid(msg.refSuid);
+      req.account = account;
 
       identity = account.identities[0];
 
@@ -921,26 +923,56 @@ MailBridge.prototype = {
   },
 
   _cmd_attachBlobToDraft: function(msg) {
-    var req = this._pendingRequests[msg.handle], self = this;
+    var req = this._pendingRequests[msg.handle];
     if (!req)
       return;
 
-
+    this.universe.attachBlobToDraft(
+      req.account,
+      req.persistedNamer,
+      msg.attachmentDef,
+      function (err) {
+        this.__sendMessage({
+          type: 'attachedBlobToDraft',
+          // Note! Our use of 'msg' here means that our reference to the Blob
+          // will be kept alive slightly longer than the job keeps it alive, but
+          // just slightly.
+          handle: msg.handle,
+          draftHandle: msg.draftHandle
+        });
+      }.bind(this));
   },
 
   _cmd_detachAttachmentFromDraft: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req)
+      return;
+
+    this.universe.attachBlobToDraft(
+      req.account,
+      req.persistedNamer,
+      msg.attachmentIndex,
+      function (err) {
+        this.__sendMessage({
+          type: 'detachedAttachmentFromDraft',
+          handle: msg.handle,
+          draftHandle: msg.draftHandle
+        });
+      }.bind(this));
   },
 
   _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
     var req = this._pendingRequests[msg.handle] = {
       type: 'compose',
       active: 'resume',
+      account: null,
       persistedNamer: msg.messageNamer,
       die: false
     };
 
     // NB: We are not acquiring the folder mutex here because
-    var account = this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
+    var account = req.account =
+          this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
     var folderStorage = this.universe.getFolderStorageForMessageSuid(
                           msg.messageNamer.suid);
     var self = this;

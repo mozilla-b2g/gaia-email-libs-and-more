@@ -34,14 +34,11 @@
  *   excessively clever buffering regimes because those could back-fire and
  *   such effort is better spent on enhancing TCPSocket.
  */
-define(function() {
+define(function(require) {
 'use strict';
 
-/**
- * What size bites (in bytes) should we take of the Blob for streaming purposes?
- *
- */
-var BLOB_BLOCK_READ_SIZE = 32 * 1024;
+var asyncFetchBlobAsUint8Array =
+      require('mailapi/async_blob_fetcher').asyncFetchBlobAsUint8Array;
 
 // Active sockets
 var sockInfoByUID = {};
@@ -92,10 +89,10 @@ function open(uid, host, port, options) {
     // If we have an activeBlob but no data, then fetchNextBlobChunk has
     // an outstanding chunk fetch and it will issue the write directly.
     if (sockInfo.activeBlob && sockInfo.queuedData) {
-      sock.send(sockInfo.queuedData);
+      sock.send(sockInfo.queuedData, 0, sockInfo.queuedData.byteLength);
       sockInfo.queuedData = null;
       // fetch the next chunk or close out the blob; this method does both
-      fetchNextBlobChunk();
+      fetchNextBlobChunk(sockInfo);
     }
   };
 
@@ -105,10 +102,11 @@ function open(uid, host, port, options) {
 }
 
 function beginBlobSend(sockInfo, blob) {
+console.warn('begin blob send');
   sockInfo.activeBlob = blob;
   sockInfo.blobOffset = 0;
   sockInfo.queuedData = null;
-  fetchNextBlobChunk();
+  fetchNextBlobChunk(sockInfo);
 }
 
 /**
@@ -142,33 +140,34 @@ function fetchNextBlobChunk(sockInfo) {
     return;
   }
 
-  var reader = new FileReader();
   var nextOffset =
-        Math.min(sockInfo.blobOffset + BLOB_BLOCK_READ_SIZE,
+        Math.min(sockInfo.blobOffset + self.BLOB_BLOCK_READ_SIZE,
                  sockInfo.activeBlob.size);
+console.log('slicing blob', sockInfo.blobOffset, 'next', nextOffset);
   var blobSlice = sockInfo.activeBlob.slice(
                     sockInfo.blobOffset,
                     nextOffset);
   sockInfo.blobOffset = nextOffset;
 
-  reader.onload = function() {
-    // If the socket has already drained its buffer, then just send the data
-    // right away and re-schedule ourselves.
-    if (sockInfo.sock.bufferedAmount === 0) {
-      sockInfo.sock.send(reader.result);
-      fetchNextBlobChunk();
+  function gotChunk(err, binaryDataU8) {
+    if (err) {
+      // I/O errors are fatal to the connection; our abstraction does not let us
+      // bubble the error.  The good news is that errors are highly unlikely.
+      sockInfo.sock.close();
       return;
     }
 
-    sockInfo.queuedData = reader.result;
-  };
-  // I/O errors are fatal to the connection; our abstraction does not let us
-  // bubble the error.  The good news is that errors are highly unlikely.
-  reader.onerror = function() {
-    sockInfo.sock.close();
-  };
+    // If the socket has already drained its buffer, then just send the data
+    // right away and re-schedule ourselves.
+    if (sockInfo.sock.bufferedAmount === 0) {
+      sockInfo.sock.send(binaryDataU8, 0, binaryDataU8.byteLength);
+      fetchNextBlobChunk(sockInfo);
+      return;
+    }
 
-  reader.readAsArrayBuffer(blobSlice);
+    sockInfo.queuedData = binaryDataU8;
+  };
+  asyncFetchBlobAsUint8Array(blobSlice, gotChunk);
 }
 
 function close(uid) {
@@ -186,6 +185,7 @@ function close(uid) {
 }
 
 function write(uid, data, offset, length) {
+console.warn('write call');
   var sockInfo = sockInfoByUID[uid];
 
   // If there is an activeBlob, then the write must be queued or we would end up
@@ -215,6 +215,13 @@ function upgradeToSecure(uid) {
 var self = {
   name: 'netsocket',
   sendMessage: null,
+
+  /**
+   * What size bites (in bytes) should we take of the Blob for streaming
+   * purposes?  See the file header for the sizing rationale.
+   */
+  BLOB_BLOCK_READ_SIZE: 32 * 1024,
+
   process: function(uid, cmd, args) {
     switch (cmd) {
       case 'open':
