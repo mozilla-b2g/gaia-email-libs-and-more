@@ -102,7 +102,6 @@ function open(uid, host, port, options) {
 }
 
 function beginBlobSend(sockInfo, blob) {
-console.warn('begin blob send');
   sockInfo.activeBlob = blob;
   sockInfo.blobOffset = 0;
   sockInfo.queuedData = null;
@@ -122,7 +121,7 @@ console.warn('begin blob send');
  */
 function fetchNextBlobChunk(sockInfo) {
   // We are all done if the next fetch would be beyond the end of the blob
-  if (sockInfo.nextOffset >= sockInfo.activeBlob.size) {
+  if (sockInfo.blobOffset >= sockInfo.activeBlob.size) {
     sockInfo.activeBlob = null;
 
     // Drain as much of the backlog as possible.
@@ -143,7 +142,6 @@ function fetchNextBlobChunk(sockInfo) {
   var nextOffset =
         Math.min(sockInfo.blobOffset + self.BLOB_BLOCK_READ_SIZE,
                  sockInfo.activeBlob.size);
-console.log('slicing blob', sockInfo.blobOffset, 'next', nextOffset);
   var blobSlice = sockInfo.activeBlob.slice(
                     sockInfo.blobOffset,
                     nextOffset);
@@ -185,7 +183,6 @@ function close(uid) {
 }
 
 function write(uid, data, offset, length) {
-console.warn('write call');
   var sockInfo = sockInfoByUID[uid];
 
   // If there is an activeBlob, then the write must be queued or we would end up

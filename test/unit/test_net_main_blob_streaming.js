@@ -47,15 +47,13 @@ TD.commonCase('blob flow control', function(T, RT) {
   }
 
   var fakeSocket = {
-    // Should we increase the buffer by the amount sent?
-    claimBuffered: false,
+    setBufferedAmountAfterNSendCalls: 0,
     bufferedAmount: 0,
 
     send: function(data, offset, length) {
-      if (this.claimBuffered) {
-        this.bufferedAmount += length;
-        if (typeof(this.claimBuffered) === 'number') {
-          this.claimBuffered--;
+      if (this.setBufferedAmountAfterNSendCalls) {
+        if (--this.setBufferedAmountAfterNSendCalls === 0) {
+          this.bufferedAmount = READ_SIZE;
         }
       }
       eSock.namedValue('write', [data, offset, length]);
@@ -122,59 +120,157 @@ TD.commonCase('blob flow control', function(T, RT) {
     netMain.process(sockUid, 'write', [arr, 0, arr.length]);
   });
 
+  /*
+   * Make sure that we only perform reads so that we always have a single chunk
+   * buffered ready for the next drain notification.
+   */
   T.group('blob flow control');
-  // XXX either do 0=>READ so 1 write, or move drain case.  steady state is
-  // inductive state, so maybe wait for drain already.
-  T.action(eSock, 'write blob, 2 reads, 1 write then wait for drain',
+  T.action(eSock, 'write blob, 1 read, buffer already full, wait for drain',
            function() {
-    // 4 and a half blocks.
-    var blobArr = makeU8Array16Multiples(1, 2, 3, 4, 5, 6, 7, 8, 9);
-    var firstChunk = makeU8Array16Multiples(1, 2),
-        secondChunk = makeU8Array16Multiples(3, 4);
+    // 3 and a half blocks.
+    var blobArr = makeU8Array16Multiples(1, 2, 3, 4, 5, 6, 7);
+    var firstChunk = makeU8Array16Multiples(1, 2);
 
-    // The code always wants 1 chunk buffered; so we will see the read which we
-    // will queue up so it immediately responds to the XHR, then we see the
-    // immediate write.  We will then see a second XHR read which we will also
-    // service, but there will be no write until we issue the drain.  And we
-    // don't do that until the next step.
-    expectXHR_fetch();
-    expectXHR_release();
-    eSock.expect_namedValue('write', [firstChunk, 0, firstChunk.length]);
+    // cause us to wait for the drain event to fire
+    fakeSocket.bufferedAmount = READ_SIZE;
+
+    // expect 1 read which we'll resolve immediately
     expectXHR_fetch();
     expectXHR_release();
 
     var blob = new Blob([blobArr]);
 
-    // cause us to wait for the drain event to fire
-    fakeSocket.bufferedAmount = READ_SIZE;
     // let the XHRs respond as they are issued (although still in a subsequent
     // turn of the event loop.
     releaseXHR(0, firstChunk);
-    releaseXHR(0, secondChunk);
     netMain.process(sockUid, 'write', [blob]);
   });
   T.action(eSock, 'send drain, see write, see read', function() {
-    var secondChunk = makeU8Array16Multiples(3, 4),
-        thirdChunk = makeU8Array16Multiples(5, 6);
+    var firstChunk = makeU8Array16Multiples(1, 2);
+    var secondChunk = makeU8Array16Multiples(3, 4);
 
-    // after we issue the release we expect to see the write immediately
-    // followed by a fetch of the next chunk
-    eSock.expect_namedValue('write', [secondChunk, 0, secondChunk.length]);
+    // There will be a write followed by a new fetch after the drain; we leave
+    // the buffer claiming to be full so we don't issue a new write.
+    fakeSocket.bufferedAmount = READ_SIZE;
+    // the write triggered by the drain
+    eSock.expect_namedValue('write', [firstChunk, 0, firstChunk.length]);
+    // the read triggered by the write
+    expectXHR_fetch();
+    expectXHR_release();
+
+
+    releaseXHR(0, secondChunk);
     fakeSocket.ondrain();
   });
-  // we are supposed to send as soon as we get the load rather than waiting for
-  // the
-  T.action(eSock, 'already drained, send immediately', function() {
+  T.action(eSock, 'ondrain, write, stay drained, read sends immediately',
+           'next read blocks', function() {
+    var secondChunk = makeU8Array16Multiples(3, 4);
+    var thirdChunk = makeU8Array16Multiples(5, 6);
+    var lastChunk = makeU8Array16Multiples(7);
+
+    // the write triggered by the drain
+    eSock.expect_namedValue('write', [secondChunk, 0, secondChunk.length]);
+    // the read triggered by that write
+    expectXHR_fetch();
+    expectXHR_release();
+    // and we issue the write immediately because bufferedAmount === 0
+    eSock.expect_namedValue('write', [thirdChunk, 0, thirdChunk.length]);
+    // which results in another read...
+    expectXHR_fetch();
+    expectXHR_release();
+
+
+    fakeSocket.bufferedAmount = 0;
+    fakeSocket.setBufferedAmountAfterNSendCalls = 2;
+    releaseXHR(0, thirdChunk);
+    releaseXHR(0, lastChunk);
+    fakeSocket.ondrain();
   });
-  T.action(eSock, 'drain, write, done', function() {
-    var thirdWrite = makeU8Array16Multiples(5);
-    eSock.expect_namedValue('write', [thirdWrite, 0, thirdWrite.length]);
+  T.action(eSock, 'drain, write/done', function() {
+    var lastChunk = makeU8Array16Multiples(7);
+    eSock.expect_namedValue('write', [lastChunk, 0, lastChunk.length]);
+    fakeSocket.ondrain();
   });
 
+  /*
+   * Ensure that if we issue a call to issue multiple Blob writes in succession
+   * that we don't screw up the ordering.
+   */
   T.group('multiple blobs');
+  T.action(eSock, 'issue 2 blob writes, have buffering prevent all writes.',
+           function() {
+    var arr1 = makeU8Array16Multiples(10, 11, 12);
+    var arr2 = makeU8Array16Multiples(13, 14);
 
-  // interleaved strings between blobs should still go in the right order
+    var blob1 = new Blob([arr1]);
+    var blob2 = new Blob([arr2]);
+
+    var b1Chunk1 = makeU8Array16Multiples(10, 11);
+
+    expectXHR_fetch();
+    expectXHR_release();
+
+    fakeSocket.bufferedAmount = READ_SIZE;
+    releaseXHR(0, b1Chunk1);
+    netMain.process(sockUid, 'write', [blob1]);
+    netMain.process(sockUid, 'write', [blob2]);
+  });
+  T.action(eSock, 'hide buffering, issue drain, see all writes', function() {
+    var b1Chunk1 = makeU8Array16Multiples(10, 11);
+    var b1Chunk2 = makeU8Array16Multiples(12);
+    var b2Chunk1 = makeU8Array16Multiples(13, 14);
+
+    // drain results in write
+    eSock.expect_namedValue('write', [b1Chunk1, 0, b1Chunk1.length]);
+    // write triggers read
+    expectXHR_fetch();
+    expectXHR_release();
+    // read becomes write immediatele
+    eSock.expect_namedValue('write', [b1Chunk2, 0, b1Chunk2.length]);
+    // read next blob
+    expectXHR_fetch();
+    expectXHR_release();
+    eSock.expect_namedValue('write', [b2Chunk1, 0, b2Chunk1.length]);
+
+    fakeSocket.bufferedAmount = 0;
+    releaseXHR(0, b1Chunk2);
+    releaseXHR(0, b2Chunk1);
+    fakeSocket.ondrain();
+  });
+
+  /*
+   * Interleaved strings between blobs should still go in the right order.
+   * Specifically, if we have a Blob in the queue that's not fully sent yet,
+   * then the u8 array write array shouldn't happen prematurely.
+   */
   T.group('blob and string interleaving');
+  T.action(eSock, 'enqueue blob and u8arr', function() {
+    var blobArr = makeU8Array16Multiples(20, 21);
+    var u8arr = makeU8Array16Multiples(30, 31, 32);
+
+    var blob = new Blob([blobArr]);
+
+    expectXHR_fetch();
+    expectXHR_release();
+
+    fakeSocket.bufferedAmount = READ_SIZE;
+    releaseXHR(0, blobArr);
+    netMain.process(sockUid, 'write', [blob]);
+    netMain.process(sockUid, 'write', [u8arr, 0, u8arr.length]);
+  });
+  T.action(eSock, 'issue drain, leave buffering on, see all writes',
+           function() {
+    var blobArr = makeU8Array16Multiples(20, 21);
+    var u8arr = makeU8Array16Multiples(30, 31, 32);
+
+    eSock.expect_namedValue('write', [blobArr, 0, blobArr.length]);
+    eSock.expect_namedValue('write', [u8arr, 0, u8arr.length]);
+
+    // We leave buffering on because only blob streaming cares about buffering;
+    // the typed array is inherently already fully in memory, so there is
+    // not a lot saved by slicing it, etc.
+    fakeSocket.ondrain();
+  });
 
   T.group('cleanup');
 });

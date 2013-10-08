@@ -21,9 +21,7 @@ define(
  */
 function asyncFetchBlobAsUint8Array(blob, callback) {
   var blobUrl = URL.createObjectURL(blob);
-console.log('creating blob');
   var xhr = new XMLHttpRequest();
-console.log('creating xhr');
   xhr.open('GET', blobUrl, true);
   xhr.responseType = 'arraybuffer';
   xhr.onload = function() {
@@ -44,7 +42,6 @@ console.log('creating xhr');
     console.error('XHR send() failure on blob');
     callback('error');
   }
-console.log('sent');
   URL.revokeObjectURL(blobUrl);
 }
 
