@@ -429,32 +429,6 @@ ActiveSyncJobDriver.prototype = {
   undo_download: $jobmixins.undo_download,
 
   //////////////////////////////////////////////////////////////////////////////
-  // saveDraft
-
-  local_do_saveDraft: $jobmixins.local_do_saveDraft,
-
-  do_saveDraft: $jobmixins.do_saveDraft,
-
-  check_saveDraft: $jobmixins.check_saveDraft,
-
-  local_undo_saveDraft: $jobmixins.local_undo_saveDraft,
-
-  undo_saveDraft: $jobmixins.undo_saveDraft,
-
-  //////////////////////////////////////////////////////////////////////////////
-  // deleteDraft
-
-  local_do_deleteDraft: $jobmixins.local_do_deleteDraft,
-
-  do_deleteDraft: $jobmixins.do_deleteDraft,
-
-  check_deleteDraft: $jobmixins.check_deleteDraft,
-
-  local_undo_deleteDraft: $jobmixins.local_undo_deleteDraft,
-
-  undo_deleteDraft: $jobmixins.undo_deleteDraft,
-
-  //////////////////////////////////////////////////////////////////////////////
   // purgeExcessMessages is a NOP for activesync
 
   local_do_purgeExcessMessages: function(op, doneCallback) {

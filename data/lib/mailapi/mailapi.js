@@ -1665,7 +1665,6 @@ function MessageComposition(api, handle) {
   this.body = null;
 
   this._references = null;
-  this._customHeaders = null;
   /**
    * @property attachments
    * @type Object[]
@@ -1700,16 +1699,6 @@ MessageComposition.prototype = {
   },
 
   /**
-   * Add custom headers; don't use this for built-in headers.
-   */
-  addHeader: function(key, value) {
-    if (!this._customHeaders)
-      this._customHeaders = [];
-    this._customHeaders.push(key);
-    this._customHeaders.push(value);
-  },
-
-  /**
    * Add an attachment to this composition.  This is an asynchronous process
    * that incrementally converts the Blob we are provided into a line-wrapped
    * base64-encoded message suitable for use in the rfc2822 message generation
@@ -1737,16 +1726,16 @@ MessageComposition.prototype = {
    *   ]]
    * ]
    */
-  addAttachment: function(attachmentDef) {
+  addAttachment: function(attachmentDef, callback) {
     // There needs to be a draft for us to attach things to.
     if (!this.hasDraft)
       this.saveDraft();
-    this._api._composeAttach(this._handle, attachmentDef);
+    this._api._composeAttach(this._handle, attachmentDef, callback);
 
     var placeholderAttachment = {
       name: attachmentDef.name,
       blob: {
-        size: attachmentDef.blob.name,
+        size: attachmentDef.blob.size,
         type: attachmentDef.blob.type
       }
     };
@@ -1762,11 +1751,11 @@ MessageComposition.prototype = {
    *   This must be one of the instances from our `attachments` list.  A
    *   logically equivalent object is no good.
    */
-  removeAttachment: function(attachmentDef) {
+  removeAttachment: function(attachmentDef, callback) {
     var idx = this.attachments.indexOf(attachmentDef);
     if (idx !== -1) {
       this.attachments.splice(idx, 1);
-      this._api._composeDetach(this._handle, idx);
+      this._api._composeDetach(this._handle, idx, callback);
     }
   },
 
@@ -1782,7 +1771,6 @@ MessageComposition.prototype = {
       subject: this.subject,
       body: this.body,
       referencesStr: this._references,
-      customHeaders: this._customHeaders,
       attachments: this.attachments,
     };
   },
@@ -3119,13 +3107,14 @@ MailAPI.prototype = {
     var callbackReq = this._pendingRequests[msg.handle];
     var draftReq = this._pendingRequests[msg.draftHandle];
     if (!callbackReq) {
-      return;
+      return true;
     }
     delete this._pendingRequests[msg.handle];
 
     if (callbackReq.callback && draftReq && draftReq.composer) {
       callbackReq.callback(msg.err, draftReq.composer);
     }
+    return true;
   },
 
   _composeDetach: function(handle, attachmentIndex, callback) {
@@ -3147,13 +3136,14 @@ MailAPI.prototype = {
     var callbackReq = this._pendingRequests[msg.handle];
     var draftReq = this._pendingRequests[msg.draftHandle];
     if (!callbackReq) {
-      return;
+      return true;
     }
     delete this._pendingRequests[msg.handle];
 
     if (callbackReq.callback && draftReq && draftReq.composer) {
       callbackReq.callback(msg.err, draftReq.composer);
     }
+    return true;
   },
 
   _composeDone: function(handle, command, state, callback) {

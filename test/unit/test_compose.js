@@ -80,11 +80,14 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     attachmentData.push(iData);
   }
 
-  T.action(testAccount, 'compose, save', eLazy, function() {
+  T.action(testAccount, 'compose, save draft, attach blob', eLazy, function() {
     testAccount.expect_runOp(
       'saveDraft',
-      { local: true, server: false, save: true });
-    eLazy.expect_event('saved');
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_runOp(
+      'attachBlobToDraft',
+      { local: true, server: false, flushBodyLocalSaves: 1 });
+    eLazy.expect_event('attached');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
@@ -93,13 +96,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     composer.addAttachment({
       name: 'foo.png',
       blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
+    }, function() {
+      eLazy.event('attached');
+      composer.die();
+      composer = null;
     });
-
-    composer.saveDraft(function() {
-      eLazy.event('saved');
-    });
-    composer.die();
-    composer = null;
   });
 
   var lastDraftId;
@@ -170,8 +171,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   });
   var sentMessageId;
   T.action(testAccount, 'send', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
     testAccount.expect_sendMessage();
-
     // note: the delete op is asynchronously scheduled by the send process once
     // it completes; our callback below will be invoked before the op is
     // guaranteed to run to completion.
@@ -328,8 +331,16 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
   // - complete and send the reply
   var replySentDate, replyMessageId, replyReferences;
-  T.action('reply', eLazy, function() {
+  T.action(testAccount, 'reply', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
     eLazy.expect_event('sent');
+
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
@@ -423,7 +434,15 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
   T.group('reply to the reply');
   var secondReplySentDate, secondReplyMessageId, secondReplyReferences;
-  T.action('reply to the reply', eLazy, function() {
+  T.action(testAccount, 'reply to the reply', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     eLazy.expect_event('sent');
 
     var secondReplyComposer = replyHeader.replyToMessage('sender', function() {
@@ -560,8 +579,16 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       eCheck.event('got header');
     }
   });
-  T.action(eCheck,
+  T.action(testAccount, eCheck,
            'reply to HTML message', msgDef.name, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     expectedReplyBody = {
       text: replyTextHtml.replace('$AUTHOR$', TEST_PARAMS.name),
       html: replyHtmlHtml.replace('$MESSAGEID$', header.guid)
@@ -750,7 +777,15 @@ TD.commonCase('bcc self', function(T, RT) {
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
 
-  T.action('send', eLazy, function() {
+  T.action(testAccount, 'send', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     eLazy.expect_event('sent');
     eLazy.expect_event('appended');
 

@@ -89,7 +89,7 @@ function open(uid, host, port, options) {
     // If we have an activeBlob but no data, then fetchNextBlobChunk has
     // an outstanding chunk fetch and it will issue the write directly.
     if (sockInfo.activeBlob && sockInfo.queuedData) {
-      sock.send(sockInfo.queuedData, 0, sockInfo.queuedData.byteLength);
+      sock.send(sockInfo.queuedData.buffer, 0, sockInfo.queuedData.byteLength);
       sockInfo.queuedData = null;
       // fetch the next chunk or close out the blob; this method does both
       fetchNextBlobChunk(sockInfo);
@@ -142,6 +142,7 @@ function fetchNextBlobChunk(sockInfo) {
   var nextOffset =
         Math.min(sockInfo.blobOffset + self.BLOB_BLOCK_READ_SIZE,
                  sockInfo.activeBlob.size);
+console.warn('slicing', sockInfo.blobOffset, nextOffset);
   var blobSlice = sockInfo.activeBlob.slice(
                     sockInfo.blobOffset,
                     nextOffset);
@@ -158,7 +159,7 @@ function fetchNextBlobChunk(sockInfo) {
     // If the socket has already drained its buffer, then just send the data
     // right away and re-schedule ourselves.
     if (sockInfo.sock.bufferedAmount === 0) {
-      sockInfo.sock.send(binaryDataU8, 0, binaryDataU8.byteLength);
+      sockInfo.sock.send(binaryDataU8.buffer, 0, binaryDataU8.byteLength);
       fetchNextBlobChunk(sockInfo);
       return;
     }
@@ -183,6 +184,8 @@ function close(uid) {
 }
 
 function write(uid, data, offset, length) {
+  console.warn('write call', data instanceof Blob, offset, length);
+
   var sockInfo = sockInfoByUID[uid];
 
   // If there is an activeBlob, then the write must be queued or we would end up

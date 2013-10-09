@@ -62,9 +62,11 @@ TD.commonCase('large attachments', function(T, RT) {
         'localdrafts', localDraftsFolder, null, null,
         { nonet: true });
 
+  var BLOB_CONVERT_SIZE = 2 * 57;
+  var BLOB_TARGET_SIZE = 78 * 2;
   T.action('set blob size to 2 lines (57 bytes per)', function() {
     var jobDriver = testAccount.folderAccount._jobDriver;
-    jobDriver.BLOB_BASE64_BATCH_CONVERT_SIZE = 2 * 57;
+    jobDriver.BLOB_BASE64_BATCH_CONVERT_SIZE = BLOB_CONVERT_SIZE;
   });
 
   function makeBlobOfSize(n, type) {
@@ -72,7 +74,7 @@ TD.commonCase('large attachments', function(T, RT) {
     for (var i = 0; i < n; i++) {
       arr[i] = i % 256;
     }
-    return new Blob(arr, type);
+    return new Blob([arr], { type: type });
   }
 
   function testWithNumBytes(label, numBytes, numBlobs) {
@@ -81,8 +83,9 @@ TD.commonCase('large attachments', function(T, RT) {
     T.group(label);
     var composer;
     // Create the draft,
-    T.action(eLazy, 'create draft', function() {
+    T.action(eLazy, 'create draft, draft not saved', function() {
       eLazy.expect_event('compose setup completed');
+
       composer = testUniverse.MailAPI.beginMessageComposition(
         null, inboxFolder, null,
         function() {
@@ -90,7 +93,7 @@ TD.commonCase('large attachments', function(T, RT) {
           eLazy.event('compose setup completed');
         });
     });
-    T.action(eLazy, 'attach blob', function() {
+    T.action(eLazy, 'attach blob, saveDraft compelled', function() {
       var attachmentName = 'bytes' + numBytes;
       var attachmentType = 'application/bytes' + numBytes;
       // Check that the generated attachment def matches what we expect
@@ -101,6 +104,12 @@ TD.commonCase('large attachments', function(T, RT) {
           type: attachmentType
         }
       });
+      // Because the draft wasn't already saved, the call will compel a save to
+      // occur.
+      testAccount.expect_runOp(
+        'saveDraft',
+        { local: true, server: false, save: 'local' });
+      // Which will be followed by the actual attaching operation.
       testAccount.expect_runOp(
         'attachBlobToDraft',
         { local: true, server: false, flushBodyLocalSaves: numBlobs });
@@ -121,18 +130,21 @@ TD.commonCase('large attachments', function(T, RT) {
     });
     // - get the draft body so we can check the Blob list
     T.check(eLazy, 'blob count', function() {
+      // The Blob sizes are the encoded size, not the source size.
       var expectedBlobSizes = [];
       for (var i = 0; i < numBlobs; i++) {
-        expectedBlobSizes.push(Math.min(57, numBytes - (i * 57)));
+        var encodedCount = Math.ceil((numBytes - (i * 57))/3) * 4 + 2;
+        expectedBlobSizes.push(Math.min(BLOB_TARGET_SIZE, encodedCount));
       }
       eLazy.expect_namedValue('blob sizes', expectedBlobSizes);
 
       var draftHeader = localDraftsView.slice.items[0];
       draftHeader.getBody(function(body) {
-        var blobSizes = body.attachments[0].file.map(function(blob) {
+        var blobSizes = body.attachments[0]._file.map(function(blob) {
           return blob.size;
         });
         eLazy.namedValue('blob sizes', blobSizes);
+        body.die();
       });
     });
     T.action(eLazy, 'send the message', function() {

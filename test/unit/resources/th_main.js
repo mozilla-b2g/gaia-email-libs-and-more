@@ -1102,8 +1102,11 @@ var TestCommonAccountMixins = {
    *       @case[false]{
    *         No save operation expected.
    *       }
-   *       @case[true]{
+   *       @case['local']{
    *         Expect a save operation to occur after the local operation.
+   *       }
+   *       @case[true]{
+   *         Same as 'local', deprecated.
    *       }
    *       @case['server']{
    *         Expect a save operation to occur after the "server" operation.
@@ -1148,7 +1151,8 @@ var TestCommonAccountMixins = {
     }
 
     var saveCmd = checkFlagDefault(flags, 'save', false);
-    var localSave = (saveCmd === true || saveCmd === 'both');
+    var localSave = (saveCmd === true || saveCmd === 'both' ||
+                     saveCmd === 'local');
     var serverSave = (saveCmd === 'server' || saveCmd === 'both');
     var flushBodyLocalSaves =
           checkFlagDefault(flags, 'flushBodyLocalSaves', 0);

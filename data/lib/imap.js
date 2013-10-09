@@ -1168,7 +1168,15 @@ ImapConnection.prototype.append = function(data, options, cb) {
     cmd += ' "' + formatImapDateTime(options.date) + '"';
   }
   cmd += ' {';
-  cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
+  if (data instanceof Blob) {
+    cmd += data.size;
+  }
+  else if (Buffer.isBuffer(data)) {
+    cmd += data.length;
+  }
+  else {
+    cmd += Buffer.byteLength(data);
+  }
   cmd += '}';
   var self = this, step = 1;
   this._send('APPEND', cmd, function(err) {
@@ -1203,7 +1211,15 @@ ImapConnection.prototype.multiappend = function(messages, cb) {
       cmd += ' "' + formatImapDateTime(options.date) + '"';
     }
     cmd += ' {';
-    cmd += (Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data));
+    if (data instanceof Blob) {
+      cmd += data.size;
+    }
+    else if (Buffer.isBuffer(data)) {
+      cmd += data.length;
+    }
+    else {
+      cmd += Buffer.byteLength(data);
+    }
     cmd += '}';
   }
 

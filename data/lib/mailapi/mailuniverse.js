@@ -1408,6 +1408,10 @@ MailUniverse.prototype = {
    * ]
    */
   _queueAccountOp: function(account, op, optionalCallback) {
+    // Log the op for debugging assistance
+    // TODO: Create a real logger event; this will require updating existing
+    // tests and so is not sufficiently trivial to do at this time.
+    console.log('queueOp', account.id, op.type);
     // - Name the op, register callbacks
     if (op.longtermId === null) {
       // mutation job must be persisted until completed otherwise bad thing
@@ -1754,6 +1758,24 @@ MailUniverse.prototype = {
    *
    */
   saveDraft: function(account, existingNamer, draftRep, callback) {
+    var draftsFolderMeta = account.getFirstFolderWithType('localdrafts');
+    var draftsFolderStorage = account.getFolderStorageForFolderId(
+                                draftsFolderMeta.id);
+    var newId = draftsFolderStorage._issueNewHeaderId();
+    var newDraftInfo = {
+      id: newId,
+      suid: draftsFolderStorage.folderId + '/' + newId,
+      // There are really 3 possible values we could use for this; when the
+      // front-end initiates the draft saving, when we, the back-end observe and
+      // enqueue the request (now), or when the draft actually gets saved to
+      // disk.
+      //
+      // This value does get surfaced to the user, so we ideally want it to
+      // occur within a few seconds of when the save is initiated.  We do this
+      // here right now because we have access to $date, and we should generally
+      // be timely about receiving messages.
+      date: $date.NOW(),
+    };
     this._queueAccountOp(
       account,
       {
@@ -1765,21 +1787,15 @@ MailUniverse.prototype = {
         tryCount: 0,
         humanOp: 'saveDraft',
         existingNamer: existingNamer,
+        newDraftInfo: newDraftInfo,
         draftRep: draftRep,
-        // There are really 3 possible values we could use for this; when the
-        // front-end initiates the draft saving, when we, the back-end
-        // observe and enqueue the request (now), or when the draft actually
-        // gets saved to disk.
-        //
-        // This value does get surfaced to the user, so we ideally want it to
-        // occur within a few seconds of when the save is initiated.  We do
-        // this here right now because we have access to $date, and we should
-        // generally be timely about receiving messages.
-        draftDate: $date.NOW(),
       },
       callback
     );
-    // XXX return new message namer
+    return {
+      suid: newDraftInfo.suid,
+      date: newDraftInfo.date
+    };
   },
 
   /**

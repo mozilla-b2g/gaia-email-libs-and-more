@@ -116,26 +116,6 @@ var tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
   return true;
 };
 
-var EXPECTED_BLOCK_SIZE = 8;
-
-/**
- * What is the maximum number of bytes a block should store before we split
- * it?
- */
-var MAX_BLOCK_SIZE = EXPECTED_BLOCK_SIZE * 1024,
-/**
- * How many bytes should we target for the small part when splitting 1:2?
- */
-      BLOCK_SPLIT_SMALL_PART = (EXPECTED_BLOCK_SIZE / 3) * 1024,
-/**
- * How many bytes should we target for equal parts when splitting 1:1?
- */
-      BLOCK_SPLIT_EQUAL_PART = (EXPECTED_BLOCK_SIZE / 2) * 1024,
-/**
- * How many bytes should we target for the large part when splitting 1:2?
- */
-      BLOCK_SPLIT_LARGE_PART = (EXPECTED_BLOCK_SIZE / 1.5) * 1024;
-
 /**
  * How much progress in the range [0.0, 1.0] should we report for just having
  * started the synchronization process?  The idea is that by having this be
@@ -2001,7 +1981,8 @@ FolderStorage.prototype = {
       }
       // - Is there a trailing/older dude and we fit?
       else if (iInfo < blockInfoList.length &&
-               blockInfoList[iInfo].estSize + estSizeCost < MAX_BLOCK_SIZE) {
+               (blockInfoList[iInfo].estSize + estSizeCost <
+                 $sync.MAX_BLOCK_SIZE)) {
         info = blockInfoList[iInfo];
 
         // We are chronologically/UID-ically more recent, so check the end range
@@ -2017,7 +1998,8 @@ FolderStorage.prototype = {
       }
       // - Is there a preceding/younger dude and we fit?
       else if (iInfo > 0 &&
-               blockInfoList[iInfo - 1].estSize + estSizeCost < MAX_BLOCK_SIZE){
+               (blockInfoList[iInfo - 1].estSize + estSizeCost <
+                  $sync.MAX_BLOCK_SIZE)) {
         info = blockInfoList[--iInfo];
 
         // We are chronologically less recent, so check the start range for
@@ -2076,17 +2058,17 @@ FolderStorage.prototype = {
       insertInBlock(thing, uid, info, block);
 
       // -- split if necessary
-      if (info.count > 1 && info.estSize >= MAX_BLOCK_SIZE) {
+      if (info.count > 1 && info.estSize >= $sync.MAX_BLOCK_SIZE) {
         // - figure the desired resulting sizes
         var firstBlockTarget;
         // big part to the center at the edges (favoring front edge)
         if (iInfo === 0)
-          firstBlockTarget = BLOCK_SPLIT_SMALL_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_SMALL_PART;
         else if (iInfo === blockInfoList.length - 1)
-          firstBlockTarget = BLOCK_SPLIT_LARGE_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_LARGE_PART;
         // otherwise equal split
         else
-          firstBlockTarget = BLOCK_SPLIT_EQUAL_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_EQUAL_PART;
 
 
         // - split

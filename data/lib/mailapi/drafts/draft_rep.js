@@ -30,7 +30,7 @@ function mergeDraftStates(oldHeader, oldBody,
                           newDraftRep, newDraftInfo,
                           universe) {
 
-  var identity = universe.getIdentityForSenderIdentityId(newDraftInfo.senderId);
+  var identity = universe.getIdentityForSenderIdentityId(newDraftRep.senderId);
 
   // -- convert from compose rep to header/body rep
   var newHeader = mailRep.makeHeaderInfo({
@@ -41,42 +41,42 @@ function mergeDraftStates(oldHeader, oldBody,
     // do this when we start appending to the server.
     guid: oldHeader ? oldHeader.guid : null,
     author: { name: identity.name, address: identity.address},
-    to: newDraftInfo.to,
-    cc: newDraftInfo.cc,
-    bcc: newDraftInfo.bcc,
+    to: newDraftRep.to,
+    cc: newDraftRep.cc,
+    bcc: newDraftRep.bcc,
     replyTo: identity.replyTo,
     date: newDraftInfo.date,
     flags: [],
     hasAttachments: oldHeader ? oldHeader.hasAttachments : false,
-    subject: newDraftInfo.subject,
-    snippet: newDraftInfo.body.text.substring(0, 100),
+    subject: newDraftRep.subject,
+    snippet: newDraftRep.body.text.substring(0, 100),
   });
   var newBody = mailRep.makeBodyInfo({
     date: newDraftInfo.date,
     size: 0,
     attachments: oldBody ? oldBody.attachments.concat() : [],
     relatedParts: oldBody ? oldBody.relatedParts.concat() : [],
-    references: newDraftInfo.referencesStr,
+    references: newDraftRep.referencesStr,
     bodyReps: []
   });
   newBody.bodyReps.push(mailRep.makeBodyPart({
     type: 'plain',
     part: null,
-    sizeEstimate: newDraftInfo.body.text.length,
-    amountDownloaded: newDraftInfo.body.text.length,
+    sizeEstimate: newDraftRep.body.text.length,
+    amountDownloaded: newDraftRep.body.text.length,
     isDownloaded: true,
     _partInfo: {},
-    content: [0x1, newDraftInfo.body.text]
+    content: [0x1, newDraftRep.body.text]
   }));
-  if (newDraftInfo.body.html) {
+  if (newDraftRep.body.html) {
     newBody.bodyReps.push(mailRep.makeBodyPart({
       type: 'html',
       part: null,
-      sizeEstimate: newDraftInfo.body.html.length,
-      amountDownloaded: newDraftInfo.body.html.length,
+      sizeEstimate: newDraftRep.body.html.length,
+      amountDownloaded: newDraftRep.body.html.length,
       isDownloaded: true,
       _partInfo: {},
-      content: newDraftInfo.body.html
+      content: newDraftRep.body.html
     }));
   }
 

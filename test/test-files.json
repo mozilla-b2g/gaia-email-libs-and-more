@@ -97,6 +97,9 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake"]
     },
 
+    "test_compose_blobs.js": {
+      "variants": ["imap:fake", "activesync:fake"]
+    },
 
     "test_body_observers.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake"]

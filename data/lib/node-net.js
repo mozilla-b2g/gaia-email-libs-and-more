@@ -111,6 +111,13 @@ NetSocket.prototype.setKeepAlive = function(shouldKeepAlive) {
 // copy of the buffer.)  The good news is that ArrayBuffer.slice() does create
 // an entirely new copy of the buffer, so in that case we can
 NetSocket.prototype.write = function(u8array) {
+  if (u8array instanceof Blob) {
+    // We always send blobs in their entirety; you should slice the blob and
+    // give us that if that's what you want.
+    this._sendMessage('write', [u8array]);
+    return;
+  }
+
   var sendArgs;
   // Slice the underlying buffer and transfer it if the array is a subarray
   if (u8array.byteOffset !== 0 ||

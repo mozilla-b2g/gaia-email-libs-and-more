@@ -56,6 +56,10 @@ TD.commonCase('blob flow control', function(T, RT) {
           this.bufferedAmount = READ_SIZE;
         }
       }
+      if (data instanceof ArrayBuffer) {
+        // for expectation purposes this needs to be a Uint8Array
+        data = new Uint8Array(data);
+      }
       eSock.namedValue('write', [data, offset, length]);
     },
 
@@ -97,8 +101,10 @@ TD.commonCase('blob flow control', function(T, RT) {
 
     var req = pendingReqs.shift();
     window.setZeroTimeout(function() {
-      eSock.eventD('xhr released', { status: statusCode, datA: data });
-      req.response = req.responseText = data;
+      eSock.eventD('xhr released', { status: statusCode, data: data });
+      // XHR for 'arraybuffer' returns an ArrayBuffer, not an ArrayBufferView,
+      // but we are throwing around Uint8Arrays in this test code.
+      req.response = req.responseText = data.buffer;
       req.status = statusCode;
       req.onload();
     });

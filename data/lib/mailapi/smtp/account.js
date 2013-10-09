@@ -143,7 +143,20 @@ SmtpAccount.prototype = {
             return;
           sendingMessage = true;
           composer.withMessageBlob({ includeBcc: false }, function(blob) {
-            conn.write(blob);
+            // simplesmtp's SMTPClient does not understand Blobs, so we issue
+            // the write directly.  All that it cares about is knowing whether
+            // our data payload included a trailing \r\n.  Our long term plan
+            // to avoid this silliness is to switch to using firemail's fork of
+            // simplesmtp or something equally less hacky; see bug 885110.
+            conn.socket.write(blob);
+            // We do know that mailcomposer always ends the buffer with \r\n, so
+            // we just set that ourselves.
+            conn._lastDataBytes[0] = 0x0d;
+            conn._lastDataBytes[1] = 0x0a;
+            // put some data in the console.log if in debug mode too
+            if (conn.options.debug) {
+              console.log('CLIENT (DATA) blob of size:', blob.size);
+            }
             conn.end();
           });
         });

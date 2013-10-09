@@ -1,5 +1,5 @@
 /**
- *
+ * Draft jobs: save/delete drafts, attach/remove attachments
  **/
 
 define(function(require, exports) {
@@ -63,7 +63,7 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
-      var wholeBlob = op.attachmenDef.blob;
+      var wholeBlob = op.attachmentDef.blob;
 
       // - Retrieve the message
       var header, body;
@@ -87,13 +87,16 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
           // this is where we put the Blob segments...
           file: [],
         });
+
+        convertNextChunk();
       }
 
       var blobOffset = 0;
       function convertNextChunk() {
         var nextOffset =
               Math.min(wholeBlob.size,
-                       blobOffset + this.BLOB_BASE64_BATCH_CONVERT_SIZE);
+                       blobOffset + self.BLOB_BASE64_BATCH_CONVERT_SIZE);
+
         var slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
         blobOffset = nextOffset;
 
@@ -109,9 +112,9 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
         }
 
         var lastChunk = (blobOffset >= wholeBlob.size);
-
         var encodedU8 = b64.mimeStyleBase64Encode(binaryDataU8);
-        body.attaching.file.push(new Blob(encodedU8, wholeBlob.type));
+        body.attaching.file.push(new Blob([encodedU8],
+                                          { type: wholeBlob.type }));
 
         var eventDetails;
         if (lastChunk) {
@@ -201,15 +204,11 @@ draftsMixins.local_do_saveDraft = function(op, callback) {
       // there's always a header add and a body add
       var waitingForDbMods = 2;
       function gotMessage(oldRecords) {
-        var newId = folderStorage._issueNewHeaderId();
         var newRecords = draftRep.mergeDraftStates(
           oldRecords.header, oldRecords.body,
           op.draftRep,
-          {
-            id: newId,
-            suid: folderStorage.folderId + '/' + newId,
-            date: op.draftDate
-          });
+          op.newDraftInfo,
+          self.account.universe);
 
         // If there already was a draft saved, delete it.
         // Note that ordering of the removal and the addition doesn't really
@@ -220,16 +219,16 @@ draftsMixins.local_do_saveDraft = function(op, callback) {
             op.existingNamer.suid, op.existingNamer.date, dbModCompleted);
         }
 
-        folderStorage.addMessageHeader(header, dbModCompleted);
-        folderStorage.addMessageBody(header, body, dbModCompleted);
-      }
-
-      function dbModCompleted() {
-        if (--waitingForDbMods === 0) {
-          callback(
-            null,
-            { suid: header.suid, date: header.date },
-            /* save account */ true);
+        folderStorage.addMessageHeader(newRecords.header, dbModCompleted);
+        folderStorage.addMessageBody(newRecords.header, newRecords.body,
+                                     dbModCompleted);
+        function dbModCompleted() {
+          if (--waitingForDbMods === 0) {
+            callback(
+              /* no error */ null,
+              /* result */ newRecords,
+              /* save account */ true);
+          }
         }
       }
 
