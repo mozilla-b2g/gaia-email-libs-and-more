@@ -583,9 +583,12 @@ TD.commonCase('reply/forward html message', function(T, RT) {
   T.action(testAccount, eCheck,
            'reply to HTML message', msgDef.name, function() {
     testAccount.expect_runOp(
+      'downloadBodyReps',
+      { local: false, server: true, save:'server' });
+    testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage();
+    testAccount.expect_sendMessage(true); // this will acquire a conn
     testAccount.expect_runOp(
       'deleteDraft',
       { local: true, server: false, save: 'local' });

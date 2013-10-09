@@ -1167,6 +1167,10 @@ MailUniverse.prototype = {
       op = serverQueue[0];
       this._dispatchServerOpForAccount(account, op);
     }
+    else if (this._opCompletionListenersByAccount[account.id]) {
+      this._opCompletionListenersByAccount[account.id](account);
+      this._opCompletionListenersByAccount[account.id] = null;
+    }
   },
 
   /**

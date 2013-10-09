@@ -2312,11 +2312,11 @@ var TestImapAccountMixins = {
     });
   },
 
-  expect_sendMessage: function() {
+  expect_sendMessage: function(conn) {
     // sending is not tracked as an op, but appending is
     this.expect_runOp(
       'append',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: false, conn: conn });
   },
 };
 

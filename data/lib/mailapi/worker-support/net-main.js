@@ -142,7 +142,6 @@ function fetchNextBlobChunk(sockInfo) {
   var nextOffset =
         Math.min(sockInfo.blobOffset + self.BLOB_BLOCK_READ_SIZE,
                  sockInfo.activeBlob.size);
-console.warn('slicing', sockInfo.blobOffset, nextOffset);
   var blobSlice = sockInfo.activeBlob.slice(
                     sockInfo.blobOffset,
                     nextOffset);
@@ -184,8 +183,6 @@ function close(uid) {
 }
 
 function write(uid, data, offset, length) {
-  console.warn('write call', data instanceof Blob, offset, length);
-
   var sockInfo = sockInfoByUID[uid];
 
   // If there is an activeBlob, then the write must be queued or we would end up

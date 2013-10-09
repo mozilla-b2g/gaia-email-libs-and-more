@@ -35,7 +35,6 @@ $mailcomposer.MailComposer.prototype._emitDataElement = function(element,
                                                                  callback) {
   if (element.contents && element.contents instanceof Blob) {
     if (this._outputBuffer) {
-console.warn('pushing1', this._outputBuffer);
       this._outputBlobPieces.push(this._outputBuffer);
       this._outputBuffer = '';
     }
@@ -209,7 +208,6 @@ Composer.prototype = {
     process.immediate = false;
 
     if (mcomposer._outputBuffer) {
-console.warn('pushing2', mcomposer._outputBuffer);
       mcomposer._outputBlobPieces.push(mcomposer._outputBuffer);
       mcomposer._outputBuffer = '';
     }

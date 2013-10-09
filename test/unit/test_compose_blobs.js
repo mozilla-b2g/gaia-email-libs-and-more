@@ -69,11 +69,15 @@ TD.commonCase('large attachments', function(T, RT) {
     jobDriver.BLOB_BASE64_BATCH_CONVERT_SIZE = BLOB_CONVERT_SIZE;
   });
 
-  function makeBlobOfSize(n, type) {
+  function makeArrOfSize(n) {
     var arr = new Uint8Array(n);
     for (var i = 0; i < n; i++) {
       arr[i] = i % 256;
     }
+    return arr;
+  }
+  function makeBlobOfSize(n, type) {
+    var arr = makeArrOfSize(n);
     return new Blob([arr], { type: type });
   }
 
@@ -89,7 +93,10 @@ TD.commonCase('large attachments', function(T, RT) {
       composer = testUniverse.MailAPI.beginMessageComposition(
         null, inboxFolder, null,
         function() {
+          composer.to.push(
+            { name: 'Myself', address: TEST_PARAMS.emailAddress });
           composer.subject = uniqueSubject;
+          composer.body.text = 'I like to type!';
           eLazy.event('compose setup completed');
         });
     });
@@ -133,7 +140,8 @@ TD.commonCase('large attachments', function(T, RT) {
       // The Blob sizes are the encoded size, not the source size.
       var expectedBlobSizes = [];
       for (var i = 0; i < numBlobs; i++) {
-        var encodedCount = Math.ceil((numBytes - (i * 57))/3) * 4 + 2;
+        var encodedCount = Math.ceil((numBytes - (i * 57 * 2))/3) * 4 +
+                           Math.ceil((numBytes - (i * 57 * 2)) / 57) * 2;
         expectedBlobSizes.push(Math.min(BLOB_TARGET_SIZE, encodedCount));
       }
       eLazy.expect_namedValue('blob sizes', expectedBlobSizes);
@@ -147,7 +155,15 @@ TD.commonCase('large attachments', function(T, RT) {
         body.die();
       });
     });
-    T.action(eLazy, 'send the message', function() {
+    T.action(testAccount, eLazy, 'send the message', function() {
+      testAccount.expect_runOp(
+        'saveDraft',
+        { local: true, server: false, save: 'local' });
+      testAccount.expect_sendMessage(true);
+      testAccount.expect_runOp(
+        'deleteDraft',
+        { local: true, server: false, save: 'local' });
+
       eLazy.expect_namedValue('sent result', null);
       composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
         eLazy.namedValue('sent result', err);
@@ -159,7 +175,8 @@ TD.commonCase('large attachments', function(T, RT) {
         RT.reportActiveActorThisStep(eLazy);
         eLazy.expect_event('got body');
       },
-      withessage: function(_header) {
+      withMessage: function(_header) {
+        header = _header;
         header.getBody(function(_body) {
           body = _body;
           eLazy.event('got body');
@@ -167,9 +184,40 @@ TD.commonCase('large attachments', function(T, RT) {
       }
     });
     T.action(eLazy, 'download attachment', function() {
-      body
-    });
+      eLazy.expect_namedValue(
+        'attachment[0].size', numBytes);
+      eLazy.expect_namedValue(
+        'attachment[0].data', makeArrOfSize(numBytes));
 
+      var attachments = [];
+      body.attachments.forEach(function(att, iAtt) {
+        att.download(function() {
+          testStorage.get(
+            att._file[1],
+            function gotBlob(error, blob) {
+              if (error) {
+                console.error('blob fetch error:', error);
+                return;
+              }
+              var reader = new FileReaderSync();
+              try {
+                var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+                console.log('got', data.length, 'bytes, readyState',
+                            reader.readyState);
+                eLazy.namedValue('attachment[' + iAtt + '].size',
+                                 body.attachments[iAtt].sizeEstimateInBytes);
+                eLazy.namedValue('attachment[' + iAtt + '].data', data);
+              }
+              catch(ex) {
+                console.error('reader error', ex);
+              }
+            });
+        });
+      });
+    });
+    T.action('kill body', function() {
+      body.die();
+    });
   }
 
   testWithNumBytes('1 line, 1 blob', 57, 1);

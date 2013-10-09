@@ -134,10 +134,11 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
         }
 
         folderStorage.updateMessageBody(
-          header, body, { flushBecause: 'blobs' }, eventDetails, bodyUpdated);
+          header, body, { flushBecause: 'blobs' }, eventDetails,
+          lastChunk ? bodyUpdatedAllDone : convertNextChunk);
       }
 
-      function bodyUpdated(newBodyInfo) {
+      function bodyUpdatedAllDone(newBodyInfo) {
         callback(null);
       }
     },

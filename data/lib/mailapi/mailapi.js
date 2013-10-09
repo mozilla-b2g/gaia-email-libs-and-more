@@ -2344,7 +2344,6 @@ MailAPI.prototype = {
   },
 
   _getBodyForMessage: function(header, options, callback) {
-
     var downloadBodyReps = false, withBodyReps = false;
 
     if (options && options.downloadBodyReps) {

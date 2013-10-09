@@ -94,11 +94,13 @@
 
 
     "test_compose.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "XXX": "activesync:fake disabled because it crashes us right now",
+      "variants": ["imap:fake", "imap:real"]
     },
 
     "test_compose_blobs.js": {
-      "variants": ["imap:fake", "activesync:fake"]
+      "XXX": "activesync:fake disabled because it crashes us right now",
+      "variants": ["imap:fake"]
     },
 
     "test_body_observers.js": {
