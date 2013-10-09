@@ -71,6 +71,16 @@ TD.commonCase('base64 encoding', function(T, RT) {
       count: 4
     },
     {
+      name: '5 bytes',
+      low: 0,
+      count: 5
+    },
+    {
+      name: '6 bytes',
+      low: 0,
+      count: 6
+    },
+    {
       name: '1 line: 57 bytes',
       low: 10,
       count: 57

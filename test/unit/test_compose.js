@@ -223,6 +223,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       // adding a file sends created and modified
       testStorage.expect_created('foo.png');
       testStorage.expect_modified('foo.png');
+      // the file size should be exact after download
       eLazy.expect_namedValue(
         'attachment[0].size', 256);
       eLazy.expect_namedValue(

@@ -1241,7 +1241,7 @@ MailAttachment.prototype = {
 
   __update: function(wireRep) {
     this.mimetype = wireRep.type;
-    this.sizeEstimate = wireRep.sizeEstimate;
+    this.sizeEstimateInBytes = wireRep.sizeEstimate;
     this._file = wireRep.file;
   },
 

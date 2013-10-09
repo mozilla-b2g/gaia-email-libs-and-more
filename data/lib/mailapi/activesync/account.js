@@ -838,12 +838,7 @@ ActiveSyncAccount.prototype = {
         });
       }
       else { // ActiveSync 12.x and lower
-        var encoder = new TextEncoder('UTF-8');
-
-        // On B2G 18, XHRs expect ArrayBuffers and will barf on Uint8Arrays. In
-        // the future, we can remove the last |.buffer| bit below.
-        this.conn.postData('SendMail', 'message/rfc822',
-                           encoder.encode(mimeBuffer).buffer,
+        this.conn.postData('SendMail', 'message/rfc822', mimeBlob,
                            function(aError, aResponse) {
           if (aError) {
             account._reportErrorIfNecessary(aError);
