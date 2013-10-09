@@ -28,6 +28,8 @@ help:
 	@echo "  Run one test file (all variants), do not post results to ArbPL"
 	@echo "make post-one-test SOLO_FILE=test_name.js"
 	@echo "  Run one test file (all variants), post results to ArbPL"
+	@echo "make post-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
+	@echo "  Run one test file (imap:fake variant), post results to ArbPL"
 	@echo ""
 	@echo "To enable verbose log output to the console: TEST_LOG_ENABLE=true"
 

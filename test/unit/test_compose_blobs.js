@@ -226,13 +226,4 @@ TD.commonCase('large attachments', function(T, RT) {
   testWithNumBytes('4 lines, 2 blobs', 57 * 4, 2);
 });
 
-/**
- * Attach an attachment, detach it, make sure it went away.  Do the same thing a
- * second time (same draft) but this time issue the detach before the attach has
- * completed.  This tests both the inductive case as well as making sure we
- * don't somehow freak out in that case.
- */
-TD.commonCase('detach blobs', function() {
-});
-
 }); // end define

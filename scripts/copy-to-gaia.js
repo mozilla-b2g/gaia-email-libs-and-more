@@ -86,7 +86,8 @@ var bootstrapIncludes = ['alameda', 'config', 'mailapi/shim-sham',
   'mailapi/jobmixins', 'mailapi/accountmixins', 'util', 'stream', 'crypto',
   'encoding', 'mailapi/worker-setup'];
 var standardExcludes = [].concat(bootstrapIncludes);
-var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
+var standardPlusComposerExcludes = ['mailapi/drafts/composer']
+      .concat(standardExcludes);
 
 var configs = [
   // root aggregate loaded in worker context
@@ -105,7 +106,7 @@ var configs = [
 
   // needed by all kinds of different layers, so broken out on its own:
   // - mailparser/mailparser
-  // - mailapi/composer (specifically mailcomposer)
+  // - mailapi/drafts/composer (specifically mailcomposer)
   // - mailapi/chewlayer (specifically mailapi/imap/imapchew statically)
   // - activesync (specifically mailapi/activesync/folder dynamically)
   {
@@ -135,13 +136,13 @@ var configs = [
 
   // our composition abstraction and its deps
   {
-    name: 'mailapi/composer',
+    name: 'mailapi/drafts/composer',
     exclude: standardExcludes.concat(['mailparser/mailparser',
                                       'mailapi/quotechew',
                                       'mailapi/htmlchew',
                                       'mailapi/imap/imapchew',
                                       'mimelib']),
-    out: jsPath + '/mailapi/composer.js'
+    out: jsPath + '/mailapi/drafts/composer.js'
   },
 
   // imap protocol and probing support
