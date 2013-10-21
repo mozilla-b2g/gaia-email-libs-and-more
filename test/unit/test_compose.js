@@ -20,7 +20,10 @@ var TD = exports.TD = $tc.defineTestsFor(
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
- * does because unit tests usually like determinism.)
+ * does because unit tests usually like determinism.)  This is required because
+ * we potentially use a real Inbox which may have test detritus from previous
+ * runs.  In that case, we don't want to be tricked by a previous test run's
+ * values.
  */
 function makeRandomSubject() {
   return 'Composition: ' + Date.now() + ' ' +
@@ -80,11 +83,14 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     attachmentData.push(iData);
   }
 
-  T.action(testAccount, 'compose, save', eLazy, function() {
+  T.action(testAccount, 'compose, save draft, attach blob', eLazy, function() {
     testAccount.expect_runOp(
       'saveDraft',
-      { local: true, server: false, save: true });
-    eLazy.expect_event('saved');
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_runOp(
+      'attachBlobToDraft',
+      { local: true, server: false, flushBodyLocalSaves: 1 });
+    eLazy.expect_event('attached');
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
@@ -93,13 +99,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     composer.addAttachment({
       name: 'foo.png',
       blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
+    }, function() {
+      eLazy.event('attached');
+      composer.die();
+      composer = null;
     });
-
-    composer.saveDraft(function() {
-      eLazy.event('saved');
-    });
-    composer.die();
-    composer = null;
   });
 
   var lastDraftId;
@@ -110,6 +114,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     eLazy.expect_namedValue('draft subject', uniqueSubject);
     eLazy.expect_namedValue('draft text',
                             'Antelope banana credenza.\n\nDialog excitement!');
+    eLazy.expect_namedValue('draft attachment count', 1);
+    eLazy.expect_namedValue('draft attachment name', 'foo.png');
+    eLazy.expect_namedValue('draft attachment type', 'image/png');
+    eLazy.expect_namedValue('draft attachment size', 256);
 
     eLazy.namedValue('draft count', localDraftsView.slice.items.length);
     var draftHeader = localDraftsView.slice.items[0];
@@ -119,6 +127,13 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       eLazy.event('resumed');
       eLazy.namedValue('draft subject', composer.subject);
       eLazy.namedValue('draft text', composer.body.text);
+      eLazy.namedValue('draft attachment count', composer.attachments.length);
+      eLazy.namedValue('draft attachment name',
+                       composer.attachments[0].name);
+      eLazy.namedValue('draft attachment type',
+                       composer.attachments[0].blob.type);
+      eLazy.namedValue('draft attachment size',
+                       composer.attachments[0].blob.size);
     });
   });
   T.action(testAccount, 'save draft again, old draft deleted',eLazy,function() {
@@ -170,8 +185,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   });
   var sentMessageId;
   T.action(testAccount, 'send', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
     testAccount.expect_sendMessage();
-
     // note: the delete op is asynchronously scheduled by the send process once
     // it completes; our callback below will be invoked before the op is
     // guaranteed to run to completion.
@@ -181,15 +198,6 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
     eLazy.expect_event('sent');
 
-    if (testAccount.type === 'pop3') {
-      RT.reportActiveActorThisStep(sentFolder.connActor);
-      RT.reportActiveActorThisStep(testStorage);
-      // pop3 doesn't save attachments here, it saves them on downloadBodyReps
-      sentFolder.connActor.expect_savedAttachment('sdcard', 'image/png', 256);
-      // adding a file sends created and modified
-      testStorage.expect_created('foo.png');
-      testStorage.expect_modified('foo.png');
-    }
     composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
       sentMessageId = debugInfo.messageId.slice(1, -1); // lose < > wrapping
       if (err)
@@ -221,22 +229,24 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
         'attachments',
         [{
           filename: 'foo.png',
-          mimetype: 'image/png',
+          mimetype: (testAccount.type !== 'pop3') ?
+                      'image/png' : 'application/x-gelam-no-download',
           // there is some guessing/rounding involved
           sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
-        }]);
+          isDownloadable: (testAccount.type !== 'pop3')
+         }]);
+      // For POP3 we discard the sent attachments.
       if (testAccount.type !== 'pop3') {
-        // pop3 doesn't save attachments here, it saves them on downloadBodyReps
         testAccount.eJobDriver.expect_savedAttachment(
             'sdcard', 'image/png', 256);
         // adding a file sends created and modified
         testStorage.expect_created('foo.png');
         testStorage.expect_modified('foo.png');
+        eLazy.expect_namedValue(
+          'attachment[0].size', 256);
+        eLazy.expect_namedValue(
+          'attachment[0].data', attachmentData.concat());
       }
-      eLazy.expect_namedValue(
-        'attachment[0].size', 256);
-      eLazy.expect_namedValue(
-        'attachment[0].data', attachmentData.concat());
     },
     withMessage: function(header) {
       eLazy.namedValue('subject', header.subject);
@@ -250,7 +260,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
             filename: att.filename,
             mimetype: att.mimetype,
             sizeEstimateInBytes: att.sizeEstimateInBytes,
+            isDownloadable: att.isDownloadable
           });
+          if (testAccount.type === 'pop3')
+            return;
           att.download(function() {
             testStorage.get(
               att._file[1],
@@ -341,8 +354,16 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
   // - complete and send the reply
   var replySentDate, replyMessageId, replyReferences;
-  T.action('reply', eLazy, function() {
+  T.action(testAccount, 'reply', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
     eLazy.expect_event('sent');
+
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
     replyComposer.finishCompositionSendMessage(function(err, badAddrs,
@@ -434,7 +455,15 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
   T.group('reply to the reply');
   var secondReplySentDate, secondReplyMessageId, secondReplyReferences;
-  T.action('reply to the reply', eLazy, function() {
+  T.action(testAccount, 'reply to the reply', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     eLazy.expect_event('sent');
 
     var secondReplyComposer = replyHeader.replyToMessage('sender', function() {
@@ -517,7 +546,13 @@ TD.commonCase('reply/forward html message', function(T, RT) {
         '\n\n$AUTHOR$ wrote:',
       // the (read-only) bit of the reply to the above
       replyHtmlHtml  =
-        '<blockquote cite="mid:$MESSAGEID$" type="cite">' +
+        '<blockquote ' +
+        // ActiveSync does not have the message-id so we can't include the
+        // cite stuff.  Note that if we do start sourcing the message id, then
+        // this test will break (and we can fix it) because inclusion is based
+        // on posession of the message-id and not hardcoded to account type.
+        (testAccount.type !== 'activesync' ? 'cite="mid:$MESSAGEID$" ' : '') +
+        'type="cite">' +
         // XXX we want this style scoped
         '<style type="text/css">' +
         'p { margin: 0; }' +
@@ -571,8 +606,23 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       eCheck.event('got header');
     }
   });
-  T.action(eCheck,
+  T.action(testAccount, eCheck,
            'reply to HTML message', msgDef.name, function() {
+    // POP3 performs its snippet fetching as part of the initial sync; since the
+    // bodies are tiny, the message is downloaded in its entirety.
+    if (testAccount.type !== 'pop3') {
+      testAccount.expect_runOp(
+        'downloadBodyReps',
+        { local: false, server: true, save:'server' });
+    }
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage(true); // this will acquire a conn
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     expectedReplyBody = {
       text: replyTextHtml.replace('$AUTHOR$', TEST_PARAMS.name),
       html: replyHtmlHtml.replace('$MESSAGEID$', header.guid)
@@ -610,9 +660,10 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     },
     // trigger the reply composer
     withMessage: function(header) {
-      testAccount.getMessageBodyWithReps(header, function(body) {
+      header.getBody({ withBodyReps: true }, function(body) {
         eCheck.namedValue('rep type', body.bodyReps[0].type);
         eCheck.namedValue('rep', body.bodyReps[0].content);
+        body.die();
       });
     }
   });
@@ -760,7 +811,15 @@ TD.commonCase('bcc self', function(T, RT) {
       eLazy.event.bind(eLazy, 'compose setup completed'));
   });
 
-  T.action('send', eLazy, function() {
+  T.action(testAccount, 'send', eLazy, function() {
+    testAccount.expect_runOp(
+      'saveDraft',
+      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessage();
+    testAccount.expect_runOp(
+      'deleteDraft',
+      { local: true, server: false, save: 'local' });
+
     eLazy.expect_event('sent');
     eLazy.expect_event('appended');
 

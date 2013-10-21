@@ -802,12 +802,12 @@ ActiveSyncAccount.prototype = {
 
     // we want the bcc included because that's how we tell the server the bcc
     // results.
-    composer.withMessageBuffer({ includeBcc: true }, function(mimeBuffer) {
+    composer.withMessageBlob({ includeBcc: true }, function(mimeBlob) {
       // ActiveSync 14.0 has a completely different API for sending email. Make
       // sure we format things the right way.
       if (this.conn.currentVersion.gte('14.0')) {
         var cm = ASCP.ComposeMail.Tags;
-        var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+        var w = new $wbxml.Writer('1.3', 1, 'UTF-8', null, 'blob');
         w.stag(cm.SendMail)
            // The ClientId is defined to be for duplicate messages suppression
            // and does not need to have any uniqueness constraints apart from
@@ -815,7 +815,7 @@ ActiveSyncAccount.prototype = {
            .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
            .tag(cm.SaveInSentItems)
            .stag(cm.Mime)
-             .opaque(mimeBuffer)
+             .opaque(mimeBlob)
            .etag()
          .etag();
 
@@ -839,12 +839,7 @@ ActiveSyncAccount.prototype = {
         });
       }
       else { // ActiveSync 12.x and lower
-        var encoder = new TextEncoder('UTF-8');
-
-        // On B2G 18, XHRs expect ArrayBuffers and will barf on Uint8Arrays. In
-        // the future, we can remove the last |.buffer| bit below.
-        this.conn.postData('SendMail', 'message/rfc822',
-                           encoder.encode(mimeBuffer).buffer,
+        this.conn.postData('SendMail', 'message/rfc822', mimeBlob,
                            function(aError, aResponse) {
           if (aError) {
             account._reportErrorIfNecessary(aError);

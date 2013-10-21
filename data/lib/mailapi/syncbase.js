@@ -28,6 +28,33 @@ exports.OPEN_REFRESH_THRESH_MS = 10 * 60 * 1000;
 exports.GROW_REFRESH_THRESH_MS = 60 * 60 * 1000;
 
 ////////////////////////////////////////////////////////////////////////////////
+// Database Block constants
+//
+// Used to live in mailslice.js, but they got out of sync with the below which
+// caused problems.
+
+exports.EXPECTED_BLOCK_SIZE = 8;
+
+/**
+ * What is the maximum number of bytes a block should store before we split
+ * it?
+ */
+exports.MAX_BLOCK_SIZE = exports.EXPECTED_BLOCK_SIZE * 1024,
+/**
+ * How many bytes should we target for the small part when splitting 1:2?
+ */
+exports.BLOCK_SPLIT_SMALL_PART = (exports.EXPECTED_BLOCK_SIZE / 3) * 1024,
+/**
+ * How many bytes should we target for equal parts when splitting 1:1?
+ */
+exports.BLOCK_SPLIT_EQUAL_PART = (exports.EXPECTED_BLOCK_SIZE / 2) * 1024,
+/**
+ * How many bytes should we target for the large part when splitting 1:2?
+ */
+exports.BLOCK_SPLIT_LARGE_PART = (exports.EXPECTED_BLOCK_SIZE / 1.5) * 1024;
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Block Purging Constants (IMAP only)
 //
 // These values are all intended for resource-constrained mobile devices.  A
@@ -41,8 +68,12 @@ exports.GROW_REFRESH_THRESH_MS = 60 * 60 * 1000;
  * Body sizes are most variable and should usually take up more space than their
  * owning header blocks, so it makes sense for this to be the proxy we use for
  * disk space usage/growth.
+ *
+ * This used to be 4 when EXPECTED_BLOCK_SIZE was 96, it's now 8.  A naive
+ * scaling would be by 12 to 48, but that doesn't handle that blocks can be
+ * over the limit, so we want to aim a little lower, so 32.
  */
-exports.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS = 4;
+exports.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS = 32;
 
 /**
  * How much time must have elapsed since the given messages were last
@@ -59,15 +90,19 @@ exports.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS = 14 * $date.DAY_MILLIS;
  * regardless of any time considerations.
  *
  * The hypothetical upper bound for disk uage per folder is:
- *  X 'number of blocks' * 2 'types of blocks' * 96k 'maximum block size'.
+ * X 'number of blocks' * 2 'types of blocks' * 8k 'maximum block size'.  In
+ * reality, blocks can be larger than their target if they have very large
+ * bodies.
  *
- * So for the current value of 128 we are looking at 24 megabytes, which is
- * a lot.
+ * This was 128 when our target size was 96k for a total of 24 megabytes.  Now
+ * that our target size is 8k we're only scaling up by 8 instead of 12 because
+ * of the potential for a large number of overage blocks.  This takes us to a
+ * max of 1024 blocks.
  *
  * This is intended to protect people who have ridiculously high message
  * densities from time-based heuristics not discarding things fast enough.
  */
-exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT = 128;
+exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT = 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
 // General Sync Constants

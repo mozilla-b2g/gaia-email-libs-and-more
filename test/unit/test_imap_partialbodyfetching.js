@@ -110,7 +110,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
         snippet: header.snippet
       });
 
-      testAccount2.getMessageBodyWithReps(header, function(body) {
+      header.getBody({ withBodyReps: true }, function(body) {
         var rep = body.bodyReps[0];
         eLazy.namedValue('body content', {
           id: header.id,

@@ -56,7 +56,7 @@ var testHelper = {
       };
     }
     /**
-     * Support testAccount.getMessageBodyWithReps
+     * Support testAccount.getMessageBodyOnMainThread
      */
     else if (cmd === 'runWithBody') {
       try {

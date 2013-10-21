@@ -68,6 +68,11 @@ var loggestRouterModule = {
     else if (cmd === 'done') {
        console.log('Got results! posting message. fake parent?:',
                    window.parent.fakeParent);
+
+      console.log('waiting for the worker to kill itself.');
+
+      setTimeout(function() {
+        console.log('actually posting the kill-me now');
       // Save off the log just in case there was a race about clobbering
       // window.parent.
       window.logResultsMsg = {
@@ -76,6 +81,7 @@ var loggestRouterModule = {
       };
 
       window.parent.postMessage(window.logResultsMsg, '*');
+      }, 100);
     }
   }
 };

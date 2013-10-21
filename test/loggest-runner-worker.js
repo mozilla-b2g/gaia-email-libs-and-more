@@ -96,6 +96,7 @@ var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
         exposeToTest: msg.args.testParams,
         resultsReporter: function(jsonnableObj) {
           sendMessage('done', JSON.stringify(jsonnableObj));
+          self.close();
         }
       },
       ErrorTrapper,

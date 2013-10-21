@@ -39,6 +39,7 @@ buildOptions = {
 
     'q': 'empty:',
     'text': 'data/lib/text',
+    'mix': 'data/lib/mix',
     // silly shim
     'event-queue': 'data/lib/js-shims/event-queue',
     'microtime': 'data/lib/js-shims/microtime',
@@ -81,12 +82,33 @@ buildOptions = {
   }
 };
 
-var bootstrapIncludes = ['alameda', 'config', 'mailapi/shim-sham',
-  'event-queue', 'mailapi/mailslice', 'mailapi/searchfilter',
-  'mailapi/jobmixins', 'mailapi/accountmixins', 'util', 'stream', 'crypto',
-  'encoding', 'mailapi/worker-setup'];
+var bootstrapIncludes = [
+  'alameda', 'config',
+  // Directly needed shims and their shim deps (node Buffer abstraction, etc.)
+  'mailapi/shim-sham',
+  'event-queue',
+  // Required for all offline support
+  'mailapi/mailslice',
+  // Commonly needed mail rep mutation funcs.
+  'mailapi/db/mail_rep',
+  // Searches can happen offline.
+  'mailapi/searchfilter',
+  // Job/operations are currently not gated, although they could be...
+  'mailapi/jobmixins',
+  // ...and this does include draft jobs and their deps
+  'mailapi/drafts/jobs', 'mailapi/drafts/draft_rep',
+  'mailapi/async_blob_fetcher',
+  // Common account logic is required for everything
+  'mailapi/accountmixins',
+  // Common/tiny utilities; some could be broken out further
+  'util', 'stream', 'crypto', 'mix',
+  'encoding', 'mailapi/b64',
+  // Bootstraps the universe, pulls in our core dependencies like the universe
+  // and the mailbridge.
+  'mailapi/worker-setup'];
 var standardExcludes = [].concat(bootstrapIncludes);
-var standardPlusComposerExcludes = ['mailapi/composer'].concat(standardExcludes);
+var standardPlusComposerExcludes = ['mailapi/drafts/composer']
+      .concat(standardExcludes);
 
 var configs = [
   // root aggregate loaded in worker context
@@ -105,7 +127,7 @@ var configs = [
 
   // needed by all kinds of different layers, so broken out on its own:
   // - mailparser/mailparser
-  // - mailapi/composer (specifically mailcomposer)
+  // - mailapi/drafts/composer (specifically mailcomposer)
   // - mailapi/chewlayer (specifically mailapi/imap/imapchew statically)
   // - activesync (specifically mailapi/activesync/folder dynamically)
   {
@@ -135,13 +157,13 @@ var configs = [
 
   // our composition abstraction and its deps
   {
-    name: 'mailapi/composer',
+    name: 'mailapi/drafts/composer',
     exclude: standardExcludes.concat(['mailparser/mailparser',
                                       'mailapi/quotechew',
                                       'mailapi/htmlchew',
                                       'mailapi/imap/imapchew',
                                       'mimelib']),
-    out: jsPath + '/mailapi/composer.js'
+    out: jsPath + '/mailapi/drafts/composer.js'
   },
 
   // imap protocol and probing support
