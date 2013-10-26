@@ -160,3 +160,13 @@ clean:
 
 .DEFAULT_GOAL=help
 .PHONY: build install-into-gaia
+
+node_modules: package.json
+	npm install
+
+b2g: node_modules
+	./node_modules/.bin/mozilla-download \
+		--product b2g \
+		--channel prerelease \
+		--branch mozilla-central \
+		$@
