@@ -4,10 +4,12 @@
 
 define(
   [
-    'exports'
+    'exports',
+    'addressparser'
   ],
   function(
-    exports
+    exports,
+    addressparser
   ) {
 
 function objCopy(obj) {
@@ -2845,6 +2847,26 @@ MailAPI.prototype = {
       parentFolderId: parentFolder ? parentFolder.id : null,
       containOnlyOtherFolders: containOnlyOtherFolders
     });
+  },
+
+  /**
+   * Parse a structured email address
+   * into a display name and email address parts.
+   * It will return null on a parse failure.
+   *
+   * @param {String} email A email address.
+   * @return {Object} An object of the form { name, address }. 
+   */
+  parseMailbox: function(email) {
+    try {
+      var mailbox = addressparser(email);
+      return (mailbox.length >= 1) ? mailbox[0] : null;
+    }
+    catch (ex) {
+      reportClientCodeError('parse mailbox error', ex,
+                            '\n', ex.stack);
+      return null;
+    }
   },
 
   _recv_mutationConfirmed: function(msg) {
