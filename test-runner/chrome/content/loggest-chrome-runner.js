@@ -636,18 +636,59 @@ var EMAIL_PERMISSIONS = {
     "tcp-socket":{}
 };
 
+/**
+ * Convert an nsIArray to a JS array, making sure to QueryInterface the elements
+ * so they don't just look like nsISupports-exposed objects.
+ */
+function convertNsIArray(arr, elemType) {
+  var out = [];
+  arr = arr.QueryInterface(Ci.nsIArray);
+  for (var i = 0; i < arr.length; i++) {
+    out.push(arr.queryElementAt(i, elemType));
+  }
+  return out;
+}
 
 var FakeContentPermissionPrompt = {
   prompt: function(request) {
-    if (EMAIL_PERMISSIONS.hasOwnProperty(request.type)) {
-      console.harness('Allowing permission:', request.type, 'for',
-                      request.access, 'to', request.principal.origin);
-      request.allow();
+    var types;
+    // Current rep.
+    if (request.types) {
+      // It's an nsIArray, which does not map cleanly to JS; use our helper.
+      types = convertNsIArray(request.types, Ci.nsIContentPermissionType);
+    }
+    // Pre-bug 853356 rep
+    else {
+      types = [{ type: request.type, access: request.access }];
+    }
+
+    var allowCount = 0;
+    var denyCount = 0;
+    types.forEach(function(requestType) {
+      if (EMAIL_PERMISSIONS.hasOwnProperty(requestType.type)) {
+        console.harness('Allowing sub-permission:', requestType.type, 'for',
+                        requestType.access, 'to', request.principal.origin);
+        allowCount++;
+      }
+      else {
+        console.harness('Denying sub-permission', requestType.type, 'for',
+                        requestType.access, 'to', request.principal.origin);
+        denyCount++;
+      }
+    });
+    // Any denial means we should deny the whole thing since our goal is to
+    // get a heads-up when we need to update our webapp.manifest.
+    if (denyCount) {
+      console.warn('Denying overall permission request.');
+      request.cancel();
+      if (allowCount) {
+        console.warn('Denied request because of', denyCount, 'denials,',
+                     'but there were', allowCount, 'allowals.');
+      }
     }
     else {
-      console.harness('Denying permission', request.type, 'for', request.access,
-                      'to', request.principal.origin);
-      request.cancel();
+      console.warn('Allowing overall permission request.');
+      request.allow();
     }
   },
 
