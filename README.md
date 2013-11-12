@@ -31,7 +31,8 @@ git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.gi
 
 3. Install node.js - Standard package management is fine (apt-get, brew, etc).
 
-4. Install npm
+4. Install npm. If you have installed node.js from source, you don't need to install npm as it is built with node.js.
+  If you use a package management system, you may need to install this separately.
 
 5. Clone push log, do it recursively - https://github.com/asutherland/arbitrarypushlog/tree/master
 
