@@ -1,9 +1,11 @@
-E-mail libraries for the gaia e-mail client.  A bunch of node and AMD modules
-get r.js optimized into a single JS file that gets loaded into the Gaia email
-client.  The library can also potentially be used for other clients too, as
+The Gaia-email-libs-and-more contain the backend code for the Gaia Email app.
+Develop the gaia backend (files in gaia/apps/email/js/ext\*) here. The files
+then get zipped into and optimized into a single JS file that gets loaded into the
+Gaia email client. No crazy need to develop the Gaia email app in the gaia repo!
+The library can also potentially be used for other clients too, as
 long as you are cool with our design decisions.
 
-## Submodules ##
+## Getting Started ##
 
 To make sure the submodules are initialized properly, please make sure to
 check out the repository recursively:
@@ -18,6 +20,54 @@ following command inside the repository directory:
 ```
 git submodule update --init --recursive
 ```
+
+## tl;dr Setup ##
+1. Build B2G Desktop App - https://developer.mozilla.org/en-US/docs/Mozilla/Firefox_OS/Using_the_B2G_desktop_client -
+Make sure you build a release build if you want to run the unit tests. Alternatively, you can try "make b2g".
+2. Clone the repo gaia-email-libs-and-more repo recursively
+```
+git clone --recursive https://github.com/mozilla-b2g/gaia-email-libs-and-more.git
+```
+
+3. Install node.js - Standard package management is fine (apt-get, brew, etc).
+
+4. Install npm. If you have installed node.js from source, you don't need to install npm as it is built with node.js.
+  If you use a package management system, you may need to install this separately.
+
+5. Clone push log, do it recursively - https://github.com/asutherland/arbitrarypushlog/tree/master
+
+6. Make 3 symlinks:
+  * gaia-symlink -> gaia repo
+  * b2g-bindir-symlink -> Your B2G Desktop Build directory
+  * arbpl-dir-symlink -> Arbitrary pushlog directory
+
+7. Run 'npm install' in gaia-email-and-libs
+```
+cd gaia-email-and-libs-and-more
+npm install
+```
+8. Run 'npm install' in arbitrary push log/server
+```
+cd arbitrarypushlog/server
+npm install
+```
+9. Run ./webserve in arbitrary push log to make sure it works!
+```
+cd arbitrarypushlog
+./webserve
+```
+10. Make install gaia-email-libs-and-more into gaia
+```
+cd gaia-email-and-libs-and-more
+make install-into-gaia
+```
+12. Run unit tests
+```
+cd gaia-email-and-libs-and-more
+make all-tests
+```
+
+If you want to use the Arbitrary Push Log, run 'make post-tests' instead.
 
 ## New Code ##
 
@@ -122,7 +172,7 @@ INTERNALDATE value, which makes it useless for many synchronization unit tests.
 For more details on setting up a Dovecot server, see
 [test/dovecot.md](test/dovecot.md).
 
-### Setup ###
+### Setup B2G Desktop ###
 
 Create the symlink described above for a B2G desktop xulrunner:
 ```
@@ -269,6 +319,11 @@ make activesync-server
 These just start up the fakeservers, and do not run tests. You do not need to
 use these commands before running the automated tests, the test Makefile targets
 will do that automatically.
+
+## Known Bugs ##
+At the moment, the unit tests don't work on OS X 10.9 Mavericks. The current workaround
+is to run the unit tests on Linux through a VM. Please see Bug https://bugzilla.mozilla.org/show_bug.cgi?id=936980
+to track progress on when this is fixed.
 
 ## Communication ##
 
