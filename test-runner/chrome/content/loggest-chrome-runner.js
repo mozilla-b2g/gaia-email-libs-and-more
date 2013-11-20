@@ -368,33 +368,70 @@ function registerAlertTestUtils()
 // stuff from xpcshell-type context; probably remove
 
 const STATE_START = Ci.nsIWebProgressListener.STATE_START,
+      STATE_REDIRECTING = Ci.nsIWebProgressListener.STATE_REDIRECTING,
+      STATE_TRANSFERRING = Ci.nsIWebProgressListener.STATE_TRANSFERRING,
+      STATE_NEGOTIATING = Ci.nsIWebProgressListener.STATE_NEGOTIATING,
       STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP,
+      STATE_IS_REQUEST = Ci.nsIWebProgressListener.STATE_IS_REQUEST,
+      STATE_IS_DOCUMENT = Ci.nsIWebProgressListener.STATE_IS_DOCUMENT,
+      STATE_IS_NETWORK = Ci.nsIWebProgressListener.STATE_IS_NETWORK,
       STATE_IS_WINDOW = Ci.nsIWebProgressListener.STATE_IS_WINDOW;
 
 function ProgressListener(opts) {
   this._callOnStart = opts.onStart;
-  this._callOnLoad = opts.onLoad;
+  this._callOnLoaded = opts.onLoaded;
 }
 ProgressListener.prototype = {
-  onLocationChange: function() {
+  onLocationChange: function(aWebProgress) {
     console.harness('location change!');
   },
-  onProgressChange: function() {
+  onProgressChange: function(aWebProgress) {
     console.harness('progress change!');
   },
-  onSecurityChange: function() {
+  onSecurityChange: function(aWebProgress) {
     console.harness('security change!');
   },
   onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
     try {
-      console.harness('progress:', aStateFlags, aStatus);
+      var flags = [];
+
+      if (aStateFlags & STATE_START)
+        flags.push('start');
+      if (aStateFlags & STATE_REDIRECTING)
+        flags.push('redirecting');
+      if (aStateFlags & STATE_TRANSFERRING)
+        flags.push('transferring');
+      if (aStateFlags & STATE_NEGOTIATING)
+        flags.push('negotiating');
+      if (aStateFlags & STATE_STOP)
+        flags.push('stop');
+
+      if (aStateFlags & STATE_IS_REQUEST)
+        flags.push('is-request');
+      if (aStateFlags & STATE_IS_DOCUMENT)
+        flags.push('is-document');
+      if (aStateFlags & STATE_IS_NETWORK)
+        flags.push('is-network');
+      if (aStateFlags & STATE_IS_WINDOW)
+        flags.push('is-window');
+
+      console.harness('progress:', aStateFlags, flags, '-', aStatus, 'on',
+                      aRequest && aRequest.name);
+
+      // We don't exist to listen to about:blank changes.  We only care about
+      // the actual thang.
+      if (aRequest.name == 'about:blank') {
+        console.harness('  (ignoring about:blank event)');
+        return;
+      }
+
       if (aStateFlags & STATE_START && aStateFlags & STATE_IS_WINDOW &&
           this._callOnStart)
         this._callOnStart();
       //console.log('state change', aStateFlags);
       if (aStateFlags & STATE_STOP && aStateFlags & STATE_IS_WINDOW &&
-          this._callOnLoad)
-        this._callOnLoad();
+          this._callOnLoaded)
+        this._callOnLoaded();
     }
     catch(ex) {
       console.error('Problem in stateChange callback:', ex, '\n', ex.stack);
@@ -722,6 +759,24 @@ function grantEmailPermissions(originUrl) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Add some debug logging related to garbage collections, etc.
+
+function trackGarbageCollection() {
+  Services.prefs.setBoolPref('javascript.options.mem.notify', true);
+  Services.obs.addObserver(
+    function(subject, topic, json) {
+      console.harness('~~~ GC completed ~~~');
+    },
+    'garbage-collection-statistics', /* strong */ false);
+  Services.obs.addObserver(
+    function(subject, topic, json) {
+      console.harness('~~~ CC completed ~~~');
+    },
+    'cycle-collection-statistics', /* strong */ false);
+}
+trackGarbageCollection();
+
+////////////////////////////////////////////////////////////////////////////////
 
 const loader = Cc[
   '@mozilla.org/moz/jssubscript-loader;1'
@@ -930,6 +985,7 @@ function getTestResult(summaries) {
 // Progress listeners are held weakref'ed, so we need to maintain a strong
 // reference here or it can go away prematurely!
 var gProgress = null;
+var gIframe = null;
 
 /**
  * @param controlServer The ControlServer to point the test at.
@@ -1010,14 +1066,10 @@ function _runTestFile(testFileName, variant, controlServer) {
                   variant.replace(/:/g, '_') + '/';
   grantEmailPermissions(baseUrl);
 
-  var runnerIframe = document.createElement('iframe');
+  var runnerIframe = gIframe = document.createElement('iframe');
   runnerIframe.setAttribute('type', 'content');
   runnerIframe.setAttribute('flex', '1');
   runnerIframe.setAttribute('style', 'border: 1px solid blue;');
-  runnerIframe.setAttribute(
-    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
-  console.harness('src set to:', runnerIframe.getAttribute('src'));
-  document.documentElement.appendChild(runnerIframe);
 
   var win, domWin;
 
@@ -1034,8 +1086,6 @@ function _runTestFile(testFileName, variant, controlServer) {
       cleanupList.forEach(function(obj) {
         obj.cleanup();
       });
-
-      gProgress = null;
     }
     catch(ex) {
       console.harness('Problem cleaning up window', ex, '\n', ex.stack);
@@ -1048,9 +1098,6 @@ function _runTestFile(testFileName, variant, controlServer) {
   // though it might get nuked off in most cases and require our progress
   // listener to put it back on.
   var processedLog = false;
-  win = gRunnerWindow = runnerIframe.contentWindow;
-  domWin = win.wrappedJSObject;
-  win.addEventListener('error', errorListener);
   var fakeParentObj = {
       __exposedProps__: {
         fakeParent: 'r',
@@ -1058,8 +1105,10 @@ function _runTestFile(testFileName, variant, controlServer) {
       },
       fakeParent: true,
       postMessage: function(data, dest) {
-        if (processedLog)
+        if (processedLog) {
+          console.harness('WARNING: Already got a processed log!');
           return;
+        }
         processedLog = true;
 
 console.harness('calling writeTestLog and resolving');
@@ -1078,43 +1127,53 @@ console.harness('calling writeTestLog and resolving');
         cleanupWindow();
       }
     };
-  if (domWin) {
-    console.harness('setting first fake parent');
-    domWin.parent = fakeParentObj;
-  }
+
+  // we want to make sure that we only poke things into the window once it
+  // exists
+  var progressListenFlags = Ci.nsIWebProgress.NOTIFY_STATE_WINDOW |
+                            Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT |
+                            Ci.nsIWebProgress.NOTIFY_STATE_NETWORK |
+                            Ci.nsIWebProgress.NOTIFY_STATE_REQUEST;
+  var progressListener = gProgress = new ProgressListener({
+    onLoaded: function() {
+      console.harness('page started; poking functionality inside');
+      win = gRunnerWindow = runnerIframe.contentWindow;
+      win.addEventListener('error', errorListener);
+      domWin = win.wrappedJSObject;
+
+      webProgress.removeProgressListener(progressListener,
+                                         progressListenFlags);
+
+      // Look like we are content-space that embedded the iframe!
+      domWin.parent = fakeParentObj;
+
+      // We somehow did not initialize before the report, just use the log
+      // from there.
+      if (domWin.logResultsMsg) {
+        domWin.parent.postMessage(domWin.logResultsMsg, '*');
+      }
+
+      console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
+
+      // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
+      // servers.
+      var asProxy = new ActiveSyncServerProxy();
+      domWin.MAGIC_SERVER_CONTROL = asProxy;
+      cleanupList.push(asProxy);
+    }});
+
+
+  console.harness('about to append');
+  document.documentElement.appendChild(runnerIframe);
 
   var webProgress = runnerIframe.webNavigation
                       .QueryInterface(Ci.nsIWebProgress);
-  // we want to make sure that we only poke things into the window once it
-  // exists
-  var progressListener = gProgress =new ProgressListener({ onLoad: function() {
-    console.harness('page started; poking functionality inside');
-    win = gRunnerWindow = runnerIframe.contentWindow;
-    win.addEventListener('error', errorListener);
-    domWin = win.wrappedJSObject;
+  webProgress.addProgressListener(progressListener, progressListenFlags);
 
-    webProgress.removeProgressListener(progressListener,
-                                       Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
-
-    // Look like we are content-space that embedded the iframe!
-    domWin.parent = fakeParentObj;
-
-    // We somehow did not initialize before the report, just use the log
-    // from there.
-    if (domWin.logResultsMsg) {
-      domWin.postMessage(domWin.logResultsMsg, '*');
-    }
-
-    console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
-
-    // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
-    // servers.
-    var asProxy = new ActiveSyncServerProxy();
-    domWin.MAGIC_SERVER_CONTROL = asProxy;
-    cleanupList.push(asProxy);
-  }});
-  webProgress.addProgressListener(progressListener,
-                                  Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
+  console.harness('about to set src');
+  runnerIframe.setAttribute(
+    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
+  console.harness('src set to:', runnerIframe.getAttribute('src'));
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.harness('win err:', errorMsg, url, lineNumber);
