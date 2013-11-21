@@ -1,5 +1,5 @@
 /**
- * Configurator for imap+smtp
+ * Configurator for imap+smtp and pop3+smtp
  **/
 
 define(
@@ -28,22 +28,27 @@ var allbackMaker = $allback.allbackMaker;
 
 exports.account = $account;
 exports.configurator = {
-  tryToCreateAccount: function cfg_is_ttca(universe, userDetails, domainInfo,
-                                           callback, _LOG) {
-    var credentials, imapConnInfo, smtpConnInfo;
+  tryToCreateAccount: function(universe, userDetails, domainInfo,
+                               callback, _LOG) {
+    var credentials, incomingInfo, smtpConnInfo, incomingType;
     if (domainInfo) {
+      incomingType = (domainInfo.type === 'imap+smtp' ? 'imap' : 'pop3');
       credentials = {
         username: domainInfo.incoming.username,
         password: userDetails.password,
       };
-      imapConnInfo = {
+      incomingInfo = {
         hostname: domainInfo.incoming.hostname,
         port: domainInfo.incoming.port,
         crypto: (typeof domainInfo.incoming.socketType === 'string' ?
                  domainInfo.incoming.socketType.toLowerCase() :
                  domainInfo.incoming.socketType),
-        blacklistedCapabilities: null,
       };
+      if (incomingType === 'imap') {
+        incomingInfo.blacklistedCapabilities = null;
+      } else if (incomingType === 'pop3') {
+        incomingInfo.preferredAuthMethod = null;
+      }
       smtpConnInfo = {
         hostname: domainInfo.outgoing.hostname,
         port: domainInfo.outgoing.port,
@@ -55,51 +60,63 @@ exports.configurator = {
 
     var self = this;
     var callbacks = allbackMaker(
-      ['imap', 'smtp'],
+      ['incoming', 'smtp'],
       function probesDone(results) {
         // -- both good?
-        if (results.imap[0] === null && results.smtp[0] === null) {
-          var imapConn = results.imap[1],
-              imapTZOffset = results.imap[2],
-              imapBlacklistedCapabilities = results.imap[3];
+        if (results.incoming[0] === null && results.smtp[0] === null) {
+          var conn = results.incoming[1];
+          if (incomingType === 'imap') {
+            var imapTZOffset = results.incoming[2];
+            var imapBlacklistedCapabilities = results.incoming[3];
 
-          imapConnInfo.blacklistedCapabilities = imapBlacklistedCapabilities;
+            incomingInfo.blacklistedCapabilities = imapBlacklistedCapabilities;
 
-          var account = self._defineImapAccount(
-            universe,
-            userDetails, credentials,
-            imapConnInfo, smtpConnInfo, imapConn,
-            imapTZOffset,
-            callback);
-        }
-        // -- either/both bad
-        else {
-          // clean up the imap connection if it was okay but smtp failed
-          if (results.imap[0] === null) {
-            results.imap[1].die();
-            // Failure was caused by SMTP, but who knows why
-            callback(results.smtp[0], null, results.smtp[1]);
-          } else {
-            callback(results.imap[0], null, results.imap[2]);
+            var account = self._defineImapAccount(
+              universe,
+              userDetails, credentials,
+              incomingInfo, smtpConnInfo, conn,
+              imapTZOffset,
+              callback);
+          } else { // POP3
+            incomingInfo.preferredAuthMethod = conn.authMethod;
+            var account = self._definePop3Account(
+              universe,
+              userDetails, credentials,
+              incomingInfo, smtpConnInfo, conn,
+              callback);
           }
-          return;
+        } else { // -- either/both bad
+          if (incomingType === 'imap' || incomingType === 'pop3') {
+            // clean up the imap connection if it was okay but smtp failed
+            if (results.incoming[0] === null) {
+              results.incoming[1].die();
+              // Failure was caused by SMTP, but who knows why
+              callback(results.smtp[0], null, results.smtp[1]);
+            } else {
+              callback(results.incoming[0], null, results.incoming[2]);
+            }
+          }
         }
       });
 
-    require(['../imap/probe', '../smtp/probe',], function ($imapprobe, $smtpprobe) {
-
-      var imapProber = new $imapprobe.ImapProber(credentials, imapConnInfo,
-                                                 _LOG);
-      imapProber.onresult = callbacks.imap;
-
-      var smtpProber = new $smtpprobe.SmtpProber(credentials, smtpConnInfo,
-                                                 _LOG);
+    require(['../smtp/probe'], function($probe) {
+      var smtpProber = new $probe.SmtpProber(credentials, smtpConnInfo, _LOG);
       smtpProber.onresult = callbacks.smtp;
     });
+    if (incomingType === 'imap') {
+      require(['../imap/probe'], function($probe) {
+        var imapProber = new $probe.ImapProber(credentials, incomingInfo, _LOG);
+        imapProber.onresult = callbacks.incoming;
+      });
+    } else {
+      require(['../pop3/probe'], function($probe) {
+        var pop3Prober = new $probe.Pop3Prober(credentials, incomingInfo, _LOG);
+        pop3Prober.onresult = callbacks.incoming;
+      });
+    }
   },
 
-  recreateAccount: function cfg_is_ra(universe, oldVersion, oldAccountInfo,
-                                      callback) {
+  recreateAccount: function(universe, oldVersion, oldAccountInfo, callback) {
     var oldAccountDef = oldAccountInfo.def;
 
     var credentials = {
@@ -107,12 +124,13 @@ exports.configurator = {
       password: oldAccountDef.credentials.password,
     };
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var oldType = oldAccountDef.type || 'imap+smtp';
     var accountDef = {
       id: accountId,
       name: oldAccountDef.name,
 
-      type: 'imap+smtp',
-      receiveType: 'imap',
+      type: oldType,
+      receiveType: oldType.split('+')[0],
       sendType: 'smtp',
 
       syncRange: oldAccountDef.syncRange,
@@ -128,6 +146,8 @@ exports.configurator = {
 
         blacklistedCapabilities:
           oldAccountDef.receiveConnInfo.blacklistedCapabilities || null,
+        preferredAuthMethod:
+          oldAccountDef.receiveConnInfo.preferredAuthMethod || null,
       },
       sendConnInfo: {
         hostname: oldAccountDef.sendConnInfo.hostname,
@@ -144,7 +164,7 @@ exports.configurator = {
     };
 
     this._loadAccount(universe, accountDef,
-                      oldAccountInfo.folderInfo, null, function (account) {
+                      oldAccountInfo.folderInfo, null, function(account) {
       callback(null, account, null);
     });
   },
@@ -155,10 +175,9 @@ exports.configurator = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _defineImapAccount: function cfg_is__defineImapAccount(
-                        universe,
-                        userDetails, credentials, imapConnInfo, smtpConnInfo,
-                        imapProtoConn, tzOffset, callback) {
+  _defineImapAccount: function(universe, userDetails, credentials,
+                               incomingInfo, smtpConnInfo, imapProtoConn,
+                               tzOffset, callback) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
@@ -175,7 +194,7 @@ exports.configurator = {
                    userDetails.notifyOnNew : true,
 
       credentials: credentials,
-      receiveConnInfo: imapConnInfo,
+      receiveConnInfo: incomingInfo,
       sendConnInfo: smtpConnInfo,
 
       identities: [
@@ -192,7 +211,53 @@ exports.configurator = {
     };
 
     this._loadAccount(universe, accountDef, null,
-                      imapProtoConn, function (account) {
+                      imapProtoConn, function(account) {
+      callback(null, account, null);
+    });
+  },
+
+  /**
+   * Define an account now that we have verified the credentials are good and
+   * the server meets our minimal functionality standards.  We are also
+   * provided with the protocol connection that was used to perform the check
+   * so we can immediately put it to work.
+   */
+  _definePop3Account: function(universe, userDetails, credentials,
+                               incomingInfo, smtpConnInfo, pop3ProtoConn,
+                               callback) {
+    var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
+    var accountDef = {
+      id: accountId,
+      name: userDetails.accountName || userDetails.emailAddress,
+      defaultPriority: $date.NOW(),
+
+      type: 'pop3+smtp',
+      receiveType: 'pop3',
+      sendType: 'smtp',
+
+      syncRange: 'auto',
+      syncInterval: userDetails.syncInterval || 0,
+      notifyOnNew: userDetails.hasOwnProperty('notifyOnNew') ?
+                   userDetails.notifyOnNew : true,
+
+      credentials: credentials,
+      receiveConnInfo: incomingInfo,
+      sendConnInfo: smtpConnInfo,
+
+      identities: [
+        {
+          id: accountId + '/' +
+                $a64.encodeInt(universe.config.nextIdentityNum++),
+          name: userDetails.displayName,
+          address: userDetails.emailAddress,
+          replyTo: null,
+          signature: null
+        },
+      ],
+    };
+
+    this._loadAccount(universe, accountDef, null,
+                      pop3ProtoConn, function(account) {
       callback(null, account, null);
     });
   },
@@ -201,26 +266,36 @@ exports.configurator = {
    * Save the account def and folder info for our new (or recreated) account and
    * then load it.
    */
-  _loadAccount: function cfg_is__loadAccount(universe, accountDef,
-                                             oldFolderInfo, imapProtoConn,
-                                             callback) {
-    // XXX: Just reload the old folders when applicable instead of syncing the
-    // folder list again, which is slow.
-    var folderInfo = {
-      $meta: {
-        nextFolderNum: 0,
-        nextMutationNum: 0,
-        lastFolderSyncAt: 0,
-        capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
-                    imapProtoConn.capabilities,
-        rootDelim: (oldFolderInfo && oldFolderInfo.$meta.rootDelim) ||
-                   imapProtoConn.delim,
-      },
-      $mutations: [],
-      $mutationState: {},
-    };
+  _loadAccount: function(universe, accountDef, oldFolderInfo, protoConn,
+                         callback) {
+    var folderInfo;
+    if (accountDef.receiveType === 'imap') {
+      folderInfo = {
+        $meta: {
+          nextFolderNum: 0,
+          nextMutationNum: 0,
+          lastFolderSyncAt: 0,
+          capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
+            protoConn.capabilities,
+          rootDelim: (oldFolderInfo && oldFolderInfo.$meta.rootDelim) ||
+            protoConn.delim,
+        },
+        $mutations: [],
+        $mutationState: {},
+      };
+    } else { // POP3
+      folderInfo = {
+        $meta: {
+          nextFolderNum: 0,
+          nextMutationNum: 0,
+          lastFolderSyncAt: 0,
+        },
+        $mutations: [],
+        $mutationState: {},
+      };
+    }
     universe.saveAccountDef(accountDef, folderInfo);
-    universe._loadAccount(accountDef, folderInfo, imapProtoConn, callback);
+    universe._loadAccount(accountDef, folderInfo, protoConn, callback);
   },
 };
 

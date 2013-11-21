@@ -85,6 +85,8 @@ var TestActiveSyncServerMixins = {
 
   finishSetup: function(testAccount) {
     this.testAccount = testAccount;
+    this.supportsServerFolders =
+      testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)
       this.setDate(testAccount._useDate.valueOf());
   },
@@ -184,11 +186,12 @@ var TestActiveSyncServerMixins = {
       };
     });
 
-    return this._backdoor({
+    var ret = this._backdoor({
       command: 'addMessagesToFolder',
       folderId: serverFolderInfo.id,
       messages: cleanedMessages
     });
+    return ret;
   },
 
   getMessagesInFolder: function(serverFolderInfo) {

@@ -26,7 +26,8 @@ define(function() {
     var provider = getNode('/clientConfig/emailProvider');
     // Get the first incomingServer we can use (we assume first == best).
     var incoming = getNode('incomingServer[@type="imap"] | ' +
-                           'incomingServer[@type="activesync"]', provider);
+                           'incomingServer[@type="activesync"] | ' +
+                           'incomingServer[@type="pop3"]', provider);
     var outgoing = getNode('outgoingServer[@type="smtp"]', provider);
 
     var config = null;
@@ -41,7 +42,9 @@ define(function() {
       if (incoming.getAttribute('type') === 'activesync') {
         config.type = 'activesync';
       } else if (outgoing) {
-        config.type = 'imap+smtp';
+        var isImap = incoming.getAttribute('type') === 'imap';
+
+        config.type = isImap ? 'imap+smtp' : 'pop3+smtp';
         for (var iter in Iterator(outgoing.children)) {
           var child = iter[1];
           config.outgoing[child.tagName] = child.textContent;

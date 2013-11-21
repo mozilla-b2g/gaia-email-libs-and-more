@@ -13,7 +13,7 @@ define(['rdcommon/testcontext', './resources/th_main',
        function($tc, $th_imap, $msggen, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_mime' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_mime' }, null, [$th_imap.TESTHELPER], ['app']);
 
 // The example string comes from wikipedia, and it now seems to be a popular
 // test phrase.  See http://en.wikipedia.org/wiki/Quoted-printable
@@ -130,6 +130,8 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(''),
       bpartStraightASCII =
         new SyntheticPartLeaf('I am text! Woo!'),
+      bpartPeriod =
+        new SyntheticPartLeaf('start\n.with\n.\nperiod\n.two.'),
       longBodyStr =
         'This is a very long message that wants to be snippeted to a ' +
         'reasonable length that is reasonable and not unreasonable.  It is ' +
@@ -177,6 +179,7 @@ TD.commonCase('MIME hierarchies', function(T) {
           bstrQpFlowed,
           { charset: 'iso-8859-1', format: 'flowed',
             encoding: 'quoted-printable' }),
+      period = 'start\n.withperiod\n.two',
 
   // - bodies: text/enriched (ignored!)
   // This exists just to test the alternatives logic.
@@ -461,6 +464,11 @@ TD.commonCase('MIME hierarchies', function(T) {
       // the body should not get decoded; it should still be the mime-word
       checkBody: mwqSammySnake,
     },
+    {
+      name: 'proper period-stuffing works',
+      bodyPart: new SyntheticPartLeaf(period),
+      checkBody: period,
+    },
     // - alternatives that test proper (text/plain) encoding
     {
       name: 'multipart/alternative simple',
@@ -633,8 +641,13 @@ TD.commonCase('MIME hierarchies', function(T) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           eCheck.expect_namedValue('attachment-name',
                                    msgDef.attachments[i].decodedFilename);
-          eCheck.expect_namedValue('attachment-size',
-                                   msgDef.attachments[i].body.length);
+          if (testAccount.type !== 'pop3') {
+            // since POP3 always downloads the entire attachment and
+            // it reports the after-base64-decoding size rather than
+            // the raw transfer size in bytes, just skip this test.
+            eCheck.expect_namedValue('attachment-size',
+                                     msgDef.attachments[i].body.length);
+          }
         }
       }
 
@@ -662,8 +675,10 @@ TD.commonCase('MIME hierarchies', function(T) {
         if (body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.namedValue('attachment-name', body.attachments[i].filename);
-            eCheck.namedValue('attachment-size',
-                              body.attachments[i].sizeEstimateInBytes);
+            if (testAccount.type !== 'pop3') {
+              eCheck.namedValue('attachment-size',
+                                body.attachments[i].sizeEstimateInBytes);
+            }
           }
         }
         body.die();
@@ -677,7 +692,11 @@ TD.commonCase('MIME hierarchies', function(T) {
   testAccount.do_closeFolderView(folderView1);
 
   T.group('reset folder state');
-  testAccount.do_recreateFolder(fullSyncFolder);
+  if (testAccount.type !== 'pop3') {
+    // for pop3, we don't want to blow away the entire folder becuase
+    // that's our only state for local folders
+    testAccount.do_recreateFolder(fullSyncFolder);
+  }
 
   T.group('snippet fetch followed by full message download');
   // sync

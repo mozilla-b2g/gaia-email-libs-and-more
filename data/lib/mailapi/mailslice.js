@@ -1049,7 +1049,6 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._curSyncSlice = null;
 
   this._messagePurgeScheduled = false;
-
   this.folderSyncer = FolderSyncer && new FolderSyncer(account, this,
                                                        this._LOG);
 }
@@ -1502,7 +1501,7 @@ FolderStorage.prototype = {
    * next use the mail app all the information will be gone.  Likewise, if the
    * user is disconnected from the net, we won't purge their cached stuff that
    * they are still looking at.  The non-obvious impact on 'archive' folders
-   * whose first messages are quite some way sin the past is that the accuracy
+   * whose first messages are quite some ways in the past is that the accuracy
    * range for archive folders will have been updated with the current date for
    * at least whatever the UI needed, so we won't go completely purging archive
    * folders.
@@ -1535,7 +1534,7 @@ FolderStorage.prototype = {
    * - We do not do anything about attachments saved to DeviceStorage.  We leave
    *   those around and it's on the user to clean those up from the gallery.
    * - We do not currently take the size of downloaded embedded images into
-   *   account
+   *   account.
    *
    * @args[
    *   @param[callback @func[
@@ -2243,7 +2242,6 @@ FolderStorage.prototype = {
     // in order to avoid having the slice have data fed into it if there were
     // other synchronizations already in progress.
     this._slices.push(slice);
-
     var doneCallback = function doneSyncCallback(err, reportSyncStatusAs,
                                                  moreExpected) {
       if (!reportSyncStatusAs) {
@@ -2270,7 +2268,8 @@ FolderStorage.prototype = {
       // a straight-up boolean/ternarny combo.)
       var triggerRefresh;
       if (this._account.universe.online && this.folderSyncer.syncable &&
-          this.folderMeta.type !== 'localdrafts') {
+          this.folderMeta.type !== 'localdrafts'
+         ) {
         if (forceRefresh)
           triggerRefresh = 'force';
         else
@@ -2293,8 +2292,7 @@ FolderStorage.prototype = {
     // (we have never synchronized this folder)
 
     // -- no work to do if we are offline or synthetic folder
-    if (!this._account.universe.online ||
-        this.folderMeta.type === 'localdrafts') {
+    if (!this._account.universe.online || this.folderMeta.type === 'localdrafts') {
       doneCallback();
       return;
     }
@@ -3570,6 +3568,7 @@ FolderStorage.prototype = {
     var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndID(this._headerBlockInfos,
                                                       date, id);
+
     if (posInfo[1] === null) {
       this._LOG.headerNotFound();
       try {
@@ -3661,8 +3660,9 @@ FolderStorage.prototype = {
           // We never automatically grow a slice into the past if we are full,
           // but we do allow it if not full.
           if (BEFORE(date, slice.startTS)) {
-            if (slice.headers.length >= slice.desiredHeaders)
+            if (slice.headers.length >= slice.desiredHeaders) {
               continue;
+            }
           }
           // We do grow a slice into the present if it's already up-to-date.
           // We do count messages from the same second as our
@@ -3864,9 +3864,9 @@ FolderStorage.prototype = {
     }.bind(this));
   },
 
-  deleteMessageHeaderAndBodyUsingHeader: function(header, callback) {
+  deleteMessageHeaderUsingHeader: function(header, callback) {
     if (this._pendingLoads.length) {
-      this._deferredCalls.push(this.deleteMessageHeaderAndBodyUsingHeader.bind(
+      this._deferredCalls.push(this.deleteMessageHeaderUsingHeader.bind(
                                this, header, callback));
       return;
     }
@@ -3893,9 +3893,18 @@ FolderStorage.prototype = {
     if (this._serverIdHeaderBlockMapping && header.srvid)
       delete this._serverIdHeaderBlockMapping[header.srvid];
 
-    var callbacks = allbackMaker(['header', 'body'], callback);
-    this._deleteFromBlock('header', header.date, header.id, callbacks.header);
-    this._deleteFromBlock('body', header.date, header.id, callbacks.body);
+    this._deleteFromBlock('header', header.date, header.id, callback);
+  },
+
+  deleteMessageHeaderAndBodyUsingHeader: function(header, callback) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(this.deleteMessageHeaderAndBodyUsingHeader.bind(
+                               this, header, callback));
+      return;
+    }
+    this.deleteMessageHeaderUsingHeader(header, function() {
+      this._deleteFromBlock('body', header.date, header.id, callback);
+    }.bind(this));
   },
 
   /**
@@ -4063,7 +4072,6 @@ FolderStorage.prototype = {
       if (!bodyInfo) {
         return callback(bodyInfo);
       }
-
       if (self.messageBodyRepsDownloaded(bodyInfo)) {
         return callback(bodyInfo);
       }
@@ -4071,7 +4079,6 @@ FolderStorage.prototype = {
       // queue a job and return bodyInfo after it completes..
       self._account.universe.downloadMessageBodyReps(suid, date,
                                                      function(err, bodyInfo) {
-
         // the err (if any) will be logged by the job.
         callback(bodyInfo);
       });
@@ -4134,7 +4141,7 @@ FolderStorage.prototype = {
    *
    *    // ( body is a MessageBody )
    *    body.onchange = function(detail, bodyInfo) {
-   *      // detail => { changeType: x, value: y }
+   *      // detail => { changeDetails: { bodyReps: [0], ... }, value: y }
    *    };
    *
    *    // in the backend
@@ -4142,7 +4149,7 @@ FolderStorage.prototype = {
    *    storage.updateMessageBody(
    *      header,
    *      changedBodyInfo,
-   *      { changeType: x, value: y }
+   *      { changeDetails: { bodyReps: [0], ... }, value: y }
    *    );
    */
   updateMessageBody: function(header, bodyInfo, eventDetails, callback) {

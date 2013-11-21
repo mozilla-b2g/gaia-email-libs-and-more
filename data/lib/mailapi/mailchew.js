@@ -155,7 +155,7 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
         textMsg += replyText;
       }
     }
-    else {
+    else if (repType === 'html') {
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -197,7 +197,6 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
  */
 exports.generateForwardMessage =
   function(author, date, subject, headerInfo, bodyInfo, identity) {
-
   var textMsg = '\n\n', htmlMsg = null;
 
   if (identity.signature)
@@ -260,7 +259,7 @@ exports.generateForwardMessage =
         textMsg += forwardText;
       }
     }
-    else {
+    else if (repType === 'html') {
       if (!htmlMsg)
         htmlMsg = '';
       htmlMsg += rep;

@@ -97,13 +97,16 @@ TD.commonCase('embedded and remote images', function(T) {
   // - fancy html
   var idxFancy = 0, fancyHeader = null, fancyBody = null;
 
+  var hasFakePart = (testAccount.type === 'pop3');
+
   T.check(eCheck, 'get fancy body', function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
     eCheck.expect_namedValue('bodyReps[0].type', 'html');
     eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
-    eCheck.expect_namedValue('embeddedImagesDownloaded', false);
+    eCheck.expect_namedValue('embeddedImagesDownloaded',
+                             testAccount.type === 'pop3' ? true : false);
     eCheck.expect_namedValue('checkForExternalImages', true);
     fancyHeader = folderView.slice.items[idxFancy];
 
@@ -135,26 +138,29 @@ TD.commonCase('embedded and remote images', function(T) {
         eCheck.namedValue('checkForExternalImages', results);
       });
   });
-  // (We could verify the HTML rep prior to any transforms, but we already
-  // verified the string rep of the HTML.)
-  T.action(eCheck, 'download embedded images', function() {
-    eCheck.expect_event('downloaded');
-    eCheck.expect_namedValue('non-null relpart 0', true);
-    eCheck.expect_namedValue('non-null relpart 1', true);
 
-    testAccount.expect_runOp('download',
-                             { local: true, server: true, save: 'server' });
+  if (testAccount.type !== 'pop3') {
+    // (We could verify the HTML rep prior to any transforms, but we already
+    // verified the string rep of the HTML.)
+    T.action(eCheck, 'download embedded images', function() {
+      eCheck.expect_event('downloaded');
+      eCheck.expect_namedValue('non-null relpart 0', true);
+      eCheck.expect_namedValue('non-null relpart 1', true);
 
-    fancyBody.downloadEmbeddedImages(function() {
-      eCheck.event('downloaded');
-      eCheck.namedValue('non-null relpart 0',
-                        !!fancyBody._relatedParts[0].file);
-      eCheck.namedValue('non-null relpart 1',
-                        !!fancyBody._relatedParts[1].file);
-      fancyBody.die();
-      fancyBody = null;
+      testAccount.expect_runOp('download',
+                               { local: true, server: true, save: 'server' });
+
+      fancyBody.downloadEmbeddedImages(function() {
+        eCheck.event('downloaded');
+        eCheck.namedValue('non-null relpart 0',
+                          !!fancyBody._relatedParts[0].file);
+        eCheck.namedValue('non-null relpart 1',
+                          !!fancyBody._relatedParts[1].file);
+        fancyBody.die();
+        fancyBody = null;
+      });
     });
-  });
+  }
   T.check(eCheck, 'show embedded and external images', function() {
     // XXX We used to generate fake URLs ourselves; we would ideally use an XHR
     // to just fetch from the URL to load its content to make sure it's doing
@@ -217,7 +223,7 @@ TD.commonCase('embedded and remote images', function(T) {
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
     eCheck.expect_namedValue('bodyReps[0].type', 'html');
     eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);
@@ -291,7 +297,7 @@ TD.commonCase('embedded and remote images', function(T) {
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
     eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', 1);
+    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
     eCheck.expect_namedValue('bodyReps[0].type', 'html');
     eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
     eCheck.expect_namedValue('embeddedImageCount', 2);

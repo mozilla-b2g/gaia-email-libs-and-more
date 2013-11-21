@@ -42,6 +42,7 @@ TD.commonCase('reports bad password', function(T, RT) {
   function changeServerPassword(password, desc) {
     T.action('change the server password to', password, '(' + desc + ')',
              eCheck, function() {
+
       // this executes synchronously; no expectations required
       testAccount.testServer.changeCredentials(
         { password: password });

@@ -149,16 +149,17 @@ TD.commonCase('sync headers then download body', function(T, RT) {
       // data but we also want some idea of what changed so we don't blow up
       // everything
       body.onchange = function(details) {
-        if (details.changeType === 'bodyReps') {
-          var bodyRep = body.bodyReps[details.indexes[0]];
+        if (details.changeDetails.bodyReps) {
+          var bodyRep = body.bodyReps[details.changeDetails.bodyReps[0]];
           // details should be the index and new representation
 
           eLazy.namedValue('update bodyRep', {
             id: header.id,
-            indexesChanged: details.indexes,
+            indexesChanged: details.changeDetails.bodyReps,
             content: bodyRep.content,
             isDownloaded: bodyRep.isDownloaded,
-            updatesAll: body.bodyReps.length === details.indexes.length,
+            updatesAll: body.bodyReps.length ===
+              details.changeDetails.bodyReps.length,
             amountGreaterEqToEstimate:
               bodyRep.amountDownloaded >= bodyRep.sizeEstimate
           });
@@ -195,7 +196,12 @@ TD.commonCase('sync headers then download body', function(T, RT) {
       slice.maybeRequestBodies(1, 2, { maximumBytesToFetch: 4 });
 
       header.onchange = function() {
-        eLazy.namedValue('snippet', header.snippet);
+        // We now fire onchange even if we don't have a snippet yet;
+        // check to make sure it exists before fulfilling the
+        // namedValue.
+        if (header.snippet != null) {
+          eLazy.namedValue('snippet', header.snippet);
+        }
       };
 
       body.onchange = function() {

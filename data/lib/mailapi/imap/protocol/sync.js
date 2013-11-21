@@ -184,6 +184,10 @@ Sync.prototype = {
               self.storage._issueNewHeaderId()
             );
 
+            chewRep.header.bytesToDownloadForBodyDisplay =
+              $imapchew.calculateBytesToDownloadForImapBodyDisplay(
+                chewRep.bodyInfo);
+
             pendingSnippets.push(chewRep);
 
             // flush our body/header information ? should we do some sorting,

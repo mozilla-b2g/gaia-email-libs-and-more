@@ -1067,8 +1067,9 @@ ActiveSyncFolderConn.prototype = {
       bodyRep.content = data.content;
 
     var event = {
-      changeType: 'bodyReps',
-      indexes: [0]
+      changeDetails: {
+        bodyReps: [0]
+      }
     };
 
     this._storage.updateMessageHeader(header.date, header.id, false, header);

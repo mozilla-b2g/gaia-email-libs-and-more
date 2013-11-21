@@ -5,6 +5,18 @@
       "desc": "There's no server specific stuff involved.",
       "optional": false
     },
+    "imap:noserver": {
+      "desc": "IMAP tests that don't require a server",
+      "optional": false
+    },
+    "pop3:noserver": {
+      "desc": "POP3 tests that don't require a server",
+      "optional": false
+    },
+    "pop3:fake": {
+      "desc": "POP3 tests against our fake-server",
+      "optional": false
+    },
     "imap:fake": {
       "desc": "IMAP tests against our fake-server",
       "optional": false
@@ -20,7 +32,7 @@
   },
   "tests": {
     "test_mail_html.js": {
-      "variants": ["imap:fake", "imap:real"]
+      "variants": ["imap:fake", "imap:real", "pop3:fake"]
     },
 
     "test_imap_complex.js": {
@@ -47,8 +59,8 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
-    "test_imap_mime.js": {
-      "variants": ["imap:fake", "imap:real"]
+    "test_mime.js": {
+      "variants": ["imap:fake", "imap:real", "pop3:fake"]
     },
 
     "test_imap_errors.js": {
@@ -63,8 +75,8 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
-    "test_imap_prober.js": {
-      "variants": ["noserver"]
+    "test_incoming_prober.js": {
+      "variants": ["imap:noserver", "pop3:noserver"]
     },
 
     "test_imap_bad_servers.js": {
@@ -75,13 +87,12 @@
       "variants": ["noserver"]
     },
 
-
     "test_account_bad_password_error.js": {
-      "variants": ["activesync:fake", "imap:fake"]
+      "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
     },
 
-    "test_activesync_general.js": {
-      "variants": ["activesync:fake"]
+    "test_nonimap_sync_general.js": {
+      "variants": ["activesync:fake", "pop3:fake"]
     },
 
     "test_activesync_recreate.js": {
@@ -92,32 +103,33 @@
       "variants": ["activesync:fake"]
     },
 
-
     "test_compose.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
-
     "test_body_observers.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
     "test_just_auth.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
     "test_account_logic.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
+    },
+
+    "test_account_folder_logic.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
     "test_folder_storage.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
     "test_mutation.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake"]
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
-
 
     "test_autoconfig.js": {
       "variants": ["noserver"]
@@ -128,6 +140,10 @@
     },
 
     "test_html_escaping_unit.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_allback_latch.js": {
       "variants": ["noserver"]
     },
 
@@ -148,7 +164,7 @@
     },
 
     "test_mailapi_contacts.js": {
-      "variants": ["imap:fake", "activesync:fake"]
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     }
   }
 }

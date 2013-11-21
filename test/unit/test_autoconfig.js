@@ -30,6 +30,51 @@ var goodImapXML =
     '</outgoingServer>' +
       '</emailProvider></clientConfig>';
 
+var goodPop3XML =
+  '<?xml version="1.0" encoding="utf-8"?>\n' +
+  '<clientConfig version="1.1"><emailProvider id="blah">' +
+    '<incomingServer type="pop3">' +
+      '<hostname>pop3.xampl.tld</hostname>' +
+      '<port>993</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</incomingServer>' +
+    '<outgoingServer type="smtp">' +
+      '<hostname>smtp.xampl.tld</hostname>' +
+      '<port>465</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</outgoingServer>' +
+      '</emailProvider></clientConfig>';
+
+var goodImapAndPop3XML =
+  '<?xml version="1.0" encoding="utf-8"?>\n' +
+  '<clientConfig version="1.1"><emailProvider id="blah">' +
+    '<incomingServer type="imap">' +
+      '<hostname>imap.xampl.tld</hostname>' +
+      '<port>993</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</incomingServer>' +
+    '<incomingServer type="pop3">' +
+      '<hostname>pop3.xampl.tld</hostname>' +
+      '<port>993</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</incomingServer>' +
+    '<outgoingServer type="smtp">' +
+      '<hostname>smtp.xampl.tld</hostname>' +
+      '<port>465</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</outgoingServer>' +
+      '</emailProvider></clientConfig>';
+
 var goodImapStarttlsXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
@@ -73,6 +118,24 @@ var goodImapConfig = {
   type: 'imap+smtp',
   incoming: {
     hostname: 'imap.xampl.tld',
+    port: '993',
+    socketType: 'SSL',
+    username: 'user@xampl.tld',
+    authentication: 'password-cleartext',
+  },
+  outgoing: {
+    hostname: 'smtp.xampl.tld',
+    port: '465',
+    socketType: 'SSL',
+    username: 'user@xampl.tld',
+    authentication: 'password-cleartext',
+  },
+};
+
+var goodPop3Config = {
+  type: 'pop3+smtp',
+  incoming: {
+    hostname: 'pop3.xampl.tld',
     port: '993',
     socketType: 'SSL',
     username: 'user@xampl.tld',
@@ -266,6 +329,39 @@ TD.commonCase('successful local IMAP', function(T, RT) {
     {
       error: null,
       config: goodImapConfig,
+      errorDetails: null,
+    });
+});
+
+/**
+ * local XML config file tells us IMAP AND POP3 and for the love of
+ * god we choose IMAP.
+ */
+TD.commonCase('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        data: goodImapAndPop3XML },
+    ],
+    {
+      error: null,
+      config: goodImapConfig,
+      errorDetails: null,
+    });
+});
+
+/**
+ * local XML config file tells us POP3.
+ */
+TD.commonCase('successful local POP3', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: '/autoconfig/xampl.tld',
+        data: goodPop3XML },
+    ],
+    {
+      error: null,
+      config: goodPop3Config,
       errorDetails: null,
     });
 });

@@ -372,7 +372,7 @@ exports.chewHeaderAndBodyStructure =
  *    // what just happend?
  *    // 1. the body.bodyReps[n].content is now the value of content.
  *    //
- *    // 2. we update .downloadedAmount with the second argument
+ *    // 2. we update .amountDownloaded with the second argument
  *    //    (number of bytes downloaded).
  *    //
  *    // 3. if snippet has not bee set on the header we create the snippet
@@ -442,5 +442,28 @@ exports.canBodyRepFillSnippet = function(bodyRep) {
     bodyRep.type === 'html'
   );
 };
+
+
+/**
+ * Calculates and returns the correct estimate for the number of
+ * bytes to download before we can display the body. For IMAP, that
+ * includes the bodyReps and related parts. (POP3 is different.)
+ */
+exports.calculateBytesToDownloadForImapBodyDisplay = function(body) {
+  var bytesLeft = 0;
+  body.bodyReps.forEach(function(rep) {
+    if (!rep.isDownloaded) {
+      bytesLeft += rep.sizeEstimate - rep.amountDownloaded;
+    }
+  });
+  body.relatedParts.forEach(function(part) {
+    if (!part.file) {
+      bytesLeft += part.sizeEstimate;
+    }
+  });
+  return bytesLeft;
+}
+
+
 
 }); // end define

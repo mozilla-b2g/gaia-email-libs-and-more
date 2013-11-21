@@ -4,10 +4,10 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+       function($tc, $th_main, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_torture_imap' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_torture_composite' }, null, [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('obliterate', function(T) {
   T.group('setup');
@@ -15,14 +15,15 @@ TD.commonCase('obliterate', function(T) {
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
-  const FILL_SIZE = 60;
+  var N = 1;
+  const FILL_SIZE = 60*N;
   testUniverse.do_adjustSyncValues({
     fillSize: FILL_SIZE,
   });
 
   var testFolder = testAccount.do_createTestFolder(
     'test_torture',
-    { count: FILL_SIZE * 20, age: { days: 0 }, age_incr: { days: 1 },
+    { count: FILL_SIZE * 20*N, age: { days: 0 }, age_incr: { days: 10 },
       age_incr_every: FILL_SIZE * 5 });
   testAccount.do_viewFolder(
     'syncs', testFolder,
@@ -36,7 +37,7 @@ TD.commonCase('obliterate', function(T) {
         // This will generate so much write traffic that a purgeExcessMessages
         // job will be scheduled and run after the sync.
         testAccount.expect_runOp('purgeExcessMessages',
-                                 { local: true, server: true, save: false });
+                                 { local: true, server: false, save: false });
         testFolder.storageActor.expect_mutexedCall_begin('purgeExcessMessages');
         testFolder.storageActor.expect_mutexedCall_end('purgeExcessMessages');
       }

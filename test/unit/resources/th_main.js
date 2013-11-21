@@ -9,6 +9,8 @@ var $log = require('rdcommon/log'),
     $date = require('mailapi/date'),
     $accountcommon = require('mailapi/accountcommon'),
     $imapacct = require('mailapi/imap/account'),
+    $pop3acct = require('mailapi/pop3/account'),
+    $pop3sync = require('mailapi/pop3/sync'),
     $activesyncacct = require('mailapi/activesync/account'),
     $activesyncfolder = require('mailapi/activesync/folder'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
@@ -17,6 +19,7 @@ var $log = require('rdcommon/log'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
     $imapjobs = require('mailapi/imap/jobs'),
+    $pop3jobs = require('mailapi/pop3/jobs'),
     $util = require('mailapi/util'),
     $errbackoff = require('mailapi/errbackoff'),
     $imapjs = require('imap'),
@@ -24,6 +27,7 @@ var $log = require('rdcommon/log'),
     $router = require('mailapi/worker-router'),
 
     $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
+    $th_fake_pop3_server = require('tests/resources/th_fake_pop3_server'),
     $th_real_imap_server = require('tests/resources/th_real_imap_server'),
     $th_fake_as_server = require('tests/resources/th_fake_activesync_server');
 
@@ -168,6 +172,8 @@ var TestUniverseMixins = {
         'ImapFolderConn', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
         'ActiveSyncFolderConn', self.__folderConnLoggerSoup);
+      self.RT.captureAllLoggersByType(
+        'Pop3FolderSyncer', self.__folderConnLoggerSoup);
       self.RT.captureAllLoggersByType(
         'FolderStorage', self.__folderStorageLoggerSoup);
 
@@ -461,9 +467,10 @@ var TestCommonAccountMixins = {
 
     var TEST_PARAMS = self.RT.envOptions;
     self.type = TEST_PARAMS.type;
-    // -- IMAP
-    if (TEST_PARAMS.type === 'imap') {
-      mix(TestImapAccountMixins, self);
+    // -- IMAP/POP3
+    if (TEST_PARAMS.type === 'imap' ||
+        TEST_PARAMS.type === 'pop3') {
+        mix(TestCompositeAccountMixins, self);
     }
     // -- ActiveSync
     else if (TEST_PARAMS.type === 'activesync') {
@@ -704,7 +711,7 @@ var TestCommonAccountMixins = {
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
-      if (self.universe.online && self.USES_CONN) {
+      if (self.type === 'imap' && self.universe.online && self.USES_CONN) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
@@ -1032,7 +1039,7 @@ var TestCommonAccountMixins = {
 
       if (needBodReps) {
         body.onchange = function(evt) {
-          if (evt.changeType === 'bodyReps') {
+          if (evt.changeDetails.bodyReps) {
             callback(body);
             sendToMain();
           }
@@ -1071,7 +1078,10 @@ var TestCommonAccountMixins = {
           !recreateFolder && !syncblocked && !isFailure)
         storageActor.expect_syncedToDawnOfTime();
     }
-    else {
+    else if (this.type === 'pop3' && testFolder.mailFolder.type !== 'inbox') {
+      // this folder is always local, so this doesn't matter
+      storageActor.ignore_syncedToDawnOfTime();
+    } else {
       switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
         case true:
           // per the comment on do_viewFolder, this flag has no meaning when we
@@ -1175,37 +1185,42 @@ var TestCommonAccountMixins = {
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
-    // - conn, (conn) release
-    if (checkFlagDefault(flags, 'conn', false)  &&
-        ('help_expect_connection' in this)) {
-      this.help_expect_connection();
-      if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
+
+    if (this.USES_CONN) {
+      // - conn, (conn) release
+      if (checkFlagDefault(flags, 'conn', false)  &&
+          ('help_expect_connection' in this)) {
+        this.help_expect_connection();
+        if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
+          this.eOpAccount.expect_deadConnection();
+        }
+        // (release is expected by default if we open a conn)
+        else if (checkFlagDefault(flags, 'release', true)) {
+          this.eOpAccount.expect_releaseConnection();
+        }
+      }
+      // - release (without conn)
+      else if (checkFlagDefault(flags, 'release', false) === 'deadconn') {
         this.eOpAccount.expect_deadConnection();
       }
-      // (release is expected by default if we open a conn)
-      else if (checkFlagDefault(flags, 'release', true)) {
+      else if (checkFlagDefault(flags, 'release', false)) {
         this.eOpAccount.expect_releaseConnection();
       }
-    }
-    // - release (without conn)
-    else if (checkFlagDefault(flags, 'release', false) === 'deadconn') {
-      this.eOpAccount.expect_deadConnection();
-    }
-    else if (checkFlagDefault(flags, 'release', false)) {
-      this.eOpAccount.expect_releaseConnection();
     }
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_end(mode, jobName);
     // - save (server)
-    if (serverSave)
+    if (serverSave && this.supportsServerFolders)
       this.eOpAccount.expect_saveAccountState();
   },
 
   /**
-   * Wait for a message with the given subject to show up in the account.
-   *
-   * For now we repeatedly poll for the arrival of the message
+   * Wait for a message with the given subject to show up in the
+   * account. We first check to see if the message is already in the
+   * slice (for POP3, sometimes local operations already have appended
+   * the message to a local folder, so it's already there). If it's
+   * not, we repeatedly poll for the arrival of the message.
    */
   do_waitForMessage: function(viewThing, expectSubject, funcOpts) {
     var self = this;
@@ -1217,21 +1232,41 @@ var TestCommonAccountMixins = {
       if (funcOpts.expect)
         funcOpts.expect();
 
-      viewThing.slice.onadd = function(header) {
-        if (header.subject !== expectSubject)
-          return;
+      function checkHeader(header) {
+        if (header.subject !== expectSubject) {
+          return false;
+        }
         self._logger.messageSubject(null, header.subject);
         foundIt = true;
+        return true;
+      }
+
+      // Check if the message is already in the slice:
+      for (var i = 0; i < viewThing.slice.items.length; i++) {
+        var item = viewThing.slice.items[i];
+        if (checkHeader(item)) {
+          funcOpts.withMessage.call(funcOpts, item);
+          return;
+        }
+      }
+      // If it's not already there, poll for an onadd event:
+      viewThing.slice.onadd = function(header) {
+        if (!checkHeader(header)) {
+          return;
+        }
         // Trigger the withMessage handler only once the slice completes so that
         // we don't try and overlap with the slice's refresh.
-        if (funcOpts.withMessage)
+        if (funcOpts.withMessage) {
           viewThing.slice.oncomplete =
             funcOpts.withMessage.bind(funcOpts, header);
-      };
+        }
+      }
       function completeFunc() {
         if (foundIt)
           return;
         setTimeout(function() {
+          if (foundIt)
+            return;
           viewThing.slice.oncomplete = completeFunc;
           viewThing.slice.refresh();
         }, 150);
@@ -1326,7 +1361,6 @@ var TestCommonAccountMixins = {
             self._logger.foundFolder(!!testFolder.mailFolder,
                                      testFolder.mailFolder);
             testFolder.id = testFolder.mailFolder.id;
-
             testFolder.connActor.__attachToLogger(
               self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
             testFolder.storageActor.__attachToLogger(
@@ -1394,9 +1428,7 @@ var TestCommonAccountMixins = {
     // Because only one actor will be created in this process, we don't
     // need to reach into the 'soup' to establish the link and the test
     // infrastructure will do it automatically for us.
-    var newConnActor = this.T.actor(
-          this.type === 'imap' ? 'ImapFolderConn' : 'ActiveSyncFolderConn',
-          newActorName),
+    var newConnActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME, newActorName),
         newStorageActor = this.T.actor('FolderStorage', newActorName);
     this.RT.reportActiveActorThisStep(newConnActor);
     this.RT.reportActiveActorThisStep(newStorageActor);
@@ -1422,11 +1454,13 @@ var TestCommonAccountMixins = {
     var self = this;
     var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
                        messageSetDef.count;
-    this.T.convenienceSetup(this, desc, testFolder, function() {
+    var eLazy = this.T.lazyLogger('finished');
+    this.T.convenienceSetup(this, desc, testFolder, eLazy, function() {
       var messageBodies;
       if (messageSetDef instanceof Function) {
         messageBodies = messageSetDef();
       }
+
       else {
         var generator = self.testUniverse.messageGenerator;
         generator._clock = self._useDate ? new Date(self._useDate) : null;
@@ -1639,15 +1673,34 @@ var TestFolderMixins = {
   },
 };
 
-var TestImapAccountMixins = {
+var TestCompositeAccountMixins = {
   exactAttachmentSizes: false,
   FOLDER_CONN_LOGGER_NAME: 'ImapFolderConn',
   USES_CONN: true,
+  supportsServerFolders: true,
 
   __constructor: function(self, opts) {
-    self.eImapAccount = self.eOpAccount = self.eFolderAccount =
-      self.T.actor('ImapAccount', self.__name, null, self);
-    self.eJobDriver = self.T.actor('ImapJobDriver', self.__name, null, self);
+    // for logging, etc, something capitalized
+    var Type = self.Type = (self.type === 'imap' ? 'Imap' : 'Pop3');
+    var TYPE = self.TYPE = self.type.toUpperCase();
+
+    if (self.type === 'pop3') {
+      self.USES_CONN = false;
+      self.FOLDER_CONN_LOGGER_NAME = 'Pop3FolderSyncer';
+      self.supportsServerFolders = false;
+      self.exactAttachmentSizes = true;
+    }
+
+    self.eOpAccount = self.eFolderAccount =
+      self.T.actor(Type + 'Account', self.__name, null, self);
+
+    if (self.type === 'imap') {
+      self.eImapAccount = self.eFolderAccount;
+    } else {
+      self.ePop3Account = self.eFolderAccount;
+    }
+
+    self.eJobDriver = self.T.actor(Type + 'JobDriver', self.__name, null, self);
     self.eSmtpAccount = self.T.actor('SmtpAccount', self.__name, null, self);
     self.eBackoff = self.T.actor('BackoffEndpoint', self.__name, null, self);
 
@@ -1656,8 +1709,8 @@ var TestImapAccountMixins = {
     // turn on SMTP logging for our unit tests
     $smtpacct.ENABLE_SMTP_LOGGING = true;
 
-    self.imapHost = null;
-    self.imapPort = null;
+    self.imapHost = self.pop3Host = null;
+    self.imapPort = self.pop3Port = null;
 
     /**
      * Very simple/primitive connection book-keeping.  We only alter this in
@@ -1669,12 +1722,12 @@ var TestImapAccountMixins = {
     self._unusedConnections = 0;
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
-      self.testServer = self.T.actor('testFakeIMAPServer', self.__name,
+      self.testServer = self.T.actor('testFake' + TYPE + 'Server', self.__name,
                                      { restored: opts.restored,
                                        imapExtensions: opts.imapExtensions });
     }
     else {
-      self.testServer = self.T.actor('testRealIMAPServer', self.__name,
+      self.testServer = self.T.actor('testReal' + TYPE + 'Server', self.__name,
                                      { restored: opts.restored });
     }
 
@@ -1688,30 +1741,32 @@ var TestImapAccountMixins = {
   },
 
   expect_shutdown: function() {
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
-    this.eImapAccount.expectOnly__die();
+    this.RT.reportActiveActorThisStep(this.eFolderAccount);
+    this.eFolderAccount.expectOnly__die();
     this.RT.reportActiveActorThisStep(this.eSmtpAccount);
     this.eSmtpAccount.expectOnly__die();
   },
 
   expect_saveState: function() {
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
-    this.eImapAccount.expect_saveAccountState();
+    this.RT.reportActiveActorThisStep(this.eFolderAccount);
+    this.eFolderAccount.expect_saveAccountState();
   },
 
   help_expect_connection: function() {
+    if (this.type === 'pop3') { return; }
+
     if (!this._unusedConnections) {
-      this.eImapAccount.expect_createConnection();
+      this.eFolderAccount.expect_createConnection();
       // caller will need to decrement this if they are going to keep the
       // connection alive; we are expecting it to become available again at
       // the end of the step...
       this._unusedConnections++;
     }
-    this.eImapAccount.expect_reuseConnection();
+    this.eFolderAccount.expect_reuseConnection();
   },
 
   _expect_restore: function() {
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.RT.reportActiveActorThisStep(this.eFolderAccount);
     this.RT.reportActiveActorThisStep(this.eSmtpAccount);
     this.RT.reportActiveActorThisStep(this.eBackoff);
   },
@@ -1727,14 +1782,18 @@ var TestImapAccountMixins = {
       self.account = self.compositeAccount =
              self.universe.accounts[
                self.testUniverse.__testAccounts.indexOf(self)];
-      self.folderAccount = self.imapAccount =
-        self.compositeAccount._receivePiece;
+      self.folderAccount = self.compositeAccount._receivePiece;
+      if (self.type === 'imap') {
+        self.imapAccount = self.folderAccount;
+      } else {
+        self.pop3Account = self.folderAccount;
+      }
       self.smtpAccount = self.compositeAccount._sendPiece;
       self.accountId = self.compositeAccount.id;
 
       var receiveConnInfo = self.compositeAccount.accountDef.receiveConnInfo;
-      self.imapHost = receiveConnInfo.hostname;
-      self.imapPort = receiveConnInfo.port;
+      self.imapHost = self.pop3Host = receiveConnInfo.hostname;
+      self.imapPort = self.pop3Port = receiveConnInfo.port;
 
       self.testServer.finishSetup(self);
     });
@@ -1750,7 +1809,7 @@ var TestImapAccountMixins = {
     self.T.convenienceSetup(self, 'creates test account', function() {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
 
-      self.RT.reportActiveActorThisStep(self.eImapAccount);
+      self.RT.reportActiveActorThisStep(self.eFolderAccount);
       self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.RT.reportActiveActorThisStep(self.eBackoff);
@@ -1761,13 +1820,15 @@ var TestImapAccountMixins = {
       self.rawAccount = null;
 
       // we expect the connection to be reused and release to sync the folders
-      self._unusedConnections = 1;
-      self.eImapAccount.expect_runOp_begin('do', 'syncFolderList');
-      self.help_expect_connection();
-      self.eImapAccount.expect_releaseConnection();
-      self.eImapAccount.expect_runOp_end('do', 'syncFolderList');
-      // we expect the account state to be saved after syncing folders
-      self.eImapAccount.expect_saveAccountState();
+      if (self.type === 'imap') {
+        self._unusedConnections = 1;
+        self.eFolderAccount.expect_runOp_begin('do', 'syncFolderList');
+        self.help_expect_connection();
+        self.eFolderAccount.expect_releaseConnection();
+        self.eFolderAccount.expect_runOp_end('do', 'syncFolderList');
+        // we expect the account state to be saved after syncing folders
+        self.eFolderAccount.expect_saveAccountState();
+      }
 
       if (self._opts.timeWarp)
         $date.TEST_LetsDoTheTimewarpAgain(self._opts.timeWarp);
@@ -1804,14 +1865,18 @@ var TestImapAccountMixins = {
             do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
                      ' (id: ' + self.accountId + ')');
 
-          self.folderAccount = self.imapAccount =
-            self.compositeAccount._receivePiece;
+          self.folderAccount = self.compositeAccount._receivePiece;
+          if (self.type === 'imap') {
+            self.imapAccount = self.folderAccount;
+          } else {
+            self.pop3Account = self.folderAccount;
+          }
           self.smtpAccount = self.compositeAccount._sendPiece;
 
           var receiveConnInfo =
                 self.compositeAccount.accountDef.receiveConnInfo;
-          self.imapHost = receiveConnInfo.hostname;
-          self.imapPort = receiveConnInfo.port;
+          self.imapHost = self.pop3Host = receiveConnInfo.hostname;
+          self.imapPort = self.pop3Port = receiveConnInfo.port;
 
           self.testServer.finishSetup(self);
 
@@ -2075,7 +2140,6 @@ var TestImapAccountMixins = {
     if (dir === null) {
       // - initial sync
       if (!testFolder.initialSynced) {
-        //console.log('initial');
         // The add count should exactly cover what we find out about; no need
         // to do anything with dates.
         dir = 1;
@@ -2143,8 +2207,13 @@ var TestImapAccountMixins = {
   // their sync logic is so different.
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
+    if (this.ePop3Account) {
+      extraFlags = extraFlags || {};
+      extraFlags.nosave = true;
+    }
+
     var testFolder = viewThing.testFolder;
-    this.RT.reportActiveActorThisStep(this.eImapAccount);
+    this.RT.reportActiveActorThisStep(this.eFolderAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     var totalMessageCount = 0,
         nonet = checkFlagDefault(extraFlags, 'nonet', false),
@@ -2162,32 +2231,32 @@ var TestImapAccountMixins = {
           propState = this._propagateToKnownMessages(
             viewThing, propState,
             einfo.count, einfo.full, einfo.deleted, syncDir);
-
-          if (!einfo.hasOwnProperty('startTS')) {
-            testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-            testFolder.connActor.expect_syncDateRange_end(
-              einfo.full, einfo.flags, einfo.deleted);
-          }
-          // some tests explicitly specify the date-stamps
-          else {
-            testFolder.connActor.expect_syncDateRange_begin(
-              null, null, null, einfo.startTS, einfo.endTS);
-            testFolder.connActor.expect_syncDateRange_end(
-              einfo.full, einfo.flags, einfo.deleted,
-              einfo.startTS, einfo.endTS);
+          if (this.type === 'imap') {
+            if (!einfo.hasOwnProperty('startTS')) {
+              testFolder.connActor.expect_syncDateRange_begin(null, null, null);
+              testFolder.connActor.expect_syncDateRange_end(
+                einfo.full, einfo.flags, einfo.deleted);
+            }
+            // some tests explicitly specify the date-stamps
+            else {
+              testFolder.connActor.expect_syncDateRange_begin(
+                null, null, null, einfo.startTS, einfo.endTS);
+              testFolder.connActor.expect_syncDateRange_end(
+                einfo.full, einfo.flags, einfo.deleted,
+                einfo.startTS, einfo.endTS);
+            }
           }
         }
       }
     }
     if (this.universe.online && !nonet) {
       testFolder.initialSynced = true;
-
       if (!checkFlagDefault(extraFlags, 'nosave', false))
-        this.eImapAccount.expect_saveAccountState();
+        this.eFolderAccount.expect_saveAccountState();
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
-      this.eImapAccount.expectNothing();
+      this.eFolderAccount.expectNothing();
       if (nonet)
         testFolder.connActor.expectNothing();
     }
@@ -2314,14 +2383,17 @@ var TestImapAccountMixins = {
     // sending is not tracked as an op, but appending is
     this.expect_runOp(
       'append',
-      { local: false, server: true, save: false });
+      { local: !this.supportsServerFolders,
+        server: this.supportsServerFolders, save: false });
   },
-};
+}
 
 var TestActiveSyncAccountMixins = {
   exactAttachmentSizes: true,
   FOLDER_CONN_LOGGER_NAME: 'ActiveSyncFolderConn',
   USES_CONN: false,
+  supportsServerFolders: true,
+
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount = self.eFolderAccount =
       self.T.actor('ActiveSyncAccount', self.__name, null, self);
@@ -2629,6 +2701,8 @@ exports.TESTHELPER = {
     $errbackoff.LOGFAB,
     // IMAP!
     $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
+    // POP3!
+    $pop3acct.LOGFAB, $pop3sync.LOGFAB, $pop3jobs.LOGFAB,
     $imapjs.LOGFAB,
     // SMTP!
     $smtpacct.LOGFAB,
@@ -2638,6 +2712,7 @@ exports.TESTHELPER = {
   TESTHELPER_DEPS: [
     $th_fake_as_server.TESTHELPER,
     $th_fake_imap_server.TESTHELPER,
+    $th_fake_pop3_server.TESTHELPER,
     $th_real_imap_server.TESTHELPER,
   ],
   actorMixins: {

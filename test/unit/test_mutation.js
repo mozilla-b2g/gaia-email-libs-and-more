@@ -578,9 +578,7 @@ TD.commonCase('move/trash messages', function(T, RT) {
   var blindTargetFolder = testAccount.do_createTestFolder(
     'test_move_blind_target',
     { count: 0 });
-  var trashFolder = testAccount.do_createTestFolder(
-    'Trash',
-    { count: 0 });
+  var trashFolder = testAccount.do_useExistingFolderWithType('trash', '');
 
   var sourceView = testAccount.do_openFolderView(
     'sourceView', sourceFolder,
@@ -646,7 +644,7 @@ TD.commonCase('move/trash messages', function(T, RT) {
   });
   T.action('go online, see changes happen for', eAccount,
            eSync, function() {
-    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
+    var save = TEST_PARAMS.type !== 'activesync' ? false : 'server';
     testAccount.expect_runOp(
       'move',
       { local: false, server: true, save: save, conn: true });
@@ -703,7 +701,7 @@ TD.commonCase('move/trash messages', function(T, RT) {
     toDelete.deleteMessage();
   });
   T.action('go online, see changes happen for', eAccount, eSync, function() {
-    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
+    var save = TEST_PARAMS.type !== 'activesync' ? false : 'server';
     testAccount.expect_runOp(
       'delete',
       { local: false, server: true, save: save });
@@ -816,9 +814,7 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
   var blindTargetFolder = testAccount.do_createTestFolder(
     'test_move_blind_target',
     { count: 0 });
-  var trashFolder = testAccount.do_createTestFolder(
-    'Trash',
-    { count: 0 });
+  var trashFolder = testAccount.do_useExistingFolderWithType('trash', '');
 
   var sourceView = testAccount.do_openFolderView(
     'sourceView', sourceFolder,
@@ -973,11 +969,9 @@ TD.commonCase('trash drafts', function(T, RT) {
                             { universe: testUniverse, restored: true }),
       eAccount = TEST_PARAMS.type === 'imap' ? testAccount.eImapAccount :
                                                testAccount.eAccount,
-      eLazy = T.lazyLogger('check'),
+      eLazy = T.lazyLogger('check');
 
-      trashFolder = testAccount.do_createTestFolder(
-        'Trash',
-        { count: 0 }),
+  var trashFolder = testAccount.do_useExistingFolderWithType('trash', ''),
       trashView = testAccount.do_openFolderView(
         'trashView', trashFolder, null, null,
         { syncedToDawnOfTime: 'ignore' }),

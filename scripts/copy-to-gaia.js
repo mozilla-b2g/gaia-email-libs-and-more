@@ -50,6 +50,7 @@ buildOptions = {
     'bleach': 'deps/bleach.js/lib/bleach',
 
     'imap': 'data/lib/imap',
+    'pop3': 'data/lib/pop3',
 
     'rdplat': 'data/lib/rdplat',
     'rdcommon': 'data/lib/rdcommon',
@@ -150,6 +151,13 @@ var configs = [
     out: jsPath + '/mailapi/imap/probe.js'
   },
 
+  // pop3 protocol and probing support
+  {
+    name: 'mailapi/pop3/probe',
+    exclude: standardPlusComposerExcludes.concat(['mailparser/mailparser']),
+    out: jsPath + '/mailapi/pop3/probe.js'
+  },
+
   // imap online support
   {
     name: 'mailapi/imap/protocollayer',
@@ -177,6 +185,13 @@ var configs = [
     name: 'mailapi/activesync/configurator',
     exclude: standardPlusComposerExcludes,
     out: jsPath + '/mailapi/activesync/configurator.js'
+  },
+
+  // activesync configurator, offline support
+  {
+    name: 'pop3/pop3',
+    exclude: standardPlusComposerExcludes,
+    out: jsPath + '/pop3/pop3.js'
   },
 
   // activesync online support

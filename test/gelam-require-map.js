@@ -36,6 +36,7 @@ require({
     "bleach": "deps/bleach.js/lib/bleach",
 
     "imap": "data/lib/imap",
+    "pop3": "data/lib/pop3",
 
     "rdplat": "data/lib/rdplat",
     "rdcommon": "data/lib/rdcommon",
