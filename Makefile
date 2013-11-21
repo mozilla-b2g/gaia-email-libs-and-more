@@ -28,6 +28,8 @@ help:
 	@echo "  Run one test file (all variants), do not post results to ArbPL"
 	@echo "make post-one-test SOLO_FILE=test_name.js"
 	@echo "  Run one test file (all variants), post results to ArbPL"
+	@echo "make post-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
+	@echo "  Run one test file (imap:fake variant), post results to ArbPL"
 	@echo ""
 	@echo "To enable verbose log output to the console: TEST_LOG_ENABLE=true"
 
@@ -69,6 +71,12 @@ install-into-gaia: clean gaia-symlink $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 
 build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 
+
+.PHONY: download-b2g
+download-b2g:
+	npm install mozilla-download
+	node_modules/.bin/mozilla-download ./b2g --product b2g
+	ln -s ./b2g b2g-bindir-symlink
 
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
@@ -125,16 +133,24 @@ endef
 ######################
 # All tests
 
-tests: build
+.PHONY: test-deps
+test-deps: node_modules
+
+# If our package.json has been updated, run npm install
+node_modules: package.json
+	npm install
+	touch node_modules
+
+tests: build test-deps
 	$(call run-tests)
 
-one-test: build
+one-test: build test-deps
 	$(call run-one-test)
 
-post-one-test: one-test
+post-one-test: one-test test-deps
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/$(basename $(SOLO_FILE)).logs
 
-post-tests: tests
+post-tests: tests test-deps
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all.logs
 
 

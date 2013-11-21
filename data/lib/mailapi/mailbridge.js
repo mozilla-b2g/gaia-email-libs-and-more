@@ -466,16 +466,18 @@ MailBridge.prototype = {
   },
 
   /**
-   * Sends a notification of a change in the body.
+   * Sends a notification of a change in the body.  Because FolderStorage is
+   * the authoritative store of body representations and access is currently
+   * mediated through mutexes, this method should really only be called by
+   * FolderStorage.updateMessageBody.
    *
-   *    bridge.notifyBodyModified(
-   *      suid,
-   *      'bodyRep',
-   *      { index: 0 }
-   *      newBodyInfo
-   *    );
-   *
-   *
+   * @param suid {SUID}
+   *   The message whose body representation has been updated
+   * @param detail {Object}
+   *   See {{#crossLink "FolderStorage/updateMessageBody"}{{/crossLink}} for
+   *   more information on the structure of this object.
+   * @param body {BodyInfo}
+   *   The current representation of the body.
    */
   notifyBodyModified: function(suid, detail, body) {
     var handles = this._observedBodies[suid];
@@ -488,7 +490,6 @@ MailBridge.prototype = {
         // aggregate pending notifications while fetching the bodies so updates
         // never come before the actual body.
         var emit = handles[handle] || defaultHandler;
-
         emit.call(this, {
           type: 'bodyModified',
           handle: handle,
@@ -703,11 +704,10 @@ MailBridge.prototype = {
     var self = this;
     this.universe.downloadMessageAttachments(
       msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
-      function(err, bodyInfo) {
+      function(err) {
         self.__sendMessage({
           type: 'downloadedAttachments',
-          handle: msg.handle,
-          bodyInfo: err ? null : bodyInfo
+          handle: msg.handle
         });
       });
   },
@@ -762,12 +762,12 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
-
   _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
-    require(['./composer'], function ($composer) {
+    require(['mailapi/drafts/composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle] = {
         type: 'compose',
         active: 'begin',
+        account: null,
         persistedNamer: null,
         die: false
       };
@@ -778,6 +778,7 @@ MailBridge.prototype = {
         account = this.universe.getAccountForFolderId(msg.refSuid);
       else
         account = this.universe.getAccountForMessageSuid(msg.refSuid);
+      req.account = account;
 
       identity = account.identities[0];
 
@@ -920,16 +921,66 @@ MailBridge.prototype = {
     }.bind(this));
   },
 
+  _cmd_attachBlobToDraft: function(msg) {
+    // for ordering consistency reasons with other draft logic, this needs to
+    // require composer as a dependency too.
+    require(['mailapi/drafts/composer'], function ($composer) {
+      var draftReq = this._pendingRequests[msg.draftHandle];
+      if (!draftReq)
+        return;
+
+      this.universe.attachBlobToDraft(
+        draftReq.account,
+        draftReq.persistedNamer,
+        msg.attachmentDef,
+        function (err) {
+          this.__sendMessage({
+            type: 'attachedBlobToDraft',
+            // Note! Our use of 'msg' here means that our reference to the Blob
+            // will be kept alive slightly longer than the job keeps it alive,
+            // but just slightly.
+            handle: msg.handle,
+            draftHandle: msg.draftHandle,
+            err: err
+          });
+        }.bind(this));
+    }.bind(this));
+  },
+
+  _cmd_detachAttachmentFromDraft: function(msg) {
+    // for ordering consistency reasons with other draft logic, this needs to
+    // require composer as a dependency too.
+    require(['mailapi/drafts/composer'], function ($composer) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req)
+      return;
+
+    this.universe.attachBlobToDraft(
+      req.account,
+      req.persistedNamer,
+      msg.attachmentIndex,
+      function (err) {
+        this.__sendMessage({
+          type: 'detachedAttachmentFromDraft',
+          handle: msg.handle,
+          draftHandle: msg.draftHandle
+        });
+      }.bind(this));
+    }.bind(this));
+  },
+
   _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
     var req = this._pendingRequests[msg.handle] = {
       type: 'compose',
       active: 'resume',
+      account: null,
       persistedNamer: msg.messageNamer,
       die: false
     };
 
     // NB: We are not acquiring the folder mutex here because
-    var account = this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
+    var account = req.account =
+          this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
     var folderStorage = this.universe.getFolderStorageForMessageSuid(
                           msg.messageNamer.suid);
     var self = this;
@@ -1002,16 +1053,25 @@ MailBridge.prototype = {
     });
   },
 
+  /**
+   * Save a draft, delete a draft, or try and send a message.
+   *
+   * Drafts are saved in our IndexedDB storage. This is notable because we are
+   * told about attachments via their Blobs.
+   */
   _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
-    require(['./composer'], function ($composer) {
+    require(['mailapi/drafts/composer'], function ($composer) {
       var req = this._pendingRequests[msg.handle], self = this;
-      if (!req)
+      if (!req) {
         return;
+      }
       if (msg.command === 'die') {
-        if (req.active)
+        if (req.active) {
           req.die = true;
-        else
+        }
+        else {
           delete this._pendingRequests[msg.handle];
+        }
         return;
       }
       var account;
@@ -1040,98 +1100,43 @@ MailBridge.prototype = {
         return;
       }
 
-
-      var wireRep = msg.state,
-          identity = this.universe.getIdentityForSenderIdentityId(
-                       wireRep.senderId);
+      var wireRep = msg.state;
       account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
-
+      var identity = this.universe.getIdentityForSenderIdentityId(
+                       wireRep.senderId);
       if (msg.command === 'send') {
-        var composer = new $composer.Composer(msg.command, wireRep,
-                                              account, identity);
+        // For a send, we first save the state of the draft, then we send it.
+        req.persistedNamer = this.universe.saveDraft(
+          account, req.persistedNamer, wireRep,
+          function(err, newRecords) {
+            var composer = new $composer.Composer(newRecords, account,
+                                                  identity);
 
-        req.active = null;
-        if (req.die)
-          delete this._pendingRequests[msg.handle];
-        account.sendMessage(composer, function(err, badAddresses) {
-          // If there was an associated/saved draft, clear it out, but there's
-          // no need to wait for that to complete.
-          if (req.persistedNamer)
-            this.universe.deleteDraft(account, req.persistedNamer);
-          this.__sendMessage({
-            type: 'doneCompose',
-            handle: msg.handle,
-            err: err,
-            badAddresses: badAddresses,
-            messageId: composer.messageId,
-            sentDate: composer.sentDate.valueOf(),
-          });
-        }.bind(this));
+            req.active = null;
+            if (req.die)
+              delete this._pendingRequests[msg.handle];
+            account.sendMessage(composer, function(err, badAddresses) {
+              // Now that we're all sent, nuke the draft
+              this.universe.deleteDraft(account, req.persistedNamer);
+              // And report success without waiting for the draft to be
+              // deleted.
+              this.__sendMessage({
+                type: 'doneCompose',
+                handle: msg.handle,
+                err: err,
+                badAddresses: badAddresses,
+                messageId: composer.messageId,
+                sentDate: composer.sentDate.valueOf(),
+              });
+            }.bind(this));
+          }.bind(this));
       }
       else if (msg.command === 'save') {
-        // -- convert from compose rep to header/body rep
-        var msgTimestamp = Date.now();
-        var header = {
-          id: null, // filled in by the job
-          srvid: null, // stays null
-          suid: null, // filled in by the job
-          guid: null, // unused
-          author: { name: identity.name, address: identity.address},
-          to: wireRep.to,
-          cc: wireRep.cc,
-          bcc: wireRep.bcc,
-          replyTo: null,
-          date: msgTimestamp,
-          flags: [],
-          hasAttachments: !!wireRep.attachments.length,
-          subject: wireRep.subject,
-          snippet: wireRep.body.text.substring(0, 100),
-        };
-        var body = {
-          date: msgTimestamp,
-          size: 0,
-          attachments: [],
-          relatedParts: [],
-          references: wireRep.referencesStr,
-          bodyReps: []
-        };
-        wireRep.attachments.forEach(function(wireAtt) {
-          body.attachments.push({
-            name: wireAtt.name,
-            contentId: null,
-            type: wireAtt.blob.type,
-            part: null,
-            encoding: null,
-            sizeEstimate: wireAtt.blob.size,
-            file: wireAtt.blob
-          });
-        });
-        body.bodyReps.push({
-          type: 'plain',
-          part: null,
-          sizeEstimate: wireRep.body.text.length,
-          amountDownloaded: wireRep.body.text.length,
-          isDownloaded: true,
-          _partInfo: {},
-          content: [0x1, wireRep.body.text]
-        });
-        if (wireRep.body.html) {
-          body.bodyReps.push({
-            type: 'html',
-            part: null,
-            sizeEstimate: wireRep.body.html.length,
-            amountDownloaded: wireRep.body.html.length,
-            isDownloaded: true,
-            _partInfo: {},
-            content: wireRep.body.html
-          });
-        }
-
-        this.universe.saveDraft(
-          account, req.persistedNamer, header, body,
-          function(err, messageNamer) {
+        // Save the draft, updating our persisted namer.
+        req.persistedNamer = this.universe.saveDraft(
+          account, req.persistedNamer, wireRep,
+          function(err) {
             req.active = null;
-            req.persistedNamer = messageNamer;
             if (req.die)
               delete self._pendingRequests[msg.handle];
             self.__sendMessage({

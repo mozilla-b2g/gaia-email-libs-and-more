@@ -4,6 +4,7 @@ define(
     '../date',
     '../syncbase',
     '../util',
+    'mailapi/db/mail_rep',
     'activesync/codepages/AirSync',
     'activesync/codepages/AirSyncBase',
     'activesync/codepages/ItemEstimate',
@@ -18,6 +19,7 @@ define(
     $date,
     $sync,
     $util,
+    mailRep,
     $AirSync,
     $AirSyncBase,
     $ItemEstimate,
@@ -508,7 +510,8 @@ ActiveSyncFolderConn.prototype = {
             break;
           case as.ApplicationData:
             try {
-              msg = folderConn._parseMessage(child, node.tag === as.Add);
+              msg = folderConn._parseMessage(child, node.tag === as.Add,
+                                             storage);
             }
             catch (ex) {
               // If we get an error, just log it and skip this message.
@@ -519,13 +522,7 @@ ActiveSyncFolderConn.prototype = {
           }
         }
 
-        if (node.tag === as.Add) {
-          msg.header.id = id = storage._issueNewHeaderId();
-          msg.header.suid = folderConn._storage.folderId + '/' + id;
-          msg.header.guid = '';
-        }
         msg.header.srvid = guid;
-        // XXX need to get the message's message-id header value!
 
         var collection = node.tag === as.Add ? added : changed;
         collection.push(msg);
@@ -594,7 +591,7 @@ ActiveSyncFolderConn.prototype = {
    *   changed one
    * @return {object} An object containing the header and body for the message
    */
-  _parseMessage: function asfc__parseMessage(node, isAdded) {
+  _parseMessage: function asfc__parseMessage(node, isAdded, storage) {
     var em = $Email.Tags;
     var asb = $AirSyncBase.Tags;
     var asbEnum = $AirSyncBase.Enums;
@@ -602,11 +599,16 @@ ActiveSyncFolderConn.prototype = {
     var header, body, flagHeader;
 
     if (isAdded) {
+      var newId = storage._issueNewHeaderId();
+      // note: these will be passed through mailRep.make* later
       header = {
-        id: null,
+        id: newId,
+        // This will be fixed up afterwards for control flow paranoia.
         srvid: null,
-        suid: null,
-        guid: null,
+        suid: storage.folderId + '/' + newId,
+        // ActiveSync does not/cannot tell us the Message-ID header unless we
+        // fetch the entire MIME body
+        guid: '',
         author: null,
         to: null,
         cc: null,
@@ -799,23 +801,35 @@ ActiveSyncFolderConn.prototype = {
           }
 
           if (isInline)
-            body.relatedParts.push(attachment);
+            body.relatedParts.push(mailRep.makeAttachmentPart(attachment));
           else
-            body.attachments.push(attachment);
+            body.attachments.push(mailRep.makeAttachmentPart(attachment));
         }
         header.hasAttachments = body.attachments.length > 0;
         break;
       }
     }
 
-    body.bodyReps = [{
+    body.bodyReps = [mailRep.makeBodyPart({
       type: bodyType,
       sizeEstimate: bodySize,
       amountDownloaded: 0,
       isDownloaded: false
-    }];
+    })];
 
-    return { header: header, body: body };
+    // If this is an add, then these are new structures so we need to normalize
+    // them.
+    if (isAdded) {
+      return {
+        header: mailRep.makeHeaderInfo(header),
+        body: mailRep.makeBodyInfo(body)
+      };
+    }
+    // It's not an add, so this is a delta, and header/body have mergeInto
+    // methods and we should not attempt to normalize them.
+    else {
+      return { header: header, body: body };
+    }
   },
 
   /**
@@ -1072,7 +1086,7 @@ ActiveSyncFolderConn.prototype = {
     };
 
     this._storage.updateMessageHeader(header.date, header.id, false, header);
-    this._storage.updateMessageBody(header, bodyInfo, event);
+    this._storage.updateMessageBody(header, bodyInfo, {}, event);
     this._storage.runAfterDeferredCalls(callback.bind(null, null, bodyInfo));
   },
 

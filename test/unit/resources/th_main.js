@@ -975,18 +975,15 @@ var TestCommonAccountMixins = {
   },
 
   /**
-   * Currently IMAP will fetch the contents and then notify the client via an
-   * update event where as AS sends everything at once... This may be change
-   * soon but this provides a wrapper to wait for the bodies .onchange event for
-   * the bodyReps if they are not downloaded at the time...
-   *
-   * This function can optionally also fetch the body on the main thread
-   * context as well, and remote a function across that will be run there with
-   * the message body passed-in.
+   * A wrapper around mailHeader.getBody({withBodyReps: true}) that will also
+   * remote a request to fetch the body to the main thread where test logic that
+   * needs to be on the main thread (ex: instantiating DOM elements or using the
+   * HTML parser) can run.  Just use mailHeader.getBody({withBodyReps}) if you
+   * don't need the main-thread stuff.
    *
    *    var myHeader;
    *
-   *    testAccount.getMessageBodyWithReps(
+   *    testAccount.getMessageBodyOnMainThread(
    *      myHeader,
    *      function workerThreadTestContextFunc(body) {
    *      },
@@ -999,9 +996,9 @@ var TestCommonAccountMixins = {
    *      });
    *
    */
-  getMessageBodyWithReps: function(myHeader, callback,
-                                   mainThreadArg, onMainThreadFunc,
-                                   withMainThreadResults) {
+  getMessageBodyOnMainThread: function(myHeader, callback,
+                                       mainThreadArg, onMainThreadFunc,
+                                       withMainThreadResults) {
     var testUniverse = this.testUniverse;
     if (onMainThreadFunc) {
       testUniverse.ensureMainThreadMailAPI();
@@ -1024,24 +1021,9 @@ var TestCommonAccountMixins = {
         });
     }
 
-    myHeader.getBody({ downloadBodyReps: true }, function(body) {
-      // wait for all body reps if they are not here...
-      var needBodReps = body.bodyReps.some(function(item) {
-        return !item.isDownloaded;
-      });
-
-      if (needBodReps) {
-        body.onchange = function(evt) {
-          if (evt.changeType === 'bodyReps') {
-            callback(body);
-            sendToMain();
-          }
-        };
-
-      } else {
-        callback(body);
-        sendToMain();
-      }
+    myHeader.getBody({ withBodyReps: true }, function(body) {
+      callback(body);
+      sendToMain();
     });
   },
 
@@ -1120,8 +1102,11 @@ var TestCommonAccountMixins = {
    *       @case[false]{
    *         No save operation expected.
    *       }
-   *       @case[true]{
+   *       @case['local']{
    *         Expect a save operation to occur after the local operation.
+   *       }
+   *       @case[true]{
+   *         Same as 'local', deprecated.
    *       }
    *       @case['server']{
    *         Expect a save operation to occur after the "server" operation.
@@ -1131,6 +1116,12 @@ var TestCommonAccountMixins = {
    *         does suggest either we move to using 2 different keys or have the
    *         value for local be 'local'.
    *       }
+   *     ]]
+   *     @key[flushBodyLocalSaves #:default 0 Number]{
+   *       Number of flush saves that occur during the local op.
+   *     }
+   *     @key[flushBodyServerSaves #:default 0 Number]{
+   *       Number of flush saves that occur during the server op.
    *     }
    *     @key[conn #:default false @oneof[false true 'deadconn']{
    *       Expect a connection to be aquired if truthy.  Expect the conncetion
@@ -1160,13 +1151,21 @@ var TestCommonAccountMixins = {
     }
 
     var saveCmd = checkFlagDefault(flags, 'save', false);
-    var localSave = (saveCmd === true || saveCmd === 'both');
+    var localSave = (saveCmd === true || saveCmd === 'both' ||
+                     saveCmd === 'local');
     var serverSave = (saveCmd === 'server' || saveCmd === 'both');
+    var flushBodyLocalSaves =
+          checkFlagDefault(flags, 'flushBodyLocalSaves', 0);
+    var flushBodyServerSaves =
+          checkFlagDefault(flags, 'flushBodyServerSaves', 0);
 
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
       this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      while (flushBodyLocalSaves--) {
+        this.eOpAccount.expect_saveAccountState('flushBody');
+      }
       this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
@@ -1175,6 +1174,9 @@ var TestCommonAccountMixins = {
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
+    while (flushBodyServerSaves--) {
+      this.eOpAccount.expect_saveAccountState('flushBody');
+    }
     // - conn, (conn) release
     if (checkFlagDefault(flags, 'conn', false)  &&
         ('help_expect_connection' in this)) {
@@ -2310,11 +2312,11 @@ var TestImapAccountMixins = {
     });
   },
 
-  expect_sendMessage: function() {
+  expect_sendMessage: function(conn) {
     // sending is not tracked as an op, but appending is
     this.expect_runOp(
       'append',
-      { local: false, server: true, save: false });
+      { local: false, server: true, save: false, conn: conn });
   },
 };
 

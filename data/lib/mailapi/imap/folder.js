@@ -699,6 +699,7 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       self._storage.updateMessageBody(
         header,
         body,
+        {},
         event
       );
 

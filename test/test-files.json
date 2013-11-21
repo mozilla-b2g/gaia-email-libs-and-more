@@ -97,6 +97,9 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake"]
     },
 
+    "test_compose_blobs.js": {
+      "variants": ["imap:fake", "activesync:fake"]
+    },
 
     "test_body_observers.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake"]
@@ -127,6 +130,10 @@
       "variants": ["noserver"]
     },
 
+    "test_b64_unit.js": {
+      "variants": ["noserver"]
+    },
+
     "test_html_escaping_unit.js": {
       "variants": ["noserver"]
     },
@@ -136,6 +143,10 @@
     },
 
     "test_mail_quoting.js": {
+      "variants": ["noserver"]
+    },
+
+    "test_net_main_blob_streaming.js": {
       "variants": ["noserver"]
     },
 
