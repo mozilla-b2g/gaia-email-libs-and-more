@@ -6,10 +6,10 @@
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/fake_xhr', 'mailapi/accountcommon',
         'exports'],
-       function($tc, $th_imap, $fakexhr, $accountcommon, exports) {
+       function($tc, $th_main, $fakexhr, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_autoconfig' }, null, [$th_imap.TESTHELPER], ['app']);
+  { id: 'test_autoconfig' }, null, [$th_main.TESTHELPER], ['app']);
 
 var goodImapXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
@@ -282,6 +282,7 @@ function expectXHRs(lazy, xhrs) {
 }
 
 function cannedTest(T, RT, xhrs, results) {
+  $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
   T.action(eCheck, 'autoconfig', function() {
     expectXHRs(eCheck, xhrs);
