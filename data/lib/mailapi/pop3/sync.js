@@ -360,11 +360,20 @@ Pop3FolderSyncer.prototype = {
       this._performTestDeletions(latch.defer());
     } else {
       var fetchDoneCb = latch.defer();
+
       // Fetch messages, ensuring that we don't actually store them all in
       // memory so as not to burden memory unnecessarily.
-      conn.listMessages(
-        filterFunc,
-        function fetchProgress(evt) {
+      conn.listMessages({
+        filter: filterFunc,
+        checkpointInterval: sync.POP3_SAVE_STATE_EVERY_N_MESSAGES,
+        checkpoint: function(next) {
+          // Every N messages, wait for everything to be stored to
+          // disk and saved in the database. Then proceed.
+          this.storage.runAfterDeferredCalls(function() {
+            this.account.__checkpointSyncCompleted(next);
+          }.bind(this));
+        }.bind(this),
+        progress: function fetchProgress(evt) {
           // Store each message as it is retrieved.
           var totalBytes = evt.totalBytes;
           var message = evt.message;
@@ -377,25 +386,25 @@ Pop3FolderSyncer.prototype = {
             messageCb();
           });
         }.bind(this),
-        function fetchDone(err, numSynced) {
-          // Upon downloading all of the messages, we MUST issue a QUIT
-          // command. This will tear down the connection, however if we
-          // don't, we will never receive notifications of new messages.
-          // If we deleted any messages on the server (which we don't),
-          // the QUIT command is what would actually cause those to be
-          // persisted. In the future, when we support server-side
-          // deletion, we should ensure that this QUIT does not
-          // inadvertently commit unintended deletions.
-          conn.quit();
+      }, function fetchDone(err, numSynced) {
+        // Upon downloading all of the messages, we MUST issue a QUIT
+        // command. This will tear down the connection, however if we
+        // don't, we will never receive notifications of new messages.
+        // If we deleted any messages on the server (which we don't),
+        // the QUIT command is what would actually cause those to be
+        // persisted. In the future, when we support server-side
+        // deletion, we should ensure that this QUIT does not
+        // inadvertently commit unintended deletions.
+        conn.quit();
 
-          if (err) {
-            doneCallback(err);
-            return;
-          }
-          // When all of the messages have been persisted to disk, indicate
-          // that we've successfully synced. Refresh our view of the world.
-          this.storage.runAfterDeferredCalls(fetchDoneCb);
-        }.bind(this));
+        if (err) {
+          doneCallback(err);
+          return;
+        }
+        // When all of the messages have been persisted to disk, indicate
+        // that we've successfully synced. Refresh our view of the world.
+        this.storage.runAfterDeferredCalls(fetchDoneCb);
+      }.bind(this));
     }
 
     latch.then((function onSyncDone() {

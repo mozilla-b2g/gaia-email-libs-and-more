@@ -232,8 +232,8 @@ CompositeIncomingAccount.prototype = {
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
-  __checkpointSyncCompleted: function() {
-    this.saveAccountState(null, null, 'checkpointSync');
+  __checkpointSyncCompleted: function(callback) {
+    this.saveAccountState(null, callback, 'checkpointSync');
   },
 
   /**
