@@ -1,7 +1,7 @@
 define(['rdcommon/log', '../errbackoff', '../composite/incoming', './sync',
-        './jobs', 'module', 'require', 'exports'],
+        './jobs', '../drafts/draft_rep', 'module', 'require', 'exports'],
 function(log, errbackoff, incoming, pop3sync,
-         pop3jobs, module, require, exports) {
+         pop3jobs, draftRep, module, require, exports) {
 var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
 
 /**
@@ -158,6 +158,26 @@ var properties = {
         callback && callback(null, conn);
       }.bind(this));
     }.bind(this));
+  },
+
+  /**
+   * Save an attachment-stripped version of the sent draft to our sent folder.
+   */
+  saveSentMessage: function(composer) {
+    var sentFolder = this.getFirstFolderWithType('sent');
+    if (!sentFolder) {
+      return;
+    }
+
+    var sentStorage = this.getFolderStorageForFolderId(sentFolder.id);
+    var id = sentStorage._issueNewHeaderId();
+    var suid = sentStorage.folderId + '/' + id;
+
+    var sentPieces = draftRep.cloneDraftMessageForSentFolderWithoutAttachments(
+      composer.header, composer.body, { id: id, suid: suid });
+
+    this.universe.saveSentDraft(sentFolder.id,
+                                sentPieces.header, sentPieces.body);
   },
 
   /**

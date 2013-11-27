@@ -197,24 +197,9 @@ CompositeAccount.prototype = {
     return this._sendPiece.sendMessage(
       composer,
       function(err, errDetails) {
-        // We need to append the message to the sent folder if we think we sent
-        // the message okay and this is not gmail.  gmail automatically crams
-        // the message in the sent folder for us, so if we do it, we're just
-        // going to create duplicates.
-        if (!err && !this._receivePiece.isGmail) {
-          composer.withMessageBuffer({ includeBcc: true }, function(buffer) {
-            var message = {
-              messageText: buffer,
-              // do not specify date; let the server use its own timestamping
-              // since we want the approximate value of 'now' anyways.
-              flags: ['Seen'],
-            };
-
-            var sentFolder = this.getFirstFolderWithType('sent');
-            if (sentFolder)
-              this.universe.appendMessages(sentFolder.id,
-                                           [message]);
-          }.bind(this));
+        if (!err) {
+          // The saving is done asynchronously as a best-effort.
+          this._receivePiece.saveSentMessage(composer);
         }
         callback(err, errDetails, null);
       }.bind(this));

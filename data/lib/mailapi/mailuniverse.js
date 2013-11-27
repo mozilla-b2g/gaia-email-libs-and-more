@@ -7,6 +7,7 @@ define(
     'rdcommon/log',
     'rdcommon/logreaper',
     './a64',
+    './date',
     './syncbase',
     './worker-router',
     './maildb',
@@ -19,6 +20,7 @@ define(
     $log,
     $logreaper,
     $a64,
+    $date,
     $syncbase,
     $router,
     $maildb,
@@ -1169,7 +1171,6 @@ MailUniverse.prototype = {
       this._opCompletionListenersByAccount[account.id](account);
       this._opCompletionListenersByAccount[account.id] = null;
     }
-
   },
 
   /**
@@ -1411,6 +1412,10 @@ MailUniverse.prototype = {
    * ]
    */
   _queueAccountOp: function(account, op, optionalCallback) {
+    // Log the op for debugging assistance
+    // TODO: Create a real logger event; this will require updating existing
+    // tests and so is not sufficiently trivial to do at this time.
+    console.log('queueOp', account.id, op.type);
     // - Name the op, register callbacks
     if (op.longtermId === null) {
       // mutation job must be persisted until completed otherwise bad thing
@@ -1668,34 +1673,162 @@ MailUniverse.prototype = {
     return longtermIds;
   },
 
-  appendMessages: function(folderId, messages) {
+  /**
+   * APPEND messages to an IMAP server without locally saving the messages.
+   * This was originally an IMAP testing operation that was co-opted to be
+   * used for saving sent messages in a corner-cutting fashion.  (The right
+   * thing for us to do would be to save the message locally too and deal with
+   * the UID implications.  But that is tricky.)
+   *
+   * See ImapAccount.saveSentMessage for more context.
+   *
+   * POP3's variation on this is saveSentDraft
+   */
+  appendMessages: function(folderId, messages, callback) {
     var account = this.getAccountForFolderId(folderId);
     var longtermId = this._queueAccountOp(
       account,
       {
         type: 'append',
-        longtermId: null,
+        // Don't persist.  See ImapAccount.saveSentMessage for our rationale.
+        longtermId: 'session',
         lifecycle: 'do',
-        // XXX supportsServerFolders is a bit of a misnomer in this
-        // case; we are doing this to make the unit tests happy.
-        // ActiveSync does not support appending messages via the
-        // ActiveSync protocol, but it supports server folders. POP3
-        // doesn't support anything. Changing this will result in some
-        // hassle we don't want to deal with right now.
-        localStatus: (account.supportsServerFolders ? 'done' : null),
-        serverStatus: (account.supportsServerFolders ? null : 'n/a'),
+        localStatus: 'done',
+        serverStatus: null,
         tryCount: 0,
         humanOp: 'append',
         messages: messages,
         folderId: folderId,
+      },
+      callback);
+    return [longtermId];
+  },
+
+  /**
+   * Save a sent POP3 message to the account's "sent" folder.  See
+   * Pop3Account.saveSentMessage for more information.
+   *
+   * IMAP's variation on this is appendMessages.
+   *
+   * @param folderId {FolderID}
+   * @param sentSafeHeader {HeaderInfo}
+   *   The header ready to be added to the sent folder; suid issued and
+   *   everything.
+   * @param sentSafeBody {BodyInfo}
+   *   The body ready to be added to the sent folder; attachment blobs stripped.
+   * @param callback {function(err)}
+   */
+  saveSentDraft: function(folderId, sentSafeHeader, sentSafeBody, callback) {
+    var account = this.getAccountForMessageSuid(sentSafeHeader.suid);
+    var longtermId = this._queueAccountOp(
+      account,
+      {
+        type: 'saveSentDraft',
+        // we can persist this since we have stripped the blobs
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a',
+        tryCount: 0,
+        humanOp: 'saveSentDraft',
+        folderId: folderId,
+        headerInfo: sentSafeHeader,
+        bodyInfo: sentSafeBody
       });
     return [longtermId];
   },
 
   /**
-   * Save a new draft or update an existing draft.
+   * Process the given attachment blob in slices into base64-encoded Blobs
+   * that we store in IndexedDB (currently).  This is a local-only operation.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.  But do keep in mind that you need
+   * to make sure to not destroy the underlying storage for the Blob (ex: when
+   * using DeviceStorage) until the callback has fired.
    */
-  saveDraft: function(account, existingNamer, header, body, callback) {
+  attachBlobToDraft: function(account, existingNamer, attachmentDef, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'attachBlobToDraft',
+        // We don't persist the operation to disk in order to avoid having the
+        // Blob we are attaching get persisted to IndexedDB.  Better for the
+        // disk I/O to be ours from the base64 encoded writes we do even if
+        // there is a few seconds of data-loss-ish vulnerability.
+        longtermId: 'session',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'attachBlobToDraft',
+        existingNamer: existingNamer,
+        attachmentDef: attachmentDef
+      },
+      callback
+    );
+  },
+
+  /**
+   * Remove an attachment from a draft.  This will not interrupt an active
+   * attaching operation or moot a pending one.  This is a local-only operation.
+   */
+  detachAttachmentFromDraft: function(account, existingNamer, attachmentIndex,
+                                      callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'detachAttachmentFromDraft',
+        // This is currently non-persisted for symmetry with attachBlobToDraft
+        // but could be persisted if we wanted.
+        longtermId: 'session',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // local-only currently
+        tryCount: 0,
+        humanOp: 'detachAttachmentFromDraft',
+        existingNamer: existingNamer,
+        attachmentIndex: attachmentIndex
+      },
+      callback
+    );
+  },
+
+  /**
+   * Save a new (local) draft or update an existing (local) draft.  A new namer
+   * is synchronously created and returned which will be the name for the draft
+   * assuming the save completes successfully.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.
+   *
+   * @method saveDraft
+   * @param account
+   * @param [existingNamer] {MessageNamer}
+   * @param draftRep
+   * @param callback {Function}
+   * @return {MessageNamer}
+   *
+   */
+  saveDraft: function(account, existingNamer, draftRep, callback) {
+    var draftsFolderMeta = account.getFirstFolderWithType('localdrafts');
+    var draftsFolderStorage = account.getFolderStorageForFolderId(
+                                draftsFolderMeta.id);
+    var newId = draftsFolderStorage._issueNewHeaderId();
+    var newDraftInfo = {
+      id: newId,
+      suid: draftsFolderStorage.folderId + '/' + newId,
+      // There are really 3 possible values we could use for this; when the
+      // front-end initiates the draft saving, when we, the back-end observe and
+      // enqueue the request (now), or when the draft actually gets saved to
+      // disk.
+      //
+      // This value does get surfaced to the user, so we ideally want it to
+      // occur within a few seconds of when the save is initiated.  We do this
+      // here right now because we have access to $date, and we should generally
+      // be timely about receiving messages.
+      date: $date.NOW(),
+    };
     this._queueAccountOp(
       account,
       {
@@ -1707,13 +1840,23 @@ MailUniverse.prototype = {
         tryCount: 0,
         humanOp: 'saveDraft',
         existingNamer: existingNamer,
-        header: header,
-        body: body
+        newDraftInfo: newDraftInfo,
+        draftRep: draftRep,
       },
       callback
     );
+    return {
+      suid: newDraftInfo.suid,
+      date: newDraftInfo.date
+    };
   },
 
+  /**
+   * Delete an existing (local) draft.
+   *
+   * This function is implemented as a job/operation so it is inherently ordered
+   * relative to other draft-related calls.
+   */
   deleteDraft: function(account, messageNamer, callback) {
     this._queueAccountOp(
       account,

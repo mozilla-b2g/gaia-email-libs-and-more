@@ -1,6 +1,7 @@
-define(['module', 'exports', 'rdcommon/log', '../jobmixins', '../allback',
-        'pop3/pop3'],
-       function(module, exports, log, jobmixins, allback, pop3) {
+define(['module', 'exports', 'rdcommon/log', '../allback', 'mix',
+        '../jobmixins', '../drafts/jobs', 'pop3/pop3'],
+       function(module, exports, log, allback, mix,
+                jobmixins, draftsJobs, pop3) {
 
 /**
  * Manage the jobs for a POP3 account. POP3 does not support
@@ -109,27 +110,23 @@ Pop3JobDriver.prototype = {
       'purgeExcessMessages');
   },
 
-  /**
-   * Add a message to a folder.
-   */
-  local_do_append: function(op, callback) {
+  local_do_saveSentDraft: function(op, callback) {
     var self = this;
     this._accessFolderForMutation(
       op.folderId, /* needConn*/ false,
       function(nullFolderConn, folderStorage) {
-        var messages = op.messages;
         var latch = allback.latch();
-        messages.forEach(function(message) {
-          var msg = pop3.Pop3Client.parseMime(message.messageText);
-          folderStorage.folderSyncer.storeMessage(
-            msg.header, msg.bodyInfo, latch.defer());
-        }, this);
+
+        folderStorage.addMessageHeader(op.headerInfo, latch.defer());
+        folderStorage.addMessageBody(op.headerInfo, op.bodyInfo, latch.defer());
+
         latch.then(function(results) {
-          callback();
+          // header/body insertion can't fail
+          callback(null, null, /* save */ true);
         });
       },
       /* no conn => no deathback required */ null,
-      'local_append');
+      'saveSentDraft');
   },
 
   do_syncFolderList: function(op, doneCallback) {
@@ -168,28 +165,22 @@ Pop3JobDriver.prototype = {
   do_downloadBodyReps: jobmixins.do_downloadBodyReps,
   local_do_downloadBodyReps: jobmixins.local_do_downloadBodyReps,
 
-  // Drafts can only be stored locally as well.
-  local_do_saveDraft: jobmixins.local_do_saveDraft,
-  check_saveDraft: jobmixins.check_saveDraft,
-  local_undo_saveDraft: jobmixins.local_undo_saveDraft,
-
-  local_do_deleteDraft: jobmixins.local_do_deleteDraft,
-  do_deleteDraft: jobmixins.do_deleteDraft,
-  check_deleteDraft: jobmixins.check_deleteDraft,
-  local_undo_deleteDraft: jobmixins.local_undo_deleteDraft,
-
   // These utility functions are necessary.
   postJobCleanup: jobmixins.postJobCleanup,
   allJobsDone: jobmixins.allJobsDone,
   _partitionAndAccessFoldersSequentially:
       jobmixins._partitionAndAccessFoldersSequentially
-
 };
+
+mix(Pop3JobDriver.prototype, draftsJobs.draftsMixins);
+
 
 var LOGFAB = exports.LOGFAB = log.register(module, {
   Pop3JobDriver: {
     type: log.DAEMON,
     events: {
+      savedAttachment: { storage: true, mimeType: true, size: true },
+      saveFailure: { storage: false, mimeType: false, error: false },
     },
     TEST_ONLY_events: {
       saveFailure: { filename: false },

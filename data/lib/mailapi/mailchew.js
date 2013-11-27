@@ -164,11 +164,13 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
       // rep has already been sanitized and therefore all HTML tags are balanced
       // and so there should be no rude surprises from this simplistic looking
       // HTML creation.  The message-id of the message never got sanitized,
-      // however, so it needs to be escaped.
-      htmlMsg += '<blockquote cite="mid:' + $htmlchew.escapeAttrValue(refGuid) +
-                 '" type="cite">' +
-                 rep +
-                 '</blockquote>';
+      // however, so it needs to be escaped.  Also, in some cases (Activesync),
+      // we won't have the message-id so we can't cite it.
+      htmlMsg += '<blockquote ';
+      if (refGuid) {
+        htmlMsg += 'cite="mid:' + $htmlchew.escapeAttrValue(refGuid) + '" ';
+      }
+      htmlMsg += 'type="cite">' + rep + '</blockquote>';
     }
   }
 

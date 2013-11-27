@@ -633,6 +633,49 @@ var properties = {
     callback(null);
   },
 
+  /**
+   * Asynchronously save the sent message to the sent folder, if applicable.
+   * This should only be called once the SMTP send has completed.
+   *
+   * If non-gmail, append a bcc-including version of the message into the sent
+   * folder.  For gmail, the SMTP server automatically copies the message into
+   * the sent folder so we don't need to do this.
+   *
+   * There are several notable limitations with the current implementation:
+   * - We do not write a copy of the message into the sent folder locally, so
+   *   the message must be downloaded/synchronized for the user to see it.
+   * - The operation to append the message does not get persisted to disk, so
+   *   in the event the app crashes or is closed, a copy of the message will
+   *   not end up in the sent folder.  This has always been the emergent
+   *   phenomenon for IMAP, except previously we would persist the operation
+   *   and then mark it moot at 'check' time.  Our new technique of not saving
+   *   the operation is preferable for disk space reasons.  (NB: We could
+   *   persist it, but the composite Blob we build would be flattened which
+   *   could generate an I/O storm, cause temporary double-storage use, etc.)
+   */
+  saveSentMessage: function(composer) {
+    // (gmail automatically copies the message into the sent folder; we don't
+    // have to do anything)
+    if (this.isGmail) {
+      return;
+    }
+
+    composer.withMessageBlob({ includeBcc: true }, function(blob) {
+      var message = {
+        messageText: blob,
+        // do not specify date; let the server use its own timestamping
+        // since we want the approximate value of 'now' anyways.
+        flags: ['Seen'],
+      };
+
+      var sentFolder = this.getFirstFolderWithType('sent');
+      if (sentFolder) {
+        this.universe.appendMessages(sentFolder.id,
+                                     [message]);
+      }
+    }.bind(this));
+  },
+
   shutdown: function(callback) {
     CompositeIncomingAccount.prototype.shutdownFolders.call(this);
 

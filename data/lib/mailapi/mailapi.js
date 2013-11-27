@@ -262,7 +262,7 @@ MailFolder.prototype = {
   },
   toJSON: function() {
     return {
-      type: 'MailFolder',
+      type: this.type,
       path: this.path
     };
   },
@@ -961,7 +961,9 @@ MailHeader.prototype = {
    * move may be performed instead.)
    */
   editAsDraft: function(callback) {
-    return this._slice._api.resumeMessageComposition(this, callback);
+    var composer = this._slice._api.resumeMessageComposition(this, callback);
+    composer.hasDraft = true;
+    return composer;
   },
 
   /**
@@ -1078,6 +1080,31 @@ MailBody.prototype = {
       type: 'MailBody',
       id: this.id
     };
+  },
+
+  __update: function(wireRep, detail) {
+    // Related parts and bodyReps have no state we need to maintain.  Just
+    // replace them with the new copies for simplicity.
+    this._relatedParts = wireRep.relatedParts;
+    this.bodyReps = wireRep.bodyReps;
+
+    // detaching an attachment is special since we need to splice the attachment
+    // out.
+    if (detail && detail.changeDetails &&
+        detail.changeDetails.detachedAttachments) {
+      var indices = detail.changeDetails.detachedAttachments;
+      for (var iSplice = 0; iSplice < indices.length; iSplice++) {
+        this.attachments.splice(indices[iSplice], 1);
+      }
+    }
+
+    // Attachment instances need to be updated rather than replaced.
+    if (wireRep.attachments) {
+      for (var i = 0; i < this.attachments.length; i++) {
+        var attachment = this.attachments[i];
+        attachment.__update(wireRep.attachments[i]);
+      }
+    }
   },
 
   /**
@@ -1247,8 +1274,24 @@ MailAttachment.prototype = {
     };
   },
 
+  __update: function(wireRep) {
+    this.mimetype = wireRep.type;
+    this.sizeEstimateInBytes = wireRep.sizeEstimate;
+    this._file = wireRep.file;
+  },
+
   get isDownloaded() {
     return !!this._file;
+  },
+
+  /**
+   * Is this attachment something we can download?  In almost all cases, the
+   * answer is yes, regardless of network state.  The exception is that sent
+   * POP3 messages do not retain their attachment Blobs and there is no way to
+   * download them after the fact.
+   */
+  get isDownloadable() {
+    return this.mimetype !== 'application/x-gelam-no-download';
   },
 
   download: function(callWhenDone, callOnProgress) {
@@ -1671,8 +1714,22 @@ function MessageComposition(api, handle) {
   this.body = null;
 
   this._references = null;
-  this._customHeaders = null;
+  /**
+   * @property attachments
+   * @type Object[]
+   *
+   * A list of attachments currently attached or currently being attached with
+   * the following attributes:
+   * - name: The filename
+   * - size: The size of the attachment payload in binary form.  This does not
+   *   include transport encoding costs.
+   *
+   * Manipulating this list has no effect on reality; the methods addAttachment
+   * and removeAttachment must be used.
+   */
   this.attachments = null;
+
+  this.hasDraft = false;
 }
 MessageComposition.prototype = {
   toString: function() {
@@ -1693,16 +1750,26 @@ MessageComposition.prototype = {
   },
 
   /**
-   * Add custom headers; don't use this for built-in headers.
-   */
-  addHeader: function(key, value) {
-    if (!this._customHeaders)
-      this._customHeaders = [];
-    this._customHeaders.push(key);
-    this._customHeaders.push(value);
-  },
-
-  /**
+   * Add an attachment to this composition.  This is an asynchronous process
+   * that incrementally converts the Blob we are provided into a line-wrapped
+   * base64-encoded message suitable for use in the rfc2822 message generation
+   * process.  We will perform the conversion in slices whose sizes are
+   * chosen to avoid causing a memory usage explosion that causes us to be
+   * reaped.  Once the conversion is completed we will forget the Blob reference
+   * provided to us.
+   *
+   * From the perspective of our drafts, an attachment is not fully attached
+   * until it has been completely encoded, sliced, and persisted to our
+   * IndexedDB database.  In the event of a crash during this time window,
+   * the attachment will effectively have not been attached.  Our logic will
+   * discard the partially-translated attachment when de-persisting the draft.
+   * We will, however, create an entry in the attachments array immediately;
+   * we also return it to you.  You should be able to safely call
+   * removeAttachment with it regardless of what has happened on the backend.
+   *
+   * The caller *MUST* forget all references to the Blob that is being attached
+   * after issuing this call.
+   *
    * @args[
    *   @param[attachmentDef @dict[
    *     @key[name String]
@@ -1710,14 +1777,37 @@ MessageComposition.prototype = {
    *   ]]
    * ]
    */
-  addAttachment: function(attachmentDef) {
-    this.attachments.push(attachmentDef);
+  addAttachment: function(attachmentDef, callback) {
+    // There needs to be a draft for us to attach things to.
+    if (!this.hasDraft)
+      this.saveDraft();
+    this._api._composeAttach(this._handle, attachmentDef, callback);
+
+    var placeholderAttachment = {
+      name: attachmentDef.name,
+      blob: {
+        size: attachmentDef.blob.size,
+        type: attachmentDef.blob.type
+      }
+    };
+    this.attachments.push(placeholderAttachment);
+    return placeholderAttachment;
   },
 
-  removeAttachment: function(attachmentDef) {
+  /**
+   * Remove an attachment previously requested to be added via `addAttachment`.
+   *
+   * @method removeAttachment
+   * @param attachmentDef Object
+   *   This must be one of the instances from our `attachments` list.  A
+   *   logically equivalent object is no good.
+   */
+  removeAttachment: function(attachmentDef, callback) {
     var idx = this.attachments.indexOf(attachmentDef);
-    if (idx !== -1)
+    if (idx !== -1) {
       this.attachments.splice(idx, 1);
+      this._api._composeDetach(this._handle, idx, callback);
+    }
   },
 
   /**
@@ -1732,7 +1822,6 @@ MessageComposition.prototype = {
       subject: this.subject,
       body: this.body,
       referencesStr: this._references,
-      customHeaders: this._customHeaders,
       attachments: this.attachments,
     };
   },
@@ -1778,6 +1867,7 @@ MessageComposition.prototype = {
    * Save the state of this composition.
    */
   saveDraft: function(callback) {
+    this.hasDraft = true;
     this._api._composeDone(this._handle, 'save', this._buildWireRep(),
                            callback);
   },
@@ -2304,7 +2394,6 @@ MailAPI.prototype = {
   },
 
   _getBodyForMessage: function(header, options, callback) {
-
     var downloadBodyReps = false, withBodyReps = false;
 
     if (options && options.downloadBodyReps) {
@@ -2370,38 +2459,17 @@ MailAPI.prototype = {
       return true;
     }
 
-    if (body.onchange) {
-      // there may be many kinds of updates we want to support but we only
-      // support updating the bodyReps reference currently.
-      if (msg.detail.changeDetails) {
-        for (var which in msg.detail.changeDetails) {
-          var indexes = msg.detail.changeDetails[which];
-          for (var i = 0; i < indexes.length; i++) {
-            var idx = indexes[i];
-            switch(which) {
-            case 'bodyReps':
-              body.bodyReps[idx] = msg.bodyInfo.bodyReps[idx];
-              break;
-            case 'attachments':
-              var bodyAtt = body.attachments[idx];
-              var wireAtt = msg.bodyInfo.attachments[idx];
-              bodyAtt.sizeEstimateInBytes = wireAtt.sizeEstimate;
-              bodyAtt._file = wireAtt.file;
-              break;
-            case 'relatedParts':
-              // not used currently
-              break;
-            case 'detachedAttachments':
-              // TODO: for streaming patch
-              break;
-            }
-          }
-        }
-      }
+    var wireRep = msg.bodyInfo;
+    // We update the body representation regardless of whether there is an
+    // onchange listener because the body may contain Blob handles that need to
+    // be updated so that in-memory blobs that have been superseded by on-disk
+    // Blobs can be garbage collected.
+    body.__update(wireRep, msg.detail);
 
+    if (body.onchange) {
       body.onchange(
         msg.detail,
-        msg.bodyInfo
+        body
       );
     }
 
@@ -2448,19 +2516,10 @@ MailAPI.prototype = {
     }
     delete this._pendingRequests[msg.handle];
 
-    // What will have changed are the attachment lists, so update them.
-    if (msg.bodyInfo) {
-      if (req.relParts)
-        req.body._relatedParts = msg.bodyInfo.relatedParts;
-      if (req.attachments) {
-        var wireAtts = msg.bodyInfo.attachments;
-        for (var i = 0; i < wireAtts.length; i++) {
-          var wireAtt = wireAtts[i], bodyAtt = req.body.attachments[i];
-          bodyAtt.sizeEstimateInBytes = wireAtt.sizeEstimate;
-          bodyAtt._file = wireAtt.file;
-        }
-      }
-    }
+    // We used to update the attachment representations here.  This is now
+    // handled by `bodyModified` notifications which are guaranteed to occur
+    // prior to this callback being invoked.
+
     if (req.callback)
       req.callback.call(null, req.body);
     return true;
@@ -2898,7 +2957,7 @@ MailAPI.prototype = {
    * It will return null on a parse failure.
    *
    * @param {String} email A email address.
-   * @return {Object} An object of the form { name, address }. 
+   * @return {Object} An object of the form { name, address }.
    */
   parseMailbox: function(email) {
     try {
@@ -3091,6 +3150,76 @@ MailAPI.prototype = {
       var callback = req.callback;
       req.callback = null;
       callback.call(null, req.composer);
+    }
+    return true;
+  },
+
+  _composeAttach: function(draftHandle, attachmentDef, callback) {
+    if (!draftHandle) {
+      return;
+    }
+    var draftReq = this._pendingRequests[draftHandle];
+    if (!draftReq) {
+      return;
+    }
+    var callbackHandle = this._nextHandle++;
+    this._pendingRequests[callbackHandle] = {
+      type: 'attachBlobToDraft',
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'attachBlobToDraft',
+      handle: callbackHandle,
+      draftHandle: draftHandle,
+      attachmentDef: attachmentDef
+    });
+  },
+
+  _recv_attachedBlobToDraft: function(msg) {
+    var callbackReq = this._pendingRequests[msg.handle];
+    var draftReq = this._pendingRequests[msg.draftHandle];
+    if (!callbackReq) {
+      return true;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    if (callbackReq.callback && draftReq && draftReq.composer) {
+      callbackReq.callback(msg.err, draftReq.composer);
+    }
+    return true;
+  },
+
+  _composeDetach: function(draftHandle, attachmentIndex, callback) {
+    if (!draftHandle) {
+      return;
+    }
+    var draftReq = this._pendingRequests[draftHandle];
+    if (!draftReq) {
+      return;
+    }
+    var callbackHandle = this._nextHandle++;
+    this._pendingRequests[callbackHandle] = {
+      type: 'detachAttachmentFromDraft',
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'detachAttachmentFromDraft',
+      handle: callbackHandle,
+      draftHandle: draftHandle,
+      attachmentIndex: attachmentIndex
+    });
+  },
+
+  _recv_detachedAttachmentFromDraft: function(msg) {
+    var callbackReq = this._pendingRequests[msg.handle];
+    var draftReq = this._pendingRequests[msg.draftHandle];
+    if (!callbackReq) {
+      return true;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    if (callbackReq.callback && draftReq && draftReq.composer) {
+      callbackReq.callback(msg.err, draftReq.composer);
     }
     return true;
   },

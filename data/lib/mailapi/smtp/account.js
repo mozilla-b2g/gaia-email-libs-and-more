@@ -115,8 +115,10 @@ SmtpAccount.prototype = {
    * ]
    */
   sendMessage: function(composer, callback) {
+    console.log('smtp: requiring code');
     require(['simplesmtp/lib/client'], function ($simplesmtp) {
       var conn, bailed = false, sendingMessage = false;
+      console.log('smtp: code loaded');
 
       conn = $simplesmtp(
         this.connInfo.port, this.connInfo.hostname,
@@ -135,6 +137,7 @@ SmtpAccount.prototype = {
       // Send the envelope once the connection is ready (fires again after
       // ready too.)
       conn.once('idle', function() {
+          console.log('smtp: idle reached, sending envelope');
           conn.useEnvelope(composer.getEnvelope());
         });
       // Then send the actual message if everything was cool
@@ -142,13 +145,33 @@ SmtpAccount.prototype = {
           if (bailed)
             return;
           sendingMessage = true;
-          composer.withMessageBuffer({ includeBcc: false }, function(buffer) {
-            conn.write(buffer);
+          console.log('smtp: message reached, building message blob');
+          composer.withMessageBlob({ includeBcc: false }, function(blob) {
+            console.log('smtp: blob composed, writing blob');
+            // simplesmtp's SMTPClient does not understand Blobs, so we issue
+            // the write directly.  All that it cares about is knowing whether
+            // our data payload included a trailing \r\n.  Our long term plan
+            // to avoid this silliness is to switch to using firemail's fork of
+            // simplesmtp or something equally less hacky; see bug 885110.
+            conn.socket.write(blob);
+            // SMTPClient tracks the last bytes it has written in _lastDataBytes
+            // to this end and writes the \r\n if they aren't the last bytes
+            // written.  Since we know that mailcomposer always ends the buffer
+            // with \r\n we just set that state directly ourselves.
+            conn._lastDataBytes[0] = 0x0d;
+            conn._lastDataBytes[1] = 0x0a;
+            // put some data in the console.log if in debug mode too
+            if (conn.options.debug) {
+              console.log('CLIENT (DATA) blob of size:', blob.size);
+            }
+            // this does not actually terminate the connection; just tells the
+            // client to flush stuff, etc.
             conn.end();
           });
         });
       // And close the connection and be done once it has been sent
       conn.on('ready', function() {
+          console.log('smtp: send completed, closing connection');
           bailed = true;
           conn.close();
           callback(null);
@@ -164,6 +187,7 @@ SmtpAccount.prototype = {
       conn.on('rcptFailed', function(addresses) {
           // nb: this gets called all the time, even without any failures
           if (addresses.length) {
+            console.warn('smtp: nonzero bad recipients');
             bailed = true;
             // simplesmtp does't view this as fatal, so we have to close it ourself
             conn.close();
@@ -174,6 +198,7 @@ SmtpAccount.prototype = {
         if (bailed) // (paranoia, this shouldn't happen.)
           return;
         var reportAs = null;
+        console.error('smtp: error:', err.name);
         switch (err.name) {
           // no explicit error type is given for: a bad greeting, failure to
           // EHLO/HELO, bad login sequence, OR a data problem during send.
@@ -212,6 +237,7 @@ SmtpAccount.prototype = {
         // the connection gets automatically closed.
       });
       conn.on('end', function() {
+        console.log('smtp: connection ended');
         var idx = this._activeConnections.indexOf(conn);
         if (idx !== -1)
           this._activeConnections.splice(idx, 1);

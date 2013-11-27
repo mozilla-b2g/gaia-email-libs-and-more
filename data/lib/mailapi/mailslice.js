@@ -116,26 +116,6 @@ var tupleRangeIntersectsTupleRange = exports.tupleRangeIntersectsTupleRange =
   return true;
 };
 
-var EXPECTED_BLOCK_SIZE = 8;
-
-/**
- * What is the maximum number of bytes a block should store before we split
- * it?
- */
-var MAX_BLOCK_SIZE = EXPECTED_BLOCK_SIZE * 1024,
-/**
- * How many bytes should we target for the small part when splitting 1:2?
- */
-      BLOCK_SPLIT_SMALL_PART = (EXPECTED_BLOCK_SIZE / 3) * 1024,
-/**
- * How many bytes should we target for equal parts when splitting 1:1?
- */
-      BLOCK_SPLIT_EQUAL_PART = (EXPECTED_BLOCK_SIZE / 2) * 1024,
-/**
- * How many bytes should we target for the large part when splitting 1:2?
- */
-      BLOCK_SPLIT_LARGE_PART = (EXPECTED_BLOCK_SIZE / 1.5) * 1024;
-
 /**
  * How much progress in the range [0.0, 1.0] should we report for just having
  * started the synchronization process?  The idea is that by having this be
@@ -1489,6 +1469,75 @@ FolderStorage.prototype = {
   },
 
   /**
+   * Discard the cached block that contains the message header or body in
+   * question.  This is intended to be used in cases where we want to re-read
+   * a header or body from disk to get IndexedDB file-backed Blobs to replace
+   * our (likely) memory-backed Blobs.
+   *
+   * This will log, but not throw, an error in the event the block in question
+   * is currently tracked as a dirty block or there is no block that contains
+   * the named message.  Both cases indicate an assumption that is being
+   * violated.  This should cause unit tests to fail but not break us if this
+   * happens out in the real-world.
+   *
+   * If the block is not currently loaded, no error is triggered.
+   *
+   * This method executes synchronously.
+   *
+   * @method _discardCachedBlockUsingDateAndID
+   * @param type {'header'|'body'}
+   * @param date {Number}
+   *   The timestamp of the message in question.
+   * @param id {Number}
+   *   The folder-local id we allocated for the message.  Not the SUID, not the
+   *   server-id.
+   */
+  _discardCachedBlockUsingDateAndID: function(type, date, id) {
+    var blockInfoList, loadedBlockInfoList, blockMap, dirtyMap;
+    this._LOG.discardFromBlock(type, date, id);
+    if (type === 'header') {
+      blockInfoList = this._headerBlockInfos;
+      loadedBlockInfoList = this._loadedHeaderBlockInfos;
+      blockMap = this._headerBlocks;
+      dirtyMap = this._dirtyHeaderBlocks;
+    }
+    else {
+      blockInfoList = this._bodyBlockInfos;
+      loadedBlockInfoList = this._loadedBodyBlockInfos;
+      blockMap = this._bodyBlocks;
+      dirtyMap = this._dirtyBodyBlocks;
+    }
+
+    var infoTuple = this._findRangeObjIndexForDateAndID(blockInfoList,
+                                                        date, id),
+        iInfo = infoTuple[0], info = infoTuple[1];
+    // Asking to discard something that does not exist in a block is a
+    // violated assumption.  Log an error.
+    if (!info) {
+      this._LOG.badDiscardRequest(type, date, id);
+      return;
+    }
+
+    var blockId = info.blockId;
+    // Nothing to do if the block isn't present
+    if (!blockMap.hasOwnProperty(blockId))
+      return;
+
+    // Violated assumption if the block is dirty
+    if (dirtyMap.hasOwnProperty(blockId)) {
+      this._LOG.badDiscardRequest(type, date, id);
+      return;
+    }
+
+    // Discard the block
+    delete blockMap[blockId];
+    var idxLoaded = loadedBlockInfoList.indexOf(info);
+    // Something is horribly wrong if this is -1.
+    if (idxLoaded !== -1)
+      loadedBlockInfoList.splice(idxLoaded, 1);
+  },
+
+  /**
    * Purge messages from disk storage for size and/or time reasons.  This is
    * only used for IMAP folders and we fast-path out if invoked on ActiveSync.
    *
@@ -1931,7 +1980,8 @@ FolderStorage.prototype = {
       }
       // - Is there a trailing/older dude and we fit?
       else if (iInfo < blockInfoList.length &&
-               blockInfoList[iInfo].estSize + estSizeCost < MAX_BLOCK_SIZE) {
+               (blockInfoList[iInfo].estSize + estSizeCost <
+                 $sync.MAX_BLOCK_SIZE)) {
         info = blockInfoList[iInfo];
 
         // We are chronologically/UID-ically more recent, so check the end range
@@ -1947,7 +1997,8 @@ FolderStorage.prototype = {
       }
       // - Is there a preceding/younger dude and we fit?
       else if (iInfo > 0 &&
-               blockInfoList[iInfo - 1].estSize + estSizeCost < MAX_BLOCK_SIZE){
+               (blockInfoList[iInfo - 1].estSize + estSizeCost <
+                  $sync.MAX_BLOCK_SIZE)) {
         info = blockInfoList[--iInfo];
 
         // We are chronologically less recent, so check the start range for
@@ -2006,17 +2057,17 @@ FolderStorage.prototype = {
       insertInBlock(thing, uid, info, block);
 
       // -- split if necessary
-      if (info.count > 1 && info.estSize >= MAX_BLOCK_SIZE) {
+      if (info.count > 1 && info.estSize >= $sync.MAX_BLOCK_SIZE) {
         // - figure the desired resulting sizes
         var firstBlockTarget;
         // big part to the center at the edges (favoring front edge)
         if (iInfo === 0)
-          firstBlockTarget = BLOCK_SPLIT_SMALL_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_SMALL_PART;
         else if (iInfo === blockInfoList.length - 1)
-          firstBlockTarget = BLOCK_SPLIT_LARGE_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_LARGE_PART;
         // otherwise equal split
         else
-          firstBlockTarget = BLOCK_SPLIT_EQUAL_PART;
+          firstBlockTarget = $sync.BLOCK_SPLIT_EQUAL_PART;
 
 
         // - split
@@ -3634,6 +3685,10 @@ FolderStorage.prototype = {
    * Add a new message to the database, generating slice notifications.
    */
   addMessageHeader: function ifs_addMessageHeader(header, callback) {
+    if (header.id == null || header.suid == null) {
+      throw new Error('No valid id: ' + header.id + ' or suid: ' + header.suid);
+    }
+
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.addMessageHeader.bind(
                                  this, header, callback));
@@ -4128,7 +4183,8 @@ FolderStorage.prototype = {
 
   /**
    * Update a message body; this should only happen because of attachments /
-   * related parts being downloaded or purged from the system.
+   * related parts being downloaded or purged from the system.  This is an
+   * asynchronous operation.
    *
    * Right now it is assumed/required that this body was retrieved via
    * getMessageBody while holding a mutex so that the body block must still
@@ -4151,8 +4207,66 @@ FolderStorage.prototype = {
    *      changedBodyInfo,
    *      { changeDetails: { bodyReps: [0], ... }, value: y }
    *    );
+   *
+   * @method updateMessageBody
+   * @param header {HeaderInfo}
+   * @param bodyInfo {BodyInfo}
+   * @param options {Object}
+   * @param [options.flushBecause] {'blobs'}
+   *   If present, indicates that we should flush the message body to disk and
+   *   read it back from IndexedDB because we are writing Blobs that are not
+   *   already known to IndexedDB and we want to replace potentially
+   *   memory-backed Blobs with disk-backed Blobs.  This is essential for
+   *   memory management.  There are currently no extenuating circumstances
+   *   where you should lie to us about this.
+   *
+   *   This inherently causes saveAccountState to be invoked, so callers should
+   *   sanity-check they aren't doing something weird to the database that could
+   *   cause a non-coherent state to appear.
+   *
+   *   If you pass a value for this, you *must* forget your reference to the
+   *   bodyInfo you pass in in order for our garbage collection to work!
+   * @param eventDetails {Object}
+   *   An event details object that describes the changes being made to the
+   *   body representation.  This object will be directly reported to clients.
+   *   If omitted, no event will be generated.  Only do this if you're doing
+   *   something that should not be made visible to anything; like while the
+   *   process of attaching
+   *
+   *   Please be sure to document everything here for now.
+   * @param eventDetails.changeDetails {Object}
+   *   An object indicating what changed in the body.  All of the following
+   *   attributes are optional.  If they aren't present, the thing didn't
+   *   change.
+   * @param eventDetails.changeDetails.bodyReps {Number[]}
+   *   The indices of the bodyReps array that changed.  In general bodyReps
+   *   should only be added or modified.  However, in the case of POP3, a
+   *   fictitious body part of type 'fake' may be created and may subsequently
+   *   be removed.  No index is generated for the removal, but this should
+   *   end up being okay because the UI should not reflect the 'fake' bodyRep
+   *   into anything.
+   * @param eventDetails.changeDetails.attachments {Number[]}
+   *   The indices of the attachments array that changed by being added or
+   *   modified.  Attachments may be detached; these indices are reported in
+   *   detachedAttachments.
+   * @param eventDetails.changeDetails.relatedParts {Number[]}
+   *   The indices of the relatedParts array that changed by being added or
+   *   modified.
+   * @param eventDetails.changeDetails.detachedAttachments {Number[]}
+   *   The indices of the attachments array that were deleted.  Note that this
+   *   should only happen for drafts and no code should really be holding onto
+   *   those bodies.  Additionally, the draft headers/bodies get nuked and
+   *   re-created every time a draft is saved, so they shouldn't hang around in
+   *   general.  However, we really do not want to allow the Blob references to
+   *   leak, so we do report this so we can clean them up in clients.  splices
+   *   for this case should be performed in the order reported.
+   * @param callback {Function}
+   *   A callback to be invoked after the body has been updated and after any
+   *   body change notifications have been handed off to the MailUniverse.  The
+   *   callback receives a reference to the updated BodyInfo object.
    */
-  updateMessageBody: function(header, bodyInfo, eventDetails, callback) {
+  updateMessageBody: function(header, bodyInfo, options, eventDetails,
+                              callback) {
     if (typeof(eventDetails) === 'function') {
       callback = eventDetails;
       eventDetails = null;
@@ -4162,7 +4276,7 @@ FolderStorage.prototype = {
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageBody.bind(
-                                 this, header, bodyInfo,
+                                 this, header, bodyInfo, options,
                                  eventDetails, callback));
       return;
     }
@@ -4171,7 +4285,28 @@ FolderStorage.prototype = {
     var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1));
     var self = this;
 
+    // (called when addMessageBody completes)
     function bodyUpdated() {
+      if (options.flushBecause) {
+        bodyInfo = null;
+        self._account.saveAccountState(
+          null, // no transaction to reuse
+          function forgetAndReGetMessageBody() {
+            // Force the block hosting the body to be discarded from the
+            // cache.
+            self.getMessageBody(suid, header.date, performNotifications);
+          },
+          'flushBody');
+      }
+      else {
+        performNotifications();
+      }
+    }
+
+    function performNotifications(refreshedBody) {
+      if (refreshedBody) {
+        bodyInfo = refreshedBody;
+      }
       if (eventDetails && self._account.universe) {
         self._account.universe.__notifyModifiedBody(
           suid, eventDetails, bodyInfo
@@ -4179,10 +4314,13 @@ FolderStorage.prototype = {
       }
 
       if (callback) {
-        callback();
+        callback(bodyInfo);
       }
     }
 
+    // We always recompute the size currently for safety reasons, but as of
+    // writing this, changes to attachments/relatedParts will not affect the
+    // body size, only changes to body reps.
     this._deleteFromBlock('body', header.date, id, function() {
       self.addMessageBody(header, bodyInfo, bodyUpdated);
     });
@@ -4241,6 +4379,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // will be sufaced.)
       deleteFromBlock: { type: false, date: false, id: false },
 
+      discardFromBlock: { type: false, date: false, id: false },
+
       // This was an error but the test results viewer UI is not quite smart
       // enough to understand the difference between expected errors and
       // unexpected errors, so this is getting downgraded for now.
@@ -4268,6 +4408,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       // values being ridiculous (and therefore not legal).
       badIterationStart: { date: false, id: false },
       badDeletionRequest: { type: false, date: false, id: false },
+      badDiscardRequest: { type: false, date: false, id: false },
       bodyBlockMissing: { id: false, idx: false, dict: false },
       serverIdMappingMissing: { srvid: false },
 

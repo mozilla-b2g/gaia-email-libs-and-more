@@ -110,11 +110,7 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('checkForExternalImages', true);
     fancyHeader = folderView.slice.items[idxFancy];
 
-    // the bodyReps may not be loaded at this point so we use
-    // getMessageBodyWithReps to ensure that they are downloaded...
-    testAccount.getMessageBodyWithReps(
-      fancyHeader,
-      function(body) {
+    testAccount.getMessageBodyOnMainThread(fancyHeader, function (body) {
         fancyBody = body;
         eCheck.event('got body');
         eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
@@ -147,8 +143,9 @@ TD.commonCase('embedded and remote images', function(T) {
       eCheck.expect_namedValue('non-null relpart 0', true);
       eCheck.expect_namedValue('non-null relpart 1', true);
 
-      testAccount.expect_runOp('download',
-                               { local: true, server: true, save: 'server' });
+      testAccount.expect_runOp(
+        'download',
+        { local: true, server: true, save: 'server', flushBodyServerSaves: 1 });
 
       fancyBody.downloadEmbeddedImages(function() {
         eCheck.event('downloaded');
@@ -174,7 +171,7 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('image 1 has src', true);
     eCheck.expect_namedValue('image 2 has src', 'http://example.com/foo.png');
 
-    testAccount.getMessageBodyWithReps(
+    testAccount.getMessageBodyOnMainThread(
       fancyHeader,
       function(body) {
         body.die();
@@ -234,7 +231,7 @@ TD.commonCase('embedded and remote images', function(T) {
     // the transform should not affect the external image
     eCheck.expect_namedValue('image 2 has src', null);
 
-    testAccount.getMessageBodyWithReps(
+    testAccount.getMessageBodyOnMainThread(
       fancyHeader,
       function(body) {
         fancyBody = body;
@@ -309,7 +306,7 @@ TD.commonCase('embedded and remote images', function(T) {
     eCheck.expect_namedValue('image 2 has src', null);
 
     fancyHeader = folderView2.slice.items[idxFancy];
-    TA2.getMessageBodyWithReps(
+    TA2.getMessageBodyOnMainThread(
       fancyHeader,
       function(body) {
         fancyBody = body;

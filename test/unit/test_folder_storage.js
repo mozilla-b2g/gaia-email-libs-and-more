@@ -1090,7 +1090,7 @@ TD.commonCase('body insertion size', function(T, RT) {
       rep.content = [1, makeText(contentLength)];
       rep.amountDownloaded = contentLength;
 
-      storage.updateMessageBody(header, bodyInfo, function() {
+      storage.updateMessageBody(header, bodyInfo, {}, function() {
         eLazy.namedValueD(
           'updates size',
           (bodyInfo.size >= originalSize + contentLength),
@@ -1186,6 +1186,7 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
     storage.updateMessageBody(
       header,
       bodyInfo,
+      {},
       details
     );
   });
@@ -1736,6 +1737,63 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+});
+
+/**
+ * Test that _discardCachedBlockUsingDateAndID works.  Most of the work is
+ * performed by already-tested helper functions, so we just need to test our
+ * defined behaviour.
+ */
+TD.commonSimple('discard cached blocks by message', function(eLazy) {
+  // Note: This test is derived from 'block cache flushing'.
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext();
+
+  // no blocks should be loaded before stuff starts
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+
+  // Inject enough messages to get 2 blocks.
+  $syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+  var headers = injectSomeMessages(ctx, 5, BIG3);
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 2);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 2);
+
+  // clear the dirty bits
+  delete ctx.storage._dirtyHeaderBlocks['0'];
+  delete ctx.storage._dirtyHeaderBlocks['1'];
+  delete ctx.storage._dirtyBodyBlocks['0'];
+  delete ctx.storage._dirtyBodyBlocks['1'];
+
+  // - discard a header
+  // This discards block 0 in both cases
+  var discardHeader = headers[0];
+  ctx.storage._discardCachedBlockUsingDateAndID(
+    'header', discardHeader.date, discardHeader.id);
+
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 1);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
+
+  ctx.storage._discardCachedBlockUsingDateAndID(
+    'body', discardHeader.date, discardHeader.id);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 1);
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+
+
+  // - discard its friend that happens to be in the same block
+  var friendHeader = headers[1];
+  ctx.storage._discardCachedBlockUsingDateAndID(
+    'header', friendHeader.date, friendHeader.id);
+
+  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 1);
+  do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
+
+  ctx.storage._discardCachedBlockUsingDateAndID(
+    'body', friendHeader.date, friendHeader.id);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 1);
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
 });
 
 ////////////////////////////////////////////////////////////////////////////////

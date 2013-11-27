@@ -499,7 +499,7 @@ var TEST_PARAMS = {
 
   defaultArgs: true,
 
-  testLogEnable: false,
+  testLogEnable: true,
 };
 
 var TEST_NAME = null;
@@ -1278,6 +1278,12 @@ function runTests(configData) {
         });
       console.log('planning to run test:', testName);
     }
+  }
+
+  if (runTests.length === 0) {
+    console.warn('0 tests matched; are you sure that you added the file to',
+                 TEST_CONFIG, 'and that one of its supported variants is',
+                'listed above?');
   }
 
   var iTest = 0, iVariant = 0, curTestInfo = null;

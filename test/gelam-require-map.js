@@ -25,6 +25,7 @@ require({
 
     "q": "data/lib/q",
     "text": "data/lib/text",
+    "mix": "data/lib/mix",
     // silly shim
     "event-queue": "data/lib/js-shims/event-queue",
     "microtime": "data/lib/js-shims/microtime",

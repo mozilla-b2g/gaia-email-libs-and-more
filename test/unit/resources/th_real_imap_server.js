@@ -122,7 +122,7 @@ var TestRealIMAPServerMixins = {
         flags.push('Deleted');
       return {
         date: message.date,
-        messageText: message.toMessageString(),
+        messageText: new Blob([message.toMessageString()]),
         flags: flags
       };
     });

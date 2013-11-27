@@ -198,7 +198,7 @@ TD.commonCase('folder sync', function(T) {
       }
 
       var header = folderView.slice.items[iMsg];
-      testAccount.getMessageBodyWithReps(
+      testAccount.getMessageBodyOnMainThread(
         header,
         function(_body) {
           body = _body;
@@ -273,7 +273,7 @@ TD.commonCase('folder sync', function(T) {
 
           body.attachments[i].download((function(attachment) {
             eCheck.event('downloaded');
-            eCheck.namedValue('attachment', !!attachment._file);
+            eCheck.namedValue('attachment', attachment.isDownloaded);
           }).bind(this, body.attachments[i]));
         }
       });

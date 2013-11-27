@@ -66,13 +66,17 @@
 define(
   [
     'rdcommon/log',
+    'mix',
     '../jobmixins',
+    'mailapi/drafts/jobs',
     'module',
     'exports'
   ],
   function(
     $log,
+    mix,
     $jobmixins,
+    draftsJobs,
     $module,
     exports
   ) {
@@ -323,32 +327,6 @@ ImapJobDriver.prototype = {
   local_undo_download: $jobmixins.local_undo_download,
 
   undo_download: $jobmixins.undo_download,
-
-  //////////////////////////////////////////////////////////////////////////////
-  // saveDraft
-
-  local_do_saveDraft: $jobmixins.local_do_saveDraft,
-
-  do_saveDraft: $jobmixins.do_saveDraft,
-
-  check_saveDraft: $jobmixins.check_saveDraft,
-
-  local_undo_saveDraft: $jobmixins.local_undo_saveDraft,
-
-  undo_saveDraft: $jobmixins.undo_saveDraft,
-
-  //////////////////////////////////////////////////////////////////////////////
-  // deleteDraft
-
-  local_do_deleteDraft: $jobmixins.local_do_deleteDraft,
-
-  do_deleteDraft: $jobmixins.do_deleteDraft,
-
-  check_deleteDraft: $jobmixins.check_deleteDraft,
-
-  local_undo_deleteDraft: $jobmixins.local_undo_deleteDraft,
-
-  undo_deleteDraft: $jobmixins.undo_deleteDraft,
 
   //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
@@ -772,6 +750,7 @@ ImapJobDriver.prototype = {
     doneCallback('moot');
   },
 
+
   //////////////////////////////////////////////////////////////////////////////
   // append: Add a message to a folder
   //
@@ -1089,6 +1068,8 @@ HighLevelJobDriver.prototype = {
   undo_xcopy: function() {
   },
 };
+
+mix(ImapJobDriver.prototype, draftsJobs.draftsMixins);
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {
   ImapJobDriver: {

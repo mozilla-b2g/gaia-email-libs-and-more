@@ -75,11 +75,12 @@ TD.commonCase('account creation/deletion', function(T, RT) {
     // There should be some folders (don't know how many; it's probably a
     // realish account), located after all previously known folders.
 
+    eSliceCheck.expect_namedValueD('folder type at insertion', 'account');
     eSliceCheck.expect_event('folders present');
     folderPointC = gAllFoldersSlice.items.length;
     var cFoldersObserved = 0;
-    if (gAllFoldersSlice.items[folderPointBC].type !== 'account')
-      throw new Error('Account folder not created!');
+    eSliceCheck.namedValueD('folder type at insertion', 'account',
+                            gAllFoldersSlice.items.concat());
     for (var i = folderPointBC; i < gAllFoldersSlice.items.length; i++) {
       var folder = gAllFoldersSlice.items[i];
       if (folder.id[0] === testAccountC.accountId)
@@ -89,7 +90,7 @@ TD.commonCase('account creation/deletion', function(T, RT) {
     }
     if (cFoldersObserved !== folderPointC - folderPointBC)
       throw new Error("Invariant problemo; did not scan all folders; " +
-                      bFoldersObserved + ' observed, ' +
+                      cFoldersObserved + ' observed, ' +
                       (folderPointC - folderPointBC) + ' expected');
     eSliceCheck.event('folders present');
   });

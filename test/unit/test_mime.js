@@ -99,12 +99,12 @@ TD.commonCase('message encodings', function(T) {
     eBodies.namedValue('to[2] name', qpHeader.to[2].name);
     eBodies.namedValue('cc[0] name', qpHeader.cc[0].name);
 
-    testAccount.getMessageBodyWithReps(qpHeader, function(qpBody) {
+    qpHeader.getBody({ withBodyReps: true }, function(qpBody) {
       eBodies.namedValue('qp', qpBody.bodyReps[0].content[1]);
       qpBody.die();
     });
 
-    testAccount.getMessageBodyWithReps(b64Header, function(b64Body) {
+    b64Header.getBody({ withBodyReps: true }, function(b64Body) {
       eBodies.namedValue('b64', b64Body.bodyReps[0].content[1]);
       b64Body.die();
     });
@@ -652,7 +652,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       }
 
       var header = folderView.slice.items[iMsg];
-      testAccount.getMessageBodyWithReps(header, function(body) {
+      header.getBody({ withBodyReps: true }, function(body) {
 
         var bodyValue;
         if (!body.bodyReps.length) {
