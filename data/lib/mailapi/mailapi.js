@@ -1090,9 +1090,11 @@ MailBody.prototype = {
 
     // detaching an attachment is special since we need to splice the attachment
     // out.
-    if (detail && detail.changeType === 'detachedAttachments') {
-      for (var iSplice = 0; iSplice < detail.indexes.length; iSplice++) {
-        this.attachments.splice(detail.indexes[iSplice], 1);
+    if (detail && detail.changeDetails &&
+        detail.changeDetails.detachedAttachments) {
+      var indices = detail.changeDetails.detachedAttachments;
+      for (var iSplice = 0; iSplice < indices.length; iSplice++) {
+        this.attachments.splice(indices[iSplice], 1);
       }
     }
 

@@ -136,8 +136,9 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
           delete body.attaching; // bad news for shapes, but drafts are rare.
 
           eventDetails = {
-            changeType: 'attachments',
-            indexes: [attachmentIndex]
+            changeDetails: {
+              attachments: [attachmentIndex]
+            }
           };
         }
         else {
@@ -212,8 +213,9 @@ draftsMixins.local_do_detachAttachmentFromDraft = function(op, callback) {
           header, body,
           { flushBecause: 'blobs' },
           {
-            changeType: 'detachedAttachments',
-            indexes: [op.attachmentIndex],
+            changeDetails: {
+              detachedAttachments: [op.attachmentIndex]
+            }
           },
           bodyUpdatedAllDone);
       }

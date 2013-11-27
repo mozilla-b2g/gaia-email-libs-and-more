@@ -124,8 +124,12 @@ Pop3FolderSyncer.prototype = {
       console.log('POP3: Storing message ' + header.srvid +
                   ' with ' + header.bytesToDownloadForBodyDisplay +
                   ' bytesToDownload.');
-      this.storeMessage(header, message.bodyInfo, function() {
-        callback && callback(null, message.bodyInfo);
+      // Force a flush if there were any attachments so that any memory-backed
+      // Blobs get replaced with their post-save disk-backed equivalent so they
+      // can be garbage collected.
+      var flush = message.bodyInfo.attachments.length > 0;
+      this.storeMessage(header, message.bodyInfo, { flush: flush }, function() {
+        callback && callback(null, message.bodyInfo, flush);
       });
     }.bind(this));
   }),
@@ -160,9 +164,13 @@ Pop3FolderSyncer.prototype = {
    *
    * @param {HeaderInfo} header Message header.
    * @param {BodyInfo} bodyInfo Body information, reps, etc.
+   * @param {Object} options
+   * @param {Boolean} options.flush Force a flush so the message gets reloaded,
+   *                                replacing memory-backed Blobs with
+   *                                disk-backed ones?
    * @param {function()} callback
    */
-  storeMessage: function(header, bodyInfo, callback) {
+  storeMessage: function(header, bodyInfo, options, callback) {
     callback = callback || function() {};
     var event = {
       changeDetails: {}
@@ -215,8 +223,12 @@ Pop3FolderSyncer.prototype = {
           header.date, header.id, true, header, latch.defer());
         event.changeDetails.attachments = range(bodyInfo.attachments.length);
         event.changeDetails.bodyReps = range(bodyInfo.bodyReps.length);
+        var updateOptions = {};
+        if (options.flush) {
+          updateOptions.flushBecause = 'blobs';
+        }
         self.storage.updateMessageBody(
-          header, bodyInfo, event, latch.defer());
+          header, bodyInfo, updateOptions, event, latch.defer());
       }
 
       latch.then(function() {
@@ -297,7 +309,7 @@ Pop3FolderSyncer.prototype = {
     if (meta._TEST_pendingAdds) {
       meta._TEST_pendingAdds.forEach(function(msg) {
         callbacksWaiting++;
-        this.storeMessage(msg.header, msg.bodyInfo, latch.defer());
+        this.storeMessage(msg.header, msg.bodyInfo, {}, latch.defer());
       }, this);
       meta._TEST_pendingAdds = null;
     }
@@ -370,7 +382,7 @@ Pop3FolderSyncer.prototype = {
           var message = evt.message;
           var messageCb = latch.defer();
 
-          this.storeMessage(message.header, message.bodyInfo, function() {
+          this.storeMessage(message.header, message.bodyInfo, {}, function() {
             bytesStored += evt.size;
             numMessagesSynced++;
             progressCallback(0.1 + 0.7 * bytesStored / totalBytes);

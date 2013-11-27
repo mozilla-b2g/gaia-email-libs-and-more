@@ -291,8 +291,9 @@ exports.do_download = function(op, callback) {
       header, bodyInfo,
       { flushBecause: 'blobs' },
       {
-        changeType: 'attachments',
-        indexes: op.attachmentIndices,
+        changeDetails: {
+          attachments: op.attachmentIndices
+        }
       },
       function() {
         callback(downloadErr, null, true);
@@ -432,7 +433,7 @@ exports.do_downloadBodyReps = function(op, callback) {
     folderConn.downloadBodyReps(header, onDownloadReps);
   };
 
-  var onDownloadReps = function onDownloadReps(err, bodyInfo) {
+  var onDownloadReps = function onDownloadReps(err, bodyInfo, flushed) {
     if (err) {
       console.error('Error downloading reps', err);
       // fail we cannot download for some reason?
@@ -440,8 +441,10 @@ exports.do_downloadBodyReps = function(op, callback) {
       return;
     }
 
-    // success
-    callback(null, bodyInfo, true);
+    // Since we downloaded something, we do want to save what we downloaded,
+    // but only if the downloader didn't already force a save while flushing.
+    var save = !flushed;
+    callback(null, bodyInfo, save);
   };
 
   self._accessFolderForMutation(folderId, true, gotConn, deadConn,

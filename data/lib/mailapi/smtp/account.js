@@ -154,8 +154,10 @@ SmtpAccount.prototype = {
             // to avoid this silliness is to switch to using firemail's fork of
             // simplesmtp or something equally less hacky; see bug 885110.
             conn.socket.write(blob);
-            // We do know that mailcomposer always ends the buffer with \r\n, so
-            // we just set that ourselves.
+            // SMTPClient tracks the last bytes it has written in _lastDataBytes
+            // to this end and writes the \r\n if they aren't the last bytes
+            // written.  Since we know that mailcomposer always ends the buffer
+            // with \r\n we just set that state directly ourselves.
             conn._lastDataBytes[0] = 0x0d;
             conn._lastDataBytes[1] = 0x0a;
             // put some data in the console.log if in debug mode too

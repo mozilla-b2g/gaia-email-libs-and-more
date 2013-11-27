@@ -1,9 +1,5 @@
 /**
- * Centralize the creation of our header and body object representations.  Our
- * header and body representations were previously created in an ad hoc (and
- * usually in-sync fashion with only one embarassing bug), but we're about to
- * add a third account type (POP3), so we need to do more to make sure we're
- * not screwing up.
+ * Centralize the creation of our header and body object representations.
  *
  * We provide constructor functions which take input objects that should
  * basically look like the output object, but the function enforces
