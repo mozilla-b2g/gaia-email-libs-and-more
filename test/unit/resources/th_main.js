@@ -1144,6 +1144,10 @@ var TestCommonAccountMixins = {
    *       'deadconn', the death of the connection rather than a proper release
    *       is expected (but is only relevant if `conn` is not specified.)
    *     }
+   *     @key[localExpectFunc #:optional Function]{
+   *       Pass this if you want to set some expectations to fire during the
+   *       execution of the local task.
+   *     }
    *     @key[error #:default null String]{
    *       The error to expect the job to complete with.
    *     }
@@ -1173,6 +1177,9 @@ var TestCommonAccountMixins = {
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
       this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      if (flags.localExpectFunc) {
+        flags.localExpectFunc();
+      }
       while (flushBodyLocalSaves--) {
         this.eOpAccount.expect_saveAccountState('flushBody');
       }

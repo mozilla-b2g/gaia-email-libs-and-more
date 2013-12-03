@@ -68,6 +68,16 @@ function makeFolderSortString(account, folder) {
          folder.name.toLocaleLowerCase();
 }
 
+function makeFolderWireRep(account, folder) {
+  var wireRep = {
+    accountType: account.accountDef.type,
+  };
+  for (var key in folder) {
+    wireRep[key] = folder[key];
+  }
+  return wireRep;
+}
+
 function strcmp(a, b) {
   if (a < b)
     return -1;
@@ -345,9 +355,10 @@ MailBridge.prototype = {
       markersSplice = [startMarker];
       for (var iFolder = 0; iFolder < account.folders.length; iFolder++) {
         var folder = account.folders[iFolder],
+            folderWire = makeFolderWireRep(account, folder),
             folderMarker = makeFolderSortString(account, folder),
             idxFolder = bsearchForInsert(markersSplice, folderMarker, strcmp);
-        wireSplice.splice(idxFolder, 0, folder);
+        wireSplice.splice(idxFolder, 0, folderWire);
         markersSplice.splice(idxFolder, 0, folderMarker);
       }
       proxy.sendSplice(idxStart, 0, wireSplice, false, false);
@@ -426,18 +437,20 @@ MailBridge.prototype = {
 
   notifyFolderAdded: function(account, folderMeta) {
     var newMarker = makeFolderSortString(account, folderMeta);
+    var folderWire = makeFolderWireRep(account, folderMeta);
 
     var slices = this._slicesByType['folders'];
     for (var i = 0; i < slices.length; i++) {
       var proxy = slices[i];
       var idx = bsearchForInsert(proxy.markers, newMarker, strcmp);
-      proxy.sendSplice(idx, 0, [folderMeta], false, false);
+      proxy.sendSplice(idx, 0, [folderWire], false, false);
       proxy.markers.splice(idx, 0, newMarker);
     }
   },
 
   notifyFolderModified: function(account, folderMeta) {
     var marker = makeFolderSortString(account, folderMeta);
+    var folderWire = makeFolderWireRep(account, folderMeta);
 
     var slices = this._slicesByType['folders'];
     for (var i = 0; i < slices.length; i++) {
@@ -446,7 +459,7 @@ MailBridge.prototype = {
       var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
       if (idx === null)
         continue;
-      proxy.sendUpdate([idx, folderMeta]);
+      proxy.sendUpdate([idx, folderWire]);
     }
   },
 
@@ -514,8 +527,9 @@ MailBridge.prototype = {
       for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
         var folder = acct.folders[iFolder];
         var newMarker = makeFolderSortString(acct, folder);
+        var folderWire = makeFolderWireRep(acct, folder);
         var idx = bsearchForInsert(markers, newMarker, strcmp);
-        wireReps.splice(idx, 0, folder);
+        wireReps.splice(idx, 0, folderWire);
         markers.splice(idx, 0, newMarker);
       }
     }
@@ -550,6 +564,10 @@ MailBridge.prototype = {
       msg.accountId,
       msg.parentFolderId,
       msg.containOnlyOtherFolders);
+  },
+
+  _cmd_emptyFolder: function(msg) {
+    this.universe.emptyFolder(msg.folderId);
   },
 
   _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {

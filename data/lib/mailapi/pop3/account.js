@@ -58,7 +58,7 @@ var properties = {
    * abstracts the `done` callback.)
    * @param {function(err, conn, done)} cb
    */
-  withConnection: function(cb) {
+  withConnection: function(cb, unusedDeathback, whyLabel) {
     // This implementation serializes withConnection requests so that
     // we don't step on requests' toes. While Pop3Client wouldn't mix
     // up the requests themselves, interleaving different operations
@@ -76,7 +76,7 @@ var properties = {
           }
         }.bind(this);
         if (!this._conn || this._conn.state === 'disconnected') {
-          this._makeConnection(next);
+          this._makeConnection(next, whyLabel);
         } else {
           next();
         }
@@ -225,7 +225,7 @@ var properties = {
     }
     this.withConnection(function(err) {
       callback(err);
-    });
+    }, null, 'checkAccount');
   },
 
   /**
