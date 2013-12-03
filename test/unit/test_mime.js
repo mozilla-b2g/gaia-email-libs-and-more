@@ -644,7 +644,13 @@ TD.commonCase('MIME hierarchies', function(T) {
     { count: testMessages.length, full: testMessages.length, flags: 0,
       deleted: 0 },
     { top: true, bottom: true, grow: false },
-    { syncedToDawnOfTime: true });
+    { syncedToDawnOfTime: true,
+      expectFunc: function() {
+        if (testAccount.type === 'pop3') {
+          fullSyncFolder.connActor.ignore_savedAttachment();
+          fullSyncFolder.connActor.ignore_saveFailure();
+        }
+      }});
   // -- check each message in its own step
   function checkMessage(folderView, msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {

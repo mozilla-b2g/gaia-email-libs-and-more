@@ -77,6 +77,22 @@ function CompositeIncomingAccount(
    *     support hierarchies, but we just declare that those servers are not
    *     acceptable for use.
    *   }
+   *   @param[overflowMap @dictof[
+   *     @key[uidl String]
+   *     @value[@dict[
+   *       @key[size Number]
+   *     ]]
+   *   ]]{
+   *     The list of messages that will NOT be downloaded by a sync
+   *     automatically, but instead need to be fetched with a "Download
+   *     more messages..." operation. (POP3 only.)
+   *   }
+   *   @param[uidlMap @dictof[
+   *     @key[uidl String]
+   *     @value[headerID String]
+   *   ]]{
+   *     A mapping of UIDLs to message header IDs. (POP3 only.)
+   *   }
    * ]{
    *   Meta-information about the account derived from probing the account.
    *   This information gets flushed on database upgrades.

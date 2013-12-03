@@ -871,7 +871,7 @@ MailSlice.prototype = {
  *   but our driving UI doesn't need it right now.
  * }
  * @typedef[BodyBlock @dict[
- *   @key[ids @listof[ID]]}
+ *   @key[ids @listof[ID]]{
  *     The issued-by-us id's of the messages; the order is parallel to the order
  *     of `bodies.`
  *   }
