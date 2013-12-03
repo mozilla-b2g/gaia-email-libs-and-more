@@ -195,11 +195,13 @@ TD.commonCase('sync headers then download body', function(T, RT) {
       // initiate the request for partial content
       slice.maybeRequestBodies(1, 2, { maximumBytesToFetch: 4 });
 
+      var gotSnippet = false;
       header.onchange = function() {
         // We now fire onchange even if we don't have a snippet yet;
         // check to make sure it exists before fulfilling the
         // namedValue.
-        if (header.snippet != null) {
+        if (header.snippet != null && !gotSnippet) {
+          gotSnippet = true;
           eLazy.namedValue('snippet', header.snippet);
         }
       };
