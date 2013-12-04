@@ -99,6 +99,10 @@
       "variants": ["pop3:fake"]
     },
 
+    "test_pop3_connection_use.js": {
+      "variants": ["pop3:fake"]
+    },
+
     "test_activesync_recreate.js": {
       "variants": ["activesync:fake"]
     },
