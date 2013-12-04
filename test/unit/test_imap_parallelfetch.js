@@ -145,16 +145,16 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         isDownloaded: true
       });
 
+      var gotSnippet = false;
       header.onchange = function() {
         // We now fire onchange even if the snippet hasn't been
         // populated yet, so check first to make sure we have a
         // snippet before providing the namedValue. Since onchange
         // might now be called more than once, we need to guard the
         // getBody() call to ensure we don't provide namedValue more
-        // than once per header. Putting that call inside this guard
-        // ensures it only gets called once, as though header.onchange
-        // only got called once.
-        if (header.snippet != null) {
+        // than once per header.
+        if (header.snippet != null && !gotSnippet) {
+          gotSnippet = true;
           header.getBody({ withBodyReps: true }, function(body) {
             if (!body) {
               // ???!

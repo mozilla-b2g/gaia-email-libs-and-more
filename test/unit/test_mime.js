@@ -318,6 +318,14 @@ TD.commonCase('MIME hierarchies', function(T) {
       alternHtml =
         new SyntheticPartMultiAlternative(
           [bpartStraightASCII, bpartTrivialHtml]),
+  // Multipart message with a text/plain body following an attachment;
+      multipartAttachPlain = new $msggen.SyntheticPartMultiMixed([
+        new $msggen.SyntheticPartLeaf("plaintext part 1"),
+        new $msggen.SyntheticPartLeaf("something", {
+          contentType: "image/png",
+        }),
+        new $msggen.SyntheticPartLeaf("plaintext part 3"),
+      ]);
   // - attachments
       tachImageAsciiName = {
         filename: 'stuff.png',
@@ -582,6 +590,12 @@ TD.commonCase('MIME hierarchies', function(T) {
       checkBody: rawFlowed,
       attachments: [tachImageDoubleMimeWordName],
     },
+    {
+      name: 'Multipart/mixed reordered snippet generation',
+      bodyPart: multipartAttachPlain,
+      checkBody: "plaintext part 1",
+      checkSnippet: "plaintext part 1",
+    }
   ];
 
   T.group('setup');
@@ -672,7 +686,8 @@ TD.commonCase('MIME hierarchies', function(T) {
         eCheck.namedValue('body', bodyValue);
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
-        if (body.attachments && body.attachments.length) {
+        if ('attachments' in msgDef &&
+            body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.namedValue('attachment-name', body.attachments[i].filename);
             if (testAccount.type !== 'pop3') {
