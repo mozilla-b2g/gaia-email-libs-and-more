@@ -2205,7 +2205,7 @@ var TestCompositeAccountMixins = {
   },
 
   // this is intentionally different between IMAP and ActiveSync because
-  // their sync logic is so different.
+  // their sync logic is so different. (This one is IMAP/POP3.)
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
     if (this.ePop3Account) {
@@ -2246,6 +2246,9 @@ var TestCompositeAccountMixins = {
                 einfo.full, einfo.flags, einfo.deleted,
                 einfo.startTS, einfo.endTS);
             }
+          } else /* (this.type === 'pop3') */ {
+            testFolder.connActor.expect_sync_begin();
+            testFolder.connActor.expect_sync_end();
           }
         }
       }
@@ -2289,6 +2292,8 @@ var TestCompositeAccountMixins = {
                               extraFlags) {
     var self = this;
     this.T.action(this, 'grows', viewThing, function() {
+      if (extraFlags && extraFlags.expectFunc)
+        extraFlags.expectFunc();
       var totalExpected;
       totalExpected = self._expect_dateSyncs(
                         viewThing, expectedValues, extraFlags,
@@ -2546,7 +2551,7 @@ var TestActiveSyncAccountMixins = {
   },
 
   // this is intentionally different between IMAP and ActiveSync because
-  // their sync logic is so different.
+  // their sync logic is so different. (This one is ActiveSync.)
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
     var testFolder = viewThing.testFolder;
