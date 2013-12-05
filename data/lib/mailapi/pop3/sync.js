@@ -38,7 +38,7 @@ exports.Pop3FolderSyncer = Pop3FolderSyncer;
  * @param {boolean} getNew If a fresh connection should always be made.
  * @param {int} cbIndex Index of the parent function's callback in args
  */
-function lazyWithConnection(getNew, cbIndex, fn) {
+function lazyWithConnection(getNew, cbIndex, fn, whyLabel) {
   return function pop3LazyWithConnection() {
     var args = Array.slice(arguments);
     require([], function () {
@@ -61,7 +61,7 @@ function lazyWithConnection(getNew, cbIndex, fn) {
             };
             fn.apply(this, [conn].concat(args));
           }
-        }.bind(this));
+        }.bind(this), null, whyLabel);
       }.bind(this);
 
       // if we require a fresh connection, close out the old one first.
@@ -109,7 +109,7 @@ Pop3FolderSyncer.prototype = {
         callback(err, headers.length);
       });
     });
-  }),
+  }, 'downloadBodies'),
 
   /**
    * Download the full body of a message. POP3 does not distinguish
@@ -144,7 +144,7 @@ Pop3FolderSyncer.prototype = {
         callback && callback(null, message.bodyInfo, flush);
       });
     }.bind(this));
-  }),
+  }, 'downloadBodyReps'),
 
   downloadMessageAttachments: function(uid, partInfos, callback, progress) {
     // We already retrieved the attachments in downloadBodyReps, so
@@ -578,7 +578,7 @@ Pop3FolderSyncer.prototype = {
       }
     }).bind(this));
 
-  }),
+  }, 'sync'),
 };
 
 /** Return an array with the integers [0, end). */

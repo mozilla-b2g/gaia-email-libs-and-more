@@ -151,6 +151,10 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
+    "test_empty_trash.js": {
+      "variants": ["pop3:fake"]
+    },
+
     "test_autoconfig.js": {
       "variants": ["noserver"]
     },

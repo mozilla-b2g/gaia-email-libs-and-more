@@ -164,6 +164,7 @@ var UNCHECKED_COHERENT_NOTYET = 'coherent-notyet';
  **/
 
 function ImapJobDriver(account, state, _parentLog) {
+  // This is our ImapAccount, not the CompositeAccount
   this.account = account;
   this.resilientServerIds = false;
   this._heldMutexReleasers = [];

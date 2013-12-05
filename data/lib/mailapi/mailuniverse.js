@@ -1939,6 +1939,31 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Completely empty a folder of messages, currently only works and makes sense
+   * for POP3 and its current feature-set.  When we implement
+   * https://bugzil.la/945635 to support IMAP and ActiveSync we will want to
+   * also handle nested sub-folders.
+   *
+   * Emptying a folder nukes the FolderStorage and re-creates it, resetting
+   * slices.
+   */
+  emptyFolder: function(folderId) {
+    var account = this.getAccountForFolderId(folderId);
+    this._queueAccountOp(
+      account,
+      {
+        type: 'emptyFolder',
+        longtermId: null,
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a',
+        tryCount: 0,
+        humanOp: 'emptyFolder',
+        folderId: folderId,
+      });
+  },
+
+  /**
    * Idempotently trigger the undo logic for the performed operation.  Calling
    * undo on an operation that is already undone/slated for undo has no effect.
    */

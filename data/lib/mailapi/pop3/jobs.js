@@ -13,7 +13,7 @@ define(['module', 'exports', 'rdcommon/log', '../allback', 'mix',
  */
 function Pop3JobDriver(account, state, _parentLog) {
   this._LOG = LOGFAB.Pop3JobDriver(this, _parentLog, account.id);
-
+  // This is our Pop3Account, not the CompositeAccount
   this.account = account;
   this.resilientServerIds = true; // once assigned, the server never changes IDs
   this._heldMutexReleasers = [];
@@ -142,6 +142,39 @@ Pop3JobDriver.prototype = {
   /** No-op to silence warnings. Perhaps implement someday. */
   undo_modtags: function(op, doneCallback) {
     doneCallback(null);
+  },
+
+  /** No-op to silence warnings. */
+  do_delete: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  /** No-op to silence warnings. */
+  undo_delete: function(op, doneCallback) {
+    doneCallback(null);
+  },
+
+  /**
+   * Use _recreateFolder to nuke an existing folder and replace it with an
+   * empty folder.
+   */
+  local_do_emptyFolder: function(op, doneCallback) {
+    // While our destruction of the FolderStorage will cause the mutex to go
+    // away, we want to make sure that we only do this when nothing else is
+    // trying to use the folder, so do acquire the mutex.
+    this._accessFolderForMutation(
+      op.folderId, /* needConn*/ false,
+      function(nullFolderConn, folderStorage) {
+        this.account._recreateFolder(
+          op.folderId,
+          function(newStorage) {
+            // no error, no return value, do not save because _recreateFolder
+            // triggered a save itself.
+            doneCallback(null, null, false);
+          });
+      }.bind(this),
+      /* no conn => no deathback required */ null,
+      'emptyFolder');
   },
 
   // Local modifications (move, delete, and modtags) simply reuse the
