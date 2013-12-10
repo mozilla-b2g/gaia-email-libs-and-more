@@ -548,7 +548,6 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
       // build the list of requests based on downloading required.
       var requests = [];
       bodyInfo.bodyReps.forEach(function(rep, idx) {
-
         // attempt to be idempotent by only requesting the bytes we need if we
         // actually need them...
         if (rep.isDownloaded)
@@ -961,7 +960,7 @@ ImapFolderSyncer.prototype = {
    */
   initialSync: function(slice, initialDays, syncCallback,
                         doneCallback, progressCallback) {
-    syncCallback('sync', false);
+    syncCallback('sync', false /* Ignore Headers */);
     // We want to enter the folder and get the box info so we can know if we
     // should trigger our SYNC_WHOLE_FOLDER_AT_N_MESSAGES logic.
     // _timelySyncSearch is what will get called next either way, and it will
@@ -1090,11 +1089,7 @@ ImapFolderSyncer.prototype = {
     // intended to be a new thing for each request.  So we don't want extra
     // desire building up, so we set it to what we have every time.
     //
-    // We don't want to affect this value in accumulating mode, however, since
-    // it could result in sending more headers than actually requested over the
-    // wire.
-    if (!this._syncSlice._accumulating)
-      this._syncSlice.desiredHeaders = this._syncSlice.headers.length;
+    this._syncSlice.desiredHeaders = this._syncSlice.headers.length;
 
     if (this._curSyncDoneCallback)
       this._curSyncDoneCallback(err);
@@ -1287,10 +1282,6 @@ console.log("folder message count", folderMessageCount,
                   "[oldest defined as", $sync.OLDEST_SYNC_DATE, "]");
       this._doneSync();
       return;
-    }
-    else if (this._syncSlice._accumulating) {
-      // flush the accumulated results thus far
-      this._syncSlice.setStatus('synchronizing', true, true, true);
     }
 
     // - Increase our search window size if we aren't finding anything
