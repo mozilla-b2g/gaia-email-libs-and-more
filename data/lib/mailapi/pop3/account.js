@@ -136,7 +136,7 @@ var properties = {
 
           if (err.reportProblem) {
             this.universe.__reportAccountProblem(
-              this.compositeAccount, err.name);
+              this.compositeAccount, err.name, 'incoming');
           }
 
           callback && callback(err.name, null);

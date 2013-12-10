@@ -11,6 +11,7 @@ define(
     '../imap/account',
     '../pop3/account',
     '../smtp/account',
+    '../allback',
     'exports'
   ],
   function(
@@ -21,6 +22,7 @@ define(
     $imapacct,
     $pop3acct,
     $smtpacct,
+    allback,
     exports
   ) {
 
@@ -156,11 +158,21 @@ CompositeAccount.prototype = {
 
   /**
    * Check that the account is healthy in that we can login at all.
+   * We'll check both the incoming server and the SMTP server; for
+   * simplicity, the errors are returned as follows:
+   *
+   *   callback(incomingErr, outgoingErr);
+   *
+   * If you don't want to check both pieces, you should just call
+   * checkAccount on the receivePiece or sendPiece as appropriate.
    */
   checkAccount: function(callback) {
-    // Since we use the same credential for both cases, we can just have the
-    // IMAP account attempt to establish a connection and forget about SMTP.
-    this._receivePiece.checkAccount(callback);
+    var latch = allback.latch();
+    this._receivePiece.checkAccount(latch.defer('incoming'));
+    this._sendPiece.checkAccount(latch.defer('outgoing'));
+    latch.then(function(results) {
+      callback(results.incoming[0], results.outgoing[0]);
+    });
   },
 
   /**

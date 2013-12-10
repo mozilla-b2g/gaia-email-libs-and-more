@@ -829,8 +829,12 @@ MailUniverse.prototype = {
    * We mutate its state for it, and generate a notification if this is a new
    * problem.  For problems that require user action, we additionally generate
    * a bad login notification.
+   *
+   * @param account
+   * @param {string} problem
+   * @param {'incoming'|'outgoing'} whichSide
    */
-  __reportAccountProblem: function(account, problem) {
+  __reportAccountProblem: function(account, problem, whichSide) {
     var suppress = false;
     // nothing to do if the problem is already known
     if (account.problems.indexOf(problem) !== -1) {
@@ -851,7 +855,7 @@ MailUniverse.prototype = {
       case 'bad-address':
       case 'imap-disabled':
       case 'needs-app-pass':
-        this.__notifyBadLogin(account, problem);
+        this.__notifyBadLogin(account, problem, whichSide);
         break;
     }
   },
@@ -878,7 +882,7 @@ MailUniverse.prototype = {
     this._resumeOpProcessingForAccount(account);
   },
 
-  // expects (account, problem)
+  // expects (account, problem, whichSide)
   __notifyBadLogin: makeBridgeFn('notifyBadLogin'),
 
   // expects (account)

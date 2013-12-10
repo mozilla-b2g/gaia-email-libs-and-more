@@ -57,15 +57,13 @@ TD.commonCase('last created account is default by default', function(T, RT) {
     // cleared when default account is changed
     testUniverse.MailAPI._recvCache.__testAccountDefaults = true;
 
-    eLazy.expect_event('roundtrip');
+    eLazy.expect_event('modifyAccount done');
     eLazy.expect_namedValueD('Default is now first account',
                             initialNonDefaultAccount.id);
     eLazy.expect_namedValue('Cache is cleared after account modified', true);
 
-    initialNonDefaultAccount.modifyAccount({ setAsDefault: true });
-
-    testUniverse.MailAPI.ping(function() {
-      eLazy.event('roundtrip');
+    initialNonDefaultAccount.modifyAccount({ setAsDefault: true }, function() {
+      eLazy.event('modifyAccount done');
 
       var defaultAccount = testUniverse.allAccountsSlice.defaultAccount;
       eLazy.namedValueD('Default is now first account',

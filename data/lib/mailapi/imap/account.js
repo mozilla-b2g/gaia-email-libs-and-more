@@ -314,7 +314,7 @@ var properties = {
                         this._connInfo.hostname, this._connInfo.port);
           if (normErr.reportProblem)
             this.universe.__reportAccountProblem(this.compositeAccount,
-                                                 normErr.name);
+                                                 normErr.name, 'incoming');
 
 
           if (listener)

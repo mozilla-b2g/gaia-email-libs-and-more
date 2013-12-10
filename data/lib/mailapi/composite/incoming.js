@@ -385,12 +385,12 @@ CompositeIncomingAccount.prototype = {
     switch (state) {
       case 'healthy':
         this.universe.__removeAccountProblem(this.compositeAccount,
-                                             'connection');
+                                             'connection', 'incoming');
         break;
       case 'unreachable':
       case 'broken':
         this.universe.__reportAccountProblem(this.compositeAccount,
-                                             'connection');
+                                             'connection', 'incoming');
         break;
     }
   },
