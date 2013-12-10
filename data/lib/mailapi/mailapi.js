@@ -2207,7 +2207,7 @@ MailAPI.prototype = {
   _recv_batchSlice: function ma__recv_batchSplice(msg) {
     var slice = this._slices[msg.handle];
     if (!slice) {
-      unexpectedBridgeDataError("Received messagea bout nonexistent slice:", msg.handle);
+      unexpectedBridgeDataError("Received message about nonexistent slice:", msg.handle);
       return true;
     }
 
@@ -3400,7 +3400,6 @@ MailAPI.prototype = {
       type: 'ping',
       callback: callback,
     };
-
 
     var bridgeSend = function() {
       this.__bridgeSend({
