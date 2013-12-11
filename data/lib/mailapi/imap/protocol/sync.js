@@ -142,9 +142,13 @@ Sync.prototype = {
           if (!self.oncomplete)
             return;
 
-          self.oncomplete(
-            self.newUIDs.length,
-            self.knownUIDs.length
+          setZeroTimeout(
+            function() {
+              self.oncomplete(
+                self.newUIDs.length,
+                self.knownUIDs.length
+              );
+            }
           );
         });
       }

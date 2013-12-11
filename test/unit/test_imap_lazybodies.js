@@ -177,11 +177,12 @@ TD.commonCase('sync headers then download body', function(T, RT) {
     // ASCII 4 bytes assumed
     var snippet = content[1].slice(0, 4);
 
-    eLazy.expect_namedValue('snippet', snippet);
+    // With batching, this order has to come first
     eLazy.expect_namedValue('body', {
       isDownloaded: false,
       amountDownloaded: 4
     });
+    eLazy.expect_namedValue('snippet', snippet);
 
     eLazy.expect_namedValue('body full', {
       isDownloaded: true,
