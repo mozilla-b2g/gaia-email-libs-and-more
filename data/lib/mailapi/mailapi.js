@@ -849,8 +849,9 @@ MailHeader.prototype = {
 
   __update: function(wireRep) {
     this._wireRep = wireRep;
-    if (wireRep.snippet !== null)
+    if (wireRep.snippet !== null) {
       this.snippet = wireRep.snippet;
+    }
 
     this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
     this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
@@ -2203,34 +2204,164 @@ MailAPI.prototype = {
     return true;
   },
 
-  _recv_sliceSplice: function ma__recv_sliceSplice(msg, fake) {
+  _recv_batchSlice: function ma__recv_batchSplice(msg) {
     var slice = this._slices[msg.handle];
     if (!slice) {
-      unexpectedBridgeDataError('Received message about a nonexistent slice:',
-                                msg.handle);
+      unexpectedBridgeDataError("Received message about nonexistent slice:", msg.handle);
       return true;
     }
 
-    var transformedItems = this._transform_sliceSplice(msg, slice);
+    var updateStatus = this._updateSliceStatus(msg, slice);
+    for (var i = 0; i < msg.sliceUpdates.length; i++) {
+      var splice = msg.sliceUpdates[i];
+      if (Array.isArray(splice)) {
+        this._processSpliceUpdate(msg, splice, slice);
+      } else {
+        this._processSingleSplice(msg, splice, slice);
+      }
+    }
+
+    this._fireStatusNotifications(updateStatus, slice);
+    return true;
+  },
+
+  _fireStatusNotifications: function (updateStatus, slice) {
+    if (updateStatus && slice.onstatus) {
+      slice.onstatus(slice.status);
+    }
+  },
+
+  _updateSliceStatus: function(msg, slice) {
+    // - generate namespace-specific notifications
+    slice.atTop = msg.atTop;
+    slice.atBottom = msg.atBottom;
+    slice.userCanGrowUpwards = msg.userCanGrowUpwards;
+    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
+
+    // Have to update slice status before we actually do the work
+    var generatedStatusChange = (msg.status &&
+      (slice.status !== msg.status ||
+      slice.syncProgress !== msg.progress));
+
+    if (msg.status) {
+      slice.status = msg.status;
+      slice.syncProgress = msg.syncProgress;
+    }
+
+    return generatedStatusChange;
+  },
+
+  _processSpliceUpdate: function (msg, splice, slice) {
+    try {
+      for (var i = 0; i < splice.length; i += 2) {
+        var idx = splice[i], wireRep = splice[i + 1],
+            itemObj = slice.items[idx];
+        itemObj.__update(wireRep);
+        if (slice.onchange) {
+          slice.onchange(itemObj, idx);
+        }
+        if (itemObj.onchange) {
+          itemObj.onchange(itemObj, idx);
+        }
+      }
+    }
+    catch (ex) {
+      reportClientCodeError('onchange notification error', ex,
+                            '\n', ex.stack);
+    }
+  },
+
+  _processSingleSplice: function(msg, splice, slice) {
+   var transformedItems = this._transform_sliceSplice(splice, slice);
+   var fake = false;
     // It's possible that a transformed representation is depending on an async
     // call to mozContacts.  In this case, we don't want to surface the data to
     // the UI until the contacts are fully resolved in order to avoid the UI
     // flickering or just triggering reflows that could otherwise be avoided.
     if (ContactCache.pendingLookupCount) {
       ContactCache.callbacks.push(function contactsResolved() {
-        this._fire_sliceSplice(msg, slice, transformedItems, fake);
-        this._doneProcessingMessage(msg);
+        this._fireSplice(splice, slice, transformedItems, fake);
       }.bind(this));
-      return false;
     }
     else {
-      this._fire_sliceSplice(msg, slice, transformedItems, fake);
-      return true;
+      this._fireSplice(splice, slice, transformedItems, fake);
     }
   },
 
-  _transform_sliceSplice: function ma__transform_sliceSplice(msg, slice) {
-    var addItems = msg.addItems, transformedItems = [], i;
+  _fireSplice: function(splice, slice, transformedItems, fake) {
+    var i, stopIndex, items, tempMsg;
+
+    // - generate slice 'onsplice' notification
+    if (slice.onsplice) {
+      try {
+        slice.onsplice(splice.index, splice.howMany, transformedItems,
+                       splice.requested, splice.moreExpected, fake);
+      }
+      catch (ex) {
+        reportClientCodeError('onsplice notification error', ex,
+                              '\n', ex.stack);
+      }
+    }
+    // - generate item 'onremove' notifications
+    if (splice.howMany) {
+      try {
+        stopIndex = splice.index + splice.howMany;
+        for (i = splice.index; i < stopIndex; i++) {
+          var item = slice.items[i];
+          if (slice.onremove)
+            slice.onremove(item, i);
+          if (item.onremove)
+            item.onremove(item, i);
+          // the item needs a chance to clean up after itself.
+          item.__die();
+        }
+      }
+      catch (ex) {
+        reportClientCodeError('onremove notification error', ex,
+                              '\n', ex.stack);
+      }
+    }
+    // - perform actual splice
+    slice.items.splice.apply(slice.items,
+                             [splice.index, splice.howMany].concat(transformedItems));
+    // - generate item 'onadd' notifications
+    if (slice.onadd) {
+      try {
+        stopIndex = splice.index + transformedItems.length;
+        for (i = splice.index; i < stopIndex; i++) {
+          slice.onadd(slice.items[i], i);
+        }
+      }
+      catch (ex) {
+        reportClientCodeError('onadd notification error', ex,
+                              '\n', ex.stack);
+      }
+    }
+
+    // - generate 'oncomplete' notification
+    if (splice.requested && !splice.moreExpected) {
+      slice._growing = 0;
+      if (slice.pendingRequestCount)
+        slice.pendingRequestCount--;
+
+      if (slice.oncomplete) {
+        var completeFunc = slice.oncomplete;
+        // reset before calling in case it wants to chain.
+        slice.oncomplete = null;
+        try {
+          // Maybe defer here?
+          completeFunc(splice.newEmailCount);
+        }
+        catch (ex) {
+          reportClientCodeError('oncomplete notification error', ex,
+                                '\n', ex.stack);
+        }
+      }
+    }
+  },
+
+  _transform_sliceSplice: function ma__transform_sliceSplice(splice, slice) {
+    var addItems = splice.addItems, transformedItems = [], i;
     switch (slice._ns) {
       case 'accounts':
         for (i = 0; i < addItems.length; i++) {
@@ -2269,118 +2400,6 @@ MailAPI.prototype = {
     }
 
     return transformedItems;
-  },
-
-  _fire_sliceSplice: function ma__fire_sliceSplice(msg, slice,
-                                                   transformedItems, fake) {
-    var i, stopIndex, items, tempMsg;
-    // - generate namespace-specific notifications
-    slice.atTop = msg.atTop;
-    slice.atBottom = msg.atBottom;
-    slice.userCanGrowUpwards = msg.userCanGrowUpwards;
-    slice.userCanGrowDownwards = msg.userCanGrowDownwards;
-    if (msg.status &&
-        (slice.status !== msg.status ||
-         slice.syncProgress !== msg.progress)) {
-      slice.status = msg.status;
-      slice.syncProgress = msg.progress;
-      if (slice.onstatus)
-        slice.onstatus(slice.status);
-    }
-
-    // - generate slice 'onsplice' notification
-    if (slice.onsplice) {
-      try {
-        slice.onsplice(msg.index, msg.howMany, transformedItems,
-                       msg.requested, msg.moreExpected, fake);
-      }
-      catch (ex) {
-        reportClientCodeError('onsplice notification error', ex,
-                              '\n', ex.stack);
-      }
-    }
-    // - generate item 'onremove' notifications
-    if (msg.howMany) {
-      try {
-        stopIndex = msg.index + msg.howMany;
-        for (i = msg.index; i < stopIndex; i++) {
-          var item = slice.items[i];
-          if (slice.onremove)
-            slice.onremove(item, i);
-          if (item.onremove)
-            item.onremove(item, i);
-          // the item needs a chance to clean up after itself.
-          item.__die();
-        }
-      }
-      catch (ex) {
-        reportClientCodeError('onremove notification error', ex,
-                              '\n', ex.stack);
-      }
-    }
-    // - perform actual splice
-    slice.items.splice.apply(slice.items,
-                             [msg.index, msg.howMany].concat(transformedItems));
-    // - generate item 'onadd' notifications
-    if (slice.onadd) {
-      try {
-        stopIndex = msg.index + transformedItems.length;
-        for (i = msg.index; i < stopIndex; i++) {
-          slice.onadd(slice.items[i], i);
-        }
-      }
-      catch (ex) {
-        reportClientCodeError('onadd notification error', ex,
-                              '\n', ex.stack);
-      }
-    }
-
-    // - generate 'oncomplete' notification
-    if (msg.requested && !msg.moreExpected) {
-      slice._growing = 0;
-      if (slice.pendingRequestCount)
-        slice.pendingRequestCount--;
-
-      if (slice.oncomplete) {
-        var completeFunc = slice.oncomplete;
-        // reset before calling in case it wants to chain.
-        slice.oncomplete = null;
-        try {
-          completeFunc(msg.newEmailCount);
-        }
-        catch (ex) {
-          reportClientCodeError('oncomplete notification error', ex,
-                                '\n', ex.stack);
-        }
-      }
-    }
-  },
-
-  _recv_sliceUpdate: function ma__recv_sliceUpdate(msg) {
-    var slice = this._slices[msg.handle];
-    if (!slice) {
-      unexpectedBridgeDataError('Received message about a nonexistent slice:',
-                                msg.handle);
-      return true;
-    }
-
-    var updates = msg.updates;
-    try {
-      for (var i = 0; i < updates.length; i += 2) {
-        var idx = updates[i], wireRep = updates[i + 1],
-            itemObj = slice.items[idx];
-        itemObj.__update(wireRep);
-        if (slice.onchange)
-          slice.onchange(itemObj, idx);
-        if (itemObj.onchange)
-          itemObj.onchange(itemObj, idx);
-      }
-    }
-    catch (ex) {
-      reportClientCodeError('onchange notification error', ex,
-                            '\n', ex.stack);
-    }
-    return true;
   },
 
   _recv_sliceDead: function(msg) {
@@ -3381,10 +3400,15 @@ MailAPI.prototype = {
       type: 'ping',
       callback: callback,
     };
-    this.__bridgeSend({
-      type: 'ping',
-      handle: handle,
-    });
+
+    var bridgeSend = function() {
+      this.__bridgeSend({
+        type: 'ping',
+        handle: handle,
+      });
+    };
+
+    setZeroTimeout(bridgeSend.bind(this));
   },
 
   _recv_pong: function(msg) {
