@@ -477,6 +477,20 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: new SyntheticPartLeaf(period),
       checkBody: period,
     },
+    // verification that we don't insert random crap to join HTML nodes
+    {
+      name: 'joining html nodes doesn\'t produce extra crap (multipart)',
+      bodyPart: new $msggen.SyntheticPartMultiMixed([
+        new $msggen.SyntheticPartLeaf("HTML1", {contentType: "text/html"}),
+        new $msggen.SyntheticPartLeaf("HTML2", {contentType: "text/html"}),
+        new $msggen.SyntheticPartMultiMixed([
+          new $msggen.SyntheticPartLeaf("HTML3", {contentType: "text/html"}),
+          new $msggen.SyntheticPartLeaf("HTML4", {contentType: "text/html"}),
+        ])
+      ]),
+      checkBody: 'HTML1',
+      checkWholeBody: 'HTML1HTML2HTML3HTML4',
+    },
     // - alternatives that test proper (text/plain) encoding
     {
       name: 'multipart/alternative simple',
@@ -657,6 +671,9 @@ TD.commonCase('MIME hierarchies', function(T) {
       eCheck.expect_namedValue('body', msgDef.checkBody);
       if (msgDef.checkSnippet)
         eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
+      if (msgDef.checkWholeBody) {
+        eCheck.expect_namedValue('wholeBody', msgDef.checkWholeBody);
+      }
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           eCheck.expect_namedValue('attachment-name',
@@ -690,6 +707,15 @@ TD.commonCase('MIME hierarchies', function(T) {
         }
 
         eCheck.namedValue('body', bodyValue);
+        if (msgDef.checkWholeBody) {
+          eCheck.namedValue('wholeBody', body.bodyReps.reduce(function(s, rep) {
+            if (rep.type === 'html' || rep.type === 'plain') {
+              return s + rep.content;
+            } else {
+              return s;
+            }
+          }, ''));
+        }
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
         if ('attachments' in msgDef &&
