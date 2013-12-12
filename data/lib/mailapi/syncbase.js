@@ -129,6 +129,19 @@ exports.POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
  */
 exports.POP3_MAX_MESSAGES_PER_SYNC = 100;
 
+
+/**
+ * If a message is larger than INFER_ATTACHMENTS_SIZE bytes, guess
+ * that it has an attachment.
+ */
+exports.POP3_INFER_ATTACHMENTS_SIZE = 512 * 1024;
+
+
+/**
+ * Attempt to fetch this many bytes of messages during snippet fetching.
+ */
+exports.POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
+
 ////////////////////////////////////////////////////////////////////////////////
 // General Sync Constants
 
