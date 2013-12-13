@@ -192,6 +192,7 @@ require({
     "event-queue": "data/lib/js-shims/event-queue",
     "microtime": "data/lib/js-shims/microtime",
     "path": "data/lib/js-shims/path",
+    "utf7": "data/lib/js-shims/utf7",
 
     "wbxml": "deps/activesync/wbxml/wbxml",
     "activesync": "deps/activesync",

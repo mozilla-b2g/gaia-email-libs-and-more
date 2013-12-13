@@ -37,6 +37,7 @@ var rawSammySnake = '\u00dfnake, \u00dfammy',
 
 var rawUnicodeName = 'Figui\u00e8re',
     utf8UnicodeName = new Buffer('Figui\u00c3\u00a8re', 'binary'),
+    utf7UnicodeName = 'Figui+AOg-re',
     qpUtf8UnicodeName = 'Figui=C3=A8re';
 
 
@@ -143,6 +144,14 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(
           utf8UnicodeName,
           { charset: 'utf-8', format: null, encoding: '8bit' }),
+      bpartUtf7Name =
+        new SyntheticPartLeaf(
+          utf7UnicodeName,
+          { charset: 'utf-7' }),
+      bpartUtf7HtmlName =
+        new SyntheticPartLeaf(
+          utf7UnicodeName,
+          { contentType: 'text/html', charset: 'utf-7' }),
       // quoted-printable encoding utf-8
       bpartQpUtf8Name =
         new SyntheticPartLeaf(
@@ -430,6 +439,16 @@ TD.commonCase('MIME hierarchies', function(T) {
     {
       name: 'text/plain utf8',
       bodyPart: bpartUtf8Name,
+      checkBody: rawUnicodeName,
+    },
+    {
+      name: 'text/plain utf7',
+      bodyPart: bpartUtf7Name,
+      checkBody: rawUnicodeName,
+    },
+    {
+      name: 'text/html utf7',
+      bodyPart: bpartUtf7HtmlName,
       checkBody: rawUnicodeName,
     },
     {

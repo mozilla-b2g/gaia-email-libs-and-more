@@ -4,7 +4,7 @@
  * the API to be more sane.
  **/
 
-define(function(require, exports, module) {
+define(['utf7', 'exports'], function(utf7, exports) {
 
 // originally from https://github.com/andris9/encoding/blob/master/index.js
 // (MIT licensed)
@@ -42,7 +42,11 @@ exports.convert = function(str, destEnc, sourceEnc, ignoredUseLite) {
 
   if (destEnc === sourceEnc)
     return new Buffer(str, 'utf-8');
-
+  else if (sourceEnc === 'utf-7' || sourceEnc === 'utf7') {
+    // Some versions of Outlook as recently as Outlook 11 produce
+    // utf-7-encoded body parts. See <https://bugzil.la/938321>.
+    return utf7.decode(str.toString());
+  }
   // - decoding (Uint8Array => String)
   else if (/^utf-8$/.test(destEnc)) {
     var decoder;
