@@ -17,7 +17,6 @@ function FakeXHR() {
   };
 
   this.onload = null;
-  this.onerror = null;
   this.ontimeout = null;
 
   this.timeout = null;
@@ -35,6 +34,21 @@ FakeXHR.prototype = {
     this._args.method = method;
     this._args.url = url;
     this._args.async = async;
+  },
+
+  // To prevent regressions related to <https://bugzil.la/949722> in
+  // which XHRs treat .onerror like .addEventListener('error'), ensure
+  // that we only assign to this property once for safety:
+
+  get onerror() {
+    return this._onerror;
+  },
+
+  set onerror(fn) {
+    if (fn && this._onerror) {
+      throw new Error("onerror already set on XHR! Don't. See bug 949722.");
+    }
+    this._onerror = fn;
   },
 
   send: function() {
