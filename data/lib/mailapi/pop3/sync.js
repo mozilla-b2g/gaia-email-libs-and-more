@@ -332,7 +332,7 @@ Pop3FolderSyncer.prototype = {
    * at a time.
    */
   initialSync: function(slice, initialDays, syncCb, doneCb, progressCb) {
-    syncCb('sync', false /* accumulateMode */, true /* ignoreHeaders */);
+    syncCb('sync', true /* ignoreHeaders */);
     this.sync('initial', slice, doneCb, progressCb);
   },
 
