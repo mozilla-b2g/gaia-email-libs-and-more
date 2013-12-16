@@ -439,7 +439,8 @@ exports.do_downloadBodyReps = function(op, callback) {
       if (!body.bodyReps.every(function(rep) { return rep.isDownloaded; })) {
         folderConn.downloadBodyReps(header, onDownloadReps);
       } else {
-        onDownloadReps(null, body, true);
+        // passing flushed = true because we don't need to save anything
+        onDownloadReps(null, body, /* flushed = */ true);
       }
     });
   };

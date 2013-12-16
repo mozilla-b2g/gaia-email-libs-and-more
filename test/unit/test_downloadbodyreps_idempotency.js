@@ -14,7 +14,10 @@ TD.commonCase('fetch only snippets', function(T, RT) {
   // Create a folder to test on
   var eLazy = T.lazyLogger('misc');
   var folderName = 'test_downloadbodyreps_idempotency';
-  var messageCount = 3;
+  // We want just one message in the inbox; IMAP already adds one for
+  // tests so that we can detect timezones, so only add one for other
+  // account types.
+  var messageCount = (testAccount.type === 'imap' ? 0 : 1);
 
   // Set POP3 to not retrieve any of the message when fetching
   // headers. Otherwise it might have already finished downloading
@@ -26,7 +29,9 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
   // Use the inbox, so that POP3 will actually run its sync logic.
   var testFolder = testAccount.do_useExistingFolderWithType('inbox', '');
-  testAccount.do_addMessagesToFolder(testFolder, { count: messageCount });
+  if (messageCount > 0) {
+    testAccount.do_addMessagesToFolder(testFolder, { count: messageCount });
+  }
   var testView = testAccount.do_openFolderView(
     'syncs', testFolder, null, null, { syncedToDawnOfTime: 'ignore' });
 
@@ -36,43 +41,63 @@ TD.commonCase('fetch only snippets', function(T, RT) {
   // guarantee that the frontend doesn't have to worry about
   // spurious/redundant body "onchange" notifications.
   T.action('request full body after snippets', eLazy, function() {
-    eLazy.expectUseSetMatching();
+    // only the first job will actually download the bodies, the other
+    // jobs will still happen but will turn into no-ops
+    // this might need conn: true/etc.
 
-    testView.slice.items.forEach(function(header, idx) {
-      var whichCall = 0;
+    // We need three of these: Two for "downloadBodyReps" calls, and
+    // one for the "withBodyReps" call. Only the first will actually
+    // cause us to download and save the bodyReps.
+    testAccount.expect_runOp('downloadBodyReps', {
+      local: false, server: true, save: 'server' });
+    testAccount.expect_runOp('downloadBodyReps', {
+      local: false, server: true, save: false });
+    testAccount.expect_runOp('downloadBodyReps', {
+      local: false, server: true, save: false });
 
-      // The first call should receive a modified onchange event.
-      eLazy.expect_value('modified-' + idx);
-      // Then we called getBody twice, so we should see two more
-      // "done" events _without_ seeing more change events.
-      eLazy.expect_value('done-' + idx);
-      eLazy.expect_value('done-' + idx);
+    // TODO: POP3's logging (or th_main helper utilities) should be
+    // cleaned up to handle connection expectations in a way that lets
+    // us use the same expectations for IMAP as POP3. In this case,
+    // POP3 sets "USES_CONN = false", which renders the expect_runOp's
+    // "conn" helper useless. For IMAP, we already have a connection
+    // from the do_openFolderView, so we don't need conn: true here.
+    // But for POP3, the following expectations are needed to perform
+    // the same function as what "conn: true" woul dhave done in
+    // expect_runOp above, if POP3 supported that properly.
+    if (testAccount.type === 'pop3') {
+      RT.reportActiveActorThisStep(testAccount.eFolderAccount);
+      testAccount.eFolderAccount.ignore_createConnection();
+      testAccount.eFolderAccount.ignore_saveAccountState();
+    }
 
-      function gotBody(body) {
-        whichCall++;
-        if (whichCall === 1) {
-          // Attach the handler for this body here; it should only be
-          // called once even though we're calling getBody multiple
-          // times.
-          body.onchange = function() {
-            eLazy.value('modified-' + idx);
-          }
-        } else {
-          header.getBody({ withBodyReps: true }, function() {
-            eLazy.value('done-' + idx);
-          });
-        }
+    // there's only one message in the inbox
+    var header = testView.slice.items[0];
+
+    // The first call should receive a modified onchange event.
+    eLazy.expect_value('modified');
+    // Then we called getBody twice, so we should see two more
+    // "done" events _without_ seeing more change events.
+    eLazy.expect_value('done');
+
+    // Fetch the body thrice; the first will generate onchange;
+    // the other two should just indicate that we've finished.
+    header.getBody({ downloadBodyReps: true }, function (body) {
+      // Attach the handler for this body here; it should only be
+      // called once even though we're calling getBody multiple
+      // times.
+      body.onchange = function() {
+        eLazy.value('modified');
       }
+    });
 
-      // Fetch the body thrice; the first will generate onchange;
-      // the other two should just indicate that we've finished.
-      header.getBody({ downloadBodyReps: true }, gotBody);
-      header.getBody({ downloadBodyReps: true }, gotBody);
-      header.getBody({ downloadBodyReps: true }, gotBody);
+    header.getBody({ downloadBodyReps: true }, function(body) {
+      // Use { withBodyReps: true } so that the 'done' event
+      // happens after we see onchange.
+      header.getBody({ withBodyReps: true }, function() {
+        eLazy.value('done');
+      });
     });
   });
-
-//  testAccount.do_closeFolderView(testView);
 
 });
 
