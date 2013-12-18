@@ -142,6 +142,11 @@ Sync.prototype = {
           if (!self.oncomplete)
             return;
 
+          // Need a timeout here
+          // because we batch slices in SliceBridgeProxy
+          // And only want to call oncomplete after
+          // All those slices have been sent to keep the order
+          // the same
           setZeroTimeout(
             function() {
               self.oncomplete(

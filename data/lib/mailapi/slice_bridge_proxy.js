@@ -51,6 +51,7 @@ SliceBridgeProxy.prototype = {
       requested: requested,
       moreExpected: moreExpected,
       newEmailCount: newEmailCount,
+      type: 'slice',
     };
     this.addUpdate(updateSplice);
   },
@@ -60,6 +61,7 @@ SliceBridgeProxy.prototype = {
    */
   sendUpdate: function sbp_sendUpdate(indexUpdatesRun) {
     var update = indexUpdatesRun;
+    update.type = 'update';
     this.addUpdate(update);
   },
 
@@ -94,6 +96,8 @@ SliceBridgeProxy.prototype = {
     }
   },
 
+  // We batch both slices and updates into the same queue
+  // The backend will check to differentiate between the two
   flushUpdates: function sbp_flushUpdates() {
     this._bridge.__sendMessage({
       type: 'batchSlice',

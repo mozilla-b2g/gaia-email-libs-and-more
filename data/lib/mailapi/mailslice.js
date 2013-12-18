@@ -131,11 +131,13 @@ var SYNC_START_MINIMUM_PROGRESS = 0.02;
  * Headers are removed, added, or modified using the onHeader* methods.
  * The updates are sent to 'SliceBridgeProxy' which batches updates and
  * puts them on the event loop. We batch so that we can minimize the number of
- * reflows and painting on the DOM side.
+ * reflows and painting on the DOM side. This also enables us to batch data 
+ * received in network packets around the smae time without having to handle it in 
+ * each protocol's logic.
  *
  * Currently, we only batch updates that are done between 'now' and the next time
- * a zeroTimeout can fire on the event loop. We may be able to batch a bit more
- * if we use a set amount of time instead.
+ * a zeroTimeout can fire on the event loop.  In order to keep the UI responsive,
+ * We force flushes if we have more than 5 pending slices to send.
  */
 function MailSlice(bridgeHandle, storage, _parentLog) {
   this._bridgeHandle = bridgeHandle;

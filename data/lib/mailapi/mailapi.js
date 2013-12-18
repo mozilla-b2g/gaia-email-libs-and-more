@@ -2091,6 +2091,7 @@ function MailAPI() {
   this._slices = {};
   this._pendingRequests = {};
   this._liveBodies = {};
+  this._spliceMessages= [];
 
   // Store bridgeSend messages received before back end spawns.
   this._storedSends = [];
@@ -2171,6 +2172,12 @@ MailAPI.prototype = {
   },
 
   _processMessage: function ma__processMessage(msg) {
+    // Used only for testing to make sure we
+    // process messages in the right order
+    if (msg.onprocess) {
+      msg.onprocess();
+    }
+
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
       unexpectedBridgeDataError('Unsupported message type:', msg.type);
@@ -2178,8 +2185,9 @@ MailAPI.prototype = {
     }
     try {
       var done = this[methodName](msg);
-      if (!done)
+      if (!done) {
         this._processingMessage = msg;
+      }
     }
     catch (ex) {
       internalError('Problem handling message type:', msg.type, ex,
@@ -2204,7 +2212,31 @@ MailAPI.prototype = {
     return true;
   },
 
-  _recv_batchSlice: function ma__recv_batchSplice(msg) {
+  _fireAllSplices: function() {
+    for (var index in this._spliceMessages) {
+      var fireSpliceData = this._spliceMessages[index];
+      fireSpliceData();
+    }
+
+    this._spliceMessages.length = 0;
+  },
+
+  _fireSplices: function(msg, slice, updateStatus) {
+    if (ContactCache.pendingLookupCount) {
+      ContactCache.callbacks.push(function contactsResolved() {
+        this._fireAllSplices();
+        this._fireStatusNotifications(updateStatus, slice);
+        this._doneProcessingMessage(msg);
+      }.bind(this));
+      return false;
+    }
+
+    this._fireAllSplices();
+    this._fireStatusNotifications(updateStatus, slice);
+    return true;
+  },
+
+  _recv_batchSlice: function receiveBatchSlice(msg) {
     var slice = this._slices[msg.handle];
     if (!slice) {
       unexpectedBridgeDataError("Received message about nonexistent slice:", msg.handle);
@@ -2214,15 +2246,14 @@ MailAPI.prototype = {
     var updateStatus = this._updateSliceStatus(msg, slice);
     for (var i = 0; i < msg.sliceUpdates.length; i++) {
       var splice = msg.sliceUpdates[i];
-      if (Array.isArray(splice)) {
+      if (splice.type == 'update') {
         this._processSpliceUpdate(msg, splice, slice);
       } else {
         this._processSingleSplice(msg, splice, slice);
       }
     }
 
-    this._fireStatusNotifications(updateStatus, slice);
-    return true;
+    return this._fireSplices(msg, slice, updateStatus);
   },
 
   _fireStatusNotifications: function (updateStatus, slice) {
@@ -2278,14 +2309,11 @@ MailAPI.prototype = {
     // call to mozContacts.  In this case, we don't want to surface the data to
     // the UI until the contacts are fully resolved in order to avoid the UI
     // flickering or just triggering reflows that could otherwise be avoided.
-    if (ContactCache.pendingLookupCount) {
-      ContactCache.callbacks.push(function contactsResolved() {
-        this._fireSplice(splice, slice, transformedItems, fake);
-      }.bind(this));
-    }
-    else {
+    // Since we could be processing multiple updates, just batch everything here
+    // and we'll check later to see if any of our splices requires a contact lookup
+    this._spliceMessages.push(function singleSpliceUpdate() {
       this._fireSplice(splice, slice, transformedItems, fake);
-    }
+    }.bind(this));
   },
 
   _fireSplice: function(splice, slice, transformedItems, fake) {

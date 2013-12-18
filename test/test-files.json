@@ -135,6 +135,10 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
+    "test_splice_ordering.js": {
+      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
+    },
+
     "test_account_logic.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
