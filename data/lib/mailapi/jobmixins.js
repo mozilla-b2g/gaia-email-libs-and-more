@@ -430,7 +430,19 @@ exports.do_downloadBodyReps = function(op, callback) {
       return;
     }
 
-    folderConn.downloadBodyReps(header, onDownloadReps);
+    // Check to see if we've already downloaded the bodyReps for this
+    // message. If so, no need to even try to fetch them again. This
+    // allows us to enforce an idempotency guarantee regarding how
+    // many times body change notifications will be fired.
+    folderStorage.getMessageBody(header.suid, header.date,
+                                         function(body) {
+      if (!body.bodyReps.every(function(rep) { return rep.isDownloaded; })) {
+        folderConn.downloadBodyReps(header, onDownloadReps);
+      } else {
+        // passing flushed = true because we don't need to save anything
+        onDownloadReps(null, body, /* flushed = */ true);
+      }
+    });
   };
 
   var onDownloadReps = function onDownloadReps(err, bodyInfo, flushed) {

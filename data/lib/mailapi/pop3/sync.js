@@ -37,8 +37,9 @@ exports.Pop3FolderSyncer = Pop3FolderSyncer;
  *
  * @param {boolean} getNew If a fresh connection should always be made.
  * @param {int} cbIndex Index of the parent function's callback in args
+ * @param {string} whyLabel Description for why we need the connection
  */
-function lazyWithConnection(getNew, cbIndex, fn) {
+function lazyWithConnection(getNew, cbIndex, whyLabel, fn) {
   return function pop3LazyWithConnection() {
     var args = Array.slice(arguments);
     require([], function () {
@@ -61,7 +62,7 @@ function lazyWithConnection(getNew, cbIndex, fn) {
             };
             fn.apply(this, [conn].concat(args));
           }
-        }.bind(this));
+        }.bind(this), whyLabel);
       }.bind(this);
 
       // if we require a fresh connection, close out the old one first.
@@ -90,6 +91,7 @@ Pop3FolderSyncer.prototype = {
    * body part/message downloading. XXX rename this family of methods.
    */
   downloadBodies: lazyWithConnection(/* getNew = */ false, /* cbIndex = */ 2,
+    /* whyLabel = */ 'downloadBodies',
   function(conn, headers, options, callback) {
     var latch = allback.latch();
     var storage = this.storage;
@@ -117,6 +119,7 @@ Pop3FolderSyncer.prototype = {
    * all in one go.
    */
   downloadBodyReps: lazyWithConnection(/* getNew = */ false, /* cbIndex = */ 2,
+    /* whyLabel = */ 'downloadBodyReps',
   function(conn, header, options, callback) {
     if (options instanceof Function) {
       callback = options;
@@ -445,6 +448,7 @@ Pop3FolderSyncer.prototype = {
    * `this.storeMessageUidlForMessageId`).
    */
   sync: lazyWithConnection(/* getNew = */ true, /* cbIndex = */ 2,
+  /* whyLabel = */ 'sync',
   function(conn, syncType, slice, doneCallback, progressCallback) {
     // if we could not establish a connection, abort the sync.
     var self = this;
