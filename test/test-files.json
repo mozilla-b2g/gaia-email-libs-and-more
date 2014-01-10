@@ -99,6 +99,10 @@
       "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
 
+    "test_body_modified_attachments.js": {
+      "variants": ["pop3:fake"]
+    },
+
     "test_pop3_checkpoint_sync.js": {
       "variants": ["pop3:fake"]
     },
