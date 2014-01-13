@@ -99,9 +99,15 @@ exports.allbackMaker = function allbackMaker(names, allDoneCallback) {
  */
 exports.latch = function() {
   var ready = false;
-  var deferred = prim();
+  var deferred = {};
   var results = {};
   var count = 0;
+
+  deferred.promise = prim(function (resolve, reject) {
+    deferred.resolve = resolve;
+    deferred.reject = reject;
+  });
+
   function defer(name) {
     count++;
     var resolved = false;
