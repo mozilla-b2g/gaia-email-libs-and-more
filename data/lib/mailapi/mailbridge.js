@@ -446,6 +446,7 @@ MailBridge.prototype = {
       var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
       if (idx === null)
         continue;
+
       proxy.sendUpdate([idx, folderMeta]);
     }
   },
