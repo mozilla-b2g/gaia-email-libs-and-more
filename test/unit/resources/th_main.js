@@ -215,8 +215,8 @@ var TestUniverseMixins = {
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
           console.log('Universe created');
-          var TMB = MailBridge = new $mailbridge.MailBridge(self.universe,
-                                                            self.__name);
+          var TMB = MailBridge = self._mailBridge =
+                new $mailbridge.MailBridge(self.universe, self.__name);
           var TMA = MailAPI = self.MailAPI = new $mailapi.MailAPI();
 
           var realSendMessage = $router.registerSimple(
@@ -260,6 +260,18 @@ var TestUniverseMixins = {
     });
   },
 
+  /**
+   * Spin up a MailAPI instance on the main thread whose MailBridge instance
+   * lives here (on the worker thread), and which relays the message via a
+   * 'mail-bridge' router topic.  This is to allow for test code to run on the
+   * main thread where WebAPIs are different than what a worker sees.
+   *
+   * This is different from our bounced bridge instantiated in
+   * TestUniverseMixins.__constructor where we create a MailAPI here on the
+   * worker and bridge the data to the main thread and back again just so we
+   * can test structured cloning impact and simplify our unit tests by really
+   * just running on one thread.
+   */
   ensureMainThreadMailAPI: function() {
     if (this._mainThreadMailBridge)
       return;
@@ -858,6 +870,20 @@ var TestCommonAccountMixins = {
 
       viewThing.slice.refresh();
     });
+  },
+
+  /**
+   * Given a viewThing from do_openFolderView/etc., get the SliceBridgeProxy
+   * corresponding to the viewThing.  Use this if you want to poke and prod at
+   * the slice.
+   */
+  getSliceBridgeProxyForView: function(viewThing) {
+    var bridge = this.testUniverse._mailBridge;
+    var mailSlice = viewThing.slice;
+    var proxy = bridge._slices[mailSlice._handle];
+    if (!proxy)
+      throw new Error('Unable to find SliceBridgeProxy!');
+    return proxy;
   },
 
   /**
