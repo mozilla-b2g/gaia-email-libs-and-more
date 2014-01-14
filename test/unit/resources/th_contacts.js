@@ -52,9 +52,18 @@ var TestContactsMixins = {
     self._dbByEmail = {};
     self._dbByContactId = {};
 
+    self._trappedFindCalls = null;
+
+    /**
+     * The fake mozContacts API.
+     *
+     * We support trapping by partially running the func and returning early.
+     * When the traps complete, the method gets called again with the request
+     * object originally returned.  This structuring is arbitrary.
+     */
     self.contactsAPI = window.navigator.mozContacts = {
 
-      find: function(options) {
+      find: function(options, _hackReq) {
         if (!options ||
             options.filterBy.length !== 1 ||
             (options.filterBy[0] !== 'email' &&
@@ -63,9 +72,22 @@ var TestContactsMixins = {
           self._logger.unsupportedFindCall(options);
           throw new Error("Unsupported find call!");
         }
-        self._logger.apiFind_begin(options.filterBy[0], options.filterOp,
-                                   options.filterValue, null);
-        var req = { onsuccess: null, onerror: null };
+        var req;
+        if (_hackReq) {
+          req = _hackReq;
+        }
+        else {
+          req = { onsuccess: null, onerror: null };
+          self._logger.apiFind_begin(options.filterBy[0], options.filterOp,
+                                     options.filterValue, null);
+        }
+
+        if (self._trappedFindCalls) {
+          self._trappedFindCalls.push(
+            { options: options, req: req });
+          return req;
+        }
+
         window.setZeroTimeout(function() {
           if (!req.onsuccess)
             return;
@@ -256,6 +278,27 @@ var TestContactsMixins = {
   clearContacts: function(contact) {
     this._logger.clearContacts();
     this.contactsAPI._clear();
+  },
+
+  /**
+   * Cause calls to mozContacts.find() to get stored but not processed.
+   */
+  trapFindCalls: function() {
+    this._trappedFindCalls = [];
+  },
+
+  /**
+   * Cause all the calls to mozContacts.find() that `trapFindCalls` stuck in
+   * limbo to actually run now.
+   */
+  releaseFindCalls: function() {
+    var trapped = this._trappedFindCalls;
+    this._trappedFindCalls = null;
+
+    for (var i = 0; i < trapped.length; i++) {
+      var trap = trapped[i];
+      this.contactsAPI.find(trap.options, trap.req);
+    }
   },
 };
 

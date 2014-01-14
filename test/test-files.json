@@ -144,7 +144,8 @@
     },
 
     "test_splice_ordering.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
+      "variants_why": "nothing account-specific gets tested",
+      "variants": ["imap:fake"]
     },
 
     "test_account_logic.js": {

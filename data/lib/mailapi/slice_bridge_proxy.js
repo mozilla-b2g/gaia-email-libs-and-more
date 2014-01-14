@@ -30,6 +30,10 @@ function SliceBridgeProxy(bridge, ns, handle) {
    */
   this.userCanGrowUpwards = false;
   this.userCanGrowDownwards = false;
+  /**
+   *  We batch both slices and updates into the same queue. The MailAPI checks
+   *  to differentiate between the two.
+   */
   this.pendingUpdates = [];
   this.scheduledUpdate = false;
 }
@@ -91,13 +95,11 @@ SliceBridgeProxy.prototype = {
     if (this.pendingUpdates.length > 5) {
       this.flushUpdates();
     } else if (!this.scheduledUpdate) {
-      setZeroTimeout(this.flushUpdates.bind(this));
+      window.setZeroTimeout(this.flushUpdates.bind(this));
       this.scheduledUpdate = true;
     }
   },
 
-  // We batch both slices and updates into the same queue
-  // The backend will check to differentiate between the two
   flushUpdates: function sbp_flushUpdates() {
     this._bridge.__sendMessage({
       type: 'batchSlice',

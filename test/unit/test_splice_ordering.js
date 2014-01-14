@@ -1,15 +1,13 @@
 /**
- * Account logic that currently needs to be its own file because IndexedDB
- * db reuse makes this test unhappy.
+ * Test slice/splice batching and ordering.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main', './resources/th_contacts',
-        'activesync/codepages', 
-        'mailapi/mailapi', 
+define(['rdcommon/testcontext', './resources/th_main',
+        './resources/th_contacts',
+        'mailapi/mailapi',
         'exports'],
        function($tc, $th_main, $th_contacts,
-        $ascp, 
-        $mailapi, 
+        $mailapi,
         exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -22,88 +20,76 @@ var TD = exports.TD = $tc.defineTestsFor(
  * in the correct order
  */
 TD.commonCase('Check Slices In Order', function(T, RT) {
-  var pendingUpdates = [];
-
-  // Ideally, I'd like to move this all down to SliceBridgeProxy
-  // but couldn't find a clean way to access it
-  function sendSlice(index, howMany, addItems, requested,
-                                      moreExpected, newEmailCount) {
-    var updateSplice = {
-      index: index,
-      howMany: howMany,
-      addItems: addItems,
-      requested: requested,
-      moreExpected: moreExpected,
-      newEmailCount: newEmailCount,
-      type: 'slice',
-    };
-    pendingUpdates.push(updateSplice);
-  }
-
-  function updateSlice(mailapi, newStatus, handle, onprocess) {
-    var message = {
-      type: 'batchSlice',
-      handle: handle,
-      status: newStatus,
-      progress: 0.1,
-      atTop: true,
-      atBottom: false,
-      userCanGrowUpwards: false,
-      userCanGrowDownwards: false,
-      sliceUpdates: pendingUpdates,
-      onprocess: onprocess
-    };
-
-    mailapi.__bridgeReceive(message);
-    pendingUpdates = [];
-  }
-
   T.group('setup');
   // Create an empty universe just to create proper slices for us
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
-      testContacts = T.actor('testContacts', 'contacts')
+      testContacts = T.actor('testContacts', 'contacts'),
       eLazy = T.lazyLogger('misc');
 
-  T.group('sync empty folder');
-  var emptyFolder = testAccount.do_createTestFolder(
-    'test_empty_sync', { count: 0 });
+  var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
+  // Open a slice just for the sake of having a slice; don't care what happens.
+  var inboxView = testAccount.do_openFolderView(
+    'syncs', inboxFolder, null, null,
+    { syncedToDawnOfTime: 'ignore' });
 
-  // Create a pending contact lookup and make sure we 
-  // Don't process any new messages until it's resolved
-  var bobsName = 'Bob Bobbington',
-  bobsEmail = 'bob@bob.nul';
-  T.setup('Create Bob Contact', function() {
-    testContacts.createContact(bobsName, [bobsEmail], 'quiet');
-  });
+  T.group('test ordering');
+  T.action(eLazy, "trap contact lookups, send slice updates, see no updates",
+           function() {
+    eLazy.expect_namedValue('pendingLookupCount', 1);
+    eLazy.expect_namedValue('processingMessage', null);
+    // We don't want the slice notifications or the contact resolution to happen
+    // this step.  But we do want to make sure that the batching setZeroTimeout
+    // has had a chance to fire and that roundtripping of messages has fully
+    // occurred.  MailAPI.ping() includes both a zeroTimeout and the
+    // roundtripping.
+    eLazy.expect_event('roundtrip');
 
-  T.action("Test Slice Ordering", eLazy, function() {
-    var mailapi = testUniverse.MailAPI;
-    var slice = mailapi._slices[1];
+    var bridgeProxy = testAccount.getSliceBridgeProxyForView(inboxView);
+    var sendSplice = bridgeProxy.sendSplice.bind(bridgeProxy);
 
-    sendSlice(0, 0, [], 0, false, false);
-    mailapi.resolveEmailAddressToPeep(bobsEmail, function(peep) {
+    // Make calls to mozContacts.find() not return until releaseFindCalls().
+    testContacts.trapFindCalls();
+
+    // Ask to resolve a contact.  This will cause pendingLookupCount to hit 1,
+    // which will make the splice processing wait until we resolve the contacts.
+    testUniverse.MailAPI.resolveEmailAddressToPeep(
+      'bob@bob.nul',
+      function(peep) {
+        eLazy.event('contact resolved!');
+      });
+    // Do check the lookup count did what we expected and didn't activate other
+    // request processing deferral logic.
+    eLazy.namedValue('pendingLookupCount',
+                     $mailapi.ContactCache.pendingLookupCount);
+    eLazy.namedValue('processingMessage',
+                     testUniverse.MailAPI._processingMessage);
+
+    inboxView.slice.onsplice = function() {
+      eLazy.event('splice!');
+    };
+
+    // Send an empty splice, goes in batch 1.
+    sendSplice(0, 0, [], 0, false, false);
+    // Send another empty splice, also goes in batch 1.
+    sendSplice(0, 0, [], 0, false, false);
+
+    testUniverse.MailAPI.ping(function() {
+      eLazy.event('roundtrip');
     });
-
-    updateSlice(mailapi, 'firstStatus', 1, function() {
-          eLazy.event('first splice');
-        }
-    );
-
-    // Send a Second update
-    slice = mailapi._slices[1];
-    sendSlice(0, 0, [], 0, false, false);
-    updateSlice(mailapi, 'updateSplice', 2, function() {
-        eLazy.event('update splice');
-      }
-    );
-
-    // This ordering must be adhered to
-    eLazy.expect_event('first splice');
-    eLazy.expect_event('update splice');
   });
 
-}); 
+  T.action(eLazy, "resolve contact, see splices", function() {
+    var mailapi = testUniverse.MailAPI;
+
+    eLazy.expect_event('contact resolved!');
+    eLazy.expect_event('splice!');
+    eLazy.expect_event('splice!');
+
+    testContacts.releaseFindCalls();
+  });
+
+});
 
 }); // end define
 

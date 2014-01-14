@@ -2107,7 +2107,12 @@ function MailAPI() {
   this._slices = {};
   this._pendingRequests = {};
   this._liveBodies = {};
-  this._spliceMessages= [];
+  /**
+   * Functions to invoke to actually process/fire splices.  Exists to support
+   * the fallout of waiting for contact resolution now that slice changes are
+   * batched.
+   */
+  this._spliceFireFuncs = [];
 
   // Store bridgeSend messages received before back end spawns.
   this._storedSends = [];
@@ -2179,7 +2184,8 @@ MailAPI.prototype = {
    * Process a message received from the bridge.
    */
   __bridgeReceive: function ma___bridgeReceive(msg) {
-    if (this._processingMessage) {
+    // Pong messages are used for tests
+    if (this._processingMessage && msg.type !== 'pong') {
       this._deferredMessages.push(msg);
     }
     else {
@@ -2188,12 +2194,6 @@ MailAPI.prototype = {
   },
 
   _processMessage: function ma__processMessage(msg) {
-    // Used only for testing to make sure we
-    // process messages in the right order
-    if (msg.onprocess) {
-      msg.onprocess();
-    }
-
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
       unexpectedBridgeDataError('Unsupported message type:', msg.type);
@@ -2229,27 +2229,12 @@ MailAPI.prototype = {
   },
 
   _fireAllSplices: function() {
-    for (var index in this._spliceMessages) {
-      var fireSpliceData = this._spliceMessages[index];
+    for (var i = 0; i < this._spliceFireFuncs.length; i++) {
+      var fireSpliceData = this._spliceFireFuncs[i];
       fireSpliceData();
     }
 
-    this._spliceMessages.length = 0;
-  },
-
-  _fireSplices: function(msg, slice, updateStatus) {
-    if (ContactCache.pendingLookupCount) {
-      ContactCache.callbacks.push(function contactsResolved() {
-        this._fireAllSplices();
-        this._fireStatusNotifications(updateStatus, slice);
-        this._doneProcessingMessage(msg);
-      }.bind(this));
-      return false;
-    }
-
-    this._fireAllSplices();
-    this._fireStatusNotifications(updateStatus, slice);
-    return true;
+    this._spliceFireFuncs.length = 0;
   },
 
   _recv_batchSlice: function receiveBatchSlice(msg) {
@@ -2261,15 +2246,33 @@ MailAPI.prototype = {
 
     var updateStatus = this._updateSliceStatus(msg, slice);
     for (var i = 0; i < msg.sliceUpdates.length; i++) {
-      var splice = msg.sliceUpdates[i];
-      if (splice.type == 'update') {
-        this._processSpliceUpdate(msg, splice, slice);
+      var update = msg.sliceUpdates[i];
+      if (update.type === 'update') {
+        // Updates are performed and fire immediately/synchronously
+        this._processSliceUpdate(msg, update, slice);
       } else {
-        this._processSingleSplice(msg, splice, slice);
+        // Added items are transformed immediately, but the actual mutation of
+        // the slice and notifications do not fire until _fireAllSplices().
+        this._transformAndEnqueueSingleSplice(msg, update, slice);
       }
     }
 
-    return this._fireSplices(msg, slice, updateStatus);
+    // If there are pending contact resolutions, we need to wait them to
+    // complete before processing and firing the splices.
+    if (ContactCache.pendingLookupCount) {
+      ContactCache.callbacks.push(function contactsResolved() {
+        this._fireAllSplices();
+        this._fireStatusNotifications(updateStatus, slice);
+        this._doneProcessingMessage(msg);
+      }.bind(this));
+      // (Wait for us to call _doneProcessingMessage before processing the next
+      // message.  This also means this method will only push one callback.)
+      return false;
+    }
+
+    this._fireAllSplices();
+    this._fireStatusNotifications(updateStatus, slice);
+    return true; // All done processing; feel free to process the next msg.
   },
 
   _fireStatusNotifications: function (updateStatus, slice) {
@@ -2298,7 +2301,7 @@ MailAPI.prototype = {
     return generatedStatusChange;
   },
 
-  _processSpliceUpdate: function (msg, splice, slice) {
+  _processSliceUpdate: function (msg, splice, slice) {
     try {
       for (var i = 0; i < splice.length; i += 2) {
         var idx = splice[i], wireRep = splice[i + 1],
@@ -2318,7 +2321,12 @@ MailAPI.prototype = {
     }
   },
 
-  _processSingleSplice: function(msg, splice, slice) {
+  /**
+   * Transform the slice splice (for contact-resolution side-effects) and
+   * enqueue the eventual processing and firing of the splice once all contacts
+   * have been resolved.
+   */
+  _transformAndEnqueueSingleSplice: function(msg, splice, slice) {
    var transformedItems = this._transform_sliceSplice(splice, slice);
    var fake = false;
     // It's possible that a transformed representation is depending on an async
@@ -2326,12 +2334,16 @@ MailAPI.prototype = {
     // the UI until the contacts are fully resolved in order to avoid the UI
     // flickering or just triggering reflows that could otherwise be avoided.
     // Since we could be processing multiple updates, just batch everything here
-    // and we'll check later to see if any of our splices requires a contact lookup
-    this._spliceMessages.push(function singleSpliceUpdate() {
+    // and we'll check later to see if any of our splices requires a contact
+    // lookup
+    this._spliceFireFuncs.push(function singleSpliceUpdate() {
       this._fireSplice(splice, slice, transformedItems, fake);
     }.bind(this));
   },
 
+  /**
+   * Perform the actual splice, generating notifications.
+   */
   _fireSplice: function(splice, slice, transformedItems, fake) {
     var i, stopIndex, items, tempMsg;
 
@@ -2366,8 +2378,10 @@ MailAPI.prototype = {
       }
     }
     // - perform actual splice
-    slice.items.splice.apply(slice.items,
-                             [splice.index, splice.howMany].concat(transformedItems));
+    slice.items.splice.apply(
+      slice.items,
+      [splice.index, splice.howMany].concat(transformedItems));
+
     // - generate item 'onadd' notifications
     if (slice.onadd) {
       try {
@@ -3433,10 +3447,13 @@ MailAPI.prototype = {
   // Diagnostics / Test Hacks
 
   /**
-   * Send a 'ping' to the bridge which will send a 'pong' back, notifying the
-   * provided callback.  This is intended to be hack to provide a way to ensure
-   * that some function only runs after all of the notifications have been
-   * received and processed by the back-end.
+   * After a setZeroTimeout, send a 'ping' to the bridge which will send a
+   * 'pong' back, notifying the provided callback.  This is intended to be hack
+   * to provide a way to ensure that some function only runs after all of the
+   * notifications have been received and processed by the back-end.
+   *
+   * Note that ping messages are always processed as they are received; they do
+   * not get deferred like other messages.
    */
   ping: function(callback) {
     var handle = this._nextHandle++;
@@ -3445,14 +3462,19 @@ MailAPI.prototype = {
       callback: callback,
     };
 
-    var bridgeSend = function() {
+    // With the introduction of slice batching, we now wait to send the ping.
+    // This is reasonable because there are conceivable situations where the
+    // caller really wants to wait until all related callbacks fire before
+    // dispatching.  And the ping method is already a hack to ensure correctness
+    // ordering that should be done using better/more specific methods, so this
+    // change is not any less of a hack/evil, although it does cause misuse to
+    // potentially be more capable of causing intermittent failures.
+    window.setZeroTimeout(function() {
       this.__bridgeSend({
         type: 'ping',
         handle: handle,
       });
-    };
-
-    setZeroTimeout(bridgeSend.bind(this));
+    }.bind(this));
   },
 
   _recv_pong: function(msg) {
