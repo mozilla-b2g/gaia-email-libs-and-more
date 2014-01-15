@@ -1,13 +1,24 @@
 language: node_js
 node_js:
-  - "0.8"
+- '0.8'
 before_script:
- - "export DISPLAY=:99.0"
- - "sh -e /etc/init.d/xvfb start"
- - "npm install"
+- export DISPLAY=:99.0
+- sh -e /etc/init.d/xvfb start
+- gem install travis-artifacts
+- npm install
 script: bash ./tools/ci/unit/travis.sh
+after_failure:
+- travis-artifacts upload --path test-logs --target-path artifacts/$TRAVIS_BUILD_NUMBER/$TRAVIS_JOB_NUMBER
 notifications:
   email: false
   irc:
     channels:
-      - "irc.mozilla.org#gelam"
+    - irc.mozilla.org#gelam
+env:
+  global:
+  - GELAM_LOG_FAILURES_ONLY=true
+  - GELAM_PRINT_TRAVIS_URLS=http://asuth-gelam-arbpl.s3.amazonaws.com/artifacts/$TRAVIS_BUILD_NUMBER/$TRAVIS_JOB_NUMBER/
+  - ARTIFACTS_S3_BUCKET=asuth-gelam-arbpl
+  - ARTIFACTS_AWS_REGION=us-east-1
+  - secure: vuOEvAQNtf6NZC3pofnDfxrRUy8xQiD1NAeV8E1owEN26q/iAxNOnn7bQAH1Uw2BqsagtoPfAmudu8y3W3iNxgyRGR/p/Rph6jFhpS2Jjt5jcTEG2ZI+Mf8rroF+CzfY+MMFBmXC1VAmbLuerIOCc9U4yKZzvoLUfyfeSZLdcjc=
+  - secure: nYYcbjOwYIzgIWIy2IW2L0ZYfZxKMbafWrb/CVW4tENL2u1ClrUA8tfCUOqc28Mo2rCJQJdpwKLmKEfyNQ5PpLWzqUtyIbG+Pp9gg9F+I3cjgR9qGqrFv/YHc8ii4oZjijQzOwmMbfqqxgDKnFaP8Ddbd9HqwUMIcW9YhGreHUc=
