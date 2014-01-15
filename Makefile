@@ -111,7 +111,6 @@ define run-tests  # $(call run-tests)
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
 	$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
-	cat test-logs/*.log > test-logs/all.logs
 endef
 
 # run one test
@@ -144,13 +143,16 @@ node_modules: package.json
 tests: build test-deps
 	$(call run-tests)
 
+concatenated-tests: tests
+	cat test-logs/*.log > test-logs/all.logs
+
 one-test: build test-deps
 	$(call run-one-test)
 
 post-one-test: one-test test-deps
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/$(basename $(SOLO_FILE)).logs
 
-post-tests: tests test-deps
+post-tests: concatenated-tests test-deps
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all.logs
 
 

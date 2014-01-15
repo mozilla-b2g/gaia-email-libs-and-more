@@ -488,6 +488,16 @@ const ENVIRON_MAPPINGS = [
     name: 'slow',
     envVar: 'GELAM_TEST_ACCOUNT_SLOW',
     coerce: Boolean
+  },
+  {
+    name: 'logFailuresOnly',
+    envVar: 'GELAM_LOG_FAILURES_ONLY',
+    coerce: Boolean
+  },
+  {
+    name: 'printTravisUrls',
+    envVar: 'GELAM_PRINT_TRAVIS_URLS',
+    coerce: function (x) { return x; }
   }
 ];
 var TEST_PARAMS = {
@@ -500,6 +510,9 @@ var TEST_PARAMS = {
   defaultArgs: true,
 
   testLogEnable: true,
+
+  logFailuresOnly: false,
+  printTravisUrls: false,
 };
 
 var TEST_NAME = null;
@@ -887,8 +900,10 @@ ActiveSyncServerProxy.prototype = {
 function summaryFromLoggest(testFileName, variant, logData) {
   var summary = {
     filename: testFileName,
+    result: null,
     tests: []
   };
+  var anyFailures = false;
   try {
     if (logData.fileFailure) {
       summary.tests.push({
@@ -897,6 +912,7 @@ function summaryFromLoggest(testFileName, variant, logData) {
         // in the case of a file failure, we need the variant hint...
         variant: variant
       });
+      anyFailures = true;
     }
     var definerLog = logData.log;
 
@@ -909,6 +925,9 @@ function summaryFromLoggest(testFileName, variant, logData) {
       var testPermLog = testCaseLog.kids[0];
 
       var result = testCaseLog.latched.result;
+      if (result === 'fail') {
+        anyFailures = true;
+      }
 
       // try and generate a concise summary of what failed.  In this case, we
       // pick the step that failed to report.
@@ -935,6 +954,10 @@ function summaryFromLoggest(testFileName, variant, logData) {
   }
   catch (ex) {
     console.harness('Problem generating loggest summary:', ex, '\n', ex.stack);
+  }
+
+  if (anyFailures) {
+    summary.result = 'fail';
   }
 
   return summary;
@@ -964,6 +987,12 @@ function printTestSummary(summary) {
     // (brief) failure details:
     if (test.result === 'fail') {
       dump('             failing step: ' + test.firstFailedStep + '\n');
+
+      if (TEST_PARAMS.printTravisUrls && summary._filename) {
+        dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
+             TEST_PARAMS.printTravisUrls + 'test-logs/' + summary._filename +
+             '\n');
+      }
     }
   });
 }
@@ -1136,10 +1165,17 @@ console.harness('calling writeTestLog and resolving');
             logData = JSON.parse(jsonStr);
         // this must be done prior to the compartment getting killed
         var summary = summaryFromLoggest(testFileName, variant, logData);
-        writeTestLog(testFileName, variant, jsonStr).then(function() {
-          console.harness('write completed!');
+        if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
+          writeTestLog(testFileName, variant, jsonStr, summary).then(
+            function() {
+              console.harness('write completed!');
+              deferred.resolve(summary);
+            });
+        }
+        else {
+          console.harness('not a failure, not writing');
           deferred.resolve(summary);
-        });
+        }
 
         // cleanup may kill things, so don't do this until after the above
         // functions have been able to snapshot the log
@@ -1202,11 +1238,12 @@ console.harness('calling writeTestLog and resolving');
   return deferred.promise;
 }
 
-function writeTestLog(testFileName, variant, jsonStr) {
+function writeTestLog(testFileName, variant, jsonStr, summary) {
   try {
     var encoder = new TextEncoder('utf-8');
     var logFilename = testFileName + '-' +
                       variant.replace(/:/g, '_') + '.log';
+    summary._filename = logFilename;
     var logPath = do_get_file('test-logs').path +
                   '/' + logFilename;
     console.harness('writing to', logPath);
