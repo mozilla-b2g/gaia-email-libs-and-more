@@ -990,8 +990,7 @@ function printTestSummary(summary) {
 
       if (TEST_PARAMS.printTravisUrls && summary._filename) {
         dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
-             TEST_PARAMS.printTravisUrls + 'test-logs/' + summary._filename +
-             '\n');
+             TEST_PARAMS.printTravisUrls + summary._filename + '\n');
       }
     }
   });
@@ -1247,9 +1246,17 @@ function writeTestLog(testFileName, variant, jsonStr, summary) {
     var logPath = do_get_file('test-logs').path +
                   '/' + logFilename;
     console.harness('writing to', logPath);
-    var str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
-          jsonStr + '\n' +
-          '##### LOGGEST-TEST-RUN-END #####\n';
+    var str;
+    // If we know the output is for Travis, don't put in the detector blocks,
+    // just generate raw JSON.
+    if (TEST_PARAMS.printTravisUrls) {
+      str = jsonStr;
+    }
+    else {
+      str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
+            jsonStr + '\n' +
+            '##### LOGGEST-TEST-RUN-END #####\n';
+    }
     var arr = encoder.encode(str);
     return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
   }
