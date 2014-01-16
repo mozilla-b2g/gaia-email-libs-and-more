@@ -381,6 +381,54 @@ TD.commonCase('POP3 selects preferredAuthMethod', function(T, RT) {
 });
 
 
+/**
+ * Some servers (ex: aol.com) will hang-up on us on an auth error with a bad
+ * password.
+ */
+TD.commonCase('POP3 bad creds on server that hangs up', function(T, RT) {
+  if (RT.envOptions.type !== 'pop3') { return; }
+
+  $th_main.thunkConsoleForNonTestUniverse();
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  cci.connInfo.port = PORT;
+
+  T.action(eCheck, 'hangup gives bad-user-or-pass', function() {
+    var precommands = [];
+    precommands.push({
+      match: /AUTH/,
+      actions: [
+        {
+          cmd: 'fake-receive',
+          data: '-ERR\r\n',
+        },
+        {
+          cmd: 'instant-close',
+        }
+      ],
+    });
+    FawltySocketFactory.precommand(
+      HOST, PORT,
+      {
+        cmd: 'fake',
+        data: '+OK hey\r\n',
+      },
+      precommands);
+    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+    prober = new (proberClass(RT))(cci.credentials, cci.connInfo, eCheck._logger);
+    prober.onresult = function(err, conn) {
+      eCheck.namedValue('err', err);
+    };
+    eCheck.expect_event('incoming:clearTimeout');
+    eCheck.expect_namedValue('err', 'bad-user-or-pass');
+  });
+});
+
+
 var KEEP_ALIVE_TIMEOUT_MS = 10000;
 
 function cannedLoginTest(T, RT, opts) {

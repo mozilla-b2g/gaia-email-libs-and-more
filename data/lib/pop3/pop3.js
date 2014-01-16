@@ -195,6 +195,11 @@ function(module, exports, log, net, crypto,
       });
     }.bind(this));
 
+    this.socket.on('close', function() {
+      this.protocol.onclose();
+      this.die();
+    }.bind(this));
+
     // To track requests/responses in the presence of a server
     // greeting, store an empty request here. Our request/response
     // matching logic will pair the server's greeting with this

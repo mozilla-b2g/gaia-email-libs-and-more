@@ -49,6 +49,16 @@ TD.commonCase('reports bad password', function(T, RT) {
     });
   }
 
+  /**
+   * Set whether or not the server will drop the connection after
+   * failed authentication.
+   */
+  function setDropOnAuthFailure(dropOnAuthFailure) {
+    T.action('set dropOnAuthFailure = ', dropOnAuthFailure.toString(),
+             eCheck, function() {
+      testAccount.testServer.setDropOnAuthFailure(dropOnAuthFailure);
+    });
+  }
 
   T.group('use bad password on initial connect');
   changeServerPassword('newPassword1', 'mismatch');
@@ -79,6 +89,44 @@ TD.commonCase('reports bad password', function(T, RT) {
     });
 
   }).timeoutMS = 5000;
+
+  if (testAccount.type === 'pop3') {
+    T.group('pop3 handles connection drop on auth failure');
+    // clear problems from the previous failure so that we still
+    // receive proper onbadlogin events below
+    T.action('clear account problems', eCheck, function() {
+      var acct = testUniverse.allAccountsSlice.items[0];
+      acct.clearProblems();
+    });
+
+    setDropOnAuthFailure(true);
+    changeServerPassword('newPassword1', 'mismatch');
+    T.action('create connection, should fail, generate MailAPI event',
+             eCheck, testAccount.eBackoff, function() {
+      eCheck.expect_namedValue('accountCheck:err', true);
+      eCheck.expect_namedValue('account:enabled', false);
+      eCheck.expect_namedValue('account:problems',
+        ['bad-user-or-pass', 'connection']);
+      eCheck.expect_event('badlogin');
+
+      testUniverse.MailAPI.onbadlogin = function(acct) {
+        eCheck.event('badlogin');
+      };
+
+      testAccount.folderAccount.checkAccount(function(err) {
+        eCheck.namedValue('accountCheck:err', !!err);
+        eCheck.namedValue('account:enabled',
+                          testAccount.folderAccount.enabled);
+        eCheck.namedValue('account:problems',
+                          (testAccount.compositeAccount ||
+                           testAccount.folderAccount).problems);
+      });
+
+    }).timeoutMS = 5000;
+
+    // reset it back to normal
+    setDropOnAuthFailure(false);
+  }
 
   T.group('use good password on initial connect');
   changeClientPassword('newPassword1', 'match');
