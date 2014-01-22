@@ -23,7 +23,7 @@
     "url": "https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues"
   },
   "devDependencies": {
-    "mail-fakeservers": "~0.0.12",
+    "mail-fakeservers": "~0.0.13",
     "mozilla-download": "~0.4"
   }
 }

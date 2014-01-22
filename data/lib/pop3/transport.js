@@ -237,6 +237,16 @@ define(['exports'], function(exports) {
   }
 
   /**
+   * Trigger the response callback with '-ERR desc\r\n'.
+   */
+  Request.prototype._respondWithError = function(desc) {
+    var rsp = new Response([textEncoder.encode(
+      '-ERR ' + desc + '\r\n')], false);
+    rsp.request = this;
+    this.onresponse(rsp, null);
+  }
+
+  /**
    * Couple a POP3 parser with a request/response model, such that
    * you can easily hook Pop3Protocol up to a socket (or other
    * transport) to get proper request/response semantics.
@@ -253,6 +263,7 @@ define(['exports'], function(exports) {
     this.unsentRequests = []; // if not pipelining, queue requests one at a time
     this.pipeline = false;
     this.pendingRequests = [];
+    this.closed = false;
   }
 
   exports.Response = Response;
@@ -280,6 +291,12 @@ define(['exports'], function(exports) {
     } else {
       req = new Request(cmd, args, expectMultiline, cb);
     }
+
+    if (this.closed) {
+      req._respondWithError('(request sent after connection closed)');
+      return;
+    }
+
     if (this.pipeline || this.pendingRequests.length === 0) {
       this.onsend(req.toByteArray());
       this.pendingRequests.push(req);
@@ -321,6 +338,25 @@ define(['exports'], function(exports) {
           req.onresponse(null, response);
         }
       }
+    }
+  }
+
+  /**
+   * Call this function when the socket attached to this protocol is
+   * closed. Any current requests that have been enqueued but not yet
+   * responded to will be sent a dummy "-ERR" response, indicating
+   * that the underlying connection closed without actually
+   * responding. This avoids the case where we hang if we never
+   * receive a response from the server.
+   */
+  Pop3Protocol.prototype.onclose = function() {
+    this.closed = true;
+    var requestsToRespond = this.pendingRequests.concat(this.unsentRequests);
+    this.pendingRequests = [];
+    this.unsentRequests = [];
+    for (var i = 0; i < requestsToRespond.length; i++) {
+      var req = requestsToRespond[i];
+      req._respondWithError('(connection closed, no response)');
     }
   }
 });

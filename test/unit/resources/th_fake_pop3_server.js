@@ -289,6 +289,13 @@ var TestFakePOP3ServerMixins = {
       credentials: newCreds
     });
   },
+
+  setDropOnAuthFailure: function(dropOnAuthFailure) {
+    return this._backdoor({
+      command: 'setDropOnAuthFailure',
+      dropOnAuthFailure: dropOnAuthFailure
+    });
+  }
 };
 
 

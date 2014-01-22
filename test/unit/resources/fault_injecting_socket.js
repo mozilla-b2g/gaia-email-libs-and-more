@@ -225,8 +225,10 @@ FawltySocket.prototype = {
           // from it.
           this._queueEvent('close');
           this._queueEvent('end');
-          this._sock.end();
-          this._sock = null;
+          if (this._sock) {
+            this._sock.end();
+            this._sock = null;
+          }
           FawltySocketFactory.__deadSocket(this);
           break;
         case 'detach':
@@ -274,7 +276,7 @@ FawltySocket.prototype = {
 
     if (!this._sock) {
       sendText = new TextDecoder('utf-8').decode(data);
-      console.log('Ignoring send beacuse no sock or watch:', sendText);
+      console.log('Ignoring send because no sock or watch:', sendText);
       return null;
     }
 
