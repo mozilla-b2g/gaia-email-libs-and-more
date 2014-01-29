@@ -101,8 +101,13 @@ function makeSlice(storage, callback, parentLog) {
  */
 function CronSync(universe, _logParent) {
   this._universe = universe;
-  this._universeDeferred = $prim();
+  this._universeDeferred = {};
   this._isUniverseReady = false;
+
+  this._universeDeferred.promise = $prim(function (resolve, reject) {
+    this._universeDeferred.resolve = resolve;
+    this._universeDeferred.reject = reject;
+  }.bind(this));
 
   this._LOG = LOGFAB.CronSync(this, null, _logParent);
 
