@@ -219,6 +219,7 @@ MailBridge.prototype = {
       // we're offline.
       if (!err || (
           err !== 'bad-user-or-pass' &&
+          err !== 'bad-address' &&
           err !== 'needs-app-pass' &&
           err !== 'imap-disabled'
         )) {

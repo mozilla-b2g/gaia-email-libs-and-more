@@ -201,32 +201,35 @@ function cannedLoginTest(T, RT, opts) {
     eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', opts.expectResult);
+    var precommands = [
+      {
+        match: true,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: opts.ehloResponse || SMTP_EHLO_RESPONSE
+          },
+        ],
+      },
+      {
+        match: true,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: opts.loginErrorString
+          }
+        ],
+      },
+    ];
+    if (opts.precommands) {
+      precommands = precommands.concat(opts.precommands);
+    }
     FawltySocketFactory.precommand(
       HOST, PORT,
       {
         cmd: 'fake',
         data: SMTP_GREETING,
-      },
-      [
-        {
-          match: true,
-          actions: [
-            {
-              cmd: 'fake-receive',
-              data: opts.ehloResponse || SMTP_EHLO_RESPONSE
-            },
-          ],
-        },
-        {
-          match: true,
-          actions: [
-            {
-              cmd: 'fake-receive',
-              data: opts.loginErrorString
-            }
-          ],
-        },
-      ]);
+      }, precommands);
     prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
     prober.onresult = function(err) {
       eCheck.namedValue('probe result', err);
@@ -249,5 +252,69 @@ TD.commonCase('angry server', function(T, RT) {
     expectResult: 'server-problem',
   });
 });
+
+TD.commonCase('bad address', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: '200 Keep up the good work\r\n',
+    precommands: [
+      {
+        match: /MAIL FROM/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 Continue\r\n',
+          }
+        ]
+      },
+      {
+        match: /RCPT TO/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '554 Sender Address Rejected\r\n',
+          }
+        ]
+      }
+    ],
+    expectResult: 'bad-address',
+  });
+});
+
+TD.commonCase('good address', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: '200 Keep up the good work\r\n',
+    precommands: [
+      {
+        match: /MAIL FROM/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 Continue\r\n',
+          }
+        ]
+      },
+      {
+        match: /RCPT TO/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 rock on little buddy\r\n',
+          }
+        ]
+      },
+      {
+        match: /DATA/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 go ahead\r\n',
+          }
+        ]
+      },
+    ],
+    expectResult: null,
+  });
+});
+
 
 }); // end define
