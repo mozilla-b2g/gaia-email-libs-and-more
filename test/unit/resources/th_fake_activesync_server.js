@@ -201,6 +201,52 @@ var TestActiveSyncServerMixins = {
     });
   },
 
+  modifyMessagesInFolder: function(serverFolderInfo, messages,
+                                   addFlags, delFlags) {
+    var changes = {};
+    addFlags = addFlags || [];
+    delFlags = delFlags || [];
+    addFlags.forEach(function(flag) {
+      switch (flag) {
+        case '\\Flagged':
+          changes.flag = true;
+          break;
+        case '\\Seen':
+          changes.read = true;
+          break;
+        default:
+          console.warn('ActiveSync does not grok (add) flag:', flag);
+          break;
+      }
+    });
+    delFlags.forEach(function(flag) {
+      switch (flag) {
+        case '\\Flagged':
+          changes.flag = false;
+          break;
+        case '\\Seen':
+          changes.read = false;
+          break;
+        default:
+          console.warn('ActiveSync does not grok (false) flag:', flag);
+          break;
+      }
+    });
+    var serverIds = messages.map(function(message) {
+      // message is either a MailHeader (where srvid is currently available) or
+      // a knownMessage, in which case the rep is what we generated in
+      // addMessagesToFolder where the good stuff is in id
+      return message._wireRep ? message._wireRep.srvid : message.id;
+    });
+    return this._backdoor({
+      command: 'modifyMessagesInFolder',
+      folderId: serverFolderInfo.id,
+      serverIds: serverIds,
+      changes: changes
+    });
+
+  },
+
   deleteMessagesFromFolder: function(serverFolderInfo, messages) {
     // The server is our friend and uses the message's message-id header value
     // as its serverId.
