@@ -223,9 +223,11 @@ var properties = {
       }
       this._conn = null;
     }
+    this._LOG.checkAccount_begin(null);
     this.withConnection(function(err) {
+      this._LOG.checkAccount_end(err);
       callback(err);
-    }, 'checkAccount');
+    }.bind(this), 'checkAccount');
   },
 
   /**

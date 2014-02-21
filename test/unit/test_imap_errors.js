@@ -182,9 +182,11 @@ TD.commonCase('general reconnect logic', function(T) {
     eCheck.expect_event('connection demand fulfilled');
     eCheck.expect_namedValue('accountCheck:err', false);
     testAccount.eBackoff.expect_state('healthy');
+    testAccount.eImapAccount.expect_checkAccount_begin(null);
     testAccount.eImapAccount.expect_createConnection();
     testAccount.eImapAccount.expect_reuseConnection();
     testAccount.eImapAccount.expect_releaseConnection();
+    testAccount.eImapAccount.expect_checkAccount_end(null);
     testAccount.imapAccount.checkAccount(function(err) {
       eCheck.namedValue('accountCheck:err', !!err);
     });

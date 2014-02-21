@@ -75,6 +75,13 @@ TD.commonCase('reports bad password', function(T, RT) {
       testAccount.eBackoff.expect_state('broken');
     }
 
+    // this is a front-end side (unsolicited) notification that fires as a
+    // result of the back-end side call to checkAccount triggering a call to
+    // __reportAccountProblems since the account had no problems prior to the
+    // password changing.  This will ALWAYS fire after the checkAccount callback
+    // because the callback happens in the back-end context, whereas this
+    // notification will fire in a future turn of the event loop because it is
+    // sent across our postMessage bridge(s).
     testUniverse.MailAPI.onbadlogin = function(acct) {
       eCheck.event('badlogin');
     };
@@ -94,24 +101,32 @@ TD.commonCase('reports bad password', function(T, RT) {
     T.group('pop3 handles connection drop on auth failure');
     // clear problems from the previous failure so that we still
     // receive proper onbadlogin events below
-    T.action('clear account problems', eCheck, function() {
-      var acct = testUniverse.allAccountsSlice.items[0];
-      acct.clearProblems();
+    T.action(testUniverse.eUniverse, 'clear account problems', function() {
+      testUniverse.eUniverse.expect_clearAccountProblems(testAccount.id);
+
+      // Clear the problems on the back-end.  This runs no checks and happens
+      // synchronously.
+      testUniverse.universe.clearAccountProblems(testAccount.account);
     });
 
     setDropOnAuthFailure(true);
-    changeServerPassword('newPassword1', 'mismatch');
+    // our password is still a mismatch
     T.action('create connection, should fail, generate MailAPI event',
              eCheck, testAccount.eBackoff, function() {
       eCheck.expect_namedValue('accountCheck:err', true);
       eCheck.expect_namedValue('account:enabled', false);
+      // We only expect bad-user-or-pass because our clearAccountProblems
+      // call cleared the prior connection failure we had from the previous
+      // test step and the loss of the account during the authentication phase
+      // got folded into bad-user-or-pass.
       eCheck.expect_namedValue('account:problems',
-        ['bad-user-or-pass', 'connection']);
+        ['bad-user-or-pass']);
+      // testUniverse.MailAPI.onbadlogin is still going to log 'badlogin'
+      // from the previous steps.  It will fire after the checkAccount call
+      // below for the same reason it did before; we've just cleared our
+      // account problems and so the side-effect of the back-end side call
+      // will result in an *unsolicited* badlogin notification.
       eCheck.expect_event('badlogin');
-
-      testUniverse.MailAPI.onbadlogin = function(acct) {
-        eCheck.event('badlogin');
-      };
 
       testAccount.folderAccount.checkAccount(function(err) {
         eCheck.namedValue('accountCheck:err', !!err);
