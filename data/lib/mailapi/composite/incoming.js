@@ -439,6 +439,7 @@ exports.LOGFAB_DEFINITION = {
       opError: { mode: false, type: false, ex: log.EXCEPTION },
     },
     asyncJobs: {
+      checkAccount: { err: null },
       runOp: { mode: true, type: true, error: false, op: false },
     },
     TEST_ONLY_asyncJobs: {

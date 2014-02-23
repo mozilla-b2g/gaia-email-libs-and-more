@@ -226,9 +226,22 @@ var TestUniverseMixins = {
             });
           var bouncedSendMessage = $router.registerSimple(
             'bounced-bridge',
-            function(data) {
-              TMA.__bridgeReceive(data.args);
+            function(msg) {
+              // we duplicate the logic of __bridgeReceive here a little to
+              // figure out whether this is a deferral or not.  If it is a
+              // deferral, we log it as such.  We log processing by decorating
+              // MailAPI._processMessage.
+              if (TMA._processingMessage && msg.type !== 'pong') {
+                self._bridgeLog.apiDefer(msg.type, msg);
+              }
+              TMA.__bridgeReceive(msg.args);
             });
+
+          var origProcessMessage = TMA._processMessage;
+          TMA._processMessage = function(msg) {
+            self._bridgeLog.apiProcess(msg.type, msg);
+            origProcessMessage.call(TMA, msg);
+          };
 
           TMA.__bridgeSend = function(msg) {
             self._bridgeLog.apiSend(msg.type, msg);
@@ -2655,6 +2668,8 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     subtype: $log.CLIENT,
     events: {
       apiSend: { type: false, msg: false },
+      apiDefer: { type: false, msg: false },
+      apiProcess: { type: false, msg: false },
       bridgeSend: { type: false, msg: false },
     },
   },

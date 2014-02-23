@@ -709,7 +709,11 @@ var properties = {
   },
 
   checkAccount: function(listener) {
-    this._makeConnection(listener, null, 'check');
+    this._LOG.checkAccount_begin(null);
+    this._makeConnection(function(err) {
+      this._LOG.checkAccount_end(err);
+      listener(err);
+    }.bind(this), null, 'check');
   },
 
   accountDeleted: function() {
