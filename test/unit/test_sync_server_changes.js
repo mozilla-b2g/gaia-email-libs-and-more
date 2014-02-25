@@ -81,6 +81,19 @@ TD.commonCase('detect server changes', function(T) {
     expectedRefreshChanges,
     { top: true, bottom: true, grow: false, newCount: 0 });
 
+
+  T.group('fail to get the message body for a deleted message');
+  T.action(eSync, 'request deleted message body from',
+           testFolder.storageActor, function() {
+    eSync.expect_namedValue('bodyInfo', null);
+    testFolder.storageActor.expect_bodyNotFound();
+    var deletedHeader = expectedRefreshChanges.deletions[0];
+    deletedHeader.getBody(function(bodyInfo) {
+      eSync.namedValue('bodyInfo', bodyInfo);
+      // it's null so we don't call bodyInfo.die(), but if it wasn't...!
+    });
+  });
+
   T.group('cleanup');
   testAccount.do_closeFolderView(checkView);
 });
