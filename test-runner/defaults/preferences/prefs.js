@@ -8,6 +8,8 @@ pref("dom.report_all_js_exceptions", true);
 // something wants to prompt real bad, and our fake prompts don't work.
 pref("browser.prompt.allowNative", true);
 
+pref("jsloader.reuseGlobal", false);
+
 // turn off OOP stuff
 pref("dom.mozBrowserFramesEnabled", true);
 pref("dom.ipc.processCount", 0);
