@@ -34,6 +34,10 @@ function FawltySocket(host, port, options, cmdDict) {
 
   this._receiveWatches = [];
   this._sendWatches = [];
+  if (cmdDict && cmdDict.callOnOpen) {
+    cmdDict.callOnOpen();
+  }
+  this._callOnWrite = (cmdDict && cmdDict.callOnWrite) || null;
   if (cmdDict && cmdDict.onSend)
     this.doOnSendText(cmdDict.onSend);
   if (cmdDict && cmdDict.pre) {
@@ -69,6 +73,10 @@ function FawltySocket(host, port, options, cmdDict) {
         else {
           console.log('No fake-receive data!');
         }
+        return;
+      case 'fake-no-connect':
+        // just be fake, but don't even send a fake connect event yet.  owner
+        // should call _queueEvent('connect') when ready to connect.
         return;
 
       case 'port-not-listening':
@@ -273,6 +281,10 @@ FawltySocket.prototype = {
         return true;
       }
     }
+    if (this._callOnWrite) {
+      sendText = new TextDecoder('utf-8').decode(data);
+      this._callOnWrite(sendText);
+    }
 
     if (!this._sock) {
       sendText = new TextDecoder('utf-8').decode(data);
@@ -286,6 +298,8 @@ FawltySocket.prototype = {
 
 
 var FawltySocketFactory = exports.FawltySocketFactory = {
+  // 'live' means looks open to code using the fake socket; this has nothing to
+  // do with actually having a real socket connection backing the fake sock.
   _liveSockets: [],
   _precommands: {},
 
@@ -310,8 +324,12 @@ var FawltySocketFactory = exports.FawltySocketFactory = {
    * port-not-listening, and bad-security, plus one bonus: fake.
    *
    */
-  precommand: function(host, port, command, onSend) {
-    var cmdDict = { pre: command, onSend: onSend };
+  precommand: function(host, port, command, onSend, otherOpts) {
+    var cmdDict = {
+      pre: command, onSend: onSend,
+      callOnOpen: (otherOpts && otherOpts.callOnOpen) || undefined,
+      callOnWrite: (otherOpts && otherOpts.callOnWrite) || undefined
+    };
     var key = host + port;
     if (this._precommands.hasOwnProperty(key))
       this._precommands[key].push(cmdDict);

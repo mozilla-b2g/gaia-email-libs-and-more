@@ -52,8 +52,7 @@ function proberClass(RT) {
 
 function openResponse(RT) {
   if (RT.envOptions.type === "imap") {
-    return '* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID' +
-           ' ENABLE IDLE STARTTLS AUTH=PLAIN] Dovecot ready.\r\n';
+    return '* OK IMAP rules, POP3 drools\r\n';
   } else if (RT.envOptions.type === "pop3") {
     return '+OK POP3 READY\r\n';
   }
@@ -166,7 +165,7 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
       HOST, cci.connInfo.port,
       {
         cmd: 'fake',
-        data: openResponse(RT).replace('STARTTLS ', ''),
+        data: openResponse(RT)
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
@@ -464,7 +463,7 @@ function cannedLoginTest(T, RT, opts) {
       });
     } else { // IMAP
       precommands.push({
-          match: true,
+          match: /CAPABILITY/,
           actions: [
             {
               cmd: 'fake-receive',
