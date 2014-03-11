@@ -1705,16 +1705,22 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   delete ctx.storage._dirtyBodyBlocks['2'];
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 3);
-  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('3'));
-  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+
+  // - clear another dirt bit for the bodyBlocks to verify just
+  // one extra blockInfo is kept
+  delete ctx.storage._dirtyBodyBlocks['1'];
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
 
   // - clear all dirty bits, keep alive via mail slices
   delete ctx.storage._dirtyHeaderBlocks['0'];
   delete ctx.storage._dirtyHeaderBlocks['1'];
   delete ctx.storage._dirtyHeaderBlocks['2'];
   delete ctx.storage._dirtyBodyBlocks['0'];
-  delete ctx.storage._dirtyBodyBlocks['1'];
   delete ctx.storage._dirtyBodyBlocks['3'];
 
   var startHeader = headers[4], endHeader = headers[0];
@@ -1725,19 +1731,27 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   });
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(2, ctx.storage._loadedHeaderBlockInfos.length);
-  do_check_eq(2, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_eq(1, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_true(ctx.storage._headerBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('2'));
-  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 
-  // clear slices, all blocks should be collected
+  // clear slices, all blocks should be collected, except for
+  // the most recent bodyBlock item.
   ctx.storage._slices.pop();
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(0, ctx.storage._loadedHeaderBlockInfos.length);
-  do_check_eq(0, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_eq(1, ctx.storage._loadedBodyBlockInfos.length);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 });
 
 /**
@@ -1795,6 +1809,38 @@ TD.commonSimple('discard cached blocks by message', function(eLazy) {
     'body', friendHeader.date, friendHeader.id);
   do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 1);
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+});
+
+////////////////////////////////////////////////////////////////////////////////
+// Confirm headerCount is tracked correctly
+TD.commonSimple('headerCount tracking', function(eLazy) {
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      uid1 = 201, h1,
+      uid2 = 202, h2;
+
+  // no headers set up yet
+  do_check_eq(ctx.storage.headerCount, 0);
+
+  $syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+  var headers = injectSomeMessages(ctx, 11, BIG3);
+
+  do_check_eq(ctx.storage.headerCount, 11);
+
+  h1 = ctx.insertHeader(d1, uid1);
+  ctx.insertBody(d1, uid1, BIG3, 4);
+  h2 = ctx.insertHeader(d2, uid2);
+  ctx.insertBody(d2, uid2, BIG3, 4);
+  do_check_eq(ctx.storage.headerCount, 13);
+
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h1);
+  do_check_eq(ctx.storage.headerCount, 12);
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h2);
+  do_check_eq(ctx.storage.headerCount, 11);
 });
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -17,6 +17,8 @@ function SliceBridgeProxy(bridge, ns, handle) {
   this.progress = 0.0;
   this.atTop = false;
   this.atBottom = false;
+  this.headerCount = 0;
+
   /**
    * Can we potentially grow the slice in the negative direction if explicitly
    * desired by the user or UI desires to be up-to-date?  For example,
@@ -55,7 +57,14 @@ SliceBridgeProxy.prototype = {
       requested: requested,
       moreExpected: moreExpected,
       newEmailCount: newEmailCount,
-      type: 'slice',
+      // send header count here instead of batchSlice,
+      // since need an accurate count for each splice
+      // call: there could be two splices for the 0
+      // index in a row, and setting count on the
+      // batchSlice will not give an accurate picture
+      // that the slice actions are growing the slice.
+      headerCount: this.headerCount,
+      type: 'slice'
     };
     this.addUpdate(updateSplice);
   },
