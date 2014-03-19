@@ -381,6 +381,68 @@ TD.commonCase('POP3 selects preferredAuthMethod', function(T, RT) {
 
 
 /**
+ * Ensure that APOP authentication works properly.
+ */
+TD.commonCase('POP3 APOP', function(T, RT) {
+  if (RT.envOptions.type !== 'pop3') { return; }
+
+  $th_main.thunkConsoleForNonTestUniverse();
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  cci.connInfo.port = PORT;
+
+  T.action(eCheck, 'works with APOP', function() {
+    var precommands = [];
+    precommands.push({
+      match: /APOP/,
+      actions: [
+        {
+          cmd: 'fake-receive',
+          data: '+OK\r\n',
+        },
+      ],
+    });
+    precommands.push({
+      match: /UIDL 1/,
+      actions: [
+        {
+          cmd: 'fake-receive',
+          data: '+OK\r\n',
+        },
+      ],
+    });
+    precommands.push({
+      match: /TOP 1/,
+      actions: [
+        {
+          cmd: 'fake-receive',
+          data: '+OK\r\n.\r\n',
+        },
+      ],
+    });
+    FawltySocketFactory.precommand(
+      HOST, PORT,
+      {
+        cmd: 'fake',
+        data: '+OK POP3 Ready <apop@apop>\r\n',
+      },
+      precommands);
+    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+    prober = new (proberClass(RT))(cci.credentials, cci.connInfo, eCheck._logger);
+    prober.onresult = function(err, conn) {
+      eCheck.namedValue('authMethod', conn.authMethod);
+    };
+    eCheck.expect_event('incoming:clearTimeout');
+    eCheck.expect_namedValue('authMethod', 'apop');
+  });
+});
+
+
+/**
  * Some servers (ex: aol.com) will hang-up on us on an auth error with a bad
  * password.
  */
