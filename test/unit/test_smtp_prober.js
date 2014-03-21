@@ -44,6 +44,7 @@ function makeCredsAndConnInfo() {
       password: 'PASSWORD',
     },
     connInfo: {
+      emailAddress: 'username@domain',
       hostname: HOST,
       port: PORT,
       crypto: true,
@@ -258,7 +259,7 @@ TD.commonCase('bad address', function(T, RT) {
     loginErrorString: '200 Keep up the good work\r\n',
     precommands: [
       {
-        match: /MAIL FROM/ig,
+        match: /MAIL FROM:<username@domain>/ig,
         actions: [
           {
             cmd: 'fake-receive',
@@ -267,7 +268,7 @@ TD.commonCase('bad address', function(T, RT) {
         ]
       },
       {
-        match: /RCPT TO/ig,
+        match: /RCPT TO:<username@domain>/ig,
         actions: [
           {
             cmd: 'fake-receive',
@@ -285,7 +286,7 @@ TD.commonCase('good address', function(T, RT) {
     loginErrorString: '200 Keep up the good work\r\n',
     precommands: [
       {
-        match: /MAIL FROM/ig,
+        match: /MAIL FROM:<username@domain>/ig,
         actions: [
           {
             cmd: 'fake-receive',
@@ -294,7 +295,7 @@ TD.commonCase('good address', function(T, RT) {
         ]
       },
       {
-        match: /RCPT TO/ig,
+        match: /RCPT TO:<username@domain>/ig,
         actions: [
           {
             cmd: 'fake-receive',
