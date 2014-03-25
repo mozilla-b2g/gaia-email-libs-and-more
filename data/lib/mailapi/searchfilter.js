@@ -81,6 +81,7 @@
 define(
   [
     'rdcommon/log',
+    './util',
     './syncbase',
     './date',
     'module',
@@ -88,11 +89,14 @@ define(
   ],
   function(
     $log,
+    $util,
     $syncbase,
     $date,
     $module,
     exports
   ) {
+var bsearchMaybeExists = $util.bsearchMaybeExists,
+    cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld;
 
 /**
  * This internal function checks if a string or a regexp matches an input
@@ -658,6 +662,38 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
 
   refresh: function() {
     // no one should actually call this.
+  },
+
+  onHeaderModified: function searchslice_onHeaderModified(header) {
+    if (!this._bridgeHandle)
+      return;
+    var headers = [];
+    this.headers.forEach(function(element) {
+      headers.push(element.header);
+    });
+    var idx = bsearchMaybeExists(headers, header, cmpHeaderYoungToOld);
+    if (idx !== null) {
+      // There is no identity invariant to ensure this is already true.
+      this.headers[idx] = header;
+      this._bridgeHandle.sendUpdate([idx, header]);
+    }
+  },
+
+  onHeaderRemoved: function searchslice_onHeaderRemoved(header) {
+    if (!this._bridgeHandle)
+      return;
+    var headers = [];
+    this.headers.forEach(function(element) {
+      headers.push(element.header);
+    });
+    var idx = bsearchMaybeExists(headers, header, cmpHeaderYoungToOld);
+    if (idx !== null) {
+      if (!this._accumulating)
+        this._bridgeHandle.sendSplice(idx, 1, [],
+                                      Boolean(this.waitingOnData),
+                                      Boolean(this.waitingOnData));
+      this.headers.splice(idx, 1);
+    }
   },
 
   reqNoteRanges: function(firstIndex, firstSuid, lastIndex, lastSuid) {

@@ -1044,6 +1044,10 @@ MailMatchedHeader.prototype = {
     };
   },
 
+  __update: function(wireRep) {
+    this.header.__update(wireRep);
+  },
+
   __die: function() {
     this.header.__die();
   },
