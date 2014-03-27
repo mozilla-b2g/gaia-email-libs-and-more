@@ -112,7 +112,14 @@ exports.latch = function() {
     count++;
     var resolved = false;
     return function resolve() {
-      if (resolved) { return; }
+      if (resolved) {
+        var err = new Error("You have already resolved this deferred!");
+        // Exceptions aren't always readily visible, but this is a
+        // serious error and needs to be addressed.
+        console.error(err + '\n' + err.stack);
+        throw err;
+      }
+      resolved = true;
       if (name) {
         results[name] = Array.slice(arguments);
       }

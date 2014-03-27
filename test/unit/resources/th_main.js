@@ -511,6 +511,22 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Modify the account, asserting that the modification completed.
+   */
+  do_modifyAccount: function(options) {
+    var eCheck = this.T.lazyLogger('check');
+    this.T.action(this, 'modify account', eCheck,
+                  'with options', JSON.stringify(options), function() {
+      var acct = this.testUniverse.allAccountsSlice
+            .getAccountById(this.accountId);
+      eCheck.expect_event('modifyAccount done');
+      acct.modifyAccount(options, function() {
+        eCheck.event('modifyAccount done');
+      });
+    }.bind(this));
+  },
+
+  /**
    * @args[
    *   @param[viewThing]
    *   @param[expected @dict[

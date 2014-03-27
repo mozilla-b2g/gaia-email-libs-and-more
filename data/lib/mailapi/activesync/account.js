@@ -172,6 +172,13 @@ ActiveSyncAccount.prototype = {
       this.conn.connect(function(error) {
         if (error) {
           this._reportErrorIfNecessary(error);
+          // If the error was HTTP 401 (bad user/pass), report it as
+          // bad-user-or-pass so that account logic like
+          // _cmd_clearAccountProblems knows whether or not to report
+          // the error as user-serviceable.
+          if (this._isBadUserOrPassError(error) && !failString) {
+            failString = 'bad-user-or-pass';
+          }
           errback(failString || 'unknown');
           return;
         }
@@ -182,6 +189,12 @@ ActiveSyncAccount.prototype = {
     }
   },
 
+  _isBadUserOrPassError: function(error) {
+    return (error &&
+            error instanceof $asproto.HttpError &&
+            error.status === 401);
+  },
+
   /**
    * Reports the error to the user if necessary.
    */
@@ -190,9 +203,10 @@ ActiveSyncAccount.prototype = {
       return;
     }
 
-    if (error instanceof $asproto.HttpError && error.status === 401) {
+    if (this._isBadUserOrPassError(error)) {
       // prompt the user to try a different password
-      this.universe.__reportAccountProblem(this, 'bad-user-or-pass');
+      this.universe.__reportAccountProblem(
+        this, 'bad-user-or-pass', 'incoming');
     }
   },
 

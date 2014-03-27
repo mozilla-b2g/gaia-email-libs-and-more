@@ -1,6 +1,5 @@
 /**
- * Test whether an account responds properly to an invalid password,
- * both for ActiveSync and IMAP accounts.
+ * Test whether an account responds properly to an invalid password.
  *
  * ActiveSync does not use persistent connections, but it has a notion of being
  * 'connected' in terms of having established the right server endpoint to talk
@@ -25,146 +24,163 @@ TD.commonCase('reports bad password', function(T, RT) {
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('check');
 
-  function changeClientPassword(password, desc) {
-    T.action('change the client password to', password, '(' + desc + ')',
-             eCheck, function() {
-      eCheck.expect_event('roundtrip');
-      var acct = testUniverse.allAccountsSlice.items[0];
-      acct.modifyAccount({ password: password });
-      // we don't need to wait for correctness; just to keep any errors in the
-      // right test step rather than letting them smear into the next one.
-      testUniverse.MailAPI.ping(function() {
-        eCheck.event('roundtrip');
-      });
-    });
-  }
-
-  function changeServerPassword(password, desc) {
-    T.action('change the server password to', password, '(' + desc + ')',
-             eCheck, function() {
-
-      // this executes synchronously; no expectations required
-      testAccount.testServer.changeCredentials(
-        { password: password });
-    });
-  }
-
-  /**
-   * Set whether or not the server will drop the connection after
-   * failed authentication.
-   */
-  function setDropOnAuthFailure(dropOnAuthFailure) {
-    T.action('set dropOnAuthFailure = ', dropOnAuthFailure.toString(),
-             eCheck, function() {
-      testAccount.testServer.setDropOnAuthFailure(dropOnAuthFailure);
-    });
-  }
-
-  T.group('use bad password on initial connect');
-  changeServerPassword('newPassword1', 'mismatch');
-  T.action('create connection, should fail, generate MailAPI event',
-           eCheck, testAccount.eBackoff, function() {
-    eCheck.expect_namedValue('accountCheck:err', true);
-    eCheck.expect_namedValue('account:enabled', false);
-    eCheck.expect_namedValue('account:problems', ['bad-user-or-pass']);
-    eCheck.expect_event('badlogin');
-
-    // only IMAP accounts have eBackoff
-    if (testAccount.type === 'imap') {
-      testAccount.eBackoff.expect_connectFailure(true);
-      testAccount.eBackoff.expect_state('broken');
-    }
-
-    // this is a front-end side (unsolicited) notification that fires as a
-    // result of the back-end side call to checkAccount triggering a call to
-    // __reportAccountProblems since the account had no problems prior to the
-    // password changing.  This will ALWAYS fire after the checkAccount callback
-    // because the callback happens in the back-end context, whereas this
-    // notification will fire in a future turn of the event loop because it is
-    // sent across our postMessage bridge(s).
+  T.action('set up MailAPI.onbadlogin', function() {
     testUniverse.MailAPI.onbadlogin = function(acct) {
       eCheck.event('badlogin');
     };
+  });
 
-    testAccount.folderAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
-      eCheck.namedValue('account:enabled',
-                        testAccount.folderAccount.enabled);
-      eCheck.namedValue('account:problems',
-                        (testAccount.compositeAccount ||
-                         testAccount.folderAccount).problems);
-    });
+  // Go through all possible permutations of password logic. Incoming
+  // could be wrong, outgoing could be wrong, either or both could be
+  // right, server passwords could be the same for incoming and
+  // outgoing or differ, etc. We'll run through every possible
+  // combination as follows:
+  var RIGHT = 'success';
+  var WRONG = 'failure';
 
-  }).timeoutMS = 5000;
+  var passwordPermutations = [
+    { incoming: RIGHT, outgoing: RIGHT, drop: false, passwordsMatch: false },
+    { incoming: RIGHT, outgoing: WRONG, drop: false, passwordsMatch: false },
+    { incoming: WRONG, outgoing: RIGHT, drop: false, passwordsMatch: false },
+    { incoming: WRONG, outgoing: WRONG, drop: false, passwordsMatch: false },
+    { incoming: RIGHT, outgoing: RIGHT, drop: false, passwordsMatch: true },
+    { incoming: RIGHT, outgoing: WRONG, drop: false, passwordsMatch: true },
+    { incoming: WRONG, outgoing: RIGHT, drop: false, passwordsMatch: true },
+    { incoming: WRONG, outgoing: WRONG, drop: false, passwordsMatch: true },
+  ];
 
   if (testAccount.type === 'pop3') {
-    T.group('pop3 handles connection drop on auth failure');
-    // clear problems from the previous failure so that we still
-    // receive proper onbadlogin events below
-    T.action(testUniverse.eUniverse, 'clear account problems', function() {
-      testUniverse.eUniverse.expect_clearAccountProblems(testAccount.id);
+    // Let's also test POP3's password handling in the presence of a
+    // server who drops the connection on auth failure. This runs all
+    // the tests as above, both with dropOnAuthFailure and without.
+    JSON.parse(JSON.stringify(passwordPermutations)).forEach(function(perm) {
+      perm.drop = true;
+      passwordPermutations.push(perm);
+    });
+  } else if (testAccount.type === 'activesync') {
+    // ActiveSync has no concept of an outgoing password; so for
+    // logic's sake, set outgoing to always be RIGHT.
+    passwordPermutations.forEach(function(perm) {
+      perm.outgoing = RIGHT;
+    });
+  }
 
-      // Clear the problems on the back-end.  This runs no checks and happens
-      // synchronously.
-      testUniverse.universe.clearAccountProblems(testAccount.account);
+  // For each permutation, set up the passwords as specified. Then,
+  // correct the passwords by updating the client's logic to match
+  // what the server expects. This should result in a successful
+  // connection at the end, every time.
+  passwordPermutations.forEach(function(permutation, idx) {
+    // NOTE: drop means dropOnAuthFailure (POP3 only);
+    // passwordsMatch means (incoming password === outgoing password)
+    var { incoming, outgoing, passwordsMatch, drop } = permutation;
+
+    // Set up the passwords as specified in the current permutation.
+    var rightPasswords = {};
+    if (passwordsMatch) {
+      rightPasswords.incoming = rightPasswords.outgoing = 'password' + idx;
+    } else {
+      rightPasswords.incoming = 'incoming' + idx;
+      rightPasswords.outgoing = 'outgoing' + idx;
+    }
+    var wrongPasswords = {
+      incoming: 'wrong' + rightPasswords.incoming,
+      outgoing: 'wrong' + rightPasswords.outgoing
+    };
+    var clientPasswords = {
+      incoming: (incoming === RIGHT ? rightPasswords : wrongPasswords).incoming,
+      outgoing: (outgoing === RIGHT ? rightPasswords : wrongPasswords).outgoing,
+    };
+
+    T.group(JSON.stringify(permutation));
+
+    T.action('Server incoming => ' + rightPasswords.incoming, function() {
+      // this executes synchronously; no expectations required
+      testAccount.testServer.changeCredentials(
+        { password: rightPasswords.incoming });
     });
 
-    setDropOnAuthFailure(true);
-    // our password is still a mismatch
-    T.action('create connection, should fail, generate MailAPI event',
-             eCheck, testAccount.eBackoff, function() {
-      eCheck.expect_namedValue('accountCheck:err', true);
-      eCheck.expect_namedValue('account:enabled', false);
-      // We only expect bad-user-or-pass because our clearAccountProblems
-      // call cleared the prior connection failure we had from the previous
-      // test step and the loss of the account during the authentication phase
-      // got folded into bad-user-or-pass.
-      eCheck.expect_namedValue('account:problems',
-        ['bad-user-or-pass']);
-      // testUniverse.MailAPI.onbadlogin is still going to log 'badlogin'
-      // from the previous steps.  It will fire after the checkAccount call
-      // below for the same reason it did before; we've just cleared our
-      // account problems and so the side-effect of the back-end side call
-      // will result in an *unsolicited* badlogin notification.
-      eCheck.expect_event('badlogin');
+    T.action('Server outgoing => ' + rightPasswords.outgoing, function() {
+      // this executes synchronously; no expectations required
+      testAccount.testServer.changeCredentials(
+        { outgoingPassword: rightPasswords.outgoing });
+    });
 
-      testAccount.folderAccount.checkAccount(function(err) {
-        eCheck.namedValue('accountCheck:err', !!err);
-        eCheck.namedValue('account:enabled',
-                          testAccount.folderAccount.enabled);
+    // Change the client passwords to be right or wrong as specified
+    // in the current test permutation.
+
+    testAccount.do_modifyAccount(
+      { password: clientPasswords.incoming });
+    testAccount.do_modifyAccount(
+      { outgoingPassword: clientPasswords.outgoing });
+
+    if (testAccount.type === 'pop3') {
+      T.action('Set dropOnAuthFailure => ' + drop, eCheck, function() {
+        testAccount.testServer.setDropOnAuthFailure(drop);
+      });
+    }
+
+    // Expect success or failure, as appropriate.
+    confirmPasswordCausesSuccessOrFailure(incoming, outgoing);
+
+    // Fix the client passwords to match what the server expects.
+    testAccount.do_modifyAccount(
+      { password: rightPasswords.incoming });
+    testAccount.do_modifyAccount(
+      { outgoingPassword: rightPasswords.outgoing });
+
+    // After updating the client passwords to be correct, the account
+    // should be fully operational.
+    confirmPasswordCausesSuccessOrFailure(RIGHT, RIGHT, incoming, outgoing);
+  });
+
+  /**
+   * Check the account; if incoming is RIGHT, then the incoming side
+   * of the account should succeed without errors. If incoming is
+   * WRONG, the incoming side of the account should fail. Etc.
+   * previousIncoming and previousOutgoing are only provided if we
+   * have previously tested a failing account and want to ensure that
+   * the newly-succeeding account cleans up its connection
+   * backoff/healing state.
+   */
+  function confirmPasswordCausesSuccessOrFailure(
+    incoming, outgoing, previousIncoming, previousOutgoing) {
+    var eitherWrong = (incoming === WRONG || outgoing === WRONG);
+    T.action('Expect incoming ' + incoming + ', outgoing ' + outgoing,
+             eCheck, outgoing, testAccount.eBackoff, function() {
+      if (eitherWrong) {
+        eCheck.expect_event('badlogin');
+      }
+      var expectedProblems = [];
+      if (eitherWrong) {
+        expectedProblems.push('bad-user-or-pass');
+      }
+      if (incoming === WRONG && testAccount.type !== 'activesync') {
+        expectedProblems.push('connection');
+      }
+
+      eCheck.expect_namedValue('account:problems', expectedProblems);
+      eCheck.expect_namedValue('account:enabled', !eitherWrong);
+
+      if (incoming === WRONG && testAccount.type !== 'activesync') {
+        // Only IMAP and POP3 accounts have eBackoff.
+        testAccount.eBackoff.expect_connectFailure(true);
+        testAccount.eBackoff.expect_state('broken');
+      } else if (testAccount.type === 'imap' && previousIncoming === WRONG) {
+        // If IMAP was broken before, eBackoff should heal itself.
+        testAccount.eBackoff.expect_state('healthy');
+      }
+
+      testUniverse.allAccountsSlice.items[0].clearProblems(function() {
         eCheck.namedValue('account:problems',
                           (testAccount.compositeAccount ||
                            testAccount.folderAccount).problems);
+        eCheck.namedValue('account:enabled',
+                          testAccount.folderAccount.enabled);
       });
 
     }).timeoutMS = 5000;
 
-    // reset it back to normal
-    setDropOnAuthFailure(false);
   }
-
-  T.group('use good password on initial connect');
-  changeClientPassword('newPassword1', 'match');
-
-  T.action('healthy connect!', eCheck, testAccount,
-           testAccount.eBackoff,
-           testAccount.eImapAccount, function() {
-    if (testAccount.type === 'imap') {
-      testAccount.eBackoff.expect_state('healthy');
-    }
-    eCheck.expect_namedValue('accountCheck:err', false);
-    eCheck.expect_namedValue('account:enabled', true);
-
-    testAccount.folderAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
-      var acct = testUniverse.allAccountsSlice.items[0];
-      acct.clearProblems(function() {
-        eCheck.namedValue('account:enabled',
-                          testAccount.folderAccount.enabled);
-
-      });
-    });
-  }).timeoutMS = 5000;
 
   // ActiveSync only; as discussed in the file block comment, make sure that if
   // the connection is already 'established' (OPTIONS run) that we still error.
@@ -184,7 +200,11 @@ TD.commonCase('reports bad password', function(T, RT) {
       { syncedToDawnOfTime: true });
 
     T.group('resync folder with bad password');
-    changeServerPassword('newPassword2', 'mismatch');
+    T.action('set bad password', function() {
+      // this executes synchronously; no expectations required
+      testAccount.testServer.changeCredentials(
+        { password: 'something else' });
+    });
 
     // Try and sync; we should fail and badlogin should be generated.
     // (onbadlogin is still set to generate badlogin events)

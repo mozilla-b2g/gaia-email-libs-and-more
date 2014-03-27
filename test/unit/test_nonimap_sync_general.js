@@ -152,13 +152,10 @@ TD.commonCase('folder sync', function(T, RT) {
 
   T.group('change sync range to all messages');
   T.action(eSync, 'change sync range', function() {
-    eSync.expect_event('roundtrip');
+    eSync.expect_event('modifyAccount done');
     var acct = testUniverse.allAccountsSlice.items[0];
-    acct.modifyAccount({ syncRange: 'all' });
-    // we don't need to wait for correctness; just to keep any errors in the
-    // right test step rather than letting them smear into the next one.
-    testUniverse.MailAPI.ping(function() {
-      eSync.event('roundtrip');
+    acct.modifyAccount({ syncRange: 'all' }, function() {
+      eSync.event('modifyAccount done');
     });
   });
   testAccount.do_viewFolder(

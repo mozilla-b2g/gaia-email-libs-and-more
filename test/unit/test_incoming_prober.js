@@ -9,9 +9,9 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
   './resources/fault_injecting_socket', 'mailapi/imap/probe', 'imap',
-  'mailapi/pop3/probe', 'pop3/pop3', 'exports'],
+  'mailapi/pop3/probe', 'pop3/pop3', 'mailapi/smtp/probe', 'exports'],
 function($tc, $th_main, $fawlty, $imapProbe,
-         $imap, $pop3Probe, $pop3, exports) {
+         $imap, $pop3Probe, $pop3, $smtpProbe, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -69,7 +69,8 @@ function badStarttlsResponse(RT) {
 function capabilityResponse(RT) {
   if (RT.envOptions.type === "imap") {
     return [
-      '* CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE STARTTLS AUTH=PLAIN',
+      '* CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE' +
+        ' STARTTLS AUTH=PLAIN',
       'A1 OK Pre-login capabilities listed, post-login capabilities have more.',
     ].join('\r\n') + '\r\n';
   } else if (RT.envOptions.type === "pop3") {
@@ -85,6 +86,7 @@ function makeCredsAndConnInfo() {
     credentials: {
       username: 'USERNAME',
       password: 'PASSWORD',
+      outgoingPassword: 'SMTP-PASSWORD',
     },
     connInfo: {
       hostname: HOST,
@@ -136,6 +138,39 @@ TD.commonCase('SSL failure', function(T, RT) {
     };
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
+  });
+});
+
+TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
+  $th_main.thunkConsoleForNonTestUniverse();
+  var eCheck = T.lazyLogger('check'),
+      prober = null;
+
+  var fireTimeout = thunkTimeouts(eCheck);
+  var cci = makeCredsAndConnInfo();
+
+  T.action(eCheck, 'with custom SMTP creds', function() {
+    cci.credentials.outgoingUsername = 'user1';
+    cci.credentials.outgoingPassword = 'pass1';
+    prober = new $smtpProbe.SmtpProber(
+      cci.credentials, cci.connInfo, eCheck._logger);
+    eCheck.expect_namedValue('user', 'user1');
+    eCheck.expect_namedValue('pass', 'pass1');
+    eCheck.namedValue('user', prober._conn.options.auth.user);
+    eCheck.namedValue('pass', prober._conn.options.auth.pass);
+  });
+
+  T.action(eCheck, 'with matching incoming/outgoing creds', function() {
+    cci.credentials.username = 'user1';
+    cci.credentials.password = 'pass1';
+    cci.credentials.outgoingUsername = undefined;
+    cci.credentials.outgoingPassword = undefined;
+    prober = new $smtpProbe.SmtpProber(
+      cci.credentials, cci.connInfo, eCheck._logger);
+    eCheck.expect_namedValue('user', 'user1');
+    eCheck.expect_namedValue('pass', 'pass1');
+    eCheck.namedValue('user', prober._conn.options.auth.user);
+    eCheck.namedValue('pass', prober._conn.options.auth.pass);
   });
 });
 
@@ -370,7 +405,8 @@ TD.commonCase('POP3 selects preferredAuthMethod', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(cci.credentials, cci.connInfo, eCheck._logger);
+    prober = new (proberClass(RT))(
+      cci.credentials, cci.connInfo, eCheck._logger);
     prober.onresult = function(err, conn) {
       eCheck.namedValue('authMethod', conn.authMethod);
     };

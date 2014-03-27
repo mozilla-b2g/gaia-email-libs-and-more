@@ -33,9 +33,21 @@ exports.configurator = {
     var credentials, incomingInfo, smtpConnInfo, incomingType;
     if (domainInfo) {
       incomingType = (domainInfo.type === 'imap+smtp' ? 'imap' : 'pop3');
+      var password = null;
+      // If the account has an outgoingPassword, use that; otherwise
+      // use the main password. We must take care to treat null values
+      // as potentially valid in the future, if we allow password-free
+      // account configurations.
+      if (userDetails.outgoingPassword !== undefined) {
+        password = userDetails.outgoingPassword;
+      } else {
+        password = userDetails.password;
+      }
       credentials = {
         username: domainInfo.incoming.username,
         password: userDetails.password,
+        outgoingUsername: domainInfo.outgoing.username,
+        outgoingPassword: password,
       };
       incomingInfo = {
         hostname: domainInfo.incoming.hostname,
@@ -123,6 +135,9 @@ exports.configurator = {
     var credentials = {
       username: oldAccountDef.credentials.username,
       password: oldAccountDef.credentials.password,
+      // (if these two keys are null, keep them that way:)
+      outgoingUsername: oldAccountDef.credentials.outgoingUsername,
+      outgoingPassword: oldAccountDef.credentials.outgoingPassword,
     };
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var oldType = oldAccountDef.type || 'imap+smtp';
