@@ -80,6 +80,17 @@ buildOptions = {
     'mailparser': 'data/deps/mailparser/lib',
     'simplesmtp': 'data/deps/simplesmtp',
     'mailcomposer': 'data/deps/mailcomposer'
+  },
+
+  // Rewrite the waitSeconds config so that we never time out
+  // waiting for modules to load in production. See config.js
+  // for more details.
+  onBuildWrite: function(id, url, contents) {
+    if (id === 'config') {
+      return contents.replace(/waitSeconds:\s*\d+/, 'waitSeconds: 0');
+    } else {
+      return contents;
+    }
   }
 };
 
