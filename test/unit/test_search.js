@@ -86,7 +86,7 @@ TD.commonCase('author filter', function(T) {
       var author = new $filters.AuthorFilter(sample.phrase);
       var match = {};
       var ret = author.testMessage(sample.headers, '', match);
-      eLazy.namedValueD('matches?', !!ret, ret);
+      eLazy.namedValueD('matches?', !!ret, match);
       if (!ret)
         return;
       eLazy.namedValue('offset', match.author.matchRuns[0].start);
@@ -155,6 +155,8 @@ TD.commonCase('recipient filter', function(T) {
 TD.commonCase('subject filter', function(T) {
   var eLazy = T.lazyLogger('filter');
 
+  var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 4;
+
   var samples = [
     {
       name: 'match multiple times',
@@ -162,8 +164,22 @@ TD.commonCase('subject filter', function(T) {
       header: { subject: 'bobobob' },
       result: true,
       matches: [
-        { start: 0, length: 3 },
-        { start: 4, length: 3 }
+        {
+          text: 'bobobob',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: null
+        },
+        {
+          text: 'bobobob',
+          offset: 0,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        }
       ]
     },
     {
@@ -172,8 +188,22 @@ TD.commonCase('subject filter', function(T) {
       header: { subject: 'bObObOb' },
       result: true,
       matches: [
-        { start: 0, length: 3 },
-        { start: 4, length: 3 }
+        {
+          text: 'bObObOb',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: null
+        },
+        {
+          text: 'bObObOb',
+          offset: 0,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        }
       ]
     },
     {
@@ -189,7 +219,79 @@ TD.commonCase('subject filter', function(T) {
       header: { subject: null },
       result: false,
       matches: []
-    }
+    },
+    {
+      name: 'context word-break white-space/terminus',
+      phrase: 'bob',
+      header: { subject: 'ab cd bob dc ba bob xy' },
+      result: true,
+      matches: [
+        {
+          text: 'cd bob dc',
+          offset: 3,
+          matchRuns: [
+            { start: 3, length: 3 }
+          ],
+          path: null
+        },
+        {
+          text: 'ba bob xy',
+          offset: 13,
+          matchRuns: [
+            { start: 3, length: 3 }
+          ],
+          path: null
+        }
+      ]
+    },
+    {
+      name: 'context fragments on too-long',
+      phrase: 'bob',
+      header: { subject: 'longgg bob longgggg bob' },
+      result: true,
+      matches: [
+        {
+          text: 'ggg bob lon',
+          offset: 3,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        },
+        {
+          text: 'ggg bob',
+          offset: 16,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        }
+      ]
+    },
+    {
+      name: 'context word-break just-right',
+      phrase: 'bob',
+      header: { subject: 'yay bob hey bob' },
+      result: true,
+      matches: [
+        {
+          text: 'yay bob hey',
+          offset: 0,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        },
+        {
+          text: 'hey bob',
+          offset: 8,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: null
+        }
+      ]
+    },
   ];
 
   samples.forEach(function(sample) {
@@ -197,24 +299,336 @@ TD.commonCase('subject filter', function(T) {
       eLazy.expect_namedValueD('matches?', sample.result);
       if (sample.result) {
         for (var i = 0; i < sample.matches.length; i++) {
-          eLazy.expect_namedValue('matchRun', [sample.matches[i]]);
+          eLazy.expect_namedValue('match[' + i + ']', sample.matches[i]);
         }
       }
 
-      var subject = new $filters.SubjectFilter(sample.phrase, 20, 0, 10000);
+      var subject = new $filters.SubjectFilter(sample.phrase, 20,
+                                               CONTEXT_BEFORE, CONTEXT_AFTER);
       var match = {};
       var ret = subject.testMessage(sample.header, {}, match);
       eLazy.namedValueD('matches?', !!ret, match);
       if (!ret)
         return;
       for (i = 0; i < match.subject.length; i++) {
-        eLazy.namedValue('matchRun', match.subject[i].matchRuns);
+        eLazy.namedValue('match[' + i + ']', match.subject[i]);
       }
     });
   });
 });
 
+/**
+ * Find matches in quotechew'ed text/plain body.  We're assuming the subject
+ * tests took care of testing the edge cases in snippetMatchHelper.
+ */
+TD.commonCase('body plain', function(T) {
+  var eLazy = T.lazyLogger('filter');
 
-// XXX write a body test
+  var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 4;
+
+  var CONTENT = 0x1, Q1 = 0x4;
+
+  var bodyQuoteOnePerChunk = {
+    bodyReps: [
+      {
+        type: 'plain',
+        content: [
+          Q1, 'foo bar',
+          CONTENT, 'foo baz'
+        ]
+      }
+    ]
+  };
+  var bodyQuoteTwoPerChunk = {
+    bodyReps: [
+      {
+        type: 'plain',
+        content: [
+          Q1, 'foo bar foo',
+          CONTENT, 'foo bazo foo'
+        ]
+      }
+    ]
+  };
+
+
+  var samples = [
+    {
+      name: 'ignore quotes foo x one',
+      phrase: /foo/,
+      matchQuotes: false,
+      header: { },
+      body: bodyQuoteOnePerChunk,
+      result: true,
+      matches: [
+        {
+          text: 'foo baz',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: [0, 2]
+        }
+      ]
+    },
+    {
+      name: 'match quotes foo x one',
+      phrase: /foo/,
+      matchQuotes: true,
+      header: { },
+      body: bodyQuoteOnePerChunk,
+      result: true,
+      matches: [
+        {
+          text: 'foo bar',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: [0, 0]
+        },
+        {
+          text: 'foo baz',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: [0, 2]
+        }
+      ]
+    },
+    {
+      name: 'ignore quotes foo x two',
+      phrase: /foo/,
+      matchQuotes: false,
+      header: { },
+      body: bodyQuoteTwoPerChunk,
+      result: true,
+      matches: [
+        {
+          text: 'foo baz',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: [0, 2]
+        },
+        {
+          text: 'azo foo',
+          offset: 5,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: [0, 2]
+        }
+      ]
+    },
+    {
+      name: 'match quotes foo x one',
+      phrase: /foo/,
+      matchQuotes: true,
+      header: { },
+      body: bodyQuoteTwoPerChunk,
+      result: true,
+      matches: [
+        {
+          text: 'foo bar',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: [0, 0]
+        },
+        {
+          text: 'bar foo',
+          offset: 4,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: [0, 0]
+        },
+        {
+          text: 'foo baz',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 },
+          ],
+          path: [0, 2]
+        },
+        {
+          text: 'azo foo',
+          offset: 5,
+          matchRuns: [
+            { start: 4, length: 3 }
+          ],
+          path: [0, 2]
+        }
+      ]
+    },
+  ];
+
+  samples.forEach(function(sample) {
+    T.action(sample.name, eLazy, function() {
+      eLazy.expect_namedValueD('matches?', sample.result);
+      if (sample.result) {
+        // the advantage to breaking these out is that the diff algorithm in the
+        // ArbPL/loggest UI can do useful things; but this is a little silly.
+        for (var i = 0; i < sample.matches.length; i++) {
+          eLazy.expect_namedValue('body[].text',
+                                  sample.matches[i].text);
+          eLazy.expect_namedValue('body[].offset',
+                                  sample.matches[i].offset);
+          eLazy.expect_namedValue('body[].matchRuns',
+                                  sample.matches[i].matchRuns);
+          eLazy.expect_namedValue('body[].path',
+                                  sample.matches[i].path);
+        }
+      }
+
+      var bodyFilter = new $filters.BodyFilter(
+        sample.phrase, sample.matchQuotes, 20, CONTEXT_BEFORE, CONTEXT_AFTER);
+      var match = {};
+      var ret = bodyFilter.testMessage(sample.header, sample.body, match);
+      eLazy.namedValueD('matches?', !!ret, match);
+      if (!ret) {
+        return;
+      }
+      for (i = 0; i < match.body.length; i++) {
+        eLazy.namedValue('body[].text', match.body[i].text);
+        eLazy.namedValue('body[].offset', match.body[i].offset);
+        eLazy.namedValue('body[].matchRuns', match.body[i].matchRuns);
+        eLazy.namedValue('body[].path', match.body[i].path);
+      }
+    });
+  });
+});
+
+TD.commonCase('body html', function(T) {
+  var eLazy = T.lazyLogger('filter');
+
+  var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 12;
+
+  var CONTENT = 0x1, Q1 = 0x4;
+
+  var cleverBody = {
+    bodyReps: [
+      {
+        type: 'html',
+        content: 'foo<blockquote>bar</blockquote>d<b>ytown</b>'
+      }
+    ]
+  };
+
+
+  var samples = [
+    {
+      name: 'no quotes, naive substring with flattened context',
+      phrase: /foo/,
+      matchQuotes: false,
+      header: { },
+      body: cleverBody,
+      result: true,
+      matches: [
+        {
+          text: 'foodytown',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: null
+        }
+      ]
+    },
+    {
+      name: 'no quotes, full substring',
+      phrase: /foodytown/,
+      matchQuotes: false,
+      header: { },
+      body: cleverBody,
+      result: true,
+      matches: [
+        {
+          text: 'foodytown',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 9 }
+          ],
+          path: null
+        }
+      ]
+    },
+    {
+      name: 'yes quotes, naive substring with flattened context',
+      phrase: /foo/,
+      matchQuotes: true,
+      header: { },
+      body: cleverBody,
+      result: true,
+      matches: [
+        {
+          text: 'foobardytown',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 3 }
+          ],
+          path: null
+        }
+      ]
+    },
+    {
+      name: 'yes quotes, full substring',
+      phrase: /foobardytown/,
+      matchQuotes: true,
+      header: { },
+      body: cleverBody,
+      result: true,
+      matches: [
+        {
+          text: 'foobardytown',
+          offset: 0,
+          matchRuns: [
+            { start: 0, length: 12 }
+          ],
+          path: null
+        }
+      ]
+    },
+  ];
+
+  samples.forEach(function(sample) {
+    T.action(sample.name, eLazy, function() {
+      eLazy.expect_namedValueD('matches?', sample.result);
+      if (sample.result) {
+        // the advantage to breaking these out is that the diff algorithm in the
+        // ArbPL/loggest UI can do useful things; but this is a little silly.
+        for (var i = 0; i < sample.matches.length; i++) {
+          eLazy.expect_namedValue('body[].text',
+                                  sample.matches[i].text);
+          eLazy.expect_namedValue('body[].offset',
+                                  sample.matches[i].offset);
+          eLazy.expect_namedValue('body[].matchRuns',
+                                  sample.matches[i].matchRuns);
+          eLazy.expect_namedValue('body[].path',
+                                  sample.matches[i].path);
+        }
+      }
+
+      var bodyFilter = new $filters.BodyFilter(
+        sample.phrase, sample.matchQuotes, 20, CONTEXT_BEFORE, CONTEXT_AFTER);
+      var match = {};
+      var ret = bodyFilter.testMessage(sample.header, sample.body, match);
+      eLazy.namedValueD('matches?', !!ret, match);
+      if (!ret) {
+        return;
+      }
+      for (i = 0; i < match.body.length; i++) {
+        eLazy.namedValue('body[].text', match.body[i].text);
+        eLazy.namedValue('body[].offset', match.body[i].offset);
+        eLazy.namedValue('body[].matchRuns', match.body[i].matchRuns);
+        eLazy.namedValue('body[].path', match.body[i].path);
+      }
+    });
+  });
+});
 
 }); // end define

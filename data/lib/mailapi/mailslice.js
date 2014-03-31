@@ -4004,7 +4004,7 @@ FolderStorage.prototype = {
                                  this, header, bodyInfo, callback));
       return;
     }
-    this._LOG.addMessageBody(header.date, header.id, header.srvid);
+    this._LOG.addMessageBody(header.date, header.id, header.srvid, bodyInfo);
 
     // crappy size estimates where we assume the world is ASCII and so a UTF-8
     // encoding will take exactly 1 byte per character.
@@ -4381,6 +4381,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       syncedToDawnOfTime: {},
     },
     TEST_ONLY_events: {
+      addMessageBody: { body: false }
     },
     asyncJobs: {
       loadBlock: { type: false, blockId: false },
