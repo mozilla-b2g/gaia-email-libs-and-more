@@ -1086,7 +1086,8 @@ ActiveSyncFolderConn.prototype = {
       }
     };
 
-    this._storage.updateMessageHeader(header.date, header.id, false, header);
+    this._storage.updateMessageHeader(header.date, header.id, false, header,
+                                      bodyInfo);
     this._storage.updateMessageBody(header, bodyInfo, {}, event);
     this._storage.runAfterDeferredCalls(callback.bind(null, null, bodyInfo));
   },
@@ -1127,7 +1128,7 @@ ActiveSyncFolderConn.prototype = {
         if (storage.hasMessageWithServerId(message.header.srvid))
           continue;
 
-        storage.addMessageHeader(message.header);
+        storage.addMessageHeader(message.header, message.body);
         storage.addMessageBody(message.header, message.body);
         addedMessages++;
       }
@@ -1142,7 +1143,7 @@ ActiveSyncFolderConn.prototype = {
                                               function(oldHeader) {
           message.header.mergeInto(oldHeader);
           return true;
-        });
+        }, /* body hint */ null);
         changedMessages++;
         // XXX: update bodies
       }

@@ -55,7 +55,7 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
           }
         }
         storage.updateMessageHeader(header.date, header.id, false,
-                                    header, next);
+                                    header, /* body hint */ null, next);
       }
     },
     function() {
@@ -146,7 +146,7 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
 
         stateDelta.moveMap[sourceSuid] = header.suid;
         addWait = 2;
-        targetStorage.addMessageHeader(header, added);
+        targetStorage.addMessageHeader(header, body, added);
         targetStorage.addMessageBody(header, body, added);
       }
       function added() {

@@ -204,6 +204,10 @@
       "variants": ["noserver"]
     },
 
+    "test_search_slice.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_intl_unit.js": {
       "variants": ["noserver"]
     },

@@ -117,7 +117,8 @@ Pop3JobDriver.prototype = {
       function(nullFolderConn, folderStorage) {
         var latch = allback.latch();
 
-        folderStorage.addMessageHeader(op.headerInfo, latch.defer());
+        folderStorage.addMessageHeader(op.headerInfo, op.bodyInfo,
+                                       latch.defer());
         folderStorage.addMessageBody(op.headerInfo, op.bodyInfo, latch.defer());
 
         latch.then(function(results) {
