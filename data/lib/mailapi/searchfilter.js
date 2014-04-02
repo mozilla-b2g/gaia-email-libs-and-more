@@ -81,6 +81,7 @@ define(
     './util',
     './syncbase',
     './date',
+    './htmlchew',
     'module',
     'exports'
   ],
@@ -89,6 +90,7 @@ define(
     $util,
     $syncbase,
     $date,
+    htmlchew,
     $module,
     exports
   ) {
@@ -269,13 +271,26 @@ function snippetMatchHelper(str, start, length, contextBefore, contextAfter,
   if (contextBefore > start)
     contextBefore = start;
   var offset = str.indexOf(' ', start - contextBefore);
-  if (offset === -1)
-    offset = 0;
-  if (offset >= start)
+  // Just fragment the preceding word if there was no match whatsoever or the
+  // whitespace match happened preceding our word or anywhere after it.
+  if (offset === -1 || offset >= (start - 1)) {
     offset = start - contextBefore;
-  var endIdx = str.lastIndexOf(' ', start + length + contextAfter);
-  if (endIdx <= start + length)
-    endIdx = start + length + contextAfter;
+  }
+  else {
+    // do not start on the space character
+    offset++;
+  }
+
+  var endIdx;
+  if (start + length + contextAfter >= str.length) {
+    endIdx = str.length;
+  }
+  else {
+    endIdx = str.lastIndexOf(' ', start + length + contextAfter - 1);
+    if (endIdx <= start + length) {
+      endIdx = start + length + contextAfter;
+    }
+  }
   var snippet = str.substring(offset, endIdx);
 
   return {
@@ -368,7 +383,7 @@ BodyFilter.prototype = {
         contextBefore = this.contextBefore, contextAfter = this.contextAfter,
         matches = [],
         matchQuotes = this.matchQuotes,
-        idx;
+        idx, ret;
 
     for (var iBodyRep = 0; iBodyRep < body.bodyReps.length; iBodyRep++) {
       var bodyType = body.bodyReps[iBodyRep].type,
@@ -386,82 +401,36 @@ BodyFilter.prototype = {
             continue;
 
           for (idx = 0; idx < block.length && matches.length < stopAfter;) {
-            var ret = matchRegexpOrString(phrase, block, idx);
-            if (!ret)
+            ret = matchRegexpOrString(phrase, block, idx);
+            if (!ret) {
               break;
-            if (repPath === null)
+            }
+            if (repPath === null) {
               repPath = [iBodyRep, iRep];
-            matches.push(snippetMatchHelper(block, ret.index, ret[0].length,
-                                            contextBefore, contextAfter,
-                                            repPath));
+            }
+            matches.push(snippetMatchHelper(
+              block, idx + ret.index, ret[0].length,
+              contextBefore, contextAfter,
+              repPath));
             idx += ret.index + ret[0].length;
           }
         }
       }
       else if (bodyType === 'html') {
-        // NB: this code is derived from htmlchew.js' generateSnippet
-        // functionality.
-
-        // - convert the HMTL into a DOM tree
-        // We don't want our indexOf to run afoul of presentation logic.
-        var htmlPath = [iBodyRep, 0];
-        var htmlDoc = document.implementation.createHTMLDocument(''),
-            rootNode = htmlDoc.createElement('div');
-        rootNode.innerHTML = bodyRep;
-
-        var node = rootNode.firstChild, done = false;
-        while (!done) {
-          if (node.nodeType === ELEMENT_NODE) {
-            switch (node.tagName.toLowerCase()) {
-              // - Things that can't contain useful text.
-              // The style does not belong in the snippet!
-              case 'style':
-                break;
-
-              case 'blockquote':
-                // fall-through if matchQuotes
-                if (!matchQuotes)
-                  break;
-              default:
-                if (node.firstChild) {
-                  node = node.firstChild;
-                  htmlPath.push(0);
-                  continue;
-                }
-                break;
-            }
+        var searchableText = htmlchew.generateSearchableTextVersion(
+          bodyRep, this.matchQuotes);
+        for (idx = 0; idx < bodyRep.length && matches.length < stopAfter;) {
+          ret = matchRegexpOrString(phrase, searchableText, idx);
+          if (!ret) {
+            break;
           }
-          else if (node.nodeType === TEXT_NODE) {
-            // XXX the snippet generator normalizes whitespace here to avoid
-            // being overwhelmed by ridiculous whitespace.  This is not quite
-            // as much a problem for us, but it would be useful if the
-            // sanitizer layer normalized whitespace so neither of us has to
-            // worry about it.
-            var nodeText = node.data;
-
-            var ret = matchRegexpOrString(phrase, nodeText, 0);
-            if (ret) {
-              matches.push(
-                snippetMatchHelper(nodeText, ret.index, ret[0].length,
-                                   contextBefore, contextAfter,
-                                   htmlPath.concat()));
-              if (matches.length >= stopAfter)
-                break;
-            }
-          }
-
-          while (!node.nextSibling) {
-            node = node.parentNode;
-            htmlPath.pop();
-            if (node === rootNode) {
-              done = true;
-              break;
-            }
-          }
-          if (!done) {
-            node = node.nextSibling;
-            htmlPath[htmlPath.length - 1]++;
-          }
+          // note: because we heavily discard DOM structure, we are unable to
+          // generate a useful path.  The good news is we don't use the path
+          // anywhere at this time, so it's not particularly a big deal.
+          matches.push(snippetMatchHelper(
+            searchableText, idx + ret.index, ret[0].length,
+            contextBefore, contextAfter, null));
+          idx += ret.index + ret[0].length;
         }
       }
     }
@@ -605,7 +574,7 @@ SearchSlice.prototype = {
   },
 
   reset: function() {
-    // misnomer but simplfies cutting/pasting/etc.  Really an array of
+    // misnomer but simplifies cutting/pasting/etc.  Really an array of
     // { header: header, matches: matchObj }
     this.headers = [];
     // Track when we are still performing the initial database scan so that we

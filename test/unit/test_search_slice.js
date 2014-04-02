@@ -44,7 +44,7 @@ var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_mime' }, null, [$th_main.TESTHELPER], ['app']);
 
 /*
- * Novely matching/non-matching word prefixes that are also somewhat obvious
+ * Novelty matching/non-matching word prefixes that are also somewhat obvious
  * about whether we expect them to match or not.  We append an index number to
  * these for the message bodies.
  */
@@ -734,6 +734,33 @@ TD.commonCase('search quoted text/plain bodies', function(T, RT) {
     bodyRequiredForMatch: true,
     messageMaker: function(word, i) {
       return { body: { body: '> ' + word } };
+    },
+  });
+});
+
+TD.commonCase('search unquoted text/html bodies', function(T, RT) {
+  testSearchSlices(T, RT, {
+    folderName: 'search_body_unquoted_html',
+    searchFlags: { body: 'no-quotes' },
+    bodyRequiredForMatch: true,
+    messageMaker: function(word, i) {
+      var htmlstr = '<b>' + word.substring(0, 4) + '</b>' +
+                      '<blockquote>gibberish</blockquote>' +
+                      word.substring(4);
+      return { body: { body: htmlstr, contentType: 'text/html' } };
+    },
+  });
+});
+
+TD.commonCase('search quoted text/html bodies', function(T, RT) {
+  testSearchSlices(T, RT, {
+    folderName: 'search_body_quoted_html',
+    searchFlags: { body: 'yes-quotes' },
+    bodyRequiredForMatch: true,
+    messageMaker: function(word, i) {
+      var htmlstr = '<blockquote>' + word.substring(0, 4) + '</blockquote>' +
+                      word.substring(4);
+      return { body: { body: htmlstr, contentType: 'text/html' } };
     },
   });
 });

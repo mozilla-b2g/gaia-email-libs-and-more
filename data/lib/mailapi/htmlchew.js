@@ -531,6 +531,67 @@ exports.generateSnippet = function generateSnippet(htmlString) {
                                                     BLEACH_SNIPPET_SETTINGS));
 };
 
+var BLEACH_SEARCHABLE_TEXT_WITH_QUOTES_SETTINGS = {
+  tags: [],
+  strip: true,
+  stripComments: true,
+  prune: [
+    'style',
+    'button', // (forms)
+    'datalist', // (forms)
+    'script', // (script)
+    'select', // (forms)
+    'svg', // (svg)
+    'title' // (non-body)
+  ],
+  asNode: true,
+};
+
+var BLEACH_SEARCHABLE_TEXT_WITHOUT_QUOTES_SETTINGS = {
+  tags: [],
+  strip: true,
+  stripComments: true,
+  prune: [
+    'style',
+    'button', // (forms)
+    'datalist', // (forms)
+    'script', // (script)
+    'select', // (forms)
+    'svg', // (svg)
+    'title', // (non-body),
+    // specific to getting rid of quotes:
+    'blockquote'
+  ],
+  asNode: true,
+};
+
+
+/**
+ * Produce a textual version of the body of the e-mail suitable for search
+ * purposes.  This is basically the same thing as generateSnippet but without a
+ * length limit applied and with the ability to either include quoted text or
+ * not include quoted text.  We do process the entire document in a go and
+ * return the entire results, so this could be fairly inefficient from a
+ * memory/time perspective.
+ *
+ * The following potential enhancements could be fairly good ideas:
+ * - Avoid processing the entire HTML document by passing the search string in
+ *   or using a generator-type implementation to yield incremental string hunks.
+ * - Generate a semantic representation similar/identical to the one used by
+ *   quotechew (at least for this searchable text mode.)
+ */
+exports.generateSearchableTextVersion = function(htmlString, includeQuotes) {
+  var settings;
+  if (includeQuotes) {
+    settings = BLEACH_SEARCHABLE_TEXT_WITH_QUOTES_SETTINGS;
+  }
+  else {
+    settings = BLEACH_SEARCHABLE_TEXT_WITHOUT_QUOTES_SETTINGS;
+  }
+  var cleaned = $bleach.clean(htmlString, settings);
+  return $bleach.unescapeHTMLEntities(cleaned);
+};
+
 /**
  * Wrap text/plain content into a serialized HTML string safe for insertion
  * via innerHTML.
