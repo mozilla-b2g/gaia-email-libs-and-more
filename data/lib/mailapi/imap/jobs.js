@@ -659,7 +659,7 @@ ImapJobDriver.prototype = {
                 if (--waitingOnHeaders === 0)
                   foundUIDs_deleteOriginals();
                 return true;
-              });
+              }, /* body hint */ null);
           }
         }
 

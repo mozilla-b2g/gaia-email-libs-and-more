@@ -131,8 +131,8 @@ var SYNC_START_MINIMUM_PROGRESS = 0.02;
  * Headers are removed, added, or modified using the onHeader* methods.
  * The updates are sent to 'SliceBridgeProxy' which batches updates and
  * puts them on the event loop. We batch so that we can minimize the number of
- * reflows and painting on the DOM side. This also enables us to batch data 
- * received in network packets around the smae time without having to handle it in 
+ * reflows and painting on the DOM side. This also enables us to batch data
+ * received in network packets around the smae time without having to handle it in
  * each protocol's logic.
  *
  * Currently, we only batch updates that are done between 'now' and the next time
@@ -177,6 +177,11 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
 }
 exports.MailSlice = MailSlice;
 MailSlice.prototype = {
+  /**
+   * We are a folder-backed view-slice.
+   */
+  type: 'folder',
+
   set atTop(val) {
     if (this._bridgeHandle)
       this._bridgeHandle.atTop = val;
@@ -390,18 +395,17 @@ MailSlice.prototype = {
    * called when the header is in the time-range of interest and a refresh,
    * cron-triggered sync, or IDLE/push tells us to do so.
    */
-  onHeaderAdded: function(header, syncDriven, messageIsNew) {
+  onHeaderAdded: function(header, body, syncDriven, messageIsNew) {
     if (!this._bridgeHandle)
       return;
 
     var idx = bsearchForInsert(this.headers, header, cmpHeaderYoungToOld);
     var hlen = this.headers.length;
-    // Don't append the header if it would expand us beyond our requested amount
-    // and there is no subsequent step, like accumulate flushing, that would get
-    // rid of the excess.  Note that this does not guarantee that we won't
-    // end up with more headers than originally planned; if we get told about
-    // headers earlier than the last slot, we will insert them and grow without
-    // forcing a removal of something else to offset.
+    // Don't append the header if it would expand us beyond our requested
+    // amount.  Note that this does not guarantee that we won't end up with more
+    // headers than originally planned; if we get told about headers earlier
+    // than the last slot, we will insert them and grow without forcing a
+    // removal of something else to offset.
     if (hlen >= this.desiredHeaders && idx === hlen)
       return;
     // If we are inserting (not at the end) then be sure to grow
@@ -440,7 +444,7 @@ MailSlice.prototype = {
    * Tells the slice that a header it should know about has changed.  (If
    * this is a search, it's okay for it not to know...)
    */
-  onHeaderModified: function(header) {
+  onHeaderModified: function(header, body) {
     if (!this._bridgeHandle)
       return;
 
@@ -966,9 +970,10 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._mutexQueue = [];
 
   /**
-   * Active view slices on this folder.
+   * Active view / search slices on this folder.
    */
   this._slices = [];
+
   /**
    * The slice that is driving our current synchronization and wants to hear
    * about all header modifications/notes as they occur.  This will be null
@@ -997,9 +1002,11 @@ FolderStorage.prototype = {
     // will occur, but we don't care.)
     for (var i = this._slices.length - 1; i >= 0; i--) {
       var slice = this._slices[i];
-      slice.reset();
       slice.desiredHeaders = $sync.INITIAL_FILL_SIZE;
-      this._resetAndResyncSlice(slice, true, null);
+      slice.reset();
+      if (slice.type === 'folder') {
+        this._resetAndResyncSlice(slice, true, null);
+      }
     }
   },
 
@@ -1371,7 +1378,12 @@ FolderStorage.prototype = {
    * we might make.
    */
   flushExcessCachedBlocks: function(debugLabel) {
-    var slices = this._slices;
+    // We only care about explicitly folder-backed slices for cache eviction
+    // purposes.  Search filters are sparse and would keep way too much in
+    // memory.
+    var slices = this._slices.filter(function (slice) {
+                   return slice.type === 'folder';
+                 });
     function blockIntersectsAnySlice(blockInfo) {
       for (var i = 0; i < slices.length; i++) {
         var slice = slices[i];
@@ -2189,6 +2201,10 @@ FolderStorage.prototype = {
       this._loadBlock(type, info, processBlock.bind(this));
   },
 
+  sliceOpenSearch: function fs_sliceOpenSearch(slice) {
+    this._slices.push(slice);
+  },
+
   /**
    * Track a new slice that wants to start from the most recent messages we know
    * about in the folder.
@@ -2779,8 +2795,15 @@ FolderStorage.prototype = {
     var idx = this._slices.indexOf(slice);
     this._slices.splice(idx, 1);
 
-    if (this._slices.length === 0 && this._mutexQueue.length === 0)
+    // If this was a folder-backed slice, we potentially can now free up a lot
+    // of cached memory, so do that.
+    if (slice.type === 'folder') {
+      this.flushExcessCachedBlocks('deadslice');
+    }
+
+    if (this._slices.length === 0 && this._mutexQueue.length === 0) {
       this.folderSyncer.allConsumersDead();
+    }
   },
 
   /**
@@ -3628,21 +3651,27 @@ FolderStorage.prototype = {
 
   /**
    * Add a new message to the database, generating slice notifications.
+   *
+   * @param header
+   * @param [body]
+   *   Optional body, exists to hint to slices so that SearchFilter can peek
+   *   directly at the body without needing to make an additional request to
+   *   look at the body.
    */
-  addMessageHeader: function ifs_addMessageHeader(header, callback) {
+  addMessageHeader: function ifs_addMessageHeader(header, body, callback) {
     if (header.id == null || header.suid == null) {
       throw new Error('No valid id: ' + header.id + ' or suid: ' + header.suid);
     }
 
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.addMessageHeader.bind(
-                                 this, header, callback));
+                                 this, header, body, callback));
       return;
     }
     this._LOG.addMessageHeader(header.date, header.id, header.srvid);
 
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
-      this._curSyncSlice.onHeaderAdded(header, true, true);
+      this._curSyncSlice.onHeaderAdded(header, body, true, true);
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       var date = header.date, uid = header.id;
@@ -3686,10 +3715,21 @@ FolderStorage.prototype = {
           slice.desiredHeaders++;
         }
 
-        if (slice._onAddingHeader)
-          slice._onAddingHeader(header);
+        if (slice._onAddingHeader) {
+          try {
+            slice._onAddingHeader(header);
+          }
+          catch (ex) {
+            this._LOG.callbackErr(ex);
+          }
+        }
 
-        slice.onHeaderAdded(header, false, true);
+        try {
+          slice.onHeaderAdded(header, body, false, true);
+        }
+        catch (ex) {
+          this._LOG.callbackErr(ex);
+        }
       }
     }
 
@@ -3713,13 +3753,14 @@ FolderStorage.prototype = {
    */
   updateMessageHeader: function ifs_updateMessageHeader(date, id, partOfSync,
                                                         headerOrMutationFunc,
+                                                        body,
                                                         callback) {
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeader.bind(
                                  this, date, id, partOfSync,
-                                 headerOrMutationFunc, callback));
+                                 headerOrMutationFunc, body, callback));
       return;
     }
 
@@ -3769,7 +3810,12 @@ FolderStorage.prototype = {
                 (date === slice.endTS &&
                  id > slice.endUID))
               continue;
-            slice.onHeaderModified(header);
+            try {
+              slice.onHeaderModified(header, body);
+            }
+            catch (ex) {
+              this._LOG.callbackErr(ex);
+            }
           }
         }
       }
@@ -3793,7 +3839,7 @@ FolderStorage.prototype = {
    * Retrieve and update a header by locating it
    */
   updateMessageHeaderByServerId: function(srvid, partOfSync,
-                                          headerOrMutationFunc) {
+                                          headerOrMutationFunc, body) {
     if (this._pendingLoads.length) {
       this._deferredCalls.push(this.updateMessageHeaderByServerId.bind(
         this, srvid, partOfSync, headerOrMutationFunc));
@@ -3814,7 +3860,7 @@ FolderStorage.prototype = {
           // future work: this method will duplicate some work to re-locate
           // the header; we could try and avoid doing that.
           this.updateMessageHeader(
-            header.date, header.id, partOfSync, headerOrMutationFunc);
+            header.date, header.id, partOfSync, headerOrMutationFunc, body);
           return;
         }
       }

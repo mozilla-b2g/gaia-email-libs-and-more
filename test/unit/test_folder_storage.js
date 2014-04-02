@@ -42,9 +42,9 @@ var gLazyLogger = null;
 
 // really poor shims now that we aren't in xpcshell; these should ideally
 // be converted to use a lazy logger, probably in a hacky fashion.
-function do_check_eq(left, right) {
-  gLazyLogger.expect_value(left);
-  gLazyLogger.value(right);
+function do_check_eq(expected, actual) {
+  gLazyLogger.expect_value(expected);
+  gLazyLogger.value(actual);
 }
 function do_check_neq(left, right) {
   gLazyLogger.expect_namedValueD('neq', left, right);
@@ -1719,20 +1719,21 @@ TD.commonSimple('block cache flushing', function(eLazy) {
 
   var startHeader = headers[4], endHeader = headers[0];
   ctx.storage._slices.push({
+    type: 'folder',
     startTS: startHeader.date, startUID: startHeader.id,
     endTS: endHeader.date, endUID: endHeader.id,
   });
   ctx.storage.flushExcessCachedBlocks();
-  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 2);
-  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 2);
+  do_check_eq(2, ctx.storage._loadedHeaderBlockInfos.length);
+  do_check_eq(2, ctx.storage._loadedBodyBlockInfos.length);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('2'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 
   // clear slices, all blocks should be collected
   ctx.storage._slices.pop();
   ctx.storage.flushExcessCachedBlocks();
-  do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 0);
-  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 0);
+  do_check_eq(0, ctx.storage._loadedHeaderBlockInfos.length);
+  do_check_eq(0, ctx.storage._loadedBodyBlockInfos.length);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));

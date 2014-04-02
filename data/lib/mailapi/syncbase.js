@@ -361,6 +361,7 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
     fillSize: 'INITIAL_FILL_SIZE',
     days: 'INITIAL_SYNC_DAYS',
     growDays: 'INITIAL_SYNC_GROWTH_DAYS',
+    wholeFolderSync: 'SYNC_WHOLE_FOLDER_AT_N_MESSAGES',
     bisectThresh: 'BISECT_DATE_AT_N_MESSAGES',
     tooMany: 'TOO_MANY_MESSAGES',
     scaleFactor: 'TIME_SCALE_FACTOR_ON_NO_MESSAGES',

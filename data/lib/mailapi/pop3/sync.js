@@ -231,11 +231,11 @@ Pop3FolderSyncer.prototype = {
 
       if (knownId == null) {
         self.storeMessageUidlForMessageId(header.srvid, header.id);
-        self.storage.addMessageHeader(header, latch.defer());
+        self.storage.addMessageHeader(header, bodyInfo, latch.defer());
         self.storage.addMessageBody(header, bodyInfo, latch.defer());
       } else {
         self.storage.updateMessageHeader(
-          header.date, header.id, true, header, latch.defer());
+          header.date, header.id, true, header, bodyInfo, latch.defer());
         event.changeDetails.attachments = range(bodyInfo.attachments.length);
         event.changeDetails.bodyReps = range(bodyInfo.bodyReps.length);
         var updateOptions = {};

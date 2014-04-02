@@ -1073,6 +1073,11 @@ MailMatchedHeader.prototype = {
     };
   },
 
+  __update: function(wireRep) {
+    this.matches = wireRep.matches;
+    this.header.__update(wireRep.header);
+  },
+
   __die: function() {
     this.header.__die();
   },

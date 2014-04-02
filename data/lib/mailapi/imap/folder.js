@@ -689,7 +689,8 @@ console.log('BISECT CASE', serverUIDs.length, 'curDaysDelta', curDaysDelta);
         header.date,
         header.id,
         false,
-        header
+        header,
+        body
       );
 
       event.changeDetails.bodyReps.push(req.bodyRepIndex);

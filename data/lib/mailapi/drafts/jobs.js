@@ -283,7 +283,8 @@ draftsMixins.local_do_saveDraft = function(op, callback) {
             op.existingNamer.suid, op.existingNamer.date, dbModCompleted);
         }
 
-        folderStorage.addMessageHeader(newRecords.header, dbModCompleted);
+        folderStorage.addMessageHeader(newRecords.header, newRecords.body,
+                                       dbModCompleted);
         folderStorage.addMessageBody(newRecords.header, newRecords.body,
                                      dbModCompleted);
         function dbModCompleted() {

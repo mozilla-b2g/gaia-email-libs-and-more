@@ -16,6 +16,7 @@ var $log = require('rdcommon/log'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
     $msggen = require('tests/resources/messageGenerator'),
     $mailslice = require('mailapi/mailslice'),
+    $searchfilter = require('mailapi/searchfilter'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
     $imapjobs = require('mailapi/imap/jobs'),
@@ -2766,7 +2767,7 @@ exports.TESTHELPER = {
   LOGFAB_DEPS: [
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
-    $mailslice.LOGFAB,
+    $mailslice.LOGFAB, $searchfilter.LOGFAB,
     $errbackoff.LOGFAB,
     // IMAP!
     $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
