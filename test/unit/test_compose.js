@@ -78,9 +78,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   //   encoding snafus.
   // - Be long enough that the base64 encoding will cross multiple lines.
   // - Be non-repeating so that slice errors show up.
+  const ATTACHMENT_SIZE = 2048;
   const attachmentData = [];
-  for (var iData = 0; iData < 256; iData++) {
-    attachmentData.push(iData);
+  for (var iData = 0; iData < ATTACHMENT_SIZE; iData++) {
+    attachmentData.push(iData % 256);
   }
 
   T.action(testAccount, 'compose, save draft, attach blob', eLazy, function() {
@@ -117,7 +118,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     eLazy.expect_namedValue('draft attachment count', 1);
     eLazy.expect_namedValue('draft attachment name', 'foo.png');
     eLazy.expect_namedValue('draft attachment type', 'image/png');
-    eLazy.expect_namedValue('draft attachment size', 256);
+    eLazy.expect_namedValue('draft attachment size', ATTACHMENT_SIZE);
 
     eLazy.namedValue('draft count', localDraftsView.slice.items.length);
     var draftHeader = localDraftsView.slice.items[0];
@@ -232,18 +233,19 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
           mimetype: (testAccount.type !== 'pop3') ?
                       'image/png' : 'application/x-gelam-no-download',
           // there is some guessing/rounding involved
-          sizeEstimateInBytes: testAccount.exactAttachmentSizes ? 256 : 257,
+          sizeEstimateInBytes: testAccount.exactAttachmentSizes ?
+            ATTACHMENT_SIZE : ATTACHMENT_SIZE - 1,
           isDownloadable: (testAccount.type !== 'pop3')
          }]);
       // For POP3 we discard the sent attachments.
       if (testAccount.type !== 'pop3') {
         testAccount.eJobDriver.expect_savedAttachment(
-            'sdcard', 'image/png', 256);
+            'sdcard', 'image/png', ATTACHMENT_SIZE);
         // adding a file sends created and modified
         testStorage.expect_created('foo.png');
         testStorage.expect_modified('foo.png');
         eLazy.expect_namedValue(
-          'attachment[0].size', 256);
+          'attachment[0].size', ATTACHMENT_SIZE);
         eLazy.expect_namedValue(
           'attachment[0].data', attachmentData.concat());
       }
