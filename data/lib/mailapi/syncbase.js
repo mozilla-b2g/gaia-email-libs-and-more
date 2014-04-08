@@ -311,7 +311,7 @@ exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
  */
 exports.CHECK_INTERVALS_ENUMS_TO_MS = {
   'manual': 0, // 0 disables; no infinite checking!
-  '3min': 3 * 60 * 1000,
+  /*As per UI there is no sync for 3min, '3min': 3 * 60 * 1000, */
   '5min': 5 * 60 * 1000,
   '10min': 10 * 60 * 1000,
   '15min': 15 * 60 * 1000,
