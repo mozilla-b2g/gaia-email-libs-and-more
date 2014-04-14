@@ -695,9 +695,14 @@ TD.commonCase('reply all', function(T, RT) {
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 
+  var TEST_PARAMS = RT.envOptions;
 
+  var youPair = {
+    name: TEST_PARAMS.name,
+    address: TEST_PARAMS.emailAddress
+  };
   var senderPair, toPairs, ccPairs;
-  var msgNotIn, msgInTo, msgInCc, msgNoCc, msgNoTo;
+  var msgNotIn, msgInTo, msgInCc, msgNoCc, msgNoTo, msgYouTo;
   var testFolder = testAccount.do_createTestFolder(
     'test_compose_reply_all',
     function makeMessages() {
@@ -731,10 +736,15 @@ TD.commonCase('reply all', function(T, RT) {
           from: senderPair, to: [], cc: ccPairs,
           age: { hours: 5 }
         }));
+      // 5: you (the person replying) are in the 'to' list
+      msgs.push(msgGen.makeMessage(msgYouTo = {
+          from: senderPair, to: toPairs.concat([youPair]), cc: ccPairs,
+          age: { hours: 6 }
+        }));
       return msgs;
     });
   var testView = testAccount.do_openFolderView('syncs', testFolder,
-    { count: 5, full: 5, flags: 0, change: 0, deleted: 0,
+    { count: 6, full: 6, flags: 0, change: 0, deleted: 0,
       filterType: 'none' },
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
@@ -744,7 +754,8 @@ TD.commonCase('reply all', function(T, RT) {
         headerInTo = slice.items[1],
         headerInCc = slice.items[2],
         headerNoCc = slice.items[3],
-        headerNoTo = slice.items[4];
+        headerNoTo = slice.items[4],
+        headerYouTo = slice.items[5];
 
     // The not-in case has the sender added to the front of the 'to' list!
     eCheck.expect_namedValue('not-in:to', [senderPair].concat(msgNotIn.to));
@@ -780,6 +791,13 @@ TD.commonCase('reply all', function(T, RT) {
     var composerNoTo = headerNoTo.replyToMessage('all', function() {
       eCheck.namedValue('no-to:to', composerNoTo.to);
       eCheck.namedValue('no-to:cc', composerNoTo.cc);
+    });
+
+    eCheck.expect_namedValue('you-to:to', [senderPair].concat(toPairs));
+    eCheck.expect_namedValue('you-to:cc', msgYouTo.cc);
+    var composerYouTo = headerYouTo.replyToMessage('all', function() {
+      eCheck.namedValue('you-to:to', composerYouTo.to);
+      eCheck.namedValue('you-to:cc', composerYouTo.cc);
     });
   });
   testAccount.do_closeFolderView(testView);
