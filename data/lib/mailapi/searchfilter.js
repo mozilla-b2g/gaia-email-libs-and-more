@@ -572,11 +572,17 @@ SearchSlice.prototype = {
   set atBottom(val) {
     this._bridgeHandle.atBottom = val;
   },
+  set headerCount(val) {
+    if (this._bridgeHandle)
+      this._bridgeHandle.headerCount = val;
+    return val;
+  },
 
   reset: function() {
     // misnomer but simplifies cutting/pasting/etc.  Really an array of
     // { header: header, matches: matchObj }
     this.headers = [];
+    this.headerCount = 0;
     // Track when we are still performing the initial database scan so that we
     // can ignore dynamic additions/modifications.  The initial database scan
     // is currently not clever enough to deal with concurrent manipulation, so
@@ -646,11 +652,15 @@ console.log('sf: gotMessages', headers.length);
 console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', wantMore);
         var insertAt = dir === -1 ? 0 : this.headers.length;
         this._LOG.headersAppended(insertAt, matchPairs);
+
+        this.headers.splice.apply(this.headers,
+                                  [insertAt, 0].concat(matchPairs));
+        this.headerCount = this.headers.length;
+
         this._bridgeHandle.sendSplice(
           insertAt, 0, matchPairs, true,
           moreMessagesComing || wantMore);
-        this.headers.splice.apply(this.headers,
-                                  [insertAt, 0].concat(matchPairs));
+
         if (wantMore) {
           this.reqGrow(dir, false, true);
         }
@@ -775,8 +785,9 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
     this.desiredHeaders = this.headers.length;
 
     this._LOG.headerAdded(idx, wrappedHeader);
-    this._bridgeHandle.sendSplice(idx, 0, [wrappedHeader], false, false);
     this.headers.splice(idx, 0, wrappedHeader);
+    this.headerCount = this.headers.length;
+    this._bridgeHandle.sendSplice(idx, 0, [wrappedHeader], false, false);
   },
 
   /**
@@ -870,8 +881,9 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
                                  cmpMatchHeadersYoungToOld);
     if (idx !== null) {
       this._LOG.headerRemoved(idx, wrappedHeader);
-      this._bridgeHandle.sendSplice(idx, 1, [], false, false);
       this.headers.splice(idx, 1);
+      this.headerCount = this.headers.length;
+      this._bridgeHandle.sendSplice(idx, 1, [], false, false);
     }
   },
 
@@ -911,11 +923,15 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
       this.userCanGrowDownwards = false;
       var delCount = this.headers.length - lastIndex  - 1;
       this.desiredHeaders -= delCount;
+
+      this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
+      this.headerCount = this.headers.length;
+
       this._bridgeHandle.sendSplice(
         lastIndex + 1, delCount, [],
         // This is expected; more coming if there's a low-end splice
         true, firstIndex > 0);
-      this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
+
       var lastHeader = this.headers[lastIndex].header;
       this.startTS = lastHeader.date;
       this.startUID = lastHeader.id;
@@ -923,8 +939,12 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
     if (firstIndex > 0) {
       this.atTop = false;
       this.desiredHeaders -= firstIndex;
-      this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
+
       this.headers.splice(0, firstIndex);
+      this.headerCount = this.headers.length;
+
+      this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
+
       var firstHeader = this.headers[0].header;
       this.endTS = firstHeader.date;
       this.endUID = firstHeader.id;

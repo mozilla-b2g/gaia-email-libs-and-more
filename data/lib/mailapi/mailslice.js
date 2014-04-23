@@ -1427,7 +1427,7 @@ FolderStorage.prototype = {
       return false;
     }
     function maybeDiscard(blockType, blockInfoList, loadedBlockInfos,
-                          blockMap, dirtyMap, filterFunc) {
+                          blockMap, dirtyMap, shouldDiscardFunc) {
       // console.warn('!! flushing', blockType, 'blocks because:', debugLabel);
 
       // Go backwards in array, to allow code to keep a count of
@@ -1440,7 +1440,7 @@ FolderStorage.prototype = {
           continue;
         }
 
-        if (filterFunc(blockInfo)) {
+        if (shouldDiscardFunc(blockInfo)) {
           // console.log('discarding', blockType, 'block', blockInfo.blockId);
           delete blockMap[blockInfo.blockId];
           loadedBlockInfos.splice(i, 1);
@@ -1473,7 +1473,7 @@ FolderStorage.prototype = {
         // For bodies, want to always purge as front end may decide to
         // never shrink a messages slice, but keep one block around to
         // avoid wasteful DB IO for commonly grouped operations, for
-        // example, a next/pervious message navigation direction change.
+        // example, a next/previous message navigation direction change.
         foundCount += 1;
         return foundCount > keepCount;
       }
@@ -2210,6 +2210,10 @@ FolderStorage.prototype = {
       if (self._mutexQueue.length === 0 && !self._flushExcessTimeoutId) {
         self._flushExcessTimeoutId = setTimeout(
           self._bound_flushExcessOnTimeout,
+          // Choose 5 seconds, since it is a human-scale value around
+          // the order of how long we expect it would take the user
+          // to realize they hit the opposite arrow navigation button
+          // from what they meant.
           5000
         );
       }
@@ -3801,7 +3805,13 @@ FolderStorage.prototype = {
           slice.desiredHeaders++;
         }
 
-        slice.headerCount = this.headerCount;
+        if (slice.type === 'folder') {
+          // TODO: make sure the slice knows the true offset of its
+          // first header in the folder. Currently the UI never
+          // shrinks its slice so this number is always 0 and we can
+          // get away without providing that offset for now.
+          slice.headerCount = this.headerCount;
+        }
 
         if (slice._onAddingHeader) {
           try {
@@ -4013,10 +4023,13 @@ FolderStorage.prototype = {
       for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
         var slice = this._slices[iSlice];
 
-        // TODO: this section continues over some slices that
-        // should at least get a notification of new headerCount
-        // and header positions.
-        slice.headerCount = this.headerCount;
+        if (slice.type === 'folder') {
+          // TODO: make sure the slice knows the true offset of its
+          // first header in the folder. Currently the UI never
+          // shrinks its slice so this number is always 0 and we can
+          // get away without providing that offset for now.
+          slice.headerCount = this.headerCount;
+        }
 
         if (slice === this._curSyncSlice)
           continue;
