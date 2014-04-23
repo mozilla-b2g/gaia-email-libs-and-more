@@ -1460,7 +1460,10 @@ FolderStorage.prototype = {
       }
     );
 
-    var keepCount = 1,
+    // Keep one body block around if there are open folder slices.  If there are
+    // no open slices, discard everything.  (If there are no headers then there
+    // isn't really a way to access the bodies.)
+    var keepCount = slices.length ? 1 : 0,
         foundCount = 0;
 
     maybeDiscard(

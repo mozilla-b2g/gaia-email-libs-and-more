@@ -1699,9 +1699,21 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
   do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
 
-  // - clear the dirty bit of some stuff and see flushes happen
-  // (use different blocks to expose dumb typo bugs)
+  // - clear the dirty bit, header evicted, body retained by MRU edge case
+  // Do have a slice so the body block retention heuristic fires, but have
+  // non-comparable values so no header block overlap is noted.
+  ctx.storage._slices.push({
+    type: 'folder',
+    startTS: null, startUID: null,
+    endTS: null, endUID: null,
+  });
   delete ctx.storage._dirtyHeaderBlocks['3'];
+  // We're saying this block is no longer dirty, but it's still going to be
+  // cached because our caching discard logic only gets a chance to look at
+  // non-dirty blocks and will keep 1 of them as long as any slices are
+  // alive.  In the real world, this case won't happen since we flush all
+  // dirty blocks at the same time.  But that's why we've got the next test
+  // case...
   delete ctx.storage._dirtyBodyBlocks['2'];
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 3);
@@ -1724,11 +1736,11 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   delete ctx.storage._dirtyBodyBlocks['3'];
 
   var startHeader = headers[4], endHeader = headers[0];
-  ctx.storage._slices.push({
+  ctx.storage._slices[0] = {
     type: 'folder',
     startTS: startHeader.date, startUID: startHeader.id,
     endTS: endHeader.date, endUID: endHeader.id,
-  });
+  };
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(2, ctx.storage._loadedHeaderBlockInfos.length);
   do_check_eq(1, ctx.storage._loadedBodyBlockInfos.length);
@@ -1740,18 +1752,17 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
   do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 
-  // clear slices, all blocks should be collected, except for
-  // the most recent bodyBlock item.
+  // clear slices, all blocks should be collected.
   ctx.storage._slices.pop();
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(0, ctx.storage._loadedHeaderBlockInfos.length);
-  do_check_eq(1, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_eq(0, ctx.storage._loadedBodyBlockInfos.length);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
-  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('3'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 });
 
 /**
