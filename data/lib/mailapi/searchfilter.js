@@ -569,6 +569,9 @@ SearchSlice.prototype = {
   set atTop(val) {
     this._bridgeHandle.atTop = val;
   },
+  get atBottom() {
+    return this._bridgeHandle.atBottom;
+  },
   set atBottom(val) {
     this._bridgeHandle.atBottom = val;
   },
@@ -577,6 +580,28 @@ SearchSlice.prototype = {
       this._bridgeHandle.headerCount = val;
     return val;
   },
+
+  /**
+   * How many messages should we pretend exist when we haven't yet searched all
+   * of the folder?
+   *
+   * As a lazy search, we have no idea how many messages actually match a user's
+   * search.  We now assume a virtual scroll list that sizes itself based on
+   * knowing how many headers there are using headerCount and thus no longer
+   * really cares about atBottom (at least until we start automatically
+   * synchronizing new messages.)
+   *
+   * 1 is a pretty good value for this since it only takes 1 lied-about message
+   * to trigger us.  Also, the UI will show the "I'm still loading stuff!"
+   * fake message until we find something...
+   *
+   * TODO: Either stop lying or come up with a better rationale for this.  All
+   * we really want is for the UI to remember to ask us for more stuff, and all
+   * the UI probably wants is to show some type of search-specific string that
+   * says "Hey, I'm searching here!  Give it a minute!".  Not doing this right
+   * now because that results in all kinds of scope creep and such.
+   */
+  IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM: 1,
 
   reset: function() {
     // misnomer but simplifies cutting/pasting/etc.  Really an array of
@@ -605,7 +630,11 @@ SearchSlice.prototype = {
     if (!this._bridgeHandle) {
       return;
     }
-console.log('sf: gotMessages', headers.length);
+    // conditionally indent messages that are non-notable callbacks since we
+    // have more messages coming.  sanity measure for asuth for now.
+    var logPrefix = moreMessagesComing ? 'sf: ' : 'sf:';
+    console.log(logPrefix, 'gotMessages', headers.length, 'more coming?',
+                moreMessagesComing);
     // update the range of what we have seen and searched
     if (headers.length) {
       if (dir === -1) { // (more recent)
@@ -644,40 +673,56 @@ console.log('sf: gotMessages', headers.length);
       var atBottom = this.atBottom = this._storage.headerIsOldestKnown(
                        this.startTS, this.startUID);
       var canGetMore = (dir === -1) ? !atTop : !atBottom;
+      var willHave = this.headers.length + matchPairs.length,
+          wantMore = !moreMessagesComing &&
+                     (willHave < this.desiredHeaders) &&
+                     canGetMore;
       if (matchPairs.length) {
-        var willHave = this.headers.length + matchPairs.length,
-            wantMore = !moreMessagesComing &&
-                       (willHave < this.desiredHeaders) &&
-                       canGetMore;
-console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', wantMore);
+        console.log(logPrefix, 'willHave', willHave, 'of', this.desiredHeaders,
+                    'want more?', wantMore);
         var insertAt = dir === -1 ? 0 : this.headers.length;
         this._LOG.headersAppended(insertAt, matchPairs);
 
         this.headers.splice.apply(this.headers,
                                   [insertAt, 0].concat(matchPairs));
-        this.headerCount = this.headers.length;
+        this.headerCount = this.headers.length +
+          (atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
 
         this._bridgeHandle.sendSplice(
           insertAt, 0, matchPairs, true,
           moreMessagesComing || wantMore);
 
         if (wantMore) {
+          console.log(logPrefix, 'requesting more because want more');
           this.reqGrow(dir, false, true);
         }
         else if (!moreMessagesComing) {
+          console.log(logPrefix, 'stopping (already reported), no want more.',
+                      'can get more?', canGetMore);
           this._loading = false;
           this.desiredHeaders = this.headers.length;
         }
       }
+      // XXX this branch is largely the same as in the prior case except for
+      // specialization because the sendSplice call obviates the need to call
+      // sendStatus.  Consider consolidation.
       else if (!moreMessagesComing) {
+        // Update our headerCount, potentially reducing our headerCount by 1!
+        this.headerCount = this.headers.length +
+          (atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
+
         // If there aren't more messages coming, we either need to get more
         // messages (if there are any left in the folder that we haven't seen)
         // or signal completion.  We can use our growth function directly since
         // there are no state invariants that will get confused.
-        if (canGetMore) {
+        if (wantMore) {
+          console.log(logPrefix,
+                      'requesting more because no matches but want more');
           this.reqGrow(dir, false, true);
         }
         else {
+          console.log(logPrefix, 'stopping, no matches, no want more.',
+                      'can get more?', canGetMore);
           this._bridgeHandle.sendStatus('synced', true, false);
           // We can now process dynamic additions/modifications
           this._loading = false;
@@ -690,11 +735,11 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
 
     if (this.filterer.bodiesNeeded) {
       // To batch our updates to the UI, just get all the bodies then advance
-      // to the next stage of processing.  It would be nice
+      // to the next stage of processing.
       var bodies = [];
       var gotBody = function(body) {
         if (!body) {
-          console.log('failed to get a body for: ',
+          console.log(logPrefix, 'failed to get a body for: ',
                       headers[bodies.length].suid,
                       headers[bodies.length].subject);
         }
@@ -706,6 +751,15 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
       for (var i = 0; i < headers.length; i++) {
         var header = headers[i];
         this._storage.getMessageBody(header.suid, header.date, gotBody);
+      }
+      if (!headers.length) {
+        // To maintain consistent ordering for correctness we need to make sure
+        // we won't call checkHeaders (to trigger additional fetches if
+        // required) before any outstanding getMessageBody calls return.
+        // runAfterDeferredCalls guarantees us consistency with how
+        // getMessageBody operates in this scenario.
+        this._storage.runAfterDeferredCalls(
+          checkHandle.bind(null, headers, null));
       }
     }
     else {
@@ -786,7 +840,8 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
 
     this._LOG.headerAdded(idx, wrappedHeader);
     this.headers.splice(idx, 0, wrappedHeader);
-    this.headerCount = this.headers.length;
+    this.headerCount = this.headers.length +
+      (this.atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
     this._bridgeHandle.sendSplice(idx, 0, [wrappedHeader], false, false);
   },
 
@@ -882,7 +937,8 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
     if (idx !== null) {
       this._LOG.headerRemoved(idx, wrappedHeader);
       this.headers.splice(idx, 1);
-      this.headerCount = this.headers.length;
+      this.headerCount = this.headers.length +
+        (this.atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
       this._bridgeHandle.sendSplice(idx, 1, [], false, false);
     }
   },
@@ -925,7 +981,9 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
       this.desiredHeaders -= delCount;
 
       this.headers.splice(lastIndex + 1, this.headers.length - lastIndex - 1);
-      this.headerCount = this.headers.length;
+      // (we are definitely not atBottom, so lie, lie, lie!)
+      this.headerCount = this.headers.length +
+        this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM;
 
       this._bridgeHandle.sendSplice(
         lastIndex + 1, delCount, [],
@@ -941,7 +999,8 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
       this.desiredHeaders -= firstIndex;
 
       this.headers.splice(0, firstIndex);
-      this.headerCount = this.headers.length;
+      this.headerCount = this.headers.length +
+        (this.atBottom ? 0 : this.IMAGINARY_MESSAGE_COUNT_WHEN_NOT_AT_BOTTOM);
 
       this._bridgeHandle.sendSplice(0, firstIndex, [], true, false);
 
@@ -952,6 +1011,17 @@ console.log('sf: willHave', willHave, 'of', this.desiredHeaders, 'want more?', w
   },
 
   reqGrow: function(dirMagnitude, userRequestsGrowth, autoDoNotDesireMore) {
+    // If the caller is impatient and calling reqGrow on us before we are done,
+    // ignore them.  (Otherwise invariants will be violated, etc. etc.)  This
+    // is okay from an event perspective since we will definitely generate a
+    // completion notification, so the only way this could break the caller is
+    // if they maintained a counter of complete notifications to wait for.  But
+    // they cannot/must not do that since you can only ever get one of these!
+    // (And the race/confusion is inherently self-solving for naive code.)
+    if (!autoDoNotDesireMore && this._loading) {
+      return;
+    }
+
     // Stop processing dynamic additions/modifications while this is happening.
     this._loading = true;
     var count;

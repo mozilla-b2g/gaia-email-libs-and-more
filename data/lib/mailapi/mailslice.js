@@ -2126,11 +2126,24 @@ FolderStorage.prototype = {
       this._loadBlock(type, info, processBlock.bind(this));
   },
 
-  runAfterDeferredCalls: function(callback) {
-    if (this._deferredCalls.length)
+  /**
+   * Run the given callback after all pending deferred calls have run.
+   *
+   * @param {Function} callback
+   * @param {Boolean} [alwaysDefer=false]
+   *   Should we defer the callback to the next turn of the event loop even
+   *   if there's no reason to wait?  Arguably this is what we should always
+   *   do (at least by default) for human sanity purposes, but existing code
+   *   would need to be audited.
+   */
+  runAfterDeferredCalls: function(callback, alwaysDefer) {
+    if (this._deferredCalls.length) {
       this._deferredCalls.push(callback);
-    else
+    } else if (alwaysDefer) {
+      window.setZeroTimeout(callback);
+    } else {
       callback();
+    }
   },
 
   /**
@@ -3762,6 +3775,11 @@ FolderStorage.prototype = {
     this.headerCount += 1;
 
     if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders) {
+      // TODO: make sure the slice knows the true offset of its
+      // first header in the folder. Currently the UI never
+      // shrinks its slice so this number is always 0 and we can
+      // get away without providing that offset for now.
+      this._curSyncSlice.headerCount = this.headerCount;
       this._curSyncSlice.onHeaderAdded(header, body, true, true);
     }
 
@@ -4020,8 +4038,14 @@ FolderStorage.prototype = {
 
     this.headerCount -= 1;
 
-    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders) {
+      // TODO: make sure the slice knows the true offset of its
+      // first header in the folder. Currently the UI never
+      // shrinks its slice so this number is always 0 and we can
+      // get away without providing that offset for now.
+      this._curSyncSlice.headerCount = this.headerCount;
       this._curSyncSlice.onHeaderRemoved(header);
+    }
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
         var slice = this._slices[iSlice];
@@ -4244,7 +4268,22 @@ FolderStorage.prototype = {
     });
   },
 
+  /**
+   * Load the given message body while obeying call ordering consistency rules.
+   * If any other calls have gone asynchronous because block loads are required,
+   * then this call will wait for those calls to complete first even if we
+   * already have the requested body block loaded.  If we haven't gone async and
+   * the body is already available, the callback will be invoked synchronously
+   * while this function is still on the stack.  So, uh, don't be surprised by
+   * that.
+   */
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(
+        this.getMessageBody.bind(this, suid, date, callback));
+      return;
+    }
+
     var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndID(this._bodyBlockInfos,
                                                       date, id);
