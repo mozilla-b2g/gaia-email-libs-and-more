@@ -174,6 +174,8 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
    */
   this.headers = [];
   this.desiredHeaders = $sync.INITIAL_FILL_SIZE;
+
+  this.headerCount = storage.headerCount;
 }
 exports.MailSlice = MailSlice;
 MailSlice.prototype = {
@@ -200,6 +202,11 @@ MailSlice.prototype = {
   set userCanGrowDownwards(val) {
     if (this._bridgeHandle)
       this._bridgeHandle.userCanGrowDownwards = val;
+    return val;
+  },
+  set headerCount(val) {
+    if (this._bridgeHandle)
+      this._bridgeHandle.headerCount = val;
     return val;
   },
 
@@ -861,6 +868,15 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    * }
    */
   this._headerBlockInfos = persistedFolderInfo.headerBlocks;
+
+  // Calculate total number of messages
+  this.headerCount = 0;
+  if (this._headerBlockInfos) {
+    this._headerBlockInfos.forEach(function(headerBlockInfo) {
+      this.headerCount += headerBlockInfo.count;
+    }.bind(this));
+  }
+
   /**
    * @listof[FolderBlockInfo]{
    *   Newest-to-oldest (numerically decreasing time and ID) sorted list of
@@ -914,6 +930,9 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
    */
   this._loadedBodyBlockInfos = [];
 
+  this._flushExcessTimeoutId = 0;
+
+  this._bound_flushExcessOnTimeout = this._flushExcessOnTimeout.bind(this);
   this._bound_makeHeaderBlock = this._makeHeaderBlock.bind(this);
   this._bound_insertHeaderInBlock = this._insertHeaderInBlock.bind(this);
   this._bound_splitHeaderBlock = this._splitHeaderBlock.bind(this);
@@ -923,6 +942,7 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
   this._bound_insertBodyInBlock = this._insertBodyInBlock.bind(this);
   this._bound_splitBodyBlock = this._splitBodyBlock.bind(this);
   this._bound_deleteBodyFromBlock = this._deleteBodyFromBlock.bind(this);
+
 
   /**
    * Has our internal state altered at all and will need to be persisted?
@@ -1369,13 +1389,18 @@ FolderStorage.prototype = {
    * Flush cached blocks that are unlikely to be used again soon.  Our
    * heuristics for deciding what to keep is simple:
    * - Dirty blocks are always kept; this is required for correctness.
-   * - Blocks that overlap with live `MailSlice` instances are kept.
+   * - Header blocks that overlap with live `MailSlice` instances are kept.
    *
    * It could also make sense to support some type of MRU tracking, but the
    * complexity is not currently justified since the live `MailSlice` should
    * lead to a near-perfect hit rate on immediate actions and the UI's
    * pre-emptive slice growing should insulate it from any foolish discards
    * we might make.
+   *
+   * For bodies, since they are larger, and the UI may not always shrink a
+   * slice, only keep around one blockInfo of them, which contain the most
+   * likely immediately needed blockInfos, for instance a direction reversal
+   * in a next/previous navigation.
    */
   flushExcessCachedBlocks: function(debugLabel) {
     // We only care about explicitly folder-backed slices for cache eviction
@@ -1402,30 +1427,72 @@ FolderStorage.prototype = {
       return false;
     }
     function maybeDiscard(blockType, blockInfoList, loadedBlockInfos,
-                          blockMap, dirtyMap) {
+                          blockMap, dirtyMap, shouldDiscardFunc) {
       // console.warn('!! flushing', blockType, 'blocks because:', debugLabel);
-      for (var i = 0; i < loadedBlockInfos.length; i++) {
+
+      // Go backwards in array, to allow code to keep a count of
+      // blockInfos to keep that favor the most current ones.
+      for (var i = loadedBlockInfos.length - 1; i > -1; i--) {
         var blockInfo = loadedBlockInfos[i];
         // do not discard dirty blocks
         if (dirtyMap.hasOwnProperty(blockInfo.blockId)) {
           // console.log('  dirty block:', blockInfo.blockId);
           continue;
         }
-        // do not discard blocks that overlap mail slices
-        if (blockIntersectsAnySlice(blockInfo))
-          continue;
-        // console.log('discarding', blockType, 'block', blockInfo.blockId);
-        delete blockMap[blockInfo.blockId];
-        loadedBlockInfos.splice(i--, 1);
+
+        if (shouldDiscardFunc(blockInfo)) {
+          // console.log('discarding', blockType, 'block', blockInfo.blockId);
+          delete blockMap[blockInfo.blockId];
+          loadedBlockInfos.splice(i, 1);
+        }
       }
     }
 
     maybeDiscard(
-      'header', this._headerBlockInfos, this._loadedHeaderBlockInfos,
-      this._headerBlocks, this._dirtyHeaderBlocks);
+      'header',
+      this._headerBlockInfos,
+      this._loadedHeaderBlockInfos,
+      this._headerBlocks,
+      this._dirtyHeaderBlocks,
+      function (blockInfo) {
+        // Do not discard blocks that overlap mail slices.
+        return !blockIntersectsAnySlice(blockInfo);
+      }
+    );
+
+    // Keep one body block around if there are open folder slices.  If there are
+    // no open slices, discard everything.  (If there are no headers then there
+    // isn't really a way to access the bodies.)
+    var keepCount = slices.length ? 1 : 0,
+        foundCount = 0;
+
     maybeDiscard(
-      'body', this._bodyBlockInfos, this._loadedBodyBlockInfos,
-      this._bodyBlocks, this._dirtyBodyBlocks);
+      'body',
+      this._bodyBlockInfos,
+      this._loadedBodyBlockInfos,
+      this._bodyBlocks,
+      this._dirtyBodyBlocks,
+      function(blockInfo) {
+        // For bodies, want to always purge as front end may decide to
+        // never shrink a messages slice, but keep one block around to
+        // avoid wasteful DB IO for commonly grouped operations, for
+        // example, a next/previous message navigation direction change.
+        foundCount += 1;
+        return foundCount > keepCount;
+      }
+    );
+  },
+
+  /**
+   * Called after a timeout to do cleanup of cached blocks to keep memory
+   * low. However, only do the cleanup if there is no more mutex-controlled
+   * work so as to keep likely useful cache items still in memory.
+   */
+  _flushExcessOnTimeout: function() {
+    this._flushExcessTimeoutId = 0;
+    if (!this.isDead && this._mutexQueue.length === 0) {
+      this.flushExcessCachedBlocks('flushExcessOnTimeout');
+    }
   },
 
   /**
@@ -2059,11 +2126,24 @@ FolderStorage.prototype = {
       this._loadBlock(type, info, processBlock.bind(this));
   },
 
-  runAfterDeferredCalls: function(callback) {
-    if (this._deferredCalls.length)
+  /**
+   * Run the given callback after all pending deferred calls have run.
+   *
+   * @param {Function} callback
+   * @param {Boolean} [alwaysDefer=false]
+   *   Should we defer the callback to the next turn of the event loop even
+   *   if there's no reason to wait?  Arguably this is what we should always
+   *   do (at least by default) for human sanity purposes, but existing code
+   *   would need to be audited.
+   */
+  runAfterDeferredCalls: function(callback, alwaysDefer) {
+    if (this._deferredCalls.length) {
       this._deferredCalls.push(callback);
-    else
+    } else if (alwaysDefer) {
+      window.setZeroTimeout(callback);
+    } else {
       callback();
+    }
   },
 
   /**
@@ -2140,6 +2220,19 @@ FolderStorage.prototype = {
 
       if (self._pendingLoads.length === 0)
         self._runDeferredCalls();
+
+      // Ask for cleanup of old blocks in case the UI is not shrinking
+      // any slices.
+      if (self._mutexQueue.length === 0 && !self._flushExcessTimeoutId) {
+        self._flushExcessTimeoutId = setTimeout(
+          self._bound_flushExcessOnTimeout,
+          // Choose 5 seconds, since it is a human-scale value around
+          // the order of how long we expect it would take the user
+          // to realize they hit the opposite arrow navigation button
+          // from what they meant.
+          5000
+        );
+      }
     }
 
     this._LOG.loadBlock_begin(type, blockId);
@@ -2603,6 +2696,15 @@ FolderStorage.prototype = {
         $sync.INITIAL_SYNC_GROWTH_DAYS,
         doneCallback, progressCallback);
     }.bind(this);
+
+    // The front end may not be calling shrink any more, to reduce
+    // complexity for virtual scrolling. So be sure to clear caches
+    // that are not needed, to avoid a large memory growth from
+    // keeping the header bodies as the user does next/previous
+    // navigation.
+    if (this._mutexQueue.length === 0) {
+      this.flushExcessCachedBlocks('grow');
+    }
 
     // --- request messages
     if (dirMagnitude < 0) {
@@ -3670,8 +3772,17 @@ FolderStorage.prototype = {
     }
     this._LOG.addMessageHeader(header.date, header.id, header.srvid);
 
-    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
+    this.headerCount += 1;
+
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders) {
+      // TODO: make sure the slice knows the true offset of its
+      // first header in the folder. Currently the UI never
+      // shrinks its slice so this number is always 0 and we can
+      // get away without providing that offset for now.
+      this._curSyncSlice.headerCount = this.headerCount;
       this._curSyncSlice.onHeaderAdded(header, body, true, true);
+    }
+
     // - Generate notifications for (other) interested slices
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       var date = header.date, uid = header.id;
@@ -3713,6 +3824,14 @@ FolderStorage.prototype = {
           // Make sure to increase the number of desired headers so the
           // truncating heuristic won't rule the header out.
           slice.desiredHeaders++;
+        }
+
+        if (slice.type === 'folder') {
+          // TODO: make sure the slice knows the true offset of its
+          // first header in the folder. Currently the UI never
+          // shrinks its slice so this number is always 0 and we can
+          // get away without providing that offset for now.
+          slice.headerCount = this.headerCount;
         }
 
         if (slice._onAddingHeader) {
@@ -3917,11 +4036,28 @@ FolderStorage.prototype = {
       return;
     }
 
-    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders)
+    this.headerCount -= 1;
+
+    if (this._curSyncSlice && !this._curSyncSlice.ignoreHeaders) {
+      // TODO: make sure the slice knows the true offset of its
+      // first header in the folder. Currently the UI never
+      // shrinks its slice so this number is always 0 and we can
+      // get away without providing that offset for now.
+      this._curSyncSlice.headerCount = this.headerCount;
       this._curSyncSlice.onHeaderRemoved(header);
+    }
     if (this._slices.length > (this._curSyncSlice ? 1 : 0)) {
       for (var iSlice = 0; iSlice < this._slices.length; iSlice++) {
         var slice = this._slices[iSlice];
+
+        if (slice.type === 'folder') {
+          // TODO: make sure the slice knows the true offset of its
+          // first header in the folder. Currently the UI never
+          // shrinks its slice so this number is always 0 and we can
+          // get away without providing that offset for now.
+          slice.headerCount = this.headerCount;
+        }
+
         if (slice === this._curSyncSlice)
           continue;
         if (BEFORE(header.date, slice.startTS) ||
@@ -3932,6 +4068,7 @@ FolderStorage.prototype = {
             (header.date === slice.endTS &&
              header.id > slice.endUID))
           continue;
+
         slice.onHeaderRemoved(header);
       }
     }
@@ -4131,7 +4268,22 @@ FolderStorage.prototype = {
     });
   },
 
+  /**
+   * Load the given message body while obeying call ordering consistency rules.
+   * If any other calls have gone asynchronous because block loads are required,
+   * then this call will wait for those calls to complete first even if we
+   * already have the requested body block loaded.  If we haven't gone async and
+   * the body is already available, the callback will be invoked synchronously
+   * while this function is still on the stack.  So, uh, don't be surprised by
+   * that.
+   */
   getMessageBody: function ifs_getMessageBody(suid, date, callback) {
+    if (this._pendingLoads.length) {
+      this._deferredCalls.push(
+        this.getMessageBody.bind(this, suid, date, callback));
+      return;
+    }
+
     var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
         posInfo = this._findRangeObjIndexForDateAndID(this._bodyBlockInfos,
                                                       date, id);

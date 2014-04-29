@@ -1699,37 +1699,60 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 4);
   do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
 
-  // - clear the dirty bit of some stuff and see flushes happen
-  // (use different blocks to expose dumb typo bugs)
+  // - clear the dirty bit, header evicted, body retained by MRU edge case
+  // Do have a slice so the body block retention heuristic fires, but have
+  // non-comparable values so no header block overlap is noted.
+  ctx.storage._slices.push({
+    type: 'folder',
+    startTS: null, startUID: null,
+    endTS: null, endUID: null,
+  });
   delete ctx.storage._dirtyHeaderBlocks['3'];
+  // We're saying this block is no longer dirty, but it's still going to be
+  // cached because our caching discard logic only gets a chance to look at
+  // non-dirty blocks and will keep 1 of them as long as any slices are
+  // alive.  In the real world, this case won't happen since we flush all
+  // dirty blocks at the same time.  But that's why we've got the next test
+  // case...
   delete ctx.storage._dirtyBodyBlocks['2'];
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(ctx.storage._loadedHeaderBlockInfos.length, 3);
-  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 4);
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('3'));
-  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+
+  // - clear another dirt bit for the bodyBlocks to verify just
+  // one extra blockInfo is kept
+  delete ctx.storage._dirtyBodyBlocks['1'];
+  ctx.storage.flushExcessCachedBlocks();
+  do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 3);
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
 
   // - clear all dirty bits, keep alive via mail slices
   delete ctx.storage._dirtyHeaderBlocks['0'];
   delete ctx.storage._dirtyHeaderBlocks['1'];
   delete ctx.storage._dirtyHeaderBlocks['2'];
   delete ctx.storage._dirtyBodyBlocks['0'];
-  delete ctx.storage._dirtyBodyBlocks['1'];
   delete ctx.storage._dirtyBodyBlocks['3'];
 
   var startHeader = headers[4], endHeader = headers[0];
-  ctx.storage._slices.push({
+  ctx.storage._slices[0] = {
     type: 'folder',
     startTS: startHeader.date, startUID: startHeader.id,
     endTS: endHeader.date, endUID: endHeader.id,
-  });
+  };
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(2, ctx.storage._loadedHeaderBlockInfos.length);
-  do_check_eq(2, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_eq(1, ctx.storage._loadedBodyBlockInfos.length);
+  do_check_true(ctx.storage._headerBlocks.hasOwnProperty('0'));
+  do_check_true(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('2'));
-  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_true(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 
-  // clear slices, all blocks should be collected
+  // clear slices, all blocks should be collected.
   ctx.storage._slices.pop();
   ctx.storage.flushExcessCachedBlocks();
   do_check_eq(0, ctx.storage._loadedHeaderBlockInfos.length);
@@ -1738,6 +1761,8 @@ TD.commonSimple('block cache flushing', function(eLazy) {
   do_check_false(ctx.storage._headerBlocks.hasOwnProperty('1'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('1'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('2'));
+  do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('3'));
 });
 
 /**
@@ -1795,6 +1820,38 @@ TD.commonSimple('discard cached blocks by message', function(eLazy) {
     'body', friendHeader.date, friendHeader.id);
   do_check_eq(ctx.storage._loadedBodyBlockInfos.length, 1);
   do_check_false(ctx.storage._bodyBlocks.hasOwnProperty('0'));
+});
+
+////////////////////////////////////////////////////////////////////////////////
+// Confirm headerCount is tracked correctly
+TD.commonSimple('headerCount tracking', function(eLazy) {
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      uid1 = 201, h1,
+      uid2 = 202, h2;
+
+  // no headers set up yet
+  do_check_eq(ctx.storage.headerCount, 0);
+
+  $syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+  var headers = injectSomeMessages(ctx, 11, BIG3);
+
+  do_check_eq(ctx.storage.headerCount, 11);
+
+  h1 = ctx.insertHeader(d1, uid1);
+  ctx.insertBody(d1, uid1, BIG3, 4);
+  h2 = ctx.insertHeader(d2, uid2);
+  ctx.insertBody(d2, uid2, BIG3, 4);
+  do_check_eq(ctx.storage.headerCount, 13);
+
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h1);
+  do_check_eq(ctx.storage.headerCount, 12);
+  ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h2);
+  do_check_eq(ctx.storage.headerCount, 11);
 });
 
 ////////////////////////////////////////////////////////////////////////////////
