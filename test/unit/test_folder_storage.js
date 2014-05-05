@@ -14,9 +14,10 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase', 'exports'],
+        'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase',
+        'mailapi/slice_bridge_proxy', 'exports'],
        function($tc, $th_main, $date, $mailslice, $syncbase,
-                exports) {
+                $sliceBridgeProxy, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_folder_storage' }, null,
@@ -37,6 +38,35 @@ MockAccount.prototype = {
   scheduleMessagePurge: function() {
   },
 };
+
+function MockBridge() {
+}
+MockBridge.prototype = {
+  __sendMesage: function() {
+  },
+};
+
+/**
+ * Create a slice that won't actually ever do anything.  It's mainly suitable
+ * for checking its state after causing things to happen to it.  For fancier
+ * things you'll need to expand this or come up with something better.
+ * Previously we got all of our slice coverage from higher-level synchronization
+ * tests.
+ */
+function makeMockishSlice(storage) {
+  var mockBridge = new MockBridge();
+  var bridgeProxy = new $sliceBridgeProxy.SliceBridgeProxy(
+                      mockBridge, 'fakeHeaders', 'fakeHandle');
+  // Lie and say there's an update pending so it doesn't try and create any
+  // timeouts.
+  bridgeProxy.scheduledUpdate = true;
+  // And let's never actually try and send anything.
+  bridgeProxy.flushUpdates = function() {
+  };
+
+  var mailSlice = new $mailslice.MailSlice(bridgeProxy, storage, storage._LOG);
+  return mailSlice;
+}
 
 var gLazyLogger = null;
 
@@ -220,6 +250,28 @@ function makeTestContext(account) {
                      checkStart, checkEnd, $syncbase.OPEN_REFRESH_THRESH_MS);
       do_check_eq(expectedStart, result && result.startTS);
       do_check_eq(expectedEnd, result && result.endTS);
+    },
+
+    /**
+     * Create a slice defined by the given headers and force it into the _slices
+     * array to bypass all the affiliated synchronization logic.
+     */
+    makeSliceBoundByHeaders: function(endHeader, startHeader, headersInSlice,
+                                      opts) {
+      var slice = makeMockishSlice(storage);
+      if (endHeader && startHeader) {
+        slice.endTS = endHeader.date;
+        slice.endUID = endHeader.id;
+        slice.startTS = startHeader.date;
+        slice.startUID = startHeader.id;
+      }
+      slice.headers = headersInSlice;
+      slice.desiredHeaders = slice.headers.length;
+      if (opts && ('ignoreHeaders' in opts)) {
+        slice.ignoreHeaders = opts.ignoreHeaders;
+      }
+      storage._slices.push(slice);
+      return slice;
     },
   };
 }
@@ -1824,7 +1876,7 @@ TD.commonSimple('discard cached blocks by message', function(eLazy) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Confirm headerCount is tracked correctly
-TD.commonSimple('headerCount tracking', function(eLazy) {
+TD.commonSimple('headerCount folderStorage tracking', function(eLazy) {
   gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
@@ -1852,6 +1904,109 @@ TD.commonSimple('headerCount tracking', function(eLazy) {
   do_check_eq(ctx.storage.headerCount, 12);
   ctx.storage.deleteMessageHeaderAndBodyUsingHeader(h2);
   do_check_eq(ctx.storage.headerCount, 11);
+});
+
+
+/**
+ * Create a slice and do some database manipulations inside and outside the
+ * bounds of the slice, making sure that headerCount updates no matter what.
+ *
+ * In theory we could have done this in our higher-level end-to-end sync tests,
+ * but we run into the problem that:
+ * - those have gotten unwieldy and adding another field to assert the state of
+ *   headerCount might not be moving in a good direction for human sanity.
+ * - those were written when there really were only IMAP tests
+ * - we were in a super-hurry then and even more of a hurry later when they got
+ *   cloned for ActiveSync purposes with little thought
+ * - header events used to be way-weirder when they were written; we didn't have
+ *   refresh-only semantics.
+ *
+ * So, mainly, think hard before expanding this or cargo culting this or not
+ * cargo culting this.  I'd like to get a better rationale for what to do when
+ * we overhaul our back-end tests to use promises/etc.
+ */
+TD.commonSimple('headerCount slice tracking', function(eLazy) {
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext(),
+      d1 = DateUTC(2010, 0, 1),
+      d2 = DateUTC(2010, 0, 2),
+      d3 = DateUTC(2010, 0, 3),
+      d4 = DateUTC(2010, 0, 4),
+      d5 = DateUTC(2010, 0, 5),
+      uid1 = 101,
+      uid2 = 102, h2,
+      uid3 = 103,
+      uid4 = 104, h4,
+      uid5 = 105;
+
+  $syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+
+  h2 = ctx.insertHeader(d2, uid2);
+  h4 = ctx.insertHeader(d4, uid4);
+
+  var slice = ctx.makeSliceBoundByHeaders(h4, h2, [h4, h2]);
+
+  function checkHeaderCounts(count) {
+    do_check_eq(count, ctx.storage.headerCount);
+    do_check_eq(count, slice._bridgeHandle.headerCount);
+  }
+
+  checkHeaderCounts(2);
+
+  // - Add one in the middle.  It'll end up in our range too.
+  ctx.insertHeader(d3, uid3);
+  do_check_eq(slice.headers.length, 3);
+  do_check_eq(slice.desiredHeaders, 3);
+  checkHeaderCounts(3);
+
+  // - Add a newer one.  It'll end up in our range too (we'll grow)
+  ctx.insertHeader(d5, uid5);
+  do_check_eq(slice.headers.length, 4);
+  do_check_eq(slice.desiredHeaders, 4);
+  checkHeaderCounts(4);
+
+  // - Add an older one.  It *won't* end up in our slice!
+  ctx.insertHeader(d1, uid1);
+  do_check_eq(slice.headers.length, 4);
+  do_check_eq(slice.desiredHeaders, 4);
+  checkHeaderCounts(5);
+});
+
+/**
+ * ActiveSync has a historical-ish edge case where it explicitly wants the slice
+ * to ignore the headers until they're all fetched because we have absolutely
+ * no control over the ordering the messages come in (and by default they come
+ * in the opposite order from what we want).  So let's
+ */
+TD.commonSimple('headerCount ignoreHeaders case', function(eLazy) {
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext(),
+      d2 = DateUTC(2010, 0, 2),
+      d4 = DateUTC(2010, 0, 4),
+      uid2 = 102,
+      uid4 = 104;
+
+  $syncbase.TEST_adjustSyncValues({
+    HEADER_EST_SIZE_IN_BYTES: BIG3,
+  });
+
+  var slice = ctx.makeSliceBoundByHeaders(null, null, [],
+                                          { ignoreHeaders: true });
+  // ignoreHeaders only does stuff for the _curSyncSlice.
+  ctx.storage._curSyncSlice = slice;
+
+  function checkHeaderCounts(count) {
+    do_check_eq(count, ctx.storage.headerCount);
+    do_check_eq(count, slice._bridgeHandle.headerCount);
+  }
+
+  checkHeaderCounts(0);
+  ctx.insertHeader(d2, uid2);
+  checkHeaderCounts(1);
+  ctx.insertHeader(d4, uid4);
+  checkHeaderCounts(2);
 });
 
 ////////////////////////////////////////////////////////////////////////////////
