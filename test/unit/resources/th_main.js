@@ -2582,9 +2582,14 @@ var TestActiveSyncAccountMixins = {
 
           // Because folder list synchronizing happens as an operation, we want
           // to wait for that operation to complete before declaring the account
-          // created.
+          // created...
           self.universe.waitForAccountOps(self.account, function() {
-            self._logger.accountCreated();
+            // We also want to make sure that all the folder splice
+            // notifications have had a chance to be round-tripped, so use a
+            // ping command to do that.
+            self.MailAPI.ping(function() {
+              self._logger.accountCreated();
+            });
           });
         });
     });
