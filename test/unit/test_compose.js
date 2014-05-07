@@ -210,7 +210,12 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
   T.check('draft message deleted', eLazy, function() {
     eLazy.expect_namedValue('draft count', 0);
-    eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    // Our previous step's expectations did not / could not ensure that any
+    // viewslice notifications in the pipeline were fully delivered.  Use a
+    // roundtrip.
+    testAccount.MailAPI.ping(function() {
+      eLazy.namedValue('draft count', localDraftsView.slice.items.length);
+    });
   });
 
   // - verify sent folder contents
