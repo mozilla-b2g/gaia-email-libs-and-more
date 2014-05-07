@@ -1,3 +1,5 @@
+/b2g/
+/node_modules/
 /data/deps/
 /node-transformed-deps/
 /jetpack-tcp-imap-demo.xpi

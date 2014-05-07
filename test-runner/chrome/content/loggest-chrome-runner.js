@@ -25,19 +25,22 @@ const CC = Components.Constructor;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
-try {
-  // This is the path for MC, NOT b2g18, favor it since it is forward looking
-  Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
-} catch (e) {
-  // This path only exists on b2g18. Try it in case tests need to
-  // test something specific for b2g18-based devices.
-  Cu.import("resource://gre/modules/commonjs/promise/core.js");
-}
-
 Cu.import("resource://gre/modules/osfile.jsm");
 
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URI = IOService.newURI.bind(IOService);
+
+/**
+ * Old-style Promises defer method for minimal code changes.
+ */
+function defer() {
+  var deferred = {};
+  deferred.promise = new Promise(function(resolve, reject) {
+    deferred.resolve = resolve;
+    deferred.reject = reject;
+  });
+  return deferred;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 console.log('Initial loggest-chrome-runner.js bootstrap begun');
@@ -90,7 +93,9 @@ var ErrorTrapperHelper = {
         }
       }
     } catch (ex) {
-      dump("SELF-SPLOSION: " + ex + "\n");
+      if (!/can't access dead object/.test(ex.message)) {
+        dump("SELF-SPLOSION: " + ex + "\n" + ex.stack + "\n");
+      }
     }
   },
 
@@ -1121,7 +1126,7 @@ function _runTestFile(testFileName, variant, controlServer) {
 
   var win, domWin;
 
-  var deferred = Promise.defer();
+  var deferred = defer();
 
   var cleanupList = [];
   if (controlServer)
@@ -1285,7 +1290,7 @@ function writeFile(dirPath, filename, str) {
  * Run one or more tests.
  */
 function runTests(configData) {
-  var deferred = Promise.defer();
+  var deferred = defer();
 
   var summaries = [];
 

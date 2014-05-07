@@ -74,10 +74,7 @@ build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
 
 
 .PHONY: download-b2g
-download-b2g:
-	npm install mozilla-download
-	node_modules/.bin/mozilla-download ./b2g --product b2g
-	ln -s ./b2g b2g-bindir-symlink
+download-b2g: b2g
 
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
@@ -189,3 +186,4 @@ b2g: node_modules
 		--channel prerelease \
 		--branch mozilla-central \
 		$@
+	ln -sf ./b2g b2g-bindir-symlink
