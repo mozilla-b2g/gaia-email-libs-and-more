@@ -13,6 +13,7 @@ define(
     './maildb',
     './cronsync',
     './accountcommon',
+    './allback',
     'module',
     'exports'
   ],
@@ -26,6 +27,7 @@ define(
     $maildb,
     $cronsync,
     $acctcommon,
+    $allback,
     $module,
     exports
   ) {
@@ -916,6 +918,16 @@ MailUniverse.prototype = {
   // expects (accountsResults)
   __notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
 
+  // expects {
+  //   suid: messageSuid,
+  //   accountId: accountId,
+  //   sendFailures: (integer),
+  //   state: 'pending', 'sending', 'error', or 'success'
+  //   err: (if applicable),
+  //   badAddresses: (if applicable)
+  // }
+  __notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
+
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
 
@@ -1101,7 +1113,6 @@ MailUniverse.prototype = {
     var queues = this._opsByAccount[account.id],
         serverQueue = queues.server,
         localQueue = queues.local;
-    queues.active = false;
 
     var removeFromServerQueue = false,
         completeOp = false;
@@ -1171,6 +1182,8 @@ MailUniverse.prototype = {
         }
       }
     }
+
+    queues.active = false;
 
     if (localQueue.length) {
       op = localQueue[0];
@@ -1247,7 +1260,6 @@ MailUniverse.prototype = {
     var queues = this._opsByAccount[account.id],
         serverQueue = queues.server,
         localQueue = queues.local;
-    queues.active = false;
 
     if (serverQueue[0] !== op)
       this._LOG.opInvariantFailure();
@@ -1392,6 +1404,8 @@ MailUniverse.prototype = {
         account.saveAccountState(null, null, 'serverOp');
       }
     }
+
+    queues.active = false;
 
     if (localQueue.length) {
       op = localQueue[0];
@@ -1640,14 +1654,43 @@ MailUniverse.prototype = {
     return longtermIds;
   },
 
-  moveMessages: function(messageSuids, targetFolderId) {
+  moveMessages: function(messageSuids, targetFolderId, callback) {
     var self = this, longtermIds = [],
         targetFolderAccount = this.getAccountForFolderId(targetFolderId);
-    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+    var latch = $allback.latch();
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x,i) {
       // TODO: implement cross-account moves and then remove this constraint
       // and instead schedule the cross-account move.
       if (x.account !== targetFolderAccount)
         throw new Error('cross-account moves not currently supported!');
+
+      // When we're moving a message between an outbox and
+      // localdrafts, we need the operation to succeed even if we're
+      // offline, and we also need to receive the "moveMap" returned
+      // by the local side of the operation, so that the client can
+      // call "editAsDraft" on the moved message.
+      //
+      // TODO: When we have server-side 'draft' folder support, we
+      // actually still want to run the server side of the operation,
+      // but we won't want to wait for it to complete. Maybe modify
+      // the job system to pass back localResult and serverResult
+      // independently, or restructure the way we move outbox messages
+      // back to the drafts folder.
+      var isLocalOnly = true;
+      var targetType =
+            targetFolderAccount.getFolderMetaForFolderId(targetFolderId).type;
+      if (targetType !== 'localdrafts' && targetType !== 'outbox') {
+        isLocalOnly = false;
+      } else {
+        x.messages.forEach(function(msg) {
+          var sourceType =
+                self.getFolderStorageForMessageSuid(msg.suid).folderMeta.type;
+          if (sourceType !== 'localdrafts' && sourceType !== 'outbox') {
+            isLocalOnly = false;
+          }
+        });
+      }
+
       var longtermId = self._queueAccountOp(
         x.account,
         {
@@ -1655,13 +1698,24 @@ MailUniverse.prototype = {
           longtermId: null,
           lifecycle: 'do',
           localStatus: null,
-          serverStatus: null,
+          serverStatus: isLocalOnly ? 'n/a' : null,
           tryCount: 0,
           humanOp: 'move',
           messages: x.messages,
           targetFolder: targetFolderId,
-        });
+        }, latch.defer(i));
       longtermIds.push(longtermId);
+    });
+    latch.then(function(results) {
+      // results === [[err, moveMap], [err, moveMap], ...]
+      var combinedMoveMap = {};
+      for (var key in results) {
+        var moveMap = results[key][1];
+        for (var k in moveMap) {
+          combinedMoveMap[k] = moveMap[k];
+        }
+      }
+      callback(/* err = */ null, /* result = */ combinedMoveMap);
     });
     return longtermIds;
   },
@@ -1862,6 +1916,58 @@ MailUniverse.prototype = {
       suid: newDraftInfo.suid,
       date: newDraftInfo.date
     };
+  },
+
+  /**
+   * Attempt to send messages which are in the outbox.
+   *
+   * Options:
+   *   sendingMessage: if true, notify the frontend of status changes
+   *     for the most recent message in the outbox.
+   */
+  sendOutboxMessages: function(account, opts, callback) {
+    opts = opts || {};
+
+    console.log('outbox: sendOutboxMessages()', JSON.stringify(opts));
+
+    // Do not attempt to check if the outbox is empty here. This op is
+    // queued immediately after the client moves a message to the
+    // outbox. The outbox may be empty here, but it might be filled
+    // when the op runs.
+    this._queueAccountOp(
+      account,
+      {
+        type: 'sendOutboxMessages',
+        longtermId: 'session', // Does not need to be persisted.
+        lifecycle: 'do',
+        localStatus: 'n/a',
+        serverStatus: null,
+        sendingMessage: opts.sendingMessage,
+        tryCount: 0,
+        humanOp: 'sendOutboxMessages'
+      },
+      callback);
+  },
+
+  /**
+   * Enable or disable Outbox syncing temporarily. For instance, you
+   * will want to disable outbox syncing if the user is in "edit mode"
+   * for the list of messages in the outbox folder.
+   */
+  setOutboxSyncEnabled: function(account, enabled, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'setOutboxSyncEnabled',
+        longtermId: 'session', // Does not need to be persisted.
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // Local-only.
+        outboxSyncEnabled: enabled,
+        tryCount: 0,
+        humanOp: 'setOutboxSyncEnabled'
+      },
+      callback);
   },
 
   /**

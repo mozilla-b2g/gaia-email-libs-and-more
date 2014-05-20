@@ -32,7 +32,7 @@ function Pop3Account(universe, compositeAccount, accountId, credentials,
   }
 
   // Create required folders if necessary.
-  ['sent', 'localdrafts', 'trash'].forEach(function(name) {
+  ['sent', 'localdrafts', 'trash', 'outbox'].forEach(function(name) {
     var folder = this.getFirstFolderWithType(name);
     if (!folder) {
       this._learnAboutFolder(name, name, null, name, '/', 0, true);

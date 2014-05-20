@@ -129,6 +129,10 @@ SmtpAccount.prototype = {
         console.log('smtp: idle reached, sending envelope');
         conn.useEnvelope(composer.getEnvelope());
       },
+
+      onProgress: function() {
+        composer.renewSmartWakeLock('SMTP XHR Progress');
+      },
       /**
        * Send the message body.
        */
@@ -254,7 +258,14 @@ SmtpAccount.prototype = {
         conn.close();
       }
 
+
       conn.once('idle', function() {
+        // Report progress so that we can hold a wakelock if we're still
+        // sending data to the server.
+        conn.socket.on('progress', function() {
+          callbacks.onProgress && callbacks.onProgress();
+        });
+
         callbacks.sendEnvelope(conn, bail);
       });
       conn.on('message', function() {

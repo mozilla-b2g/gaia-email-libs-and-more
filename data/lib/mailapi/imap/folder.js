@@ -972,8 +972,10 @@ ImapFolderSyncer.prototype = {
    * Can we grow this sync range?  IMAP always lets us do this.
    */
   get canGrowSync() {
-    // localdrafts is offline-only, so we can't ask the server for messages.
-    return this.folderStorage.folderMeta.type !== 'localdrafts';
+    // localdrafts and outbox are offline-only, so we can't ask the
+    // server for messages.
+    return this.folderStorage.folderMeta.type !== 'localdrafts' &&
+      this.folderStorage.folderMeta.type !== 'outbox';
   },
 
   /**

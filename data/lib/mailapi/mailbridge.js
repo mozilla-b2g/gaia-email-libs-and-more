@@ -799,12 +799,38 @@ MailBridge.prototype = {
 
   _cmd_moveMessages: function mb__cmd_moveMessages(msg) {
     var longtermIds = this.universe.moveMessages(
-      msg.messages, msg.targetFolder);
-    this.__sendMessage({
-      type: 'mutationConfirmed',
-      handle: msg.handle,
-      longtermIds: longtermIds,
-    });
+      msg.messages, msg.targetFolder, function(err, moveMap) {
+        this.__sendMessage({
+          type: 'mutationConfirmed',
+          handle: msg.handle,
+          longtermIds: longtermIds,
+          result: moveMap
+        });
+      }.bind(this));
+  },
+
+  _cmd_sendOutboxMessages: function(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId);
+    this.universe.sendOutboxMessages(account, {
+      reason: 'api request',
+      sendingMessage: false
+    }, function(err) {
+      this.__sendMessage({
+        type: 'sendOutboxMessages',
+        handle: msg.handle
+      });
+    }.bind(this));
+  },
+
+  _cmd_setOutboxSyncEnabled: function(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId);
+    this.universe.setOutboxSyncEnabled(
+      account, msg.outboxSyncEnabled, function() {
+        this.__sendMessage({
+          type: 'setOutboxSyncEnabled',
+          handle: msg.handle
+        });
+      }.bind(this));
   },
 
   _cmd_undo: function mb__cmd_undo(msg) {
@@ -1105,7 +1131,8 @@ MailBridge.prototype = {
             cc: header.cc,
             bcc: header.bcc,
             referencesStr: body.references,
-            attachments: attachments
+            attachments: attachments,
+            sendStatus: header.sendStatus
           });
           callWhenDone();
         }
@@ -1142,11 +1169,7 @@ MailBridge.prototype = {
         function sendDeleted() {
           self.__sendMessage({
             type: 'doneCompose',
-            handle: msg.handle,
-            err: null,
-            badAddresses: null,
-            messageId: null,
-            sentDate: null
+            handle: msg.handle
           });
         }
         if (req.persistedNamer) {
@@ -1167,33 +1190,49 @@ MailBridge.prototype = {
       account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
       var identity = this.universe.getIdentityForSenderIdentityId(
                        wireRep.senderId);
+
       if (msg.command === 'send') {
-        // For a send, we first save the state of the draft, then we send it.
+        // To enqueue a message for sending:
+        //   1. Save the draft.
+        //   2. Move the draft to the outbox.
+        //   3. Fire off a job to send pending outbox messages.
+
+        var outboxFolder = account.getFirstFolderWithType('outbox');
         req.persistedNamer = this.universe.saveDraft(
           account, req.persistedNamer, wireRep,
           function(err, newRecords) {
-            var composer = new $composer.Composer(newRecords, account,
-                                                  identity);
-
             req.active = null;
             if (req.die)
               delete this._pendingRequests[msg.handle];
-            account.sendMessage(composer, function(err, badAddresses) {
-              if (!err) {
-              // Now that we're all successfully sent, nuke the draft
-                this.universe.deleteDraft(account, req.persistedNamer);
-              }
-              // And report success without waiting for the draft to be
-              // deleted.
-              this.__sendMessage({
-                type: 'doneCompose',
-                handle: msg.handle,
-                err: err,
-                badAddresses: badAddresses,
-                messageId: composer.messageId,
-                sentDate: composer.sentDate.valueOf(),
-              });
-            }.bind(this));
+
+            // Before we try to move the message, notify them that
+            // we're trying to send the message. moveMessages might
+            // not complete if the user is offline. Our choice here is
+            // to tell them that we've started "Sending..." if we're
+            // online, or if we're offline, that we've saved the
+            // message to the outbox for future sending.
+
+            this.universe.__notifyBackgroundSendStatus({
+              accountId: account.id,
+              suid: req.persistedNamer.suid,
+              state: (this.universe.online ? 'sending' : 'pending')
+            });
+
+            this.universe.moveMessages([req.persistedNamer], outboxFolder.id);
+
+            this.universe.sendOutboxMessages(account, {
+              reason: 'moved to outbox',
+              sendingMessage: true
+            });
+
+            // As soon as we've kicked off a job to move the message
+            // to the outbox, the client is free to do other things.
+            // The 'move' op will trigger sendOutboxMessages after the
+            // move completes successfully.
+            this.__sendMessage({
+              type: 'doneCompose',
+              handle: msg.handle
+            });
           }.bind(this));
       }
       else if (msg.command === 'save') {
@@ -1206,11 +1245,7 @@ MailBridge.prototype = {
               delete self._pendingRequests[msg.handle];
             self.__sendMessage({
               type: 'doneCompose',
-              handle: msg.handle,
-              err: null,
-              badAddresses: null,
-              messageId: null,
-              sentDate: null,
+              handle: msg.handle
             });
           });
       }
@@ -1229,9 +1264,15 @@ MailBridge.prototype = {
       type: 'cronSyncStop',
       accountsResults: accountsResults
     });
+  },
+
+  notifyBackgroundSendStatus: function(data) {
+    this.__sendMessage({
+      type: 'backgroundSendStatus',
+      data: data
+    });
   }
 
-  //////////////////////////////////////////////////////////////////////////////
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

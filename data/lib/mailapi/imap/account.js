@@ -594,8 +594,8 @@ var properties = {
       // (skip those we found above)
       if (folderPub === true)
         continue;
-      // Never delete our localdrafts folder.
-      if (folderPub.type === 'localdrafts')
+      // Never delete our localdrafts or outbox folder.
+      if (folderPub.type === 'localdrafts' || folderPub.type === 'outbox')
         continue;
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);
@@ -603,6 +603,7 @@ var properties = {
 
     // Add a localdrafts folder if we don't have one.
     var localDrafts = this.getFirstFolderWithType('localdrafts');
+    var parentFolder;
     if (!localDrafts) {
       // Try and add the folder next to the existing drafts folder, or the
       // sent folder if there is no drafts folder.  Otherwise we must have an
@@ -612,7 +613,6 @@ var properties = {
       var parentId = sibling ? sibling.parentId
                              : this.getFirstFolderWithType('inbox').id;
       // parentId will be null if we are already top-level
-      var parentFolder;
       if (parentId) {
         parentFolder = this._folderInfos[parentId].$meta;
       }
@@ -628,6 +628,23 @@ var properties = {
       this._learnAboutFolder('localdrafts', localDraftPath,  parentId,
                              'localdrafts', parentFolder.delim,
                              parentFolder.depth + 1);
+    } else {
+      if (localDrafts.parentId) {
+        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
+      }
+      else {
+        parentFolder = {
+          path: '', delim: '', depth: -1
+        };
+      }
+    }
+
+    // Add an outbox folder if necessary.
+    var outbox = this.getFirstFolderWithType('outbox');
+    if (!outbox) {
+      this._learnAboutFolder(
+        'outbox', parentFolder.path + parentFolder.delim + 'outbox', parentId,
+        'outbox', parentFolder.delim, parentFolder.depth + 1);
     }
 
     callback(null);

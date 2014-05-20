@@ -1678,6 +1678,23 @@ var TestCommonAccountMixins = {
       });
     });
   },
+
+  expect_sendMessageWithOutbox: function(conn) {
+    this.expect_runOp(
+      'move',
+      { local: true,
+        server: false,
+        save: 'local' });
+
+    this.expect_sendOutboxMessages();
+    this.expect_sendMessage(conn);
+  },
+
+  expect_sendOutboxMessages: function() {
+    this.expect_runOp(
+      'sendOutboxMessages',
+      { local: false, server: true, save: false });
+  }
 };
 
 var TestFolderMixins = {

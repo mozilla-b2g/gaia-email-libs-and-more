@@ -120,7 +120,7 @@ exports.latch = function() {
         throw err;
       }
       resolved = true;
-      if (name) {
+      if (name != null) {
         results[name] = Array.slice(arguments);
       }
       if (--count === 0) {

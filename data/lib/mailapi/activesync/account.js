@@ -439,6 +439,7 @@ ActiveSyncAccount.prototype = {
 
       // - create local drafts folder (if needed)
       var localDrafts = account.getFirstFolderWithType('localdrafts');
+      var parentServerId;
       if (!localDrafts) {
         // Try and add the folder next to the existing drafts folder, or the
         // sent folder if there is no drafts folder.  Otherwise we must have an
@@ -449,7 +450,6 @@ ActiveSyncAccount.prototype = {
         // which is different from our parent server id.  From there, we can
         // map to the serverId.  Note that top-level folders will not have a
         // parentId, in which case we want to just go with the top level.
-        var parentServerId;
         if (sibling) {
           if (sibling.parentId)
             parentServerId =
@@ -465,6 +465,21 @@ ActiveSyncAccount.prototype = {
         // that our l10n mapping will transform.
         account._addedFolder(null, parentServerId, 'localdrafts', null,
                              'localdrafts');
+      } else {
+        if (localDrafts.parentId) {
+          parentServerId =
+            account._folderInfos[localDrafts.parentId].$meta.serverId;
+        } else {
+          parentServerId = '0';
+        }
+      }
+
+      // - create outbox folder
+      var outbox = account.getFirstFolderWithType('outbox');
+      if (!outbox) {
+        // Add the folder next to the existing drafts folder, which
+        // already exists because we just finished creating it.
+        account._addedFolder(null, parentServerId, 'outbox', null, 'outbox');
       }
 
       console.log('Synced folder list');
@@ -852,6 +867,10 @@ ActiveSyncAccount.prototype = {
                           aResponse.dump());
             callback('unknown');
           }
+        }, /* aExtraParams = */ null, /* aExtraHeaders = */ null,
+          /* aProgressCallback = */ function() {
+          // Keep holding the wakelock as we continue sending.
+          composer.renewSmartWakeLock('ActiveSync XHR Progress');
         });
       }
       else { // ActiveSync 12.x and lower
@@ -866,7 +885,11 @@ ActiveSyncAccount.prototype = {
 
           console.log('Sent message successfully!');
           callback(null);
-        }, { SaveInSent: 'T' });
+        }, { SaveInSent: 'T' }, /* aExtraHeaders = */ null,
+          /* aProgressCallback = */ function() {
+          // Keep holding the wakelock as we continue sending.
+          composer.renewSmartWakeLock('ActiveSync XHR Progress');
+        });
       }
     }.bind(this));
   }),

@@ -6,11 +6,19 @@ define(
   [
     './worker-router',
     './util',
+    './allback',
+    './wakelocks',
+    './date',
+    './syncbase',
     'exports'
   ],
   function(
     $router,
     $util,
+    $allback,
+    $wakelocks,
+    $date,
+    $sync,
     exports
   ) {
 
@@ -115,9 +123,13 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
           stateDelta.serverIdMap[header.suid] = header.srvid;
 
         if (sourceStorage === targetStorage ||
-            // localdraft messages aren't real, and so must not be moved and
-            // are only eligible for nuke deletion.
-            sourceStorage.folderMeta.type === 'localdrafts') {
+            // localdraft messages aren't real, and so must not be
+            // moved and are only eligible for nuke deletion. But they
+            // _can_ be moved to the outbox, and vice versa!
+            (sourceStorage.folderMeta.type === 'localdrafts' &&
+             targetStorage.folderMeta.type !== 'outbox') ||
+            (sourceStorage.folderMeta.type === 'outbox' &&
+             targetStorage.folderMeta.type !== 'localdrafts')) {
           if (op.type === 'move') {
             // A move from a folder to itself is a no-op.
             processNext();
@@ -170,7 +182,7 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
       }
     },
     function() {
-      doneCallback(null, null, true);
+      doneCallback(null, stateDelta.moveMap, true);
     },
     null, // connection loss does not happen for local-only ops
     false,
@@ -466,6 +478,200 @@ exports.do_downloadBodyReps = function(op, callback) {
 exports.local_do_downloadBodyReps = function(op, callback) {
   callback(null);
 };
+
+
+////////////////////////////////////////////////////////////////////////////////
+// sendOutboxMessages
+
+exports.local_do_sendOutboxMessages = function(op, callback) {
+  callback(null); // there is no local component for this
+};
+
+// The first invocation of sendOutboxMessages (after each startup)
+// must try to send _all_ sendable outbox messages, even if some were
+// marked as being in the process of sending. For instance, if the app
+// dies during outbox sending, but we never finished sending the
+// message, we still need to try sending again.
+//
+// This map keeps track of runtime state: Whenever any account runs
+// sendOutboxMessages for the first time, we'll store
+//
+//     { (accountId): true }
+//
+// to indicate that we've already done this "full" pass. Subsequent
+// sendOutboxMessages jobs will only try to synchronize messages
+// already marked as "not sending yet", since we assume that we'll
+// clean up state properly as long as the app itself doesn't crash.
+var accountOutboxClearedMap = {};
+
+var accountOutboxDisabledTemporarilyMap = {};
+
+/**
+ * Attempt to send any messages in the Outbox which are not currently
+ * being sent. We set `header.sendStatus` to an object representing
+ * the current state of the send operation. If the send fails, we'll
+ * remove the flag and indicate that there was an error sending,
+ * unless the app crashes, in which case we'll try to resend upon
+ * startup again (see `ignoreSendingFlag` below).
+ *
+ * Callback is called with the number of messages successfully sent.
+ */
+exports.do_sendOutboxMessages = function(op, callback) {
+  var outboxFolder = this.account.getFirstFolderWithType('outbox');
+  if (!outboxFolder) {
+    callback('moot'); // This shouldn't happen, we should always have an outbox.
+    return;
+  }
+
+  // If we temporarily paused outbox syncing, don't do anything.
+  if (accountOutboxDisabledTemporarilyMap[this.account.id]) {
+    console.log('outbox: Outbox syncing temporarily disabled; not syncing.');
+    callback(null);
+    return;
+  }
+
+  var ignoreSendingFlag = false;
+  if (!accountOutboxClearedMap[this.account.id]) {
+    console.log('outbox: This is the first outbox sync for this account.');
+    accountOutboxClearedMap[this.account.id] = true;
+    ignoreSendingFlag = true;
+  }
+
+  var self = this;
+
+  // Hold both a CPU and WiFi wake lock for the duration of the send
+  // operation. We'll pass this in to the Composer instance for each
+  // message, so that the SMTP/ActiveSync sending process can renew
+  // the wake lock from time to time as the send continues.
+  var wakeLock = new $wakelocks.SmartWakeLock({
+    locks: ['cpu', 'wifi']
+  });
+
+  this._accessFolderForMutation(
+    outboxFolder.id, /* needConn = */ false,
+    function(nullFolderConn, folderStorage) {
+      require(['mailapi/drafts/composer'], function ($composer) {
+        folderStorage.getAllMessagesInImapDateRange(0, null, function(headers) {
+          var totalSending = 0;
+          var totalSent = 0;
+          var latch = $allback.latch();
+
+          // Update the sendStatus info for a given message,
+          // overriding only the sendStatus keys you pass in.
+          function updateSendStatus(composer, header, status, cb) {
+            for (var key in status) {
+              header.sendStatus[key] = status[key];
+            }
+            folderStorage.updateMessageHeader(
+              header.date, header.id, /* partOfSync */ false, header,
+              /* body hint */ null, function() {
+                // If this was initiated from a compose window, the
+                // first message in the outbox will have the most
+                // recent timestamp, and be the one the user is
+                // interested in receiving notifications about.
+                if (op.sendingMessage && header.suid === headers[0].suid) {
+                  status.accountId = self.account.id;
+                  status.suid = header.suid;
+                  // For tests:
+                  status.messageId = composer.messageId;
+                  status.sentDate = composer.sentDate;
+                  self.account.universe.__notifyBackgroundSendStatus(status);
+                }
+                cb && cb();
+              });
+          }
+
+          // Send all messages in parallel to reduce the amount of
+          // time the radio remains on.
+          headers.forEach(function(header) {
+            header.sendStatus = header.sendStatus || {};
+            if ((header.sendStatus.state === 'sending') && !ignoreSendingFlag) {
+              return; // It's already sending, nothing to do for this message.
+            }
+
+            totalSending++;
+            var sendDone = latch.defer();
+
+            folderStorage.getMessage(header.suid, header.date, function(msg) {
+              header = msg.header; // for consistency
+
+              // If we're dealing with a composite account, this is
+              // only the sending side, so retrieve the composite
+              // account.
+              var account = self.account.universe.getAccountForMessageSuid(
+                header.suid);
+              var composer = new $composer.Composer(msg, account,
+                                                    account.identities[0]);
+
+              composer.setSmartWakeLock(wakeLock);
+
+              updateSendStatus(composer, header, {
+                state: 'sending',
+                err: null,
+                badAddresses: null
+              }, function() {
+                account.sendMessage(composer, function(err, badAddresses) {
+                  if (err) {
+                    console.log('outbox: Message failed to send (' + err + ')');
+
+                    updateSendStatus(composer, header, {
+                      state: 'error',
+                      err: err,
+                      badAddresses: badAddresses,
+                      sendFailures: (header.sendStatus.sendFailures || 0) + 1
+                    }, sendDone);
+                  } else {
+                    console.log('outbox: Message sent; deleting from outbox.');
+                    totalSent++;
+                    // We still run the update header logic, so that we
+                    // don't double-send if the delete doesn't go
+                    // through, and for code clarity.
+                    updateSendStatus(composer, header, {
+                      state: 'success',
+                      err: null,
+                      badAddresses: null
+                    }, function() {
+                      folderStorage.deleteMessageHeaderAndBodyUsingHeader(
+                        msg.header, sendDone);
+                    });
+                  }
+                });
+              });
+            });
+          });
+          console.log('outbox: Sending', totalSending, 'messages;',
+                      (headers.length - totalSending), 'already being sent.');
+
+          latch.then(function() {
+            wakeLock.unlock('all messages sent');
+            console.log('outbox: Done. Sent', totalSent, 'messages.');
+            folderStorage.markSyncRange(
+              $sync.OLDEST_SYNC_DATE, null, 'XXX', $date.NOW());
+            callback(null, totalSent);
+          });
+        });
+      });
+    },
+    /* no conn => no deathback required */ null,
+    'sendOutboxMessages');
+};
+
+exports.check_sendOutboxMessages = function(op, callback) {
+  callback(null, 'moot');
+};
+exports.local_undo_sendOutboxMessages = function(op, callback) {
+  callback(null);
+};
+exports.undo_sendOutboxMessages = function(op, callback) {
+  callback(null);
+};
+
+exports.local_do_setOutboxSyncEnabled = function(op, callback) {
+  accountOutboxDisabledTemporarilyMap[this.account.id] = !op.outboxSyncEnabled;
+  callback(null); // there is no local component for this
+};
+
+////////////////////////////////////////////////////////////////
 
 
 exports.postJobCleanup = function(passed) {

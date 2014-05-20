@@ -162,15 +162,16 @@ TD.commonCase('large attachments', function(T, RT) {
       testAccount.expect_runOp(
         'saveDraft',
         { local: true, server: false, save: 'local' });
-      testAccount.expect_sendMessage(true);
-      testAccount.expect_runOp(
-        'deleteDraft',
-        { local: true, server: false, save: 'local' });
+      testAccount.expect_sendMessageWithOutbox(true);
 
-      eLazy.expect_namedValue('sent result', null);
-      composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
-        eLazy.namedValue('sent result', err);
-      });
+      eLazy.expect_event('sent');
+
+      composer.finishCompositionSendMessage();
+      testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+        if (data.state === 'success') {
+          eLazy.event('sent');
+        }
+      };
     });
     var header = null, body = null;
     testAccount.do_waitForMessage(inboxView, uniqueSubject, {

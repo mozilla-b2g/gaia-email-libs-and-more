@@ -110,6 +110,8 @@ function Composer(newRecords, account, identity) {
 
   this._attachments = [];
 
+  this._smartWakeLock = null;
+
   // - fetch attachments if sending
   if (this.body.attachments.length) {
     this.body.attachments.forEach(function(attachment) {
@@ -239,6 +241,22 @@ Composer.prototype = {
     this._ensureBodyWithOpts(opts);
     callback(this._outputBlob);
   },
+
+
+  /**
+   * Assign a SmartWakeLock instance if you're holding a renewable
+   * SmartWakeLock, so that an Account's sendMessage override can
+   * renew the locks while it actively sends a message.
+   */
+  setSmartWakeLock: function(wakeLock) {
+    this._smartWakeLock = wakeLock;
+  },
+
+  renewSmartWakeLock: function(reason) {
+    if (this._smartWakeLock) {
+      this._smartWakeLock.renew(reason);
+    }
+  }
 };
 
 }); // end define

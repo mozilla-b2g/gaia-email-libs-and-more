@@ -2370,13 +2370,16 @@ FolderStorage.prototype = {
 
     // -- grab from database if we have ever synchronized this folder
     // OR if it's synthetic
-    if (this._accuracyRanges.length || this.folderMeta.type === 'localdrafts') {
+
+    if (this._accuracyRanges.length || this.folderMeta.type === 'localdrafts' ||
+        this.folderMeta.type === 'outbox') {
       // We can only trigger a refresh if we are online.  Our caller may want to
       // force the refresh, ignoring recency data.  (This logic was too ugly as
       // a straight-up boolean/ternarny combo.)
       var triggerRefresh;
       if (this._account.universe.online && this.folderSyncer.syncable &&
-          this.folderMeta.type !== 'localdrafts'
+          this.folderMeta.type !== 'localdrafts' &&
+          this.folderMeta.type !== 'outbox'
          ) {
         if (forceRefresh)
           triggerRefresh = 'force';
@@ -2400,7 +2403,9 @@ FolderStorage.prototype = {
     // (we have never synchronized this folder)
 
     // -- no work to do if we are offline or synthetic folder
-    if (!this._account.universe.online || this.folderMeta.type === 'localdrafts') {
+    if (!this._account.universe.online ||
+        this.folderMeta.type === 'localdrafts' ||
+        this.folderMeta.type === 'outbox') {
       doneCallback();
       return;
     }

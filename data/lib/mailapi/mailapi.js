@@ -891,6 +891,10 @@ MailHeader.prototype = {
     this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
     this.tags = filterOutBuiltinFlags(wireRep.flags);
+
+    // Messages in the outbox will have an indicator of why the message
+    // is still pending.
+    this.sendStatus = wireRep.sendStatus || {};
   },
 
   /**
@@ -1893,36 +1897,8 @@ MessageComposition.prototype = {
   },
 
   /**
-   * Finalize and send the message in its current state.
-   *
-   * @args[
-   *   @param[callback @func[
-   *     @args[
-   *       @param[state @oneof[
-   *         @case['sent']{
-   *           The message made it to the SMTP server and we believe it was sent
-   *           successfully.
-   *         }
-   *         @case['offline']{
-   *           We are known to be offline and so we can't send it right now.
-   *           We will attempt to send when we next get good network.
-   *         }
-   *         @case['will-retry']{
-   *           Something didn't work, but we will automatically retry again
-   *           at some point in the future.
-   *         }
-   *         @case['fatal']{
-   *           Something really bad happened, probably a bug in the program.
-   *           The error will be reported using console.error or internal
-   *           logging or something.
-   *         }
-   *       ]]
-   *       }
-   *     ]
-   *   ]]{
-   *     The callback to invoke on success/failure/deferral to later.
-   *   }
-   * ]
+   * Enqueue the message for sending. When the callback fires, the
+   * message will be in the outbox, but will likely not have been sent yet.
    */
   finishCompositionSendMessage: function(callback) {
     this._api._composeDone(this._handle, 'send', this._buildWireRep(),
@@ -3023,7 +2999,7 @@ MailAPI.prototype = {
   },
   */
 
-  moveMessages: function ma_moveMessages(messages, targetFolder) {
+  moveMessages: function ma_moveMessages(messages, targetFolder, callback) {
     // We allocate a handle that provides a temporary name for our undoable
     // operation until we hear back from the other side about it.
     var handle = this._nextHandle++;
@@ -3035,7 +3011,8 @@ MailAPI.prototype = {
     this._pendingRequests[handle] = {
       type: 'mutation',
       handle: handle,
-      undoableOp: undoableOp
+      undoableOp: undoableOp,
+      callback: callback
     };
     this.__bridgeSend({
       type: 'moveMessages',
@@ -3094,6 +3071,53 @@ MailAPI.prototype = {
     return undoableOp;
   },
 
+  /**
+   * Send any pending messages in the outbox.
+   */
+  sendOutboxMessages: function (account, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'sendOutboxMessages',
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'sendOutboxMessages',
+      accountId: account.id,
+      handle: handle
+    });
+  },
+
+  _recv_sendOutboxMessages: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    delete this._pendingRequests[msg.handle];
+    req.callback && req.callback();
+    return true;
+  },
+
+  /**
+   * Toggle k
+   */
+  setOutboxSyncEnabled: function (account, enabled, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'setOutboxSyncEnabled',
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'setOutboxSyncEnabled',
+      accountId: account.id,
+      outboxSyncEnabled: enabled,
+      handle: handle
+    });
+  },
+
+  _recv_setOutboxSyncEnabled: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    delete this._pendingRequests[msg.handle];
+    req.callback && req.callback();
+    return true;
+  },
+
   createFolder: function(account, parentFolder, containOnlyOtherFolders) {
     this.__bridgeSend({
       type: 'createFolder',
@@ -3134,6 +3158,11 @@ MailAPI.prototype = {
     req.undoableOp._longtermIds = msg.longtermIds;
     if (req.undoableOp._undoRequested)
       req.undoableOp.undo();
+
+    if (req.callback) {
+      req.callback(msg.result);
+    }
+
     return true;
   },
 
@@ -3297,6 +3326,7 @@ MailAPI.prototype = {
     req.composer.bcc = msg.bcc;
     req.composer._references = msg.referencesStr;
     req.composer.attachments = msg.attachments;
+    req.composer.sendStatus = msg.sendStatus; // For "failed to send" displays.
 
     if (req.callback) {
       var callback = req.callback;
@@ -3405,8 +3435,10 @@ MailAPI.prototype = {
     if (req.type === 'die' || (!msg.err && (req.type !== 'save')))
       delete this._pendingRequests[msg.handle];
     if (req.callback) {
-      req.callback.call(null, msg.err, msg.badAddresses,
-                        { sentDate: msg.sentDate, messageId: msg.messageId });
+      req.callback.call(null, {
+        sentDate: msg.sentDate,
+        messageId: msg.messageId
+      });
       req.callback = null;
     }
     return true;
@@ -3440,6 +3472,12 @@ MailAPI.prototype = {
     return true;
   },
 
+  _recv_backgroundSendStatus: function(msg) {
+    if (this.onbackgroundsendstatus) {
+      this.onbackgroundsendstatus(msg.data);
+    }
+    return true;
+  },
 
   //////////////////////////////////////////////////////////////////////////////
   // Localization
