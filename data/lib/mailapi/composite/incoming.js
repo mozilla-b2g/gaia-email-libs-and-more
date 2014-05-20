@@ -352,34 +352,6 @@ CompositeIncomingAccount.prototype = {
   },
 
   /**
-   * Create the essential Sent and Trash folders if they do not already exist.
-   *
-   * XXX Our folder type detection logic probably needs to get more multilingual
-   * and us as well.  When we do this, we can steal the localized strings from
-   * Thunderbird to bootstrap.
-   */
-  ensureEssentialFolders: function(callback) {
-    var essentialFolders = {'trash': 'Trash', 'sent': 'Sent'};
-    var pendingCallbacks = 1;
-
-    function next() {
-      if (!--pendingCallbacks) {
-        callback && callback(null);
-      }
-    }
-
-    for (var type in essentialFolders) {
-      if (!this.getFirstFolderWithType(type)) {
-        pendingCallbacks++;
-        this.universe.createFolder(
-          this.id, null, essentialFolders[type], false, next);
-      }
-    }
-
-    next();
-  },
-
-  /**
    * We receive this notification from our _backoffEndpoint.
    */
   onEndpointStateChange: function(state) {

@@ -49,7 +49,10 @@ TD.commonCase('fetch only snippets', function(T, RT) {
     // one for the "withBodyReps" call. Only the first will actually
     // cause us to download and save the bodyReps.
     testAccount.expect_runOp('downloadBodyReps', {
-      local: false, server: true, save: 'server' });
+      local: false,
+      server: true,
+      save: (testAccount.type !== 'pop3' ? 'server' : false)
+    });
     testAccount.expect_runOp('downloadBodyReps', {
       local: false, server: true, save: false });
     testAccount.expect_runOp('downloadBodyReps', {

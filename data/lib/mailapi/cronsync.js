@@ -27,6 +27,7 @@ define(
     './worker-router',
     './slice_bridge_proxy',
     './mailslice',
+    './allback',
     'prim',
     'module',
     'exports'
@@ -36,6 +37,7 @@ define(
     $router,
     $sliceBridgeProxy,
     $mailslice,
+    $allback,
     $prim,
     $module,
     exports
@@ -188,18 +190,10 @@ CronSync.prototype = {
   },
 
   /**
-   * Synchronize the given account.  Right now this is just the Inbox for the
-   * account.
-   *
-   * XXX For IMAP, we really want to use the standard iterative growth logic
-   * but generally ignoring the number of headers in the slice and instead
-   * just doing things by date.  Since making that correct without breaking
-   * things or making things really ugly will take a fair bit of work, we are
-   * initially just using the UI-focused logic for this.
-   *
-   * XXX because of this, we totally ignore IMAP's number of days synced
-   * value.  ActiveSync handles that itself, so our ignoring it makes no
-   * difference for it.
+   * Synchronize the given account. This fetches new messages for the
+   * inbox, and attempts to send pending outbox messages (if
+   * applicable). The callback occurs after both of those operations
+   * have completed.
    */
   syncAccount: function(account, doneCallback) {
     // - Skip syncing if we are offline or the account is disabled
@@ -210,19 +204,8 @@ CronSync.prototype = {
       return;
     }
 
-    var done = function(result) {
-      // Wait for any in-process job operations to complete, so
-      // that the app is not killed in the middle of a sync.
-      this._universe.waitForAccountOps(account, function() {
-        // Also wait for any account save to finish. Most
-        // likely failure will be new message headers not
-        // getting saved if the callback is not fired
-        // until after account saves.
-        account.runAfterSaves(function() {
-          doneCallback(result);
-        });
-      });
-    }.bind(this);
+    var latch = $allback.latch();
+    var inboxDone = latch.defer('inbox');
 
     var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
@@ -261,21 +244,50 @@ CronSync.prototype = {
               maximumBytesToFetch: MAX_SNIPPET_BYTES
             }, function() {
               debug('Notifying for ' + newHeaders.length + ' headers');
-              done([newHeaders.length, notifyHeaders]);
+              inboxDone([newHeaders.length, notifyHeaders]);
           }.bind(this));
         } else {
           debug('UNIVERSE OFFLINE. Notifying for ' + newHeaders.length +
                 ' headers');
-          done([newHeaders.length, notifyHeaders]);
+          inboxDone([newHeaders.length, notifyHeaders]);
         }
       } else {
-        done();
+        inboxDone();
       }
     }.bind(this), this._LOG);
 
     this._activeSlices.push(slice);
     // Pass true to force contacting the server.
     storage.sliceOpenMostRecent(slice, true);
+
+    // Check the outbox; if it has pending messages, attempt to send them.
+    var outboxFolder = account.getFirstFolderWithType('outbox');
+    if (outboxFolder) {
+      var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
+      if (outboxStorage.getKnownMessageCount() > 0) {
+        this._universe.sendOutboxMessages(account, {
+          reason: 'syncAccount'
+        }, latch.defer('outbox'));
+      }
+    }
+
+    // After both inbox and outbox syncing are algorithmically done,
+    // wait for any ongoing job operations to complete so that the app
+    // is not killed in the middle of a sync.
+    latch.then(function(latchResults) {
+      // Right now, we ignore the outbox sync's results; we only care
+      // about the inbox.
+      var inboxResult = latchResults.inbox[0];
+      this._universe.waitForAccountOps(account, function() {
+        // Also wait for any account save to finish. Most
+        // likely failure will be new message headers not
+        // getting saved if the callback is not fired
+        // until after account saves.
+        account.runAfterSaves(function() {
+          doneCallback(inboxResult);
+        });
+      });
+    }.bind(this));
   },
 
   onAlarm: function(accountIds) {

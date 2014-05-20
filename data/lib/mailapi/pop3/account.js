@@ -31,13 +31,9 @@ function Pop3Account(universe, compositeAccount, accountId, credentials,
     this._conn = existingProtoConn;
   }
 
-  // Create required folders if necessary.
-  ['sent', 'localdrafts', 'trash'].forEach(function(name) {
-    var folder = this.getFirstFolderWithType(name);
-    if (!folder) {
-      this._learnAboutFolder(name, name, null, name, '/', 0, true);
-    }
-  }.bind(this));
+  // Immediately ensure that we have any required local-only folders,
+  // as those can be created even while offline.
+  this.ensureEssentialOfflineFolders();
 
   this._jobDriver = new pop3jobs.Pop3JobDriver(
       this, this._folderInfos.$mutationState, this._LOG);
@@ -229,6 +225,41 @@ var properties = {
       callback(err);
     }.bind(this), 'checkAccount');
   },
+
+  /**
+   * Ensure that local-only folders exist. This is run immediately
+   * upon account initialization. Since POP3 doesn't support server
+   * folders, all folders are local-only, so this function does all
+   * the hard work.
+   */
+  ensureEssentialOfflineFolders: function() {
+    // Create required folders if necessary.
+    [ 'sent', 'localdrafts', 'trash', 'outbox' ].forEach(function(folderType) {
+      if (!this.getFirstFolderWithType(folderType)) {
+        this._learnAboutFolder(
+          /* name: */ folderType,
+          /* path: */ folderType,
+          /* parentId: */ null,
+          /* type: */ folderType,
+          /* delim: */ '',
+          /* depth: */ 0,
+          /* suppressNotification: */ true);
+      }
+    }, this);
+  },
+
+  /**
+   * POP3 doesn't support server folders, so all folder creation is
+   * done in `ensureEssentialOfflineFolders`.
+
+   * @param {function} callback
+   *   Called immediately, for homogeneity with other account types.
+   */
+  ensureEssentialOnlineFolders: function(callback) {
+    // All the important work is already done. Yay POP3!
+    callback && callback();
+  },
+
 
   /**
    * Destroy the account when the account has been deleted.

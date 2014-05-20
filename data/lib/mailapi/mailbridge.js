@@ -38,11 +38,12 @@ var FOLDER_TYPE_TO_SORT_PRIORITY = {
   important: 'f',
   drafts: 'g',
   localdrafts: 'h',
-  queue: 'i',
-  sent: 'j',
-  junk: 'k',
-  trash: 'm',
-  archive: 'o',
+  outbox: 'i',
+  queue: 'j',
+  sent: 'k',
+  junk: 'l',
+  trash: 'n',
+  archive: 'p',
   normal: 'z',
   // nomail folders are annoying since they are basically just hierarchy,
   //  but they are also rare and should only happen amongst normal folders.
@@ -799,12 +800,37 @@ MailBridge.prototype = {
 
   _cmd_moveMessages: function mb__cmd_moveMessages(msg) {
     var longtermIds = this.universe.moveMessages(
-      msg.messages, msg.targetFolder);
-    this.__sendMessage({
-      type: 'mutationConfirmed',
-      handle: msg.handle,
-      longtermIds: longtermIds,
-    });
+      msg.messages, msg.targetFolder, function(err, moveMap) {
+        this.__sendMessage({
+          type: 'mutationConfirmed',
+          handle: msg.handle,
+          longtermIds: longtermIds,
+          result: moveMap
+        });
+      }.bind(this));
+  },
+
+  _cmd_sendOutboxMessages: function(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId);
+    this.universe.sendOutboxMessages(account, {
+      reason: 'api request'
+    }, function(err) {
+      this.__sendMessage({
+        type: 'sendOutboxMessages',
+        handle: msg.handle
+      });
+    }.bind(this));
+  },
+
+  _cmd_setOutboxSyncEnabled: function(msg) {
+    var account = this.universe.getAccountForAccountId(msg.accountId);
+    this.universe.setOutboxSyncEnabled(
+      account, msg.outboxSyncEnabled, function() {
+        this.__sendMessage({
+          type: 'setOutboxSyncEnabled',
+          handle: msg.handle
+        });
+      }.bind(this));
   },
 
   _cmd_undo: function mb__cmd_undo(msg) {
@@ -1105,7 +1131,8 @@ MailBridge.prototype = {
             cc: header.cc,
             bcc: header.bcc,
             referencesStr: body.references,
-            attachments: attachments
+            attachments: attachments,
+            sendStatus: header.sendStatus
           });
           callWhenDone();
         }
@@ -1142,11 +1169,7 @@ MailBridge.prototype = {
         function sendDeleted() {
           self.__sendMessage({
             type: 'doneCompose',
-            handle: msg.handle,
-            err: null,
-            badAddresses: null,
-            messageId: null,
-            sentDate: null
+            handle: msg.handle
           });
         }
         if (req.persistedNamer) {
@@ -1167,34 +1190,49 @@ MailBridge.prototype = {
       account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
       var identity = this.universe.getIdentityForSenderIdentityId(
                        wireRep.senderId);
+
       if (msg.command === 'send') {
-        // For a send, we first save the state of the draft, then we send it.
+        // To enqueue a message for sending:
+        //   1. Save the draft.
+        //   2. Move the draft to the outbox.
+        //   3. Fire off a job to send pending outbox messages.
+
         req.persistedNamer = this.universe.saveDraft(
           account, req.persistedNamer, wireRep,
           function(err, newRecords) {
-            var composer = new $composer.Composer(newRecords, account,
-                                                  identity);
-
             req.active = null;
-            if (req.die)
+            if (req.die) {
               delete this._pendingRequests[msg.handle];
-            account.sendMessage(composer, function(err, badAddresses) {
-              if (!err) {
-              // Now that we're all successfully sent, nuke the draft
-                this.universe.deleteDraft(account, req.persistedNamer);
-              }
-              // And report success without waiting for the draft to be
-              // deleted.
-              this.__sendMessage({
-                type: 'doneCompose',
-                handle: msg.handle,
-                err: err,
-                badAddresses: badAddresses,
-                messageId: composer.messageId,
-                sentDate: composer.sentDate.valueOf(),
-              });
-            }.bind(this));
+            }
+
+            var outboxFolder = account.getFirstFolderWithType('outbox');
+            this.universe.moveMessages([req.persistedNamer], outboxFolder.id);
+
+            this.universe.sendOutboxMessages(account, {
+              reason: 'moved to outbox',
+              emitNotifications: true
+            });
           }.bind(this));
+
+        var initialSendStatus = {
+          accountId: account.id,
+          suid: req.persistedNamer.suid,
+          state: (this.universe.online ? 'sending' : 'pending'),
+          emitNotifications: true
+        };
+
+        // Send 'doneCompose' nearly immediately, as saveDraft might
+        // take a while to complete if other stuff is going on. We'll
+        // pass along the initialSendStatus so that we can immediately
+        // display status information.
+        this.__sendMessage({
+          type: 'doneCompose',
+          handle: msg.handle,
+          sendStatus: initialSendStatus
+        });
+
+        // Broadcast the send status immediately here as well.
+        this.universe.__notifyBackgroundSendStatus(initialSendStatus);
       }
       else if (msg.command === 'save') {
         // Save the draft, updating our persisted namer.
@@ -1206,11 +1244,7 @@ MailBridge.prototype = {
               delete self._pendingRequests[msg.handle];
             self.__sendMessage({
               type: 'doneCompose',
-              handle: msg.handle,
-              err: null,
-              badAddresses: null,
-              messageId: null,
-              sentDate: null,
+              handle: msg.handle
             });
           });
       }
@@ -1229,9 +1263,19 @@ MailBridge.prototype = {
       type: 'cronSyncStop',
       accountsResults: accountsResults
     });
+  },
+
+  /**
+   * Notify the frontend about the status of message sends. Data has
+   * keys like 'state', 'error', etc, per the sendOutboxMessages job.
+   */
+  notifyBackgroundSendStatus: function(data) {
+    this.__sendMessage({
+      type: 'backgroundSendStatus',
+      data: data
+    });
   }
 
-  //////////////////////////////////////////////////////////////////////////////
 };
 
 var LOGFAB = exports.LOGFAB = $log.register($module, {

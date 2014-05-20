@@ -410,6 +410,12 @@ var TestUniverseMixins = {
       step.log.boring(false);
   },
 
+  do_setOutboxSyncEnabled: function(enabled) {
+    this.T.convenienceSetup('setOutboxSyncEnabled = ' + enabled, function() {
+      this.universe.setOutboxSyncEnabled(this.universe.accounts[0], enabled);
+    }.bind(this));
+  },
+
   /**
    * Issue range queries on the database, failing if rows are present in any
    * of the given
@@ -1113,6 +1119,7 @@ var TestCommonAccountMixins = {
       // activesync only syncs when online and when it's a real folder
       if (this.universe.online &&
           testFolder.mailFolder.type !== 'localdrafts' &&
+          testFolder.mailFolder.type !== 'outbox' &&
           !recreateFolder && !syncblocked && !isFailure)
         storageActor.expect_syncedToDawnOfTime();
     }
@@ -1268,7 +1275,7 @@ var TestCommonAccountMixins = {
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_end(mode, jobName);
     // - save (server)
-    if (serverSave && this.supportsServerFolders)
+    if (serverSave)
       this.eOpAccount.expect_saveAccountState();
   },
 
@@ -1408,13 +1415,15 @@ var TestCommonAccountMixins = {
       if (self.testServer.SYNC_FOLDER_LIST_AFTER_ADD) {
         self.expect_runOp(
           'syncFolderList',
-          { local: false, save: 'server', conn: self.USES_CONN });
+          { local: false,
+            save: (self.supportsServerFolders ? 'server' : false),
+            conn: self.USES_CONN });
         self.RT.reportActiveActorThisStep(self);
         self.expect_foundFolder(true);
         self.universe.syncFolderList(self.account, function() {
           self.MailAPI.ping(function() {
             testFolder.mailFolder = self.testUniverse.allFoldersSlice
-                                        .getFirstFolderWithName(folderName);
+                                        .getFirstFolderWithPath(folderName);
             self._logger.foundFolder(!!testFolder.mailFolder,
                                      testFolder.mailFolder);
             testFolder.id = testFolder.mailFolder.id;
@@ -1639,8 +1648,8 @@ var TestCommonAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
-      // localdrafts does not exist on the server; don't bother the server!
-      else if (folderType !== 'localdrafts') {
+      // some folders do not exist on the server; don't bother the server!
+      else if (folderType !== 'localdrafts' && folderType !== 'outbox') {
         // Establish a testing layer linkage.  In order to manipulate the
         // folder further we need a serverFolder handle, and our expectation
         // logic needs to know the messages already present on the server.
@@ -1678,6 +1687,44 @@ var TestCommonAccountMixins = {
       });
     });
   },
+
+  /**
+   * Expect that we will send a message. This entails moving the draft
+   * to the outbox, triggering a sendOutboxMessages job, and actually
+   * sending the message.
+   *
+   * @param {Boolean} conn
+   *   Passed to this.expect_sendMessage as part of the op's expectations.
+   */
+  expect_sendMessageWithOutbox: function(/* optional */ conn) {
+    this.expect_moveMessageToOutbox();
+    this.expect_sendOutboxMessages();
+    this.expect_sendMessage(conn);
+  },
+
+  /**
+   * Expect that we will move a message to the outbox, thereby
+   * automatically kicking off a sendOutboxMessages job.
+   */
+  expect_moveMessageToOutbox: function() {
+    this.expect_runOp(
+      'move',
+      { local: true,
+        server: false,
+        save: 'local' });
+  },
+
+  /**
+   * Expect that we will run one instance of the `sendOutboxMessages` job.
+   */
+  expect_sendOutboxMessages: function() {
+    this.expect_runOp(
+      'sendOutboxMessages',
+      { local: false,
+        server: true,
+        save: 'server' });
+  }
+
 };
 
 var TestFolderMixins = {

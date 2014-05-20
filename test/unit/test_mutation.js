@@ -746,13 +746,12 @@ TD.commonCase('move/trash messages', function(T, RT) {
     moveStarMailHeader.moveMessage(targetFolder.mailFolder);
   });
   T.action('go online, wait for ops to complete', eSync, function() {
-    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
     testAccount.expect_runOp(
       'modtags',
       { local: false, server: true, save: false });
     testAccount.expect_runOp(
       'move',
-      { local: false, server: true, save: save });
+      { local: false, server: true, save: false });
     eSync.expect_event('ops-done');
 
     testUniverse.pretendToBeOffline(false);
@@ -894,7 +893,7 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
 
   T.action('go online, see changes happen for', eAccount,
            eSync, function() {
-    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
+    var save = TEST_PARAMS.type !== 'activesync' ? false : 'server';
     testAccount.expect_runOp(
       'move',
       { local: false, server: true, save: save, conn: true });
@@ -951,7 +950,7 @@ TD.commonCase('batch move/trash messages', function(T, RT) {
     testUniverse.MailAPI.deleteMessages(toDelete);
   });
   T.action('go online, see changes happen for', eAccount, eSync, function() {
-    var save = TEST_PARAMS.type === 'imap' ? false : 'server';
+    var save = TEST_PARAMS.type !== 'activesync' ? false : 'server';
     testAccount.expect_runOp(
       'delete',
       { local: false, server: true, save: save });
@@ -1021,7 +1020,7 @@ TD.commonCase('trash drafts', function(T, RT) {
   // This was going to be a homestar runner 'balete' reference, but would have
   // proved confusing.
   T.action(testAccount, 'delete', function() {
-    var save = TEST_PARAMS.type === 'imap' ? true : 'both';
+    var save = TEST_PARAMS.type !== 'activesync' ? true : 'both';
     testAccount.expect_runOp(
       'delete',
       { local: true, server: true, save: save });
