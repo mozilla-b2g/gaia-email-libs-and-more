@@ -892,8 +892,14 @@ MailHeader.prototype = {
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
     this.tags = filterOutBuiltinFlags(wireRep.flags);
 
-    // Messages in the outbox will have an indicator of why the message
-    // is still pending.
+    // Messages in the outbox will have `sendStatus` populated like so:
+    // {
+    //   state: 'pending', 'error', 'success', or 'sending'
+    //   err: null,
+    //   badAddresses: null,
+    //   sendFailures: 2,
+    //   willSendMore: false
+    // }
     this.sendStatus = wireRep.sendStatus || {};
   },
 
@@ -3072,7 +3078,15 @@ MailAPI.prototype = {
   },
 
   /**
-   * Send any pending messages in the outbox.
+   * Check the outbox for pending messages, and initiate a series of
+   * jobs to attempt to send them. The callback fires after the first
+   * message's send attempt completes; this job will then
+   * self-schedule further jobs to attempt to send the rest of the
+   * outbox.
+   *
+   * @param {MailAccount} account
+   * @param {function} callback
+   *   Called after the first message's send attempt finishes.
    */
   sendOutboxMessages: function (account, callback) {
     var handle = this._nextHandle++;
@@ -3095,7 +3109,12 @@ MailAPI.prototype = {
   },
 
   /**
-   * Toggle k
+   * Enable or disable outbox syncing for this account. This is
+   * generally a temporary measure, used when the user is actively
+   * editing the list of outbox messages and we don't want to
+   * inadvertently move something out from under them. This change
+   * does _not_ persist; it's meant to be used only for brief periods
+   * of time, not as a "sync schedule" coordinator.
    */
   setOutboxSyncEnabled: function (account, enabled, callback) {
     var handle = this._nextHandle++;
@@ -3326,7 +3345,7 @@ MailAPI.prototype = {
     req.composer.bcc = msg.bcc;
     req.composer._references = msg.referencesStr;
     req.composer.attachments = msg.attachments;
-    req.composer.sendStatus = msg.sendStatus; // For "failed to send" displays.
+    req.composer.sendStatus = msg.sendStatus; // For displaying "Send failed".
 
     if (req.callback) {
       var callback = req.callback;
@@ -3437,7 +3456,8 @@ MailAPI.prototype = {
     if (req.callback) {
       req.callback.call(null, {
         sentDate: msg.sentDate,
-        messageId: msg.messageId
+        messageId: msg.messageId,
+        sendStatus: msg.sendStatus
       });
       req.callback = null;
     }

@@ -812,8 +812,7 @@ MailBridge.prototype = {
   _cmd_sendOutboxMessages: function(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId);
     this.universe.sendOutboxMessages(account, {
-      reason: 'api request',
-      sendingMessage: false
+      reason: 'api request'
     }, function(err) {
       this.__sendMessage({
         type: 'sendOutboxMessages',
@@ -1197,43 +1196,41 @@ MailBridge.prototype = {
         //   2. Move the draft to the outbox.
         //   3. Fire off a job to send pending outbox messages.
 
-        var outboxFolder = account.getFirstFolderWithType('outbox');
         req.persistedNamer = this.universe.saveDraft(
           account, req.persistedNamer, wireRep,
           function(err, newRecords) {
             req.active = null;
-            if (req.die)
+            if (req.die) {
               delete this._pendingRequests[msg.handle];
+            }
 
-            // Before we try to move the message, notify them that
-            // we're trying to send the message. moveMessages might
-            // not complete if the user is offline. Our choice here is
-            // to tell them that we've started "Sending..." if we're
-            // online, or if we're offline, that we've saved the
-            // message to the outbox for future sending.
-
-            this.universe.__notifyBackgroundSendStatus({
-              accountId: account.id,
-              suid: req.persistedNamer.suid,
-              state: (this.universe.online ? 'sending' : 'pending')
-            });
-
+            var outboxFolder = account.getFirstFolderWithType('outbox');
             this.universe.moveMessages([req.persistedNamer], outboxFolder.id);
 
             this.universe.sendOutboxMessages(account, {
               reason: 'moved to outbox',
-              sendingMessage: true
-            });
-
-            // As soon as we've kicked off a job to move the message
-            // to the outbox, the client is free to do other things.
-            // The 'move' op will trigger sendOutboxMessages after the
-            // move completes successfully.
-            this.__sendMessage({
-              type: 'doneCompose',
-              handle: msg.handle
+              emitNotifications: true
             });
           }.bind(this));
+
+        var initialSendStatus = {
+          accountId: account.id,
+          suid: req.persistedNamer.suid,
+          state: (this.universe.online ? 'sending' : 'pending')
+        };
+
+        // Send 'doneCompose' nearly immediately, as saveDraft might
+        // take a while to complete if other stuff is going on. We'll
+        // pass along the initialSendStatus so that we can immediately
+        // display status information.
+        this.__sendMessage({
+          type: 'doneCompose',
+          handle: msg.handle,
+          sendStatus: initialSendStatus
+        });
+
+        // Broadcast the send status immediately here as well.
+        this.universe.__notifyBackgroundSendStatus(initialSendStatus);
       }
       else if (msg.command === 'save') {
         // Save the draft, updating our persisted namer.
@@ -1266,6 +1263,10 @@ MailBridge.prototype = {
     });
   },
 
+  /**
+   * Notify the frontend about the status of message sends. Data has
+   * keys like 'state', 'error', etc, per the sendOutboxMessages job.
+   */
   notifyBackgroundSendStatus: function(data) {
     this.__sendMessage({
       type: 'backgroundSendStatus',

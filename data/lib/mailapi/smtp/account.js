@@ -131,6 +131,8 @@ SmtpAccount.prototype = {
       },
 
       onProgress: function() {
+        // Keep the wake lock open as long as it looks like we're
+        // still communicating with the server.
         composer.renewSmartWakeLock('SMTP XHR Progress');
       },
       /**

@@ -242,16 +242,24 @@ Composer.prototype = {
     callback(this._outputBlob);
   },
 
-
   /**
-   * Assign a SmartWakeLock instance if you're holding a renewable
-   * SmartWakeLock, so that an Account's sendMessage override can
-   * renew the locks while it actively sends a message.
+   * Call setSmartWakeLock to assign a SmartWakeLock instance.
+   * Accounts will call renewSmartWakeLock() during the sending
+   * process, so that the wake lock can continually be renewed during
+   * the sending process. This prevents the lock from expiring.
+   *
+   * @param {SmartWakeLock} wakeLock
    */
   setSmartWakeLock: function(wakeLock) {
     this._smartWakeLock = wakeLock;
   },
 
+  /**
+   * Renew the SmartWakeLock associated with this composer, if one has
+   * been set. Provide an optional reason, which will be logged.
+   *
+   * @param {String} reason
+   */
   renewSmartWakeLock: function(reason) {
     if (this._smartWakeLock) {
       this._smartWakeLock.renew(reason);

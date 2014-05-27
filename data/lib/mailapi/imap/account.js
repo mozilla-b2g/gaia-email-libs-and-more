@@ -595,7 +595,7 @@ var properties = {
       if (folderPub === true)
         continue;
       // Never delete our localdrafts or outbox folder.
-      if (folderPub.type === 'localdrafts' || folderPub.type === 'outbox')
+      if ($mailslice.FolderStorage.isLocalOnly(folderPub.type))
         continue;
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);
@@ -639,7 +639,8 @@ var properties = {
       }
     }
 
-    // Add an outbox folder if necessary.
+    // Add an outbox folder if necessary, using the same parent folder
+    // as localdrafts, which we just ensured exists above.
     var outbox = this.getFirstFolderWithType('outbox');
     if (!outbox) {
       this._learnAboutFolder(

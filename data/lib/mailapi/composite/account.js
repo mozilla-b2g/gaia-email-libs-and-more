@@ -79,7 +79,12 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   this.meta = this._receivePiece.meta;
   this.mutations = this._receivePiece.mutations;
   this.tzOffset = accountDef.tzOffset;
+
+  // Mix in any fields common to all accounts.
+  $acctmixins.accountConstructorMixin.call(
+    this, this._receivePiece, this._sendPiece);
 }
+
 exports.Account = exports.CompositeAccount = CompositeAccount;
 CompositeAccount.prototype = {
   toString: function() {

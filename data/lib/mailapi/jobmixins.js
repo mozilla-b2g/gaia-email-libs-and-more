@@ -182,6 +182,11 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
       }
     },
     function() {
+      // Pass along the moveMap as the move's result, so that the
+      // frontend can directly obtain a reference to the moved
+      // message. This is used when tapping a message in the outbox
+      // folder (wherein we expect it to be moved to localdrafts and
+      // immediately edited).
       doneCallback(null, stateDelta.moveMap, true);
     },
     null, // connection loss does not happen for local-only ops
@@ -483,61 +488,64 @@ exports.local_do_downloadBodyReps = function(op, callback) {
 ////////////////////////////////////////////////////////////////////////////////
 // sendOutboxMessages
 
-exports.local_do_sendOutboxMessages = function(op, callback) {
-  callback(null); // there is no local component for this
-};
-
-// The first invocation of sendOutboxMessages (after each startup)
-// must try to send _all_ sendable outbox messages, even if some were
-// marked as being in the process of sending. For instance, if the app
-// dies during outbox sending, but we never finished sending the
-// message, we still need to try sending again.
-//
-// This map keeps track of runtime state: Whenever any account runs
-// sendOutboxMessages for the first time, we'll store
-//
-//     { (accountId): true }
-//
-// to indicate that we've already done this "full" pass. Subsequent
-// sendOutboxMessages jobs will only try to synchronize messages
-// already marked as "not sending yet", since we assume that we'll
-// clean up state properly as long as the app itself doesn't crash.
-var accountOutboxClearedMap = {};
-
-var accountOutboxDisabledTemporarilyMap = {};
-
 /**
- * Attempt to send any messages in the Outbox which are not currently
- * being sent. We set `header.sendStatus` to an object representing
- * the current state of the send operation. If the send fails, we'll
- * remove the flag and indicate that there was an error sending,
- * unless the app crashes, in which case we'll try to resend upon
- * startup again (see `ignoreSendingFlag` below).
+ * Send some messages from the outbox. At a high level, you can
+ * pretend that "sendOutboxMessages" just kicks off a process to send
+ * all the messages in the outbox.
  *
- * Callback is called with the number of messages successfully sent.
+ * As an implementation detail, to keep memory requirements low, this
+ * job is designed to send only one message at a time; it
+ * self-schedules future jobs to walk through the list of outbox
+ * messages, one at a time.
+ *
+ * In pseudocode:
+ *
+ *         CLIENT: "Hey, please kick off a sendOutboxMessages job."
+ *   OUTBOX JOB 1: "Okay, I'll send the first message."
+ *         CLIENT: "thanks"
+ *   OUTBOX JOB 1: "Okay, done. Oh, there are more messages. Scheduling
+ *                  a future job to send the next message."
+ *         CLIENT: "ok"
+ *   OUTBOX JOB 1: *dies*
+ *         CLIENT: *goes off to do other things*
+ *   OUTBOX JOB 2: "on it, sending another message"
+ *
+ * This allows other jobs to interleave the sending process, to avoid
+ * introducing long delays in a world where we only run one job
+ * concurrently.
+ *
+ * This job accepts a `beforeMessage` parameter; if that parameter is
+ * null (the normal case), we'll attempt to send the newest message.
+ * After the first message has been sent, we will _self-schedule_ a
+ * second sendOutboxMessages job to continue sending the rest of the
+ * available messages (one per job).
+ *
+ * We set `header.sendStatus` to an object representing the current
+ * state of the send operation. If the send fails, we'll remove the
+ * flag and indicate that there was an error sending, unless the app
+ * crashes, in which case we'll try to resend upon startup again (see
+ * `outboxNeedsFreshSync`).
  */
 exports.do_sendOutboxMessages = function(op, callback) {
-  var outboxFolder = this.account.getFirstFolderWithType('outbox');
+  var account = this.account;
+  var outboxFolder = account.getFirstFolderWithType('outbox');
   if (!outboxFolder) {
     callback('moot'); // This shouldn't happen, we should always have an outbox.
     return;
   }
 
   // If we temporarily paused outbox syncing, don't do anything.
-  if (accountOutboxDisabledTemporarilyMap[this.account.id]) {
+  if (!account.outboxSyncEnabled) {
     console.log('outbox: Outbox syncing temporarily disabled; not syncing.');
     callback(null);
     return;
   }
 
-  var ignoreSendingFlag = false;
-  if (!accountOutboxClearedMap[this.account.id]) {
+  var outboxNeedsFreshSync = account.outboxNeedsFreshSync;
+  if (outboxNeedsFreshSync) {
     console.log('outbox: This is the first outbox sync for this account.');
-    accountOutboxClearedMap[this.account.id] = true;
-    ignoreSendingFlag = true;
+    account.outboxNeedsFreshSync = false;
   }
-
-  var self = this;
 
   // Hold both a CPU and WiFi wake lock for the duration of the send
   // operation. We'll pass this in to the Composer instance for each
@@ -550,106 +558,40 @@ exports.do_sendOutboxMessages = function(op, callback) {
   this._accessFolderForMutation(
     outboxFolder.id, /* needConn = */ false,
     function(nullFolderConn, folderStorage) {
-      require(['mailapi/drafts/composer'], function ($composer) {
-        folderStorage.getAllMessagesInImapDateRange(0, null, function(headers) {
-          var totalSending = 0;
-          var totalSent = 0;
-          var latch = $allback.latch();
+      require(['mailapi/jobs/outbox'], function ($outbox) {
+        $outbox.sendNextAvailableOutboxMessage(
+          account.compositeAccount || account, // Requires the main account.
+          folderStorage,
+          op.beforeMessage,
+          op.emitNotifications,
+          outboxNeedsFreshSync,
+          wakeLock
+        ).then(function(result) {
+          var moreExpected = result.moreExpected;
+          var messageNamer = result.messageNamer;
 
-          // Update the sendStatus info for a given message,
-          // overriding only the sendStatus keys you pass in.
-          function updateSendStatus(composer, header, status, cb) {
-            for (var key in status) {
-              header.sendStatus[key] = status[key];
-            }
-            folderStorage.updateMessageHeader(
-              header.date, header.id, /* partOfSync */ false, header,
-              /* body hint */ null, function() {
-                // If this was initiated from a compose window, the
-                // first message in the outbox will have the most
-                // recent timestamp, and be the one the user is
-                // interested in receiving notifications about.
-                if (op.sendingMessage && header.suid === headers[0].suid) {
-                  status.accountId = self.account.id;
-                  status.suid = header.suid;
-                  // For tests:
-                  status.messageId = composer.messageId;
-                  status.sentDate = composer.sentDate;
-                  self.account.universe.__notifyBackgroundSendStatus(status);
-                }
-                cb && cb();
-              });
-          }
+          wakeLock.unlock('send complete');
 
-          // Send all messages in parallel to reduce the amount of
-          // time the radio remains on.
-          headers.forEach(function(header) {
-            header.sendStatus = header.sendStatus || {};
-            if ((header.sendStatus.state === 'sending') && !ignoreSendingFlag) {
-              return; // It's already sending, nothing to do for this message.
-            }
-
-            totalSending++;
-            var sendDone = latch.defer();
-
-            folderStorage.getMessage(header.suid, header.date, function(msg) {
-              header = msg.header; // for consistency
-
-              // If we're dealing with a composite account, this is
-              // only the sending side, so retrieve the composite
-              // account.
-              var account = self.account.universe.getAccountForMessageSuid(
-                header.suid);
-              var composer = new $composer.Composer(msg, account,
-                                                    account.identities[0]);
-
-              composer.setSmartWakeLock(wakeLock);
-
-              updateSendStatus(composer, header, {
-                state: 'sending',
-                err: null,
-                badAddresses: null
-              }, function() {
-                account.sendMessage(composer, function(err, badAddresses) {
-                  if (err) {
-                    console.log('outbox: Message failed to send (' + err + ')');
-
-                    updateSendStatus(composer, header, {
-                      state: 'error',
-                      err: err,
-                      badAddresses: badAddresses,
-                      sendFailures: (header.sendStatus.sendFailures || 0) + 1
-                    }, sendDone);
-                  } else {
-                    console.log('outbox: Message sent; deleting from outbox.');
-                    totalSent++;
-                    // We still run the update header logic, so that we
-                    // don't double-send if the delete doesn't go
-                    // through, and for code clarity.
-                    updateSendStatus(composer, header, {
-                      state: 'success',
-                      err: null,
-                      badAddresses: null
-                    }, function() {
-                      folderStorage.deleteMessageHeaderAndBodyUsingHeader(
-                        msg.header, sendDone);
-                    });
-                  }
-                });
-              });
+          // If there may be more messages to send, schedule another
+          // sync to send the next available message.
+          if (moreExpected) {
+            account.universe.sendOutboxMessages(account, {
+              beforeMessage: messageNamer
             });
-          });
-          console.log('outbox: Sending', totalSending, 'messages;',
-                      (headers.length - totalSending), 'already being sent.');
-
-          latch.then(function() {
-            wakeLock.unlock('all messages sent');
-            console.log('outbox: Done. Sent', totalSent, 'messages.');
+          }
+          // Otherwise, we're done. Mark the outbox as "synced".
+          else {
             folderStorage.markSyncRange(
               $sync.OLDEST_SYNC_DATE, null, 'XXX', $date.NOW());
-            callback(null, totalSent);
-          });
+          }
+          // Since we modified the folders, save the account.
+          callback(null, /* result = */ null, /* save = */ true);
+        }).catch(function(e) {
+          console.error('Exception while sending a message:', e, e.stack);
+          wakeLock.unlock(e);
+          callback('aborted-retry');
         });
+
       });
     },
     /* no conn => no deathback required */ null,
@@ -659,16 +601,18 @@ exports.do_sendOutboxMessages = function(op, callback) {
 exports.check_sendOutboxMessages = function(op, callback) {
   callback(null, 'moot');
 };
+
 exports.local_undo_sendOutboxMessages = function(op, callback) {
-  callback(null);
-};
-exports.undo_sendOutboxMessages = function(op, callback) {
-  callback(null);
+  callback(null); // You cannot undo sendOutboxMessages.
 };
 
 exports.local_do_setOutboxSyncEnabled = function(op, callback) {
-  accountOutboxDisabledTemporarilyMap[this.account.id] = !op.outboxSyncEnabled;
-  callback(null); // there is no local component for this
+  // Set a flag on the account to prevent us from kicking off further
+  // sends while the outbox is being edited on the client. The account
+  // referenced by `this.account` is actually the receive piece in a
+  // composite account; this flag is initialized in accountmixins.js.
+  this.account.outboxSyncEnabled = op.outboxSyncEnabled;
+  callback(null);
 };
 
 ////////////////////////////////////////////////////////////////

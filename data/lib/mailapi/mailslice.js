@@ -1006,9 +1006,21 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
                                                        this._LOG);
 }
 exports.FolderStorage = FolderStorage;
+
+/**
+ * Return true if the given folder type is local-only.
+ */
+FolderStorage.isLocalOnly = function(type) {
+  return (type === 'outbox' || type === 'localdrafts');
+}
+
 FolderStorage.prototype = {
   get hasActiveSlices() {
     return this._slices.length > 0;
+  },
+
+  get isLocalOnly() {
+    return FolderStorage.isLocalOnly(this.folderMeta.type);
   },
 
   /**
@@ -2371,16 +2383,13 @@ FolderStorage.prototype = {
     // -- grab from database if we have ever synchronized this folder
     // OR if it's synthetic
 
-    if (this._accuracyRanges.length || this.folderMeta.type === 'localdrafts' ||
-        this.folderMeta.type === 'outbox') {
+    if (this._accuracyRanges.length || this.isLocalOnly) {
       // We can only trigger a refresh if we are online.  Our caller may want to
       // force the refresh, ignoring recency data.  (This logic was too ugly as
       // a straight-up boolean/ternarny combo.)
       var triggerRefresh;
       if (this._account.universe.online && this.folderSyncer.syncable &&
-          this.folderMeta.type !== 'localdrafts' &&
-          this.folderMeta.type !== 'outbox'
-         ) {
+          !this.isLocalOnly) {
         if (forceRefresh)
           triggerRefresh = 'force';
         else
@@ -2403,9 +2412,7 @@ FolderStorage.prototype = {
     // (we have never synchronized this folder)
 
     // -- no work to do if we are offline or synthetic folder
-    if (!this._account.universe.online ||
-        this.folderMeta.type === 'localdrafts' ||
-        this.folderMeta.type === 'outbox') {
+    if (!this._account.universe.online || this.isLocalOnly) {
       doneCallback();
       return;
     }

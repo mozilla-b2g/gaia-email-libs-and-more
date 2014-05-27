@@ -235,8 +235,7 @@ ImapJobDriver.prototype = {
       // localdrafts and outbox are synthetic folders and so we never
       // want a connection for them. This is a somewhat awkward place
       // to make this decision, but it does work.
-      if (needConn && storage.folderMeta.type !== 'localdrafts' &&
-          storage.folderMeta.type !== 'outbox') {
+      if (needConn && !storage.isLocalOnly) {
         syncer.folderConn.withConnection(function () {
           // When we release the mutex, the folder may not
           // release its connection, so be sure to reset
@@ -694,8 +693,7 @@ ImapJobDriver.prototype = {
         }
 
         // There is nothing to do on localdrafts or outbox folders, server-wise.
-        if (sourceStorage.folderMeta.type === 'localdrafts' ||
-            sourceStorage.folderMeta.type === 'outbox') {
+        if (sourceStorage.isLocalOnly) {
           perFolderDone();
         }
         else if (sourceStorage.folderId === targetFolderId) {

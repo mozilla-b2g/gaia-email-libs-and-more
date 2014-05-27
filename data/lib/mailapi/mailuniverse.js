@@ -918,13 +918,15 @@ MailUniverse.prototype = {
   // expects (accountsResults)
   __notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
 
-  // expects {
+  // __notifyBackgroundSendStatus expects {
   //   suid: messageSuid,
   //   accountId: accountId,
   //   sendFailures: (integer),
   //   state: 'pending', 'sending', 'error', or 'success'
+  //   emitNotifications: Boolean,
   //   err: (if applicable),
-  //   badAddresses: (if applicable)
+  //   badAddresses: (if applicable),
+  //   willSendMore: Boolean
   // }
   __notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
 
@@ -1183,6 +1185,11 @@ MailUniverse.prototype = {
       }
     }
 
+    // We must hold off on freeing up queue.active until after we have
+    // completed processing and called the callback, because the
+    // callback may attempt to schedule additional jobs. By setting
+    // queues.active to false here, we know that it's still our
+    // responsibility to schedule the next job.
     queues.active = false;
 
     if (localQueue.length) {
@@ -1405,6 +1412,11 @@ MailUniverse.prototype = {
       }
     }
 
+    // We must hold off on freeing up queue.active until after we have
+    // completed processing and called the callback, just as we do in
+    // _localOpCompleted. This allows `callback` to safely schedule
+    // new jobs without interfering with the scheduling we're going to
+    // do immediately below.
     queues.active = false;
 
     if (localQueue.length) {
@@ -1664,6 +1676,10 @@ MailUniverse.prototype = {
       if (x.account !== targetFolderAccount)
         throw new Error('cross-account moves not currently supported!');
 
+      // If the move is entirely local-only (i.e. folders that will
+      // never be synced to the server), we don't need to run the
+      // server side of the job.
+      //
       // When we're moving a message between an outbox and
       // localdrafts, we need the operation to succeed even if we're
       // offline, and we also need to receive the "moveMap" returned
@@ -1676,19 +1692,18 @@ MailUniverse.prototype = {
       // the job system to pass back localResult and serverResult
       // independently, or restructure the way we move outbox messages
       // back to the drafts folder.
-      var isLocalOnly = true;
-      var targetType =
-            targetFolderAccount.getFolderMetaForFolderId(targetFolderId).type;
-      if (targetType !== 'localdrafts' && targetType !== 'outbox') {
-        isLocalOnly = false;
-      } else {
-        x.messages.forEach(function(msg) {
-          var sourceType =
-                self.getFolderStorageForMessageSuid(msg.suid).folderMeta.type;
-          if (sourceType !== 'localdrafts' && sourceType !== 'outbox') {
-            isLocalOnly = false;
-          }
-        });
+      var targetStorage =
+            targetFolderAccount.getFolderStorageForFolderId(targetFolderId);
+
+      // If any of the sourceStorages (or targetStorage) is not
+      // local-only, we can stop looking.
+      var isLocalOnly = targetStorage.isLocalOnly;
+      for (var j = 0; j < x.messages.length && isLocalOnly; j++) {
+        var sourceStorage =
+              self.getFolderStorageForMessageSuid(x.messages[j].suid);
+        if (!sourceStorage.isLocalOnly) {
+          isLocalOnly = false;
+        }
       }
 
       var longtermId = self._queueAccountOp(
@@ -1706,6 +1721,13 @@ MailUniverse.prototype = {
         }, latch.defer(i));
       longtermIds.push(longtermId);
     });
+
+    // When the moves finish, they'll each pass back results of the
+    // form [err, moveMap]. The moveMaps provide a mapping of
+    // sourceSuid => targetSuid, allowing the client to point itself
+    // to the moved messages. Since multiple moves would result in
+    // multiple moveMap results, we combine them here into a single
+    // result map.
     latch.then(function(results) {
       // results === [[err, moveMap], [err, moveMap], ...]
       var combinedMoveMap = {};
@@ -1919,16 +1941,22 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Attempt to send messages which are in the outbox.
+   * Kick off a job to send pending outgoing messages. See the job
+   * documentation regarding "sendOutboxMessages" for more details.
    *
-   * Options:
-   *   sendingMessage: if true, notify the frontend of status changes
-   *     for the most recent message in the outbox.
+   * @param {MailAccount} account
+   * @param {MessageNamer} opts.beforeMessage
+   *   If provided, start with the first message older than this one.
+   *   (This is only used internally within the job itself.)
+   * @param {string} opts.reason
+   *   Optional description, used for debugging.
+   * @param {Boolean} opts.emitNotifications
+   *   True to pass along send status notifications to the model.
    */
   sendOutboxMessages: function(account, opts, callback) {
     opts = opts || {};
 
-    console.log('outbox: sendOutboxMessages()', JSON.stringify(opts));
+    console.log('outbox: sendOutboxMessages(', JSON.stringify(opts), ')');
 
     // Do not attempt to check if the outbox is empty here. This op is
     // queued immediately after the client moves a message to the
@@ -1942,8 +1970,9 @@ MailUniverse.prototype = {
         lifecycle: 'do',
         localStatus: 'n/a',
         serverStatus: null,
-        sendingMessage: opts.sendingMessage,
         tryCount: 0,
+        beforeMessage: opts.beforeMessage,
+        emitNotifications: opts.emitNotifications,
         humanOp: 'sendOutboxMessages'
       },
       callback);
@@ -1952,7 +1981,8 @@ MailUniverse.prototype = {
   /**
    * Enable or disable Outbox syncing temporarily. For instance, you
    * will want to disable outbox syncing if the user is in "edit mode"
-   * for the list of messages in the outbox folder.
+   * for the list of messages in the outbox folder. This setting does
+   * not persist.
    */
   setOutboxSyncEnabled: function(account, enabled, callback) {
     this._queueAccountOp(

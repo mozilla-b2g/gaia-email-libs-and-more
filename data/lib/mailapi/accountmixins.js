@@ -20,7 +20,29 @@ function unimplementedJobOperation(op, callback) {
   });
 }
 
+/**
+ * Account Mixins:
+ *
+ * This mixin function is executed from the constructor of the
+ * CompositeAccount and ActiveSyncAccount, with 'this' being bound to
+ * the main account instance. If the account has separate receive/send
+ * parts, they are passed as arguments. (ActiveSync's receive and send
+ * pieces merely reference the root account.)
+ */
+exports.accountConstructorMixin = function(receivePiece, sendPiece) {
+  // The following flags are set on the receivePice, because the
+  // receiving side is what manages the job operations (and sending
+  // messages from the outbox is a job).
 
+  // On startup, we need to ignore any stale sendStatus information
+  // from messages in the outbox. See `sendOutboxMessages` in
+  // jobmixins.js.
+  receivePiece.outboxNeedsFreshSync = true;
+  // This is a runtime flag, used to temporarily prevent
+  // `sendOutboxMessages` from executing, such as when the user is
+  // actively trying to edit the list of messages in the Outbox.
+  receivePiece.outboxSyncEnabled = true;
+};
 
 /**
  * @args[

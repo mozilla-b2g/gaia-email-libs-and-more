@@ -1,3 +1,9 @@
+/**
+ * The docs for this can be found in `mailapi/wakelocks.js`.
+ *
+ * This file runs on the main thread, receiving messages sent from a
+ * SmartWakeLock instance -> through the router -> to this file.
+ */
 define(function() {
   'use strict';
 

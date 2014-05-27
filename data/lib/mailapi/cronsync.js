@@ -190,18 +190,10 @@ CronSync.prototype = {
   },
 
   /**
-   * Synchronize the given account.  Right now this is just the Inbox for the
-   * account.
-   *
-   * XXX For IMAP, we really want to use the standard iterative growth logic
-   * but generally ignoring the number of headers in the slice and instead
-   * just doing things by date.  Since making that correct without breaking
-   * things or making things really ugly will take a fair bit of work, we are
-   * initially just using the UI-focused logic for this.
-   *
-   * XXX because of this, we totally ignore IMAP's number of days synced
-   * value.  ActiveSync handles that itself, so our ignoring it makes no
-   * difference for it.
+   * Synchronize the given account. This fetches new messages for the
+   * inbox, and attempts to send pending outbox messages (if
+   * applicable). The callback occurs after both of those operations
+   * have completed.
    */
   syncAccount: function(account, doneCallback) {
     // - Skip syncing if we are offline or the account is disabled
@@ -214,6 +206,7 @@ CronSync.prototype = {
 
     var latch = $allback.latch();
     var inboxDone = latch.defer('inbox');
+    var outboxDone = latch.defer('outbox');
 
     var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
@@ -273,15 +266,16 @@ CronSync.prototype = {
     var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
     if (outboxStorage.getKnownMessageCount() > 0) {
       this._universe.sendOutboxMessages(account, {
-        reason: 'syncAccount',
-        sendingMessage: false
-      }, latch.defer('outbox'));
+        reason: 'syncAccount'
+      }, outboxDone);
     }
 
     // After both inbox and outbox syncing are algorithmically done,
     // wait for any ongoing job operations to complete so that the app
     // is not killed in the middle of a sync.
     latch.then(function(latchResults) {
+      // Right now, we ignore the outbox sync's results; we only care
+      // about the inbox.
       var inboxResult = latchResults.inbox[0];
       this._universe.waitForAccountOps(account, function() {
         // Also wait for any account save to finish. Most

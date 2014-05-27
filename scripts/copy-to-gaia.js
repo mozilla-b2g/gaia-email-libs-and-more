@@ -106,6 +106,7 @@ var bootstrapIncludes = [
   // Searches can happen offline.
   'mailapi/searchfilter',
   // Job/operations are currently not gated, although they could be...
+  'mailapi/jobs/outbox',
   'mailapi/jobmixins',
   // ...and this does include draft jobs and their deps
   'mailapi/drafts/jobs', 'mailapi/drafts/draft_rep',

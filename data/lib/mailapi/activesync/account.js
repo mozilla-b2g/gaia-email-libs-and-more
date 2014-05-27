@@ -128,7 +128,12 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
     this._addedFolder(null, '0', 'Inbox',
                       $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
   }
+
+  // Mix in any fields common to all accounts.
+  $acctmixins.accountConstructorMixin.call(
+    this, /* receivePiece = */ this, /* sendPiece = */ this);
 }
+
 exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
   type: 'activesync',
@@ -474,11 +479,11 @@ ActiveSyncAccount.prototype = {
         }
       }
 
-      // - create outbox folder
+      // Create the outbox folder, with the same parent as the
+      // localdrafts folder. We know the localdrafts folder exists,
+      // because we just created it above.
       var outbox = account.getFirstFolderWithType('outbox');
       if (!outbox) {
-        // Add the folder next to the existing drafts folder, which
-        // already exists because we just finished creating it.
         account._addedFolder(null, parentServerId, 'outbox', null, 'outbox');
       }
 

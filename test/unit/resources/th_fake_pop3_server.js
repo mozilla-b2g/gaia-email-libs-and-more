@@ -190,7 +190,14 @@ var TestFakePOP3ServerMixins = {
       var folderMeta = account.getFolderByPath(folderPath);
       var storage = account.getFolderStorageForFolderId(folderMeta.id);
       if (!folderMeta._TEST_pendingAdds) {
-        folderMeta._TEST_pendingAdds = [];
+        // Use Object.defineProperty here, without specifying the
+        // enumeration attribute, so that this property doesn't screw
+        // up postMessage serialization.
+        Object.defineProperty(folderMeta, '_TEST_pendingAdds', {
+          writable: true,
+          enumerable: false,
+          value: []
+        });
       }
       transformedMessages.forEach(function(obj) {
         var msg = pop3.Pop3Client.parseMime(obj.msgString);
@@ -267,7 +274,14 @@ var TestFakePOP3ServerMixins = {
       var storage = account.getFolderStorageForFolderId(folderMeta.id);
 
       if (!folderMeta._TEST_pendingHeaderDeletes) {
-        folderMeta._TEST_pendingHeaderDeletes = [];
+        // Use Object.defineProperty here, without specifying the
+        // enumeration attribute, so that this property doesn't screw
+        // up postMessage serialization.
+        Object.defineProperty(folderMeta, '_TEST_pendingHeaderDeletes', {
+          writable: true,
+          enumerable: false,
+          value: []
+        });
       }
       messages.forEach(function(msg) {
         folderMeta._TEST_pendingHeaderDeletes.push(msg);

@@ -120,6 +120,9 @@ exports.latch = function() {
         throw err;
       }
       resolved = true;
+      // 'name' might be the integer zero (among other integers) if
+      // the callee is doing array processing, so we pass anything not
+      // equalling null and undefined, even the poor falsey zero.
       if (name != null) {
         results[name] = Array.slice(arguments);
       }
