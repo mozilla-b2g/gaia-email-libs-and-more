@@ -288,6 +288,7 @@ ActiveSyncAccount.prototype = {
       syncRange: this.accountDef.syncRange,
       syncInterval: this.accountDef.syncInterval,
       notifyOnNew: this.accountDef.notifyOnNew,
+      playSoundOnSend: this.accountDef.playSoundOnSend,
 
       identities: this.identities,
 
