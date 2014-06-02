@@ -30,7 +30,7 @@ function unimplementedJobOperation(op, callback) {
  * pieces merely reference the root account.)
  */
 exports.accountConstructorMixin = function(receivePiece, sendPiece) {
-  // The following flags are set on the receivePice, because the
+  // The following flags are set on the receivePiece, because the
   // receiving side is what manages the job operations (and sending
   // messages from the outbox is a job).
 

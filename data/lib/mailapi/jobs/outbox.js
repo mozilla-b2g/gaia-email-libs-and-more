@@ -26,7 +26,7 @@ define(function(require) {
    * @param {CompositeAccount|ActiveSyncAccount} account
    * @param {FolderStorage} storage
    * @param {MessageNamer|null} beforeMessage
-   *   Send the first message chronologically preceeding `beforeMessage`.
+   *   Send the first message chronologically preceding `beforeMessage`.
    * @param {Boolean} emitNotifications
    *   If true, we will emit backgroundSendStatus notifications
    *   for this message.
@@ -94,7 +94,7 @@ define(function(require) {
   // The following functions are internal helpers.
 
   /**
-   * Resolve to the header immediately preceeding `beforeMessage` in
+   * Resolve to the header immediately preceding `beforeMessage` in
    * time. If beforeMessage is null, resolve the most recent message.
    * If no message could be found, resolve `null`.
    *

@@ -595,7 +595,7 @@ var properties = {
       if (folderPub === true)
         continue;
       // Never delete our localdrafts or outbox folder.
-      if ($mailslice.FolderStorage.isLocalOnly(folderPub.type))
+      if ($mailslice.FolderStorage.isTypeLocalOnly(folderPub.type))
         continue;
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);

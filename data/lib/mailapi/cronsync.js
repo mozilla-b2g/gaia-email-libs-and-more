@@ -268,6 +268,9 @@ CronSync.prototype = {
       this._universe.sendOutboxMessages(account, {
         reason: 'syncAccount'
       }, outboxDone);
+    } else {
+      // If there are no messages, let's just skip the outbox sync entirely.
+      outboxDone();
     }
 
     // After both inbox and outbox syncing are algorithmically done,

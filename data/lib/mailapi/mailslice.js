@@ -1008,9 +1008,16 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
 exports.FolderStorage = FolderStorage;
 
 /**
- * Return true if the given folder type is local-only.
+ * Return true if the given folder type is local-only (i.e. we will
+ * not try to sync this folder with the server).
+ *
+ * @param {String} type
+ *   The type of the folderStorage, e.g. 'inbox' or 'localdrafts'.
  */
-FolderStorage.isLocalOnly = function(type) {
+FolderStorage.isTypeLocalOnly = function(type) {
+  if (typeof type !== 'string') {
+    throw new Error('isTypeLocalOnly() expects a string, not ' + type);
+  }
   return (type === 'outbox' || type === 'localdrafts');
 }
 
@@ -1020,7 +1027,7 @@ FolderStorage.prototype = {
   },
 
   get isLocalOnly() {
-    return FolderStorage.isLocalOnly(this.folderMeta.type);
+    return FolderStorage.isTypeLocalOnly(this.folderMeta.type);
   },
 
   /**
