@@ -334,7 +334,17 @@ TD.commonCase('MIME hierarchies', function(T) {
           contentType: "image/png",
         }),
         new $msggen.SyntheticPartLeaf("plaintext part 3"),
-      ]);
+      ]),
+
+      multipartInlineImage = new $msggen.SyntheticPartMultiMixed([
+        new $msggen.SyntheticPartLeaf("plaintext part 1"),
+        new $msggen.SyntheticPartLeaf("something", {
+          contentType: "image/png",
+          disposition: "inline;\r\n" +
+                       " filename=photo.JPG",
+          contentId: null
+        })
+      ]),
   // - attachments
       tachImageAsciiName = {
         filename: 'stuff.png',
@@ -628,6 +638,12 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: multipartAttachPlain,
       checkBody: "plaintext part 1",
       checkSnippet: "plaintext part 1",
+    },
+    {
+      name: 'Multipart/mixed inline images without content-id',
+      bodyPart: multipartInlineImage,
+      checkBody: '',
+      createAttachment: true
     }
   ];
 
@@ -670,6 +686,7 @@ TD.commonCase('MIME hierarchies', function(T) {
 
     return messageAppends;
   }, { messageCount: testMessages.length }); // give count for timeout purposes
+
   T.group('full message download');
   // -- open the folder
   var folderView1 = testAccount.do_openFolderView(
@@ -684,14 +701,21 @@ TD.commonCase('MIME hierarchies', function(T) {
           fullSyncFolder.connActor.ignore_saveFailure();
         }
       }});
+
   // -- check each message in its own step
   function checkMessage(folderView, msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
-      eCheck.expect_namedValue('body', msgDef.checkBody);
+      if (!msgDef.createAttachment)
+        eCheck.expect_namedValue('body', msgDef.checkBody);
       if (msgDef.checkSnippet)
         eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
       if (msgDef.checkWholeBody) {
         eCheck.expect_namedValue('wholeBody', msgDef.checkWholeBody);
+      }
+      // This test case doesn't quite fit into the general model, 
+      // since it is supposed to force an inline image to an attachment
+      if (msgDef.createAttachment) {
+        eCheck.expect_namedValue('attachment-name', 'photo.JPG');
       }
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
@@ -706,7 +730,6 @@ TD.commonCase('MIME hierarchies', function(T) {
           }
         }
       }
-
       var header = folderView.slice.items[iMsg];
       header.getBody({ withBodyReps: true }, function(body) {
 
@@ -725,7 +748,9 @@ TD.commonCase('MIME hierarchies', function(T) {
           bodyValue = body.bodyReps[0].content;
         }
 
-        eCheck.namedValue('body', bodyValue);
+        if (!msgDef.createAttachment)
+          eCheck.namedValue('body', bodyValue);
+
         if (msgDef.checkWholeBody) {
           eCheck.namedValue('wholeBody', body.bodyReps.reduce(function(s, rep) {
             if (rep.type === 'html' || rep.type === 'plain') {
@@ -737,11 +762,12 @@ TD.commonCase('MIME hierarchies', function(T) {
         }
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
-        if ('attachments' in msgDef &&
-            body.attachments && body.attachments.length) {
+
+        if (('attachments' in msgDef || msgDef.createAttachment ) 
+          && body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.namedValue('attachment-name', body.attachments[i].filename);
-            if (testAccount.type !== 'pop3') {
+            if (testAccount.type !== 'pop3' && !msgDef.createAttachment) {
               eCheck.namedValue('attachment-size',
                                 body.attachments[i].sizeEstimateInBytes);
             }
