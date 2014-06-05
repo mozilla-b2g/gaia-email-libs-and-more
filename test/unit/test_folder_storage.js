@@ -1536,11 +1536,11 @@ TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
   gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       dA = DateUTC(2010, 0, 4),
-      uidA1 = 101, uidA2 = 102, uidA3 = 103,
+      uidA1 = 101, uidA2 = 103, uidA3 = 105,
       dB = DateUTC(2010, 0, 5),
-      uidB1 = 111, uidB2 = 112, uidB3 = 113,
+      uidB1 = 111, uidB2 = 113, uidB3 = 115,
       dC = DateUTC(2010, 0, 6),
-      uidC1 = 121, uidC2 = 122, uidC3 = 123,
+      uidC1 = 121, uidC2 = 123, uidC3 = 125,
       dFuture = DateUTC(2011, 0, 1);
 
   ctx.insertHeader(dA, uidA1);
@@ -1621,6 +1621,38 @@ TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
   ctx.storage.getMessagesBeforeMessage(
     dC, uidC3, 6,
     chexpect(dC, uidC2, dA, uidA3));
+
+
+
+  // Test getMessagesBeforeMessage, passing date/uid combos that don't
+  // actually exist. These should send us to the next-available
+  // messages, rather than throwing an error:
+
+  // Start from a hypothetical message with a UID ever-so-more-recent
+  // than uidC3, and expect to see everything from uidC3 pastward.
+  ctx.storage.getMessagesBeforeMessage(
+    dC, uidC3 + 1, null,
+    chexpect(dC, uidC3, dA, uidA1));
+
+  // From an arbitrary point in the future, the ID shouldn't matter;
+  // we should still see all past messages.
+  ctx.storage.getMessagesBeforeMessage(
+    dFuture, 0, null,
+    chexpect(dC, uidC3, dA, uidA1));
+
+  // From a made-up point at the pastward side of block C, we should
+  // see everything in blocks B through A.
+  ctx.storage.getMessagesBeforeMessage(
+    dC, uidC1 - 1, null,
+    chexpect(dB, uidB3, dA, uidA1));
+
+  // From a made-up point in the middle of block B, we should see
+  // everything beyond that point.
+  ctx.storage.getMessagesBeforeMessage(
+    dB, uidB2 - 1, null,
+    chexpect(dB, uidB1, dA, uidA1));
+
+
 
   // start from last message using null/null lazy logic.
   ctx.storage.getMessagesBeforeMessage(
