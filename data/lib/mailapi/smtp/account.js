@@ -278,10 +278,16 @@ SmtpAccount.prototype = {
         callbacks.sendMessage(conn);
       });
       // And close the connection and be done once it has been sent
-      conn.on('ready', function() {
+      conn.on('ready', function(success, response) {
         bailed = true;
         conn.close();
-        callbacks.onSendComplete(conn);
+
+        if (success) {
+          callbacks.onSendComplete(conn);
+        } else {
+          console.error('SMTP: Send failed with response: "' + response + '"');
+          callbacks.onError('unknown', null);
+        }
       });
 
       // - Error cases

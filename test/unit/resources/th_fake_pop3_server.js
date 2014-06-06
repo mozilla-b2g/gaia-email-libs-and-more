@@ -309,6 +309,16 @@ var TestFakePOP3ServerMixins = {
       command: 'setDropOnAuthFailure',
       dropOnAuthFailure: dropOnAuthFailure
     });
+  },
+
+  /**
+   * When set to true, the outgoing server will reject all messages.
+   */
+  toggleSendFailure: function(shouldFail) {
+    return this._backdoor({
+      command: 'toggleSendFailure',
+      shouldFail: shouldFail
+    });
   }
 };
 
