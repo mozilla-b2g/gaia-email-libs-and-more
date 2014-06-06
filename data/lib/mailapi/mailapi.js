@@ -43,6 +43,7 @@ function MailAccount(api, wireRep, acctsSlice) {
   this.syncRange = wireRep.syncRange;
   this.syncInterval = wireRep.syncInterval;
   this.notifyOnNew = wireRep.notifyOnNew;
+  this.playSoundOnSend = wireRep.playSoundOnSend;
 
   /**
    * Is the account currently enabled, as in will we talk to the server?
@@ -106,6 +107,7 @@ MailAccount.prototype = {
     this.problems = wireRep.problems;
     this.syncInterval = wireRep.syncInterval;
     this.notifyOnNew = wireRep.notifyOnNew;
+    this.playSoundOnSend = wireRep.playSoundOnSend;
     this._wireRep.defaultPriority = wireRep.defaultPriority;
   },
 
