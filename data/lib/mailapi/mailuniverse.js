@@ -922,11 +922,10 @@ MailUniverse.prototype = {
   //   suid: messageSuid,
   //   accountId: accountId,
   //   sendFailures: (integer),
-  //   state: 'pending', 'sending', 'error', or 'success'
+  //   state: 'pending', 'sending', 'error', 'success', or 'syncDone'
   //   emitNotifications: Boolean,
   //   err: (if applicable),
-  //   badAddresses: (if applicable),
-  //   willSendMore: Boolean
+  //   badAddresses: (if applicable)
   // }
   __notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
 
@@ -1958,6 +1957,14 @@ MailUniverse.prototype = {
 
     console.log('outbox: sendOutboxMessages(', JSON.stringify(opts), ')');
 
+    // If we are not online, we won't actually kick off a job until we
+    // come back online. Immediately fire a status notification
+    // indicating that we are done attempting to sync for now.
+    if (!this.online) {
+      this.notifyOutboxSyncDone(account);
+      // Fall through; we still want to queue the op.
+    }
+
     // Do not attempt to check if the outbox is empty here. This op is
     // queued immediately after the client moves a message to the
     // outbox. The outbox may be empty here, but it might be filled
@@ -1976,6 +1983,17 @@ MailUniverse.prototype = {
         humanOp: 'sendOutboxMessages'
       },
       callback);
+  },
+
+  /**
+   * Dispatch a notification to the frontend, indicating that we're
+   * done trying to send messages from the outbox for now.
+   */
+  notifyOutboxSyncDone: function(account) {
+    this.__notifyBackgroundSendStatus({
+      accountId: account.id,
+      state: 'syncDone'
+    });
   },
 
   /**

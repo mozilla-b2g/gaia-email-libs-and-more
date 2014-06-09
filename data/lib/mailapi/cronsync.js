@@ -206,7 +206,6 @@ CronSync.prototype = {
 
     var latch = $allback.latch();
     var inboxDone = latch.defer('inbox');
-    var outboxDone = latch.defer('outbox');
 
     var inboxFolder = account.getFirstFolderWithType('inbox');
     var storage = account.getFolderStorageForFolderId(inboxFolder.id);
@@ -263,14 +262,13 @@ CronSync.prototype = {
 
     // Check the outbox; if it has pending messages, attempt to send them.
     var outboxFolder = account.getFirstFolderWithType('outbox');
-    var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
-    if (outboxStorage.getKnownMessageCount() > 0) {
-      this._universe.sendOutboxMessages(account, {
-        reason: 'syncAccount'
-      }, outboxDone);
-    } else {
-      // If there are no messages, let's just skip the outbox sync entirely.
-      outboxDone();
+    if (outboxFolder) {
+      var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
+      if (outboxStorage.getKnownMessageCount() > 0) {
+        this._universe.sendOutboxMessages(account, {
+          reason: 'syncAccount'
+        }, latch.defer('outbox'));
+      }
     }
 
     // After both inbox and outbox syncing are algorithmically done,

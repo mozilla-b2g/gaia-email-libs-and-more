@@ -581,6 +581,7 @@ exports.do_sendOutboxMessages = function(op, callback) {
           }
           // Otherwise, we're done. Mark the outbox as "synced".
           else {
+            account.universe.notifyOutboxSyncDone(account);
             folderStorage.markSyncRange(
               $sync.OLDEST_SYNC_DATE, null, 'XXX', $date.NOW());
           }

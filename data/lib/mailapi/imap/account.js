@@ -107,6 +107,9 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * expunging deleted messages.
    */
   this._TEST_doNotCloseFolder = false;
+
+  // Ensure we have an outbox.
+  this._ensureEssentialFolders();
 }
 
 exports.Account = exports.ImapAccount = ImapAccount;
@@ -639,16 +642,36 @@ var properties = {
       }
     }
 
-    // Add an outbox folder if necessary, using the same parent folder
-    // as localdrafts, which we just ensured exists above.
+    callback(null);
+  },
+
+  /**
+   * Ensure we have all necessary folders. These folders must be
+   * created even in the absense of a server connection, in case the
+   * user wants to send emails offline. This is called in the
+   * constructor for the account.
+   */
+  _ensureEssentialFolders: function() {
     var outbox = this.getFirstFolderWithType('outbox');
     if (!outbox) {
-      this._learnAboutFolder(
-        'outbox', parentFolder.path + parentFolder.delim + 'outbox', parentId,
-        'outbox', parentFolder.delim, parentFolder.depth + 1);
-    }
+      var localDrafts = this.getFirstFolderWithType('localdrafts');
+      var parentFolder;
+      if (localDrafts && localDrafts.parentId) {
+        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
+      } else {
+        parentFolder = {
+          path: '', delim: '', depth: -1, id: '0'
+        };
+      }
 
-    callback(null);
+      this._learnAboutFolder(
+        'outbox',
+        parentFolder.path + parentFolder.delim + 'outbox',
+        parentFolder.id,
+        'outbox',
+        parentFolder.delim,
+        parentFolder.depth + 1);
+    }
   },
 
   /**

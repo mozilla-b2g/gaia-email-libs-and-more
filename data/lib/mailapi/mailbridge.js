@@ -1216,7 +1216,8 @@ MailBridge.prototype = {
         var initialSendStatus = {
           accountId: account.id,
           suid: req.persistedNamer.suid,
-          state: (this.universe.online ? 'sending' : 'pending')
+          state: (this.universe.online ? 'sending' : 'pending'),
+          emitNotifications: true
         };
 
         // Send 'doneCompose' nearly immediately, as saveDraft might

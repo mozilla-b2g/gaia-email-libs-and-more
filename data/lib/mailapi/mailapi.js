@@ -894,11 +894,10 @@ MailHeader.prototype = {
 
     // Messages in the outbox will have `sendStatus` populated like so:
     // {
-    //   state: 'pending', 'error', 'success', or 'sending'
+    //   state: 'pending', 'error', 'success', 'sending', or 'syncDone'
     //   err: null,
     //   badAddresses: null,
-    //   sendFailures: 2,
-    //   willSendMore: false
+    //   sendFailures: 2
     // }
     this.sendStatus = wireRep.sendStatus || {};
   },

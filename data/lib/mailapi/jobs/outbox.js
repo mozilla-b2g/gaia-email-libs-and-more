@@ -172,7 +172,8 @@ define(function(require) {
    */
   function sendMessage(account, storage, emitNotifications, composer) {
     var header = composer.header;
-    var progress = publishStatus.bind(null, account, storage, composer, header);
+    var progress = publishStatus.bind(
+      null, account, storage, composer, header, emitNotifications);
 
     // As part of the progress notification, the client would like to
     // know whether or not they can expect us to immediately send more
@@ -181,15 +182,12 @@ define(function(require) {
     var oldestDate = storage.getOldestMessageTimestamp();
     var willSendMore = oldestDate > 0 && oldestDate < header.date.valueOf();
 
-    // Send the initial progress information. Remember, progress()
-    // only overwrites keys that were provided, so we only need to
-    // specify `willSendMore` and `emitNotifications` once here.
+    // Send the initial progress information.
     progress({
       state: 'sending',
       err: null,
-      emitNotifications: emitNotifications,
       badAddresses: null,
-      willSendMore: willSendMore
+      sendFailures: header.sendStatus && header.sendStatus.sendFailures || 0
     });
 
     return new Promise(function(resolve) {
@@ -214,7 +212,7 @@ define(function(require) {
             badAddresses: null
           });
           storage.deleteMessageHeaderAndBodyUsingHeader(header, function() {
-            resolve(composer.header);
+           resolve(composer.header);
           });
         }
       });
@@ -222,16 +220,12 @@ define(function(require) {
   }
 
   /**
-   * Smash the given status information onto the header's sendStatus
-   * map, overwriting existing keys and preserving untouched ones, and
-   * publish it to the universe.
+   * Update the header's send status to the given data, and publish it
+   * to the universe.
    */
-  function publishStatus(account, storage, composer, header, status) {
-    for (var key in status) {
-      header.sendStatus[key] = status[key];
-    }
-
-    status = header.sendStatus;
+  function publishStatus(account, storage, composer,
+                         header, emitNotifications, status) {
+    header.sendStatus = status;
 
     storage.updateMessageHeader(
       header.date,
@@ -242,6 +236,7 @@ define(function(require) {
       function() {
         status.accountId = account.id;
         status.suid = header.suid;
+        status.emitNotifications = emitNotifications;
 
         // <test-support>
         status.messageId = composer.messageId;

@@ -119,15 +119,8 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                           this,
                           this._folderInfos.$mutationState);
 
-  // Ensure we have an inbox.  The server id cannot be magically known, so we
-  // create it with a null id.  When we actually sync the folder list, the
-  // server id will be updated.
-  var inboxFolder = this.getFirstFolderWithType('inbox');
-  if (!inboxFolder) {
-    // XXX localized Inbox string (bug 805834)
-    this._addedFolder(null, '0', 'Inbox',
-                      $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
-  }
+  // Ensure we have an outbox.
+  this._ensureEssentialFolders();
 
   // Mix in any fields common to all accounts.
   $acctmixins.accountConstructorMixin.call(
@@ -479,19 +472,43 @@ ActiveSyncAccount.prototype = {
         }
       }
 
-      // Create the outbox folder, with the same parent as the
-      // localdrafts folder. We know the localdrafts folder exists,
-      // because we just created it above.
-      var outbox = account.getFirstFolderWithType('outbox');
-      if (!outbox) {
-        account._addedFolder(null, parentServerId, 'outbox', null, 'outbox');
-      }
-
       console.log('Synced folder list');
       if (callback)
         callback(null);
     });
   }),
+
+  /**
+   * Ensure we have all necessary folders. These folders must be
+   * created even in the absense of a server connection, in case the
+   * user wants to send emails offline. This is called in the
+   * constructor for the account.
+   */
+  _ensureEssentialFolders: function() {
+    // Ensure we have an inbox.  The server id cannot be magically known, so we
+    // create it with a null id.  When we actually sync the folder list, the
+    // server id will be updated.
+    var inboxFolder = this.getFirstFolderWithType('inbox');
+    if (!inboxFolder) {
+      // XXX localized Inbox string (bug 805834)
+      this._addedFolder(null, '0', 'Inbox',
+                        $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
+    }
+
+    // Ensure we have an outbox. Become a sibling of 'localdrafts'.
+    var outbox = this.getFirstFolderWithType('outbox');
+    if (!outbox) {
+      var localDrafts = this.getFirstFolderWithType('localdrafts');
+      var parentFolder;
+      if (localDrafts && localDrafts.parentId) {
+        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
+      } else {
+        parentFolder = { serverId: '0' };
+      }
+
+      this._addedFolder(null, parentFolder.serverId, 'outbox', null, 'outbox');
+    }
+  },
 
   // Map folder type numbers from ActiveSync to Gaia's types
   _folderTypes: {
