@@ -1728,6 +1728,62 @@ TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
     chexpect(null, null, null, null));
 });
 
+
+/**
+ * Since a block may contain more than one date, we need to ensure we
+ * compare headers properly (i.e. using the [date, id] composite key)
+ * when retrieving messages using getMessagesBeforeMessage. In
+ * particular, attempting to search through header lists using only
+ * the ID or only the Date would be incorrect, and the cases below
+ * were chosen specifically to call out incorrect searching behavior,
+ * where other test cases may not explicitly test with differing dates
+ * within the same block.
+ */
+TD.commonSimple('getMessagesBeforeMessage, different dates', function(eLazy) {
+  gLazyLogger = eLazy;
+  var ctx = makeTestContext();
+  var headers = [
+    { date: Date.UTC(2014, 0, 7), id: 5 },
+    { date: Date.UTC(2014, 0, 5), id: 100 },
+    { date: Date.UTC(2014, 0, 3), id: 3 }
+  ];
+
+  headers.forEach(function(header) {
+    ctx.insertHeader(header.date, header.id);
+  });
+
+  var anyId = 1, NO_LIMIT = null;
+
+  // Fetching messages older than [some future date] should return everything.
+  ctx.storage.getMessagesBeforeMessage(
+    Date.UTC(2014, 0, 8), anyId, NO_LIMIT,
+    chexpect(headers[0].date, headers[0].id, headers[2].date, headers[2].id));
+
+  // Fetching messages older than headers[0] but newer than headers[1]
+  // should return headers[1] onward.
+  ctx.storage.getMessagesBeforeMessage(
+    Date.UTC(2014, 0, 6), 4, NO_LIMIT,
+    chexpect(headers[1].date, headers[1].id, headers[2].date, headers[2].id));
+
+  // Fetching messages older than [the oldest date] should return nada.
+  ctx.storage.getMessagesBeforeMessage(
+    Date.UTC(2014, 0, 2), anyId, NO_LIMIT,
+    chexpect(null, null, null, null));
+
+  // Fetching messages [on the same day as oldestDate] but with a
+  // higher ID than headers[2] should return only headers[2].
+  ctx.storage.getMessagesBeforeMessage(
+    headers[2].date, 4, NO_LIMIT,
+    chexpect(headers[2].date, headers[2].id, headers[2].date, headers[2].id));
+
+  // Fetching messages [on the same day as oldestDate] but with a
+  // lower ID than headers[2] should return nothing.
+  ctx.storage.getMessagesBeforeMessage(
+    headers[2].date, 1, NO_LIMIT,
+    chexpect(null, null, null, null));
+});
+
+
 /**
  * Test that messages in the future are properly retrieved by the FolderStorage.
  */

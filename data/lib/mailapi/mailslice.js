@@ -3273,13 +3273,9 @@ FolderStorage.prototype = {
       // the complete end of all blocks and iHeadBlockInfo points past
       // the end of headerBlockInfos, indicating that there are no
       // more messages pastward of our requested point.
-      headBlockInfo = this._headerBlockInfos[iHeadBlockInfo];
       if (iHeadBlockInfo < this._headerBlockInfos.length) {
-        // Begin the search at the head of the block (futuremost),
-        // attempting to reference the theoretical point just beyond
-        // the endUID of this block.
+        // Search in this block.
         headBlockInfo = this._headerBlockInfos[iHeadBlockInfo];
-        id = headBlockInfo.endUID + 1;
       } else {
         // If this message is older than all the existing blocks,
         // there aren't any messages to return, period, since we're
@@ -3302,9 +3298,10 @@ FolderStorage.prototype = {
         // Null means find it by id...
         if (iHeader === null) {
           if (id != null) {
-            iHeader = bsearchForInsert(headerBlock.ids, id, function(a, b) {
-              return b - a;
-            });
+            iHeader = bsearchForInsert(headerBlock.headers, {
+              date: date,
+              id: id
+            }, cmpHeaderYoungToOld);
 
             if (headerBlock.ids[iHeader] === id) {
               // If we landed exactly on the message we were searching
