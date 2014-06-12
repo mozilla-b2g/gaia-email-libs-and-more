@@ -515,28 +515,36 @@ TD.commonCase('mutate flags', function(T, RT) {
    * is different from the case where our own 'move' or 'delete' logic has
    * caused the message to disappear, since that leaves behind the server id
    * information for us that the 'do' job needs in the suidToServerId map.
+   *
+   * We do *not* run this test for POP3 since POP3 has no server ops for this
+   * and performing the setup.  There used to a problem with structured cloning
+   * the _TEST_blah properties that would be left as a byproduct of this
+   * operation, but bug 921050 will have addressed that by making them
+   * non-enumerable.
    */
-  T.group('modtags gracefully handles missing messages');
-  testUniverse3.do_pretendToBeOffline(true);
-  var purgeStarredHeader;
-  T.action('star message', function() {
-    testAccount3.expect_runOp(
-      'modtags',
-      { local: true, server: false, save: true });
-    purgeStarredHeader = folderView3.slice.items[0];
-    purgeStarredHeader.setStarred(true);
-  });
-  T.action('fake delete the header', function() {
-    testAccount3.deleteMessagesOnServerButNotLocally(
-      folderView3, [0]);
-    testAccount3.fakeServerMessageDeletion(purgeStarredHeader);
-  });
-  T.action('go online, see the job run to completion', function() {
-    testAccount3.expect_runOp(
-      'modtags',
-      { local: false, server: true, save: false });
-    testUniverse3.pretendToBeOffline(false);
-  });
+  if (TEST_PARAMS.type !== 'pop3') {
+    T.group('modtags gracefully handles missing messages');
+    testUniverse3.do_pretendToBeOffline(true);
+    var purgeStarredHeader;
+    T.action('star message', function() {
+      testAccount3.expect_runOp(
+        'modtags',
+        { local: true, server: false, save: true });
+      purgeStarredHeader = folderView3.slice.items[0];
+      purgeStarredHeader.setStarred(true);
+    });
+    T.action('fake delete the header', function() {
+      testAccount3.deleteMessagesOnServerButNotLocally(
+        folderView3, [0]);
+      testAccount3.fakeServerMessageDeletion(purgeStarredHeader);
+    });
+    T.action('go online, see the job run to completion', function() {
+      testAccount3.expect_runOp(
+        'modtags',
+        { local: false, server: true, save: false });
+      testUniverse3.pretendToBeOffline(false);
+    });
+  }
 
   T.group('cleanup');
   // save our state so the next unit test doesn't try and re-run our ops
