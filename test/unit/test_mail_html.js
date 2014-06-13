@@ -49,6 +49,7 @@ TD.commonCase('embedded and remote images', function(T) {
           contentType: 'image/png',
           encoding: 'base64', charset: null, format: null,
           contentId: 'part2.foo@bar.com',
+          disposition: 'inline',
           body: 'eWF5Mg===' // "yay2" in base64
         },
       size_2 = 4,
