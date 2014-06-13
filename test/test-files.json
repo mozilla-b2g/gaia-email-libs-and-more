@@ -184,6 +184,10 @@
       "variants": ["noserver"]
     },
 
+    "test_html_filtering_unit.js": {
+      "variants": ["noserver"]
+    },
+
     "test_allback_latch.js": {
       "variants": ["noserver"]
     },

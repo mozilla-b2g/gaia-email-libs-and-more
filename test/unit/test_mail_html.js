@@ -21,7 +21,8 @@ TD.commonCase('embedded and remote images', function(T) {
         '<html><head></head><body>image 1: <img src="cid:part1.foo@bar.com">' +
         ' image 2: <img src="cid:part2.foo@bar.com">' +
         ' image 3: <img src="http://example.com/foo.png">' +
-        ' <a id="thelink"></a>' + //
+        ' image 4: <img src="data:image/png;base64,IMAGEDATAHERE">' +
+        ' <a id="thelink"></a>' +
         ' <a href="http://example.com/bar.html">link</a></body></html>',
       bstrSanitizedFancyHtml =
         'image 1: <img cid-src="part1.foo@bar.com"' +
@@ -30,7 +31,8 @@ TD.commonCase('embedded and remote images', function(T) {
         ' class="moz-embedded-image"/> ' +
         'image 3: <img ext-src="http://example.com/foo.png"' +
         ' class="moz-external-image"/> ' +
-        '<a id="thelink"></a> ' +
+        'image 4: <img src="data:image/png;base64,IMAGEDATAHERE"/>' +
+        ' <a id="thelink"></a> ' +
         '<a ext-href="http://example.com/bar.html" class="moz-external-link">' +
         'link</a>',
       bpartFancyHtml =

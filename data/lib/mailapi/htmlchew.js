@@ -380,6 +380,7 @@ var RE_NODE_NEEDS_TRANSFORM = /^(?:a|area|img)$/;
 var RE_CID_URL = /^cid:/i;
 var RE_HTTP_URL = /^http(?:s)?/i;
 var RE_MAILTO_URL = /^mailto:/i;
+var RE_DATA_URL = /^data:image\/(?:gif|jpg|jpeg|png)(;base64)?,/i;
 
 var RE_IMG_TAG = /^img$/;
 
@@ -416,8 +417,8 @@ function stashLinks(lowerTag, attrs) {
           return true;
       }
     });
-
     var srcAttr = getAttributeFromList(attrs, 'src');
+
     if (srcAttr) {
       if (RE_CID_URL.test(srcAttr.escaped)) {
         srcAttr.name = 'cid-src';
@@ -434,6 +435,10 @@ function stashLinks(lowerTag, attrs) {
           classAttr.escaped += ' moz-external-image';
         else
           attrs.push({ name: 'class', escaped: 'moz-external-image' });
+      }
+      // src should be included data attributes, so filter out other src's manually
+      else if (RE_DATA_URL.test(srcAttr.escaped)) {
+        srcAttr.safe = true;
       }
     }
   }
