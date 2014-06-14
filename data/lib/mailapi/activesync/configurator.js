@@ -79,8 +79,10 @@ exports.configurator = {
         password: userDetails.password,
       };
 
+      var deviceId = $asacct.makeUniqueDeviceId();
+
       var self = this;
-      var conn = new $asproto.Connection();
+      var conn = new $asproto.Connection(deviceId);
       conn.open(domainInfo.incoming.server, credentials.username,
                 credentials.password);
       conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
@@ -145,7 +147,8 @@ exports.configurator = {
 
           credentials: credentials,
           connInfo: {
-            server: domainInfo.incoming.server
+            server: domainInfo.incoming.server,
+            deviceId: deviceId
           },
 
           identities: [
@@ -189,7 +192,9 @@ exports.configurator = {
 
       credentials: credentials,
       connInfo: {
-        server: oldAccountDef.connInfo.server
+        server: oldAccountDef.connInfo.server,
+        deviceId: oldAccountDef.connInfo.deviceId ||
+                  $asacct.makeUniqueDeviceId()
       },
 
       identities: $accountcommon.recreateIdentities(universe, accountId,

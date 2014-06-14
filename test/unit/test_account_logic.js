@@ -17,6 +17,11 @@ var TD = exports.TD = $tc.defineTestsFor(
  *
  * For simplicity, we currently create duplicate accounts.  This obviously will
  * not work once we prevent creating duplicate accounts.
+ *
+ * We do a few minor checks here that could potentially be separate tests but
+ * they're so easy/fast to do here:
+ * - ActiveSync: Make sure each account uses a different device id.
+ * - ActiveSync: Make sure we're using those device id's to talk to the server.
  */
 TD.commonCase('account creation/deletion', function(T, RT) {
   T.group('create universe, first account');
@@ -25,11 +30,22 @@ TD.commonCase('account creation/deletion', function(T, RT) {
                              { name: 'A' }),
       testAccountA = T.actor('testAccount', 'A',
                              { universe: testUniverse }),
-      eSliceCheck = T.lazyLogger('sliceCheck');
+      eSliceCheck = T.lazyLogger('sliceCheck'),
+      eLazyCheck = T.lazyLogger('check');
   var folderPointAB = null, folderPointBC = null, folderPointC = null;
   T.action('snapshot number of folders', function() {
     folderPointAB = gAllFoldersSlice.items.length;
   });
+
+  if (TEST_PARAMS.type === 'activesync') {
+    T.check(eLazyCheck, 'uses device id with server', function() {
+      var idA = testAccountA.account.accountDef.connInfo.deviceId;
+      eLazyCheck.expect_namedValue('server observed device ids', [idA]);
+      eLazyCheck.namedValue(
+        'server observed device ids',
+        testAccountA.testServer.getObservedDeviceIds({ clear: true }));
+    });
+  }
 
 
   T.group('create second account');
@@ -63,6 +79,25 @@ TD.commonCase('account creation/deletion', function(T, RT) {
                       (folderPointBC - folderPointAB) + ' expected');
     eSliceCheck.event('folders present');
   });
+
+  if (TEST_PARAMS.type === 'activesync') {
+    T.check(eLazyCheck, 'uses device id with server', function() {
+      var idB = testAccountB.account.accountDef.connInfo.deviceId;
+      eLazyCheck.expect_namedValue('server observed device ids', [idB]);
+      eLazyCheck.namedValue(
+        'server observed device ids',
+        testAccountB.testServer.getObservedDeviceIds({ clear: true }));
+    });
+
+    T.check(eLazyCheck, 'different device ids', function() {
+      eLazyCheck.expect_namedValueD('device ids', 'different');
+      var idA = testAccountA.account.accountDef.connInfo.deviceId;
+      var idB = testAccountB.account.accountDef.connInfo.deviceId;
+      eLazyCheck.namedValueD(
+        'device ids', (idA === idB) ? 'same' : 'different',
+        { idA: idA, idB: idB });
+    });
+  }
 
   T.group('create third account');
   var testAccountC = T.actor('testAccount', 'C',

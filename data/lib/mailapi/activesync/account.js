@@ -43,6 +43,21 @@ var bsearchForInsert = $util.bsearchForInsert;
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 /**
+ * Randomly create a unique device id so that multiple devices can independently
+ * synchronize without interfering with each other.  Our only goals are to avoid
+ * needlessly providing fingerprintable data and avoid collisions with other
+ * instances of ourself.  We're using Math.random over crypto.getRandomValues
+ * since node does not have the latter right now and predictable values aren't
+ * a concern.
+ *
+ * @return {String} An multi-character ASCII alphanumeric sequence.  (Probably
+     10 or 11 digits.)
+ */
+exports.makeUniqueDeviceId = function() {
+  return Math.random().toString(36).substr(2);
+};
+
+/**
  * Prototype-helper to wrap a method in a call to withConnection.  This exists
  * largely for historical reasons.  All actual lazy-loading happens within
  * withConnection.
@@ -64,6 +79,17 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
+
+  // Transparent upgrade; allocate a device-id if we don't have one.  By doing
+  // this we avoid forcing the user to manually re-create the account.  And the
+  // current migration system would throw away any saved drafts, which is not
+  // desirable.  The common thing in all cases is that we will need to re-sync
+  // the folders.
+  // XXX remove this upgrade logic when we next compel a version upgrade (and do
+  // so safely.)
+  if (!accountDef.connInfo.deviceId) {
+    accountDef.connInfo.deviceId = exports.makeUniqueDeviceId();
+  }
 
   this._db = dbConn;
 
@@ -160,7 +186,7 @@ ActiveSyncAccount.prototype = {
 
     if (!this.conn) {
       var accountDef = this.accountDef;
-      this.conn = new $asproto.Connection();
+      this.conn = new $asproto.Connection(accountDef.connInfo.deviceId);
       this._attachLoggerToConnection(this.conn);
       this.conn.open(accountDef.connInfo.server,
                      accountDef.credentials.username,

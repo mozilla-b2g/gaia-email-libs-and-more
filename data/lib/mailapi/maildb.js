@@ -50,8 +50,8 @@ MailDB.prototype = {
     sendMessage('saveConfig', [config]);
   },
 
-  saveAccountDef: function(config, accountDef, folderInfo) {
-    sendMessage('saveAccountDef', [ config, accountDef, folderInfo ]);
+  saveAccountDef: function(config, accountDef, folderInfo, callback) {
+    sendMessage('saveAccountDef', [ config, accountDef, folderInfo ], callback);
   },
 
   loadHeaderBlock: function(folderId, blockId, callback) {

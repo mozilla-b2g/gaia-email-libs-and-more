@@ -269,6 +269,20 @@ var TestActiveSyncServerMixins = {
       credentials: newCreds
     });
   },
+
+  /**
+   * Ask the ActiveSync server for the list of distinct device id's it has seen
+   * since startup or when the clear option was last provided.
+   *
+   * @param {Boolean} [opts.clear]
+   *   Clear the list subsequent to returning the current list contents.
+   */
+  getObservedDeviceIds: function(opts) {
+    return this._backdoor({
+      command: 'getObservedDeviceIds',
+      clearObservedDeviceIds: opts && opts.clear
+    });
+  }
 };
 
 
