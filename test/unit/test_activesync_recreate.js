@@ -1,6 +1,10 @@
 /**
  * Test that we can re-create an ActiveSync account under online and offline
  * conditions.  This test should actually work for IMAP too...
+ *
+ * We also abuse this test to check the following transparent upgrade steps:
+ * - If the accountDef.connInfo.deviceId does not exist, we allocate one.
+ * - The accountDef.connInfo.deviceId does not change as a result of an upgrade.
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
@@ -32,6 +36,15 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('go offline, shutdown');
   TU1.do_pretendToBeOffline(true);
+  T.action(eCheck, 'nuke device id, save account def', function() {
+    eCheck.expect_event('account def saved');
+
+    delete TA1.account.accountDef.connInfo.deviceId;
+    TA1.universe.saveAccountDef(
+      TA1.account.accountDef, null, function() {
+        eCheck.event('account def saved');
+      });
+  });
   TU1.do_saveState();
   TU1.do_shutdown();
 
@@ -42,6 +55,12 @@ TD.commonCase('create, recreate offline', function(T) {
                     { universe: TU2, restored: true });
   // check that the inbox exists
   var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2', inbox1);
+
+  T.check(eCheck, 'account has device id', function() {
+    eCheck.expect_namedValueD('has device id', true);
+    var deviceId = TA2.account.accountDef.connInfo.deviceId;
+    eCheck.namedValueD('has device id', !!deviceId, deviceId);
+  });
 
   T.group('kill folder sync, go online, try and sync');
   // Killing the folder sync means that when we go online, we don't try and sync
@@ -77,6 +96,10 @@ TD.commonCase('create, recreate offline', function(T) {
                     { old: TU2, dbDelta: 1, nukeDb: true }),
       TA3 = T.actor('testAccount', 'A3',
                     { universe: TU3 });
+  var savedDeviceId;
+  T.check('save off device id', function () {
+    savedDeviceId = TA3.account.accountDef.connInfo.deviceId;
+  });
   TU3.do_saveState();
   TU3.do_shutdown();
 
@@ -87,6 +110,12 @@ TD.commonCase('create, recreate offline', function(T) {
       TA4 = T.actor('testAccount', 'A4',
                     { universe: TU4, restored: true });
   var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4', inbox1);
+
+  T.check(eCheck, 'device id stayed the same', function() {
+    eCheck.expect_namedValue('device id', savedDeviceId);
+    eCheck.namedValue('device id', TA4.account.accountDef.connInfo.deviceId);
+  });
+
   TA4.do_viewFolder(
     'sync', inbox4,
     { count: DEFAULT_MESSAGE_COUNT, full: DEFAULT_MESSAGE_COUNT,
