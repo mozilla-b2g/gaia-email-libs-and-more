@@ -30,7 +30,7 @@ TD.commonCase('folder sync', function(T, RT) {
   T.action(eSync, 'check initial folder list', testAccount, function() {
     eSync.expect_namedValue('inbox', {
       syncKey: (type === 'activesync' ? '0' : null),
-      hasServerId: true
+      hasServerId:  (type === 'activesync' ? true : false),
     });
     var folder = testAccount.account.getFirstFolderWithType('inbox');
     eSync.namedValue('inbox', {

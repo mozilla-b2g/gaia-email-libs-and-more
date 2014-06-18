@@ -1201,7 +1201,21 @@ FolderStorage.prototype = {
 
   _deleteHeaderFromBlock: function ifs__deleteHeaderFromBlock(uid, info, block) {
     var idx = block.ids.indexOf(uid), header;
+
+    // Whatever we're looking for should absolutely exist; log an error if it
+    // does not.  But just silently return since there's little to be gained
+    // from blowing up the world.
+    if (idx === -1) {
+      this._LOG.badDeletionRequest('header', null, uid);
+      return;
+    }
+    header = block.headers[idx];
+
     // - remove, update counts
+    if (header.flags && header.flags.indexOf('\\Seen') === -1) {
+      this.folderMeta.unreadCount--;
+    }
+
     block.ids.splice(idx, 1);
     block.headers.splice(idx, 1);
     info.estSize -= $sync.HEADER_EST_SIZE_IN_BYTES;
@@ -3834,6 +3848,11 @@ FolderStorage.prototype = {
                                  this, header, body, callback));
       return;
     }
+
+    if (header.flags && header.flags.indexOf('\\Seen') === -1) {
+      this.folderMeta.unreadCount++;
+    }
+
     this._LOG.addMessageHeader(header.date, header.id, header.srvid);
 
     this.headerCount += 1;

@@ -25,6 +25,7 @@ define(
 var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
+  var self = this;
   var addTags = undo ? op.removeTags : op.addTags,
       removeTags = undo ? op.addTags : op.removeTags;
   this._partitionAndAccessFoldersSequentially(
@@ -42,6 +43,11 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (addTags) {
           for (iTag = 0; iTag < addTags.length; iTag++) {
             tag = addTags[iTag];
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount--;
+              self.account.universe.__notifyModifiedFolder(self.account,
+                storage.folderMeta);
+            }
             // The list should be small enough that native stuff is better
             // than JS bsearch.
             existing = header.flags.indexOf(tag);
@@ -55,6 +61,11 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (removeTags) {
           for (iTag = 0; iTag < removeTags.length; iTag++) {
             tag = removeTags[iTag];
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount++;
+              self.account.universe.__notifyModifiedFolder(self.account,
+                storage.folderMeta);
+            }
             existing = header.flags.indexOf(tag);
             if (existing === -1)
               continue;
