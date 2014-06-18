@@ -1259,6 +1259,16 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Expect the number of unread messaged in the folder to equal num
+   */
+  expect_unread: function(desc, folderId, eSync, num) {
+    var unread = this.universe
+      .getFolderStorageForFolderId(folderId).folderMeta.unreadCount;
+    eSync.expect_namedValue(desc, num);
+    eSync.namedValue(desc, unread);
+  },
+
+  /**
    * Perform a one-shot viewing of the contents of the folder to see that we
    * get back the right thing.  Use do_openFolderView if you want to open it
    * and keep it open and detect changes, etc.

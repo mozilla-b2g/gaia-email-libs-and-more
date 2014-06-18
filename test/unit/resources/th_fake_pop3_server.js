@@ -287,8 +287,11 @@ var TestFakePOP3ServerMixins = {
           value: []
         });
       }
-      messages.forEach(function(msg) {
-        folderMeta._TEST_pendingHeaderDeletes.push(msg);
+      messages.forEach(function(mailHeader) {
+        folderMeta._TEST_pendingHeaderDeletes.push({
+          date: mailHeader.date,
+          suid: mailHeader.id
+        });
         var name = folderPath.path || folderPath;
         this.folderMessages[name] =
           (this.folderMessages[name] || []).filter(function(m) {

@@ -100,6 +100,12 @@ TD.commonCase('mutate flags', function(T, RT) {
     { top: true, bottom: true, grow: false },
     { syncedToDawnOfTime: true });
 
+  T.check('initial unread counts', eSync, function() {
+    // We added 7 messages and they all start out unread.
+    testAccount.expect_unread('Before messages are read', testFolder.id,
+      eSync, 7);
+  });
+
   var doHeaderExps = null, undoHeaderExps = null, undoOps = null,
       applyManips = null;
 
@@ -113,9 +119,10 @@ TD.commonCase('mutate flags', function(T, RT) {
   T.group('offline manipulation; released to server');
   testUniverse.do_pretendToBeOffline(true);
   T.action('manipulate flags, hear local changes, no network use by',
-           testAccount, testAccount.eOpAccount, function() {
+           testAccount, testAccount.eOpAccount, eSync, function() {
     // by mentioning testAccount we ensure that we will assert if we see a
     // reuseConnection from it.
+
     var headers = folderView.slice.items,
         toMarkRead = headers[1],
         toStar = headers[2],
@@ -183,6 +190,13 @@ TD.commonCase('mutate flags', function(T, RT) {
       { top: true, bottom: true, grow: false },
       doHeaderExps.changes.length);
   });
+
+  T.check('unread counts after local op mutations', eSync, function() {
+    // We had 7 unread and then read 2, so down to 5.
+    testAccount.expect_unread('Unread count after local ops', testFolder.id,
+      eSync, 5);
+  });
+
   T.action('go online, see changes happen for', testAccount.eOpAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
@@ -192,13 +206,19 @@ TD.commonCase('mutate flags', function(T, RT) {
     }
     eSync.expect_event('ops-done');
 
+    // The online op should not affect the post-local-op unread count.
+    eSync.expect_namedValue('Unread count still', 5);
 
     testUniverse.pretendToBeOffline(false);
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
         eSync.event('ops-done');
-      });
+        var unread = testUniverse.universe
+          .getFolderStorageForFolderId(testFolder.id)
+          .folderMeta.unreadCount;
+        eSync.namedValue('Unread count still', unread);
+      }.bind(this));
   });
 
   // The refresh should result in us refreshing our flags but not hearing about
@@ -226,6 +246,12 @@ TD.commonCase('mutate flags', function(T, RT) {
       undoHeaderExps.changes.length);
   });
 
+  T.check('unread counts after local op undo ops', eSync, function() {
+    // We undo both mark read operations, so our 5 is back up to 7.
+    testAccount.expect_unread('Unread count after local ops', testFolder.id,
+      eSync, 7);
+  });
+
   T.action('go online, see undos happen for', testAccount.eFolderAccount,
            eSync, function() {
     for (var nOps = undoOps.length; nOps > 0; nOps--) {
@@ -234,12 +260,18 @@ TD.commonCase('mutate flags', function(T, RT) {
         { mode: 'undo', local: false, server: true });
     }
     eSync.expect_event('ops-done');
+    // The server ops should not impact the unread count.
+    eSync.expect_namedValue('Unread count after server op undo', 7);
 
     testUniverse.pretendToBeOffline(false);
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
         eSync.event('ops-done');
+        var unread = testUniverse.universe
+          .getFolderStorageForFolderId(testFolder.id)
+          .folderMeta.unreadCount;
+        eSync.namedValue('Unread count after server op undo', unread);
       });
   });
 
@@ -605,15 +637,23 @@ TD.commonCase('move/trash messages', function(T, RT) {
     'trashView', trashFolder, null, null,
     { syncedToDawnOfTime: 'ignore' });
 
+  T.check('initial unread counts', eSync, function() {
+    // All 5 messages in source are unread, and there are none in target.
+    testAccount.expect_unread('Before Move and Trash Unread Count',
+      sourceFolder.id, eSync, 5);
+    testAccount.expect_unread('Target Folder Before Unread',
+      targetFolder.id, eSync, 0);
+  });
   T.group('offline manipulation; released to server');
 
   var undoMoveBlind = null, undoMoveVisible = null, undoDelete = null;
 
   testUniverse.do_pretendToBeOffline(true);
   T.action('move/trash messages',
-           testAccount, eAccount, function() {
+           testAccount, eAccount, eSync, function() {
     // by mentioning testAccount we ensure that we will assert if we see a
     // reuseConnection from it.
+
     var headers = sourceView.slice.items,
         toMoveBlind = headers[1],
         toMoveVisible = headers[2],
@@ -650,6 +690,15 @@ TD.commonCase('move/trash messages', function(T, RT) {
     undoMoveVisible = toMoveVisible.moveMessage(targetFolder.mailFolder);
     undoDelete = toDelete.deleteMessage();
   });
+  T.check('verify unread counts after local ops have run', eSync, function() {
+    // Starting with 5 unread messages, we move 2 messages out of the source
+    // folder and delete 1, leaving us with 2.
+    testAccount.expect_unread('After Move and Trash Unread Count',
+      sourceFolder.id, eSync, 2);
+    // And we moved one of those unread to the target folder.
+    testAccount.expect_unread('Target Folder After Unread',
+      targetFolder.id, eSync, 1);
+  });
   T.action('go online, see changes happen for', eAccount,
            eSync, function() {
     var save = TEST_PARAMS.type !== 'activesync' ? false : 'server';
@@ -663,12 +712,22 @@ TD.commonCase('move/trash messages', function(T, RT) {
       'delete',
       { local: false, server: true, save: save });
     eSync.expect_event('ops-done');
-
+    // And the online operations running should not affect our counts.
+    eSync.expect_namedValue('Move and Trash Unread Count Still', 2);
+    eSync.expect_namedValue('Target Folder Unread Count Still', 1);
     testUniverse.pretendToBeOffline(false);
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
         eSync.event('ops-done');
+        var unread = testUniverse.universe
+          .getFolderStorageForFolderId(sourceFolder.id)
+          .folderMeta.unreadCount;
+        eSync.namedValue('Move and Trash Unread Count Still', unread);
+        var targetUnread = testUniverse.universe
+          .getFolderStorageForFolderId(targetFolder.id)
+          .folderMeta.unreadCount;
+        eSync.namedValue('Target Folder Unread Count Still', targetUnread);
       });
   });
   // Make sure we have the expected number of messages in the original folder.

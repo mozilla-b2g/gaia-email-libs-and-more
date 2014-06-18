@@ -1067,6 +1067,19 @@ ActiveSyncFolderConn.prototype = {
     });
   },
 
+  /**
+   * Determine whether an activesync header represents a read message.
+   * ActiveSync has an different header flag formant: ['flag', true/false].
+   */
+  _activeSyncHeaderIsSeen: function(header) {
+    for (var i = 0; i < header.flags.length; i++) {
+      if (header.flags[i][0] === '\\Seen' && header.flags[i][1]) {
+        return true;
+      }
+    }
+    return false;
+  },
+
   _updateBody: function(header, bodyInfo, bodyContent, snippetOnly, callback) {
     var bodyRep = bodyInfo.bodyReps[0];
 
@@ -1109,6 +1122,7 @@ ActiveSyncFolderConn.prototype = {
         deletedMessages = 0;
 
     this._LOG.sync_begin(null, null, null);
+    var self = this;
     this._enumerateFolderChanges(function (error, added, changed, deleted,
                                            moreAvailable) {
       var storage = folderConn._storage;
@@ -1149,10 +1163,22 @@ ActiveSyncFolderConn.prototype = {
           continue;
 
         storage.updateMessageHeaderByServerId(message.header.srvid, true,
-                                              function(oldHeader) {
+                                              function(message, oldHeader) {
+
+          if (!self._activeSyncHeaderIsSeen(oldHeader) &&
+            self._activeSyncHeaderIsSeen(message.header)) {
+            storage.folderMeta.unreadCount--;
+          } else if (self._activeSyncHeaderIsSeen(oldHeader) &&
+            !self._activeSyncHeaderIsSeen(message.header)) {
+            storage.folderMeta.unreadCount++;
+          }
+
           message.header.mergeInto(oldHeader);
           return true;
-        }, /* body hint */ null);
+        // Previously, this callback was called without safeguards in place
+        // to prevent issues caused by the message variable changing,
+        // so it is now bound to the function.
+        }.bind(null, message), /* body hint */ null);
         changedMessages++;
         // XXX: update bodies
       }

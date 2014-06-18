@@ -15,6 +15,7 @@ define(
     './folder',
     './jobs',
     '../util',
+    '../db/folder_info_rep',
     'module',
     'require',
     'exports'
@@ -29,6 +30,7 @@ define(
     $asfolder,
     $asjobs,
     $util,
+    $folder_info,
     $module,
     require,
     exports
@@ -544,7 +546,7 @@ ActiveSyncAccount.prototype = {
 
     var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
-      $meta: {
+      $meta: $folder_info.makeFolderMeta({
         id: folderId,
         serverId: serverId,
         name: displayName,
@@ -554,7 +556,7 @@ ActiveSyncAccount.prototype = {
         depth: depth,
         lastSyncedAt: 0,
         syncKey: '0',
-      },
+      }),
       // any changes to the structure here must be reflected in _recreateFolder!
       $impl: {
         nextId: 0,
