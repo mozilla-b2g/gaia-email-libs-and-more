@@ -91,6 +91,10 @@
       "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
     },
 
+    "test_dead_slice.js": {
+      "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
+    },
+
     "test_nonimap_sync_general.js": {
       "variants": ["activesync:fake", "pop3:fake"]
     },
