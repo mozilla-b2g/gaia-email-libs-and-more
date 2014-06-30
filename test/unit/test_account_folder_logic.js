@@ -8,7 +8,7 @@ define(['rdcommon/testcontext', './resources/th_main',
        function($tc, $th_main, $ascp, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_logic' }, null,
+  { id: 'test_account_folder_logic' }, null,
   [$th_main.TESTHELPER], ['app']);
 
 /**
@@ -23,7 +23,8 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse }),
+                            { universe: testUniverse,
+                              imapExtensions: ['RFC2195', 'RFC6154'] }),
       eSync = T.lazyLogger('sync');
 
   T.group('syncFolderList and check');
@@ -57,27 +58,72 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
   T.group('cleanup');
 });
 
-TD.commonCase('syncFolderList created localdrafts folder', function(T, RT) {
+TD.commonCase('syncFolderList created offline folders', function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
-  T.group('check for localdrafts folder');
-  T.check(eCheck, 'localdrafts folder', function() {
-    eCheck.expect_namedValue('has localdrafts folder?', true);
-    var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
-    // the path should place it next to the existing drafts folder, but we
-    // frequently don't have that folder, so use sent, which is our fallback
-    // anyways and should be consistently located
-    eCheck.expect_namedValue('path',
-                             sent.path.replace(/sent.*/i, 'localdrafts'));
+  ['localdrafts', 'outbox'].forEach(function(folderType) {
+    T.check(eCheck, folderType + ' folder', function() {
+      eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
+      var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
+      // the path should place it next to the existing drafts folder, but we
+      // frequently don't have that folder, so use sent, which is our fallback
+      // anyways and should be consistently located
+      eCheck.expect_namedValue('path',
+                               sent.path.replace(/sent.*/i, folderType));
 
-    var localDrafts = testUniverse.allFoldersSlice
-                        .getFirstFolderWithType('localdrafts');
-    eCheck.namedValue('has localdrafts folder?', !!localDrafts);
-    eCheck.namedValue('path', localDrafts.path);
+      var folder = testUniverse.allFoldersSlice
+            .getFirstFolderWithType(folderType);
+      eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
+      eCheck.namedValue('path', folder.path);
+    });
+  });
+});
+
+TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
+  T.group('setup');
+  var TEST_PARAMS = RT.envOptions;
+  var testUniverse = T.actor('testUniverse', 'U');
+  var testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+
+  if (TEST_PARAMS.type !== 'pop3') {
+    // POP3 does not have server folders.
+    T.action('Move system folders under INBOX', function() {
+      testAccount.testServer.moveSystemFoldersUnderneathInbox();
+    });
+  }
+
+  T.action('run syncFolderList', eCheck, function(T) {
+    testAccount.expect_runOp('syncFolderList',
+                             { local: false, server: true, conn: true });
+    eCheck.expect_event('roundtripped');
+    testUniverse.universe.syncFolderList(testAccount.account, function() {
+      testUniverse.MailAPI.ping(function() {
+        eCheck.event('roundtripped');
+      });
+    });
+  });
+
+  ['outbox', 'localdrafts'].forEach(function(folderType) {
+    T.check(eCheck, folderType + ' folder', function() {
+      eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
+      var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
+      // the path should place it next to the existing drafts folder, but we
+      // frequently don't have that folder, so use sent, which is our fallback
+      // anyways and should be consistently located
+      eCheck.expect_namedValue('path',
+                               sent.path.replace(/sent.*/i, folderType));
+
+      var folder = testUniverse.allFoldersSlice
+            .getFirstFolderWithType(folderType);
+      eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
+      eCheck.namedValue('path', folder.path);
+    });
   });
 });
 
@@ -98,25 +144,17 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
           sent  = testServer.getFolderByPath('Sent Mail'),
           trash = testServer.getFolderByPath('Trash');
 
-      var subinbox = testServer.addFolder(
-        'Subinbox', folderType.Mail, inbox.folderId);
-      testServer.addFolder(
-        'Subsubinbox', folderType.Inbox, subinbox.folderId);
+      var subinbox = testServer.addFolder('Subinbox', folderType.Mail);
+      testServer.addFolder('Subsubinbox', folderType.Inbox);
 
-      var subsent = testServer.addFolder(
-        'Subsent', folderType.Mail, sent.folderId);
-      testServer.addFolder(
-        'Subsubsent', folderType.Inbox, subsent.folderId);
+      var subsent = testServer.addFolder('Subsent', folderType.Mail);
+      testServer.addFolder('Subsubsent', folderType.Inbox);
 
-      var subtrash = testServer.addFolder(
-        'Subtrash', folderType.Mail, trash.folderId);
-      testServer.addFolder(
-        'Subsubtrash', folderType.Inbox, subtrash.folderId);
+      var subtrash = testServer.addFolder('Subtrash', folderType.Mail);
+      testServer.addFolder('Subsubtrash', folderType.Inbox);
 
-      var folder = testServer.addFolder(
-        'Folder', folderType.Mail);
-      testServer.addFolder(
-        'Subfolder', folderType.Inbox, folder.folderId);
+      var folder = testServer.addFolder('Folder', folderType.Mail);
+      testServer.addFolder('Subfolder', folderType.Inbox);
     });
   }
 

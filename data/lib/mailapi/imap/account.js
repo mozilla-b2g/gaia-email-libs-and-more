@@ -6,6 +6,7 @@ define(
   [
     'rdcommon/log',
     '../a64',
+    '../accountmixins',
     '../allback',
     '../errbackoff',
     '../mailslice',
@@ -21,6 +22,7 @@ define(
   function(
     $log,
     $a64,
+    $acctmixins,
     $allback,
     $errbackoff,
     $mailslice,
@@ -108,8 +110,9 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    */
   this._TEST_doNotCloseFolder = false;
 
-  // Ensure we have an outbox.
-  this._ensureEssentialFolders();
+  // Immediately ensure that we have any required local-only folders,
+  // as those can be created even while offline.
+  this.ensureEssentialOfflineFolders();
 }
 
 exports.Account = exports.ImapAccount = ImapAccount;
@@ -604,75 +607,79 @@ var properties = {
       this._forgetFolder(folderPub.id);
     }
 
-    // Add a localdrafts folder if we don't have one.
-    var localDrafts = this.getFirstFolderWithType('localdrafts');
-    var parentFolder;
-    if (!localDrafts) {
-      // Try and add the folder next to the existing drafts folder, or the
-      // sent folder if there is no drafts folder.  Otherwise we must have an
-      // inbox and we want to live under that.
-      var sibling = this.getFirstFolderWithType('drafts') ||
-                    this.getFirstFolderWithType('sent');
-      var parentId = sibling ? sibling.parentId
-                             : this.getFirstFolderWithType('inbox').id;
-      // parentId will be null if we are already top-level
-      if (parentId) {
-        parentFolder = this._folderInfos[parentId].$meta;
-      }
-      else {
-        parentFolder = {
-          path: '', delim: '', depth: -1
-        };
-      }
-      var localDraftPath = parentFolder.path + parentFolder.delim +
-            'localdrafts';
-      // Since this is a synthetic folder; we just directly choose the name
-      // that our l10n mapping will transform.
-      this._learnAboutFolder('localdrafts', localDraftPath,  parentId,
-                             'localdrafts', parentFolder.delim,
-                             parentFolder.depth + 1);
-    } else {
-      if (localDrafts.parentId) {
-        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
-      }
-      else {
-        parentFolder = {
-          path: '', delim: '', depth: -1
-        };
-      }
-    }
+    // Once we've synchonized the folder list, kick off another job to
+    // check that we have all essential online folders. Once that
+    // completes, we'll check to make sure our offline-only folders
+    // (localdrafts, outbox) are in the right place according to where
+    // this server stores other built-in folders.
+    this.ensureEssentialOnlineFolders();
+    this.normalizeFolderHierarchy();
 
     callback(null);
   },
 
   /**
-   * Ensure we have all necessary folders. These folders must be
-   * created even in the absense of a server connection, in case the
-   * user wants to send emails offline. This is called in the
-   * constructor for the account.
+   * Ensure that local-only folders exist. This runs synchronously
+   * before we sync the folder list with the server. Ideally, these
+   * folders should reside in a proper place in the folder hierarchy,
+   * which may differ between servers depending on whether the
+   * account's other folders live underneath the inbox or as
+   * top-level-folders. But since moving folders is easy and doesn't
+   * really affect the backend, we'll just ensure they exist here, and
+   * fix up their hierarchical location when syncing the folder list.
    */
-  _ensureEssentialFolders: function() {
-    var outbox = this.getFirstFolderWithType('outbox');
-    if (!outbox) {
-      var localDrafts = this.getFirstFolderWithType('localdrafts');
-      var parentFolder;
-      if (localDrafts && localDrafts.parentId) {
-        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
-      } else {
-        parentFolder = {
-          path: '', delim: '', depth: -1, id: '0'
-        };
+  ensureEssentialOfflineFolders: function() {
+    [ 'outbox', 'localdrafts' ].forEach(function(folderType) {
+      if (!this.getFirstFolderWithType(folderType)) {
+        this._learnAboutFolder(
+          /* name: */ folderType,
+          /* path: */ folderType,
+          /* parentId: */ null,
+          /* type: */ folderType,
+          /* delim: */ '',
+          /* depth: */ 0,
+          /* suppressNotification: */ true);
       }
-
-      this._learnAboutFolder(
-        'outbox',
-        parentFolder.path + parentFolder.delim + 'outbox',
-        parentFolder.id,
-        'outbox',
-        parentFolder.delim,
-        parentFolder.depth + 1);
-    }
+    }, this);
   },
+
+  /**
+   * Kick off jobs to create essential folders (sent, trash) if
+   * necessary. These folders should be created on both the client and
+   * the server; contrast with `ensureEssentialOfflineFolders`.
+   *
+   * TODO: Support localizing all automatically named e-mail folders
+   * regardless of the origin locale.
+   * Relevant bugs: <https://bugzil.la/905869>, <https://bugzil.la/905878>.
+   *
+   * @param {function} callback
+   *   Called when all ops have run.
+   */
+  ensureEssentialOnlineFolders: function(callback) {
+    var essentialFolders = { 'trash': 'Trash', 'sent': 'Sent' };
+    var latch = $allback.latch();
+
+    for (var type in essentialFolders) {
+      if (!this.getFirstFolderWithType(type)) {
+        this.universe.createFolder(
+          this.id, null, essentialFolders[type], false, latch.defer());
+      }
+    }
+
+    latch.then(callback);
+  },
+
+  /**
+   * Ensure that local-only folders live in a reasonable place in the
+   * folder hierarchy by moving them if necessary.
+   *
+   * We proactively create local-only folders at the root level before
+   * we synchronize with the server; if possible, we want these
+   * folders to reside as siblings to other system-level folders on
+   * the account. This is called at the end of syncFolderList, after
+   * we have learned about all existing server folders.
+   */
+  normalizeFolderHierarchy: $acctmixins.normalizeFolderHierarchy,
 
   /**
    * Asynchronously save the sent message to the sent folder, if applicable.

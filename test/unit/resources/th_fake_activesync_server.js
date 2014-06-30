@@ -270,6 +270,12 @@ var TestActiveSyncServerMixins = {
     });
   },
 
+  moveSystemFoldersUnderneathInbox: function() {
+    return this._backdoor({
+      command: 'moveSystemFoldersUnderneathInbox'
+    });
+  },
+
   /**
    * When set to true, the outgoing server will reject all messages.
    */

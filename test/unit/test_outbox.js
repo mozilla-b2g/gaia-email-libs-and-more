@@ -136,7 +136,7 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
   var folders = {};
   var views = {};
 
-  ['inbox', 'localdrafts', 'outbox'].forEach(function(type) {
+  ['localdrafts', 'outbox'].forEach(function(type) {
     folders[type] = testAccount.do_useExistingFolderWithType(type, '');
     views[type] = testAccount.do_openFolderView(
       type, folders[type], null, null, {
@@ -212,6 +212,19 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
   testUniverse.do_setOutboxSyncEnabled(true);
 
   T.check('Try to send again, should succeed', eLazy, function() {
+    if (TEST_PARAMS.type === 'imap') {
+      RT.reportActiveActorThisStep(testAccount.eFolderAccount);
+      testAccount.eFolderAccount.ignore_createConnection();
+      testAccount.eFolderAccount.ignore_reuseConnection();
+      testAccount.eFolderAccount.ignore_releaseConnection();
+    }
+
+    // Both messages should send successfully.
+    testAccount.expect_sendOutboxMessages();
+    testAccount.expect_sendMessage();
+    testAccount.expect_sendOutboxMessages();
+    testAccount.expect_sendMessage();
+
     testUniverse.universe.sendOutboxMessages(testUniverse.universe.accounts[0]);
 
     eLazy.expect_event('ops-done');
@@ -220,6 +233,11 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
       function() {
         eLazy.event('ops-done');
       });
+  });
+
+  T.check('Expect the messages to be gone from the outbox', eLazy, function() {
+    eLazy.expect_namedValue('outbox count', 0);
+    eLazy.namedValue('outbox count', views.outbox.slice.items.length);
   });
 
   folders.sent = testAccount.do_useExistingFolderWithType('sent', '');

@@ -1423,7 +1423,7 @@ var TestCommonAccountMixins = {
         self.universe.syncFolderList(self.account, function() {
           self.MailAPI.ping(function() {
             testFolder.mailFolder = self.testUniverse.allFoldersSlice
-                                        .getFirstFolderWithName(folderName);
+                                        .getFirstFolderWithPath(folderName);
             self._logger.foundFolder(!!testFolder.mailFolder,
                                      testFolder.mailFolder);
             testFolder.id = testFolder.mailFolder.id;

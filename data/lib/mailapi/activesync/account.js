@@ -39,7 +39,7 @@ define(
 var $wbxml, $asproto, ASCP;
 
 var bsearchForInsert = $util.bsearchForInsert;
-
+var $FolderTypes = $FolderHierarchy.Enums.Type;
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 /**
@@ -119,8 +119,9 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
                           this,
                           this._folderInfos.$mutationState);
 
-  // Ensure we have an outbox.
-  this._ensureEssentialFolders();
+  // Immediately ensure that we have any required local-only folders,
+  // as those can be created even while offline.
+  this.ensureEssentialOfflineFolders();
 
   // Mix in any fields common to all accounts.
   $acctmixins.accountConstructorMixin.call(
@@ -435,80 +436,18 @@ ActiveSyncAccount.prototype = {
         deferredAddedFolders = moreDeferredAddedFolders;
       }
 
-      // - create local drafts folder (if needed)
-      var localDrafts = account.getFirstFolderWithType('localdrafts');
-      var parentServerId;
-      if (!localDrafts) {
-        // Try and add the folder next to the existing drafts folder, or the
-        // sent folder if there is no drafts folder.  Otherwise we must have an
-        // inbox and we want to live under that.
-        var sibling = account.getFirstFolderWithType('drafts') ||
-                      account.getFirstFolderWithType('sent');
-        // If we have a sibling, it can tell us our gelam parent folder id
-        // which is different from our parent server id.  From there, we can
-        // map to the serverId.  Note that top-level folders will not have a
-        // parentId, in which case we want to just go with the top level.
-        if (sibling) {
-          if (sibling.parentId)
-            parentServerId =
-              account._folderInfos[sibling.parentId].$meta.serverId;
-          else
-            parentServerId = '0';
-        }
-        // Otherwise try and make the Inbox our parent.
-        else {
-          parentServerId = account.getFirstFolderWithType('inbox').serverId;
-        }
-        // Since this is a synthetic folder; we just directly choose the name
-        // that our l10n mapping will transform.
-        account._addedFolder(null, parentServerId, 'localdrafts', null,
-                             'localdrafts');
-      } else {
-        if (localDrafts.parentId) {
-          parentServerId =
-            account._folderInfos[localDrafts.parentId].$meta.serverId;
-        } else {
-          parentServerId = '0';
-        }
-      }
+      // Once we've synchonized the folder list, kick off another job
+      // to check that we have all essential online folders. Once that
+      // completes, we'll check to make sure our offline-only folders
+      // (localdrafts, outbox) are in the right place according to
+      // where this server stores other built-in folders.
+      account.ensureEssentialOnlineFolders();
+      account.normalizeFolderHierarchy();
 
       console.log('Synced folder list');
-      if (callback)
-        callback(null);
+      callback && callback(null);
     });
   }),
-
-  /**
-   * Ensure we have all necessary folders. These folders must be
-   * created even in the absense of a server connection, in case the
-   * user wants to send emails offline. This is called in the
-   * constructor for the account.
-   */
-  _ensureEssentialFolders: function() {
-    // Ensure we have an inbox.  The server id cannot be magically known, so we
-    // create it with a null id.  When we actually sync the folder list, the
-    // server id will be updated.
-    var inboxFolder = this.getFirstFolderWithType('inbox');
-    if (!inboxFolder) {
-      // XXX localized Inbox string (bug 805834)
-      this._addedFolder(null, '0', 'Inbox',
-                        $FolderHierarchy.Enums.Type.DefaultInbox, null, true);
-    }
-
-    // Ensure we have an outbox. Become a sibling of 'localdrafts'.
-    var outbox = this.getFirstFolderWithType('outbox');
-    if (!outbox) {
-      var localDrafts = this.getFirstFolderWithType('localdrafts');
-      var parentFolder;
-      if (localDrafts && localDrafts.parentId) {
-        parentFolder = this._folderInfos[localDrafts.parentId].$meta;
-      } else {
-        parentFolder = { serverId: '0' };
-      }
-
-      this._addedFolder(null, parentFolder.serverId, 'outbox', null, 'outbox');
-    }
-  },
 
   // Map folder type numbers from ActiveSync to Gaia's types
   _folderTypes: {
@@ -545,7 +484,6 @@ ActiveSyncAccount.prototype = {
     if (!forceType && !(typeNum in this._folderTypes))
       return true; // Not a folder type we care about.
 
-    var folderType = $FolderHierarchy.Enums.Type;
 
     var path = displayName;
     var parentFolderId = null;
@@ -562,7 +500,7 @@ ActiveSyncAccount.prototype = {
     }
 
     // Handle sentinel Inbox.
-    if (typeNum === folderType.DefaultInbox) {
+    if (typeNum === $FolderTypes.DefaultInbox) {
       var existingInboxMeta = this.getFirstFolderWithType('inbox');
       if (existingInboxMeta) {
         // Update the server ID to folder ID mapping.
@@ -932,13 +870,76 @@ ActiveSyncAccount.prototype = {
     return null;
   },
 
-  ensureEssentialFolders: function(callback) {
-    // XXX I am assuming ActiveSync servers are smart enough to already come
-    // with these folders.  If not, we should move IMAP's ensureEssentialFolders
-    // into the mixins class.
-    if (callback)
-      callback();
+  /**
+   * Ensure that local-only folders exist. This runs synchronously
+   * before we sync the folder list with the server. Ideally, these
+   * folders should reside in a proper place in the folder hierarchy,
+   * which may differ between servers depending on whether the
+   * account's other folders live underneath the inbox or as
+   * top-level-folders. But since moving folders is easy and doesn't
+   * really affect the backend, we'll just ensure they exist here, and
+   * fix up their hierarchical location when syncing the folder list.
+   */
+  ensureEssentialOfflineFolders: function() {
+    // On folder type numbers: While there are enum values for outbox
+    // and drafts, they represent server-side default folders, not the
+    // local folders we create for ourselves, so they must be created
+    // with an unknown typeNum.
+    [{
+      type: 'inbox',
+      displayName: 'Inbox', // Intentionally title-case.
+      typeNum: $FolderTypes.DefaultInbox,
+    }, {
+      type: 'outbox',
+      displayName: 'outbox',
+      typeNum: $FolderTypes.Unknown, // There is no "local outbox" typeNum.
+    }, {
+      type: 'localdrafts',
+      displayName: 'localdrafts',
+      typeNum: $FolderTypes.Unknown, // There is no "localdrafts" typeNum.
+    }].forEach(function(data) {
+      if (!this.getFirstFolderWithType(data.type)) {
+        this._addedFolder(
+          /* serverId: */ null,
+          /* parentServerId: */ '0',
+          /* displayName: */ data.displayName,
+          /* typeNum: */ data.typeNum,
+          /* forceType: */ data.type,
+          /* suppressNotification: */ true);
+      }
+    }, this);
   },
+
+  /**
+   * Kick off jobs to create essential folders (sent, trash) if
+   * necessary. These folders should be created on both the client and
+   * the server; contrast with `ensureEssentialOfflineFolders`.
+   *
+   * TODO: Support localizing all automatically named e-mail folders
+   * regardless of the origin locale.
+   * Relevant bugs: <https://bugzil.la/905869>, <https://bugzil.la/905878>.
+   *
+   * @param {function} callback
+   *   Called when all ops have run.
+   */
+  ensureEssentialOnlineFolders: function(callback) {
+    // Our ActiveSync implementation currently assumes that all
+    // ActiveSync servers always come with Sent and Trash folders. If
+    // that assumption proves false, we'd add them here like IMAP.
+    callback && callback();
+  },
+
+  /**
+   * Ensure that local-only folders live in a reasonable place in the
+   * folder hierarchy by moving them if necessary.
+   *
+   * We proactively create local-only folders at the root level before
+   * we synchronize with the server; if possible, we want these
+   * folders to reside as siblings to other system-level folders on
+   * the account. This is called at the end of syncFolderList, after
+   * we have learned about all existing server folders.
+   */
+  normalizeFolderHierarchy: $acctmixins.normalizeFolderHierarchy,
 
   scheduleMessagePurge: function(folderId, callback) {
     // ActiveSync servers have no incremental folder growth, so message purging

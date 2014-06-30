@@ -113,7 +113,8 @@ define(function(require) {
           id,
           /* limit = */ 1,
           function(headers, moreExpected) {
-            resolve(headers[0]);
+            // There may be no headers, and that's okay.
+            resolve(headers[0] || null);
           });
       } else {
         storage.getMessagesInImapDateRange(
@@ -138,10 +139,18 @@ define(function(require) {
    * @return {Promise(Composer)}
    */
   function constructComposer(account, storage, header, wakeLock) {
-    return new Promise(function(resolve) {
+    return new Promise(function(resolve, reject) {
       storage.getMessage(header.suid, header.date, function(msg) {
-        require(['mailapi/drafts/composer'], function(cmp) {
 
+        // If for some reason the message doesn't have a body, we
+        // can't construct a composer for this header.
+        if (!msg || !msg.body) {
+          console.error('Failed to create composer; no body available.');
+          reject();
+          return;
+        }
+
+        require(['mailapi/drafts/composer'], function(cmp) {
           var composer = new cmp.Composer(msg, account, account.identities[0]);
           composer.setSmartWakeLock(wakeLock);
 
@@ -212,7 +221,7 @@ define(function(require) {
             badAddresses: null
           });
           storage.deleteMessageHeaderAndBodyUsingHeader(header, function() {
-           resolve(composer.header);
+            resolve(composer.header);
           });
         }
       });
@@ -220,31 +229,46 @@ define(function(require) {
   }
 
   /**
-   * Update the header's send status to the given data, and publish it
-   * to the universe.
+   * Publish a universe notification with the message's current send
+   * status, and queue it for persistence in the database.
+   *
+   * NOTE: Currently, we do not checkpoint our state, so the
+   * intermediary "sending" steps will not actually get written to
+   * disk. That is generally fine, since sendStatus is invalid upon a
+   * restart. However, when we address bug 1032451 (sendMessage is not
+   * actually atomic), we will want to checkpoint state during the
+   * sending process.
    */
   function publishStatus(account, storage, composer,
                          header, emitNotifications, status) {
-    header.sendStatus = status;
+    header.sendStatus = {
+      state: status.state,
+      err: status.err,
+      badAddresses: status.badAddresses,
+      sendFailures: status.sendFailures
+    };
+
+    account.universe.__notifyBackgroundSendStatus({
+      // Status information (also stored on the header):
+      state: status.state,
+      err: status.err,
+      badAddresses: status.badAddresses,
+      sendFailures: status.sendFailures,
+      // Message/Account Information (for notifications):
+      accountId: account.id,
+      suid: header.suid,
+      emitNotifications: emitNotifications,
+      // Unit test support:
+      messageId: composer.messageId,
+      sentDate: composer.sentDate
+    });
 
     storage.updateMessageHeader(
       header.date,
       header.id,
       /* partOfSync */ false,
       header,
-      /* body hint */ null,
-      function() {
-        status.accountId = account.id;
-        status.suid = header.suid;
-        status.emitNotifications = emitNotifications;
-
-        // <test-support>
-        status.messageId = composer.messageId;
-        status.sentDate = composer.sentDate;
-        // </test-support>
-
-        account.universe.__notifyBackgroundSendStatus(status);
-      });
+      /* body hint */ null);
   }
 
   return {

@@ -285,6 +285,12 @@ var TestFakeIMAPServerMixins = {
       command: 'toggleSendFailure',
       shouldFail: shouldFail
     });
+  },
+
+  moveSystemFoldersUnderneathInbox: function() {
+    return this._backdoor({
+      command: 'moveSystemFoldersUnderneathInbox'
+    });
   }
 };
 

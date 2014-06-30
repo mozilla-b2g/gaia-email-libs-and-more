@@ -202,7 +202,7 @@ exports.local_undo_move = function(op, doneCallback, targetFolderId) {
 exports.local_do_delete = function(op, doneCallback) {
   var trashFolder = this.account.getFirstFolderWithType('trash');
   if (!trashFolder) {
-    this.account.ensureEssentialFolders();
+    this.account.ensureEssentialOnlineFolders();
     doneCallback('defer');
     return;
   }
@@ -588,7 +588,8 @@ exports.do_sendOutboxMessages = function(op, callback) {
           // Since we modified the folders, save the account.
           callback(null, /* result = */ null, /* save = */ true);
         }).catch(function(e) {
-          console.error('Exception while sending a message:', e, e.stack);
+          console.error('Exception while sending a message.',
+                        'Send failure: ' + e, e.stack);
           wakeLock.unlock(e);
           callback('aborted-retry');
         });

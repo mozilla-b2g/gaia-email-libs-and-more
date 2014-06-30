@@ -235,8 +235,15 @@ CompositeAccount.prototype = {
     return this._receivePiece.runOp(op, mode, callback);
   },
 
-  ensureEssentialFolders: function(callback) {
-    return this._receivePiece.ensureEssentialFolders(callback);
+  /**
+   * Kick off jobs to create required folders, both locally and on the
+   * server. See imap/account.js and activesync/account.js for documentation.
+   *
+   * @param {function} callback
+   *   Called when all jobs have run.
+   */
+  ensureEssentialOnlineFolders: function(callback) {
+    return this._receivePiece.ensureEssentialOnlineFolders(callback);
   },
 
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,

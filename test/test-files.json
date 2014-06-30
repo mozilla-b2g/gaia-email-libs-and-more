@@ -33,7 +33,7 @@
   "tests": {
 
     "test_outbox.js": {
-      "variants": ["imap:fake", "imap:real", "pop3:fake", "activesync:fake"]
+      "variants": ["imap:fake", "pop3:fake", "activesync:fake"]
     },
 
     "test_mail_html.js": {
