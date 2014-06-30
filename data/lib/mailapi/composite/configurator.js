@@ -224,7 +224,8 @@ exports.configurator = {
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
-          signature: null
+          signature: null,
+          signatureEnabled: false
         },
       ],
       tzOffset: tzOffset,
@@ -273,7 +274,8 @@ exports.configurator = {
           name: userDetails.displayName,
           address: userDetails.emailAddress,
           replyTo: null,
-          signature: null
+          signature: null,
+          signatureEnabled: false
         },
       ],
     };

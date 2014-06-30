@@ -570,6 +570,23 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Modify a particular identity, at index i in account.identities
+   */
+  do_modifyIdentity: function(i, options) {
+    var eCheck = this.T.lazyLogger('check');
+    this.T.action(this, 'modify identity', eCheck,
+                  'with options', JSON.stringify(options), function() {
+      var acct = this.testUniverse.allAccountsSlice
+            .getAccountById(this.accountId);
+      var identity = acct.identities[i];
+      eCheck.expect_event('modifyIdentity done');
+      identity.modifyIdentity(options, function() {
+        eCheck.event('modifyIdentity done');
+      });
+    }.bind(this));
+  },
+
+  /**
    * @args[
    *   @param[viewThing]
    *   @param[expected @dict[
