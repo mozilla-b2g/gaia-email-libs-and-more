@@ -22,13 +22,6 @@ function makeRandomSubject() {
 }
 
 
-// These subjects are shared between two tests below. The other tests
-// in this file create their own subjects.
-var subjectsForUniverseShutdown = [
-  makeRandomSubject(),
-  makeRandomSubject()
-];
-
 /**
  * Helper method to compose and send a message.
  *
@@ -74,13 +67,14 @@ function do_composeAndSendMessage(env, subject, opts) {
       eLazy.expect_event('sent');
     } else {
       testAccount.expect_moveMessageToOutbox();
+      testAccount.expect_sendOutboxMessages();
       eLazy.expect_event('send-failed');
     }
 
     // We're going to automatically kick off a round of sending other
     // messages in the outbox (see `outbox.js` docs), so expect one
     // job for each existing message.
-    for (var i = 0; i < outboxView.slice.items.length; i++) {
+    for (var i = 0; i < outboxView.slice.items.length - 1; i++) {
       testAccount.expect_sendOutboxMessages();
     }
 
@@ -266,41 +260,38 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
   }
 
   testUniverse.do_saveState();
+  testUniverse.do_shutdown();
 });
 
 
-// 2) Similar situation; try to send two messages, both fail. Clean
-// shutdown the universe. Start the universe back up. Have the
-// automatic-ish "send everything in the inbox" flow trigger and
-// everything get sent.
-//
-// TODO: I (mcav) had trouble configuring the test to shut the
-// universe down cleanly and start it back up in the same test case.
-// For now, I split this test into two test-cases; this one ends where
-// the universe shuts down, while the second test resumes the
-// universe.
-TD.commonCase('enqueue messages in outbox, then shutdown universe',
-              function(T, RT) {
+// 2) Try to send two messages, both fail. Clean shutdown the
+// universe. Start the universe back up. Have the automatic-ish "send
+// everything in the inbox" flow trigger and everything get sent.
+TD.commonCase('send from clean new universe', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true });
+  var testUniverse = T.actor('testUniverse', 'U');
   var testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
                               restored: true });
   var eLazy = T.lazyLogger('misc');
 
-  var subjects = subjectsForUniverseShutdown;
+  var subjects = [
+    makeRandomSubject(),
+    makeRandomSubject()
+  ];
 
   var composer;
   var folders = {};
   var views = {};
 
-  ['inbox', 'sent', 'localdrafts', 'outbox'].forEach(function(type) {
+  ['localdrafts', 'outbox'].forEach(function(type) {
     folders[type] = testAccount.do_useExistingFolderWithType(type, '');
     views[type] = testAccount.do_openFolderView(
       type, folders[type], null, null, {
         syncedToDawnOfTime: 'ignore',
-        nonet: (['outbox', 'localdrafts'].indexOf(type) !== -1)
+        recreateFolder: true,
+        nonet: true //(['outbox', 'localdrafts'].indexOf(type) !== -1)
       });
   });
 
@@ -335,45 +326,41 @@ TD.commonCase('enqueue messages in outbox, then shutdown universe',
     }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   });
 
+  T.check('Force send failure', function() {
+    testAccount.testServer.toggleSendFailure(false);
+  });
+
+  // Shut down the first universe.
+  for (var key in views) {
+    testAccount.do_closeFolderView(views[key]);
+  }
+  testUniverse.do_saveState();
   testUniverse.do_shutdown();
-});
+  // BEGIN UNIVERSE 2
 
-TD.commonCase('start universe, send outbox msgs', function(T, RT) {
-  T.group('setup');
-  var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true });
-  var testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse,
-                              restored: true});
-  var eLazy = T.lazyLogger('misc');
+  var testUniverse2 = T.actor('testUniverse', 'U', { old: testUniverse });
+  var testAccount2 = T.actor('testAccount', 'A',
+                             { universe: testUniverse2,
+                               restored: true });
 
-  var subjects = subjectsForUniverseShutdown;
-
-  var composer;
-  var folders = {};
-  var views = {};
+  var views2 = {};
 
   // Open up the folders we need
-  ['inbox', 'sent', 'localdrafts', 'outbox'].forEach(function(type) {
-    folders[type] = testAccount.do_useExistingFolderWithType(type, '');
-    views[type] = testAccount.do_openFolderView(
-      type, folders[type], null, null, {
+  ['localdrafts', 'outbox'].forEach(function(type) {
+    views2[type] = testAccount2.do_openFolderView(
+      type, testAccount2.do_useExistingFolderWithType(type, ''), null, null, {
         syncedToDawnOfTime: 'ignore',
         nonet: (['outbox', 'localdrafts'].indexOf(type) !== -1)
       });
   });
 
-  T.check('Tell the outgoing server to accept messages again', function() {
-    testAccount.testServer.toggleSendFailure(false);
-  });
-
   T.check('Try to send all msgs online, should work', eLazy, function() {
-    testUniverse.universe.sendOutboxMessages(
-      testUniverse.universe.accounts[0]);
+    testUniverse2.universe.sendOutboxMessages(
+      testUniverse2.universe.accounts[0]);
 
     eLazy.expect_event('ops-done');
-    testUniverse.universe.waitForAccountOps(
-      testUniverse.universe.accounts[0],
+    testUniverse2.universe.waitForAccountOps(
+      testUniverse2.universe.accounts[0],
       function() {
         eLazy.event('ops-done');
       });
@@ -381,9 +368,14 @@ TD.commonCase('start universe, send outbox msgs', function(T, RT) {
 
   T.group('Expect the messages to be sent!');
 
+  views2.sent = testAccount.do_openFolderView(
+    'sent', testAccount.do_useExistingFolderWithType('sent', ''), null, null, {
+      syncedToDawnOfTime: 'ignore',
+    });
+
   // They should show up in the sent folder.
   subjects.forEach(function(subject) {
-    testAccount.do_waitForMessage(views.sent, subject, {
+    testAccount2.do_waitForMessage(views2.sent, subject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
         eLazy.expect_namedValue('subject', subject);
@@ -397,8 +389,8 @@ TD.commonCase('start universe, send outbox msgs', function(T, RT) {
   // Ensure there are no more outbox messages
   T.check('outbox messages deleted', eLazy, function() {
     eLazy.expect_namedValue('outbox count', 0);
-    testAccount.MailAPI.ping(function() {
-      eLazy.namedValue('outbox count', views.outbox.slice.items.length);
+    testAccount2.MailAPI.ping(function() {
+      eLazy.namedValue('outbox count', views2.outbox.slice.items.length);
     });
   });
 

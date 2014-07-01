@@ -1698,6 +1698,7 @@ var TestCommonAccountMixins = {
    */
   expect_sendMessageWithOutbox: function(/* optional */ conn) {
     this.expect_moveMessageToOutbox();
+    this.expect_sendOutboxMessages();
     this.expect_sendMessage(conn);
   },
 
@@ -1711,8 +1712,6 @@ var TestCommonAccountMixins = {
       { local: true,
         server: false,
         save: 'local' });
-
-    this.expect_sendOutboxMessages();
   },
 
   /**
