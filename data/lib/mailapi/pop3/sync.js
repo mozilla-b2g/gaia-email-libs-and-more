@@ -356,27 +356,31 @@ Pop3FolderSyncer.prototype = {
    * sync, we queue up "server-only" modifications and execute them
    * upon sync. This allows us to reuse much of the existing tests for
    * certain folder operations, and becomes a no-op in production.
+   *
+   * @return {Boolean} true if a save is needed because we're actually doing
+   * something.
    */
-  _performTestDeletions: function(cb) {
+  _performTestAdditionsAndDeletions: function(cb) {
     var meta = this.storage.folderMeta;
-    var callbacksWaiting = 1;
     var numAdds = 0;
     var latch = allback.latch();
+    var saveNeeded = false;
     if (meta._TEST_pendingHeaderDeletes) {
       meta._TEST_pendingHeaderDeletes.forEach(function(header) {
-        callbacksWaiting++;
+        saveNeeded = true;
         this.storage.deleteMessageHeaderUsingHeader(header, latch.defer());
       }, this);
       meta._TEST_pendingHeaderDeletes = null;
     }
     if (meta._TEST_pendingAdds) {
       meta._TEST_pendingAdds.forEach(function(msg) {
-        callbacksWaiting++;
+        saveNeeded = true;
         this.storeMessage(msg.header, msg.bodyInfo, {}, latch.defer());
       }, this);
       meta._TEST_pendingAdds = null;
     }
     latch.then(function(results) { cb(); });
+    return saveNeeded;
   },
 
   /**
@@ -452,7 +456,6 @@ Pop3FolderSyncer.prototype = {
   function(conn, syncType, slice, doneCallback, progressCallback) {
     // if we could not establish a connection, abort the sync.
     var self = this;
-    this._LOG.sync_begin();
 
     // Only fetch info for messages we don't already know about.
     var filterFunc;
@@ -471,12 +474,19 @@ Pop3FolderSyncer.prototype = {
     var bytesStored = 0;
     var numMessagesSynced = 0;
     var latch = allback.latch();
+    // We only want to trigger a save if work is actually being done.  This is
+    // ugly/complicated because in order to let POP3 use the existing IMAP tests
+    // that did things in other folders, a test-only bypass route was created
+    // that has us actually add the messages
+    var saveNeeded;
 
     if (!this.isInbox) {
       slice.desiredHeaders = (this._TEST_pendingAdds &&
                               this._TEST_pendingAdds.length);
-      this._performTestDeletions(latch.defer());
+      saveNeeded = this._performTestAdditionsAndDeletions(latch.defer());
     } else {
+      saveNeeded = true;
+      this._LOG.sync_begin();
       var fetchDoneCb = latch.defer();
 
       // Fetch messages, ensuring that we don't actually store them all in
@@ -489,7 +499,7 @@ Pop3FolderSyncer.prototype = {
           // Every N messages, wait for everything to be stored to
           // disk and saved in the database. Then proceed.
           this.storage.runAfterDeferredCalls(function() {
-            this.account.__checkpointSyncCompleted(next);
+            this.account.__checkpointSyncCompleted(next, 'syncBatch');
           }.bind(this));
         }.bind(this),
         progress: function fetchProgress(evt) {
@@ -536,8 +546,6 @@ Pop3FolderSyncer.prototype = {
     }
 
     latch.then((function onSyncDone() {
-      this._LOG.sync_end();
-
       // Because POP3 has no concept of syncing discrete time ranges,
       // we have to trick the storage into marking everything synced
       // _except_ the dawn of time. This has to be slightly later than
@@ -553,7 +561,13 @@ Pop3FolderSyncer.prototype = {
         this.storage.markSyncedToDawnOfTime();
       }
 
-      this.account.__checkpointSyncCompleted();
+      if (this.isInbox) {
+        this._LOG.sync_end();
+      }
+      if (saveNeeded) {
+        this.account.__checkpointSyncCompleted(null, 'syncComplete');
+      }
+
       if (syncType === 'initial') {
         // If it's the first time we've synced, we've set
         // ignoreHeaders to true, which means that slices don't know

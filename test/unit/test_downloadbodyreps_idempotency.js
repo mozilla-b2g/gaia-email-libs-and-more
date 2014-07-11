@@ -33,7 +33,8 @@ TD.commonCase('fetch only snippets', function(T, RT) {
     testAccount.do_addMessagesToFolder(testFolder, { count: messageCount });
   }
   var testView = testAccount.do_openFolderView(
-    'syncs', testFolder, null, null, { syncedToDawnOfTime: 'ignore' });
+    'syncs', testFolder, null, null,
+    { syncedToDawnOfTime: 'ignore', batches: 1 });
 
   // When requesting bodyReps multiple times, we should only see one
   // set of "onchange" notifications -- after we actually download and
@@ -51,27 +52,15 @@ TD.commonCase('fetch only snippets', function(T, RT) {
     testAccount.expect_runOp('downloadBodyReps', {
       local: false,
       server: true,
-      save: (testAccount.type !== 'pop3' ? 'server' : false)
+      save: 'server'
     });
+    // these will run the server operations but they will realize there is
+    // nothing to do and so accordingly will not do connectiony things and
+    // will accordingly also not need to save state.
     testAccount.expect_runOp('downloadBodyReps', {
-      local: false, server: true, save: false });
+      local: false, server: true, save: false, conn: false });
     testAccount.expect_runOp('downloadBodyReps', {
-      local: false, server: true, save: false });
-
-    // TODO: POP3's logging (or th_main helper utilities) should be
-    // cleaned up to handle connection expectations in a way that lets
-    // us use the same expectations for IMAP as POP3. In this case,
-    // POP3 sets "USES_CONN = false", which renders the expect_runOp's
-    // "conn" helper useless. For IMAP, we already have a connection
-    // from the do_openFolderView, so we don't need conn: true here.
-    // But for POP3, the following expectations are needed to perform
-    // the same function as what "conn: true" woul dhave done in
-    // expect_runOp above, if POP3 supported that properly.
-    if (testAccount.type === 'pop3') {
-      RT.reportActiveActorThisStep(testAccount.eFolderAccount);
-      testAccount.eFolderAccount.ignore_createConnection();
-      testAccount.eFolderAccount.ignore_saveAccountState();
-    }
+      local: false, server: true, save: false, conn: false });
 
     // there's only one message in the inbox
     var header = testView.slice.items[0];

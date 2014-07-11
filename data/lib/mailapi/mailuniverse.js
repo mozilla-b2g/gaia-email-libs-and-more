@@ -935,13 +935,22 @@ MailUniverse.prototype = {
   /**
    * Write the current state of the universe to the database.
    */
-  saveUniverseState: function() {
+  saveUniverseState: function(callback) {
     var curTrans = null;
+    var latch = $allback.latch();
 
+    this._LOG.saveUniverseState_begin();
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      curTrans = account.saveAccountState(curTrans, null, 'saveUniverse');
+      curTrans = account.saveAccountState(curTrans, latch.defer(account.id),
+                                          'saveUniverse');
     }
+    latch.then(function() {
+      this._LOG.saveUniverseState_end();
+      if (callback) {
+        callback();
+      };
+    }.bind(this));
   },
 
   /**
@@ -1138,6 +1147,9 @@ MailUniverse.prototype = {
           completeOp = true;
           break;
       }
+
+      // Do not save if this was an error.
+      accountSaveSuggested = false;
     }
     else {
       switch (op.localStatus) {
@@ -1156,11 +1168,6 @@ MailUniverse.prototype = {
           }
           break;
       }
-
-      // This is a suggestion; in the event of high-throughput on operations,
-      // we probably don't want to save the account every tick, etc.
-      if (accountSaveSuggested)
-        account.saveAccountState(null, null, 'localOp');
     }
 
     if (removeFromServerQueue) {
@@ -1184,25 +1191,13 @@ MailUniverse.prototype = {
       }
     }
 
-    // We must hold off on freeing up queue.active until after we have
-    // completed processing and called the callback, because the
-    // callback may attempt to schedule additional jobs. By setting
-    // queues.active to false here, we know that it's still our
-    // responsibility to schedule the next job.
-    queues.active = false;
+    if (accountSaveSuggested) {
+      account.saveAccountState(null, this._startNextOp.bind(this, account),
+                               'localOp');
+      return;
+    }
 
-    if (localQueue.length) {
-      op = localQueue[0];
-      this._dispatchLocalOpForAccount(account, op);
-    }
-    else if (serverQueue.length && this.online && account.enabled) {
-      op = serverQueue[0];
-      this._dispatchServerOpForAccount(account, op);
-    }
-    else if (this._opCompletionListenersByAccount[account.id]) {
-      this._opCompletionListenersByAccount[account.id](account);
-      this._opCompletionListenersByAccount[account.id] = null;
-    }
+    this._startNextOp(account);
   },
 
   /**
@@ -1407,9 +1402,32 @@ MailUniverse.prototype = {
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested) {
         account._saveAccountIsImminent = false;
-        account.saveAccountState(null, null, 'serverOp');
+        account.saveAccountState(null, this._startNextOp.bind(this, account),
+                                'serverOp');
+        return;
       }
     }
+
+    this._startNextOp(account)
+  },
+
+  /**
+   * Shared code for _localOpCompleted and _serverOpCompleted to figure out what
+   * to do next *after* any account save has completed.  It used to be that we
+   * would trigger saves without waiting for them to complete with the theory
+   * that this would allow us to generally be more efficient without losing
+   * correctness since the IndexedDB transaction model is strong and takes care
+   * of data dependency issues for us.  However, for both testing purposes and
+   * with some new concerns over correctness issues, it's now making sense to
+   * wait on the transaction to commit.  There are potentially some memory-use
+   * wins from waiting for the transaction to complete, especially if we
+   * imagine some particularly pathological situations.
+   */
+  _startNextOp: function(account, queues) {
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    var op;
 
     // We must hold off on freeing up queue.active until after we have
     // completed processing and called the callback, just as we do in
@@ -1510,8 +1528,9 @@ MailUniverse.prototype = {
 
   waitForAccountOps: function(account, callback) {
     var queues = this._opsByAccount[account.id];
-    if (queues.local.length === 0 &&
-       (queues.server.length === 0 || !this.online || !account.enabled))
+    if (!queues.active &&
+        queues.local.length === 0 &&
+        (queues.server.length === 0 || !this.online || !account.enabled))
       callback();
     else
       this._opCompletionListenersByAccount[account.id] = callback;
@@ -2173,6 +2192,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       configMigrating: { lazyCarryover: false },
       configLoaded: { config: false, accounts: false },
       createAccount: { name: false },
+    },
+    asyncJobs: {
+      saveUniverseState: {}
     },
     errors: {
       badAccountType: { type: true },
