@@ -240,6 +240,12 @@ define(
     exports
   ) {
 
+var rawGimmeStack = $extransform.gimmeStack;
+var gimmeStack = function() {
+  // Slice off the logger calling us and ourselves.
+  return rawGimmeStack().slice(2);
+};
+
 /**
  * Per-thread/process sequence identifier to provide unambiguous ordering of
  *  logging events in the hopeful event we go faster than the timestamps can
@@ -1013,12 +1019,12 @@ LoggestClassMaker.prototype = {
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
 
-      this._expectations.push([name, val]);
+      this._expectations.push([name, gimmeStack(), val]);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(exp, entry) {
-      return smartCompareEquiv(exp[1], entry[1], COMPARE_DEPTH);
+      return smartCompareEquiv(exp[2], entry[1], COMPARE_DEPTH);
     };
   },
   /**
@@ -1118,7 +1124,7 @@ LoggestClassMaker.prototype = {
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
 
-      var exp = [name];
+      var exp = [name, gimmeStack()];
       for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION) {
           exp.push(arguments[iArg]);
@@ -1130,8 +1136,8 @@ LoggestClassMaker.prototype = {
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(tupe, entry) {
       // only check arguments we had expectations for.
-      for (var iArg = 1; iArg < tupe.length; iArg++) {
-        if (!smartCompareEquiv(tupe[iArg], entry[iArg], COMPARE_DEPTH))
+      for (var iArg = 2; iArg < tupe.length; iArg++) {
+        if (!smartCompareEquiv(tupe[iArg], entry[iArg - 1], COMPARE_DEPTH))
           return false;
       }
       return true;
@@ -1251,7 +1257,7 @@ LoggestClassMaker.prototype = {
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
 
-      var exp = [name_begin];
+      var exp = [name_begin, gimmeStack()];
       for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
@@ -1268,7 +1274,7 @@ LoggestClassMaker.prototype = {
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
 
-      var exp = [name_end];
+      var exp = [name_end, gimmeStack()];
       for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
@@ -1280,8 +1286,8 @@ LoggestClassMaker.prototype = {
     this.testActorProto['_verify_' + name_begin] =
         this.testActorProto['_verify_' + name_end] = function(tupe, entry) {
       // only check arguments we had expectations for.
-      for (var iArg = 1; iArg < tupe.length; iArg++) {
-        if (!smartCompareEquiv(tupe[iArg], entry[iArg], COMPARE_DEPTH))
+      for (var iArg = 2; iArg < tupe.length; iArg++) {
+        if (!smartCompareEquiv(tupe[iArg], entry[iArg - 1], COMPARE_DEPTH))
           return false;
       }
       return true;
@@ -1423,7 +1429,7 @@ LoggestClassMaker.prototype = {
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
 
-      var exp = [name];
+      var exp = [name, gimmeStack()];
       for (var iArg = 0; iArg < arguments.length; iArg++) {
         if (useArgs[iArg])
           exp.push(arguments[iArg]);
@@ -1438,8 +1444,8 @@ LoggestClassMaker.prototype = {
         return false;
       }
       // only check arguments we had expectations for.
-      for (var iArg = 1; iArg < tupe.length; iArg++) {
-        if (!smartCompareEquiv(tupe[iArg], entry[iArg], COMPARE_DEPTH))
+      for (var iArg = 2; iArg < tupe.length; iArg++) {
+        if (!smartCompareEquiv(tupe[iArg], entry[iArg - 1], COMPARE_DEPTH))
           return false;
       }
       return true;
@@ -1496,8 +1502,8 @@ LoggestClassMaker.prototype = {
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
     this.testActorProto['_verify_' + name] = function(tupe, entry) {
       // only check arguments we had expectations for.
-      for (var iArg = 1; iArg < tupe.length; iArg++) {
-        if (!smartCompareEquiv(tupe[iArg], entry[iArg], COMPARE_DEPTH))
+      for (var iArg = 2; iArg < tupe.length; iArg++) {
+        if (!smartCompareEquiv(tupe[iArg], entry[iArg - 1], COMPARE_DEPTH))
           return false;
       }
       return true;
@@ -1713,7 +1719,7 @@ exports.register = function register(mod, defs) {
  * Provide schemas for every logger that has been registered.
  */
 exports.provideSchemaForAllKnownFabs = function schemaForAllKnownFabs() {
-  var schema = {};
+  var schema = { $v: 2 };
   for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
     var rawDefs = ALL_KNOWN_FABS[i]._rawDefs;
     for (var key in rawDefs) {

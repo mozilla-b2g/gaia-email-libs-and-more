@@ -29,26 +29,14 @@ TD.commonCase('connection use', function(T, RT) {
     'opens', trashFolder,
     { count: 0, full: 0 },
     { top: true, bottom: true, grow: false, newCount: null },
-    {
-      expectFunc: function() {
-        RT.reportActiveActorThisStep(testAccount.eFolderAccount);
-        testAccount.eFolderAccount.ignore_saveAccountState();
-      }
-    });
+    { nonet: true });
 
   // Inbox must create a connection.
   testAccount.do_openFolderView(
     'opens', inboxFolder,
     { count: 0, full: 0 },
     { top: true, bottom: true, grow: false, newCount: null },
-    { syncedToDawnOfTime: true,
-      expectFunc: function() {
-        RT.reportActiveActorThisStep(testAccount.eFolderAccount);
-        testAccount.eFolderAccount.expect_createConnection();
-        testAccount.eFolderAccount.ignore_saveAccountState();
-      }
-    });
-
+    { syncedToDawnOfTime: true });
 
   T.group('cleanup');
 });

@@ -45,7 +45,8 @@ TD.commonCase('body properly updates when attachments change', function(T, RT) {
   }
 
   var testView = testAccount.do_openFolderView(
-    'syncs', testFolder, null, null, { syncedToDawnOfTime: 'ignore' });
+    'syncs', testFolder, null, null,
+    { syncedToDawnOfTime: 'ignore', batches: 1 });
 
   T.action('body updates attachment', eLazy, function() {
     var header = testView.slice.items[0];

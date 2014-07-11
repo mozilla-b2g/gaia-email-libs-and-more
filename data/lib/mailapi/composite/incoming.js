@@ -248,8 +248,8 @@ CompositeIncomingAccount.prototype = {
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
-  __checkpointSyncCompleted: function(callback) {
-    this.saveAccountState(null, callback, 'checkpointSync');
+  __checkpointSyncCompleted: function(callback, betterReason) {
+    this.saveAccountState(null, callback, betterReason || 'checkpointSync');
   },
 
   /**
@@ -384,7 +384,6 @@ exports.LOGFAB_DEFINITION = {
       unknownDeadConnection: {},
       connectionMismatch: {},
 
-      saveAccountState: { reason: false },
       /**
        * XXX: this is really an error/warning, but to make the logging less
        * confusing, treat it as an event.
@@ -414,6 +413,7 @@ exports.LOGFAB_DEFINITION = {
     asyncJobs: {
       checkAccount: { err: null },
       runOp: { mode: true, type: true, error: false, op: false },
+      saveAccountState: { reason: true, folderSaveCount: true },
     },
     TEST_ONLY_asyncJobs: {
     },

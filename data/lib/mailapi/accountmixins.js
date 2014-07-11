@@ -214,6 +214,8 @@ exports.saveAccountState = function(reuseTrans, callback, reason) {
     return null;
   }
 
+  this._LOG.saveAccountState_begin(reason, null);
+
   // Indicate save is active, in case something, like
   // signaling the end of a sync, needs to run after
   // a save, via runAfterSaves.
@@ -233,12 +235,13 @@ exports.saveAccountState = function(reuseTrans, callback, reason) {
     if (folderStuff)
       perFolderStuff.push(folderStuff);
   }
-  this._LOG.saveAccountState(reason);
+  var folderSaveCount = perFolderStuff.length;
   var trans = this._db.saveAccountFolderStates(
     this.id, this._folderInfos, perFolderStuff,
     this._deadFolderIds,
     function stateSaved() {
       this._saveAccountStateActive = false;
+      this._LOG.saveAccountState_end(reason, folderSaveCount);
 
       // NB: we used to log when the save completed, but it ended up being
       // annoying to the unit tests since we don't block our actions on
@@ -251,6 +254,8 @@ exports.saveAccountState = function(reuseTrans, callback, reason) {
       });
     }.bind(this),
     reuseTrans);
+  // Reduce the length of time perFolderStuff and its contents are kept alive.
+  perFolderStuff = null;
   this._deadFolderIds = null;
   return trans;
 };

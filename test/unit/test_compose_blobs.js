@@ -162,7 +162,7 @@ TD.commonCase('large attachments', function(T, RT) {
       testAccount.expect_runOp(
         'saveDraft',
         { local: true, server: false, save: 'local' });
-      testAccount.expect_sendMessageWithOutbox(/* conn = */ true);
+      testAccount.expect_sendMessageWithOutbox('success', 'conn');
 
       eLazy.expect_event('sent');
 

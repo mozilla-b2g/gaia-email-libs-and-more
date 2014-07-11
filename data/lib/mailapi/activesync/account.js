@@ -365,8 +365,8 @@ ActiveSyncAccount.prototype = {
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
-  __checkpointSyncCompleted: function() {
-    this.saveAccountState(null, null, 'checkpointSync');
+  __checkpointSyncCompleted: function(callback, betterReason) {
+    this.saveAccountState(null, callback, betterReason || 'checkpointSync');
   },
 
   shutdown: function asa_shutdown(callback) {
@@ -988,7 +988,6 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       createFolder: {},
       deleteFolder: {},
       recreateFolder: { id: false },
-      saveAccountState: { reason: false },
       /**
        * XXX: this is really an error/warning, but to make the logging less
        * confusing, treat it as an event.
@@ -997,6 +996,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     },
     asyncJobs: {
       runOp: { mode: true, type: true, error: false, op: false },
+      saveAccountState: { reason: true, folderSaveCount: true },
     },
     errors: {
       opError: { mode: false, type: false, ex: $log.EXCEPTION },

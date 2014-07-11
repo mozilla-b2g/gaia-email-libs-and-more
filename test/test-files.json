@@ -32,7 +32,15 @@
   },
   "tests": {
 
-    "test_outbox.js": {
+    "test_outbox_stuck_retry.js": {
+      "variants": ["imap:fake", "pop3:fake", "activesync:fake"]
+    },
+
+    "test_outbox_stuck_persisted.js": {
+      "variants": ["imap:fake", "pop3:fake", "activesync:fake"]
+    },
+
+    "test_outbox_some_stuck.js": {
       "variants": ["imap:fake", "pop3:fake", "activesync:fake"]
     },
 

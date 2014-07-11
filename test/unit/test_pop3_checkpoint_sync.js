@@ -41,15 +41,7 @@ TD.commonCase('checkpoint sync', function(T, RT) {
     'syncs', fullSyncFolder,
     { count: NUM_MSGS, full: NUM_MSGS, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: true, grow: false, newCount: null },
-    { syncedToDawnOfTime: true,
-      expectFunc: function() {
-      RT.reportActiveActorThisStep(testAccount.eFolderAccount);
-      testAccount.eFolderAccount.expect_createConnection();
-      for (var i = 0; i < NUM_MSGS / SAVE_EVERY_N; i++) {
-        testAccount.eFolderAccount.expect_saveAccountState();
-      }
-      testAccount.eFolderAccount.expect_saveAccountState();
-    }});
+    { syncedToDawnOfTime: true, batches: NUM_MSGS / SAVE_EVERY_N });
 
   T.group('cleanup');
 });

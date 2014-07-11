@@ -55,6 +55,13 @@ define(function(require) {
         };
       }
 
+      // Figure out if this is the last message to consider sending in the
+      // outbox.  (We are moving from newest to oldest, so this is the last one
+      // if it is the oldest.  We need to figure this out before the send
+      // process completes since we will delete the header once it's all sent.)
+      var moreExpected = !storage.headerIsOldestKnown(header.date,
+                                                      header.id);
+
       if (!header.sendStatus) {
         header.sendStatus = {};
       }
@@ -66,12 +73,8 @@ define(function(require) {
         return constructComposer(account, storage, header, wakeLock)
           .then(sendMessage.bind(null, account, storage, emitNotifications))
           .then(function(header) {
-            // Figure out if this was the last message in the outbox.
-            // If `storage` is empty, getOldestMessageTimestamp
-            // returns zero.
-            var oldestDate = storage.getOldestMessageTimestamp();
             return {
-              moreExpected: oldestDate > 0 && header.date !== oldestDate,
+              moreExpected: moreExpected,
               messageNamer: {
                 suid: header.suid,
                 date: header.date
