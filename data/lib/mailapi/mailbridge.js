@@ -1208,9 +1208,15 @@ MailBridge.prototype = {
             var outboxFolder = account.getFirstFolderWithType('outbox');
             this.universe.moveMessages([req.persistedNamer], outboxFolder.id);
 
+            // We only want to display notifications if the universe
+            // is online, i.e. we expect this sendOutboxMessages
+            // invocation to actually fire immediately. If we're in
+            // airplane mode, for instance, this job won't actually
+            // run until we're online, in which case it no longer
+            // makes sense to emit notifications for this job.
             this.universe.sendOutboxMessages(account, {
               reason: 'moved to outbox',
-              emitNotifications: true
+              emitNotifications: this.universe.online
             });
           }.bind(this));
 
