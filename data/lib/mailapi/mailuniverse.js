@@ -13,6 +13,7 @@ define(
     './maildb',
     './cronsync',
     './accountcommon',
+    './allback',
     'module',
     'exports'
   ],
@@ -26,6 +27,7 @@ define(
     $maildb,
     $cronsync,
     $acctcommon,
+    $allback,
     $module,
     exports
   ) {
@@ -916,19 +918,39 @@ MailUniverse.prototype = {
   // expects (accountsResults)
   __notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
 
+  // __notifyBackgroundSendStatus expects {
+  //   suid: messageSuid,
+  //   accountId: accountId,
+  //   sendFailures: (integer),
+  //   state: 'pending', 'sending', 'error', 'success', or 'syncDone'
+  //   emitNotifications: Boolean,
+  //   err: (if applicable),
+  //   badAddresses: (if applicable)
+  // }
+  __notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
+
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
 
   /**
    * Write the current state of the universe to the database.
    */
-  saveUniverseState: function() {
+  saveUniverseState: function(callback) {
     var curTrans = null;
+    var latch = $allback.latch();
 
+    this._LOG.saveUniverseState_begin();
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
-      curTrans = account.saveAccountState(curTrans, null, 'saveUniverse');
+      curTrans = account.saveAccountState(curTrans, latch.defer(account.id),
+                                          'saveUniverse');
     }
+    latch.then(function() {
+      this._LOG.saveUniverseState_end();
+      if (callback) {
+        callback();
+      };
+    }.bind(this));
   },
 
   /**
@@ -1101,7 +1123,6 @@ MailUniverse.prototype = {
     var queues = this._opsByAccount[account.id],
         serverQueue = queues.server,
         localQueue = queues.local;
-    queues.active = false;
 
     var removeFromServerQueue = false,
         completeOp = false;
@@ -1126,6 +1147,9 @@ MailUniverse.prototype = {
           completeOp = true;
           break;
       }
+
+      // Do not save if this was an error.
+      accountSaveSuggested = false;
     }
     else {
       switch (op.localStatus) {
@@ -1144,11 +1168,6 @@ MailUniverse.prototype = {
           }
           break;
       }
-
-      // This is a suggestion; in the event of high-throughput on operations,
-      // we probably don't want to save the account every tick, etc.
-      if (accountSaveSuggested)
-        account.saveAccountState(null, null, 'localOp');
     }
 
     if (removeFromServerQueue) {
@@ -1172,18 +1191,13 @@ MailUniverse.prototype = {
       }
     }
 
-    if (localQueue.length) {
-      op = localQueue[0];
-      this._dispatchLocalOpForAccount(account, op);
+    if (accountSaveSuggested) {
+      account.saveAccountState(null, this._startNextOp.bind(this, account),
+                               'localOp');
+      return;
     }
-    else if (serverQueue.length && this.online && account.enabled) {
-      op = serverQueue[0];
-      this._dispatchServerOpForAccount(account, op);
-    }
-    else if (this._opCompletionListenersByAccount[account.id]) {
-      this._opCompletionListenersByAccount[account.id](account);
-      this._opCompletionListenersByAccount[account.id] = null;
-    }
+
+    this._startNextOp(account);
   },
 
   /**
@@ -1247,7 +1261,6 @@ MailUniverse.prototype = {
     var queues = this._opsByAccount[account.id],
         serverQueue = queues.server,
         localQueue = queues.local;
-    queues.active = false;
 
     if (serverQueue[0] !== op)
       this._LOG.opInvariantFailure();
@@ -1389,9 +1402,39 @@ MailUniverse.prototype = {
       // we probably don't want to save the account every tick, etc.
       if (accountSaveSuggested) {
         account._saveAccountIsImminent = false;
-        account.saveAccountState(null, null, 'serverOp');
+        account.saveAccountState(null, this._startNextOp.bind(this, account),
+                                'serverOp');
+        return;
       }
     }
+
+    this._startNextOp(account)
+  },
+
+  /**
+   * Shared code for _localOpCompleted and _serverOpCompleted to figure out what
+   * to do next *after* any account save has completed.  It used to be that we
+   * would trigger saves without waiting for them to complete with the theory
+   * that this would allow us to generally be more efficient without losing
+   * correctness since the IndexedDB transaction model is strong and takes care
+   * of data dependency issues for us.  However, for both testing purposes and
+   * with some new concerns over correctness issues, it's now making sense to
+   * wait on the transaction to commit.  There are potentially some memory-use
+   * wins from waiting for the transaction to complete, especially if we
+   * imagine some particularly pathological situations.
+   */
+  _startNextOp: function(account, queues) {
+    var queues = this._opsByAccount[account.id],
+        serverQueue = queues.server,
+        localQueue = queues.local;
+    var op;
+
+    // We must hold off on freeing up queue.active until after we have
+    // completed processing and called the callback, just as we do in
+    // _localOpCompleted. This allows `callback` to safely schedule
+    // new jobs without interfering with the scheduling we're going to
+    // do immediately below.
+    queues.active = false;
 
     if (localQueue.length) {
       op = localQueue[0];
@@ -1485,8 +1528,9 @@ MailUniverse.prototype = {
 
   waitForAccountOps: function(account, callback) {
     var queues = this._opsByAccount[account.id];
-    if (queues.local.length === 0 &&
-       (queues.server.length === 0 || !this.online || !account.enabled))
+    if (!queues.active &&
+        queues.local.length === 0 &&
+        (queues.server.length === 0 || !this.online || !account.enabled))
       callback();
     else
       this._opCompletionListenersByAccount[account.id] = callback;
@@ -1640,14 +1684,46 @@ MailUniverse.prototype = {
     return longtermIds;
   },
 
-  moveMessages: function(messageSuids, targetFolderId) {
+  moveMessages: function(messageSuids, targetFolderId, callback) {
     var self = this, longtermIds = [],
         targetFolderAccount = this.getAccountForFolderId(targetFolderId);
-    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+    var latch = $allback.latch();
+    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x,i) {
       // TODO: implement cross-account moves and then remove this constraint
       // and instead schedule the cross-account move.
       if (x.account !== targetFolderAccount)
         throw new Error('cross-account moves not currently supported!');
+
+      // If the move is entirely local-only (i.e. folders that will
+      // never be synced to the server), we don't need to run the
+      // server side of the job.
+      //
+      // When we're moving a message between an outbox and
+      // localdrafts, we need the operation to succeed even if we're
+      // offline, and we also need to receive the "moveMap" returned
+      // by the local side of the operation, so that the client can
+      // call "editAsDraft" on the moved message.
+      //
+      // TODO: When we have server-side 'draft' folder support, we
+      // actually still want to run the server side of the operation,
+      // but we won't want to wait for it to complete. Maybe modify
+      // the job system to pass back localResult and serverResult
+      // independently, or restructure the way we move outbox messages
+      // back to the drafts folder.
+      var targetStorage =
+            targetFolderAccount.getFolderStorageForFolderId(targetFolderId);
+
+      // If any of the sourceStorages (or targetStorage) is not
+      // local-only, we can stop looking.
+      var isLocalOnly = targetStorage.isLocalOnly;
+      for (var j = 0; j < x.messages.length && isLocalOnly; j++) {
+        var sourceStorage =
+              self.getFolderStorageForMessageSuid(x.messages[j].suid);
+        if (!sourceStorage.isLocalOnly) {
+          isLocalOnly = false;
+        }
+      }
+
       var longtermId = self._queueAccountOp(
         x.account,
         {
@@ -1655,13 +1731,31 @@ MailUniverse.prototype = {
           longtermId: null,
           lifecycle: 'do',
           localStatus: null,
-          serverStatus: null,
+          serverStatus: isLocalOnly ? 'n/a' : null,
           tryCount: 0,
           humanOp: 'move',
           messages: x.messages,
           targetFolder: targetFolderId,
-        });
+        }, latch.defer(i));
       longtermIds.push(longtermId);
+    });
+
+    // When the moves finish, they'll each pass back results of the
+    // form [err, moveMap]. The moveMaps provide a mapping of
+    // sourceSuid => targetSuid, allowing the client to point itself
+    // to the moved messages. Since multiple moves would result in
+    // multiple moveMap results, we combine them here into a single
+    // result map.
+    latch.then(function(results) {
+      // results === [[err, moveMap], [err, moveMap], ...]
+      var combinedMoveMap = {};
+      for (var key in results) {
+        var moveMap = results[key][1];
+        for (var k in moveMap) {
+          combinedMoveMap[k] = moveMap[k];
+        }
+      }
+      callback(/* err = */ null, /* result = */ combinedMoveMap);
     });
     return longtermIds;
   },
@@ -1865,6 +1959,85 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Kick off a job to send pending outgoing messages. See the job
+   * documentation regarding "sendOutboxMessages" for more details.
+   *
+   * @param {MailAccount} account
+   * @param {MessageNamer} opts.beforeMessage
+   *   If provided, start with the first message older than this one.
+   *   (This is only used internally within the job itself.)
+   * @param {string} opts.reason
+   *   Optional description, used for debugging.
+   * @param {Boolean} opts.emitNotifications
+   *   True to pass along send status notifications to the model.
+   */
+  sendOutboxMessages: function(account, opts, callback) {
+    opts = opts || {};
+
+    console.log('outbox: sendOutboxMessages(', JSON.stringify(opts), ')');
+
+    // If we are not online, we won't actually kick off a job until we
+    // come back online. Immediately fire a status notification
+    // indicating that we are done attempting to sync for now.
+    if (!this.online) {
+      this.notifyOutboxSyncDone(account);
+      // Fall through; we still want to queue the op.
+    }
+
+    // Do not attempt to check if the outbox is empty here. This op is
+    // queued immediately after the client moves a message to the
+    // outbox. The outbox may be empty here, but it might be filled
+    // when the op runs.
+    this._queueAccountOp(
+      account,
+      {
+        type: 'sendOutboxMessages',
+        longtermId: 'session', // Does not need to be persisted.
+        lifecycle: 'do',
+        localStatus: 'n/a',
+        serverStatus: null,
+        tryCount: 0,
+        beforeMessage: opts.beforeMessage,
+        emitNotifications: opts.emitNotifications,
+        humanOp: 'sendOutboxMessages'
+      },
+      callback);
+  },
+
+  /**
+   * Dispatch a notification to the frontend, indicating that we're
+   * done trying to send messages from the outbox for now.
+   */
+  notifyOutboxSyncDone: function(account) {
+    this.__notifyBackgroundSendStatus({
+      accountId: account.id,
+      state: 'syncDone'
+    });
+  },
+
+  /**
+   * Enable or disable Outbox syncing temporarily. For instance, you
+   * will want to disable outbox syncing if the user is in "edit mode"
+   * for the list of messages in the outbox folder. This setting does
+   * not persist.
+   */
+  setOutboxSyncEnabled: function(account, enabled, callback) {
+    this._queueAccountOp(
+      account,
+      {
+        type: 'setOutboxSyncEnabled',
+        longtermId: 'session', // Does not need to be persisted.
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a', // Local-only.
+        outboxSyncEnabled: enabled,
+        tryCount: 0,
+        humanOp: 'setOutboxSyncEnabled'
+      },
+      callback);
+  },
+
+  /**
    * Delete an existing (local) draft.
    *
    * This function is implemented as a job/operation so it is inherently ordered
@@ -2019,6 +2192,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       configMigrating: { lazyCarryover: false },
       configLoaded: { config: false, accounts: false },
       createAccount: { name: false },
+    },
+    asyncJobs: {
+      saveUniverseState: {}
     },
     errors: {
       badAccountType: { type: true },

@@ -145,6 +145,13 @@ if (!Error.captureStackTrace) {
   };
 }
 
+exports.gimmeStack = function() {
+  var obj = {};
+  Error.captureStackTrace(obj);
+  // pop off captureStackTrace and us.
+  return obj.stack.slice(2);
+}
+
 var SM_STACK_FORMAT = /^(.*)@(.+):(\d+)$/;
 
 // this is biased towards v8/chromium for now

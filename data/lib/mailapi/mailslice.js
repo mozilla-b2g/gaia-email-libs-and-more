@@ -1006,9 +1006,28 @@ function FolderStorage(account, folderId, persistedFolderInfo, dbConn,
                                                        this._LOG);
 }
 exports.FolderStorage = FolderStorage;
+
+/**
+ * Return true if the given folder type is local-only (i.e. we will
+ * not try to sync this folder with the server).
+ *
+ * @param {String} type
+ *   The type of the folderStorage, e.g. 'inbox' or 'localdrafts'.
+ */
+FolderStorage.isTypeLocalOnly = function(type) {
+  if (typeof type !== 'string') {
+    throw new Error('isTypeLocalOnly() expects a string, not ' + type);
+  }
+  return (type === 'outbox' || type === 'localdrafts');
+}
+
 FolderStorage.prototype = {
   get hasActiveSlices() {
     return this._slices.length > 0;
+  },
+
+  get isLocalOnly() {
+    return FolderStorage.isTypeLocalOnly(this.folderMeta.type);
   },
 
   /**
@@ -2370,14 +2389,14 @@ FolderStorage.prototype = {
 
     // -- grab from database if we have ever synchronized this folder
     // OR if it's synthetic
-    if (this._accuracyRanges.length || this.folderMeta.type === 'localdrafts') {
+
+    if (this._accuracyRanges.length || this.isLocalOnly) {
       // We can only trigger a refresh if we are online.  Our caller may want to
       // force the refresh, ignoring recency data.  (This logic was too ugly as
       // a straight-up boolean/ternarny combo.)
       var triggerRefresh;
       if (this._account.universe.online && this.folderSyncer.syncable &&
-          this.folderMeta.type !== 'localdrafts'
-         ) {
+          !this.isLocalOnly) {
         if (forceRefresh)
           triggerRefresh = 'force';
         else
@@ -2400,7 +2419,7 @@ FolderStorage.prototype = {
     // (we have never synchronized this folder)
 
     // -- no work to do if we are offline or synthetic folder
-    if (!this._account.universe.online || this.folderMeta.type === 'localdrafts') {
+    if (!this._account.universe.online || this.isLocalOnly) {
       doneCallback();
       return;
     }
@@ -3229,6 +3248,10 @@ FolderStorage.prototype = {
    * Fetch up to `limit` messages chronologically before the given message
    * (in the direction of 'start').
    *
+   * If date/id do not point to a valid message, return messages as
+   * though it did point to a valid message (i.e. return messages past
+   * that point, as you would probably expect).
+   *
    * If date/id are null, it as if the date/id of the most recent message
    * are passed.
    */
@@ -3248,11 +3271,26 @@ FolderStorage.prototype = {
     }
 
     if (!headBlockInfo) {
-      // The iteration request is somehow not current; log an error and return
-      // an empty result set.
-      this._LOG.badIterationStart(date, id);
-      messageCallback([], false);
-      return;
+      // headBlockInfo will be null if this date/id pair does not fit
+      // properly into a block, but iHeadBlockInfo will still point to
+      // a location from which we can start looking, and that leads us
+      // to one of two cases: Either iHeadBlockInfo points to a valid
+      // block (the one immediately after this point), in which case
+      // we can just pretend that our targeted date/id resides
+      // immediately futureward of the current block; or we've reached
+      // the complete end of all blocks and iHeadBlockInfo points past
+      // the end of headerBlockInfos, indicating that there are no
+      // more messages pastward of our requested point.
+      if (iHeadBlockInfo < this._headerBlockInfos.length) {
+        // Search in this block.
+        headBlockInfo = this._headerBlockInfos[iHeadBlockInfo];
+      } else {
+        // If this message is older than all the existing blocks,
+        // there aren't any messages to return, period, since we're
+        // seeking pastward.
+        messageCallback([], false);
+        return;
+      }
     }
 
     var iHeader = null;
@@ -3267,15 +3305,29 @@ FolderStorage.prototype = {
 
         // Null means find it by id...
         if (iHeader === null) {
-          if (id !== null)
-            iHeader = headerBlock.ids.indexOf(id);
-          else
-            iHeader = 0;
-          if (iHeader === -1) {
-            self._LOG.badIterationStart(date, id);
-            toFill = 0;
+          if (id != null) {
+            iHeader = bsearchForInsert(headerBlock.headers, {
+              date: date,
+              id: id
+            }, cmpHeaderYoungToOld);
+
+            if (headerBlock.ids[iHeader] === id) {
+              // If we landed exactly on the message we were searching
+              // for, we must skip _past_ it, as this method is not
+              // intended to return this message, but only ones past it.
+              iHeader++;
+            } else {
+              // If we didn't land on the exact header we sought, we
+              // can just start returning results from iHeader onward.
+              // since iHeader points to a message immediately beyond
+              // the message we sought.
+            }
+          } else {
+            // If we didn't specify an id to search for, we're
+            // supposed to pretend that the first message in the block
+            // was the one we wanted; in that case, start from index 1.
+            iHeader = 1;
           }
-          iHeader++;
         }
         // otherwise we know we are starting at the front of the block.
         else {
@@ -3316,6 +3368,10 @@ FolderStorage.prototype = {
   /**
    * Fetch up to `limit` messages chronologically after the given message (in
    * the direction of 'end').
+   *
+   * NOTE: Unlike getMessagesBeforeMessage, this method currently
+   * expects date/id to point to a valid message, otherwise we'll
+   * raise a badIterationStart error.
    */
   getMessagesAfterMessage: function(date, id, limit, messageCallback) {
     var toFill = (limit != null) ? limit : $sync.TOO_MANY_MESSAGES, self = this;

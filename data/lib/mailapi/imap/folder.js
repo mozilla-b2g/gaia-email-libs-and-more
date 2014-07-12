@@ -972,8 +972,9 @@ ImapFolderSyncer.prototype = {
    * Can we grow this sync range?  IMAP always lets us do this.
    */
   get canGrowSync() {
-    // localdrafts is offline-only, so we can't ask the server for messages.
-    return this.folderStorage.folderMeta.type !== 'localdrafts';
+    // Some folders, like localdrafts and outbox, cannot be synced
+    // because they are local-only.
+    return !this.folderStorage.isLocalOnly;
   },
 
   /**
@@ -1113,21 +1114,24 @@ ImapFolderSyncer.prototype = {
     //
     this._syncSlice.desiredHeaders = this._syncSlice.headers.length;
 
-    if (this._curSyncDoneCallback)
-      this._curSyncDoneCallback(err);
-
     // Save our state even if there was an error because we may have accumulated
-    // some partial state.
-    this._account.__checkpointSyncCompleted();
+    // some partial state.  Additionally, don't *actually* complete until the
+    // save has hit the disk.  This is beneficial for both tests and cronsync
+    // which has been trying to shut us down in a race with this save
+    // triggering.
+    this._account.__checkpointSyncCompleted(function () {
+      if (this._curSyncDoneCallback)
+        this._curSyncDoneCallback(err);
 
-    this._syncSlice = null;
-    this._curSyncAccuracyStamp = null;
-    this._curSyncDir = null;
-    this._nextSyncAnchorTS = null;
-    this._syncThroughTS = null;
-    this._curSyncDayStep = null;
-    this._curSyncDoNotGrowBoundary = null;
-    this._curSyncDoneCallback = null;
+      this._syncSlice = null;
+      this._curSyncAccuracyStamp = null;
+      this._curSyncDir = null;
+      this._nextSyncAnchorTS = null;
+      this._syncThroughTS = null;
+      this._curSyncDayStep = null;
+      this._curSyncDoNotGrowBoundary = null;
+      this._curSyncDoneCallback = null;
+    }.bind(this));
   },
 
   /**

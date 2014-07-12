@@ -248,8 +248,8 @@ CompositeIncomingAccount.prototype = {
    * We are being told that a synchronization pass completed, and that we may
    * want to consider persisting our state.
    */
-  __checkpointSyncCompleted: function(callback) {
-    this.saveAccountState(null, callback, 'checkpointSync');
+  __checkpointSyncCompleted: function(callback, betterReason) {
+    this.saveAccountState(null, callback, betterReason || 'checkpointSync');
   },
 
   /**
@@ -352,34 +352,6 @@ CompositeIncomingAccount.prototype = {
   },
 
   /**
-   * Create the essential Sent and Trash folders if they do not already exist.
-   *
-   * XXX Our folder type detection logic probably needs to get more multilingual
-   * and us as well.  When we do this, we can steal the localized strings from
-   * Thunderbird to bootstrap.
-   */
-  ensureEssentialFolders: function(callback) {
-    var essentialFolders = {'trash': 'Trash', 'sent': 'Sent'};
-    var pendingCallbacks = 1;
-
-    function next() {
-      if (!--pendingCallbacks) {
-        callback && callback(null);
-      }
-    }
-
-    for (var type in essentialFolders) {
-      if (!this.getFirstFolderWithType(type)) {
-        pendingCallbacks++;
-        this.universe.createFolder(
-          this.id, null, essentialFolders[type], false, next);
-      }
-    }
-
-    next();
-  },
-
-  /**
    * We receive this notification from our _backoffEndpoint.
    */
   onEndpointStateChange: function(state) {
@@ -412,7 +384,6 @@ exports.LOGFAB_DEFINITION = {
       unknownDeadConnection: {},
       connectionMismatch: {},
 
-      saveAccountState: { reason: false },
       /**
        * XXX: this is really an error/warning, but to make the logging less
        * confusing, treat it as an event.
@@ -442,6 +413,7 @@ exports.LOGFAB_DEFINITION = {
     asyncJobs: {
       checkAccount: { err: null },
       runOp: { mode: true, type: true, error: false, op: false },
+      saveAccountState: { reason: true, folderSaveCount: true },
     },
     TEST_ONLY_asyncJobs: {
     },

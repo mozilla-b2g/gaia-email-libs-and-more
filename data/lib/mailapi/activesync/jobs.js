@@ -428,6 +428,15 @@ ActiveSyncJobDriver.prototype = {
   undo_download: $jobmixins.undo_download,
 
   //////////////////////////////////////////////////////////////////////////////
+
+  local_do_sendOutboxMessages: $jobmixins.local_do_sendOutboxMessages,
+  do_sendOutboxMessages: $jobmixins.do_sendOutboxMessages,
+  check_sendOutboxMessages: $jobmixins.check_sendOutboxMessages,
+  local_undo_sendOutboxMessages: $jobmixins.local_undo_sendOutboxMessages,
+  undo_sendOutboxMessages: $jobmixins.undo_sendOutboxMessages,
+  local_do_setOutboxSyncEnabled: $jobmixins.local_do_setOutboxSyncEnabled,
+
+  //////////////////////////////////////////////////////////////////////////////
   // purgeExcessMessages is a NOP for activesync
 
   local_do_purgeExcessMessages: function(op, doneCallback) {

@@ -28,7 +28,8 @@ define(
     './worker-support/cronsync-main',
     './worker-support/devicestorage-main',
     './worker-support/maildb-main',
-    './worker-support/net-main'
+    './worker-support/net-main',
+    './worker-support/wakelocks-main'
   ],
   function(
     $shim_setup,
@@ -38,7 +39,8 @@ define(
     $cronsync,
     $devicestorage,
     $maildb,
-    $net
+    $net,
+    $wakelocks
   ) {
 
   var control = {
@@ -100,6 +102,7 @@ define(
   $router.register($devicestorage);
   $router.register($maildb);
   $router.register($net);
+  $router.register($wakelocks);
 
   return MailAPI;
 }); // end define

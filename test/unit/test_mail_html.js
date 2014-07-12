@@ -101,6 +101,12 @@ TD.commonCase('embedded and remote images', function(T) {
   var hasFakePart = (testAccount.type === 'pop3');
 
   T.check(eCheck, 'get fancy body', function() {
+    if (testAccount.type !== 'pop3') {
+      testAccount.expect_runOp(
+        'downloadBodyReps',
+        { local: false, server: true, save: 'server' });
+    }
+
     eCheck.expect_event('got body');
     eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
     eCheck.expect_namedValue('bodyReps[0].type', 'html');

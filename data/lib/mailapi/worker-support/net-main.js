@@ -203,6 +203,10 @@ function write(uid, data, offset, length) {
     return;
   }
 
+  // Fake an onprogress event so that we can delay wakelock expiration
+  // as long as data still flows to the server.
+  self.sendMessage(uid, 'onprogress', []);
+
   if (data instanceof Blob) {
     beginBlobSend(sockInfo, data);
   }

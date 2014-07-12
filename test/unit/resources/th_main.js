@@ -353,10 +353,12 @@ var TestUniverseMixins = {
 
   do_saveState: function() {
     var self = this;
-    this.T.action('save state', function() {
+    this.T.action(self.eUniverse, 'save state', function() {
+      self.eUniverse.expect_saveUniverseState_begin();
       for (var i = 0; i < self.__testAccounts.length; i++) {
         self.__testAccounts[i].expect_saveState();
       }
+      self.eUniverse.expect_saveUniverseState_end();
       self.universe.saveUniverseState();
     });
   },
@@ -408,6 +410,12 @@ var TestUniverseMixins = {
     // the step isn't boring if we add expectations to it.
     if (runBefore)
       step.log.boring(false);
+  },
+
+  do_setOutboxSyncEnabled: function(enabled) {
+    this.T.convenienceSetup('setOutboxSyncEnabled = ' + enabled, function() {
+      this.universe.setOutboxSyncEnabled(this.universe.accounts[0], enabled);
+    }.bind(this));
   },
 
   /**
@@ -753,6 +761,15 @@ var TestCommonAccountMixins = {
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
 
+      // XXX this connection stuff got really ugly with the introduction of POP3
+      // POP3 always establishes a new connection every time; it has to.
+      if (self.type === 'pop3' && self.universe.online && isFailure !== true &&
+          !checkFlagDefault(extraFlags, 'nonet', false) &&
+          testFolder.serverFolder.type === 'inbox') {
+        self.RT.reportActiveActorThisStep(self.ePop3Account);
+        self.ePop3Account.expect_createConnection();
+      }
+      // IMAP has more complicated connection management
       if (self.type === 'imap' && self.universe.online && self.USES_CONN) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);
         // Turn on set matching since connection reuse and account saving are
@@ -789,8 +806,10 @@ var TestCommonAccountMixins = {
           // XXX these extra checks in here ideally wouldn't go here, but this
           // is an easy way to make things go without too many extra headaches.
           self.eAccount.expect_runOp_end('do', 'syncFolderList', null);
-          self.eAccount.expect_saveAccountState();
-          self.eAccount.expect_saveAccountState();
+          self.eAccount.expect_saveAccountState_begin();
+          self.eAccount.expect_saveAccountState_end();
+          self.eAccount.expect_saveAccountState_begin();
+          self.eAccount.expect_saveAccountState_end();
           testFolder.storageActor.expect_mutexedCall_begin('sync');
           testFolder.storageActor.expect_syncedToDawnOfTime();
           testFolder.storageActor.expect_mutexedCall_end('sync');
@@ -1113,6 +1132,7 @@ var TestCommonAccountMixins = {
       // activesync only syncs when online and when it's a real folder
       if (this.universe.online &&
           testFolder.mailFolder.type !== 'localdrafts' &&
+          testFolder.mailFolder.type !== 'outbox' &&
           !recreateFolder && !syncblocked && !isFailure)
         storageActor.expect_syncedToDawnOfTime();
     }
@@ -1230,18 +1250,22 @@ var TestCommonAccountMixins = {
     if (checkFlagDefault(flags, 'local', !!localMode)) {
       this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
       while (flushBodyLocalSaves--) {
-        this.eOpAccount.expect_saveAccountState('flushBody');
+        this.eOpAccount.expect_saveAccountState_begin('flushBody');
+        this.eOpAccount.expect_saveAccountState_end('flushBody');
       }
       this.eOpAccount.expect_runOp_end(localMode, jobName, err);
     }
     // - save (local)
-    if (localSave)
-      this.eOpAccount.expect_saveAccountState();
+    if (localSave) {
+      this.eOpAccount.expect_saveAccountState_begin('localOp');
+      this.eOpAccount.expect_saveAccountState_end('localOp');
+    }
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
     while (flushBodyServerSaves--) {
-      this.eOpAccount.expect_saveAccountState('flushBody');
+      this.eOpAccount.expect_saveAccountState_begin('flushBody');
+      this.eOpAccount.expect_saveAccountState_end('flushBody');
     }
     if (this.USES_CONN) {
       // - conn, (conn) release
@@ -1264,12 +1288,23 @@ var TestCommonAccountMixins = {
         this.eOpAccount.expect_releaseConnection();
       }
     }
+    // - POP3 conn
+    // POP3 bypasses the USES_CONN mechanism because it has simple connection
+    // heuristics and exists in a different universe from IMAP and sanity is
+    // important to us.  So this is a little hacky, but who really wants to find
+    // out the horror that would be the non-hacky solution?  Amirite?
+    else if (this.type === 'pop3' && jobName === 'downloadBodyReps' &&
+             checkFlagDefault(flags, 'conn', true)) {
+      this.eOpAccount.expect_createConnection();
+    }
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_end(mode, jobName);
     // - save (server)
-    if (serverSave && this.supportsServerFolders)
-      this.eOpAccount.expect_saveAccountState();
+    if (serverSave) {
+      this.eOpAccount.expect_saveAccountState_begin('serverOp');
+      this.eOpAccount.expect_saveAccountState_end('serverOp');
+    }
   },
 
   /**
@@ -1283,7 +1318,8 @@ var TestCommonAccountMixins = {
     var self = this;
     var testStep =
           this.T.action(this, 'wait for message', expectSubject, 'in',
-                        viewThing.testFolder, function() {
+                        viewThing.testFolder, this.eOpAccount,
+                        function() {
       self.expect_messageSubject(null, expectSubject);
       var foundIt = false;
       if (funcOpts.expect)
@@ -1306,7 +1342,29 @@ var TestCommonAccountMixins = {
           return;
         }
       }
-      // If it's not already there, poll for an onadd event:
+
+      // If we didn't return in that loop, then we're going to poll.  And
+      // currently we're just going to poll once because we only use
+      // fake-servers right now.
+
+      // XXX dear future-asuth or future-mcav, present-asuth is very sorry about
+      // tightening the expectations here.  Or somewhat sorry, because on real
+      // servers maybe we'll use some connection that's not part of the test to
+      // ensure that the message arrived at the server.  It will definitely
+      // clean up our logs if we can avoid polling over and over!
+
+      // Hey, it's POP3, and POP3 creates a connection for every sync!
+      if (self.type === 'pop3') {
+        self.ePop3Account.expect_createConnection();
+        // it also does batches... so we need one extra save on top of what the
+        // next line of code does
+        self.expect_saveState();
+      }
+
+      // If it's not already there, we will poll for an onadd event, but first
+      // let's expect that a database save will cap this all off.
+      self.expect_saveState();
+
       viewThing.slice.onadd = function(header) {
         if (!checkHeader(header)) {
           return;
@@ -1408,13 +1466,15 @@ var TestCommonAccountMixins = {
       if (self.testServer.SYNC_FOLDER_LIST_AFTER_ADD) {
         self.expect_runOp(
           'syncFolderList',
-          { local: false, save: 'server', conn: self.USES_CONN });
+          { local: false,
+            save: (self.supportsServerFolders ? 'server' : false),
+            conn: self.USES_CONN });
         self.RT.reportActiveActorThisStep(self);
         self.expect_foundFolder(true);
         self.universe.syncFolderList(self.account, function() {
           self.MailAPI.ping(function() {
             testFolder.mailFolder = self.testUniverse.allFoldersSlice
-                                        .getFirstFolderWithName(folderName);
+                                        .getFirstFolderWithPath(folderName);
             self._logger.foundFolder(!!testFolder.mailFolder,
                                      testFolder.mailFolder);
             testFolder.id = testFolder.mailFolder.id;
@@ -1470,7 +1530,8 @@ var TestCommonAccountMixins = {
   _expect_recreateFolder: function(testFolder) {
     var self = this;
     this.eFolderAccount.expect_recreateFolder();
-    this.eFolderAccount.expect_saveAccountState('recreateFolder');
+    this.eFolderAccount.expect_saveAccountState_begin('recreateFolder');
+    this.eFolderAccount.expect_saveAccountState_end('recreateFolder');
 
     var oldConnActor = testFolder.connActor;
     // Give the new actor a good name.
@@ -1639,8 +1700,8 @@ var TestCommonAccountMixins = {
         testFolder.serverDeleted = oldFolder.serverDeleted;
         testFolder.initialSynced = oldFolder.initialSynced;
       }
-      // localdrafts does not exist on the server; don't bother the server!
-      else if (folderType !== 'localdrafts') {
+      // some folders do not exist on the server; don't bother the server!
+      else if (folderType !== 'localdrafts' && folderType !== 'outbox') {
         // Establish a testing layer linkage.  In order to manipulate the
         // folder further we need a serverFolder handle, and our expectation
         // logic needs to know the messages already present on the server.
@@ -1678,6 +1739,51 @@ var TestCommonAccountMixins = {
       });
     });
   },
+
+  /**
+   * Expect that we will send a message. This entails moving the draft
+   * to the outbox, triggering a sendOutboxMessages job, and actually
+   * sending the message.
+   *
+   * @param {String} successOrFailure
+   *   Pass 'success' if you expect us to succeed or 'failure' if you expect us
+   *   to fail.
+   * @param {String|Boolean} conn
+   *   Pass 'conn' to indicate a connection is expected desired.  XXX I have no
+   *   idea why this would not always be passed?  This should probably be
+   *   removed.
+   */
+  expect_sendMessageWithOutbox: function(successOrFailure, /*optional*/ conn) {
+    this.expect_moveMessageToOutbox();
+    this.expect_sendOutboxMessages();
+    if (successOrFailure !== 'failure') {
+      this.expect_saveSentMessage(conn);
+    }
+  },
+
+  /**
+   * Expect that we will move a message to the outbox, thereby
+   * automatically kicking off a sendOutboxMessages job.
+   */
+  expect_moveMessageToOutbox: function() {
+    this.expect_runOp(
+      'move',
+      { local: true,
+        server: false,
+        save: 'local' });
+  },
+
+  /**
+   * Expect that we will run one instance of the `sendOutboxMessages` job.
+   */
+  expect_sendOutboxMessages: function(successOrFailure) {
+    this.expect_runOp(
+      'sendOutboxMessages',
+      { local: false,
+        server: true,
+        save: 'server' });
+  }
+
 };
 
 var TestFolderMixins = {
@@ -1806,11 +1912,16 @@ var TestCompositeAccountMixins = {
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eFolderAccount);
-    this.eFolderAccount.expect_saveAccountState();
+    this.eFolderAccount.expect_saveAccountState_begin();
+    this.eFolderAccount.expect_saveAccountState_end();
   },
 
   help_expect_connection: function() {
-    if (this.type === 'pop3') { return; }
+    // POP3 set USES_CONN to false and accordingly will not call this method,
+    // but let's sorta assert on that
+    if (this.type === 'pop3') {
+      throw new Error('pop3 control flow should not go in here');
+    }
 
     if (!this._unusedConnections) {
       this.eFolderAccount.expect_createConnection();
@@ -1884,7 +1995,8 @@ var TestCompositeAccountMixins = {
         self.eFolderAccount.expect_releaseConnection();
         self.eFolderAccount.expect_runOp_end('do', 'syncFolderList');
         // we expect the account state to be saved after syncing folders
-        self.eFolderAccount.expect_saveAccountState();
+        self.eFolderAccount.expect_saveAccountState_begin();
+        self.eFolderAccount.expect_saveAccountState_end();
       }
 
       if (self._opts.timeWarp)
@@ -2264,11 +2376,6 @@ var TestCompositeAccountMixins = {
   // their sync logic is so different. (This one is IMAP/POP3.)
   _expect_dateSyncs: function(viewThing, expectedValues, extraFlags,
                               syncDir) {
-    if (this.ePop3Account) {
-      extraFlags = extraFlags || {};
-      extraFlags.nosave = true;
-    }
-
     var testFolder = viewThing.testFolder;
     this.RT.reportActiveActorThisStep(this.eFolderAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
@@ -2302,7 +2409,8 @@ var TestCompositeAccountMixins = {
                 einfo.full, einfo.flags, einfo.deleted,
                 einfo.startTS, einfo.endTS);
             }
-          } else /* (this.type === 'pop3') */ {
+          // implied: this.type === 'pop3'
+          } else if (testFolder.serverFolder.type === 'inbox') {
             testFolder.connActor.expect_sync_begin();
             testFolder.connActor.expect_sync_end();
           }
@@ -2311,8 +2419,28 @@ var TestCompositeAccountMixins = {
     }
     if (this.universe.online && !nonet) {
       testFolder.initialSynced = true;
-      if (!checkFlagDefault(extraFlags, 'nosave', false))
-        this.eFolderAccount.expect_saveAccountState();
+      if (!checkFlagDefault(extraFlags, 'nosave', false)) {
+        // POP3 has both periodic batch syncs and syncComplete syncs
+        if (this.type === 'pop3') {
+          // POP3 only syncs in the inbox, although there is a sketchy test-only
+          // path to deal with additions / deletions in these test folders that
+          // only exist in testing scenarios.
+          if (testFolder.serverFolder.type === 'inbox') {
+            var syncBatches = checkFlagDefault(extraFlags, 'batches',
+                                               totalMessageCount ? 1 : 0);
+            for (var iBatch = 0; iBatch < syncBatches; iBatch++) {
+              this.eFolderAccount.expect_saveAccountState_begin('syncBatch');
+              this.eFolderAccount.expect_saveAccountState_end('syncBatch');
+            }
+            this.eFolderAccount.expect_saveAccountState_begin('syncComplete');
+            this.eFolderAccount.expect_saveAccountState_end('syncComplete');
+          }
+        }
+        // IMAP only saves once per sync
+        else {
+          this.expect_saveState();
+        }
+      }
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
@@ -2350,6 +2478,14 @@ var TestCompositeAccountMixins = {
     this.T.action(this, 'grows', viewThing, function() {
       if (extraFlags && extraFlags.expectFunc)
         extraFlags.expectFunc();
+
+      // POP3! Arrrrgggghhh
+      if (self.type === 'pop3' && self.universe.online &&
+          viewThing.testFolder.serverFolder.type === 'inbox') {
+        self.RT.reportActiveActorThisStep(self.ePop3Account);
+        self.ePop3Account.expect_createConnection();
+      }
+
       var totalExpected;
       totalExpected = self._expect_dateSyncs(
                         viewThing, expectedValues, extraFlags,
@@ -2441,7 +2577,7 @@ var TestCompositeAccountMixins = {
     });
   },
 
-  expect_sendMessage: function(conn) {
+  expect_saveSentMessage: function(conn) {
     // sending is not tracked as an op, but saving the sent message is
     if (this.type === 'imap') {
       this.expect_runOp(
@@ -2604,7 +2740,8 @@ var TestActiveSyncAccountMixins = {
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eAccount);
-    this.eAccount.expect_saveAccountState();
+    this.eAccount.expect_saveAccountState_begin();
+    this.eAccount.expect_saveAccountState_end();
   },
 
   _expect_restore: function() {
@@ -2665,7 +2802,8 @@ var TestActiveSyncAccountMixins = {
     }
     if (this.universe.online && !nonet &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
-      this.eAccount.expect_saveAccountState();
+      this.eAccount.expect_saveAccountState_begin();
+      this.eAccount.expect_saveAccountState_end();
     }
     // (the accountActive check is a hack for test_activesync_recreate
     // right now. It passes in nosave because the expected save comes at a
@@ -2680,7 +2818,7 @@ var TestActiveSyncAccountMixins = {
     return totalMessageCount;
   },
 
-  expect_sendMessage: function() {
+  expect_saveSentMessage: function() {
   },
 };
 

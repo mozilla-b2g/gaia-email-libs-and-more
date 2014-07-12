@@ -95,8 +95,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
-    composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
+    // (Prepend our text to whatever's already there.)
+    composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!' +
+                         composer.body.text;
 
+    // this implicitly triggers the saveDraft followed by the attachBlobToDraft
     composer.addAttachment({
       name: 'foo.png',
       blob: new Blob([new Uint8Array(attachmentData)], { type: 'image/png' }),
@@ -189,23 +192,17 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage();
-    // note: the delete op is asynchronously scheduled by the send process once
-    // it completes; our callback below will be invoked before the op is
-    // guaranteed to run to completion.
-    testAccount.expect_runOp(
-      'deleteDraft',
-      { local: true, server: false, save: true });
+    testAccount.expect_sendMessageWithOutbox('success');
 
     eLazy.expect_event('sent');
+    composer.finishCompositionSendMessage();
 
-    composer.finishCompositionSendMessage(function(err, badAddrs, debugInfo) {
-      sentMessageId = debugInfo.messageId.slice(1, -1); // lose < > wrapping
-      if (err)
-        eLazy.error(err);
-      else
+    testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+      if (data.state === 'success') {
+        sentMessageId = data.messageId.slice(1, -1); // lose < > wrapping
         eLazy.event('sent');
-    });
+      }
+    };
   }).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
 
   T.check('draft message deleted', eLazy, function() {
@@ -221,13 +218,18 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
+      // We are going to want to add some expectations in the withMessage case
+      // so avoid early resolution of the account's logs.
+      testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
+
       RT.reportActiveActorThisStep(testAccount.eJobDriver);
       RT.reportActiveActorThisStep(eLazy);
       RT.reportActiveActorThisStep(testStorage);
       eLazy.expect_namedValue('subject', uniqueSubject);
       // only IMAP exposes message-id's right now
-      if (testAccount.type === 'imap')
+      if (testAccount.type === 'imap') {
         eLazy.expect_namedValue('message-id', sentMessageId);
+      }
       eLazy.expect_namedValue(
         'sent body text',
         'Antelope banana credenza.\n\nDialog excitement!');
@@ -256,9 +258,25 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       }
     },
     withMessage: function(header) {
+      if (testAccount.type !== 'pop3') {
+        // getBody({ withBodyReps }) causes this.
+        testAccount.expect_runOp(
+          'downloadBodyReps',
+          { local: false, server: true, save: 'server' });
+        // att.download causes this
+        testAccount.expect_runOp(
+          'download',
+          // the local stuff is because it's a no-op.  we should remove.
+          { local: true, server: true, save: 'server',
+            flushBodyServerSaves: 1 });
+      }
+      // okay, we now added all the expectations on the test account.
+      testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
+
       eLazy.namedValue('subject', header.subject);
-      if (testAccount.type === 'imap')
+      if (testAccount.type === 'imap') {
         eLazy.namedValue('message-id', header.guid);
+      }
       header.getBody({ withBodyReps: true }, function(body) {
         eLazy.namedValue('sent body text', body.bodyReps[0].content[1]);
         var attachments = [];
@@ -308,6 +326,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   T.group('see sent message, reply');
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
     expect: function() {
+      // We are going to want to add some expectations in the withMessage case
+      // so avoid early resolution of the account's logs.
+      testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
+
       RT.reportActiveActorThisStep(eLazy);
       eLazy.expect_namedValue(
         'received body text',
@@ -343,6 +365,14 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     },
     // trigger the reply composer
     withMessage: function(header) {
+      if (testAccount.type !== 'pop3') {
+        testAccount.expect_runOp(
+          'downloadBodyReps',
+          { local: false, server: true, save: 'server' });
+      }
+      // okay, we now added all the expectations on the test account.
+      testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
+
       header.getBody({ withBodyReps: true }, function(body) {
         eLazy.namedValue('received body text', body.bodyReps[0].content[1]);
         if (testAccount.type !== 'activesync')
@@ -365,24 +395,22 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage();
-    testAccount.expect_runOp(
-      'deleteDraft',
-      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessageWithOutbox('sucesss');
     eLazy.expect_event('sent');
 
     replyComposer.body.text = expectedReplyBody.text =
       'This bit is new!' + replyComposer.body.text;
-    replyComposer.finishCompositionSendMessage(function(err, badAddrs,
-                                                        debugInfo) {
-      replySentDate = new Date(debugInfo.sentDate);
-      replyMessageId = debugInfo.messageId.slice(1, -1); // lose <> wrapping
-      replyReferences = [sentMessageId];
-      if (err)
-        eLazy.error(err);
-      else
+
+    replyComposer.finishCompositionSendMessage();
+
+    testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+      if (data.state === 'success') {
+        replySentDate = new Date(data.sentDate);
+        replyMessageId = data.messageId.slice(1, -1); // lose < > wrapping
+        replyReferences = [sentMessageId];
         eLazy.event('sent');
-    });
+      }
+    };
   }).timeoutMS = 5000;
   // - see the reply, check the forward logic (but don't send)
   // XXX for now, we are not creating the 'header' overview for the forwarded
@@ -422,7 +450,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   T.group('check forward generation logic');
-  T.check('check forward', eLazy, function() {
+  T.check('check forward', eLazy, testAccount.eOpAccount, function() {
     var formattedMail = $util.formatAddresses(
                           [{ name: TEST_PARAMS.name,
                              address: TEST_PARAMS.emailAddress }]);
@@ -449,6 +477,14 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     eLazy.expect_namedValue('body text', expectedForwardBody.text);
     eLazy.expect_namedValue('body html', expectedForwardBody.html);
 
+    // performing the forward will compel a download of the body
+    if (testAccount.type !== 'pop3') {
+      testAccount.expect_runOp(
+        'downloadBodyReps',
+        { local: false, server: true, save: 'server' });
+    }
+
+
     forwardComposer = replyHeader.forwardMessage('inline', function() {
       eLazy.event('forward setup completed');
       eLazy.namedValue('to', forwardComposer.to);
@@ -466,11 +502,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage();
-    testAccount.expect_runOp(
-      'deleteDraft',
-      { local: true, server: false, save: 'local' });
-
+    testAccount.expect_sendMessageWithOutbox('success');
     eLazy.expect_event('sent');
 
     var secondReplyComposer = replyHeader.replyToMessage('sender', function() {
@@ -480,16 +512,17 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       // do_waitForMessage to support matching on message-id since we surface
       // that as the 'guid'.
       secondReplyComposer.subject += '[2]';
-      secondReplyComposer.finishCompositionSendMessage(function(err, badAddrs,
-                                                                debugInfo) {
-        secondReplySentDate = new Date(debugInfo.sentDate);
-        secondReplyMessageId = debugInfo.messageId.slice(1, -1);
-        secondReplyReferences = replyReferences.concat([replyMessageId]);
-        if (err)
-          eLazy.error(err);
-        else
+
+      secondReplyComposer.finishCompositionSendMessage();
+
+      testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+        if (data.state === 'success') {
+          secondReplySentDate = new Date(data.sentDate);
+          secondReplyMessageId = data.messageId.slice(1, -1); // lose <>
+          secondReplyReferences = replyReferences.concat([replyMessageId]);
           eLazy.event('sent');
-      });
+        }
+      };
     });
   });
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject + '[2]', {
@@ -625,10 +658,7 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage(true); // this will acquire a conn
-    testAccount.expect_runOp(
-      'deleteDraft',
-      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessageWithOutbox('success', 'conn');
 
     expectedReplyBody = {
       text: replyTextHtml.replace('$AUTHOR$', TEST_PARAMS.name),
@@ -644,16 +674,21 @@ TD.commonCase('reply/forward html message', function(T, RT) {
       eCheck.namedValue('reply text', composer.body.text);
       eCheck.namedValue('reply html', composer.body.html);
 
-      composer.finishCompositionSendMessage(function(err, badAddrs) {
-        if (err)
-          eCheck.error(err);
-        else
+      composer.finishCompositionSendMessage();
+
+      testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+        if (data.state === 'success') {
           eCheck.event('sent');
-      });
+        }
+      };
     });
   });
   testAccount.do_waitForMessage(inboxView, 'Re: ' + uniqueSubject, {
     expect: function() {
+      // We are going to want to add some expectations in the withMessage case
+      // so avoid early resolution of the account's logs.
+      testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
+
       RT.reportActiveActorThisStep(eCheck);
 
       var expectedHtmlRep = [
@@ -667,6 +702,15 @@ TD.commonCase('reply/forward html message', function(T, RT) {
     },
     // trigger the reply composer
     withMessage: function(header) {
+      if (testAccount.type !== 'pop3') {
+        testAccount.expect_runOp(
+          'downloadBodyReps',
+          { local: false, server: true, save: 'server' });
+      }
+      // okay, we now added all the expectations on the test account.
+      testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
+
+
       header.getBody({ withBodyReps: true }, function(body) {
         eCheck.namedValue('rep type', body.bodyReps[0].type);
         eCheck.namedValue('rep', body.bodyReps[0].content);
@@ -840,10 +884,7 @@ TD.commonCase('bcc self', function(T, RT) {
     testAccount.expect_runOp(
       'saveDraft',
       { local: true, server: false, save: 'local' });
-    testAccount.expect_sendMessage();
-    testAccount.expect_runOp(
-      'deleteDraft',
-      { local: true, server: false, save: 'local' });
+    testAccount.expect_sendMessageWithOutbox('success');
 
     eLazy.expect_event('sent');
     eLazy.expect_event('appended');
@@ -852,15 +893,16 @@ TD.commonCase('bcc self', function(T, RT) {
     composer.subject = uniqueSubject;
     composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
 
-    composer.finishCompositionSendMessage(function(err, badAddrs) {
-      if (err)
-        eLazy.error(err);
-      else
+    composer.finishCompositionSendMessage();
+
+    testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
+      if (data.state === 'success') {
         eLazy.event('sent');
-      MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
-        eLazy.event('appended');
-      });
-    });
+        MailUniverse.waitForAccountOps(MailUniverse.accounts[0], function() {
+          eLazy.event('appended');
+        });
+      }
+    };
   }).timeoutMS = 5000;
 
   // - verify sent folder contains message and the message has BCC header

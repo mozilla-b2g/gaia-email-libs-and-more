@@ -232,10 +232,10 @@ ImapJobDriver.prototype = {
         }
       };
 
-      // localdrafts is a synthetic folder and so we never want a connection
-      // for it.  This is a somewhat awkward place to make this decision, but
-      // it does work.
-      if (needConn && storage.folderMeta.type !== 'localdrafts') {
+      // localdrafts and outbox are synthetic folders and so we never
+      // want a connection for them. This is a somewhat awkward place
+      // to make this decision, but it does work.
+      if (needConn && !storage.isLocalOnly) {
         syncer.folderConn.withConnection(function () {
           // When we release the mutex, the folder may not
           // release its connection, so be sure to reset
@@ -692,8 +692,8 @@ ImapJobDriver.prototype = {
           return;
         }
 
-        // There is nothing to do on localdrafts folders, server-wise.
-        if (sourceStorage.folderMeta.type === 'localdrafts') {
+        // There is nothing to do on localdrafts or outbox folders, server-wise.
+        if (sourceStorage.isLocalOnly) {
           perFolderDone();
         }
         else if (sourceStorage.folderId === targetFolderId) {
@@ -1024,6 +1024,16 @@ ImapJobDriver.prototype = {
   },
 
   //////////////////////////////////////////////////////////////////////////////
+
+  local_do_sendOutboxMessages: $jobmixins.local_do_sendOutboxMessages,
+  do_sendOutboxMessages: $jobmixins.do_sendOutboxMessages,
+  check_sendOutboxMessages: $jobmixins.check_sendOutboxMessages,
+  local_undo_sendOutboxMessages: $jobmixins.local_undo_sendOutboxMessages,
+  undo_sendOutboxMessages: $jobmixins.undo_sendOutboxMessages,
+  local_do_setOutboxSyncEnabled: $jobmixins.local_do_setOutboxSyncEnabled
+
+  //////////////////////////////////////////////////////////////////////////////
+
 };
 
 function HighLevelJobDriver() {

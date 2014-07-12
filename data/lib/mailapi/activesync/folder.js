@@ -1432,30 +1432,37 @@ ActiveSyncFolderSyncer.prototype = {
     // Expand the accuracy range to cover everybody.
     if (!err)
       storage.markSyncedToDawnOfTime();
-    // Always save state, although as an optimization, we could avoid saving state
-    // if we were sure that our state with the server did not advance.
-    this._account.__checkpointSyncCompleted();
 
-    if (err) {
-      doneCallback(err);
-      return;
-    }
+    // Always save state, although as an optimization, we could avoid saving
+    // state if we were sure that our state with the server did not advance.
+    // Do not call our callback until the save has completed.
+    this._account.__checkpointSyncCompleted(function() {
+      if (err) {
+        doneCallback(err);
+      }
+      else if (initialSync) {
+        storage._curSyncSlice.ignoreHeaders = false;
+        storage._curSyncSlice.waitingOnData = 'db';
 
-    if (initialSync) {
-      storage._curSyncSlice.ignoreHeaders = false;
-      storage._curSyncSlice.waitingOnData = 'db';
-
-      storage.getMessagesInImapDateRange(
-        0, null, $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
-        // Don't trigger a refresh; we just synced.  Accordingly, releaseMutex can
-        // be null.
-        storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
-                                      doneCallback, null)
-      );
-    }
-    else {
-      doneCallback(err);
-    }
+        // TODO: We could potentially shave some latency by doing the DB fetch
+        // but deferring the doneCallback until the checkpoint has notified.
+        // I'm copping out on this right now because there may be some nuances
+        // in there that I would like to think about more and this is also not
+        // a major slowdown concern.  We're already slow here and the more
+        // important thing for us to do would just be to trigger the initial
+        // sync much earlier in the UI process to save even more time.
+        storage.getMessagesInImapDateRange(
+          0, null, $sync.INITIAL_FILL_SIZE, $sync.INITIAL_FILL_SIZE,
+          // Don't trigger a refresh; we just synced.  Accordingly,
+          // releaseMutex can be null.
+          storage.onFetchDBHeaders.bind(storage, storage._curSyncSlice, false,
+                                        doneCallback, null)
+        );
+      }
+      else {
+        doneCallback(err);
+      }
+    });
   },
 
   allConsumersDead: function() {
