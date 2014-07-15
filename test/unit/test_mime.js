@@ -345,6 +345,15 @@ TD.commonCase('MIME hierarchies', function(T) {
           contentId: null
         })
       ]),
+
+      multipartInlineText = new $msggen.SyntheticPartMultiMixed([
+        new $msggen.SyntheticPartLeaf("plaintext inline", {
+          contentType: "text/plain",
+          disposition: "inline",
+          contentId: null
+        })
+      ]),
+
   // - attachments
       tachImageAsciiName = {
         filename: 'stuff.png',
@@ -644,6 +653,12 @@ TD.commonCase('MIME hierarchies', function(T) {
       bodyPart: multipartInlineImage,
       checkBody: '',
       createAttachment: true
+    },
+    {
+      name: 'Multipart/mixed inline text without content-id',
+      bodyPart: multipartInlineText,
+      checkBody: 'plaintext inline',
+      checkSnippet: 'plaintext inline',
     }
   ];
 
@@ -712,7 +727,7 @@ TD.commonCase('MIME hierarchies', function(T) {
       if (msgDef.checkWholeBody) {
         eCheck.expect_namedValue('wholeBody', msgDef.checkWholeBody);
       }
-      // This test case doesn't quite fit into the general model, 
+      // This test case doesn't quite fit into the general model,
       // since it is supposed to force an inline image to an attachment
       if (msgDef.createAttachment) {
         eCheck.expect_namedValue('attachment-name', 'photo.JPG');
@@ -763,7 +778,7 @@ TD.commonCase('MIME hierarchies', function(T) {
         if (msgDef.checkSnippet)
           eCheck.namedValue('snippet', header.snippet);
 
-        if (('attachments' in msgDef || msgDef.createAttachment ) 
+        if (('attachments' in msgDef || msgDef.createAttachment )
           && body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
             eCheck.namedValue('attachment-name', body.attachments[i].filename);
