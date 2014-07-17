@@ -200,7 +200,7 @@ TD.commonCase('create a second (unique) account', function(T, RT) {
 
 TD.commonCase('try to create a duplicate account', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       eSync = T.lazyLogger('sync');
   T.action('create account', testUniverse, eSync, function(T) {
     eSync.expect_namedValue('account-creation-error', 'user-account-exists');

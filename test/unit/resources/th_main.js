@@ -178,14 +178,51 @@ var TestUniverseMixins = {
       self.RT.captureAllLoggersByType(
         'FolderStorage', self.__folderStorageLoggerSoup);
 
+      self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
+        onLine: true
+      };
+
       // Propagate the old universe's message generator so that the subject
       // numbers don't get reset.
       if (opts && opts.old && opts.old.messageGenerator)
         self.messageGenerator = opts.old.messageGenerator;
 
-      for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
-        var testAccount = self.__restoredAccounts[iAcct];
-        testAccount._expect_restore();
+      var restored = !!opts.old || opts.restored ||
+                     !!self.__restoredAccounts.length;
+      if (restored && !opts.nukeDb) {
+        if (opts.upgrade) {
+          self.eUniverse.expect_configMigrating_begin();
+        }
+        for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
+          if (opts.upgrade) {
+            self.eUniverse.expect_recreateAccount_begin();
+          }
+          var testAccount = self.__restoredAccounts[iAcct];
+          testAccount._expect_restore();
+        }
+        // All the ends have to happen in a subsequent turn of the event loop
+        // whereas the begins will happen right in a row.
+        for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
+          if (opts.upgrade) {
+            self.eUniverse.expect_recreateAccount_end();
+          }
+          testAccount = self.__restoredAccounts[iAcct];
+          if (opts.upgrade && opts.upgrade !== 'nowait' &&
+              self.fakeNavigator.onLine) {
+            testAccount.expect_runOp(
+              'syncFolderList',
+              { local: false, server: true, save: 'server' });
+          }
+        }
+        if (opts.upgrade) {
+          self.eUniverse.expect_configMigrating_end();
+        }
+        else {
+          self.eUniverse.expect_configLoaded();
+        }
+      }
+      else {
+        self.eUniverse.expect_configCreated();
       }
 
       self.expect_createUniverse();
@@ -197,9 +234,6 @@ var TestUniverseMixins = {
           self._logger.queriesIssued();
         });
 
-      self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
-        onLine: true
-      };
       var testOpts = {
         fakeNavigator: self.fakeNavigator
       };
@@ -1257,8 +1291,8 @@ var TestCommonAccountMixins = {
     }
     // - save (local)
     if (localSave) {
-      this.eOpAccount.expect_saveAccountState_begin('localOp');
-      this.eOpAccount.expect_saveAccountState_end('localOp');
+      this.eOpAccount.expect_saveAccountState_begin('localOp:' + jobName);
+      this.eOpAccount.expect_saveAccountState_end('localOp:' + jobName);
     }
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
@@ -1302,8 +1336,8 @@ var TestCommonAccountMixins = {
       this.eOpAccount.expect_runOp_end(mode, jobName);
     // - save (server)
     if (serverSave) {
-      this.eOpAccount.expect_saveAccountState_begin('serverOp');
-      this.eOpAccount.expect_saveAccountState_end('serverOp');
+      this.eOpAccount.expect_saveAccountState_begin('serverOp:' + jobName);
+      this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
     }
   },
 
@@ -2635,14 +2669,14 @@ var TestActiveSyncAccountMixins = {
 
     if (opts.restored) {
       self.testUniverse.__restoredAccounts.push(this);
-      self._do_issueRestoredAccountQueries();
+      self._do_issueRestoredAccountQueries(opts.restored);
     }
     else {
       self._do_createAccount();
     }
   },
 
-  _do_issueRestoredAccountQueries: function() {
+  _do_issueRestoredAccountQueries: function(restoreType) {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
       self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));

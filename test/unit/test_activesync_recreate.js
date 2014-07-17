@@ -50,9 +50,9 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('migrate while offline');
   // this universe will trigger lazy upgrade migration
-  var TU2 = T.actor('testUniverse', 'U2', { old: TU1 }),
+  var TU2 = T.actor('testUniverse', 'U2', { old: TU1, upgrade: true }),
       TA2 = T.actor('testAccount', 'A2',
-                    { universe: TU2, restored: true });
+                    { universe: TU2, restored: 'upgrade' });
   // check that the inbox exists
   var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2', inbox1);
 
@@ -90,7 +90,7 @@ TD.commonCase('create, recreate offline', function(T) {
   TU2.do_saveState();
   TU2.do_shutdown();
 
-  T.group('create old db');
+  T.group('create old db via nuke');
   // create a universe that nukes everything.
   var TU3 = T.actor('testUniverse', 'U3',
                     { old: TU2, dbDelta: 1, nukeDb: true }),
@@ -104,11 +104,15 @@ TD.commonCase('create, recreate offline', function(T) {
   TU3.do_shutdown();
 
   T.group('migrate while online');
-  // this will trigger lazy upgrade migration
+  // this will trigger lazy upgrade migration.
+  // note: the use of upgrade: 'nowait' is to stop us waiting for the
+  // syncFolderList job to complete.  This results in somewhat of an inherent
+  // race.  I have just improved the intermittent-ness of this test, but it'll
+  // take a lot more to make this foolproof right now, so, uh... sorry.
   var TU4 = T.actor('testUniverse', 'U4',
-                    { old: TU3, dbDelta: 2 }),
+                    { old: TU3, dbDelta: 2, upgrade: 'nowait' }),
       TA4 = T.actor('testAccount', 'A4',
-                    { universe: TU4, restored: true });
+                    { universe: TU4, restored: 'upgrade' });
   var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4', inbox1);
 
   T.check(eCheck, 'device id stayed the same', function() {
@@ -122,7 +126,7 @@ TD.commonCase('create, recreate offline', function(T) {
       flags: 0, changed: 0, deleted: 0,
       filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false },
-    { nosave: true, syncblocked: 'resolve', accountActive: true  });
+    { nosave: true, syncblocked: 'resolve', accountActive: true });
 
   T.group('cleanup');
 });
