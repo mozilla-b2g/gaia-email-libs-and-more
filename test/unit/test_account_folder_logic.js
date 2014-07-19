@@ -20,7 +20,7 @@ var TD = exports.TD = $tc.defineTestsFor(
  * notifications.
  */
 TD.commonCase('syncFolderList is idempotent', function(T) {
-  T.group('setup');
+  T.group('setup')
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
@@ -67,6 +67,7 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
 
   ['localdrafts', 'outbox'].forEach(function(folderType) {
     T.check(eCheck, folderType + ' folder', function() {
+      eCheck.expect_namedValue('folder is valid move target', false);
       eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
       var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
       // the path should place it next to the existing drafts folder, but we
@@ -75,8 +76,10 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
       eCheck.expect_namedValue('path',
                                sent.path.replace(/sent.*/i, folderType));
 
+
       var folder = testUniverse.allFoldersSlice
             .getFirstFolderWithType(folderType);
+      eCheck.namedValue('folder is valid move target', folder.isValidMoveTarget);
       eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
       eCheck.namedValue('path', folder.path);
     });
