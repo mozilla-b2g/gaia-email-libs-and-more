@@ -113,7 +113,7 @@ TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
  */
 TD.commonCase('do not die on empty names', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       testContacts = T.actor('testContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
@@ -188,7 +188,7 @@ TD.commonCase('do not die on empty names', function(T, RT) {
 TD.commonCase('bounded cache size', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       testContacts = T.actor('testContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
@@ -385,7 +385,7 @@ TD.commonCase('bounded cache size', function(T, RT) {
 TD.commonCase('oncontactchange processing', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       testContacts = T.actor('testContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
@@ -611,7 +611,7 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
 TD.commonCase('live peep tracking', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse }),
       testContacts = T.actor('testContacts', 'contacts'),

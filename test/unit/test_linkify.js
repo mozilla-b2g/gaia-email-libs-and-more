@@ -712,7 +712,7 @@ TD.commonCase('linkify plaintext', function(T, RT) {
  */
 TD.commonCase('linkify HTML', function(T, RT) {
   // We need a universe to get a MailAPI
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
       eLazy = T.lazyLogger('linkCheck');
 
   function traverseAndLogExpectations(enodes) {

@@ -82,7 +82,7 @@ TD.commonCase('blacklist broken SPECIAL-USE implementation', function(T, RT) {
 TD.commonCase('use working SPECIAL-USE implementation', function(T, RT) {
   T.group('setup');
   var testUniverse =
-        T.actor('testUniverse', 'U'),
+        T.actor('testUniverse', 'U', { restored: true }),
       testAccount =
         T.actor('testAccount', 'B',
                 {
