@@ -307,12 +307,20 @@ MailFolder.prototype = {
 
     this.neededForHeirarchy = !this.selectable;
 
-    var invalidMoveTypes = ['localdrafts', 'outbox', 'account', 'nomail'];
     /**
      *  Whether this folder is a valid palace for messages to be moved into.
      *  invalidMoveTypes specifies all the types which currently make this false.
      */
-    this.isValidMoveTarget = invalidMoveTypes.indexOf(this.type) === -1;
+    switch (this.type) {
+      case 'localdrafts':
+      case 'outbox':
+      case 'account':
+      case 'nomail':
+        this.isValidMoveTarget = false;
+        break;
+      default:
+        this.isValidMoveTarget = true;
+    }
   },
 
   __die: function() {
