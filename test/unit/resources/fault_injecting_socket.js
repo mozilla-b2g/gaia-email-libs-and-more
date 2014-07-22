@@ -61,6 +61,13 @@ function FawltySocket(host, port, options, cmdDict) {
         this._queueEvent('error', { name: 'SecurityUntrustedIssuerError' });
         return;
 
+      case 'close-on-send':
+        setTimeout(function() {
+          this.doOnSendText([{ match: precmd.match || true,
+                               actions: ['instant-close'] }]);
+        }.bind(this));
+        break;
+
       case 'fake':
         // We are only going to send fake data, so don't bother establishing
         // a connection.
@@ -74,6 +81,7 @@ function FawltySocket(host, port, options, cmdDict) {
           console.log('No fake-receive data!');
         }
         return;
+
       case 'fake-no-connect':
         // just be fake, but don't even send a fake connect event yet.  owner
         // should call _queueEvent('connect') when ready to connect.
