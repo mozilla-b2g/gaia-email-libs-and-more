@@ -159,7 +159,8 @@ CompositeIncomingAccount.prototype = {
         parentId: parentId,
         delim: delim,
         depth: depth,
-        lastSyncedAt: 0
+        lastSyncedAt: 0,
+        version: $mailslice.FOLDER_DB_VERSION
       }),
       $impl: {
         nextId: 0,

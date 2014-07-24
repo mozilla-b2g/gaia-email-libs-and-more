@@ -253,6 +253,13 @@ CompositeAccount.prototype = {
   },
 
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+
+  upgradeFolderStoragesIfNeeded: function() {
+    for (var key in this._receivePiece._folderStorages) {
+      var storage = this._receivePiece._folderStorages[key];
+      storage.upgradeIfNeeded();
+    }
+  }
 };
 
 }); // end define

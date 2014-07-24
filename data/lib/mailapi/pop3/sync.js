@@ -366,9 +366,10 @@ Pop3FolderSyncer.prototype = {
     var latch = allback.latch();
     var saveNeeded = false;
     if (meta._TEST_pendingHeaderDeletes) {
-      meta._TEST_pendingHeaderDeletes.forEach(function(header) {
+      meta._TEST_pendingHeaderDeletes.forEach(function(namer) {
         saveNeeded = true;
-        this.storage.deleteMessageHeaderUsingHeader(header, latch.defer());
+        this.storage.deleteMessageHeaderAndBody(namer.suid, namer.date,
+                                                latch.defer());
       }, this);
       meta._TEST_pendingHeaderDeletes = null;
     }

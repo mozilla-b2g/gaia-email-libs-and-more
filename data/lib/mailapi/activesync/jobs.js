@@ -436,6 +436,10 @@ ActiveSyncJobDriver.prototype = {
   undo_sendOutboxMessages: $jobmixins.undo_sendOutboxMessages,
   local_do_setOutboxSyncEnabled: $jobmixins.local_do_setOutboxSyncEnabled,
 
+  // upgrade: perfom necessary upgrades when the db version changes
+
+  local_do_upgradeDB: $jobmixins.local_do_upgradeDB,
+
   //////////////////////////////////////////////////////////////////////////////
   // purgeExcessMessages is a NOP for activesync
 

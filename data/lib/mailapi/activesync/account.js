@@ -556,6 +556,7 @@ ActiveSyncAccount.prototype = {
         depth: depth,
         lastSyncedAt: 0,
         syncKey: '0',
+        version: $mailslice.FOLDER_DB_VERSION
       }),
       // any changes to the structure here must be reflected in _recreateFolder!
       $impl: {
@@ -976,6 +977,7 @@ ActiveSyncAccount.prototype = {
       callback();
   },
 
+  upgradeFolderStoragesIfNeeded: $acctmixins.upgradeFolderStoragesIfNeeded,
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
   getFolderByPath: $acctmixins.getFolderByPath,

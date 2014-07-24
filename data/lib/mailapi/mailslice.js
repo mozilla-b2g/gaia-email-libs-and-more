@@ -517,6 +517,9 @@ MailSlice.prototype = {
   },
 };
 
+
+var FOLDER_DB_VERSION = exports.FOLDER_DB_VERSION = 2;
+
 /**
  * Per-folder message caching/storage; issues per-folder `MailSlice`s and keeps
  * them up-to-date.  Access is mediated through the use of mutexes which must be
@@ -1145,6 +1148,16 @@ FolderStorage.prototype = {
     if (doRun)
       this._invokeNextMutexedCall();
   },
+
+  /**
+   * This queues the proper upgrade jobs and updates the version, if necessary
+   */
+  upgradeIfNeeded: function() {
+    if (!this.folderMeta.version || FOLDER_DB_VERSION > this.folderMeta.version) {
+      this._account.universe.performFolderUpgrade(this.folderMeta.id);
+    }
+  },
+
 
   _issueNewHeaderId: function() {
     return this._folderImpl.nextId++;

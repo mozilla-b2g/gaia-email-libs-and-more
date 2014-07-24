@@ -10,7 +10,9 @@ define(
     './wakelocks',
     './date',
     './syncbase',
-    'exports'
+    './mailslice',
+    './headerCounter',
+    'exports',
   ],
   function(
     $router,
@@ -19,6 +21,8 @@ define(
     $wakelocks,
     $date,
     $sync,
+    $mailslice,
+    $count,
     exports
   ) {
 
@@ -895,6 +899,17 @@ exports._partitionAndAccessFoldersSequentially = function(
   openNextFolder();
 };
 
-
+exports.local_do_upgradeDB = function (op, doneCallback) {
+  var storage = this.account.getFolderStorageForFolderId(op.folderId);
+  var filter = function(header) {
+    return header.flags &&
+      header.flags.indexOf('\\Seen') === -1;
+  };
+  $count.countHeaders(storage, filter, function(num) {
+    storage.folderMeta.version = $mailslice.FOLDER_DB_VERSION;
+    storage.folderMeta.unreadCount = num;
+    doneCallback();
+  });
+};
 
 }); // end define

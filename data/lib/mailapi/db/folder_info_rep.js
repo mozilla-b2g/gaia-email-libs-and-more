@@ -53,6 +53,7 @@ function makeFolderMeta(raw) {
     lastSyncedAt: raw.lastSyncedAt || 0,
     unreadCount: raw.unreadCount || 0,
     syncKey: raw.syncKey || null,
+    version: raw.version || null
   }
 };
 
