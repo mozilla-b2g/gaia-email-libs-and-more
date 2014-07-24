@@ -253,6 +253,7 @@ CompositeAccount.prototype = {
   },
 
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+  upgradeFolderStoragesIfNeeded: $acctmixins.upgradeFolderStoragesIfNeeded,
 };
 
 }); // end define

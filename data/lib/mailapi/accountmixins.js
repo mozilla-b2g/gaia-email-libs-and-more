@@ -268,4 +268,14 @@ exports.runAfterSaves = function(callback) {
   }
 };
 
+exports.upgradeFolderStoragesIfNeeded = function() {
+  for (var key in this._folderStorages) {
+    console.log(key);
+    var storage = this._folderStorages[key];
+    if (storage.folderMeta.type === 'inbox') {
+      storage.upgradeIfNeeded();
+    }
+  }
+}
+
 }); // end define

@@ -10,7 +10,8 @@ define(
     './wakelocks',
     './date',
     './syncbase',
-    'exports'
+    './headerCounter',
+    'exports',
   ],
   function(
     $router,
@@ -19,6 +20,7 @@ define(
     $wakelocks,
     $date,
     $sync,
+    $count,
     exports
   ) {
 
@@ -895,6 +897,21 @@ exports._partitionAndAccessFoldersSequentially = function(
   openNextFolder();
 };
 
-
+exports.local_do_upgradeDB = function (op, doneCallback) {
+  console.log('local_do_upgradeDB');
+  var storage = this.account.getFolderStorageForFolderId(op.folderId);
+  var filter = function(header) {
+    return header.flags &&
+      header.flags.indexOf('\\Seen') === -1;
+  };
+  console.log('countHeaders');
+  $count.countHeaders(storage, filter, function(num) {
+    storage.folderMeta.unreadCount = num;
+    console.log(storage.folderMeta.type+' countHeaders Done:',num);
+    if (doneCallback) {
+      doneCallback();
+    }
+  });
+};
 
 }); // end define

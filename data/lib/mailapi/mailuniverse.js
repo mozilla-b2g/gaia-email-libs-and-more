@@ -869,6 +869,7 @@ MailUniverse.prototype = {
           this._queueAccountOp(account, op);
         }
       }
+      account.upgradeFolderStoragesIfNeeded();
       callback(account);
     }.bind(this));
   },
@@ -2254,6 +2255,28 @@ MailUniverse.prototype = {
       }
     }
   },
+
+  /**
+   * Trigger the necessary folder upgrade logic
+   */
+  performFolderUpgrade: function(folderId, callback) {
+    var account = this.getAccountForFolderId(folderId);
+    console.log('performFolderUpgrade');
+    this._queueAccountOp(
+      account,
+      {
+        type: 'upgradeDB',
+        longtermId: 'session',
+        lifecycle: 'do',
+        localStatus: null,
+        serverStatus: 'n/a',
+        tryCount: 0,
+        humanOp: 'append',
+        folderId: folderId
+      },
+      callback
+    );
+  }
 
   //////////////////////////////////////////////////////////////////////////////
 };

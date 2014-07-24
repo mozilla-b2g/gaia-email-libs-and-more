@@ -166,12 +166,15 @@ Pop3JobDriver.prototype = {
   do_downloadBodyReps: jobmixins.do_downloadBodyReps,
   local_do_downloadBodyReps: jobmixins.local_do_downloadBodyReps,
 
+
   local_do_sendOutboxMessages: jobmixins.local_do_sendOutboxMessages,
   do_sendOutboxMessages: jobmixins.do_sendOutboxMessages,
   check_sendOutboxMessages: jobmixins.check_sendOutboxMessages,
   local_undo_sendOutboxMessages: jobmixins.local_undo_sendOutboxMessages,
   undo_sendOutboxMessages: jobmixins.undo_sendOutboxMessages,
   local_do_setOutboxSyncEnabled: jobmixins.local_do_setOutboxSyncEnabled,
+
+  local_do_upgradeDB: jobmixins.local_do_upgradeDB,
 
   // These utility functions are necessary.
   postJobCleanup: jobmixins.postJobCleanup,
