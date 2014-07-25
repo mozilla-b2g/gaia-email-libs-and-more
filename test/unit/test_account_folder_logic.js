@@ -84,7 +84,7 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
   });
 });
 
-TD.commonCase('correct folders designated as valid move targets', 
+TD.commonCase('correct folders designated as valid move targets',
   function(T, RT) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
@@ -106,14 +106,17 @@ TD.commonCase('correct folders designated as valid move targets',
     'important': true,
     'normal': true
   };
-  for (var folderType in folderMoveExps) {
-    T.check(eCheck, folderType + ' folder', function() {
-      var folder = new $mailapi._MailFolder(testUniverse.MailAPI, {type: folderType});
-      eCheck.expect_namedValue('folder is valid move target', folderMoveExps[folderType]);
-      eCheck.namedValue('folder is valid move target', folder.isValidMoveTarget);
+  function check(type) {
+    T.check(eCheck, type + ' folder', function() {
+      var folder = new $mailapi._MailFolder(testUniverse.MailAPI, {type: type});
+      eCheck.expect_namedValue(type + ' folder is valid move target', folderMoveExps[type]);
+      eCheck.namedValue(type + ' folder is valid move target', folder.isValidMoveTarget);
     });
   }
-  
+
+  for (var folderType in folderMoveExps) {
+    check(folderType);
+  }
 });
 
 TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
