@@ -4,8 +4,8 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'exports'],
-       function($tc, $th_main, $ascp, exports) {
+        'activesync/codepages', 'mailapi/mailapi', 'exports'],
+       function($tc, $th_main, $ascp, $mailapi, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_folder_logic' }, null,
@@ -20,7 +20,7 @@ var TD = exports.TD = $tc.defineTestsFor(
  * notifications.
  */
 TD.commonCase('syncFolderList is idempotent', function(T) {
-  T.group('setup')
+  T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
                             { universe: testUniverse,
@@ -67,7 +67,6 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
 
   ['localdrafts', 'outbox'].forEach(function(folderType) {
     T.check(eCheck, folderType + ' folder', function() {
-      eCheck.expect_namedValue('folder is valid move target', false);
       eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
       var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
       // the path should place it next to the existing drafts folder, but we
@@ -79,11 +78,42 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
 
       var folder = testUniverse.allFoldersSlice
             .getFirstFolderWithType(folderType);
-      eCheck.namedValue('folder is valid move target', folder.isValidMoveTarget);
       eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
       eCheck.namedValue('path', folder.path);
     });
   });
+});
+
+TD.commonCase('correct folders designated as valid move targets', 
+  function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+  var folderMoveExps = {
+    'account': false,
+    'nomail': false,
+    'inbox': true,
+    'drafts': true,
+    'localdrafts': false,
+    'outbox': false,
+    'sent': true,
+    'trash': true,
+    'archive': true,
+    'junk': true,
+    'starred': true,
+    'important': true,
+    'normal': true
+  };
+  for (var folderType in folderMoveExps) {
+    T.check(eCheck, folderType + ' folder', function() {
+      var folder = new $mailapi._MailFolder(testUniverse.MailAPI, {type: folderType});
+      eCheck.expect_namedValue('folder is valid move target', folderMoveExps[folderType]);
+      eCheck.namedValue('folder is valid move target', folder.isValidMoveTarget);
+    });
+  }
+  
 });
 
 TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
