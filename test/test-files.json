@@ -56,6 +56,10 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_dead_connection.js": {
+      "variants": ["imap:fake", "imap:real"]
+    },
+
     "test_imap_internals.js": {
       "variants": ["imap:fake", "imap:real"]
     },
