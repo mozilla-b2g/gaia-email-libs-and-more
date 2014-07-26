@@ -686,6 +686,14 @@ MailUniverse.prototype = {
     }
   },
 
+  areServerJobsWaiting: function(account) {
+    var queues = this._opsByAccount[account.id];
+    if (!account.enabled) {
+      return false;
+    }
+    return !!queues.server.length;
+  },
+
   registerBridge: function(mailBridge) {
     this._bridges.push(mailBridge);
   },

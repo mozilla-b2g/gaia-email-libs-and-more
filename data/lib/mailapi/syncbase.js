@@ -326,6 +326,22 @@ exports.CHECK_INTERVALS_ENUMS_TO_MS = {
  */
 exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 
+/**
+ * When an IMAP connection has been left in the connection pool for
+ * this amount of time, don't use that connection; spin up a fresh
+ * connection instead. This value should be large enough that we don't
+ * constantly spin up new connections, but short enough that we might
+ * actually have connections open for that length of time.
+ */
+exports.STALE_CONNECTION_TIMEOUT_MS = 30000;
+
+/**
+ * Kill any open IMAP connections if there are no jobs pending and
+ * there are no slices open. This flag is mainly just for unit test sanity.
+ */
+exports.KILL_CONNECTIONS_WHEN_JOBLESS = true;
+
+
 var DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 /**

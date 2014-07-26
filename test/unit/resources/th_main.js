@@ -141,6 +141,12 @@ var TestUniverseMixins = {
         growDays: 7,
         scaleFactor: 1.6,
 
+        STALE_CONNECTION_TIMEOUT_MS: 60000, // arbitrarily large value for tests
+        // Don't kill jobless connections, as most of the tests don't expect
+        // the connections to die, and we test this independently within
+        // test_imap_kill_unused_connections.js.
+        KILL_CONNECTIONS_WHEN_JOBLESS: false,
+
         // Don't trigger the whole-folder sync logic except when we explicitly
         // want to test it.
         SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 0,

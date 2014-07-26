@@ -11,6 +11,7 @@ define(
     '../errbackoff',
     '../mailslice',
     '../searchfilter',
+    '../syncbase',
     '../util',
     '../composite/incoming',
     './folder',
@@ -27,6 +28,7 @@ define(
     $errbackoff,
     $mailslice,
     $searchfilter,
+    $syncbase,
     $util,
     incoming,
     $imapfolder,
@@ -260,6 +262,7 @@ var properties = {
       var connInfo = this._ownedConns[i];
       if (connInfo.inUseBy)
         continue;
+      console.log('Killing unused IMAP connection.');
       // this eats all future notifications, so we need to splice...
       connInfo.conn.die();
       this._ownedConns.splice(i, 1);
@@ -411,6 +414,18 @@ var properties = {
         // (this will trigger an expunge if not read-only...)
         if (closeFolder && !resourceProblem && !this._TEST_doNotCloseFolder)
           conn.closeBox(function() {});
+
+        // XXX: We are closing unused connections in an effort to stem
+        // problems associated with unreliable cell connections; they
+        // tend to be dropped unceremoniously when left idle for a
+        // long time, particularly on cell networks. NB: This will
+        // close the connection we just used, unless someone else is
+        // waiting for a connection.
+        if ($syncbase.KILL_CONNECTIONS_WHEN_JOBLESS &&
+            !this._demandedConns.length &&
+            !this.universe.areServerJobsWaiting(this)) {
+          this.closeUnusedConnections();
+        }
         return;
       }
     }
