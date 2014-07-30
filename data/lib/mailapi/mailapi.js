@@ -221,6 +221,8 @@ MailSenderIdentity.prototype = {
     // nothing to clean up currently
   },
 };
+// For testing
+exports._MailFolder = MailFolder
 
 function MailFolder(api, wireRep) {
   this._api = api;
@@ -282,7 +284,6 @@ MailFolder.prototype = {
      *   @case['localdrafts']{
      *     Local-only folder that stores drafts composed on this device.
      *   }
-     *   @case['queue']
      *   @case['sent']
      *   @case['trash']
      *   @case['archive']
@@ -304,6 +305,23 @@ MailFolder.prototype = {
 
     this.selectable = ((wireRep.type !== 'account') &&
                        (wireRep.type !== 'nomail'));
+
+    this.neededForHierarchy = !this.selectable;
+
+    /**
+     *  isValidMoveTarget denotes whether this folder is a valid 
+     *  place for messages to be moved into.
+     */
+    switch (this.type) {
+      case 'localdrafts':
+      case 'outbox':
+      case 'account':
+      case 'nomail':
+        this.isValidMoveTarget = false;
+        break;
+      default:
+        this.isValidMoveTarget = true;
+    }
   },
 
   __die: function() {

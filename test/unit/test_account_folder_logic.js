@@ -4,8 +4,8 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'exports'],
-       function($tc, $th_main, $ascp, exports) {
+        'activesync/codepages', 'mailapi/mailapi', 'exports'],
+       function($tc, $th_main, $ascp, $mailapi, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_account_folder_logic' }, null,
@@ -75,12 +75,48 @@ TD.commonCase('syncFolderList created offline folders', function(T, RT) {
       eCheck.expect_namedValue('path',
                                sent.path.replace(/sent.*/i, folderType));
 
+
       var folder = testUniverse.allFoldersSlice
             .getFirstFolderWithType(folderType);
       eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
       eCheck.namedValue('path', folder.path);
     });
   });
+});
+
+TD.commonCase('correct folders designated as valid move targets',
+  function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse, restored: true }),
+      eCheck = T.lazyLogger('check');
+  var folderMoveExps = {
+    'account': false,
+    'nomail': false,
+    'inbox': true,
+    'drafts': true,
+    'localdrafts': false,
+    'outbox': false,
+    'sent': true,
+    'trash': true,
+    'archive': true,
+    'junk': true,
+    'starred': true,
+    'important': true,
+    'normal': true
+  };
+  function check(type) {
+    T.check(eCheck, type + ' folder', function() {
+      var folder = new $mailapi._MailFolder(testUniverse.MailAPI, {type: type});
+      eCheck.expect_namedValue(type + ' folder is valid move target', folderMoveExps[type]);
+      eCheck.namedValue(type + ' folder is valid move target', folder.isValidMoveTarget);
+    });
+  }
+
+  for (var folderType in folderMoveExps) {
+    check(folderType);
+  }
 });
 
 TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
