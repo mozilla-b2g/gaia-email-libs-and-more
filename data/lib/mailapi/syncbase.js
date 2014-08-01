@@ -360,6 +360,51 @@ exports.SYNC_RANGE_ENUMS_TO_MS = {
    'all': 30 * 365 * DAY_MILLIS,
 };
 
+////////////////////////////////////////////////////////////////////////////////
+// Cronsync/periodic sync stuff
+
+/**
+ * Caps the number of quas-headers we report to the front-end via cronsync
+ * completion notifications (per-account).  We report the newest headers from
+ * each sync.
+ *
+ * The value 5 was arbitrarily chosen, but per :jrburke, the current (hamachi,
+ * flame) phone devices in portrait orientation "can fit about three unique
+ * names in a grouped notification", so 5 still seems like a pretty good value.
+ * This may want to change on landscape devices or devices with more screen
+ * real-estate, like tablets.
+ */
+exports.CRONSYNC_MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
+
+/**
+ * Caps the number of snippets we are willing to fetch as part of each cronsync
+ * for each account.  We fetch snippets for the newest headers.
+ *
+ * The primary factors here are:
+ * - Latency of sync reporting.  Right now, snippet fetches will defer the
+ *   cronsync completion notification.
+ * - Optimizing UX by having the snippets already available when the user goes
+ *   to view the message list, at least the top of the message list.  An
+ *   interacting factor is how good the UI is at requesting snippets in
+ *   advance of messages being displayed on the screen.
+ *
+ * The initial/current value of 5 was chosen because a Hamachi device could
+ * show 5 messages on the screen at a time.  On fancier devices like the flame,
+ * this is still approximately right; about 5.5 messages are visible on 2.0,
+ * with the snippet part for the last one not displayed.
+ */
+exports.CRONSYNC_MAX_SNIPPETS_TO_FETCH_PER_ACCOUNT = 5;
+
+/**
+ * What's the largest portion of a message's body content to fetch in order
+ * to generate a snippet?
+ *
+ * The 4k value is chosen to match the Gaia mail app's use of 4k in its
+ * snippet fetchin as we scroll.  Arguably that choice should be superseded
+ * by this constant in the future.
+ * TODO: make front-end stop specifying snippet size.
+ */
+exports.MAX_SNIPPET_BYTES = 4 * 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Unit test support

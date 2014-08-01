@@ -63,7 +63,7 @@ var TestFakePOP3ServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakePOP3Servers[normName] = true;
 
-    self.testAccount = null;
+    self.testAccount = opts.testAccount;
 
     self.folderMessages = {};
 
@@ -80,8 +80,8 @@ var TestFakePOP3ServerMixins = {
           {
             command: 'make_pop3_and_smtp',
             credentials: {
-              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-              password: TEST_PARAMS.password
+              username: extractUsernameFromEmail(self.testAccount.emailAddress),
+              password: self.testAccount.initialPassword
             },
             options: {
 
@@ -106,7 +106,6 @@ var TestFakePOP3ServerMixins = {
   },
 
   finishSetup: function(testAccount) {
-    this.testAccount = testAccount;
     this.supportsServerFolders =
       testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)

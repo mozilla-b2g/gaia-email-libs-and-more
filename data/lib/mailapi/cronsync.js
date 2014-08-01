@@ -27,6 +27,7 @@ define(
     './worker-router',
     './slice_bridge_proxy',
     './mailslice',
+    './syncbase',
     './allback',
     'prim',
     'module',
@@ -37,34 +38,13 @@ define(
     $router,
     $sliceBridgeProxy,
     $mailslice,
+    $syncbase,
     $allback,
     $prim,
     $module,
     exports
   ) {
 
-
-/**
- * Sanity demands we do not check more frequently than once a minute.
- */
-var MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
-
-/**
- * How long should we let a synchronization run before we give up on it and
- * potentially try and kill it (if we can)?
- */
-var MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
-
-/**
- * Caps the number of notifications we generate per account.  It would be
- * sitcom funny to let this grow without bound, but would end badly in reality.
- */
-var MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
-
-/**
- * How much body snippet to save. Chose a value to match the front end
- */
-var MAX_SNIPPET_BYTES = 4 * 1024;
 
 function debug(str) {
   console.log("cronsync: " + str + "\n");
@@ -104,7 +84,6 @@ function makeSlice(storage, callback, parentLog) {
 function CronSync(universe, _logParent) {
   this._universe = universe;
   this._universeDeferred = {};
-  this._isUniverseReady = false;
 
   this._universeDeferred.promise = $prim(function (resolve, reject) {
     this._universeDeferred.resolve = resolve;
@@ -139,17 +118,25 @@ function CronSync(universe, _logParent) {
 exports.CronSync = CronSync;
 CronSync.prototype = {
   _killSlices: function() {
+    this._LOG.killSlices(this._activeSlices.length);
     this._activeSlices.forEach(function(slice) {
       slice.die();
     });
   },
 
+  /**
+   * Called directly by the MailUniverse once it has loaded all its accounts.
+   */
   onUniverseReady: function() {
     this._universeDeferred.resolve();
 
     this.ensureSync();
   },
 
+  /**
+   * Invoke the given function after the universe has started up and all
+   * accounts have been loaded.
+   */
   whenUniverse: function(fn) {
     this._universeDeferred.promise.then(fn);
   },
@@ -164,6 +151,7 @@ CronSync.prototype = {
     if (!this._completedEnsureSync)
       return;
 
+    this._LOG.ensureSync_begin();
     this._completedEnsureSync = false;
 
     debug('ensureSync called');
@@ -200,6 +188,7 @@ CronSync.prototype = {
     if (!this._universe.online || !account.enabled) {
       debug('syncAcount early exit: online: ' +
             this._universe.online + ', enabled: ' + account.enabled);
+      this._LOG.syncSkipped(account.id);
       doneCallback();
       return;
     }
@@ -217,7 +206,7 @@ CronSync.prototype = {
     this._LOG.syncAccount_begin(account.id);
 
     var slice = makeSlice(storage, function(newHeaders) {
-      this._LOG.syncAccount_end(account.id);
+      this._LOG.syncAccount_end(account.id, newHeaders);
       this._activeSlices.splice(this._activeSlices.indexOf(slice), 1);
 
       // Reduce headers to the minimum number and data set needed for
@@ -232,20 +221,25 @@ CronSync.prototype = {
           messageSuid: header.suid
         });
 
-        if (i === MAX_MESSAGES_TO_REPORT_PER_ACCOUNT - 1)
+        if (i === $syncbase.CRONSYNC_MAX_MESSAGES_TO_REPORT_PER_ACCOUNT - 1)
           return true;
       });
 
       if (newHeaders.length) {
         debug('Asking for snippets for ' + notifyHeaders.length + ' headers');
-        if (this._universe.online){
+        if (this._universe.online) {
+          this._LOG.snippetFetchAccount_begin(account.id);
           this._universe.downloadBodies(
-            newHeaders.slice(0, MAX_MESSAGES_TO_REPORT_PER_ACCOUNT), {
-              maximumBytesToFetch: MAX_SNIPPET_BYTES
-            }, function() {
+            newHeaders.slice(
+              0, $syncbase.CRONSYNC_MAX_SNIPPETS_TO_FETCH_PER_ACCOUNT),
+            {
+              maximumBytesToFetch: $syncbase.MAX_SNIPPET_BYTES
+            },
+            function() {
               debug('Notifying for ' + newHeaders.length + ' headers');
+              this._LOG.snippetFetchAccount_end(account.id);
               inboxDone([newHeaders.length, notifyHeaders]);
-          }.bind(this));
+            }.bind(this));
         } else {
           debug('UNIVERSE OFFLINE. Notifying for ' + newHeaders.length +
                 ' headers');
@@ -265,9 +259,16 @@ CronSync.prototype = {
     if (outboxFolder) {
       var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
       if (outboxStorage.getKnownMessageCount() > 0) {
-        this._universe.sendOutboxMessages(account, {
-          reason: 'syncAccount'
-        }, latch.defer('outbox'));
+        var outboxDone = latch.defer('outbox');
+        this._LOG.sendOutbox_begin(account.id);
+        this._universe.sendOutboxMessages(
+          account,
+          {
+            reason: 'syncAccount'
+          },
+          function() {
+            this._LOG.sendOutbox_end(account.id);
+          }.bind(this));
       }
     }
 
@@ -301,6 +302,7 @@ CronSync.prototype = {
           targetAccounts = [],
           ids = [];
 
+      this._LOG.cronSync_begin();
       this._universe.__notifyStartedCronSync(accountIds);
 
       // Make sure the acount IDs are still valid. This is to protect agains
@@ -350,6 +352,7 @@ CronSync.prototype = {
           }
 
           this._universe.__notifyStoppedCronSync(accountsResults);
+          this._LOG.syncAccounts_end(accountsResults);
         }.bind(this);
 
         this._checkSyncDone();
@@ -358,9 +361,11 @@ CronSync.prototype = {
       // Nothing new to sync, probably old accounts. Just return and indicate
       // that syncing is done.
       if (!ids.length) {
-        return done();
+        done();
+        return;
       }
 
+      this._LOG.syncAccounts_begin();
       targetAccounts.forEach(function(account) {
         this.syncAccount(account, function (result) {
           if (result) {
@@ -386,6 +391,7 @@ CronSync.prototype = {
     if (!this._completedEnsureSync || !this._syncAccountsDone)
       return;
 
+    this._LOG.cronSync_end();
     if (this._onSyncDone) {
       this._onSyncDone();
       this._onSyncDone = null;
@@ -401,6 +407,7 @@ CronSync.prototype = {
    */
   onSyncEnsured: function() {
     this._completedEnsureSync = true;
+    this._LOG.ensureSync_end();
     this._checkSyncDone();
   },
 
@@ -415,11 +422,25 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     type: $log.DAEMON,
     events: {
       alarmFired: {},
+      killSlices: { count: false },
+      syncSkipped: { id: true },
     },
     TEST_ONLY_events: {
     },
     asyncJobs: {
-      syncAccount: { id: false },
+      cronSync: {},
+      ensureSync: {},
+      syncAccounts: { accountsResults: false },
+      // This covers the actual folder-sync.  It will always trigger, and will
+      // end before snippetFetchAccount starts (if it starts).
+      syncAccount: { id: true, headers: false },
+      // If we have new headers we will fetch snippets.  This starts when we
+      // issue the request and stops when we get our callback, meaning there
+      // will be an entirely contained downloadBodies job-op.
+      snippetFetchAccount: { id: true },
+      sendOutbox: { id: true },
+    },
+    TEST_ONLY_asyncJobs: {
     },
     errors: {
     },

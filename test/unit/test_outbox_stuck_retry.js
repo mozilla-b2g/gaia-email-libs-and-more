@@ -5,19 +5,15 @@
  * `test_compose.js`) for message-specific edge cases like attachments,
  * MIME parsing, and other such stuff.
  */
-define(['./shared_outbox',
-        'rdcommon/testcontext', './resources/th_main',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
         'mailapi/util', 'mailapi/accountcommon', 'exports'],
-       function($sharedOutbox,
-                $tc, $th_imap, $th_devicestorage, $msggen,
+       function($tc, $th_imap, $th_devicestorage, $msggen,
                 $util, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_outbox_stuck_retry' }, null,
   [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
-
-var do_composeAndSendMessage = $sharedOutbox.do_composeAndSendMessage;
 
 // We cannot use a static subject in case we run this test on a real
 // server, which may have messages in folders already.
@@ -58,15 +54,6 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
       });
   });
 
-  var env = {
-    T: T,
-    RT: RT,
-    testUniverse: testUniverse,
-    testAccount: testAccount,
-    eLazy: eLazy,
-    outboxView: views.outbox
-  };
-
   // Send two messages. They both fail and get stuck in the outbox.
 
   T.check('Force send failure', function() {
@@ -75,10 +62,14 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
 
   subjects.forEach(function(subject, idx) {
     T.group('Send "' + subject + '"');
-    do_composeAndSendMessage(
-      env, subject,
+    testAccount.do_composeAndSendMessage(
+      subject,
       // the second one will retry and will fail
-      { success: false, existingRetryResults: idx ? ['failure'] : []});
+      {
+        success: false,
+        existingRetryResults: idx ? ['failure'] : [],
+        outboxView: views.outbox
+      });
 
     // Ensure there are no drafts (they should be in the outbox now)
     T.check('draft messages deleted', eLazy, function() {

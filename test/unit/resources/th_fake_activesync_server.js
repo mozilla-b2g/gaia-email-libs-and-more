@@ -47,7 +47,7 @@ var TestActiveSyncServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakeActiveSyncServers[normName] = true;
 
-    self.testAccount = null;
+    self.testAccount = opts.testAccount;
 
     self.T.convenienceSetup(setupVerb, self,
                             function() {
@@ -62,8 +62,8 @@ var TestActiveSyncServerMixins = {
           {
             command: 'make_activesync',
             credentials: {
-              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-              password: TEST_PARAMS.password
+              username: extractUsernameFromEmail(self.testAccount.emailAddress),
+              password: self.testAccount.initialPassword
             },
           });
 
@@ -84,7 +84,6 @@ var TestActiveSyncServerMixins = {
   },
 
   finishSetup: function(testAccount) {
-    this.testAccount = testAccount;
     this.supportsServerFolders =
       testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)

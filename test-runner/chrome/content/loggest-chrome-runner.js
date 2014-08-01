@@ -685,9 +685,9 @@ var EMAIL_PERMISSIONS = {
     "audio-channel-notification":{},
     "contacts":{ "access": "readcreate" },
     "desktop-notification":{},
+    "storage":{},
     "device-storage:sdcard":{ "access": "readcreate" },
     "systemXHR":{},
-    "settings":{ "access": "readonly" },
     "tcp-socket":{}
 };
 
@@ -1042,6 +1042,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakeimaphost',
+        emailDomain: 'fakeimaphost',
         password: 'testy',
         slow: false,
         type: 'imap',
@@ -1055,6 +1056,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakepop3host',
+        emailDomain: 'fakepop3host',
         password: 'testy',
         slow: false,
         type: 'pop3',
@@ -1068,6 +1070,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakeashost',
+        emailDomain: 'fakeashost',
         password: 'testy',
         slow: false,
         type: 'activesync',

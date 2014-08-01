@@ -16,6 +16,7 @@ var $log = require('rdcommon/log'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
     $msggen = require('tests/resources/messageGenerator'),
     $mailslice = require('mailapi/mailslice'),
+    $cronsync = require('mailapi/cronsync'),
     $searchfilter = require('mailapi/searchfilter'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
@@ -82,9 +83,46 @@ exports.thunkConsoleForNonTestUniverse = function() {
   makeConsoleForLogger(consoleLogger);
 };
 
+/**
+ * Temporarily clobber a method on a prototype, invoking your provided callback
+ * when the function is invoked.  Your function will be invoked with a function
+ * you can use to release the call.  The intercept will immediately be removed
+ * since this is a fairly dangerous game to be playing.
+ *
+ * @param {String} params.method
+ * @param {Object} params.onProtoFromConstructor
+ * @param {Function} params.callMyFunc
+ */
+function interceptNextCall(params) {
+  var methodName = params.method;
+  var proto = params.onProtoFromConstructor.prototype;
+  var callback = params.callMyFunc;
+
+  var origFunc = proto[params.method];
+  var releaseTheCall;
+  var replacementFunc = proto[params.method] = function() {
+    var calledInst = this;
+    var calledArgs = arguments;
+    releaseTheCall = function() {
+      origFunc.apply(calledInst, calledArgs);
+    };
+    var curFunc = proto[methodName];
+    if (curFunc !== replacementFunc) {
+      console.warning('Intercepted func has been double intercepted?!',
+                      methodName);
+      throw new Error('Double-intercepted func: ' + methodName);
+    }
+    proto[methodName] = origFunc;
+    // We are fine with this method throwing an exception, probably.
+    callback(releaseTheCall);
+  };
+}
+
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
+    self.eCronSync = self.T.actor('CronSync', self.__name, null,
+                                  self.eUniverse);
 
     // no need to keep creating consoles if one already got created...
     if (!opts || !opts.old) {
@@ -171,7 +209,8 @@ var TestUniverseMixins = {
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
      */
-    self.T.convenienceSetup(self, 'initializes', self.eUniverse, function() {
+    self.T.convenienceSetup(self, 'initializes', self.eUniverse, self.eCronSync,
+                            function() {
       self.__attachToLogger(LOGFAB.testUniverse(self, null, self.__name));
       self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
 
@@ -252,6 +291,12 @@ var TestUniverseMixins = {
 
       self._sendHelperMessage = $router.registerCallbackType('testhelper');
       self._mainThreadMailBridge = false;
+
+      // We always ensureSync at startup, wait for that or it could interfere
+      // with cronsync tests.  (Also, we don't want this stuff smearing into
+      // other test steps either.)
+      self.eCronSync.expect_ensureSync_begin();
+      self.eCronSync.expect_ensureSync_end();
 
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
@@ -511,6 +556,196 @@ var TestUniverseMixins = {
       });
     });
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // cronsync helpers
+  //
+  // Assist in testing cronsync by letting us easily separate and control the
+  // complex stuff going on under the hood.  We only go for the big-picture
+  // life-cycle expectations here beause we trust more detailed/specific tests
+  // to verify the nitty gritty of folder sync and outbox sending and such.
+  // (Also, it would be a nightmare to integrate them into the chopped-up
+  // stuff we're doing here.)
+
+  /**
+   * Trigger cronsync but gum up the works so we can control what's happening
+   * so the interesting stuff happens in one or more independent test steps.
+   *
+   * Specifically, we grab mutexes on all the outboxes and inboxes for the
+   * accounts you tell us about.  This will wedge the sync process with a
+   * runMutexed call to MailSlice._sliceOpenMostRecent pending.  This will wedge
+   * the outbox inside the do_sendOutboxMessages job-op in
+   * JobDriver._accessFolderForMutation.  We generate appropriate expectations
+   * and you must use do_cronsync_releaseAccountSync and
+   * do_cronsync_releaseOutbox for each account to un-wedge them.  We wedge
+   * both of them every time.
+   *
+   * We trigger the cronsync by directly poking its onAlarm method.  It has no
+   * cleverness that would defeat this (at this time).
+   *
+   * @param {Object} opts
+   * @param {TestAccount[]} accounts
+   *   The test accounts you expect to participate in the cronsync.  We don't
+   *   second-guess you, so don't screw up.
+   * @param {Number} inboxHasNewMessages
+   *   Do you expect the inbox to fetch new messages?  How many?  (This
+   *   informs
+   * @param {Number} outboxHasMessages
+   *   Do you expect the outbox to have messages?  How many?
+   */
+  do_cronsync_trigger: function(opts) {
+    this.T.action('acquire folder mutexes for inboxes/outboxes', function() {
+      opts.accounts.forEach(function(testAccount) {
+        var state = testAccount._cronSyncState = {
+          inboxHasNewMessages: opts.inboxHasNewMessages,
+          outboxHasMessages: opts.outboxHasMessages
+        };
+
+        this.RT.reportActiveActorThisStep(testAccount);
+        testAccount.expect_mutexStolen('inbox');
+        testAccount.expect_mutexStolen('outbox');
+
+        var inboxMeta = testAccount.account.getFirstFolderWithType('inbox');
+        var outboxMeta = testAccount.account.getFirstFolderWithType('outbox');
+
+        var inboxStorage =
+              this.universe.getFolderStorageForFolderId(inboxMeta.id);
+        var outboxStorage =
+              this.universe.getFolderStorageForFolderId(outboxMeta.id);
+
+        inboxStorage.runMutexed('steal', function(callWhenDone) {
+          testAccount._logger.mutexStolen('inbox');
+          state.releaseInboxMutex = callWhenDone;
+        });
+        outboxStorage.runMutexed('steal', function(callWhenDone) {
+          testAccount._logger.mutexStolen('outbox');
+          state.releaseOutboxMutex = callWhenDone;
+        });
+      }.bind(this));
+    }.bind(this));
+    this.T.action(this, 'trigger cronsync', this.eCronSync, function() {
+      // note: these each take one argument (which the logger expects)
+      this.MailAPI.oncronsyncstart =
+        this._logger.apiCronSyncStartReported.bind(this._logger);
+      this.MailAPI.oncronsyncstop =
+        this._logger.apiCronSyncStopReported.bind(this._logger);
+
+
+      var accountIds = [];
+
+      this.eCronSync.expect_alarmFired();
+      this.eCronSync.expect_cronSync_begin();
+      // There shouldn't be any leftover slices from previous passes given
+      // current tests. XXX but we will add tests for this, why not.
+      this.eCronSync.expect_killSlices(0);
+      this.eCronSync.expect_ensureSync_begin();
+      this.eCronSync.expect_syncAccounts_begin();
+      opts.accounts.forEach(function(testAccount) {
+        accountIds.push(testAccount.id);
+        this.eCronSync.expect_syncAccount_begin(testAccount.id);
+        if (opts.outboxHasMessages) {
+          this.eCronSync.expect_sendOutbox_begin(testAccount.id);
+          // the job will also start but then get wedged waiting on our mutex
+          this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+          testAccount.eOpAccount.expect_runOp_begin(
+            'do', 'sendOutboxMessages', null);
+        }
+      }.bind(this));
+      this.eCronSync.expect_ensureSync_end();
+
+      this.universe._cronSync.onAlarm(accountIds);
+    }.bind(this));
+  },
+
+  /**
+   * Release the inbox mutex so the sync can start happening.  We stall the
+   * save process by intercepting the call to MailDB.saveAccountFolderStates
+   * so you can release it by calling `do_cronsync_releaseSyncDatabaseSave`.
+   */
+  do_cronsync_releaseAccountSyncButStallSave: function(testAccount) {
+    this.T.action(testAccount, 'release mutex/let sync happen/stall save',
+                  function() {
+      testAccount.expect_interceptedAccountSave();
+
+      interceptNextCall({
+        method: 'saveAccountFolderStates',
+        onProtoFromConstructor: $maildb.MailDB,
+        callMyFunc: function(releaseFunc) {
+          testAccount._logger.interceptedAccountSave();
+          testAccount._cronsyncReleaseDBSave = releaseFunc;
+        }.bind(this)
+      });
+
+      var state = testAccount._cronSyncState;
+      state.releaseInboxMutex();
+      state.releaseInboxMutex = null;
+    }.bind(this));
+  },
+
+  do_cronsync_releaseSyncDatabaseSave: function(testAccount, expectFunc) {
+    this.T.action(testAccount, 'release sync save', function() {
+
+      testAccount.expect_releasedAccountSave();
+      if (expectFunc) {
+        expectFunc();
+      }
+
+      var releaseFunc = testAccount._cronsyncReleaseDBSave;
+      testAccount._cronsyncReleaseDBSave = null;
+      releaseFunc();
+    }.bind(this));
+  },
+
+  do_cronsync_releaseOutbox: function(testAccount, expectFunc) {
+    this.T.action(testAccount, 'release mutex/let outbox send happen',
+                  function() {
+      var state = testAccount._cronSyncState;
+
+
+      if (state.outboxHasMessages) {
+        // our wedging left the first job partway through its run process,
+        // so we want to close that one out, then do full processings for all
+        // subsequent ones
+        this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+        testAccount.eOpAccount.expect_runOp_end(
+          'do', 'sendOutboxMessages', null);
+        testAccount.eOpAccount.expectSaveAccountState_begin(
+          'serverOp:sendOutboxMessages');
+        testAccount.eOpAccount.expectSaveAccountState_end(
+          'serverOp:sendOutboxMessages');
+        testAccount.expect_saveSentMessage(true);
+        for (var iMsg = 1; iMsg < state.outboxHasMessages; iMsg++) {
+          testAccount.expect_sendOutboxMessages();
+          testAccount.expect_saveSentMessage(true);
+        }
+
+        testAccount.eCronSync.expect_sendOutbox_end(testAccount.id);
+      }
+
+      if (expectFunc) {
+        expectFunc();
+      }
+
+      state.releaseOutboxMutex();
+      state.releaseOutboxMutex = null;
+    }.bind(this));
+  },
+
+  /**
+   * Expect func to call for all the things that happen when cronsync completes.
+   * This will occur when all the release functions above complete across all of
+   * the accounts being synchronized.  You the test-writer are responsible for
+   * passing this as an argument to the release function or calling it from
+   * inside your own expectFunc that you pass to them, etc. etc.
+   */
+  expect_cronsync_completed: function() {
+    this.RT.reportActiveActorThisStep(this.eCronSync);
+    // (ensureSync_end was already expected during the triggering process)
+    this.eCronSync.expect_syncAccounts_end();
+    this.eCronSync.expect_cronSync_end();
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 /**
@@ -537,9 +772,13 @@ var TestCommonAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
 
+    var TEST_PARAMS = self.RT.envOptions;
+    self.displayName = self._opts.displayName || TEST_PARAMS.name;
+    self.emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
+    self.initialPassword = self._opts.password || TEST_PARAMS.password;
+
     self._useDate = self.testUniverse._useDate;
 
-    var TEST_PARAMS = self.RT.envOptions;
     self.type = TEST_PARAMS.type;
     // -- IMAP/POP3
     if (TEST_PARAMS.type === 'imap' ||
@@ -563,15 +802,14 @@ var TestCommonAccountMixins = {
    * Modify the account, asserting that the modification completed.
    */
   do_modifyAccount: function(options) {
-    var eCheck = this.T.lazyLogger('check');
-    this.T.action(this, 'modify account', eCheck,
+    this.T.action(this, 'modify account',
                   'with options', JSON.stringify(options), function() {
+      this.expect_accountModified();
       var acct = this.testUniverse.allAccountsSlice
-            .getAccountById(this.accountId);
-      eCheck.expect_event('modifyAccount done');
+                   .getAccountById(this.accountId);
       acct.modifyAccount(options, function() {
-        eCheck.event('modifyAccount done');
-      });
+        this._logger.accountModified();
+      }.bind(this));
     }.bind(this));
   },
 
@@ -1494,8 +1732,9 @@ var TestCommonAccountMixins = {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
 
     this.T.convenienceSetup('delete test folder', testFolder,
                             'if it exists',
@@ -1603,8 +1842,10 @@ var TestCommonAccountMixins = {
     // Because only one actor will be created in this process, we don't
     // need to reach into the 'soup' to establish the link and the test
     // infrastructure will do it automatically for us.
-    var newConnActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME, newActorName),
-        newStorageActor = this.T.actor('FolderStorage', newActorName);
+    var newConnActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME, newActorName,
+                                    null, this),
+        newStorageActor = this.T.actor('FolderStorage', newActorName,
+                                       null, this);
     this.RT.reportActiveActorThisStep(newConnActor);
     this.RT.reportActiveActorThisStep(newStorageActor);
 
@@ -1629,8 +1870,7 @@ var TestCommonAccountMixins = {
     var self = this;
     var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
                        messageSetDef.count;
-    var eLazy = this.T.lazyLogger('finished');
-    this.T.convenienceSetup(this, desc, testFolder, eLazy, function() {
+    this.T.convenienceSetup(this, desc, testFolder, function() {
       var messageBodies;
       if (messageSetDef instanceof Function) {
         messageBodies = messageSetDef();
@@ -1700,8 +1940,9 @@ var TestCommonAccountMixins = {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup('find test folder', testFolder, function() {
@@ -1742,8 +1983,9 @@ var TestCommonAccountMixins = {
         folderName = folderType + suffix,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup('find test folder', testFolder, function() {
@@ -1839,8 +2081,98 @@ var TestCommonAccountMixins = {
       { local: false,
         server: true,
         save: 'server' });
-  }
+  },
 
+  /**
+   * Helper method to compose and send a message which either results in
+   * success or failure; you tell us which is gonna happen, and we expect the
+   * right things.  (We're not psychic.)
+   *
+   * Use this to get messages in the outbox!
+   *
+   * @param {string} subject
+   *   Subject for this message.
+   * @param {object} opts
+   *   Optional test-specific things. This could be cleaned up.
+   * @param {string} opts.to
+   *   Override the message's address with this parameter.
+   * @param {array} [opts.existingRetryResults]
+   *   A list with one item for each already existing message in the outbox where
+   *   the item is 'success' if we expect the send to succeed, or false if we
+   *   expect it to fail.
+   * @param {object} [opts.outboxView]
+   *   If you want us to check that there are the right number of messages in
+   *   the outbox, pass us an open viewThing.
+   * @param {boolean} opts.success
+   *   If true, assert things that indicate that the message sent successfully.
+   *   Otherwise, assert that the message failed to send, and is still in the
+   *   outbox.
+   */
+  do_composeAndSendMessage: function (subject, opts) {
+    var shouldSucceed = opts.success;
+    var TEST_PARAMS = this.RT.envOptions;
+    var composer;
+
+    this.T.action(this, 'begin composition', function() {
+      this.expect_composerReady();
+      var inboxMailFolder =
+            this.testUniverse.allFoldersSlice.getFirstFolderWithType('inbox');
+      composer = this.MailAPI.beginMessageComposition(
+        null, inboxMailFolder, null,
+        this._logger.composerReady.bind(this._logger));
+    }.bind(this));
+
+    this.T.action(this, 'compose and send', function() {
+      composer.to.push({ name: 'Myself',
+                         address: opts.to || TEST_PARAMS.emailAddress });
+      composer.subject = subject;
+      composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
+      this.expect_runOp(
+        'saveDraft',
+        { local: true, server: false, save: 'local' });
+
+      if (shouldSucceed) {
+        this.expect_sendMessageWithOutbox('success', 'conn');
+        this.expect_sendCompleted('success');
+      } else {
+        this.expect_moveMessageToOutbox();
+        this.expect_sendOutboxMessages();
+        this.expect_sendCompleted('error');
+      }
+
+      var existingRetryResults = opts.existingRetryResults || [];
+      var outboxView = opts.outboxView;
+      if (outboxView &&
+          existingRetryResults.length < outboxView.slice.items.length - 1) {
+        throw new Error('Incorrect existingRetryResults argument provided; ' +
+                        'length is ' + existingRetryResults.length + ' but ' +
+                        'should be ' + (outboxView.slice.items.length - 1));
+      }
+      for (var i = 0; i < existingRetryResults.length; i++) {
+        this.expect_sendOutboxMessages();
+        if (existingRetryResults[i] === 'success') {
+          this.expect_saveSentMessage();
+        }
+      }
+
+      this.expect_accountOpsCompleted();
+      this.MailAPI.onbackgroundsendstatus = function(data) {
+        if (!data.emitNotifications) {
+          return;
+        }
+        // we only care about termination; not 'sending'
+        if (data.state === 'success' || data.state === 'error') {
+          this._logger.sendCompleted(data.state);
+          this.MailAPI.onbackgroundsendstatus = null;
+          this.universe.waitForAccountOps(
+            this.account,
+            this._logger.accountOpsCompleted.bind(this._logger));
+        }
+      }.bind(this);
+
+      composer.finishCompositionSendMessage();
+    }.bind(this)).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
+  },
 };
 
 var TestFolderMixins = {
@@ -1942,13 +2274,17 @@ var TestCompositeAccountMixins = {
     self._unusedConnections = 0;
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
-      self.testServer = self.T.actor('testFake' + TYPE + 'Server', self.__name,
-                                     { restored: opts.restored,
-                                       imapExtensions: opts.imapExtensions });
+      self.testServer = self.T.actor(
+        'testFake' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored,
+          imapExtensions: opts.imapExtensions
+        }, null, self);
     }
     else {
       self.testServer = self.T.actor('testReal' + TYPE + 'Server', self.__name,
-                                     { restored: opts.restored });
+                                     { restored: opts.restored }, null, self);
     }
 
     if (opts.restored) {
@@ -2062,10 +2398,10 @@ var TestCompositeAccountMixins = {
       var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: TEST_PARAMS.name,
-          emailAddress: TEST_PARAMS.emailAddress,
-          password: TEST_PARAMS.password,
-          accountName: self._opts.name || null,
+          displayName: self.displayName,
+          emailAddress: self.emailAddress,
+          password: self.initialPassword,
+          accountName: self._opts.name || null, // null means use email
           forceCreate: self._opts.forceCreate
         },
         null,
@@ -2678,8 +3014,13 @@ var TestActiveSyncAccountMixins = {
     else if (!opts.server) {
       if (!self.RT.caseBlackboard.testActiveSyncServer) {
         self.RT.caseBlackboard.testActiveSyncServer =
-          self.T.actor('testActiveSyncServer', 'S',
-                       { universe: opts.universe });
+          self.T.actor(
+            'testActiveSyncServer', 'S',
+            {
+              testAccount: self,
+              universe: opts.universe
+            },
+            null, self);
       }
       self.testServer = self.RT.caseBlackboard.testActiveSyncServer;
     }
@@ -2733,19 +3074,13 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
-      var TEST_PARAMS = self.RT.envOptions,
-          displayName, emailAddress, password;
-
-      displayName = self._opts.displayName || TEST_PARAMS.name;
-      emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
-      password = self._opts.password || TEST_PARAMS.password;
-
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: displayName,
-          emailAddress: emailAddress,
-          password: password,
-          accountName: self._opts.name || null,
+          displayName: self.displayName,
+          emailAddress: self.emailAddress,
+          password: self.initialPassword,
+          accountName: self._opts.name || null, // null means use email
           forceCreate: self._opts.forceCreate
         },
         null,
@@ -2915,6 +3250,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       operationsDone: {},
 
       cleanShutdown: {},
+
+      apiCronSyncStartReported: { accountIds: false },
+      apiCronSyncStopReported: { accountsResults: false },
     },
     errors: {
       dbProblem: { err: false },
@@ -2953,6 +3291,22 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       viewWithoutExpectationsCompleted: {},
 
       changesReported: { additions: true, changes: true, deletions: true },
+
+      accountModified: {},
+
+      composerReady: {},
+      sendCompleted: { result: true },
+      // Dubious but semantically explicit waiting for operations to complete
+      // to make sure the test step catches everything that happens inside it.
+      // Since waitForAccountOpts is a MailUniverse thing, this inherently leads
+      // to potential races against the front-end and may be a bad idea unless
+      // a MailAPI.ping is also being used.
+      accountOpsCompleted: {},
+
+      mutexStolen: { folderType: true },
+      mutexReturned: { folderType: true },
+      interceptedAccountSave: {},
+      releasedAccountSave: {},
     },
     errors: {
       accountCreationError: { err: false },
@@ -2968,7 +3322,7 @@ exports.TESTHELPER = {
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB, $searchfilter.LOGFAB,
-    $errbackoff.LOGFAB,
+    $errbackoff.LOGFAB, $cronsync.LOGFAB,
     // IMAP!
     $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
     // POP3!

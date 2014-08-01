@@ -60,7 +60,7 @@ var TestFakeIMAPServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakeIMAPServers[normName] = true;
 
-    self.testAccount = null;
+    self.testAccount = opts.testAccount;
 
     self.T.convenienceSetup(setupVerb, self,
                             function() {
@@ -77,8 +77,8 @@ var TestFakeIMAPServerMixins = {
           {
             command: 'make_imap_and_smtp',
             credentials: {
-              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-              password: TEST_PARAMS.password
+              username: extractUsernameFromEmail(self.testAccount.emailAddress),
+              password: self.testAccount.initialPassword
             },
             options: {
               imapExtensions: imapExtensions
@@ -121,8 +121,11 @@ var TestFakeIMAPServerMixins = {
     });
   },
 
+  /**
+   * Weird hack method invoked at runtime following the creation of the account.
+   * Really question why anything is in here.
+   */
   finishSetup: function(testAccount) {
-    this.testAccount = testAccount;
     this.supportsServerFolders =
       testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)
