@@ -27,6 +27,26 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 Cu.import("resource://gre/modules/osfile.jsm");
 
+////////////////////////////////////////////////////////////////////////////////
+// Import important services that b2g's shell.js loads
+//
+// For example, if we want mozAlarms to work, we have to import its service!
+Cu.import('resource://gre/modules/ContactService.jsm');
+Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
+Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
+Cu.import('resource://gre/modules/AlarmService.jsm');
+Cu.import('resource://gre/modules/ActivitiesService.jsm');
+Cu.import('resource://gre/modules/NotificationDB.jsm');
+//Cu.import('resource://gre/modules/Payment.jsm');
+Cu.import("resource://gre/modules/AppsUtils.jsm");
+//Cu.import('resource://gre/modules/UserAgentOverrides.jsm');
+//Cu.import('resource://gre/modules/Keyboard.jsm');
+//Cu.import('resource://gre/modules/ErrorPage.jsm');
+//Cu.import('resource://gre/modules/AlertsHelper.jsm');
+
+Cu.import('resource://gre/modules/Webapps.jsm');
+DOMApplicationRegistry.allAppsLaunchable = true;
+
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URI = IOService.newURI.bind(IOService);
 
@@ -1025,14 +1045,72 @@ var gIframe = null;
  */
 function runTestFile(testFileName, variant, controlServer) {
   try {
-    return _runTestFile(testFileName, variant, controlServer);
+    return _installTestFileThenRun(testFileName, variant, controlServer);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, variant, controlServer) {
+function _installTestFileThenRun(testFileName, variant, controlServer) {
+  // Our testfile protocol allows us to use the test file as an origin, so every
+  // test file gets its own instance of the e-mail database.  This is better
+  // than deleting the database every time because at the end of the run we
+  // will have all the untouched IndexedDB databases around so we can poke at
+  // them if we need/want.
+  var baseUrl = 'testfile://' + testFileName + '-' +
+                  variant.replace(/:/g, '_') + '/';
+
+  var manifestUrl = baseUrl + 'test/manifest.webapp';
+
+  // So, if one is playing by the rules, then one
+  // uses navigator.mozApps.install().  However, that method really wants us to
+  // be using an nsIHttpChannel or nsIJarChannel to get the XHR status and for
+  // us to pass some other checks.  It just so happens that being
+  // super-privileged like ourselves we can bypass that BS and just directly
+  // force the issue.
+  console.harness('Force installing app at', manifestUrl);
+  // This data-structure is normally created by dom/apps/src/Webapps.js'
+  // WebappsRegistry._prepareInstall
+  var data = {
+    app: {
+      installOrigin: baseUrl,
+      origin: baseUrl, // used
+      manifestURL: manifestUrl, // used
+      receipts: [],
+      categories: []
+      // not used by us: 'localInstallPath' ?
+    },
+
+    from: baseUrl, // unused?
+    oid: 0, // unused?
+    requestID: 0, // unused-ish
+    appId: 0, // unused
+    isBrowser: false,
+    isPackage: false, // used
+    // magic to auto-ack... don't think we care about this...
+    forceSuccessAck: false
+    // stuff that probably doesn't matter: 'mm', 'apkInstall',
+  };
+
+  return OS.File.read('test/manifest.webapp').then(function(arr) {
+    var manifestStr = new TextDecoder().decode(arr);
+    data.app.manifest = JSON.parse(manifestStr);
+    console.harness('got manifest!');
+    return DOMApplicationRegistry.confirmInstall(data).then(
+      function() {
+        console.harness('installed! granting permissions!');
+        grantEmailPermissions(baseUrl);
+        console.harness('permissions granted!');
+        return _runTestFile(testFileName, variant, baseUrl, manifestUrl,
+                            controlServer);
+      },
+      function(err) {
+        console.error('install failure!', err, '\n', err.stack);
+      });
+  });
+};
+function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer) {
   console.harness('running', testFileName, 'variant', variant);
 
   // Parameters to pass into the test.
@@ -1113,17 +1191,8 @@ function _runTestFile(testFileName, variant, controlServer) {
   makeAndSetDeviceStorageTarget(
     testFileName + '-' + variant.replace(/:/g, '_'));
 
-  // Our testfile protocol allows us to use the test file as an origin, so every
-  // test file gets its own instance of the e-mail database.  This is better
-  // than deleting the database every time because at the end of the run we
-  // will have all the untouched IndexedDB databases around so we can poke at
-  // them if we need/want.
-  var baseUrl = 'testfile://' + testFileName + '-' +
-                  variant.replace(/:/g, '_') + '/';
-  grantEmailPermissions(baseUrl);
-
   var runnerIframe = gIframe = document.createElement('iframe');
-  runnerIframe.setAttribute('type', 'content');
+  //runnerIframe.setAttribute('type', 'content');
   runnerIframe.setAttribute('flex', '1');
   runnerIframe.setAttribute('style', 'border: 1px solid blue;');
 
@@ -1226,17 +1295,44 @@ console.harness('calling writeTestLog and resolving');
     }});
 
 
-  console.harness('about to append');
-  document.documentElement.appendChild(runnerIframe);
-
+/*
   var webProgress = runnerIframe.webNavigation
                       .QueryInterface(Ci.nsIWebProgress);
   webProgress.addProgressListener(progressListener, progressListenFlags);
-
+*/
   console.harness('about to set src');
+  runnerIframe.setAttribute('mozbrowser', 'true');
+  runnerIframe.setAttribute('mozapp', manifestUrl);
   runnerIframe.setAttribute(
     'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
   console.harness('src set to:', runnerIframe.getAttribute('src'));
+
+  console.harness('about to append');
+  document.documentElement.appendChild(runnerIframe);
+
+  runnerIframe.addEventListener('mozbrowserloadend', function() {
+      console.harness('page started; poking functionality inside');
+      win = gRunnerWindow = runnerIframe.contentWindow;
+      win.addEventListener('error', errorListener);
+      domWin = win.wrappedJSObject;
+
+      // Look like we are content-space that embedded the iframe!
+      domWin.parent = fakeParentObj;
+
+      // We somehow did not initialize before the report, just use the log
+      // from there.
+      if (domWin.logResultsMsg) {
+        domWin.parent.postMessage(domWin.logResultsMsg, '*');
+      }
+
+      console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
+
+      // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
+      // servers.
+      var asProxy = new ActiveSyncServerProxy();
+      domWin.MAGIC_SERVER_CONTROL = asProxy;
+      cleanupList.push(asProxy);
+  });
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.harness('win err:', errorMsg, url, lineNumber);
@@ -1357,7 +1453,8 @@ function runTests(configData) {
 
     runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
                 controlServer)
-      .then(runNextTest);
+      .then(runNextTest,
+            function(err) { console.error('Problem running test:', err); });
   }
   runNextTest();
 

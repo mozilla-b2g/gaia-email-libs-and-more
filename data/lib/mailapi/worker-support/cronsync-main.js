@@ -138,8 +138,10 @@ define(function(require) {
      */
     ensureSync: function (syncData) {
       var mozAlarms = navigator.mozAlarms;
-      if (!mozAlarms)
+      if (!mozAlarms) {
+        console.warn('no mozAlarms support!');
         return;
+      }
 
       debug('ensureSync called');
 

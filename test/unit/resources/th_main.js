@@ -745,6 +745,16 @@ var TestUniverseMixins = {
     this.eCronSync.expect_cronSync_end();
   },
 
+  /**
+   * Expect an ensureSync to occur, probably because an account def is getting
+   * saved.
+   */
+  expect_ensureSync: function() {
+    this.RT.reportActiveActorThisStep(this.eCronSync);
+    this.eCronSync.expect_ensureSync_begin();
+    this.eCronSync.expect_ensureSync_end();
+  },
+
   //////////////////////////////////////////////////////////////////////////////
 };
 
@@ -799,12 +809,27 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Expect our account def to be saved and its side-effects to run to
+   * completion.  This notably includes a call to ensureSync and an
+   * account modification normalization.
+   *
+   * XXX we currently don't wait for the notification because in
+   * do_modifyAccount we're already waiting in a way that entirely contains
+   * that notification.
+   */
+  expect_saveAccountDef: function() {
+    this.testUniverse.expect_ensureSync();
+  },
+
+  /**
    * Modify the account, asserting that the modification completed.
    */
   do_modifyAccount: function(options) {
     this.T.action(this, 'modify account',
                   'with options', JSON.stringify(options), function() {
       this.expect_accountModified();
+      this.expect_saveAccountDef();
+
       var acct = this.testUniverse.allAccountsSlice
                    .getAccountById(this.accountId);
       acct.modifyAccount(options, function() {

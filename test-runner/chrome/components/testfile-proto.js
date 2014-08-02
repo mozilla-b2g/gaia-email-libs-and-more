@@ -121,7 +121,11 @@ CustomURL.prototype = {
   cloneIgnoringRef: function cloneIgnoringRef() this.clone(),
   equals: function equals(uri) this.spec === uri.spec,
   equalsExceptRef: function equalsExceptRef(uri) this.equals(uri),
-  schemeIs: function schemeIs(scheme) this.scheme === scheme,
+  schemeIs: function schemeIs(scheme) {
+    // lie and claim we are https because Webapps.js thinks non-http/non-https
+    // constitutes an INVALID_URL.
+    return (scheme === 'https' || this.scheme === scheme);
+  },
   resolve: function resolve(path) {
     let parts;
 
@@ -172,7 +176,7 @@ TestfileProtocolHandler.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIProtocolHandler]),
 
   scheme: 'testfile',
-  defaultPort: 80,
+  defaultPort: 443,
   protocolFlags: Ci.nsIProtocolHandler.URI_LOADABLE_BY_ANYONE,
   allowPort: function() { return true; },
 
@@ -202,6 +206,11 @@ TestfileProtocolHandler.prototype = {
                              null, null);
     channel.originalURI = aURI;
     channel.owner = Principal(aURI, null, null);
+
+    if (/\.webapp$/.test(aURI)) {
+      channel.contentType = 'application/x-web-app-manifest+json';
+    }
+
     return channel;
   },
 };

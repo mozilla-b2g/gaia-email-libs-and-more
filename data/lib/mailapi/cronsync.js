@@ -97,6 +97,13 @@ function CronSync(universe, _logParent) {
   this._completedEnsureSync = true;
   this._syncAccountsDone = true;
 
+  // An internal callback to invoke when it looks like sync has completed.  This
+  // can also be thought of as a boolean indicator that we're actually
+  // performing a cronsync as opposed to just in a paranoia-call to ensureSync.
+  // TODO: Use a promises flow or otherwise alter control flow so that ensureSync
+  // doesn't end up in _checkSyncDone with ambiguity about what is going on.
+  this._onSyncDone = null;
+
   this._synced = [];
 
   this.sendCronSync = $router.registerSimple('cronsync', function(data) {
@@ -302,6 +309,7 @@ CronSync.prototype = {
           targetAccounts = [],
           ids = [];
 
+      this._cronsyncing = true;
       this._LOG.cronSync_begin();
       this._universe.__notifyStartedCronSync(accountIds);
 
@@ -391,8 +399,10 @@ CronSync.prototype = {
     if (!this._completedEnsureSync || !this._syncAccountsDone)
       return;
 
-    this._LOG.cronSync_end();
+    // _onSyncDone implies this was a cronsync, !_onSyncDone implies just an
+    // ensureSync.  See comments in the constructor.
     if (this._onSyncDone) {
+      this._LOG.cronSync_end();
       this._onSyncDone();
       this._onSyncDone = null;
     }
