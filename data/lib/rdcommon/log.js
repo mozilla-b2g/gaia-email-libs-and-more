@@ -1018,8 +1018,9 @@ LoggestClassMaker.prototype = {
                         "participating in this test step!");
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
-
-      this._expectations.push([name, gimmeStack(), val]);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push([name, gimmeStack(), val]);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1130,7 +1131,9 @@ LoggestClassMaker.prototype = {
           exp.push(arguments[iArg]);
         }
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1262,7 +1265,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name_begin])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name_begin] = makeIgnoreFunc(name_begin);
@@ -1279,7 +1284,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name_end])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name_end] = makeIgnoreFunc(name_end);
@@ -1434,7 +1441,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg])
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1496,7 +1505,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
