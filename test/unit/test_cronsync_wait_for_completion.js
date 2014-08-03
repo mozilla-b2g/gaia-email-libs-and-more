@@ -98,6 +98,23 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
         }),
       eSync = T.lazyLogger('sync');
 
+  // --- Do the initial inbox sync.
+  // We're mainly doing this because for IMAP we currently pre-populate the
+  // folder with 1 message so our probing can guess the timezone correctly.
+  var initialMsgs = (TEST_PARAMS.type === 'imap' ? 1 : 0);
+  var inboxA = testAccountA.do_useExistingFolderWithType('inbox', '');
+  testAccountA.do_viewFolder(
+    'sync', inboxA,
+    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: null },
+    { syncedToDawnOfTime: true });
+  var inboxB = testAccountB.do_useExistingFolderWithType('inbox', '');
+  testAccountB.do_viewFolder(
+    'sync', inboxB,
+    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false, newCount: null },
+    { syncedToDawnOfTime: true });
+
   // We are actually running with the real, actual mozAlarms API powering us.
   // So what we want is a value that is sufficiently far in the future that it
   // won't fire during the test but it's also not ridiculous.  We pick an hour.
@@ -162,15 +179,19 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
   }
 
   function releaseOutbox(accounts, numMessages, expectFuncForLast) {
-    accounts.forEach(function(testAccount) {
-      testUniverse.do_cronsync_releaseOutbox(testAccount);
+    accounts.forEach(function(testAccount, iAccount) {
+      testUniverse.do_cronsync_releaseOutbox(
+        testAccount,
+        (iAccount === accounts.length - 1) ? expectFuncForLast : null);
     });
   }
 
   function releaseSync(accounts, numMessages, expectFuncForLast) {
-    accounts.forEach(function(testAccount) {
+    accounts.forEach(function(testAccount, iAccount) {
       testUniverse.do_cronsync_releaseAccountSyncButStallSave(testAccount);
-      testUniverse.do_cronsync_releaseSyncDatabaseSave(testAccount);
+      testUniverse.do_cronsync_releaseSyncDatabaseSave(
+        testAccount,
+        (iAccount === accounts.length - 1) ? expectFuncForLast : null);
     });
   }
 
@@ -207,7 +228,7 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
     {
       enabledCount: [1, 2],
       outboxMessageCount: [0, 1],
-      newMessageCount: [0, 1],
+      newMessageCount: [/*0,*/ 1],
       outboxFinishesFirst: [false, true],
     }, // 16 permutations! ah! ah! ah!
     testCronSyncYo);

@@ -52,6 +52,9 @@ function debug(str) {
 
 var SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
 
+/**
+ *
+ */
 function makeSlice(storage, callback, parentLog) {
   var proxy = new SliceBridgeProxy({
         __sendMessage: function() {}
@@ -300,7 +303,7 @@ CronSync.prototype = {
 
   onAlarm: function(accountIds) {
     this.whenUniverse(function() {
-      this._LOG.alarmFired();
+      this._LOG.alarmFired(accountIds);
 
       if (!accountIds)
         return;
@@ -431,7 +434,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   CronSync: {
     type: $log.DAEMON,
     events: {
-      alarmFired: {},
+      alarmFired: { accountIds: false },
       killSlices: { count: false },
       syncSkipped: { id: true },
     },
