@@ -230,16 +230,35 @@ TestfileProtocolHandler.prototype = {
                              null, null);
     channel.originalURI = aURI;
 
+
+
+    // NOTE!  Originally we set the owner to the (deprecated) codebase
+    // principal which is now the noapp principal.  Then I changed us to
+    // use what I *thought* was a mozbrowser/mozapp iframe.  However, the good
+    // 'ole "XUL iframes are different from HTML iframes" thing tricked me
+    // and I ended up using the code below to force the protocol to have the
+    // principal of the app.  However, it now turns out that once I addressed
+    // the XUL/HTML iframe thing, we no longer seem to need to set the
+    // principal.
+    //
+    // I'm leaving this code in here commented out because
+
+    /*
     // Find the AppId
     var appId = resolveUriToAppId(aURI);
-    //channel.owner = Principal(aURI, null, null);
     // we want to act like an installed app, so we say false to being in a
     // mozBrowser.  (even though we have mozapp and mozbrowser)
-    channel.owner = AppPrincipal(aURI, appId, false);
+    //channel.owner = AppPrincipal(aURI, appId, false);
+    */
 
+    // If we were actually doing the install the right way, we would potentially
+    // want a content-type.  However that requires full nsIHttpChannel stuff
+    // to work, so I'm commenting this out too since it does nothing.
+    /*
     if (/\.webapp$/.test(aURI)) {
       channel.contentType = 'application/x-web-app-manifest+json';
     }
+    */
 
     return channel;
   },

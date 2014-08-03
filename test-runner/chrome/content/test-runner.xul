@@ -2,11 +2,13 @@
 <?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
 
 <window id="main" title="test-runner" width="320" height="200"
-        onload="DOMLoaded()"
         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <script type="application/javascript" defer=""
-          src="chrome://test-runner/content/console-helper.js" />
-   <script type="application/javascript" defer=""
-          src="chrome://test-runner/content/loggest-chrome-runner.js" />
   <label value="Test Runner!" />
+  <!-- So, in order for mozbrowser/mozapp to work right, we need to be living
+       in an HTML document.  This is clearly a XUL document, so that doesn't
+       quite work.  It's also simplest (or even required?) that we have a XUL
+       document as our top-level, so we just run with it.  Because type=chrome,
+       the inner dude has all our chrome privileges, etc.
+    -->
+  <iframe type="chrome" src="chrome://test-runner/content/test-runner.html" />
 </window>

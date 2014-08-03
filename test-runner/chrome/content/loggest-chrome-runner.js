@@ -15,6 +15,8 @@
  * This file is currently a little soupy; various logic is all mixed in here.
  **/
 try {
+dump("LOADING!\n");
+console.harness('loading stuff');
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -552,11 +554,13 @@ var TEST_COMMAND = null;
 // Trigger just one variant of tests to run.
 var TEST_VARIANT = null;
 
+var chromeWindow = window.parent;
+
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
 function populateTestParams() {
-  let args = window.arguments[0].QueryInterface(Ci.nsICommandLine);
+  let args = chromeWindow.arguments[0].QueryInterface(Ci.nsICommandLine);
 
   // the second argument to handleFlagWithParam is case sensitivity.
   var caseInsensitive = false;
@@ -1099,9 +1103,9 @@ function _installTestFileThenRun(testFileName, variant, controlServer) {
     console.harness('got manifest!');
     return DOMApplicationRegistry.confirmInstall(data).then(
       function() {
-        console.harness('installed! granting permissions!');
-        grantEmailPermissions(baseUrl);
-        console.harness('permissions granted!');
+        console.harness('installed!!');
+        //grantEmailPermissions(baseUrl);
+        //console.harness('permissions granted!');
         return _runTestFile(testFileName, variant, baseUrl, manifestUrl,
                             controlServer);
       },
@@ -1232,7 +1236,7 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
         }
         processedLog = true;
 
-console.harness('calling writeTestLog and resolving');
+        console.harness('calling writeTestLog and resolving');
         var jsonStr = data.data,
             logData = JSON.parse(jsonStr);
         // this must be done prior to the compartment getting killed
@@ -1256,12 +1260,13 @@ console.harness('calling writeTestLog and resolving');
       }
     };
 
+  var errorListener = function errorListener(errorMsg, url, lineNumber) {
+    console.harness('win err:', errorMsg, url, lineNumber);
+  };
+
   console.harness('about to set src');
   runnerIframe.setAttribute('mozbrowser', 'true');
   runnerIframe.setAttribute('mozapp', manifestUrl);
-  runnerIframe.setAttribute(
-    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
-  console.harness('src set to:', runnerIframe.getAttribute('src'));
 
 
   runnerIframe.addEventListener('mozbrowserloadstart', function() {
@@ -1288,6 +1293,7 @@ console.harness('calling writeTestLog and resolving');
       cleanupList.push(asProxy);
   });
 
+  // these were just for debugging but it's sorta interesting to see them...
   runnerIframe.addEventListener('mozbrowserlocationchange', function() {
     console.harness('!! location change');
   });
@@ -1295,9 +1301,9 @@ console.harness('calling writeTestLog and resolving');
     console.harness('!! load end');
   });
 
-  var errorListener = function errorListener(errorMsg, url, lineNumber) {
-    console.harness('win err:', errorMsg, url, lineNumber);
-  };
+  runnerIframe.setAttribute(
+    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
+  console.harness('src set to:', runnerIframe.getAttribute('src'));
 
   console.harness('about to append');
   document.documentElement.appendChild(runnerIframe);
