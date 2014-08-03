@@ -1206,6 +1206,7 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
 
   function cleanupWindow() {
     try {
+      console.harness('!! cleanupWindow; removing iframe');
       runnerIframe.parentNode.removeChild(runnerIframe);
 
       cleanupList.forEach(function(obj) {
@@ -1217,11 +1218,6 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
     }
   }
 
-  // XXX so, I'm having trouble with the web progress listener not being
-  // reliable in certain cases that have to do with async event ordering.
-  // So as a hack I'm just putting the fake parent object on early, even
-  // though it might get nuked off in most cases and require our progress
-  // listener to put it back on.
   var processedLog = false;
   var fakeParentObj = {
       __exposedProps__: {
@@ -1260,46 +1256,6 @@ console.harness('calling writeTestLog and resolving');
       }
     };
 
-  // we want to make sure that we only poke things into the window once it
-  // exists
-  var progressListenFlags = Ci.nsIWebProgress.NOTIFY_STATE_WINDOW |
-                            Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT |
-                            Ci.nsIWebProgress.NOTIFY_STATE_NETWORK |
-                            Ci.nsIWebProgress.NOTIFY_STATE_REQUEST;
-  var progressListener = gProgress = new ProgressListener({
-    onLoaded: function() {
-      console.harness('page started; poking functionality inside');
-      win = gRunnerWindow = runnerIframe.contentWindow;
-      win.addEventListener('error', errorListener);
-      domWin = win.wrappedJSObject;
-
-      webProgress.removeProgressListener(progressListener,
-                                         progressListenFlags);
-
-      // Look like we are content-space that embedded the iframe!
-      domWin.parent = fakeParentObj;
-
-      // We somehow did not initialize before the report, just use the log
-      // from there.
-      if (domWin.logResultsMsg) {
-        domWin.parent.postMessage(domWin.logResultsMsg, '*');
-      }
-
-      console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
-
-      // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
-      // servers.
-      var asProxy = new ActiveSyncServerProxy();
-      domWin.MAGIC_SERVER_CONTROL = asProxy;
-      cleanupList.push(asProxy);
-    }});
-
-
-/*
-  var webProgress = runnerIframe.webNavigation
-                      .QueryInterface(Ci.nsIWebProgress);
-  webProgress.addProgressListener(progressListener, progressListenFlags);
-*/
   console.harness('about to set src');
   runnerIframe.setAttribute('mozbrowser', 'true');
   runnerIframe.setAttribute('mozapp', manifestUrl);
@@ -1307,11 +1263,9 @@ console.harness('calling writeTestLog and resolving');
     'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
   console.harness('src set to:', runnerIframe.getAttribute('src'));
 
-  console.harness('about to append');
-  document.documentElement.appendChild(runnerIframe);
 
-  runnerIframe.addEventListener('mozbrowserloadend', function() {
-      console.harness('page started; poking functionality inside');
+  runnerIframe.addEventListener('mozbrowserloadstart', function() {
+      console.harness('!! load start; poking functionality inside');
       win = gRunnerWindow = runnerIframe.contentWindow;
       win.addEventListener('error', errorListener);
       domWin = win.wrappedJSObject;
@@ -1334,9 +1288,19 @@ console.harness('calling writeTestLog and resolving');
       cleanupList.push(asProxy);
   });
 
+  runnerIframe.addEventListener('mozbrowserlocationchange', function() {
+    console.harness('!! location change');
+  });
+  runnerIframe.addEventListener('mozbrowserloadend', function() {
+    console.harness('!! load end');
+  });
+
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.harness('win err:', errorMsg, url, lineNumber);
   };
+
+  console.harness('about to append');
+  document.documentElement.appendChild(runnerIframe);
 
   return deferred.promise;
 }

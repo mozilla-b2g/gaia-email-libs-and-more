@@ -15,7 +15,7 @@ pref("dom.mozBrowserFramesEnabled", true);
 // turn off OOP stuff
 pref("dom.ipc.processCount", 0);
 pref("dom.ipc.browser_frames.oop_by_default", false);
-
+// stop random OOP subprocesses getting spun up.
 pref("dom.ipc.processPrelaunch.enabled", false);
 
 // (newly added, should help keep IPC disabled?)

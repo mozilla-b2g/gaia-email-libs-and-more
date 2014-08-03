@@ -8,13 +8,25 @@ dump('sourcing testfile-proto.js\n');
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
+// Needed for DOMApplicationRegistry so we can map origin to AppId.
+Cu.import('resource://gre/modules/Webapps.jsm');
+
+
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URIChannel = IOService.newChannel.bind(IOService);
 
 const SecurityManager = CC('@mozilla.org/scriptsecuritymanager;1',
                      'nsIScriptSecurityManager')();
 const URI = IOService.newURI.bind(IOService);
-const Principal = SecurityManager.getCodebasePrincipal.bind(SecurityManager);
+// this forces no app-id, not generally what we want
+const NoAppPrincipal = SecurityManager.getNoAppCodebasePrincipal.bind(
+                         SecurityManager);
+// this forces an app principal, could be what we want
+const AppPrincipal = SecurityManager.getAppCodebasePrincipal.bind(
+                       SecurityManager);
+// this uses the principal of the load context... more right?
+const LoadContextPrincipal =
+        SecurityManager.getLoadContextCodebasePrincipal.bind(SecurityManager);
 
 const URLParser = CC('@mozilla.org/network/url-parser;1?auth=maybe',
                      'nsIURLParser')();
@@ -165,6 +177,18 @@ CustomURL.prototype = {
 
 var DEBUG = 0;
 
+/**
+ * Given our URI figure out what appId we ended up assigning to our app.
+ */
+function resolveUriToAppId(uri) {
+  // lucky for us there's really only one manifest so its path is easy to
+  // figure out.
+  var manifestUrl = uri.prePath + '/test/manifest.webapp';
+  var appId =  DOMApplicationRegistry.getAppLocalIdByManifestURL(manifestUrl);
+  // dump ("!! appId is " + appId + " for " + manifestUrl + "\n");
+  return appId;
+}
+
 function TestfileProtocolHandler() {
 //dump('instantiating protocol!\n');
 }
@@ -205,7 +229,13 @@ TestfileProtocolHandler.prototype = {
     var channel = URIChannel(IOService.newFileURI(do_get_file(relPath)).spec,
                              null, null);
     channel.originalURI = aURI;
-    channel.owner = Principal(aURI, null, null);
+
+    // Find the AppId
+    var appId = resolveUriToAppId(aURI);
+    //channel.owner = Principal(aURI, null, null);
+    // we want to act like an installed app, so we say false to being in a
+    // mozBrowser.  (even though we have mozapp and mozbrowser)
+    channel.owner = AppPrincipal(aURI, appId, false);
 
     if (/\.webapp$/.test(aURI)) {
       channel.contentType = 'application/x-web-app-manifest+json';
