@@ -10,5 +10,6 @@
        document as our top-level, so we just run with it.  Because type=chrome,
        the inner dude has all our chrome privileges, etc.
     -->
-  <iframe type="chrome" src="chrome://test-runner/content/test-runner.html" />
+  <iframe type="chrome" src="chrome://test-runner/content/test-runner.html"
+          flex="1"/>
 </window>

@@ -53,14 +53,47 @@ function debug(str) {
 var SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
 
 /**
+ * Create a specialized sync slice via clobbering that accumulates a list of
+ * new headers and invokes a callback when the sync has fully completed.
+ *
+ * Fully completed includes:
+ * - The account update has been fully saved to disk.
+ *
+ * New header semantics are:
+ * - Header is as new or newer than the newest header we previously knew about.
+ *   Specifically we're using SINCE which is >=, so a message that arrived at
+ *   the same second as the other message still counts as new.  Because the new
+ *   message will inherently have a higher id than the other message, this
+ *   meets with our other ordering semantics, although I'm thinking it wasn't
+ *   totally intentional.
+ * - Header is unread.  (AKA Not \Seen)
+ *
+ * "Clobbering" in this case means this is a little hacky.  What we do is:
+ * - Take a normal slice and hook it up to a normal SliceBridgeProxy, but
+ *   give the proxy a fake bridge that never sends any data anywhere.  This
+ *   is reasonably future-proof/safe.
+ *
+ * - Put an onNewHeader method on the slice to accumulate the new headers.
+ *   The new headers are all we care about.  The rest of the headers loaded/etc.
+ *   are boring to us and do not matter.  However, there's relatively little
+ *   memory or CPU overhead to letting that stuff get populated/retained since
+ *   it's in memory already anyways and at worst we're only delaying the GC by
+ *   a little bit.  (This is not to say there aren't pathological situations
+ *   possible, but they'd be largely the same if the user triggered the sync.
+ *   The main difference cronsync currently will definitely not shrink the
+ *   slice.
+ *
+ * - Clobber proy.sendStatus to know when the sync has completed via the
+ *   same signal the front-end uses to know when the sync is over.
  *
  */
-function makeSlice(storage, callback, parentLog) {
-  var proxy = new SliceBridgeProxy({
+function makeHackedUpSlice(storage, callback, parentLog) {
+  var fakeBridgeThatEatsStuff = {
         __sendMessage: function() {}
-      }, 'cron'),
+      },
+      proxy = new SliceBridgeProxy(fakeBridgeThatEatsStuff, 'cron'),
       slice = new $mailslice.MailSlice(proxy, storage, parentLog),
-      oldStatus = proxy.sendStatus,
+      oldStatusMethod = proxy.sendStatus,
       newHeaders = [];
 
   slice.onNewHeader = function(header) {
@@ -70,10 +103,36 @@ function makeSlice(storage, callback, parentLog) {
 
   proxy.sendStatus = function(status, requested, moreExpected,
                               progress, newEmailCount) {
-    oldStatus.apply(this, arguments);
-    if (requested && !moreExpected && callback) {
-      callback(newHeaders);
-      slice.die();
+    // (maintain normal behaviour)
+    oldStatusMethod.apply(this, arguments);
+
+    // We do not want to declare victory until the sync process has fully
+    // completed which (significantly!) includes waiting for the save to have
+    // completed.
+    // (Only fire completion once.)
+    if (callback) {
+      switch (status) {
+        // normal success and failure
+        case 'synced':
+        case 'syncfailed':
+        // ActiveSync specific edge-case where syncFolderList has not yet
+        // completed.  If the slice is still alive when syncFolderList completes
+        // the slice will auto-refresh itself.  We don't want or need this,
+        // which is fine since we immediately kill the slice, making that not
+        // a concern.
+        case 'syncblocked':
+          slice.die();
+          try {
+            callback(newHeaders);
+          }
+          catch (ex) {
+            console.error('cronsync callback error:', ex, '\n', ex.stack);
+            callback = null;
+            throw ex;
+          }
+          callback = null;
+          break;
+      }
     }
   };
 
@@ -214,9 +273,10 @@ CronSync.prototype = {
 
     // - Initiate a sync of the folder covering the desired time range.
     this._LOG.syncAccount_begin(account.id);
+    this._LOG.syncAccountHeaders_begin(account.id, null);
 
-    var slice = makeSlice(storage, function(newHeaders) {
-      this._LOG.syncAccount_end(account.id, newHeaders);
+    var slice = makeHackedUpSlice(storage, function(newHeaders) {
+      this._LOG.syncAccountHeaders_end(account.id, newHeaders);
       this._activeSlices.splice(this._activeSlices.indexOf(slice), 1);
 
       // Reduce headers to the minimum number and data set needed for
@@ -238,7 +298,7 @@ CronSync.prototype = {
       if (newHeaders.length) {
         debug('Asking for snippets for ' + notifyHeaders.length + ' headers');
         if (this._universe.online) {
-          this._LOG.snippetFetchAccount_begin(account.id);
+          this._LOG.syncAccountSnippets_begin(account.id);
           this._universe.downloadBodies(
             newHeaders.slice(
               0, $syncbase.CRONSYNC_MAX_SNIPPETS_TO_FETCH_PER_ACCOUNT),
@@ -247,15 +307,18 @@ CronSync.prototype = {
             },
             function() {
               debug('Notifying for ' + newHeaders.length + ' headers');
-              this._LOG.snippetFetchAccount_end(account.id);
+              this._LOG.syncAccountSnippets_end(account.id);
+              this._LOG.syncAccount_end(account.id);
               inboxDone([newHeaders.length, notifyHeaders]);
             }.bind(this));
         } else {
+          this._LOG.syncAccount_end(account.id);
           debug('UNIVERSE OFFLINE. Notifying for ' + newHeaders.length +
                 ' headers');
           inboxDone([newHeaders.length, notifyHeaders]);
         }
       } else {
+        this._LOG.syncAccount_end(account.id);
         inboxDone();
       }
     }.bind(this), this._LOG);
@@ -444,13 +507,14 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       cronSync: {},
       ensureSync: {},
       syncAccounts: { accountsResults: false },
-      // This covers the actual folder-sync.  It will always trigger, and will
-      // end before snippetFetchAccount starts (if it starts).
-      syncAccount: { id: true, headers: false },
+      syncAccount: { id: true },
+      // The actual slice refresh, leads to syncAccountSnippets if there were
+      // any new headers
+      syncAccountHeaders: { id: true, newHeaders: false },
       // If we have new headers we will fetch snippets.  This starts when we
       // issue the request and stops when we get our callback, meaning there
       // will be an entirely contained downloadBodies job-op.
-      snippetFetchAccount: { id: true },
+      syncAccountSnippets: { id: true },
       sendOutbox: { id: true },
     },
     TEST_ONLY_asyncJobs: {

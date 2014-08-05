@@ -655,6 +655,7 @@ var TestUniverseMixins = {
         var accountId = testAccount.accountId;
         accountIds.push(accountId);
         this.eCronSync.expect_syncAccount_begin(accountId);
+        this.eCronSync.expect_syncAccountHeaders_begin(accountId);
         if (opts.outboxHasMessages) {
           this.eCronSync.expect_sendOutbox_begin(accountId);
           // the job will also start but then get wedged waiting on our mutex
@@ -721,16 +722,12 @@ var TestUniverseMixins = {
       var state = testAccount._cronSyncState;
       var willDownloadSnippets = !!state.inboxHasNewMessages;
 
-      var accountId = testAccount.accountId;
-
       testAccount.expect_releasedAccountSave();
       testAccount.eOpAccount.expect_saveAccountState_end('checkpointSync');
       testAccount.eOpAccount.ignore_releaseConnection();
 
-
-      this.eCronSync.expect_syncAccount_end(accountId);
       if (willDownloadSnippets) {
-        this.eCronSync.expect_snippetFetchAccount_end(testAccount.accountId);
+        this.eCronSync.expect_syncAccountSnippets_begin(testAccount.accountId);
         testAccount.expect_runOp(
           'downloadBodies',
           { local: false, server: true, save: true, conn: true });
@@ -746,6 +743,7 @@ var TestUniverseMixins = {
         });
       }
       else if (expectFunc) {
+        this.eCronSync.expect_syncAccount_end(testAccount.accountId);
         expectFunc();
       }
 
@@ -762,7 +760,8 @@ var TestUniverseMixins = {
     }
     this.T.action(testAccount, 'release snippet save', this.eCronSync, function(){
       testAccount.expect_releasedAccountSave();
-      this.eCronSync.expect_snippetFetchAccount_end(testAccount.accountId);
+      this.eCronSync.expect_syncAccountSnippets_end(testAccount.accountId);
+      this.eCronSync.expect_syncAccount_end(testAccount.accountId);
 
       if (expectFunc) {
         expectFunc();
@@ -822,6 +821,8 @@ var TestUniverseMixins = {
 
     this.RT.reportActiveActorThisStep(this.eCronSync);
     // (ensureSync_end was already expected during the triggering process)
+    // there should be 0 active slices when we complete, so 0 should be killed.
+    this.eCronSync.expect_killSlices(0);
     this.eCronSync.expect_syncAccounts_end();
     this.eCronSync.expect_cronSync_end();
 
@@ -898,11 +899,26 @@ var TestCommonAccountMixins = {
     self.__constructor(self, opts);
   },
 
+  /**
+   * Stuff to do across all account types, expectation setting phase.  For
+   * stuff to do *after* the account has been created (AKA tryToCreateAccount
+   * has been called), put it in/call _help_commonTestAccountConfig.
+   *
+   * We do/want to do:
+   * - Have a per-account folders list.  allFoldersSlice turns out to be a foot
+   *   gun for most purposes.
+   */
+  _expect_commonTestAccountConfig: function() {
+    this.RT.reportActiveActorThisStep(this);
+    this.expect_folderSlicePopulated();
+  },
+
   _help_commonTestAccountConfig: function() {
-    // allFoldersSlice is potentially a footgun when multiple accounts are
-    // involved, so we need a per-account slice of folders.
     this.foldersSlice = this.MailAPI.viewFolders('account',
                                                  { id: this.accountId });
+    this.foldersSlice.oncomplete = function() {
+      this._logger.folderSlicePopulated();
+    }.bind(this);
   },
 
   /**
@@ -2492,6 +2508,7 @@ var TestCompositeAccountMixins = {
       self.imapHost = self.pop3Host = receiveConnInfo.hostname;
       self.imapPort = self.pop3Port = receiveConnInfo.port;
 
+      self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
 
       self.testServer.finishSetup(self);
@@ -2512,11 +2529,12 @@ var TestCompositeAccountMixins = {
       self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.RT.reportActiveActorThisStep(self.eBackoff);
-      self.expect_accountCreated();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
       self.rawAccount = null;
+
+      self._expect_commonTestAccountConfig();
 
       // we expect the connection to be reused and release to sync the folders
       if (self.type === 'imap') {
@@ -2581,13 +2599,6 @@ var TestCompositeAccountMixins = {
           self._help_commonTestAccountConfig();
 
           self.testServer.finishSetup(self);
-
-          // Because folder list synchronizing happens as an operation, we want
-          // to wait for that operation to complete before declaring the account
-          // created.
-          self.universe.waitForAccountOps(self.compositeAccount, function() {
-            self._logger.accountCreated();
-          });
         });
     }).timeoutMS = 10000; // there can be slow startups...
   },
@@ -3192,6 +3203,7 @@ var TestActiveSyncAccountMixins = {
       self.folderAccount = self.account = self.universe.accounts[idxAccount];
       self.accountId = self.account.id;
 
+      self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
 
       self.testServer.finishSetup(self);
@@ -3210,8 +3222,8 @@ var TestActiveSyncAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.RT.reportActiveActorThisStep(self.eJobDriver);
-      self.expect_accountCreated();
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
+      self._expect_commonTestAccountConfig();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
@@ -3251,18 +3263,6 @@ var TestActiveSyncAccountMixins = {
           self._help_commonTestAccountConfig();
 
           self.testServer.finishSetup(self);
-
-          // Because folder list synchronizing happens as an operation, we want
-          // to wait for that operation to complete before declaring the account
-          // created...
-          self.universe.waitForAccountOps(self.account, function() {
-            // We also want to make sure that all the folder splice
-            // notifications have had a chance to be round-tripped, so use a
-            // ping command to do that.
-            self.MailAPI.ping(function() {
-              self._logger.accountCreated();
-            });
-          });
         });
     });
     if (self._opts.realAccountNeeded)
@@ -3408,9 +3408,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     topBilling: true,
 
     events: {
-      accountCreated: {},
       accountDeleted: {},
       foundFolder: { found: true, rep: false },
+      folderSlicePopulated: {},
 
       // the accounts recreateFolder notification should be converted to an
       // async process with begin/end, replacing this.

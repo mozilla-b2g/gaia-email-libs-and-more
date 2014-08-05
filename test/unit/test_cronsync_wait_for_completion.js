@@ -201,11 +201,11 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
 
   function testCronSyncYo(params) {
     var groupTitle =
-      params.enabledCount + ' syncing ' +
+      params.enabledCount + ' account syncing: ' +
       params.newMessageCount + ' new messages, ' +
       params.outboxMessageCount + ' in outbox';
 
-    T.group(groupTitle);
+    T.group('= ' + groupTitle + ' =');
     // do our setup stuff
     var accounts = enableAccounts(params.enabledCount);
     queueStuckOutboxMessages(accounts, params.outboxMessageCount);
@@ -213,7 +213,10 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
 
     T.group('(sync)');
     triggerCronSync(accounts, params);
-    if (params.outboxFinishesFirst) {
+    // (If there are no outbox messages, have the outbox release first since it
+    // then simplifies test control flow.  Alternately, we could just be not
+    // seizing the outbox's mutex.)
+    if (!params.outboxMessageCount || params.outboxFinishesFirst) {
       releaseOutbox(accounts, params.outboxMessageCount);
       releaseSync(accounts, params.newMessageCount, expectCronsyncAllDone);
     }

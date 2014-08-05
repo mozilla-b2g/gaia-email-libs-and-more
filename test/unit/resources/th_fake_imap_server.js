@@ -91,7 +91,19 @@ var TestFakeIMAPServerMixins = {
 
         // XXX because of how our timezone detection logic works, we really need
         // a message in the Inbox...
-        var fakeMsgDate = new Date();
+        // And timestamp-wise, for 'new' message reasons, this needs to be a
+        // somewhat older message.
+        var fakeMsgDate;
+        var testUniverse = opts.testAccount.testUniverse;
+        // realDate specified?  then we can use something slightly old.
+        if (!testUniverse._useDate) {
+          fakeMsgDate = new Date(Date.now() - 2000);
+        }
+        else {
+          // XXX ugh, not sure what the right answer is here.
+          fakeMsgDate = new Date(
+            testUniverse._useDate.valueOf() - 2 * 24 * 60 * 60 * 1000);
+        }
         self.addMessagesToFolder('INBOX', [{
           date: fakeMsgDate,
           metaState: {},
