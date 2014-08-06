@@ -16,6 +16,11 @@ TD.commonCase('kill connections === true', function(T, RT) {
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
+  // create the folder before turning the connection killer on
+  var fullSyncFolder = testAccount.do_createTestFolder(
+    'test_initial_full_sync',
+    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
+
   // NB: The stale connection timer settings won't affect these tests,
   // because STALE_CONNECTION_TIMEOUT_MS is set to a very large value.
   testUniverse.do_adjustSyncValues({
@@ -23,19 +28,16 @@ TD.commonCase('kill connections === true', function(T, RT) {
   });
 
   T.group('full sync, normal connection timeout');
-  var fullSyncFolder = testAccount.do_createTestFolder(
-    'test_initial_full_sync',
-    { count: 4, age: { days: 0 }, age_incr: { days: 1 } });
 
+  // note!  do_viewFolder is now smart enough to expect_deadConnection itself.
+  // I, asuth, have verified this.  Obviously if you go mucking in this file
+  // you should re-check that.  (But note that the following test step
+  // should sanity check us too.)
   testAccount.do_viewFolder(
     'syncs', fullSyncFolder,
     { count: 4, full: 4, flags: 0, deleted: 0 },
     { top: true, bottom: true, grow: false, newCount: null },
-    { syncedToDawnOfTime: true,
-      expectFunc: function() {
-        RT.reportActiveActorThisStep(testAccount.eImapAccount);
-        testAccount.eImapAccount.expect_deadConnection();
-      }});
+    { syncedToDawnOfTime: true });
 
   T.action('no connections should remain open', eSync, function() {
     var acct = testUniverse.universe.accounts[0]._receivePiece;
