@@ -154,9 +154,14 @@ var deviceStorageTestHelper = {
     }
     else if (cmd === 'detach') {
       var detachCount = 1, self = this;
-      function nextDetach() {
-        if (--detachCount > 0)
+      function nextDetach(path, result) {
+        if (path) {
+          console.log('devicestorage:', path, result);
+        }
+        if (--detachCount > 0) {
           return;
+        }
+        console.log('devicestorage: detach cleanup completed');
         self._storage.removeEventListener('change', self._bound_onChange);
         self._storage = null;
         self.sendMessage(null, 'detached', null);
@@ -165,7 +170,8 @@ var deviceStorageTestHelper = {
         detachCount++;
         var req = self._storage.delete(path);
         // the deletion notifications will be generated as a side-effect
-        req.onsuccess = req.onerror = nextDetach;
+        req.onsuccess = nextDetach.bind(null, path, 'success');
+        req.onerror = nextDetach.bind(null, path, 'error');
       });
       nextDetach();
     }

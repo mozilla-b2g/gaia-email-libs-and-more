@@ -84,8 +84,8 @@ var TestFakePOP3ServerMixins = {
               password: self.testAccount.initialPassword
             },
             options: {
-
-            }
+            },
+            deliverMode: opts.deliverMode
           });
 
         // now we only want to talk to our specific server control endpoint

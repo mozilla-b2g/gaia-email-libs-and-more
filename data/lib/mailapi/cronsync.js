@@ -86,6 +86,11 @@ var SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
  * - Clobber proy.sendStatus to know when the sync has completed via the
  *   same signal the front-end uses to know when the sync is over.
  *
+ * You as the caller need to:
+ * - Make sure to kill the slice in a timely fashion after we invoke the
+ *   callback.  Since killing the slice can result in the connection immediately
+ *   being closed, you want to make sure that if you're doing anything like
+ *   scheduling snippet downloads that you do that first.
  */
 function makeHackedUpSlice(storage, callback, parentLog) {
   var fakeBridgeThatEatsStuff = {
@@ -118,10 +123,8 @@ function makeHackedUpSlice(storage, callback, parentLog) {
         // ActiveSync specific edge-case where syncFolderList has not yet
         // completed.  If the slice is still alive when syncFolderList completes
         // the slice will auto-refresh itself.  We don't want or need this,
-        // which is fine since we immediately kill the slice, making that not
-        // a concern.
+        // which is fine since we kill the slice in the callback.
         case 'syncblocked':
-          slice.die();
           try {
             callback(newHeaders);
           }
@@ -321,6 +324,10 @@ CronSync.prototype = {
         this._LOG.syncAccount_end(account.id);
         inboxDone();
       }
+
+      // Kill the slice.  This will release the connection and result in its
+      // death if we didn't schedule snippet downloads above.
+      slice.die();
     }.bind(this), this._LOG);
 
     this._activeSlices.push(slice);
@@ -341,6 +348,7 @@ CronSync.prototype = {
           },
           function() {
             this._LOG.sendOutbox_end(account.id);
+            outboxDone();
           }.bind(this));
       }
     }
@@ -468,9 +476,9 @@ CronSync.prototype = {
     // _onSyncDone implies this was a cronsync, !_onSyncDone implies just an
     // ensureSync.  See comments in the constructor.
     if (this._onSyncDone) {
-      this._LOG.cronSync_end();
       this._onSyncDone();
       this._onSyncDone = null;
+      this._LOG.cronSync_end();
     }
   },
 

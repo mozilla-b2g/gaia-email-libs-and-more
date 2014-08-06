@@ -601,7 +601,12 @@ var TestUniverseMixins = {
       opts.accounts.forEach(function(testAccount) {
         var state = testAccount._cronSyncState = {
           inboxHasNewMessages: opts.inboxHasNewMessages,
-          outboxHasMessages: opts.outboxHasMessages
+          // We always sync the inbox (when we're online, which we currently
+          // assume is the case in these helpers), so whether we will find
+          // messages or not does not matter.
+          inboxPending: true,
+          outboxHasMessages: opts.outboxHasMessages,
+          outboxPending: !!opts.outboxHasMessages
         };
 
         this.RT.reportActiveActorThisStep(testAccount);
@@ -632,15 +637,23 @@ var TestUniverseMixins = {
         this._logger.apiCronSyncStartReported(accountIds);
       }.bind(this);
       this.MailAPI.oncronsyncstop = function(accountsResults) {
-        // summarize
-        var summary = accountsResults.updates.map(function(perAccountInfo) {
-          return {
-            id: perAccountInfo.id,
-            count: perAccountInfo.count
-            // TODO: maybe we want the message excerpt statistics too, or maybe
-            // we just want to let the caller tell us/let the caller check.
-          };
-        });
+        var summary;
+        if (accountsResults.updates) {
+          // summarize
+          summary = accountsResults.updates.map(function(perAccountInfo) {
+            return {
+              id: perAccountInfo.id,
+              count: perAccountInfo.count
+              // TODO: maybe we want the message excerpt statistics too, or maybe
+              // we just want to let the caller tell us/let the caller check.
+            };
+          });
+        }
+        // it's part of the de facto contract that updates is falsey if nothing
+        // happened.
+        else {
+          summary = null;
+        }
         this._logger.apiCronSyncStopReported(summary, accountsResults);
       }.bind(this);
 
@@ -654,6 +667,7 @@ var TestUniverseMixins = {
       opts.accounts.forEach(function(testAccount) {
         var accountId = testAccount.accountId;
         accountIds.push(accountId);
+
         this.eCronSync.expect_syncAccount_begin(accountId);
         this.eCronSync.expect_syncAccountHeaders_begin(accountId);
         if (opts.outboxHasMessages) {
@@ -685,8 +699,15 @@ var TestUniverseMixins = {
     this.T.action(testAccount, 'release mutex/let sync happen/stall save',
                   function() {
       this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+
+      // IMAP should be establishing a new account every time.
+      if (testAccount.eImapAccount) {
+        testAccount.eImapAccount.expect_createConnection();
+        // (it may seem weird, but we are "reusing" it after creating it...)
+        testAccount.eImapAccount.expect_reuseConnection();
+      }
+
       testAccount.expect_interceptedAccountSave();
-      testAccount.ignore_connectionStuff();
       testAccount.eOpAccount.expect_saveAccountState_begin('checkpointSync');
 
       interceptNextCall({
@@ -716,21 +737,54 @@ var TestUniverseMixins = {
    * actually wants to interleave that?), we'll include the sync if relevant.
    */
   do_cronsync_releaseSyncDatabaseSave: function(testAccount, expectFunc) {
-    this.T.action(testAccount, 'release sync save', this.eCronSync, function() {
+    var willDownloadSnippets = !!this._staticCronSyncOpts.inboxHasNewMessages;
+    var desc;
+    if (willDownloadSnippets) {
+      desc = 'release sync save, download snippets, stall save';
+    }
+    else {
+      desc = 'release sync save, sync completes';
+    }
+    this.T.action(testAccount, desc, this.eCronSync, function() {
       this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
 
       var state = testAccount._cronSyncState;
+      // we could be more precise about where we clear this, out tests are
+      // granular enough that we can centralize this here.
+      state.inboxPending = false;
       var willDownloadSnippets = !!state.inboxHasNewMessages;
 
       testAccount.expect_releasedAccountSave();
       testAccount.eOpAccount.expect_saveAccountState_end('checkpointSync');
       testAccount.eOpAccount.ignore_releaseConnection();
 
+      this.eCronSync.expect_syncAccountHeaders_end(testAccount.accountId);
+
       if (willDownloadSnippets) {
+        // Since we're going on to download something, there will be a server
+        // job and although the connection will be released, it will then be
+        // immediately reused for the job.
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_releaseConnection();
+        }
+
         this.eCronSync.expect_syncAccountSnippets_begin(testAccount.accountId);
         testAccount.expect_runOp(
           'downloadBodies',
-          { local: false, server: true, save: true, conn: true });
+          {
+            local: false, server: true, save: 'server',
+            // There will be no "reuseConnection" log entry generated because
+            // make sure to kill the slice only after starting downloadBodies.
+            // Specifically, the ImapFolderConn is still holding onto the
+            // ImapConnection as long as the slice is alive and the
+            // downloadBodies job-op is able to immediately be scheduled and
+            // acquire the mutex and connection before the slice is killed.
+            conn: false,
+            // However, we do expect a release
+            release: true,
+            // we will be interrupting the save
+            interruptServerSave: true
+          });
 
         testAccount.expect_interceptedAccountSave();
         interceptNextCall({
@@ -742,9 +796,25 @@ var TestUniverseMixins = {
           }.bind(this)
         });
       }
-      else if (expectFunc) {
+      else {
         this.eCronSync.expect_syncAccount_end(testAccount.accountId);
-        expectFunc();
+
+        // Since there are no snippets, we will release the connection.  If
+        // there is no outbox job queued or it has already completed, we will
+        // also end up killing the connection.
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_releaseConnection();
+          if (!state.outboxHasMessages || !state.releaseOutboxMutex) {
+            testAccount.eImapAccount.expect_deadConnection('unused');
+          }
+          else {
+            testAccount._unusedConnections++;
+          }
+        }
+
+        if (expectFunc) {
+          expectFunc();
+        }
       }
 
       var releaseFunc = testAccount._cronsyncReleaseDBSave;
@@ -776,28 +846,45 @@ var TestUniverseMixins = {
 
   do_cronsync_releaseOutbox: function(testAccount, expectFunc) {
     this.T.action(testAccount, 'release mutex/let outbox send happen',
-                  function() {
+                  this.eCronSync, function() {
       var state = testAccount._cronSyncState;
 
-
       if (state.outboxHasMessages) {
+        state.outboxPending = false;
+        var inboxPending = state.inboxPending;
+
         // our wedging left the first job partway through its run process,
         // so we want to close that one out, then do full processings for all
         // subsequent ones
         this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
         testAccount.eOpAccount.expect_runOp_end(
           'do', 'sendOutboxMessages', null);
-        testAccount.eOpAccount.expectSaveAccountState_begin(
+        testAccount.eOpAccount.expect_saveAccountState_begin(
           'serverOp:sendOutboxMessages');
-        testAccount.eOpAccount.expectSaveAccountState_end(
+        testAccount.eOpAccount.expect_saveAccountState_end(
           'serverOp:sendOutboxMessages');
+        // The append may need to create a new connection if the inbox sync
+        // is still wedged.  (In fact, the inbox won't have created its
+        // connection yet.  But the connection will get thrown away when
+        // we're done because of how we're doing the wedging.  We don't care
+        // about this much because in reality we absolutely expect the inbox
+        // sync to start before an IMAP APPEND could ever start, let alone
+        // finish, so our test cases cover reality quite well.)
         testAccount.expect_saveSentMessage(true);
         for (var iMsg = 1; iMsg < state.outboxHasMessages; iMsg++) {
           testAccount.expect_sendOutboxMessages();
           testAccount.expect_saveSentMessage(true);
         }
 
-        testAccount.eCronSync.expect_sendOutbox_end(testAccount.id);
+        //
+
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_deadConnection('unused');
+          // By definition an unused reaping brings us to 0 unused.
+          testAccount._unusedConnections = 0;
+        }
+
+        this.eCronSync.expect_sendOutbox_end(testAccount.accountId);
       }
 
       if (expectFunc) {
@@ -819,6 +906,7 @@ var TestUniverseMixins = {
   expect_cronsync_completed: function() {
     var opts = this._cronSyncOpts;
 
+    this.RT.reportActiveActorThisStep(this);
     this.RT.reportActiveActorThisStep(this.eCronSync);
     // (ensureSync_end was already expected during the triggering process)
     // there should be 0 active slices when we complete, so 0 should be killed.
@@ -937,6 +1025,9 @@ var TestCommonAccountMixins = {
   /**
    * Do you not give a fig about connections?  Then call me!  I get specialized
    * by the accounts to help you with your lack of fig-giving.
+   *
+   * NB: This was added for a good reason but then it turned out we gave a fig,
+   * so it's currently unused.  But it could be needed again soon, so...
    */
   ignore_connectionStuff: function() {
   },
@@ -1225,6 +1316,10 @@ var TestCommonAccountMixins = {
           }
           else if (!_saveToThing) {
             self.eImapAccount.expect_releaseConnection();
+            if ($sync.KILL_CONNECTIONS_WHEN_JOBLESS) {
+              self.eImapAccount.expect_deadConnection('unused');
+              self._unusedConnections--;
+            }
           }
           else {
             // The connection will be held by the folder/slice, so it's no
@@ -1649,8 +1744,8 @@ var TestCommonAccountMixins = {
    *     @key[flushBodyServerSaves #:default 0 Number]{
    *       Number of flush saves that occur during the server op.
    *     }
-   *     @key[conn #:default false @oneof[false true 'deadconn']{
-   *       Expect a connection to be aquired if truthy.  Expect the conncetion
+   *     @key[conn #:default false @oneof[false true 'create' 'deadconn']{
+   *       Expect a connection to be acquired if truthy.  Expect the connection
    *       to die if 'deadconn'.  Expect the connection to be released if `true`
    *       unless explicitly specified othrewise by `release`.
    *     }
@@ -1709,8 +1804,8 @@ var TestCommonAccountMixins = {
     }
     if (this.USES_CONN) {
       // - conn, (conn) release
-      if (checkFlagDefault(flags, 'conn', false)  &&
-          ('help_expect_connection' in this)) {
+      var connMode = checkFlagDefault(flags, 'conn', false);
+      if (connMode && ('help_expect_connection' in this)) {
         this.help_expect_connection();
         if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
           this.eOpAccount.expect_deadConnection();
@@ -1743,7 +1838,9 @@ var TestCommonAccountMixins = {
     // - save (server)
     if (serverSave) {
       this.eOpAccount.expect_saveAccountState_begin('serverOp:' + jobName);
-      this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
+      if (!checkFlagDefault(flags, 'interruptServerSave', false)) {
+        this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
+      }
     }
   },
 
@@ -2424,12 +2521,19 @@ var TestCompositeAccountMixins = {
         {
           testAccount: self,
           restored: opts.restored,
-          imapExtensions: opts.imapExtensions
-        }, null, self);
+          imapExtensions: opts.imapExtensions,
+          deliverMode: opts.smtpDeliverMode
+        },
+        null, self);
     }
     else {
-      self.testServer = self.T.actor('testReal' + TYPE + 'Server', self.__name,
-                                     { restored: opts.restored }, null, self);
+      self.testServer = self.T.actor(
+        'testReal' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored
+        },
+        null, self);
     }
 
     if (opts.restored) {
@@ -2442,7 +2546,7 @@ var TestCompositeAccountMixins = {
   },
 
   ignore_connectionStuff: function() {
-    // both imapo and pop3 share the same logger stuff.
+    // both imap and pop3 share the same logger stuff.
     this.eFolderAccount.ignore_createConnection();
     this.eFolderAccount.ignore_reuseConnection();
     this.eFolderAccount.ignore_releaseConnection();
@@ -3162,21 +3266,14 @@ var TestActiveSyncAccountMixins = {
     // have a lifetime of this current test step.  We use the blackboard
     // instead of the universe because a freshly started universe currently
     // does not know about the universe it is replacing.
-    else if (!opts.server) {
-      if (!self.RT.caseBlackboard.testActiveSyncServer) {
-        self.RT.caseBlackboard.testActiveSyncServer =
-          self.T.actor(
-            'testActiveSyncServer', 'S',
-            {
-              testAccount: self,
-              universe: opts.universe
-            },
-            null, self);
-      }
-      self.testServer = self.RT.caseBlackboard.testActiveSyncServer;
-    }
     else {
-      self.testServer = opts.server;
+      self.testServer = self.T.actor(
+        'testActiveSyncServer', self.__name,
+        {
+          testAccount: self,
+          universe: opts.universe
+        },
+        null, self);
     }
 
     // dummy attributes to be more like IMAP to reuse some logic:

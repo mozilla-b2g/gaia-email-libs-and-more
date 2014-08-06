@@ -686,6 +686,20 @@ MailUniverse.prototype = {
     }
   },
 
+  /**
+   * Return true if there are server jobs that are currently running or will run
+   * imminently.
+   *
+   * It's possible for this method to be called during the cleanup stage of the
+   * last job in the queue.  It was intentionally decided to not try and be
+   * clever in that case because the job could want to be immediately
+   * rescheduled.  Also, propagating the data to do that turned out to involve a
+   * lot of sketchy manual propagation.
+   *
+   * If you have some logic you want to trigger when the server jobs have
+   * all been sufficiently used up, you can use `waitForAccountOps`  or add
+   * logic to the account's `allOperationsCompleted` method.
+   */
   areServerJobsWaiting: function(account) {
     var queues = this._opsByAccount[account.id];
     if (!account.enabled) {
@@ -1484,9 +1498,19 @@ MailUniverse.prototype = {
       op = serverQueue[0];
       this._dispatchServerOpForAccount(account, op);
     }
-    else if (this._opCompletionListenersByAccount[account.id]) {
-      this._opCompletionListenersByAccount[account.id](account);
-      this._opCompletionListenersByAccount[account.id] = null;
+    // We finished all the operations!  Woo!
+    else {
+      // Notify listeners
+      if (this._opCompletionListenersByAccount[account.id]) {
+        this._opCompletionListenersByAccount[account.id](account);
+        this._opCompletionListenersByAccount[account.id] = null;
+      }
+
+      // - Tell the account so it can clean-up its connections, etc.
+      // (We do this after notifying listeners for the connection cleanup case
+      // so that if the listener wants to schedule new activity, it can do so
+      // without having to wastefully establish a new connection.)
+      account.allOperationsCompleted();
     }
   },
 
@@ -1508,10 +1532,12 @@ MailUniverse.prototype = {
    * ]
    */
   _queueAccountOp: function(account, op, optionalCallback) {
+    var queues = this._opsByAccount[account.id];
     // Log the op for debugging assistance
     // TODO: Create a real logger event; this will require updating existing
     // tests and so is not sufficiently trivial to do at this time.
-    console.log('queueOp', account.id, op.type);
+    console.log('queueOp', account.id, op.type, 'pre-queues:',
+                'local:', queues.local.length, 'server:', queues.server.length);
     // - Name the op, register callbacks
     if (op.longtermId === null) {
       // mutation job must be persisted until completed otherwise bad thing
@@ -1539,7 +1565,6 @@ MailUniverse.prototype = {
 
 
     // - Enqueue
-    var queues = this._opsByAccount[account.id];
     // Local processing needs to happen if we're not in the right local state.
     if (!this._testModeDisablingLocalOps &&
         ((op.lifecycle === 'do' && op.localStatus === null) ||

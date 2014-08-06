@@ -82,7 +82,8 @@ var TestFakeIMAPServerMixins = {
             },
             options: {
               imapExtensions: imapExtensions
-            }
+            },
+            deliverMode: opts.deliverMode
           });
 
         // now we only want to talk to our specific server control endpoint

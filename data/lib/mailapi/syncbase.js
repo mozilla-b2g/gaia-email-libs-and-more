@@ -336,8 +336,11 @@ exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 exports.STALE_CONNECTION_TIMEOUT_MS = 30000;
 
 /**
- * Kill any open IMAP connections if there are no jobs pending and
- * there are no slices open. This flag is mainly just for unit test sanity.
+ * Kill any open IMAP connections if there are no jobs pending and there are no
+ * slices open. This flag is mainly just for unit test sanity because 1) most
+ * tests were written before this flag existed and 2) most tests don't care.
+ * This gets disabled by default in testing; tests that care should turn this
+ * back on.
  */
 exports.KILL_CONNECTIONS_WHEN_JOBLESS = true;
 

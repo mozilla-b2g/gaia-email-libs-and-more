@@ -18,10 +18,8 @@ TD.commonCase('folder sync', function(T) {
 
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
-      testServer = T.actor('testActiveSyncServer', 'S',
-                           { universe: testUniverse }),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, server: testServer }),
+                            { universe: testUniverse }),
       eCheck = T.lazyLogger('messageCheck');
 
   var fullSyncFolder = testAccount.do_createTestFolder(

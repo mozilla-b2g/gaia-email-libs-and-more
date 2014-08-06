@@ -477,80 +477,42 @@ window.console._enabled = TEST_PARAMS.testLogEnable;
 ////////////////////////////////////////////////////////////////////////////////
 // make device storage operate out of our test-profile dir!
 //
-// We want any device storage tests to stick inside our test sub-directory and
-// not be affected by our affect anywhere else on the disk.
+// We create/use one directory per test file/variant.  Tests Cases in the same
+// file use the same DeviceStorage.
 //
-// See the constants in:
-// http://mxr.mozilla.org/mozilla-central/source/xpcom/io/nsDirectoryServiceDefs.h#54
-// and their usages in nsDeviceStorage.cpp
-//
-// Note that DeviceStorage does support a "device.storage.testing" pref, but
-// then it just makes a subdirectory of the temp directory, which limits
-// our ability to test orthogonal device storages, etc.
+// There's a lot of mooted logic that you can pull out of the git log if this
+// stuff breaks again.
 
 var dirService = Cc["@mozilla.org/file/directory_service;1"]
                    .getService(Ci.nsIProperties);
-var DEVICE_STORAGE_PATH_CLOBBERINGS = {
-  // Linux:
-  'XDGPict': 'pictures',
-  'XDGMusic': 'music',
-  'XDGVids': 'videos',
-  // OSX:
-  'Pct': 'pictures',
-  'Music': 'music',
-  'Mov': 'videos',
-  // Win:
-  'Pict': 'pictures',
-  'Music': 'music',
-  'Vids': 'videos'
-};
-
-  /*
-let replacementDirServiceProvider = {
-  getFile: function(prop, persistent) {
-    persistent.value = true;
-    if (DEVICE_STORAGE_PATH_CLOBBERINGS.hasOwnProperty(prop))
-      return deviceStorageFile.clone();
-
-    return dirService.getFile(prop, persistent);
-  },
-  'get': function(prop, iid) {
-    return dirService.get(prop, iid);
-  },
-  'set': function(prop, value) {
-    return dirService.set(prop, value);
-  },
-  'has': function(prop) {
-
-  },
-  QueryInterface: XPCOMUtils.generateQI(
-                    [Ci.nsIDirectoryService, Ci.nsIProperties]),
-};
-Components.manager
-  .QueryInterface(Ci.nsIComponentRegistrar)
-  .registerFactory(Components.ID('{753e01a4-dc3c-48c7-b45e-91544ec01302}'),
-                   'fake directory service',
-                   '@mozilla.org/file/directory_service;1',
-                   replacementDirServiceProvider);
-*/
-
-
 function makeAndSetDeviceStorageTarget(subdirName) {
+  // We need to turn off device.storage.testing for nsDeviceStorage.cpp's
+  // OverrideRootDir::Init method to let us control the directory in the way we
+  // want.  (The logic in there is somewhat confusing; it seems like weird stuff
+  // can happen if this pref were to get dynamically toggled back to false, so
+  // let's never do that.)
+  // NB: Accordingly we just set this pref in our prefs.js
+  //Services.prefs.setBoolPref('device.storage.testing', false);
+
+  // OverrideRootDir uses NS_NewLocalFile which requires a relative path, so
+  // we need to do the resolution ourselves.
+
   var deviceStorageFile = dirService.get('ProfD', Ci.nsIFile);
   deviceStorageFile.append('device-storage');
   deviceStorageFile.append(subdirName);
+  console.harness('Setting device-storage path to', deviceStorageFile.path);
 
-  deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
-
-  for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
-    // force an undefine
-    try {
-      dirService.undefine(name);
-    }
-    catch(ex) {}
-    dirService.set(name, deviceStorageFile);
-    //console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
+  // OverrideRootDir likes to create the directory for us, so we don't need to
+  // create it.  But we do need to delete it and any existing contents to
+  // avoid weirdness
+  //deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
+  if (deviceStorageFile.exists()) {
+    deviceStorageFile.remove(/* recursive */ true);
   }
+
+
+  Services.prefs.setCharPref(
+    'device.storage.overrideRootDir', deviceStorageFile.path);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -639,11 +601,17 @@ var FakeContentPermissionPrompt = {
 let componentRegistrar =
       Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
 
+// WE NO LONGER USE OUR FAKE COMPONENT REGISTRAR SINCE WE ARE DOING THE EXPLICIT
+// APP INSTALL STUFF ABOVE.  However, this seems like the type of thing we may
+// need to dig out again in the near future or for debugging purposes, so
+// leaving it around for now, just hard-disabled.
+/*
 componentRegistrar.registerFactory(
   Components.ID("{d56fec31-dc7a-4526-9e12-a722f3effb3b}"),
   "Fake Content Permission Prompt Service",
   "@mozilla.org/content-permission/prompt;1",
   FakeContentPermissionPrompt);
+*/
 
 function grantEmailPermissions(originUrl) {
   var perm = Cc["@mozilla.org/permissionmanager;1"]
@@ -820,6 +788,18 @@ var gProgress = null;
 var gIframe = null;
 
 /**
+ * Given our URI figure out what appId we ended up assigning to our app.
+ */
+function resolveUriToAppId(uri) {
+  // lucky for us there's really only one manifest so its path is easy to
+  // figure out.
+  var manifestUrl = uri.prePath + '/test/manifest.webapp';
+  var appId =  DOMApplicationRegistry.getAppLocalIdByManifestURL(manifestUrl);
+  // dump ("!! appId is " + appId + " for " + manifestUrl + "\n");
+  return appId;
+}
+
+/**
  * @param controlServer The ControlServer to point the test at.
  */
 function runTestFile(testFileName, variant, controlServer) {
@@ -878,7 +858,14 @@ function _installTestFileThenRun(testFileName, variant, controlServer) {
     console.harness('got manifest!');
     return DOMApplicationRegistry.confirmInstall(data).then(
       function() {
-        console.harness('installed!!');
+        console.harness('installed!! compelling permissions');
+        // act like this is a privileged app having all of its permissions
+        // authorized at first run.
+        DOMApplicationRegistry.updatePermissionsForApp(
+          resolveUriToAppId(manifestUrl),
+          /* preinstalled */ true,
+          /* system update? */ true);
+        console.harness('permissions compelled');
         return _runTestFile(testFileName, variant, baseUrl, manifestUrl,
                             controlServer);
       },

@@ -7,6 +7,10 @@ pref("dom.report_all_js_exceptions", true);
 
 pref("dom.mozApps.debug", true);
 
+// DeviceStorage: have testing mode be disabled so the override mode does what
+// we want.  See makeAndSetDeviceStorageTarget in loggest-chrome-runner.js.
+pref("device.storage.testing", false);
+
 // something wants to prompt real bad, and our fake prompts don't work.
 pref("browser.prompt.allowNative", true);
 

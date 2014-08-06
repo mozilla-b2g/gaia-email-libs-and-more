@@ -31,6 +31,9 @@ help:
 	@echo "make post-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
 	@echo "  Run one test file (imap:fake variant), post results to ArbPL"
 	@echo ""
+	@echo "make gdb-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
+	@echo "  Run one test file under gdb.  Set breakpoints, type 'run'"
+	@echo ""
 	@echo "To enable verbose log output to the console: TEST_LOG_ENABLE=true"
 
 # full rsync
@@ -146,6 +149,17 @@ concatenated-tests: tests
 
 one-test: build test-deps
 	$(call run-one-test)
+
+
+
+# wrap one-test with gdb flags to RUNMOZ.  Abstraction so I don't have to
+# remember this and because when we shift to using mach or such then it can
+# be a transparent change, etc.
+gdb-one-test: RUNMOZFLAGS=-g
+# turn off the JIT's auto-segfault magic.
+gdb-one-test: export JS_NO_SIGNALS=1
+gdb-one-test: export JS_DISABLE_SLOW_SCRIPT_SIGNALS=1
+gdb-one-test: one-test
 
 post-one-test: one-test test-deps
 	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/$(basename $(SOLO_FILE)).logs

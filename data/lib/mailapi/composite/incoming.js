@@ -380,7 +380,7 @@ exports.LOGFAB_DEFINITION = {
       createConnection: {},
       reuseConnection: {},
       releaseConnection: {},
-      deadConnection: {},
+      deadConnection: { why: true },
       unknownDeadConnection: {},
       connectionMismatch: {},
 
@@ -401,8 +401,8 @@ exports.LOGFAB_DEFINITION = {
 
       createConnection: { label: false },
       reuseConnection: { label: false },
-      releaseConnection: { label: false },
-      deadConnection: { },
+      releaseConnection: { folderId: false, label: false },
+      deadConnection: { folder: false },
       connectionMismatch: {},
     },
     errors: {

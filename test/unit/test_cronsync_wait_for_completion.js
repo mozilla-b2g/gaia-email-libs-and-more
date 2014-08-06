@@ -13,16 +13,6 @@
  * to withhold the db commit success notification to make sure that cronsync
  * doesn't go off declaring victory early.  We then release the notification to
  * move on.
- *
- * Permutations:
- * - Number of accounts with cronsync enabled: [0, 1, 2].  (Note: we have two
- *   accounts defined throughout the test, we just enable/disable them.  Arguably
- *   we also want the number of accounts that exist in the matrix, but I'm giving
- *   us the benefit of the doubt competence-wise, if only because otherwise it
- *   gets to be a hassle.
- * - Messages in the outbox? [0, 1, 2]
- * - Are there new messages?  [0, 1, 2, 5, 6].  5 and 6 are because of
- *   MAX_MESSAGES_TO_REPORT_PER_ACCOUNT which is 5 right now.
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
@@ -88,15 +78,28 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
         {
           universe: testUniverse,
           displayName: 'A Xample',
-          emailAddress: 'a@' + TEST_PARAMS.emailDomain
+          emailAddress: 'a@' + TEST_PARAMS.emailDomain,
+          // put the messages we send into a black hole rather than the inbox
+          smtpDeliverMode: 'blackhole'
         }),
       testAccountB = T.actor('testAccount', 'B',
         {
           universe: testUniverse,
           displayName: 'B Xample',
-          emailAddress: 'b@' + TEST_PARAMS.emailDomain
+          emailAddress: 'b@' + TEST_PARAMS.emailDomain,
+          // seriously, it gets confusing if they go in the inbox.
+          smtpDeliverMode: 'blackhole'
         }),
       eSync = T.lazyLogger('sync');
+
+  // We want to make sure that we don't do something dumb like close our IMAP
+  // connection after getting the headers and before getting the snippets.  So
+  // we need to make sure the real setting for killing connections is active
+  // during this test.
+  testUniverse.do_adjustSyncValues({
+    KILL_CONNECTIONS_WHEN_JOBLESS: true
+  });
+
 
   // --- Do the initial inbox sync.
   // We're mainly doing this because for IMAP we currently pre-populate the
@@ -146,22 +149,46 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
       T.action('force send failures for', testAccount, function() {
         testAccount.testServer.toggleSendFailure(true);
       });
+      // pre-existing failures to expect; every time we try and do a new send,
+      // we will try and resend all the previous ones (Ugly for this test, but
+      // okay in general.)
+      var existingRetryResults = [];
       for (var iMsg = 0; iMsg < count; iMsg++) {
         testAccount.do_composeAndSendMessage(
           'Account ' + iAccount + ' Message ' + iMsg,
-          { success: false });
+          {
+            success: false,
+            existingRetryResults: existingRetryResults.concat()
+          });
+        existingRetryResults.push('error');
       }
+      T.action('make outbox sends work next time', testAccount, function() {
+        testAccount.testServer.toggleSendFailure(false);
+      });
     });
   }
+
+  var addedMessageCount = 0;
 
   /**
    * Cram messages into the account's Inbox on the server.  (The inbox is the
    * only folder cronsync cares about right now.)
+   *
+   * We want each set of messages we add to count as "new", which means we
+   * want our timestamps to get newer.  We also don't want to worry about
+   * freaky time edge cases.  We deal with this by starting exactly one day
+   * ago and then moving each message 1 minute into the future.
    */
   function addNewMessagesToInbox(accounts, count) {
     accounts.forEach(function(testAccount) {
       testAccount.do_addMessagesToFolder(
-        testAccount.inboxFolder, { count: count });
+        testAccount.inboxFolder,
+        {
+          count: count,
+          age: { days: 1, minutes: -addedMessageCount },
+          age_incr: { minutes: -1 }
+        });
+      addedMessageCount += count;
     });
   }
 
@@ -203,7 +230,8 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
     var groupTitle =
       params.enabledCount + ' account syncing: ' +
       params.newMessageCount + ' new messages, ' +
-      params.outboxMessageCount + ' in outbox';
+      params.outboxMessageCount + ' in outbox (outbox ' +
+      (params.outboxFinishesFirst ? 'first)' : 'second)');
 
     T.group('= ' + groupTitle + ' =');
     // do our setup stuff
@@ -226,14 +254,25 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
     }
   };
 
+  /*
+   * Permutations!
+   *
+   * XXX So, I am dumb and completely forgot that outbox sending is a job-op
+   * and that since snippet downloading is also a job-op, leaving the outbox
+   * job-op blocked means that we can't fetch snippets.  This means that until
+   * we change the mutex issues and let outbox sending be its own queue thing,
+   * we can't actually have a permutation where outboxMessageCount > 0 and
+   * newMessageCount > 0.
+   *
+   */
   T.group('=== vary number of accounts, outbox involvement ===');
   permuteUsingDict(
     {
       enabledCount: [1, 2],
       outboxMessageCount: [0, 1],
-      newMessageCount: [/*0,*/ 1],
-      outboxFinishesFirst: [false, true],
-    }, // 16 permutations! ah! ah! ah!
+      newMessageCount: [0, 1],
+      outboxFinishesFirst: [true], // this would have been neat to have false in
+    }, // 8 permutations! ah! ah! ah!
     testCronSyncYo);
 
   T.group('=== vary new message count for edge cases ===');
