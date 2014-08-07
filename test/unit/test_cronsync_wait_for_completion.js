@@ -80,7 +80,7 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
           displayName: 'A Xample',
           emailAddress: 'a@' + TEST_PARAMS.emailDomain,
           // put the messages we send into a black hole rather than the inbox
-          smtpDeliverMode: 'blackhole'
+          deliveryMode: 'blackhole'
         }),
       testAccountB = T.actor('testAccount', 'B',
         {
@@ -88,7 +88,7 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
           displayName: 'B Xample',
           emailAddress: 'b@' + TEST_PARAMS.emailDomain,
           // seriously, it gets confusing if they go in the inbox.
-          smtpDeliverMode: 'blackhole'
+          deliveryMode: 'blackhole'
         }),
       eSync = T.lazyLogger('sync');
 
@@ -108,13 +108,15 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
   var inboxA = testAccountA.do_useExistingFolderWithType('inbox', '');
   testAccountA.do_viewFolder(
     'sync', inboxA,
-    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0 },
+    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0,
+      filterType: 'none' },
     { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
   var inboxB = testAccountB.do_useExistingFolderWithType('inbox', '');
   testAccountB.do_viewFolder(
     'sync', inboxB,
-    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0 },
+    { count: initialMsgs, full: initialMsgs, flags: 0, deleted: 0,
+      filterType: 'none' },
     { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
 

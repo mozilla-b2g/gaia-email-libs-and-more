@@ -65,6 +65,7 @@ var TestActiveSyncServerMixins = {
               username: extractUsernameFromEmail(self.testAccount.emailAddress),
               password: self.testAccount.initialPassword
             },
+            deliveryMode: opts.deliveryMode
           });
 
         // now we only want to talk to our specific server control endpoint

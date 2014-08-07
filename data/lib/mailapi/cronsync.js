@@ -300,7 +300,12 @@ CronSync.prototype = {
 
       if (newHeaders.length) {
         debug('Asking for snippets for ' + notifyHeaders.length + ' headers');
-        if (this._universe.online) {
+        // POP3 downloads snippets as part of the sync process, there is no
+        // need to call downloadBodies.
+        if (account.accountDef.type === 'pop3+smtp') {
+          this._LOG.syncAccount_end(account.id);
+          inboxDone([newHeaders.length, notifyHeaders]);
+        } else if (this._universe.online) {
           this._LOG.syncAccountSnippets_begin(account.id);
           this._universe.downloadBodies(
             newHeaders.slice(

@@ -85,7 +85,7 @@ var TestFakePOP3ServerMixins = {
             },
             options: {
             },
-            deliverMode: opts.deliverMode
+            deliveryMode: opts.deliveryMode
           });
 
         // now we only want to talk to our specific server control endpoint
@@ -177,10 +177,15 @@ var TestFakePOP3ServerMixins = {
 
       return rep;
     });
+    // XXX There is something inconsistent/wrong with this fake-server or its
+    // use by the composite test mixins that folderPath could be an object or
+    // a string.  Per debug logs, it definitely is an object at least some of
+    // the time.  And a brief foray to address this found instances where some
+    // caller must be providing a string.
     if ((folderPath.path || folderPath) === 'INBOX') {
       var ret = this._backdoor({
         command: 'addMessagesToFolder',
-        name: folderPath,
+        name: folderPath.path || folderPath,
         messages: transformedMessages
       });
       return ret;

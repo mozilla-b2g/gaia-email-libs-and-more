@@ -564,10 +564,15 @@ Pop3FolderSyncer.prototype = {
       if (this.isInbox) {
         this._LOG.sync_end();
       }
+      // Don't notify completion until the save completes, if relevant.
       if (saveNeeded) {
-        this.account.__checkpointSyncCompleted(null, 'syncComplete');
+        this.account.__checkpointSyncCompleted(doDoneStuff, 'syncComplete');
+      } else {
+        doDoneStuff();
       }
+    }).bind(this));
 
+    var doDoneStuff = function() {
       if (syncType === 'initial') {
         // If it's the first time we've synced, we've set
         // ignoreHeaders to true, which means that slices don't know
@@ -594,8 +599,7 @@ Pop3FolderSyncer.prototype = {
       } else {
         doneCallback(null, null);
       }
-    }).bind(this));
-
+    }.bind(this);
   }),
 };
 

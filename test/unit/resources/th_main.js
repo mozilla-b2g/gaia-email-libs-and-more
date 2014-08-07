@@ -92,20 +92,34 @@ exports.thunkConsoleForNonTestUniverse = function() {
  * @param {String} params.method
  * @param {Object} params.onProtoFromConstructor
  * @param {Function} params.callMyFunc
+ * @param {Number} [params.skipCount=0]
+ *   How many calls should we ignore before intercepting?  Use this when POP3
+ *   or ActiveSync ruin your day.
  */
 function interceptNextCall(params) {
   var methodName = params.method;
   var proto = params.onProtoFromConstructor.prototype;
   var callback = params.callMyFunc;
+  var skipCount = params.skipCount || 0;
 
   var origFunc = proto[params.method];
-  var releaseTheCall;
   var replacementFunc = proto[params.method] = function() {
     var calledInst = this;
     var calledArgs = arguments;
-    releaseTheCall = function() {
+    var releaseTheCall = function() {
       origFunc.apply(calledInst, calledArgs);
     };
+    // If we should be skipping, immediately release/pass-through
+    if (skipCount--) {
+      try {
+        releaseTheCall();
+      }
+      catch(ex) {
+        console.error('Immediately released func threw:', ex);
+      }
+      return;
+    }
+
     var curFunc = proto[methodName];
     if (curFunc !== replacementFunc) {
       console.warning('Intercepted func has been double intercepted?!',
@@ -698,6 +712,7 @@ var TestUniverseMixins = {
   do_cronsync_releaseAccountSyncButStallSave: function(testAccount) {
     this.T.action(testAccount, 'release mutex/let sync happen/stall save',
                   function() {
+      var state = testAccount._cronSyncState;
       this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
 
       // IMAP should be establishing a new account every time.
@@ -706,20 +721,34 @@ var TestUniverseMixins = {
         // (it may seem weird, but we are "reusing" it after creating it...)
         testAccount.eImapAccount.expect_reuseConnection();
       }
+      // POP3 doesn't actually have a choice.  New connections every time.
+      else if (testAccount.ePop3Account) {
+        testAccount.ePop3Account.expect_createConnection();
+      }
+
+      // POP3 does some batch commit stuff too iff there are messages
+      var skipCount = 0;
+      if (state.inboxHasNewMessages && testAccount.type === 'pop3') {
+        // Avoid intercepting the call for this one.
+        skipCount = 1;
+        testAccount.eOpAccount.expect_saveAccountState_begin('syncBatch');
+        testAccount.eOpAccount.expect_saveAccountState_end('syncBatch');
+      }
 
       testAccount.expect_interceptedAccountSave();
-      testAccount.eOpAccount.expect_saveAccountState_begin('checkpointSync');
+      testAccount.eOpAccount.expect_saveAccountState_begin(
+        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
 
       interceptNextCall({
         method: 'saveAccountFolderStates',
         onProtoFromConstructor: $maildb.MailDB,
+        skipCount: skipCount,
         callMyFunc: function(releaseFunc) {
           testAccount._logger.interceptedAccountSave();
           testAccount._cronsyncReleaseDBSave = releaseFunc;
         }.bind(this)
       });
 
-      var state = testAccount._cronSyncState;
       state.releaseInboxMutex();
       state.releaseInboxMutex = null;
     }.bind(this));
@@ -752,11 +781,17 @@ var TestUniverseMixins = {
       // we could be more precise about where we clear this, out tests are
       // granular enough that we can centralize this here.
       state.inboxPending = false;
-      var willDownloadSnippets = !!state.inboxHasNewMessages;
+      // We need snippets if there were messages, but POP3 downloads them as part
+      // of the sync process.
+      var willDownloadSnippets = !!state.inboxHasNewMessages &&
+                                 testAccount.type !== 'pop3';
 
       testAccount.expect_releasedAccountSave();
-      testAccount.eOpAccount.expect_saveAccountState_end('checkpointSync');
-      testAccount.eOpAccount.ignore_releaseConnection();
+      testAccount.eOpAccount.expect_saveAccountState_end(
+        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
+      if (testAccount.eOpAccount.ignore_releaseConnection) {
+        testAccount.eOpAccount.ignore_releaseConnection();
+      }
 
       this.eCronSync.expect_syncAccountHeaders_end(testAccount.accountId);
 
@@ -773,13 +808,19 @@ var TestUniverseMixins = {
           'downloadBodies',
           {
             local: false, server: true, save: 'server',
-            // There will be no "reuseConnection" log entry generated because
+            // IMAP:
+            // There will be no "reuseConnection" log entry generated because we
             // make sure to kill the slice only after starting downloadBodies.
             // Specifically, the ImapFolderConn is still holding onto the
             // ImapConnection as long as the slice is alive and the
             // downloadBodies job-op is able to immediately be scheduled and
             // acquire the mutex and connection before the slice is killed.
-            conn: false,
+            //
+            // POP3:
+            // POP3 has to establish a connection to do this since it closed the
+            // connection as part of the sync process.  Let's pretend it's
+            // impossible to do a better job.
+            conn: testAccount.type === 'pop3',
             // However, we do expect a release
             release: true,
             // we will be interrupting the save
@@ -825,7 +866,8 @@ var TestUniverseMixins = {
     // Bail if we don't have a snippet downloading step that we interfered with.
     // And yeah, I really want the test-refactor thing where we can maybe not
     // have quite this insanity.
-    if (!this._staticCronSyncOpts.inboxHasNewMessages) {
+    if (!this._staticCronSyncOpts.inboxHasNewMessages ||
+        testAccount.type === 'pop3') {
       return;
     }
     this.T.action(testAccount, 'release snippet save', this.eCronSync, function(){
@@ -1828,7 +1870,9 @@ var TestCommonAccountMixins = {
     // heuristics and exists in a different universe from IMAP and sanity is
     // important to us.  So this is a little hacky, but who really wants to find
     // out the horror that would be the non-hacky solution?  Amirite?
-    else if (this.type === 'pop3' && jobName === 'downloadBodyReps' &&
+    else if (this.type === 'pop3' &&
+             (jobName === 'downloadBodyReps' ||
+              jobName === 'downloadBodies') &&
              checkFlagDefault(flags, 'conn', true)) {
       this.eOpAccount.expect_createConnection();
     }
@@ -2522,7 +2566,7 @@ var TestCompositeAccountMixins = {
           testAccount: self,
           restored: opts.restored,
           imapExtensions: opts.imapExtensions,
-          deliverMode: opts.smtpDeliverMode
+          deliveryMode: opts.deliveryMode
         },
         null, self);
     }
@@ -3271,7 +3315,8 @@ var TestActiveSyncAccountMixins = {
         'testActiveSyncServer', self.__name,
         {
           testAccount: self,
-          universe: opts.universe
+          universe: opts.universe,
+          deliveryMode: opts.deliveryMode
         },
         null, self);
     }
