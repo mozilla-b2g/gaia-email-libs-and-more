@@ -143,17 +143,11 @@ function makeHackedUpSlice(storage, callback, parentLog) {
 }
 
 /**
- * Creates the cronsync instance. Does not do any actions on creation.
- * It waits for a router message or a universe call to start the work.
+ * The brains behind periodic account synchronization; only created by the
+ * universe once it has loaded its configuration and accounts.
  */
 function CronSync(universe, _logParent) {
   this._universe = universe;
-  this._universeDeferred = {};
-
-  this._universeDeferred.promise = $prim(function (resolve, reject) {
-    this._universeDeferred.resolve = resolve;
-    this._universeDeferred.reject = reject;
-  }.bind(this));
 
   this._LOG = LOGFAB.CronSync(this, null, _logParent);
 
@@ -185,6 +179,8 @@ function CronSync(universe, _logParent) {
     }
   }.bind(this));
   this.sendCronSync('hello');
+
+  this.ensureSync();
 }
 
 exports.CronSync = CronSync;
@@ -194,23 +190,6 @@ CronSync.prototype = {
     this._activeSlices.forEach(function(slice) {
       slice.die();
     });
-  },
-
-  /**
-   * Called directly by the MailUniverse once it has loaded all its accounts.
-   */
-  onUniverseReady: function() {
-    this._universeDeferred.resolve();
-
-    this.ensureSync();
-  },
-
-  /**
-   * Invoke the given function after the universe has started up and all
-   * accounts have been loaded.
-   */
-  whenUniverse: function(fn) {
-    this._universeDeferred.promise.then(fn);
   },
 
   /**
@@ -228,25 +207,23 @@ CronSync.prototype = {
 
     debug('ensureSync called');
 
-    this.whenUniverse(function() {
-      var accounts = this._universe.accounts,
-          syncData = {};
+    var accounts = this._universe.accounts,
+        syncData = {};
 
-      accounts.forEach(function(account) {
-        // Store data by interval, use a more obvious string
-        // key instead of just stringifying a number, which
-        // could be confused with an array construct.
-        var interval = account.accountDef.syncInterval,
-            intervalKey = 'interval' + interval;
+    accounts.forEach(function(account) {
+      // Store data by interval, use a more obvious string
+      // key instead of just stringifying a number, which
+      // could be confused with an array construct.
+      var interval = account.accountDef.syncInterval,
+          intervalKey = 'interval' + interval;
 
-        if (!syncData.hasOwnProperty(intervalKey)) {
-          syncData[intervalKey] = [];
-        }
-        syncData[intervalKey].push(account.id);
-      });
+      if (!syncData.hasOwnProperty(intervalKey)) {
+        syncData[intervalKey] = [];
+      }
+      syncData[intervalKey].push(account.id);
+    });
 
-      this.sendCronSync('ensureSync', [syncData]);
-    }.bind(this));
+    this.sendCronSync('ensureSync', [syncData]);
   },
 
   /**
@@ -378,93 +355,91 @@ CronSync.prototype = {
   },
 
   onAlarm: function(accountIds) {
-    this.whenUniverse(function() {
-      this._LOG.alarmFired(accountIds);
+    this._LOG.alarmFired(accountIds);
 
-      if (!accountIds)
+    if (!accountIds)
+      return;
+
+    var accounts = this._universe.accounts,
+        targetAccounts = [],
+        ids = [];
+
+    this._cronsyncing = true;
+    this._LOG.cronSync_begin();
+    this._universe.__notifyStartedCronSync(accountIds);
+
+    // Make sure the acount IDs are still valid. This is to protect agains
+    // an account deletion that did not clean up any alarms correctly.
+    accountIds.forEach(function(id) {
+      accounts.some(function(account) {
+        if (account.id === id) {
+          targetAccounts.push(account);
+          ids.push(id);
+          return true;
+        }
+      });
+    });
+
+    // Flip switch to say account syncing is in progress.
+    this._syncAccountsDone = false;
+
+    // Make sure next alarm is set up. In the case of a cold start
+    // background sync, this is a bit redundant in that the startup
+    // of the mailuniverse would trigger this work. However, if the
+    // app is already running, need to be sure next alarm is set up,
+    // so ensure the next sync is set up here. Do it here instead of
+    // after a sync in case an error in sync would prevent the next
+    // sync from getting scheduled.
+    this.ensureSync();
+
+    var syncMax = targetAccounts.length,
+        syncCount = 0,
+        accountsResults = {
+          accountIds: accountIds
+        };
+
+    var done = function() {
+      syncCount += 1;
+      if (syncCount < syncMax)
         return;
 
-      var accounts = this._universe.accounts,
-          targetAccounts = [],
-          ids = [];
+      // Kill off any slices that still exist from the last sync.
+      this._killSlices();
 
-      this._cronsyncing = true;
-      this._LOG.cronSync_begin();
-      this._universe.__notifyStartedCronSync(accountIds);
+      // Wrap up the sync
+      this._syncAccountsDone = true;
+      this._onSyncDone = function() {
+        if (this._synced.length) {
+          accountsResults.updates = this._synced;
+          this._synced = [];
+        }
 
-      // Make sure the acount IDs are still valid. This is to protect agains
-      // an account deletion that did not clean up any alarms correctly.
-      accountIds.forEach(function(id) {
-        accounts.some(function(account) {
-          if (account.id === id) {
-            targetAccounts.push(account);
-            ids.push(id);
-            return true;
-          }
-        });
-      });
-
-      // Flip switch to say account syncing is in progress.
-      this._syncAccountsDone = false;
-
-      // Make sure next alarm is set up. In the case of a cold start
-      // background sync, this is a bit redundant in that the startup
-      // of the mailuniverse would trigger this work. However, if the
-      // app is already running, need to be sure next alarm is set up,
-      // so ensure the next sync is set up here. Do it here instead of
-      // after a sync in case an error in sync would prevent the next
-      // sync from getting scheduled.
-      this.ensureSync();
-
-      var syncMax = targetAccounts.length,
-          syncCount = 0,
-          accountsResults = {
-            accountIds: accountIds
-          };
-
-      var done = function() {
-        syncCount += 1;
-        if (syncCount < syncMax)
-          return;
-
-        // Kill off any slices that still exist from the last sync.
-        this._killSlices();
-
-        // Wrap up the sync
-        this._syncAccountsDone = true;
-        this._onSyncDone = function() {
-          if (this._synced.length) {
-            accountsResults.updates = this._synced;
-            this._synced = [];
-          }
-
-          this._universe.__notifyStoppedCronSync(accountsResults);
-          this._LOG.syncAccounts_end(accountsResults);
-        }.bind(this);
-
-        this._checkSyncDone();
+        this._universe.__notifyStoppedCronSync(accountsResults);
+        this._LOG.syncAccounts_end(accountsResults);
       }.bind(this);
 
-      // Nothing new to sync, probably old accounts. Just return and indicate
-      // that syncing is done.
-      if (!ids.length) {
-        done();
-        return;
-      }
+      this._checkSyncDone();
+    }.bind(this);
 
-      this._LOG.syncAccounts_begin();
-      targetAccounts.forEach(function(account) {
-        this.syncAccount(account, function (result) {
-          if (result) {
-            this._synced.push({
-              id: account.id,
-              address: account.identities[0].address,
-              count: result[0],
-              latestMessageInfos: result[1]
-            });
-          }
-          done();
-        }.bind(this));
+    // Nothing new to sync, probably old accounts. Just return and indicate
+    // that syncing is done.
+    if (!ids.length) {
+      done();
+      return;
+    }
+
+    this._LOG.syncAccounts_begin();
+    targetAccounts.forEach(function(account) {
+      this.syncAccount(account, function (result) {
+        if (result) {
+          this._synced.push({
+            id: account.id,
+            address: account.identities[0].address,
+            count: result[0],
+            latestMessageInfos: result[1]
+          });
+        }
+        done();
       }.bind(this));
     }.bind(this));
   },

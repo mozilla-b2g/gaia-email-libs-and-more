@@ -1778,6 +1778,42 @@ exports.DEBUG_markAllFabsUnderTest = function() {
 };
 
 /**
+ * For EXTREME debugging similar to DEBUG_markAllFabsUnderTest; log entries are
+ * both:
+ * 1) Passed to dumpFunc as they are logged so we get the logs in the "adb
+ *    logcat" output.
+ * 2) Retained so you better have hooked up circular logging or you better have
+ *    infinite memory.
+ *
+ * @param {Function} dumpFunc
+ *   This should resemble the standard mozilla dump() func wherein we must
+ *   provide newlines.  (And we definitely will provide them.)
+ */
+exports.DEBUG_realtimeLogEverything = function(dumpFunc) {
+  var EverythingTester = {
+    reportNewLogger: function(logger, parentLogger) {
+      logger._actor = {
+        __loggerFired: function() {
+          // Destructively pop it off the end of the list; inductively this
+          // should always be index 0, but you never know!
+          var entry = logger._entries.pop();
+          // Let's look like: LoggerType(semanticIdent)["name", ...]
+          dumpFunc(logger.__defName + '(' + logger._ident + ')' +
+                   JSON.stringify(entry) + '\n');
+        }
+      };
+    }
+  };
+  UNDER_TEST_DEFAULT = EverythingTester;
+  for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
+    var logfab = ALL_KNOWN_FABS[i];
+
+    logfab._underTest = EverythingTester;
+  }
+};
+
+
+/**
  * Evolutionary stopgap debugging helper to be able to put a module/logfab into
  *  a mode of operation where it dumps all of its loggers' entries to
  *  console.log when they die.
