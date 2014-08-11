@@ -161,6 +161,7 @@ function recreateIdentities(universe, accountId, oldIdentities) {
       address: oldIdentity.address,
       replyTo: oldIdentity.replyTo,
       signature: oldIdentity.signature,
+      signatureEnabled: oldIdentity.signatureEnabled
     });
   }
   return identities;

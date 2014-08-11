@@ -243,6 +243,10 @@
 
     "test_mailapi_contacts.js": {
       "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
+    },
+
+    "test_signatures": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     }
   }
 }

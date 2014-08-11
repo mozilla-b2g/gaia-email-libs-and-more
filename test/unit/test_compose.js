@@ -45,6 +45,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       testStorage = T.actor('testDeviceStorage', 'sdcard',
                             { storage: 'sdcard' });
 
+  var signatureText = "this is a test";
+  var finalSignature = "\n\n--\nthis is a test";
+
+
   var uniqueSubject = makeRandomSubject();
 
   var composer, eLazy = T.lazyLogger('misc');
@@ -67,6 +71,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   // - compose and send
   T.group('compose');
   T.action('begin composition', eLazy, function() {
+    // We are bypassing using modifyIdentity for the sake of
+    // simplicity -- It is tested at the bottom of this file
+    testAccount.account.identities[0].signature = "this is a test";
+    testAccount.account.identities[0].signatureEnabled = true;
     eLazy.expect_event('compose setup completed');
     composer = testUniverse.MailAPI.beginMessageComposition(
       null, testUniverse.allFoldersSlice.getFirstFolderWithType('inbox'), null,
@@ -95,9 +103,11 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
 
     composer.to.push({ name: 'Myself', address: TEST_PARAMS.emailAddress });
     composer.subject = uniqueSubject;
+
     // (Prepend our text to whatever's already there.)
     composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!' +
                          composer.body.text;
+
 
     // this implicitly triggers the saveDraft followed by the attachBlobToDraft
     composer.addAttachment({
@@ -117,7 +127,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     eLazy.expect_event('resumed');
     eLazy.expect_namedValue('draft subject', uniqueSubject);
     eLazy.expect_namedValue('draft text',
-                            'Antelope banana credenza.\n\nDialog excitement!');
+                            'Antelope banana credenza.\n\nDialog excitement!' + finalSignature);
     eLazy.expect_namedValue('draft attachment count', 1);
     eLazy.expect_namedValue('draft attachment name', 'foo.png');
     eLazy.expect_namedValue('draft attachment type', 'image/png');
@@ -232,7 +242,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       }
       eLazy.expect_namedValue(
         'sent body text',
-        'Antelope banana credenza.\n\nDialog excitement!');
+        'Antelope banana credenza.\n\nDialog excitement!' + finalSignature);
       eLazy.expect_namedValue(
         'attachments',
         [{
@@ -333,7 +343,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       RT.reportActiveActorThisStep(eLazy);
       eLazy.expect_namedValue(
         'received body text',
-        'Antelope banana credenza.\n\nDialog excitement!');
+        'Antelope banana credenza.\n\nDialog excitement!'+ finalSignature);
       if (testAccount.type !== 'activesync')
         eLazy.expect_namedValue('source message-id', sentMessageId);
       // We are top-posting biased, so we automatically insert two blank lines;
@@ -345,6 +355,13 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
           '> Antelope banana credenza.',
           '>',
           '> Dialog excitement!',
+          '>',
+          '> --',
+          '> this is a test',
+          '',
+          '-- ',
+          'this is a test',
+          ''
           // XXX we used to have a default signature; when we start letting
           // users configure signatures again, then we will want the test to
           // use one and put this back.
@@ -458,7 +475,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
       text: [
         '', '',
         // XXX when signatures get enabled/tested:
-        // '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
+        '-- ', 'this is a test', '',
         '-------- Original Message --------',
         'Subject: Re: ' + uniqueSubject,
         'Date: ' + safeifyTime(replySentDate + ''),
@@ -937,5 +954,6 @@ TD.commonCase('bcc self', function(T, RT) {
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 });
+
 
 }); // end define
