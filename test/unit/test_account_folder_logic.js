@@ -171,10 +171,15 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
       testServer = null,
       eSync = T.lazyLogger('sync');
 
+  var testAccount = T.actor('testAccount', 'A',
+                            { universe: testUniverse,
+                              restored: true });
+
+
   if (TEST_PARAMS.type === 'activesync') {
-    testServer = T.actor('testActiveSyncServer', 'S',
-                         { universe: testUniverse });
     T.action('create test folders', function() {
+      var testServer = testAccount.testServer;
+      
       const folderType = $ascp.FolderHierarchy.Enums.Type;
       var inbox = testServer.getFolderByPath('Inbox'),
           sent  = testServer.getFolderByPath('Sent Mail'),
@@ -193,10 +198,6 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
       testServer.addFolder('Subfolder', folderType.Inbox);
     });
   }
-
-  var testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true,
-                              server: testServer });
 
   T.group('check folder list');
   T.check('check folder list', testAccount, eSync, function(T) {

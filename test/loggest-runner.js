@@ -57,7 +57,7 @@ var loggestRouterModule = {
   sendMessage: null,
   process: function(uid, cmd, args) {
     if (cmd === 'ready') {
-      console.log('Got ready message, sending test information back.');
+      console.log('Got ready message, sending test information back,');
       this.sendMessage(
         null, 'run',
         {
@@ -66,21 +66,19 @@ var loggestRouterModule = {
         });
     }
     else if (cmd === 'done') {
-       console.log('Got results! posting message. fake parent?:',
-                   window.parent.fakeParent);
+      console.log('Got results! posting message.');
 
       console.log('waiting for the worker to kill itself.');
 
       setTimeout(function() {
         console.log('actually posting the kill-me now');
-      // Save off the log just in case there was a race about clobbering
-      // window.parent.
-      window.logResultsMsg = {
-        type: 'loggest-test-results',
-        data: args
-      };
 
-      window.parent.postMessage(window.logResultsMsg, '*');
+        var logResultsMsg = {
+          type: 'loggest-test-results',
+          data: args
+        };
+
+        window.postMessage(logResultsMsg, '*');
       }, 100);
     }
   }

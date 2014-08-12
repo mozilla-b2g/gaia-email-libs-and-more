@@ -27,6 +27,7 @@ define(
     './worker-router',
     './slice_bridge_proxy',
     './mailslice',
+    './syncbase',
     './allback',
     'prim',
     'module',
@@ -37,6 +38,7 @@ define(
     $router,
     $sliceBridgeProxy,
     $mailslice,
+    $syncbase,
     $allback,
     $prim,
     $module,
@@ -44,40 +46,59 @@ define(
   ) {
 
 
-/**
- * Sanity demands we do not check more frequently than once a minute.
- */
-var MINIMUM_SYNC_INTERVAL_MS = 60 * 1000;
-
-/**
- * How long should we let a synchronization run before we give up on it and
- * potentially try and kill it (if we can)?
- */
-var MAX_SYNC_DURATION_MS = 3 * 60 * 1000;
-
-/**
- * Caps the number of notifications we generate per account.  It would be
- * sitcom funny to let this grow without bound, but would end badly in reality.
- */
-var MAX_MESSAGES_TO_REPORT_PER_ACCOUNT = 5;
-
-/**
- * How much body snippet to save. Chose a value to match the front end
- */
-var MAX_SNIPPET_BYTES = 4 * 1024;
-
 function debug(str) {
   console.log("cronsync: " + str + "\n");
 }
 
 var SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
 
-function makeSlice(storage, callback, parentLog) {
-  var proxy = new SliceBridgeProxy({
+/**
+ * Create a specialized sync slice via clobbering that accumulates a list of
+ * new headers and invokes a callback when the sync has fully completed.
+ *
+ * Fully completed includes:
+ * - The account update has been fully saved to disk.
+ *
+ * New header semantics are:
+ * - Header is as new or newer than the newest header we previously knew about.
+ *   Specifically we're using SINCE which is >=, so a message that arrived at
+ *   the same second as the other message still counts as new.  Because the new
+ *   message will inherently have a higher id than the other message, this
+ *   meets with our other ordering semantics, although I'm thinking it wasn't
+ *   totally intentional.
+ * - Header is unread.  (AKA Not \Seen)
+ *
+ * "Clobbering" in this case means this is a little hacky.  What we do is:
+ * - Take a normal slice and hook it up to a normal SliceBridgeProxy, but
+ *   give the proxy a fake bridge that never sends any data anywhere.  This
+ *   is reasonably future-proof/safe.
+ *
+ * - Put an onNewHeader method on the slice to accumulate the new headers.
+ *   The new headers are all we care about.  The rest of the headers loaded/etc.
+ *   are boring to us and do not matter.  However, there's relatively little
+ *   memory or CPU overhead to letting that stuff get populated/retained since
+ *   it's in memory already anyways and at worst we're only delaying the GC by
+ *   a little bit.  (This is not to say there aren't pathological situations
+ *   possible, but they'd be largely the same if the user triggered the sync.
+ *   The main difference cronsync currently will definitely not shrink the
+ *   slice.
+ *
+ * - Clobber proy.sendStatus to know when the sync has completed via the
+ *   same signal the front-end uses to know when the sync is over.
+ *
+ * You as the caller need to:
+ * - Make sure to kill the slice in a timely fashion after we invoke the
+ *   callback.  Since killing the slice can result in the connection immediately
+ *   being closed, you want to make sure that if you're doing anything like
+ *   scheduling snippet downloads that you do that first.
+ */
+function makeHackedUpSlice(storage, callback, parentLog) {
+  var fakeBridgeThatEatsStuff = {
         __sendMessage: function() {}
-      }, 'cron'),
+      },
+      proxy = new SliceBridgeProxy(fakeBridgeThatEatsStuff, 'cron'),
       slice = new $mailslice.MailSlice(proxy, storage, parentLog),
-      oldStatus = proxy.sendStatus,
+      oldStatusMethod = proxy.sendStatus,
       newHeaders = [];
 
   slice.onNewHeader = function(header) {
@@ -87,10 +108,34 @@ function makeSlice(storage, callback, parentLog) {
 
   proxy.sendStatus = function(status, requested, moreExpected,
                               progress, newEmailCount) {
-    oldStatus.apply(this, arguments);
-    if (requested && !moreExpected && callback) {
-      callback(newHeaders);
-      slice.die();
+    // (maintain normal behaviour)
+    oldStatusMethod.apply(this, arguments);
+
+    // We do not want to declare victory until the sync process has fully
+    // completed which (significantly!) includes waiting for the save to have
+    // completed.
+    // (Only fire completion once.)
+    if (callback) {
+      switch (status) {
+        // normal success and failure
+        case 'synced':
+        case 'syncfailed':
+        // ActiveSync specific edge-case where syncFolderList has not yet
+        // completed.  If the slice is still alive when syncFolderList completes
+        // the slice will auto-refresh itself.  We don't want or need this,
+        // which is fine since we kill the slice in the callback.
+        case 'syncblocked':
+          try {
+            callback(newHeaders);
+          }
+          catch (ex) {
+            console.error('cronsync callback error:', ex, '\n', ex.stack);
+            callback = null;
+            throw ex;
+          }
+          callback = null;
+          break;
+      }
     }
   };
 
@@ -98,18 +143,11 @@ function makeSlice(storage, callback, parentLog) {
 }
 
 /**
- * Creates the cronsync instance. Does not do any actions on creation.
- * It waits for a router message or a universe call to start the work.
+ * The brains behind periodic account synchronization; only created by the
+ * universe once it has loaded its configuration and accounts.
  */
 function CronSync(universe, _logParent) {
   this._universe = universe;
-  this._universeDeferred = {};
-  this._isUniverseReady = false;
-
-  this._universeDeferred.promise = $prim(function (resolve, reject) {
-    this._universeDeferred.resolve = resolve;
-    this._universeDeferred.reject = reject;
-  }.bind(this));
 
   this._LOG = LOGFAB.CronSync(this, null, _logParent);
 
@@ -117,6 +155,13 @@ function CronSync(universe, _logParent) {
 
   this._completedEnsureSync = true;
   this._syncAccountsDone = true;
+
+  // An internal callback to invoke when it looks like sync has completed.  This
+  // can also be thought of as a boolean indicator that we're actually
+  // performing a cronsync as opposed to just in a paranoia-call to ensureSync.
+  // TODO: Use a promises flow or otherwise alter control flow so that ensureSync
+  // doesn't end up in _checkSyncDone with ambiguity about what is going on.
+  this._onSyncDone = null;
 
   this._synced = [];
 
@@ -134,24 +179,17 @@ function CronSync(universe, _logParent) {
     }
   }.bind(this));
   this.sendCronSync('hello');
+
+  this.ensureSync();
 }
 
 exports.CronSync = CronSync;
 CronSync.prototype = {
   _killSlices: function() {
+    this._LOG.killSlices(this._activeSlices.length);
     this._activeSlices.forEach(function(slice) {
       slice.die();
     });
-  },
-
-  onUniverseReady: function() {
-    this._universeDeferred.resolve();
-
-    this.ensureSync();
-  },
-
-  whenUniverse: function(fn) {
-    this._universeDeferred.promise.then(fn);
   },
 
   /**
@@ -164,29 +202,28 @@ CronSync.prototype = {
     if (!this._completedEnsureSync)
       return;
 
+    this._LOG.ensureSync_begin();
     this._completedEnsureSync = false;
 
     debug('ensureSync called');
 
-    this.whenUniverse(function() {
-      var accounts = this._universe.accounts,
-          syncData = {};
+    var accounts = this._universe.accounts,
+        syncData = {};
 
-      accounts.forEach(function(account) {
-        // Store data by interval, use a more obvious string
-        // key instead of just stringifying a number, which
-        // could be confused with an array construct.
-        var interval = account.accountDef.syncInterval,
-            intervalKey = 'interval' + interval;
+    accounts.forEach(function(account) {
+      // Store data by interval, use a more obvious string
+      // key instead of just stringifying a number, which
+      // could be confused with an array construct.
+      var interval = account.accountDef.syncInterval,
+          intervalKey = 'interval' + interval;
 
-        if (!syncData.hasOwnProperty(intervalKey)) {
-          syncData[intervalKey] = [];
-        }
-        syncData[intervalKey].push(account.id);
-      });
+      if (!syncData.hasOwnProperty(intervalKey)) {
+        syncData[intervalKey] = [];
+      }
+      syncData[intervalKey].push(account.id);
+    });
 
-      this.sendCronSync('ensureSync', [syncData]);
-    }.bind(this));
+    this.sendCronSync('ensureSync', [syncData]);
   },
 
   /**
@@ -200,6 +237,7 @@ CronSync.prototype = {
     if (!this._universe.online || !account.enabled) {
       debug('syncAcount early exit: online: ' +
             this._universe.online + ', enabled: ' + account.enabled);
+      this._LOG.syncSkipped(account.id);
       doneCallback();
       return;
     }
@@ -215,9 +253,10 @@ CronSync.prototype = {
 
     // - Initiate a sync of the folder covering the desired time range.
     this._LOG.syncAccount_begin(account.id);
+    this._LOG.syncAccountHeaders_begin(account.id, null);
 
-    var slice = makeSlice(storage, function(newHeaders) {
-      this._LOG.syncAccount_end(account.id);
+    var slice = makeHackedUpSlice(storage, function(newHeaders) {
+      this._LOG.syncAccountHeaders_end(account.id, newHeaders);
       this._activeSlices.splice(this._activeSlices.indexOf(slice), 1);
 
       // Reduce headers to the minimum number and data set needed for
@@ -232,28 +271,45 @@ CronSync.prototype = {
           messageSuid: header.suid
         });
 
-        if (i === MAX_MESSAGES_TO_REPORT_PER_ACCOUNT - 1)
+        if (i === $syncbase.CRONSYNC_MAX_MESSAGES_TO_REPORT_PER_ACCOUNT - 1)
           return true;
       });
 
       if (newHeaders.length) {
         debug('Asking for snippets for ' + notifyHeaders.length + ' headers');
-        if (this._universe.online){
+        // POP3 downloads snippets as part of the sync process, there is no
+        // need to call downloadBodies.
+        if (account.accountDef.type === 'pop3+smtp') {
+          this._LOG.syncAccount_end(account.id);
+          inboxDone([newHeaders.length, notifyHeaders]);
+        } else if (this._universe.online) {
+          this._LOG.syncAccountSnippets_begin(account.id);
           this._universe.downloadBodies(
-            newHeaders.slice(0, MAX_MESSAGES_TO_REPORT_PER_ACCOUNT), {
-              maximumBytesToFetch: MAX_SNIPPET_BYTES
-            }, function() {
+            newHeaders.slice(
+              0, $syncbase.CRONSYNC_MAX_SNIPPETS_TO_FETCH_PER_ACCOUNT),
+            {
+              maximumBytesToFetch: $syncbase.MAX_SNIPPET_BYTES
+            },
+            function() {
               debug('Notifying for ' + newHeaders.length + ' headers');
+              this._LOG.syncAccountSnippets_end(account.id);
+              this._LOG.syncAccount_end(account.id);
               inboxDone([newHeaders.length, notifyHeaders]);
-          }.bind(this));
+            }.bind(this));
         } else {
+          this._LOG.syncAccount_end(account.id);
           debug('UNIVERSE OFFLINE. Notifying for ' + newHeaders.length +
                 ' headers');
           inboxDone([newHeaders.length, notifyHeaders]);
         }
       } else {
+        this._LOG.syncAccount_end(account.id);
         inboxDone();
       }
+
+      // Kill the slice.  This will release the connection and result in its
+      // death if we didn't schedule snippet downloads above.
+      slice.die();
     }.bind(this), this._LOG);
 
     this._activeSlices.push(slice);
@@ -265,9 +321,17 @@ CronSync.prototype = {
     if (outboxFolder) {
       var outboxStorage = account.getFolderStorageForFolderId(outboxFolder.id);
       if (outboxStorage.getKnownMessageCount() > 0) {
-        this._universe.sendOutboxMessages(account, {
-          reason: 'syncAccount'
-        }, latch.defer('outbox'));
+        var outboxDone = latch.defer('outbox');
+        this._LOG.sendOutbox_begin(account.id);
+        this._universe.sendOutboxMessages(
+          account,
+          {
+            reason: 'syncAccount'
+          },
+          function() {
+            this._LOG.sendOutbox_end(account.id);
+            outboxDone();
+          }.bind(this));
       }
     }
 
@@ -291,88 +355,91 @@ CronSync.prototype = {
   },
 
   onAlarm: function(accountIds) {
-    this.whenUniverse(function() {
-      this._LOG.alarmFired();
+    this._LOG.alarmFired(accountIds);
 
-      if (!accountIds)
+    if (!accountIds)
+      return;
+
+    var accounts = this._universe.accounts,
+        targetAccounts = [],
+        ids = [];
+
+    this._cronsyncing = true;
+    this._LOG.cronSync_begin();
+    this._universe.__notifyStartedCronSync(accountIds);
+
+    // Make sure the acount IDs are still valid. This is to protect agains
+    // an account deletion that did not clean up any alarms correctly.
+    accountIds.forEach(function(id) {
+      accounts.some(function(account) {
+        if (account.id === id) {
+          targetAccounts.push(account);
+          ids.push(id);
+          return true;
+        }
+      });
+    });
+
+    // Flip switch to say account syncing is in progress.
+    this._syncAccountsDone = false;
+
+    // Make sure next alarm is set up. In the case of a cold start
+    // background sync, this is a bit redundant in that the startup
+    // of the mailuniverse would trigger this work. However, if the
+    // app is already running, need to be sure next alarm is set up,
+    // so ensure the next sync is set up here. Do it here instead of
+    // after a sync in case an error in sync would prevent the next
+    // sync from getting scheduled.
+    this.ensureSync();
+
+    var syncMax = targetAccounts.length,
+        syncCount = 0,
+        accountsResults = {
+          accountIds: accountIds
+        };
+
+    var done = function() {
+      syncCount += 1;
+      if (syncCount < syncMax)
         return;
 
-      var accounts = this._universe.accounts,
-          targetAccounts = [],
-          ids = [];
+      // Kill off any slices that still exist from the last sync.
+      this._killSlices();
 
-      this._universe.__notifyStartedCronSync(accountIds);
+      // Wrap up the sync
+      this._syncAccountsDone = true;
+      this._onSyncDone = function() {
+        if (this._synced.length) {
+          accountsResults.updates = this._synced;
+          this._synced = [];
+        }
 
-      // Make sure the acount IDs are still valid. This is to protect agains
-      // an account deletion that did not clean up any alarms correctly.
-      accountIds.forEach(function(id) {
-        accounts.some(function(account) {
-          if (account.id === id) {
-            targetAccounts.push(account);
-            ids.push(id);
-            return true;
-          }
-        });
-      });
-
-      // Flip switch to say account syncing is in progress.
-      this._syncAccountsDone = false;
-
-      // Make sure next alarm is set up. In the case of a cold start
-      // background sync, this is a bit redundant in that the startup
-      // of the mailuniverse would trigger this work. However, if the
-      // app is already running, need to be sure next alarm is set up,
-      // so ensure the next sync is set up here. Do it here instead of
-      // after a sync in case an error in sync would prevent the next
-      // sync from getting scheduled.
-      this.ensureSync();
-
-      var syncMax = targetAccounts.length,
-          syncCount = 0,
-          accountsResults = {
-            accountIds: accountIds
-          };
-
-      var done = function() {
-        syncCount += 1;
-        if (syncCount < syncMax)
-          return;
-
-        // Kill off any slices that still exist from the last sync.
-        this._killSlices();
-
-        // Wrap up the sync
-        this._syncAccountsDone = true;
-        this._onSyncDone = function() {
-          if (this._synced.length) {
-            accountsResults.updates = this._synced;
-            this._synced = [];
-          }
-
-          this._universe.__notifyStoppedCronSync(accountsResults);
-        }.bind(this);
-
-        this._checkSyncDone();
+        this._universe.__notifyStoppedCronSync(accountsResults);
+        this._LOG.syncAccounts_end(accountsResults);
       }.bind(this);
 
-      // Nothing new to sync, probably old accounts. Just return and indicate
-      // that syncing is done.
-      if (!ids.length) {
-        return done();
-      }
+      this._checkSyncDone();
+    }.bind(this);
 
-      targetAccounts.forEach(function(account) {
-        this.syncAccount(account, function (result) {
-          if (result) {
-            this._synced.push({
-              id: account.id,
-              address: account.identities[0].address,
-              count: result[0],
-              latestMessageInfos: result[1]
-            });
-          }
-          done();
-        }.bind(this));
+    // Nothing new to sync, probably old accounts. Just return and indicate
+    // that syncing is done.
+    if (!ids.length) {
+      done();
+      return;
+    }
+
+    this._LOG.syncAccounts_begin();
+    targetAccounts.forEach(function(account) {
+      this.syncAccount(account, function (result) {
+        if (result) {
+          this._synced.push({
+            id: account.id,
+            address: account.identities[0].address,
+            count: result[0],
+            latestMessageInfos: result[1]
+          });
+        }
+        done();
       }.bind(this));
     }.bind(this));
   },
@@ -386,9 +453,12 @@ CronSync.prototype = {
     if (!this._completedEnsureSync || !this._syncAccountsDone)
       return;
 
+    // _onSyncDone implies this was a cronsync, !_onSyncDone implies just an
+    // ensureSync.  See comments in the constructor.
     if (this._onSyncDone) {
       this._onSyncDone();
       this._onSyncDone = null;
+      this._LOG.cronSync_end();
     }
   },
 
@@ -401,6 +471,7 @@ CronSync.prototype = {
    */
   onSyncEnsured: function() {
     this._completedEnsureSync = true;
+    this._LOG.ensureSync_end();
     this._checkSyncDone();
   },
 
@@ -414,12 +485,27 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
   CronSync: {
     type: $log.DAEMON,
     events: {
-      alarmFired: {},
+      alarmFired: { accountIds: false },
+      killSlices: { count: false },
+      syncSkipped: { id: true },
     },
     TEST_ONLY_events: {
     },
     asyncJobs: {
-      syncAccount: { id: false },
+      cronSync: {},
+      ensureSync: {},
+      syncAccounts: { accountsResults: false },
+      syncAccount: { id: true },
+      // The actual slice refresh, leads to syncAccountSnippets if there were
+      // any new headers
+      syncAccountHeaders: { id: true, newHeaders: false },
+      // If we have new headers we will fetch snippets.  This starts when we
+      // issue the request and stops when we get our callback, meaning there
+      // will be an entirely contained downloadBodies job-op.
+      syncAccountSnippets: { id: true },
+      sendOutbox: { id: true },
+    },
+    TEST_ONLY_asyncJobs: {
     },
     errors: {
     },

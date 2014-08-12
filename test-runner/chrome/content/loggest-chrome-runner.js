@@ -6,15 +6,20 @@
  * - use a test runner that can be run from content / anywhere
  * - augment the error reporting capabilities of the test runner by listening to
  *   the console service and friends
- * - use a custom protocol so we get a distinct origin per test file
- * - ensure permissions are set for our custom origin
+ * - use a custom protocol so we get a distinct appId/origin per test file
+ * - install the app; we used to manually turn on the privileges using a list
+ *   from within this file, but now it'a all from the manifest.
  * - make sure devicestorage uses our profile directory rather than randomly
  *   touching the FS.
  * - write the test log
  *
  * This file is currently a little soupy; various logic is all mixed in here.
+ * There has been some recent cleanup; check the file history if you're missing
+ * something chrome-privilege-related.
  **/
 try {
+dump("LOADING!\n");
+console.harness('loading stuff');
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -26,6 +31,28 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 Cu.import("resource://gre/modules/osfile.jsm");
+
+////////////////////////////////////////////////////////////////////////////////
+// Import important services that b2g's shell.js loads
+//
+// For example, if we want mozAlarms to work, we have to import its service!
+// (Commented out stuff was in shell.js but we don't think we need it or
+// absolutely don't want it.)
+Cu.import('resource://gre/modules/ContactService.jsm');
+Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
+Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
+Cu.import('resource://gre/modules/AlarmService.jsm');
+Cu.import('resource://gre/modules/ActivitiesService.jsm');
+Cu.import('resource://gre/modules/NotificationDB.jsm');
+//Cu.import('resource://gre/modules/Payment.jsm');
+Cu.import("resource://gre/modules/AppsUtils.jsm");
+//Cu.import('resource://gre/modules/UserAgentOverrides.jsm');
+//Cu.import('resource://gre/modules/Keyboard.jsm');
+//Cu.import('resource://gre/modules/ErrorPage.jsm');
+//Cu.import('resource://gre/modules/AlertsHelper.jsm');
+
+Cu.import('resource://gre/modules/Webapps.jsm');
+DOMApplicationRegistry.allAppsLaunchable = true;
 
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URI = IOService.newURI.bind(IOService);
@@ -47,10 +74,14 @@ console.log('Initial loggest-chrome-runner.js bootstrap begun');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Error handling support; call directly into the page's ErrorTrapper
+//
+// Currently all the logs are maintained from within the page/iframe.  So if we
+// want to have system-wide stuff in the log, we need to call into the page
+// itself.
 
 const nsIScriptError = Ci.nsIScriptError;
 
-var gRunnerWindow;
+var gRunnerWindow, gFakeParent;
 
 var ErrorTrapperHelper = {
   observe: function (aMessage, aTopic, aData) {
@@ -75,7 +106,8 @@ var ErrorTrapperHelper = {
          console.error(aMessage.errorMessage + ' [' + aMessage.category + ']',
                       aMessage.sourceName, aMessage.lineNumber);
 
-        if (gRunnerWindow && gRunnerWindow.ErrorTrapper) {
+        if (gRunnerWindow && gRunnerWindow.wrappedJSObject &&
+            gRunnerWindow.wrappedJSObject.ErrorTrapper) {
           gRunnerWindow.ErrorTrapper.fire(
             'uncaughtException',
             {
@@ -99,6 +131,14 @@ var ErrorTrapperHelper = {
     }
   },
 
+  /**
+   * The console service is where app-wide errors and such are logged.  Gecko
+   * has been getting better at directing per-tab(/window) errors to the actual
+   * tab in question, or at least tagging them appropriately so the devtools
+   * can be smart.  So... TODO: make sure we are up-to-date with the console
+   * idiom.  (Alternately, change over to using whatever Gaia starts using for
+   * unit tests.)
+   */
   hookConsoleService: function() {
     this.consoleService = Cc["@mozilla.org/consoleservice;1"]
                             .getService(Ci.nsIConsoleService);
@@ -238,6 +278,10 @@ var _fakeIdleService = {
 
 _fakeIdleService.activate();
 
+/**
+ * Given a path relative to the GELAM root, return an nsIFile corresponding to
+ * that path.
+ */
 function do_get_file(path, allowNonexistent) {
   try {
     let lf = Components.classes["@mozilla.org/file/directory_service;1"]
@@ -286,169 +330,6 @@ function register_resource_alias(alias, file) {
 
 register_resource_alias('fakeserver', do_get_file('node_modules/mail-fakeservers/xpcom'));
 register_resource_alias('activesync', do_get_file('deps/activesync'));
-
-////////////////////////////////////////////////////////////////////////////////
-// mailnews useful logic
-
-// from alertTestUtils.js:
-var alertUtilsPromptService = {
-  alert: function(aParent, aDialogTitle, aText) {
-    dump("ALERT: " + aText + "\n");
-    return;
-  },
-
-  alertCheck: function(aParent, aDialogTitle, aText, aCheckMsg, aCheckState) {
-    dump("ALERTCHECK: " + aText + "\n");
-    return;
-  },
-
-  confirm: function(aParent, aDialogTitle, aText) {
-    dump("CONFIRM: " + aText + "\n");
-    return false;
-  },
-
-  confirmCheck: function(aParent, aDialogTitle, aText, aCheckMsg, aCheckState) {
-    dump("CONFIRMCHECK: " + aText + "\n");
-    return false;
-  },
-
-  confirmEx: function(aParent, aDialogTitle, aText, aButtonFlags, aButton0Title,
-                      aButton1Title, aButton2Title, aCheckMsg, aCheckState) {
-    dump("CONFIRMEX: " + aText + "\n");
-    return 0;
-  },
-
-  prompt: function(aParent, aDialogTitle, aText, aValue, aCheckMsg,
-                   aCheckState) {
-    dump("PROMPT: " + aText + "\n");
-    return false;
-  },
-
-  promptUsernameAndPassword: function(aParent, aDialogTitle, aText, aUsername,
-                                      aPassword, aCheckMsg, aCheckState) {
-    dump("PROMPTUSERPW: " + aText + "\n");
-    return false;
-  },
-
-  promptPassword: function(aParent, aDialogTitle, aText, aPassword, aCheckMsg,
-                           aCheckState) {
-    dump("PROMPTPW: " + aText + "\n");
-    return false;
-  },
-
-  select: function(aParent, aDialogTitle, aText, aCount, aSelectList,
-                   aOutSelection) {
-    dump("SELECT: " + aText + "\n");
-    return false;
-  },
-
-  createInstance: function createInstance(outer, iid) {
-    if (outer != null)
-      throw Components.results.NS_ERROR_NO_AGGREGATION;
-    return this.QueryInterface(iid);
-  },
-
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsIPromptService,
-                                         Ci.nsIPromptService2])
-};
-
-function registerAlertTestUtils()
-{
-  Components.manager.QueryInterface(Components.interfaces.nsIComponentRegistrar)
-            .registerFactory(Components.ID("{4637b567-6e2d-4a24-9775-e8fc0fb159ba}"),
-                             "Fake Prompt Service",
-                             "@mozilla.org/embedcomp/prompt-service;1",
-                             alertUtilsPromptService);
-}
-
-//registerAlertTestUtils();
-
-////////////////////////////////////////////////////////////////////////////////
-// custom protocol stuff from :gozala's protocol implementation
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-// stuff from xpcshell-type context; probably remove
-
-const STATE_START = Ci.nsIWebProgressListener.STATE_START,
-      STATE_REDIRECTING = Ci.nsIWebProgressListener.STATE_REDIRECTING,
-      STATE_TRANSFERRING = Ci.nsIWebProgressListener.STATE_TRANSFERRING,
-      STATE_NEGOTIATING = Ci.nsIWebProgressListener.STATE_NEGOTIATING,
-      STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP,
-      STATE_IS_REQUEST = Ci.nsIWebProgressListener.STATE_IS_REQUEST,
-      STATE_IS_DOCUMENT = Ci.nsIWebProgressListener.STATE_IS_DOCUMENT,
-      STATE_IS_NETWORK = Ci.nsIWebProgressListener.STATE_IS_NETWORK,
-      STATE_IS_WINDOW = Ci.nsIWebProgressListener.STATE_IS_WINDOW;
-
-function ProgressListener(opts) {
-  this._callOnStart = opts.onStart;
-  this._callOnLoaded = opts.onLoaded;
-}
-ProgressListener.prototype = {
-  onLocationChange: function(aWebProgress) {
-    console.harness('location change!');
-  },
-  onProgressChange: function(aWebProgress) {
-    console.harness('progress change!');
-  },
-  onSecurityChange: function(aWebProgress) {
-    console.harness('security change!');
-  },
-  onStateChange: function(aWebProgress, aRequest, aStateFlags, aStatus) {
-    try {
-      var flags = [];
-
-      if (aStateFlags & STATE_START)
-        flags.push('start');
-      if (aStateFlags & STATE_REDIRECTING)
-        flags.push('redirecting');
-      if (aStateFlags & STATE_TRANSFERRING)
-        flags.push('transferring');
-      if (aStateFlags & STATE_NEGOTIATING)
-        flags.push('negotiating');
-      if (aStateFlags & STATE_STOP)
-        flags.push('stop');
-
-      if (aStateFlags & STATE_IS_REQUEST)
-        flags.push('is-request');
-      if (aStateFlags & STATE_IS_DOCUMENT)
-        flags.push('is-document');
-      if (aStateFlags & STATE_IS_NETWORK)
-        flags.push('is-network');
-      if (aStateFlags & STATE_IS_WINDOW)
-        flags.push('is-window');
-
-      console.harness('progress:', aStateFlags, flags, '-', aStatus, 'on',
-                      aRequest && aRequest.name);
-
-      // We don't exist to listen to about:blank changes.  We only care about
-      // the actual thang.
-      if (aRequest.name == 'about:blank') {
-        console.harness('  (ignoring about:blank event)');
-        return;
-      }
-
-      if (aStateFlags & STATE_START && aStateFlags & STATE_IS_WINDOW &&
-          this._callOnStart)
-        this._callOnStart();
-      //console.log('state change', aStateFlags);
-      if (aStateFlags & STATE_STOP && aStateFlags & STATE_IS_WINDOW &&
-          this._callOnLoaded)
-        this._callOnLoaded();
-    }
-    catch(ex) {
-      console.error('Problem in stateChange callback:', ex, '\n', ex.stack);
-    }
-  },
-  onStatusChange: function() {
-    console.harness('status change!');
-  },
-
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener,
-                                         Ci.nsISupportsWeakReference]),
-};
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -532,11 +413,13 @@ var TEST_COMMAND = null;
 // Trigger just one variant of tests to run.
 var TEST_VARIANT = null;
 
+var chromeWindow = window.parent;
+
 /**
  * Pull test name and arguments out of command-line and/or environment
  */
 function populateTestParams() {
-  let args = window.arguments[0].QueryInterface(Ci.nsICommandLine);
+  let args = chromeWindow.arguments[0].QueryInterface(Ci.nsICommandLine);
 
   // the second argument to handleFlagWithParam is case sensitivity.
   var caseInsensitive = false;
@@ -594,101 +477,58 @@ window.console._enabled = TEST_PARAMS.testLogEnable;
 ////////////////////////////////////////////////////////////////////////////////
 // make device storage operate out of our test-profile dir!
 //
-// We want any device storage tests to stick inside our test sub-directory and
-// not be affected by our affect anywhere else on the disk.
+// We create/use one directory per test file/variant.  Tests Cases in the same
+// file use the same DeviceStorage.
 //
-// See the constants in:
-// http://mxr.mozilla.org/mozilla-central/source/xpcom/io/nsDirectoryServiceDefs.h#54
-// and their usages in nsDeviceStorage.cpp
-//
-// Note that DeviceStorage does support a "device.storage.testing" pref, but
-// then it just makes a subdirectory of the temp directory, which limits
-// our ability to test orthogonal device storages, etc.
+// There's a lot of mooted logic that you can pull out of the git log if this
+// stuff breaks again.
 
 var dirService = Cc["@mozilla.org/file/directory_service;1"]
                    .getService(Ci.nsIProperties);
-var DEVICE_STORAGE_PATH_CLOBBERINGS = {
-  // Linux:
-  'XDGPict': 'pictures',
-  'XDGMusic': 'music',
-  'XDGVids': 'videos',
-  // OSX:
-  'Pct': 'pictures',
-  'Music': 'music',
-  'Mov': 'videos',
-  // Win:
-  'Pict': 'pictures',
-  'Music': 'music',
-  'Vids': 'videos'
-};
-
-  /*
-let replacementDirServiceProvider = {
-  getFile: function(prop, persistent) {
-    persistent.value = true;
-    if (DEVICE_STORAGE_PATH_CLOBBERINGS.hasOwnProperty(prop))
-      return deviceStorageFile.clone();
-
-    return dirService.getFile(prop, persistent);
-  },
-  'get': function(prop, iid) {
-    return dirService.get(prop, iid);
-  },
-  'set': function(prop, value) {
-    return dirService.set(prop, value);
-  },
-  'has': function(prop) {
-
-  },
-  QueryInterface: XPCOMUtils.generateQI(
-                    [Ci.nsIDirectoryService, Ci.nsIProperties]),
-};
-Components.manager
-  .QueryInterface(Ci.nsIComponentRegistrar)
-  .registerFactory(Components.ID('{753e01a4-dc3c-48c7-b45e-91544ec01302}'),
-                   'fake directory service',
-                   '@mozilla.org/file/directory_service;1',
-                   replacementDirServiceProvider);
-*/
-
-
 function makeAndSetDeviceStorageTarget(subdirName) {
+  // We need to turn off device.storage.testing for nsDeviceStorage.cpp's
+  // OverrideRootDir::Init method to let us control the directory in the way we
+  // want.  (The logic in there is somewhat confusing; it seems like weird stuff
+  // can happen if this pref were to get dynamically toggled back to false, so
+  // let's never do that.)
+  // NB: Accordingly we just set this pref in our prefs.js
+  //Services.prefs.setBoolPref('device.storage.testing', false);
+
+  // OverrideRootDir uses NS_NewLocalFile which requires a relative path, so
+  // we need to do the resolution ourselves.
+
   var deviceStorageFile = dirService.get('ProfD', Ci.nsIFile);
   deviceStorageFile.append('device-storage');
   deviceStorageFile.append(subdirName);
+  console.harness('Setting device-storage path to', deviceStorageFile.path);
 
-  deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
-
-  for (let name in DEVICE_STORAGE_PATH_CLOBBERINGS) {
-    // force an undefine
-    try {
-      dirService.undefine(name);
-    }
-    catch(ex) {}
-    dirService.set(name, deviceStorageFile);
-    //console.log('after', name, dirService.get(name, Ci.nsILocalFile).path);
+  // OverrideRootDir likes to create the directory for us, so we don't need to
+  // create it.  But we do need to delete it and any existing contents to
+  // avoid weirdness
+  //deviceStorageFile.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt('777', 8));
+  if (deviceStorageFile.exists()) {
+    deviceStorageFile.remove(/* recursive */ true);
   }
+
+
+  Services.prefs.setCharPref(
+    'device.storage.overrideRootDir', deviceStorageFile.path);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // permissions
 //
-// This has to be handled in 2 ways:
-// - add the actual permissions to the old-school permissions manager
-// - properly be handled by ContentPermissionPrompt..
-//   b2g/components/ContentPermissionPrompt.js assumes that everything either
-//   has the system principal or is an app.
+// We used to explicitly authorize our test origin for all the permissions that
+// we had copied from our manifest into EMAIL_PERMISSIONS.  We now explicitly
+// just install our app and use what's in its manifest.
+//
+// I'm leaving this permissions stuff in place for now since just because an app
+// wants a permission doesn't mean it automatically gets it.  The user might
+// get prompted, we may want that prompt to be part of the test, etc.
+//
+// For now, however, the assumption is that the manifest install hooked us up.
 
-// copied from our webapp.manifest
 var EMAIL_PERMISSIONS = {
-    "alarms":{},
-    "audio-channel-notification":{},
-    "contacts":{ "access": "readcreate" },
-    "desktop-notification":{},
-    "device-storage:sdcard":{ "access": "readcreate" },
-    "systemXHR":{},
-    "settings":{ "access": "readonly" },
-    "tcp-socket":{}
 };
 
 /**
@@ -761,11 +601,17 @@ var FakeContentPermissionPrompt = {
 let componentRegistrar =
       Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
 
+// WE NO LONGER USE OUR FAKE COMPONENT REGISTRAR SINCE WE ARE DOING THE EXPLICIT
+// APP INSTALL STUFF ABOVE.  However, this seems like the type of thing we may
+// need to dig out again in the near future or for debugging purposes, so
+// leaving it around for now, just hard-disabled.
+/*
 componentRegistrar.registerFactory(
   Components.ID("{d56fec31-dc7a-4526-9e12-a722f3effb3b}"),
   "Fake Content Permission Prompt Service",
   "@mozilla.org/content-permission/prompt;1",
   FakeContentPermissionPrompt);
+*/
 
 function grantEmailPermissions(originUrl) {
   var perm = Cc["@mozilla.org/permissionmanager;1"]
@@ -818,85 +664,6 @@ function buildQuery(args) {
     bits.push(encodeURIComponent(key) + "=" + encodeURIComponent(args[key]));
   }
   return bits.join("&");
-};
-
-
-/**
- * For time/simplicity reasons, we aren't actually doing any type of async
- * proxying here but are instead favoring a synchronous API we are able to
- * expose directly into the content space.
- *
- * In a fancy async implementation, TestActiveSyncServerMixins could be made to
- * generate expectations to cover any async behaviour we started exhibiting.
- */
-function ActiveSyncServerProxy() {
-  this.server = null;
-
-}
-ActiveSyncServerProxy.prototype = {
-  __exposedProps__: {
-    createServer: 'r',
-    addFolder: 'r',
-    addMessageToFolder: 'r',
-    addMessagesToFolder: 'r',
-    useLoggers: 'r',
-  },
-
-  createServer: function(useDate) {
-    this.server = new ActiveSyncServer(useDate);
-    this.server.start(0);
-
-    var httpServer = this.server.server,
-        port = httpServer._socket.port;
-
-    httpServer._port = port;
-    // it had created the identity on port 0, which is not helpful to anyone
-    httpServer._identity._initialize(port, httpServer._host, true);
-
-    return {
-      id: 'only',
-      port: port
-    };
-  },
-
-  addFolder: function(serverHandle, name, type, parentId, messageSetDef) {
-    var folder = this.server.addFolder(name, type, parentId, messageSetDef);
-    return folder.id;
-  },
-
-  addMessageToFolder: function(serverHandle, folderId, messageDef) {
-    var folder = this.server.foldersById[folderId];
-    folder.addMessage(messageDef);
-  },
-
-  addMessagesToFolder: function(serverHandle, folderId, messageSetDef) {
-    var folder = this.server.foldersById[folderId];
-
-  },
-
-  useLoggers: function(serverHandle, loggers) {
-    this.server.logRequest = loggers.request || null;
-    this.server.logRequestBody = loggers.requestBody || null;
-    this.server.logResponse = loggers.response || null;
-    this.server.logResponseError  = loggers.responseError || null;
-  },
-
-  killServer: function() {
-    if (!this.server)
-      return;
-    try {
-      this.server.stop();
-    }
-    catch (ex) {
-      console.error('Problem shutting down ActiveSync server:\n',
-                    ex, '\n', ex.stack);
-    }
-    this.server = null;
-  },
-
-  cleanup: function() {
-    this.killServer();
-  }
 };
 
 /**
@@ -1021,18 +788,93 @@ var gProgress = null;
 var gIframe = null;
 
 /**
+ * Given our URI figure out what appId we ended up assigning to our app.
+ */
+function resolveUriToAppId(uri) {
+  // lucky for us there's really only one manifest so its path is easy to
+  // figure out.
+  var manifestUrl = uri.prePath + '/test/manifest.webapp';
+  var appId =  DOMApplicationRegistry.getAppLocalIdByManifestURL(manifestUrl);
+  // dump ("!! appId is " + appId + " for " + manifestUrl + "\n");
+  return appId;
+}
+
+/**
  * @param controlServer The ControlServer to point the test at.
  */
 function runTestFile(testFileName, variant, controlServer) {
   try {
-    return _runTestFile(testFileName, variant, controlServer);
+    return _installTestFileThenRun(testFileName, variant, controlServer);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _runTestFile(testFileName, variant, controlServer) {
+function _installTestFileThenRun(testFileName, variant, controlServer) {
+  // Our testfile protocol allows us to use the test file as an origin, so every
+  // test file gets its own instance of the e-mail database.  This is better
+  // than deleting the database every time because at the end of the run we
+  // will have all the untouched IndexedDB databases around so we can poke at
+  // them if we need/want.
+  var baseUrl = 'testfile://' + testFileName + '-' +
+                  variant.replace(/:/g, '_') + '/';
+
+  var manifestUrl = baseUrl + 'test/manifest.webapp';
+
+  // So, if one is playing by the rules, then one
+  // uses navigator.mozApps.install().  However, that method really wants us to
+  // be using an nsIHttpChannel or nsIJarChannel to get the XHR status and for
+  // us to pass some other checks.  It just so happens that being
+  // super-privileged like ourselves we can bypass that BS and just directly
+  // force the issue.
+  console.harness('Force installing app at', manifestUrl);
+  // This data-structure is normally created by dom/apps/src/Webapps.js'
+  // WebappsRegistry._prepareInstall
+  var data = {
+    app: {
+      installOrigin: baseUrl,
+      origin: baseUrl, // used
+      manifestURL: manifestUrl, // used
+      receipts: [],
+      categories: []
+      // not used by us: 'localInstallPath' ?
+    },
+
+    from: baseUrl, // unused?
+    oid: 0, // unused?
+    requestID: 0, // unused-ish
+    appId: 0, // unused
+    isBrowser: false,
+    isPackage: false, // used
+    // magic to auto-ack... don't think we care about this...
+    forceSuccessAck: false
+    // stuff that probably doesn't matter: 'mm', 'apkInstall',
+  };
+
+  return OS.File.read('test/manifest.webapp').then(function(arr) {
+    var manifestStr = new TextDecoder().decode(arr);
+    data.app.manifest = JSON.parse(manifestStr);
+    console.harness('got manifest!');
+    return DOMApplicationRegistry.confirmInstall(data).then(
+      function() {
+        console.harness('installed!! compelling permissions');
+        // act like this is a privileged app having all of its permissions
+        // authorized at first run.
+        DOMApplicationRegistry.updatePermissionsForApp(
+          resolveUriToAppId(manifestUrl),
+          /* preinstalled */ true,
+          /* system update? */ true);
+        console.harness('permissions compelled');
+        return _runTestFile(testFileName, variant, baseUrl, manifestUrl,
+                            controlServer);
+      },
+      function(err) {
+        console.error('install failure!', err, '\n', err.stack);
+      });
+  });
+};
+function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer) {
   console.harness('running', testFileName, 'variant', variant);
 
   // Parameters to pass into the test.
@@ -1042,6 +884,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakeimaphost',
+        emailDomain: 'fakeimaphost',
         password: 'testy',
         slow: false,
         type: 'imap',
@@ -1055,6 +898,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakepop3host',
+        emailDomain: 'fakepop3host',
         password: 'testy',
         slow: false,
         type: 'pop3',
@@ -1068,6 +912,7 @@ function _runTestFile(testFileName, variant, controlServer) {
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakeashost',
+        emailDomain: 'fakeashost',
         password: 'testy',
         slow: false,
         type: 'activesync',
@@ -1110,17 +955,8 @@ function _runTestFile(testFileName, variant, controlServer) {
   makeAndSetDeviceStorageTarget(
     testFileName + '-' + variant.replace(/:/g, '_'));
 
-  // Our testfile protocol allows us to use the test file as an origin, so every
-  // test file gets its own instance of the e-mail database.  This is better
-  // than deleting the database every time because at the end of the run we
-  // will have all the untouched IndexedDB databases around so we can poke at
-  // them if we need/want.
-  var baseUrl = 'testfile://' + testFileName + '-' +
-                  variant.replace(/:/g, '_') + '/';
-  grantEmailPermissions(baseUrl);
-
   var runnerIframe = gIframe = document.createElement('iframe');
-  runnerIframe.setAttribute('type', 'content');
+  //runnerIframe.setAttribute('type', 'content');
   runnerIframe.setAttribute('flex', '1');
   runnerIframe.setAttribute('style', 'border: 1px solid blue;');
 
@@ -1134,6 +970,7 @@ function _runTestFile(testFileName, variant, controlServer) {
 
   function cleanupWindow() {
     try {
+      console.harness('!! cleanupWindow; removing iframe');
       runnerIframe.parentNode.removeChild(runnerIframe);
 
       cleanupList.forEach(function(obj) {
@@ -1145,99 +982,68 @@ function _runTestFile(testFileName, variant, controlServer) {
     }
   }
 
-  // XXX so, I'm having trouble with the web progress listener not being
-  // reliable in certain cases that have to do with async event ordering.
-  // So as a hack I'm just putting the fake parent object on early, even
-  // though it might get nuked off in most cases and require our progress
-  // listener to put it back on.
   var processedLog = false;
-  var fakeParentObj = {
-      __exposedProps__: {
-        fakeParent: 'r',
-        postMessage: 'r',
-      },
-      fakeParent: true,
-      postMessage: function(data, dest) {
-        if (processedLog) {
-          console.harness('WARNING: Already got a processed log!');
-          return;
-        }
-        processedLog = true;
+  var logListener = function(event) {
+    if (processedLog) {
+      console.harness('WARNING: Already got a processed log!');
+      return;
+    }
+    processedLog = true;
 
-console.harness('calling writeTestLog and resolving');
-        var jsonStr = data.data,
-            logData = JSON.parse(jsonStr);
-        // this must be done prior to the compartment getting killed
-        var summary = summaryFromLoggest(testFileName, variant, logData);
-        if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
-          writeTestLog(testFileName, variant, jsonStr, summary).then(
-            function() {
-              console.harness('write completed!');
-              deferred.resolve(summary);
-            });
-        }
-        else {
-          console.harness('not a failure, not writing');
+    console.harness('calling writeTestLog and resolving');
+    var jsonStr = event.data.data,
+        logData = JSON.parse(jsonStr);
+    // this must be done prior to the compartment getting killed
+    var summary = summaryFromLoggest(testFileName, variant, logData);
+    if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
+      writeTestLog(testFileName, variant, jsonStr, summary).then(
+        function() {
+          console.harness('write completed!');
           deferred.resolve(summary);
-        }
+        });
+    }
+    else {
+      console.harness('not a failure, not writing');
+      deferred.resolve(summary);
+    }
 
-        // cleanup may kill things, so don't do this until after the above
-        // functions have been able to snapshot the log
-        console.harness('cleaning up window');
-        cleanupWindow();
-      }
-    };
-
-  // we want to make sure that we only poke things into the window once it
-  // exists
-  var progressListenFlags = Ci.nsIWebProgress.NOTIFY_STATE_WINDOW |
-                            Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT |
-                            Ci.nsIWebProgress.NOTIFY_STATE_NETWORK |
-                            Ci.nsIWebProgress.NOTIFY_STATE_REQUEST;
-  var progressListener = gProgress = new ProgressListener({
-    onLoaded: function() {
-      console.harness('page started; poking functionality inside');
-      win = gRunnerWindow = runnerIframe.contentWindow;
-      win.addEventListener('error', errorListener);
-      domWin = win.wrappedJSObject;
-
-      webProgress.removeProgressListener(progressListener,
-                                         progressListenFlags);
-
-      // Look like we are content-space that embedded the iframe!
-      domWin.parent = fakeParentObj;
-
-      // We somehow did not initialize before the report, just use the log
-      // from there.
-      if (domWin.logResultsMsg) {
-        domWin.parent.postMessage(domWin.logResultsMsg, '*');
-      }
-
-      console.log('domWin.parent.fakeParent', domWin.parent.fakeParent);
-
-      // XXX ugly magic bridge to allow creation of/control of fake ActiveSync
-      // servers.
-      var asProxy = new ActiveSyncServerProxy();
-      domWin.MAGIC_SERVER_CONTROL = asProxy;
-      cleanupList.push(asProxy);
-    }});
-
-
-  console.harness('about to append');
-  document.documentElement.appendChild(runnerIframe);
-
-  var webProgress = runnerIframe.webNavigation
-                      .QueryInterface(Ci.nsIWebProgress);
-  webProgress.addProgressListener(progressListener, progressListenFlags);
-
-  console.harness('about to set src');
-  runnerIframe.setAttribute(
-    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
-  console.harness('src set to:', runnerIframe.getAttribute('src'));
+    // cleanup may kill things, so don't do this until after the above
+    // functions have been able to snapshot the log
+    console.harness('cleaning up window');
+    cleanupWindow();
+  };
 
   var errorListener = function errorListener(errorMsg, url, lineNumber) {
     console.harness('win err:', errorMsg, url, lineNumber);
   };
+
+  console.harness('about to set src');
+  runnerIframe.setAttribute('mozbrowser', 'true');
+  runnerIframe.setAttribute('mozapp', manifestUrl);
+
+
+  // The ones where we're not doing anything exist so we can have the logging
+  // to see if anything weird is happening.
+  runnerIframe.addEventListener('mozbrowserloadstart', function() {
+    console.harness('!! load start');
+  });
+  runnerIframe.addEventListener('mozbrowserlocationchange', function() {
+    console.harness('!! location change');
+  });
+  runnerIframe.addEventListener('mozbrowserloadend', function() {
+    console.harness('!! load end');
+    win = gRunnerWindow = runnerIframe.contentWindow;
+    win.addEventListener('error', errorListener);
+    win.addEventListener('message', logListener);
+  });
+
+  runnerIframe.setAttribute(
+    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
+  console.harness('src set to:', runnerIframe.getAttribute('src'));
+
+  console.harness('about to append');
+  document.documentElement.appendChild(runnerIframe);
+
 
   return deferred.promise;
 }
@@ -1354,7 +1160,8 @@ function runTests(configData) {
 
     runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
                 controlServer)
-      .then(runNextTest);
+      .then(runNextTest,
+            function(err) { console.error('Problem running test:', err); });
   }
   runNextTest();
 

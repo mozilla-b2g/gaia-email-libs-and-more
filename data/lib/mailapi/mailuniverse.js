@@ -373,12 +373,25 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._LOG = null;
   this._db = new $maildb.MailDB(testOptions);
-  this._cronSync = new $cronsync.CronSync(this);
+  this._cronSync = null;
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
-      if (self.config.debugLogging) {
-        if (self.config.debugLogging !== 'dangerous') {
+       if (self.config.debugLogging) {
+        if (self.config.debugLogging === 'realtime-dangerous') {
+          console.warn('!!!');
+          console.warn('!!! REALTIME USER-DATA ENTRAINING LOGGING ENABLED !!!');
+          console.warn('!!!');
+          console.warn('You are about to see a lot of logs, as they happen!');
+          console.warn('They will also be circularly buffered for saving.');
+          console.warn('');
+          console.warn('These logs will contain SENSITIVE DATA.  The CONTENTS');
+          console.warn('OF EMAILS, maybe some PASSWORDS.  This was turned on');
+          console.warn('via the secret debug mode UI.  Use it to turn us off:');
+          console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
+          $log.DEBUG_realtimeLogEverything(dump);
+        }
+        else if (self.config.debugLogging !== 'dangerous') {
           console.warn('GENERAL LOGGING ENABLED!');
           console.warn('(CIRCULAR EVENT LOGGING WITH NON-SENSITIVE DATA)');
           $log.enableGeneralLogging();
@@ -390,6 +403,9 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
           console.warn('This means contents of e-mails and passwords if you');
           console.warn('set up a new account.  (The IMAP protocol sanitizes');
           console.warn('passwords, but the bridge logger may not.)');
+          console.warn('');
+          console.warn('If you forget how to turn us off, see:');
+          console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
           console.warn('...................................................');
           $log.DEBUG_markAllFabsUnderTest();
         }
@@ -540,7 +556,7 @@ MailUniverse.prototype = {
    * Perform initial initialization based on our configuration.
    */
   _initFromConfig: function() {
-    this._cronSync.onUniverseReady();
+    this._cronSync = new $cronsync.CronSync(this, this._LOG);
   },
 
   /**
@@ -686,6 +702,20 @@ MailUniverse.prototype = {
     }
   },
 
+  /**
+   * Return true if there are server jobs that are currently running or will run
+   * imminently.
+   *
+   * It's possible for this method to be called during the cleanup stage of the
+   * last job in the queue.  It was intentionally decided to not try and be
+   * clever in that case because the job could want to be immediately
+   * rescheduled.  Also, propagating the data to do that turned out to involve a
+   * lot of sketchy manual propagation.
+   *
+   * If you have some logic you want to trigger when the server jobs have
+   * all been sufficiently used up, you can use `waitForAccountOps`  or add
+   * logic to the account's `allOperationsCompleted` method.
+   */
   areServerJobsWaiting: function(account) {
     var queues = this._opsByAccount[account.id];
     if (!account.enabled) {
@@ -773,7 +803,9 @@ MailUniverse.prototype = {
 
     // Make sure syncs are still accurate, since syncInterval
     // could have changed.
-    this._cronSync.ensureSync();
+    if (this._cronSync) {
+      this._cronSync.ensureSync();
+    }
 
     // If account exists, notify of modification. However on first
     // save, the account does not exist yet.
@@ -993,7 +1025,9 @@ MailUniverse.prototype = {
       account.shutdown(callback ? accountShutdownCompleted : null);
     }
 
-    this._cronSync.shutdown();
+    if (this._cronSync) {
+      this._cronSync.shutdown();
+    }
     this._db.close();
     if (this._LOG)
       this._LOG.__die();
@@ -1484,9 +1518,19 @@ MailUniverse.prototype = {
       op = serverQueue[0];
       this._dispatchServerOpForAccount(account, op);
     }
-    else if (this._opCompletionListenersByAccount[account.id]) {
-      this._opCompletionListenersByAccount[account.id](account);
-      this._opCompletionListenersByAccount[account.id] = null;
+    // We finished all the operations!  Woo!
+    else {
+      // Notify listeners
+      if (this._opCompletionListenersByAccount[account.id]) {
+        this._opCompletionListenersByAccount[account.id](account);
+        this._opCompletionListenersByAccount[account.id] = null;
+      }
+
+      // - Tell the account so it can clean-up its connections, etc.
+      // (We do this after notifying listeners for the connection cleanup case
+      // so that if the listener wants to schedule new activity, it can do so
+      // without having to wastefully establish a new connection.)
+      account.allOperationsCompleted();
     }
   },
 
@@ -1508,10 +1552,12 @@ MailUniverse.prototype = {
    * ]
    */
   _queueAccountOp: function(account, op, optionalCallback) {
+    var queues = this._opsByAccount[account.id];
     // Log the op for debugging assistance
     // TODO: Create a real logger event; this will require updating existing
     // tests and so is not sufficiently trivial to do at this time.
-    console.log('queueOp', account.id, op.type);
+    console.log('queueOp', account.id, op.type, 'pre-queues:',
+                'local:', queues.local.length, 'server:', queues.server.length);
     // - Name the op, register callbacks
     if (op.longtermId === null) {
       // mutation job must be persisted until completed otherwise bad thing
@@ -1539,7 +1585,6 @@ MailUniverse.prototype = {
 
 
     // - Enqueue
-    var queues = this._opsByAccount[account.id];
     // Local processing needs to happen if we're not in the right local state.
     if (!this._testModeDisablingLocalOps &&
         ((op.lifecycle === 'do' && op.localStatus === null) ||

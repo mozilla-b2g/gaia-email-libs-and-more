@@ -1,0 +1,36 @@
+{
+  "name": "GELAM test runner",
+  "description": "GELAM test runner",
+  "type": "certified",
+  "launch_path": "/index.html",
+  "developer": {
+    "name": "The GELAM Team",
+    "url": "https://github.com/mozilla-b2g/gaia-email-libs-and-more"
+  },
+  "messages": [
+    { "alarm": "/index.html" },
+    { "notification": "/index.html" }
+  ],
+  "permissions": {
+    "alarms":{},
+    "audio-channel-notification":{},
+    "contacts":{ "access": "readcreate" },
+    "desktop-notification":{},
+    "storage":{},
+    "device-storage:sdcard":{ "access": "readcreate" },
+    "systemXHR":{},
+    "tcp-socket":{}
+  },
+  "locales": {
+    "en-US": {
+      "name": "GELAM",
+      "description": "GELAM"
+    }
+  },
+  "default_locale": "en-US",
+  "icons": {
+  },
+  "activities": {
+  },
+  "orientation": "default"
+}

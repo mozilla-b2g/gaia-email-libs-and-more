@@ -60,7 +60,7 @@ var TestFakeIMAPServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakeIMAPServers[normName] = true;
 
-    self.testAccount = null;
+    self.testAccount = opts.testAccount;
 
     self.T.convenienceSetup(setupVerb, self,
                             function() {
@@ -77,12 +77,13 @@ var TestFakeIMAPServerMixins = {
           {
             command: 'make_imap_and_smtp',
             credentials: {
-              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-              password: TEST_PARAMS.password
+              username: extractUsernameFromEmail(self.testAccount.emailAddress),
+              password: self.testAccount.initialPassword
             },
             options: {
               imapExtensions: imapExtensions
-            }
+            },
+            deliveryMode: opts.deliveryMode
           });
 
         // now we only want to talk to our specific server control endpoint
@@ -91,7 +92,19 @@ var TestFakeIMAPServerMixins = {
 
         // XXX because of how our timezone detection logic works, we really need
         // a message in the Inbox...
-        var fakeMsgDate = new Date();
+        // And timestamp-wise, for 'new' message reasons, this needs to be a
+        // somewhat older message.
+        var fakeMsgDate;
+        var testUniverse = opts.testAccount.testUniverse;
+        // realDate specified?  then we can use something slightly old.
+        if (!testUniverse._useDate) {
+          fakeMsgDate = new Date(Date.now() - 2000);
+        }
+        else {
+          // XXX ugh, not sure what the right answer is here.
+          fakeMsgDate = new Date(
+            testUniverse._useDate.valueOf() - 2 * 24 * 60 * 60 * 1000);
+        }
         self.addMessagesToFolder('INBOX', [{
           date: fakeMsgDate,
           metaState: {},
@@ -121,8 +134,11 @@ var TestFakeIMAPServerMixins = {
     });
   },
 
+  /**
+   * Weird hack method invoked at runtime following the creation of the account.
+   * Really question why anything is in here.
+   */
   finishSetup: function(testAccount) {
-    this.testAccount = testAccount;
     this.supportsServerFolders =
       testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)

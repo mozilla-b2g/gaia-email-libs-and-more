@@ -1018,8 +1018,9 @@ LoggestClassMaker.prototype = {
                         "participating in this test step!");
       if (this._resolved)
         throw new Error("Attempt to add expectations when already resolved!");
-
-      this._expectations.push([name, gimmeStack(), val]);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push([name, gimmeStack(), val]);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1130,7 +1131,9 @@ LoggestClassMaker.prototype = {
           exp.push(arguments[iArg]);
         }
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1262,7 +1265,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name_begin])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name_begin] = makeIgnoreFunc(name_begin);
@@ -1279,7 +1284,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name_end])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name_end] = makeIgnoreFunc(name_end);
@@ -1434,7 +1441,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg])
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1496,7 +1505,9 @@ LoggestClassMaker.prototype = {
         if (useArgs[iArg] && useArgs[iArg] !== EXCEPTION)
           exp.push(arguments[iArg]);
       }
-      this._expectations.push(exp);
+      // If we are being told to ignore stuff this round, eat the expectation.
+      if (!this._ignore || !this._ignore[name])
+        this._expectations.push(exp);
       return this;
     };
     this.testActorProto['ignore_' + name] = makeIgnoreFunc(name);
@@ -1765,6 +1776,42 @@ exports.DEBUG_markAllFabsUnderTest = function() {
     logfab._underTest = BogusTester;
   }
 };
+
+/**
+ * For EXTREME debugging similar to DEBUG_markAllFabsUnderTest; log entries are
+ * both:
+ * 1) Passed to dumpFunc as they are logged so we get the logs in the "adb
+ *    logcat" output.
+ * 2) Retained so you better have hooked up circular logging or you better have
+ *    infinite memory.
+ *
+ * @param {Function} dumpFunc
+ *   This should resemble the standard mozilla dump() func wherein we must
+ *   provide newlines.  (And we definitely will provide them.)
+ */
+exports.DEBUG_realtimeLogEverything = function(dumpFunc) {
+  var EverythingTester = {
+    reportNewLogger: function(logger, parentLogger) {
+      logger._actor = {
+        __loggerFired: function() {
+          // Destructively pop it off the end of the list; inductively this
+          // should always be index 0, but you never know!
+          var entry = logger._entries.pop();
+          // Let's look like: LoggerType(semanticIdent)["name", ...]
+          dumpFunc(logger.__defName + '(' + logger._ident + ')' +
+                   JSON.stringify(entry) + '\n');
+        }
+      };
+    }
+  };
+  UNDER_TEST_DEFAULT = EverythingTester;
+  for (var i = 0; i < ALL_KNOWN_FABS.length; i++) {
+    var logfab = ALL_KNOWN_FABS[i];
+
+    logfab._underTest = EverythingTester;
+  }
+};
+
 
 /**
  * Evolutionary stopgap debugging helper to be able to put a module/logfab into

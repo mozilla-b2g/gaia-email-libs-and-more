@@ -82,11 +82,16 @@ var TestDeviceStorageMixins = {
     });
 
     self.T.convenienceDeferredCleanup(self, 'nukes and detaches', function() {
+      // NOTE!  We now request just the readcreate permission, not the readwrite
+      // permission.  So we can't delete things.  This isn't a huge deal for us,
+      // but it does mean we can't clean up after ourselves.
+      /*
       cleanupList.forEach(function(path) {
         self.expect_deleted(path);
       });
+      */
       self.expect_detached();
-      sendMessage('detach', { nuke: cleanupList });
+      sendMessage('detach', { nuke: [] });
     });
   },
 

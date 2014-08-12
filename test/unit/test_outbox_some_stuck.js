@@ -5,19 +5,15 @@
  * `test_compose.js`) for message-specific edge cases like attachments,
  * MIME parsing, and other such stuff.
  */
-define(['./shared_outbox',
-        'rdcommon/testcontext', './resources/th_main',
+define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
         'mailapi/util', 'mailapi/accountcommon', 'exports'],
-       function($sharedOutbox,
-                $tc, $th_imap, $th_devicestorage, $msggen,
+       function($tc, $th_imap, $th_devicestorage, $msggen,
                 $util, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_outbox_some_stuck' }, null,
   [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
-
-var do_composeAndSendMessage = $sharedOutbox.do_composeAndSendMessage;
 
 // We cannot use a static subject in case we run this test on a real
 // server, which may have messages in folders already.
@@ -55,15 +51,6 @@ TD.commonCase('fail the first message, succeed the second', function(T, RT) {
       });
   });
 
-  var env = {
-    T: T,
-    RT: RT,
-    testUniverse: testUniverse,
-    testAccount: testAccount,
-    eLazy: eLazy,
-    outboxView: views.outbox
-  };
-
   // Send two messages. The first one fails and gets stuck in the
   // outbox because it had an invalid 'to' address; the second one
   // sends successfully.
@@ -73,12 +60,14 @@ TD.commonCase('fail the first message, succeed the second', function(T, RT) {
 
     T.group('Send "' + subject + '"');
 
-
-    do_composeAndSendMessage(env, subject, {
-      success: succeedThisMessage,
-      to: (succeedThisMessage ? null : 'invalid@'),
-      existingRetryResults: idx ? ['failure'] : []
-    });
+    testAccount.do_composeAndSendMessage(
+      subject,
+      {
+        success: succeedThisMessage,
+        to: (succeedThisMessage ? null : 'invalid@'),
+        existingRetryResults: idx ? ['failure'] : [],
+        outboxView: views.outbox
+      });
 
     if (!succeedThisMessage) {
       testAccount.do_waitForMessage(views.outbox, subject, {

@@ -104,11 +104,9 @@ TD.commonCase('create, recreate offline', function(T) {
   TU3.do_shutdown();
 
   T.group('migrate while online');
-  // this will trigger lazy upgrade migration.
-  // note: the use of upgrade: 'nowait' is to stop us waiting for the
-  // syncFolderList job to complete.  This results in somewhat of an inherent
-  // race.  I have just improved the intermittent-ness of this test, but it'll
-  // take a lot more to make this foolproof right now, so, uh... sorry.
+  // TODO: re-enable in whatever manner is appropriate, if at all
+  // https://bugzil.la/1049264 filed with discussion
+  /*
   var TU4 = T.actor('testUniverse', 'U4',
                     { old: TU3, dbDelta: 2, upgrade: 'nowait' }),
       TA4 = T.actor('testAccount', 'A4',
@@ -127,6 +125,7 @@ TD.commonCase('create, recreate offline', function(T) {
       filterType: FilterType.NoFilter },
     { top: true, bottom: true, grow: false },
     { nosave: true, syncblocked: 'resolve', accountActive: true });
+  */
 
   T.group('cleanup');
 });

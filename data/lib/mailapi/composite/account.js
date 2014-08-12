@@ -162,6 +162,12 @@ CompositeAccount.prototype = {
     return this._receivePiece.runAfterSaves(callback);
   },
 
+  allOperationsCompleted: function() {
+    if (this._receivePiece.allOperationsCompleted) {
+      this._receivePiece.allOperationsCompleted();
+    }
+  },
+
   /**
    * Check that the account is healthy in that we can login at all.
    * We'll check both the incoming server and the SMTP server; for

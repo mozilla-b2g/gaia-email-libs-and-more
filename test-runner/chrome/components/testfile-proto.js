@@ -8,13 +8,25 @@ dump('sourcing testfile-proto.js\n');
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
+// Needed for DOMApplicationRegistry so we can map origin to AppId.
+Cu.import('resource://gre/modules/Webapps.jsm');
+
+
 const IOService = CC('@mozilla.org/network/io-service;1', 'nsIIOService')();
 const URIChannel = IOService.newChannel.bind(IOService);
 
 const SecurityManager = CC('@mozilla.org/scriptsecuritymanager;1',
                      'nsIScriptSecurityManager')();
 const URI = IOService.newURI.bind(IOService);
-const Principal = SecurityManager.getCodebasePrincipal.bind(SecurityManager);
+// this forces no app-id, not generally what we want
+const NoAppPrincipal = SecurityManager.getNoAppCodebasePrincipal.bind(
+                         SecurityManager);
+// this forces an app principal, could be what we want
+const AppPrincipal = SecurityManager.getAppCodebasePrincipal.bind(
+                       SecurityManager);
+// this uses the principal of the load context... more right?
+const LoadContextPrincipal =
+        SecurityManager.getLoadContextCodebasePrincipal.bind(SecurityManager);
 
 const URLParser = CC('@mozilla.org/network/url-parser;1?auth=maybe',
                      'nsIURLParser')();
@@ -121,7 +133,11 @@ CustomURL.prototype = {
   cloneIgnoringRef: function cloneIgnoringRef() this.clone(),
   equals: function equals(uri) this.spec === uri.spec,
   equalsExceptRef: function equalsExceptRef(uri) this.equals(uri),
-  schemeIs: function schemeIs(scheme) this.scheme === scheme,
+  schemeIs: function schemeIs(scheme) {
+    // lie and claim we are https because Webapps.js thinks non-http/non-https
+    // constitutes an INVALID_URL.
+    return (scheme === 'https' || this.scheme === scheme);
+  },
   resolve: function resolve(path) {
     let parts;
 
@@ -161,6 +177,18 @@ CustomURL.prototype = {
 
 var DEBUG = 0;
 
+/**
+ * Given our URI figure out what appId we ended up assigning to our app.
+ */
+function resolveUriToAppId(uri) {
+  // lucky for us there's really only one manifest so its path is easy to
+  // figure out.
+  var manifestUrl = uri.prePath + '/test/manifest.webapp';
+  var appId =  DOMApplicationRegistry.getAppLocalIdByManifestURL(manifestUrl);
+  // dump ("!! appId is " + appId + " for " + manifestUrl + "\n");
+  return appId;
+}
+
 function TestfileProtocolHandler() {
 //dump('instantiating protocol!\n');
 }
@@ -172,7 +200,7 @@ TestfileProtocolHandler.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIProtocolHandler]),
 
   scheme: 'testfile',
-  defaultPort: 80,
+  defaultPort: 443,
   protocolFlags: Ci.nsIProtocolHandler.URI_LOADABLE_BY_ANYONE,
   allowPort: function() { return true; },
 
@@ -201,7 +229,37 @@ TestfileProtocolHandler.prototype = {
     var channel = URIChannel(IOService.newFileURI(do_get_file(relPath)).spec,
                              null, null);
     channel.originalURI = aURI;
-    channel.owner = Principal(aURI, null, null);
+
+
+
+    // NOTE!  Originally we set the owner to the (deprecated) codebase
+    // principal which is now the noapp principal.  Then I changed us to
+    // use what I *thought* was a mozbrowser/mozapp iframe.  However, the good
+    // 'ole "XUL iframes are different from HTML iframes" thing tricked me
+    // and I ended up using the code below to force the protocol to have the
+    // principal of the app.  However, it now turns out that once I addressed
+    // the XUL/HTML iframe thing, we no longer seem to need to set the
+    // principal.
+    //
+    // I'm leaving this code in here commented out because
+
+    /*
+    // Find the AppId
+    var appId = resolveUriToAppId(aURI);
+    // we want to act like an installed app, so we say false to being in a
+    // mozBrowser.  (even though we have mozapp and mozbrowser)
+    //channel.owner = AppPrincipal(aURI, appId, false);
+    */
+
+    // If we were actually doing the install the right way, we would potentially
+    // want a content-type.  However that requires full nsIHttpChannel stuff
+    // to work, so I'm commenting this out too since it does nothing.
+    /*
+    if (/\.webapp$/.test(aURI)) {
+      channel.contentType = 'application/x-web-app-manifest+json';
+    }
+    */
+
     return channel;
   },
 };

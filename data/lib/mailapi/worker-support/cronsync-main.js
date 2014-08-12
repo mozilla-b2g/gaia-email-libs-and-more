@@ -138,17 +138,25 @@ define(function(require) {
      */
     ensureSync: function (syncData) {
       var mozAlarms = navigator.mozAlarms;
-      if (!mozAlarms)
+      if (!mozAlarms) {
+        console.warn('no mozAlarms support!');
         return;
+      }
 
       debug('ensureSync called');
 
       var request = mozAlarms.getAll();
 
       request.onsuccess = function(event) {
+        debug('success!');
+
         var alarms = event.target.result;
-        if (!alarms)
-          return;
+        // If there are no alarms a falsey value may be returned.  We want
+        // to not die and also make sure to signal we completed, so just make
+        // an empty list.
+        if (!alarms) {
+          alarms = [];
+        }
 
         // Find all IDs being tracked by alarms
         var expiredAlarmIds = [],
@@ -203,6 +211,7 @@ define(function(require) {
           if (alarmCount < alarmMax)
             return;
 
+          debug('ensureSync completed');
           // Indicate ensureSync has completed because the
           // back end is waiting to hear alarm was set before
           // triggering sync complete.

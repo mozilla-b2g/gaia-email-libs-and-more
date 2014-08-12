@@ -562,7 +562,9 @@ Autoconfigurator.prototype = {
 
     console.log('  Looking in GELAM');
     if (autoconfigByDomain.hasOwnProperty(domain)) {
-      onComplete(null, autoconfigByDomain[domain]);
+      // These need to be roundtripped through JSON.stringify/parse since
+      // the placeholder logic is mutating/destructive.
+      onComplete(null, JSON.parse(JSON.stringify(autoconfigByDomain[domain])));
       return;
     }
 

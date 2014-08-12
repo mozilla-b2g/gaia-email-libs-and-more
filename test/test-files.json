@@ -205,6 +205,10 @@
       "variants": ["noserver"]
     },
 
+    "test_cronsync_wait_for_completion.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
+    },
+
     "test_b64_unit.js": {
       "variants": ["noserver"]
     },

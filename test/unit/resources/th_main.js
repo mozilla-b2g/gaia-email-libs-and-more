@@ -16,6 +16,7 @@ var $log = require('rdcommon/log'),
     $activesyncjobs = require('mailapi/activesync/jobs'),
     $msggen = require('tests/resources/messageGenerator'),
     $mailslice = require('mailapi/mailslice'),
+    $cronsync = require('mailapi/cronsync'),
     $searchfilter = require('mailapi/searchfilter'),
     $sync = require('mailapi/syncbase'),
     $imapfolder = require('mailapi/imap/folder'),
@@ -82,9 +83,60 @@ exports.thunkConsoleForNonTestUniverse = function() {
   makeConsoleForLogger(consoleLogger);
 };
 
+/**
+ * Temporarily clobber a method on a prototype, invoking your provided callback
+ * when the function is invoked.  Your function will be invoked with a function
+ * you can use to release the call.  The intercept will immediately be removed
+ * since this is a fairly dangerous game to be playing.
+ *
+ * @param {String} params.method
+ * @param {Object} params.onProtoFromConstructor
+ * @param {Function} params.callMyFunc
+ * @param {Number} [params.skipCount=0]
+ *   How many calls should we ignore before intercepting?  Use this when POP3
+ *   or ActiveSync ruin your day.
+ */
+function interceptNextCall(params) {
+  var methodName = params.method;
+  var proto = params.onProtoFromConstructor.prototype;
+  var callback = params.callMyFunc;
+  var skipCount = params.skipCount || 0;
+
+  var origFunc = proto[params.method];
+  var replacementFunc = proto[params.method] = function() {
+    var calledInst = this;
+    var calledArgs = arguments;
+    var releaseTheCall = function() {
+      origFunc.apply(calledInst, calledArgs);
+    };
+    // If we should be skipping, immediately release/pass-through
+    if (skipCount--) {
+      try {
+        releaseTheCall();
+      }
+      catch(ex) {
+        console.error('Immediately released func threw:', ex);
+      }
+      return;
+    }
+
+    var curFunc = proto[methodName];
+    if (curFunc !== replacementFunc) {
+      console.warning('Intercepted func has been double intercepted?!',
+                      methodName);
+      throw new Error('Double-intercepted func: ' + methodName);
+    }
+    proto[methodName] = origFunc;
+    // We are fine with this method throwing an exception, probably.
+    callback(releaseTheCall);
+  };
+}
+
 var TestUniverseMixins = {
   __constructor: function(self, opts) {
     self.eUniverse = self.T.actor('MailUniverse', self.__name, null, self);
+    self.eCronSync = self.T.actor('CronSync', self.__name, null,
+                                  self.eUniverse);
 
     // no need to keep creating consoles if one already got created...
     if (!opts || !opts.old) {
@@ -171,7 +223,8 @@ var TestUniverseMixins = {
     /**
      * Creates the mail universe, and a bridge, and MailAPI.
      */
-    self.T.convenienceSetup(self, 'initializes', self.eUniverse, function() {
+    self.T.convenienceSetup(self, 'initializes', self.eUniverse, self.eCronSync,
+                            function() {
       self.__attachToLogger(LOGFAB.testUniverse(self, null, self.__name));
       self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
 
@@ -252,6 +305,12 @@ var TestUniverseMixins = {
 
       self._sendHelperMessage = $router.registerCallbackType('testhelper');
       self._mainThreadMailBridge = false;
+
+      // We always ensureSync at startup, wait for that or it could interfere
+      // with cronsync tests.  (Also, we don't want this stuff smearing into
+      // other test steps either.)
+      self.eCronSync.expect_ensureSync_begin();
+      self.eCronSync.expect_ensureSync_end();
 
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
@@ -511,6 +570,410 @@ var TestUniverseMixins = {
       });
     });
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // cronsync helpers
+  //
+  // Assist in testing cronsync by letting us easily separate and control the
+  // complex stuff going on under the hood.  We only go for the big-picture
+  // life-cycle expectations here beause we trust more detailed/specific tests
+  // to verify the nitty gritty of folder sync and outbox sending and such.
+  // (Also, it would be a nightmare to integrate them into the chopped-up
+  // stuff we're doing here.)
+
+  /**
+   * Trigger cronsync but gum up the works so we can control what's happening
+   * so the interesting stuff happens in one or more independent test steps.
+   *
+   * Specifically, we grab mutexes on all the outboxes and inboxes for the
+   * accounts you tell us about.  This will wedge the sync process with a
+   * runMutexed call to MailSlice._sliceOpenMostRecent pending.  This will wedge
+   * the outbox inside the do_sendOutboxMessages job-op in
+   * JobDriver._accessFolderForMutation.  We generate appropriate expectations
+   * and you must use do_cronsync_releaseAccountSync and
+   * do_cronsync_releaseOutbox for each account to un-wedge them.  We wedge
+   * both of them every time.
+   *
+   * We trigger the cronsync by directly poking its onAlarm method.  It has no
+   * cleverness that would defeat this (at this time).
+   *
+   * @param {Object} opts
+   * @param {TestAccount[]} accounts
+   *   The test accounts you expect to participate in the cronsync.  We don't
+   *   second-guess you, so don't screw up.
+   * @param {Number} inboxHasNewMessages
+   *   Do you expect the inbox to fetch new messages?  How many?
+   * @param {Number} outboxHasMessages
+   *   Do you expect the outbox to have messages?  How many?
+   */
+  do_cronsync_trigger: function(opts) {
+    this._staticCronSyncOpts = opts;
+    this.T.action('acquire folder mutexes for inboxes/outboxes', function() {
+      // save off the opts for the final summary stuff
+      this._cronSyncOpts = opts;
+      opts.accounts.forEach(function(testAccount) {
+        var state = testAccount._cronSyncState = {
+          inboxHasNewMessages: opts.inboxHasNewMessages,
+          // We always sync the inbox (when we're online, which we currently
+          // assume is the case in these helpers), so whether we will find
+          // messages or not does not matter.
+          inboxPending: true,
+          outboxHasMessages: opts.outboxHasMessages,
+          outboxPending: !!opts.outboxHasMessages
+        };
+
+        this.RT.reportActiveActorThisStep(testAccount);
+        testAccount.expect_mutexStolen('inbox');
+        testAccount.expect_mutexStolen('outbox');
+
+        var inboxMeta = testAccount.account.getFirstFolderWithType('inbox');
+        var outboxMeta = testAccount.account.getFirstFolderWithType('outbox');
+
+        var inboxStorage =
+              this.universe.getFolderStorageForFolderId(inboxMeta.id);
+        var outboxStorage =
+              this.universe.getFolderStorageForFolderId(outboxMeta.id);
+
+        inboxStorage.runMutexed('steal', function(callWhenDone) {
+          testAccount._logger.mutexStolen('inbox');
+          state.releaseInboxMutex = callWhenDone;
+        });
+        outboxStorage.runMutexed('steal', function(callWhenDone) {
+          testAccount._logger.mutexStolen('outbox');
+          state.releaseOutboxMutex = callWhenDone;
+        });
+      }.bind(this));
+    }.bind(this));
+    this.T.action(this, 'trigger cronsync', this.eCronSync, function() {
+      // note: these each take one argument (which the logger expects)
+      this.MailAPI.oncronsyncstart = function(accountIds) {
+        this._logger.apiCronSyncStartReported(accountIds);
+      }.bind(this);
+      this.MailAPI.oncronsyncstop = function(accountsResults) {
+        var summary;
+        if (accountsResults.updates) {
+          // summarize
+          summary = accountsResults.updates.map(function(perAccountInfo) {
+            return {
+              id: perAccountInfo.id,
+              count: perAccountInfo.count
+              // TODO: maybe we want the message excerpt statistics too, or maybe
+              // we just want to let the caller tell us/let the caller check.
+            };
+          });
+        }
+        // it's part of the de facto contract that updates is falsey if nothing
+        // happened.
+        else {
+          summary = null;
+        }
+        this._logger.apiCronSyncStopReported(summary, accountsResults);
+      }.bind(this);
+
+
+      var accountIds = [];
+
+      this.eCronSync.expect_alarmFired();
+      this.eCronSync.expect_cronSync_begin();
+      this.eCronSync.expect_ensureSync_begin();
+      this.eCronSync.expect_syncAccounts_begin();
+      opts.accounts.forEach(function(testAccount) {
+        var accountId = testAccount.accountId;
+        accountIds.push(accountId);
+
+        this.eCronSync.expect_syncAccount_begin(accountId);
+        this.eCronSync.expect_syncAccountHeaders_begin(accountId);
+        if (opts.outboxHasMessages) {
+          this.eCronSync.expect_sendOutbox_begin(accountId);
+          // the job will also start but then get wedged waiting on our mutex
+          this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+          testAccount.eOpAccount.expect_runOp_begin(
+            'do', 'sendOutboxMessages', null);
+        }
+      }.bind(this));
+      this.eCronSync.expect_ensureSync_end();
+
+      this.expect_apiCronSyncStartReported(accountIds);
+
+      this.universe._cronSync.onAlarm(accountIds);
+    }.bind(this));
+  },
+
+  /**
+   * Release the inbox mutex so the sync can start happening.  The sync will
+   * finish talking to the server, issue a save, wait for the save, and then
+   * report its completion.
+   *
+   * We stall the save process by intercepting the call to
+   * MailDB.saveAccountFolderStates so you can release it by calling
+   * `do_cronsync_releaseSyncDatabaseSave`.
+   */
+  do_cronsync_releaseAccountSyncButStallSave: function(testAccount) {
+    this.T.action(testAccount, 'release mutex/let sync happen/stall save',
+                  function() {
+      var state = testAccount._cronSyncState;
+      this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+
+      // IMAP should be establishing a new account every time.
+      if (testAccount.eImapAccount) {
+        testAccount.eImapAccount.expect_createConnection();
+        // (it may seem weird, but we are "reusing" it after creating it...)
+        testAccount.eImapAccount.expect_reuseConnection();
+      }
+      // POP3 doesn't actually have a choice.  New connections every time.
+      else if (testAccount.ePop3Account) {
+        testAccount.ePop3Account.expect_createConnection();
+      }
+
+      // POP3 does some batch commit stuff too iff there are messages
+      var skipCount = 0;
+      if (state.inboxHasNewMessages && testAccount.type === 'pop3') {
+        // Avoid intercepting the call for this one.
+        skipCount = 1;
+        testAccount.eOpAccount.expect_saveAccountState_begin('syncBatch');
+        testAccount.eOpAccount.expect_saveAccountState_end('syncBatch');
+      }
+
+      testAccount.expect_interceptedAccountSave();
+      testAccount.eOpAccount.expect_saveAccountState_begin(
+        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
+
+      interceptNextCall({
+        method: 'saveAccountFolderStates',
+        onProtoFromConstructor: $maildb.MailDB,
+        skipCount: skipCount,
+        callMyFunc: function(releaseFunc) {
+          testAccount._logger.interceptedAccountSave();
+          testAccount._cronsyncReleaseDBSave = releaseFunc;
+        }.bind(this)
+      });
+
+      state.releaseInboxMutex();
+      state.releaseInboxMutex = null;
+    }.bind(this));
+  },
+
+  /**
+   * We release the save related to the sync process itself, allowing the slice
+   * to report completion, for cronsync to report syncAccount_end, and then for
+   * it to either be done or to issue snippet downloads if there were any new
+   * messages.
+   *
+   * If we're going to download snippets that looks like: snippetFetchAccount
+   * logged, the job starts/ends, the job saves and we intercept that.  Because
+   * we don't want yet another function related to releasing the sync (who
+   * actually wants to interleave that?), we'll include the sync if relevant.
+   */
+  do_cronsync_releaseSyncDatabaseSave: function(testAccount, expectFunc) {
+    var willDownloadSnippets = !!this._staticCronSyncOpts.inboxHasNewMessages;
+    var desc;
+    if (willDownloadSnippets) {
+      desc = 'release sync save, download snippets, stall save';
+    }
+    else {
+      desc = 'release sync save, sync completes';
+    }
+    this.T.action(testAccount, desc, this.eCronSync, function() {
+      this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+
+      var state = testAccount._cronSyncState;
+      // we could be more precise about where we clear this, out tests are
+      // granular enough that we can centralize this here.
+      state.inboxPending = false;
+      // We need snippets if there were messages, but POP3 downloads them as part
+      // of the sync process.
+      var willDownloadSnippets = !!state.inboxHasNewMessages &&
+                                 testAccount.type !== 'pop3';
+
+      testAccount.expect_releasedAccountSave();
+      testAccount.eOpAccount.expect_saveAccountState_end(
+        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
+      if (testAccount.eOpAccount.ignore_releaseConnection) {
+        testAccount.eOpAccount.ignore_releaseConnection();
+      }
+
+      this.eCronSync.expect_syncAccountHeaders_end(testAccount.accountId);
+
+      if (willDownloadSnippets) {
+        // Since we're going on to download something, there will be a server
+        // job and although the connection will be released, it will then be
+        // immediately reused for the job.
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_releaseConnection();
+        }
+
+        this.eCronSync.expect_syncAccountSnippets_begin(testAccount.accountId);
+        testAccount.expect_runOp(
+          'downloadBodies',
+          {
+            local: false, server: true, save: 'server',
+            // IMAP:
+            // There will be no "reuseConnection" log entry generated because we
+            // make sure to kill the slice only after starting downloadBodies.
+            // Specifically, the ImapFolderConn is still holding onto the
+            // ImapConnection as long as the slice is alive and the
+            // downloadBodies job-op is able to immediately be scheduled and
+            // acquire the mutex and connection before the slice is killed.
+            //
+            // POP3:
+            // POP3 has to establish a connection to do this since it closed the
+            // connection as part of the sync process.  Let's pretend it's
+            // impossible to do a better job.
+            conn: testAccount.type === 'pop3',
+            // However, we do expect a release
+            release: true,
+            // we will be interrupting the save
+            interruptServerSave: true
+          });
+
+        testAccount.expect_interceptedAccountSave();
+        interceptNextCall({
+          method: 'saveAccountFolderStates',
+          onProtoFromConstructor: $maildb.MailDB,
+          callMyFunc: function(releaseFunc) {
+            testAccount._logger.interceptedAccountSave();
+            testAccount._cronsyncReleaseSnippetSave = releaseFunc;
+          }.bind(this)
+        });
+      }
+      else {
+        this.eCronSync.expect_syncAccount_end(testAccount.accountId);
+
+        // Since there are no snippets, we will release the connection.  If
+        // there is no outbox job queued or it has already completed, we will
+        // also end up killing the connection.
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_releaseConnection();
+          if (!state.outboxHasMessages || !state.releaseOutboxMutex) {
+            testAccount.eImapAccount.expect_deadConnection('unused');
+          }
+          else {
+            testAccount._unusedConnections++;
+          }
+        }
+
+        if (expectFunc) {
+          expectFunc();
+        }
+      }
+
+      var releaseFunc = testAccount._cronsyncReleaseDBSave;
+      testAccount._cronsyncReleaseDBSave = null;
+      testAccount._logger.releasedAccountSave();
+      releaseFunc();
+    }.bind(this));
+    // Bail if we don't have a snippet downloading step that we interfered with.
+    // And yeah, I really want the test-refactor thing where we can maybe not
+    // have quite this insanity.
+    if (!this._staticCronSyncOpts.inboxHasNewMessages ||
+        testAccount.type === 'pop3') {
+      return;
+    }
+    this.T.action(testAccount, 'release snippet save', this.eCronSync, function(){
+      testAccount.expect_releasedAccountSave();
+      this.eCronSync.expect_syncAccountSnippets_end(testAccount.accountId);
+      this.eCronSync.expect_syncAccount_end(testAccount.accountId);
+
+      if (expectFunc) {
+        expectFunc();
+      }
+
+      var releaseFunc = testAccount._cronsyncReleaseSnippetSave;
+      testAccount._cronsyncReleaseSnippetSave = null;
+      testAccount._logger.releasedAccountSave();
+      releaseFunc();
+    }.bind(this));
+  },
+
+  do_cronsync_releaseOutbox: function(testAccount, expectFunc) {
+    this.T.action(testAccount, 'release mutex/let outbox send happen',
+                  this.eCronSync, function() {
+      var state = testAccount._cronSyncState;
+
+      if (state.outboxHasMessages) {
+        state.outboxPending = false;
+        var inboxPending = state.inboxPending;
+
+        // our wedging left the first job partway through its run process,
+        // so we want to close that one out, then do full processings for all
+        // subsequent ones
+        this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
+        testAccount.eOpAccount.expect_runOp_end(
+          'do', 'sendOutboxMessages', null);
+        testAccount.eOpAccount.expect_saveAccountState_begin(
+          'serverOp:sendOutboxMessages');
+        testAccount.eOpAccount.expect_saveAccountState_end(
+          'serverOp:sendOutboxMessages');
+        // The append may need to create a new connection if the inbox sync
+        // is still wedged.  (In fact, the inbox won't have created its
+        // connection yet.  But the connection will get thrown away when
+        // we're done because of how we're doing the wedging.  We don't care
+        // about this much because in reality we absolutely expect the inbox
+        // sync to start before an IMAP APPEND could ever start, let alone
+        // finish, so our test cases cover reality quite well.)
+        testAccount.expect_saveSentMessage(true);
+        for (var iMsg = 1; iMsg < state.outboxHasMessages; iMsg++) {
+          testAccount.expect_sendOutboxMessages();
+          testAccount.expect_saveSentMessage(true);
+        }
+
+        if (testAccount.eImapAccount) {
+          testAccount.eImapAccount.expect_deadConnection('unused');
+          // By definition an unused reaping brings us to 0 unused.
+          testAccount._unusedConnections = 0;
+        }
+
+        this.eCronSync.expect_sendOutbox_end(testAccount.accountId);
+      }
+
+      if (expectFunc) {
+        expectFunc();
+      }
+
+      state.releaseOutboxMutex();
+      state.releaseOutboxMutex = null;
+    }.bind(this));
+  },
+
+  /**
+   * Expect func to call for all the things that happen when cronsync completes.
+   * This will occur when all the release functions above complete across all of
+   * the accounts being synchronized.  You the test-writer are responsible for
+   * passing this as an argument to the release function or calling it from
+   * inside your own expectFunc that you pass to them, etc. etc.
+   */
+  expect_cronsync_completed: function() {
+    var opts = this._cronSyncOpts;
+
+    this.RT.reportActiveActorThisStep(this);
+    this.RT.reportActiveActorThisStep(this.eCronSync);
+    // (ensureSync_end was already expected during the triggering process)
+    // there should be 0 active slices when we complete, so 0 should be killed.
+    this.eCronSync.expect_killSlices(0);
+    this.eCronSync.expect_syncAccounts_end();
+    this.eCronSync.expect_cronSync_end();
+
+    var expectedSummary = opts.accounts.map(function(testAccount) {
+      return {
+        id: testAccount.accountId,
+        count: opts.inboxHasNewMessages
+      };
+    });
+
+    this.expect_apiCronSyncStopReported(expectedSummary);
+  },
+
+  /**
+   * Expect an ensureSync to occur, probably because an account def is getting
+   * saved.
+   */
+  expect_ensureSync: function() {
+    this.RT.reportActiveActorThisStep(this.eCronSync);
+    this.eCronSync.expect_ensureSync_begin();
+    this.eCronSync.expect_ensureSync_end();
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 };
 
 /**
@@ -537,9 +1000,13 @@ var TestCommonAccountMixins = {
     self.testUniverse = opts.universe;
     self.testUniverse.__testAccounts.push(this);
 
+    var TEST_PARAMS = self.RT.envOptions;
+    self.displayName = self._opts.displayName || TEST_PARAMS.name;
+    self.emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
+    self.initialPassword = self._opts.password || TEST_PARAMS.password;
+
     self._useDate = self.testUniverse._useDate;
 
-    var TEST_PARAMS = self.RT.envOptions;
     self.type = TEST_PARAMS.type;
     // -- IMAP/POP3
     if (TEST_PARAMS.type === 'imap' ||
@@ -560,18 +1027,64 @@ var TestCommonAccountMixins = {
   },
 
   /**
+   * Stuff to do across all account types, expectation setting phase.  For
+   * stuff to do *after* the account has been created (AKA tryToCreateAccount
+   * has been called), put it in/call _help_commonTestAccountConfig.
+   *
+   * We do/want to do:
+   * - Have a per-account folders list.  allFoldersSlice turns out to be a foot
+   *   gun for most purposes.
+   */
+  _expect_commonTestAccountConfig: function() {
+    this.RT.reportActiveActorThisStep(this);
+    this.expect_folderSlicePopulated();
+  },
+
+  _help_commonTestAccountConfig: function() {
+    this.foldersSlice = this.MailAPI.viewFolders('account',
+                                                 { id: this.accountId });
+    this.foldersSlice.oncomplete = function() {
+      this._logger.folderSlicePopulated();
+    }.bind(this);
+  },
+
+  /**
+   * Expect our account def to be saved and its side-effects to run to
+   * completion.  This notably includes a call to ensureSync and an
+   * account modification normalization.
+   *
+   * XXX we currently don't wait for the notification because in
+   * do_modifyAccount we're already waiting in a way that entirely contains
+   * that notification.
+   */
+  expect_saveAccountDef: function() {
+    this.testUniverse.expect_ensureSync();
+  },
+
+  /**
+   * Do you not give a fig about connections?  Then call me!  I get specialized
+   * by the accounts to help you with your lack of fig-giving.
+   *
+   * NB: This was added for a good reason but then it turned out we gave a fig,
+   * so it's currently unused.  But it could be needed again soon, so...
+   */
+  ignore_connectionStuff: function() {
+  },
+
+  /**
    * Modify the account, asserting that the modification completed.
    */
   do_modifyAccount: function(options) {
-    var eCheck = this.T.lazyLogger('check');
-    this.T.action(this, 'modify account', eCheck,
+    this.T.action(this, 'modify account',
                   'with options', JSON.stringify(options), function() {
+      this.expect_accountModified();
+      this.expect_saveAccountDef();
+
       var acct = this.testUniverse.allAccountsSlice
-            .getAccountById(this.accountId);
-      eCheck.expect_event('modifyAccount done');
+                   .getAccountById(this.accountId);
       acct.modifyAccount(options, function() {
-        eCheck.event('modifyAccount done');
-      });
+        this._logger.accountModified();
+      }.bind(this));
     }.bind(this));
   },
 
@@ -579,16 +1092,17 @@ var TestCommonAccountMixins = {
    * Modify a particular identity, at index i in account.identities
    */
   do_modifyIdentity: function(i, options) {
-    var eCheck = this.T.lazyLogger('check');
-    this.T.action(this, 'modify identity', eCheck,
+    this.T.action(this, 'modify identity',
                   'with options', JSON.stringify(options), function() {
+      this.expect_identityModified();
+      this.expect_saveAccountDef();
+
       var acct = this.testUniverse.allAccountsSlice
             .getAccountById(this.accountId);
       var identity = acct.identities[i];
-      eCheck.expect_event('modifyIdentity done');
       identity.modifyIdentity(options, function() {
-        eCheck.event('modifyIdentity done');
-      });
+        this._logger.identityModified();
+      }.bind(this));
     }.bind(this));
   },
 
@@ -842,6 +1356,10 @@ var TestCommonAccountMixins = {
           }
           else if (!_saveToThing) {
             self.eImapAccount.expect_releaseConnection();
+            if ($sync.KILL_CONNECTIONS_WHEN_JOBLESS) {
+              self.eImapAccount.expect_deadConnection('unused');
+              self._unusedConnections--;
+            }
           }
           else {
             // The connection will be held by the folder/slice, so it's no
@@ -1266,8 +1784,8 @@ var TestCommonAccountMixins = {
    *     @key[flushBodyServerSaves #:default 0 Number]{
    *       Number of flush saves that occur during the server op.
    *     }
-   *     @key[conn #:default false @oneof[false true 'deadconn']{
-   *       Expect a connection to be aquired if truthy.  Expect the conncetion
+   *     @key[conn #:default false @oneof[false true 'create' 'deadconn']{
+   *       Expect a connection to be acquired if truthy.  Expect the connection
    *       to die if 'deadconn'.  Expect the connection to be released if `true`
    *       unless explicitly specified othrewise by `release`.
    *     }
@@ -1326,8 +1844,8 @@ var TestCommonAccountMixins = {
     }
     if (this.USES_CONN) {
       // - conn, (conn) release
-      if (checkFlagDefault(flags, 'conn', false)  &&
-          ('help_expect_connection' in this)) {
+      var connMode = checkFlagDefault(flags, 'conn', false);
+      if (connMode && ('help_expect_connection' in this)) {
         this.help_expect_connection();
         if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
           this.eOpAccount.expect_deadConnection();
@@ -1350,7 +1868,9 @@ var TestCommonAccountMixins = {
     // heuristics and exists in a different universe from IMAP and sanity is
     // important to us.  So this is a little hacky, but who really wants to find
     // out the horror that would be the non-hacky solution?  Amirite?
-    else if (this.type === 'pop3' && jobName === 'downloadBodyReps' &&
+    else if (this.type === 'pop3' &&
+             (jobName === 'downloadBodyReps' ||
+              jobName === 'downloadBodies') &&
              checkFlagDefault(flags, 'conn', true)) {
       this.eOpAccount.expect_createConnection();
     }
@@ -1360,7 +1880,9 @@ var TestCommonAccountMixins = {
     // - save (server)
     if (serverSave) {
       this.eOpAccount.expect_saveAccountState_begin('serverOp:' + jobName);
-      this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
+      if (!checkFlagDefault(flags, 'interruptServerSave', false)) {
+        this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
+      }
     }
   },
 
@@ -1494,8 +2016,9 @@ var TestCommonAccountMixins = {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
 
     this.T.convenienceSetup('delete test folder', testFolder,
                             'if it exists',
@@ -1530,7 +2053,7 @@ var TestCommonAccountMixins = {
         self.expect_foundFolder(true);
         self.universe.syncFolderList(self.account, function() {
           self.MailAPI.ping(function() {
-            testFolder.mailFolder = self.testUniverse.allFoldersSlice
+            testFolder.mailFolder = self.foldersSlice
                                         .getFirstFolderWithPath(folderName);
             self._logger.foundFolder(!!testFolder.mailFolder,
                                      testFolder.mailFolder);
@@ -1603,8 +2126,10 @@ var TestCommonAccountMixins = {
     // Because only one actor will be created in this process, we don't
     // need to reach into the 'soup' to establish the link and the test
     // infrastructure will do it automatically for us.
-    var newConnActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME, newActorName),
-        newStorageActor = this.T.actor('FolderStorage', newActorName);
+    var newConnActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME, newActorName,
+                                    null, this),
+        newStorageActor = this.T.actor('FolderStorage', newActorName,
+                                       null, this);
     this.RT.reportActiveActorThisStep(newConnActor);
     this.RT.reportActiveActorThisStep(newStorageActor);
 
@@ -1629,8 +2154,7 @@ var TestCommonAccountMixins = {
     var self = this;
     var messageCount = checkFlagDefault(extraFlags, 'messageCount', false) ||
                        messageSetDef.count;
-    var eLazy = this.T.lazyLogger('finished');
-    this.T.convenienceSetup(this, desc, testFolder, eLazy, function() {
+    this.T.convenienceSetup(this, desc, testFolder, function() {
       var messageBodies;
       if (messageSetDef instanceof Function) {
         messageBodies = messageSetDef();
@@ -1700,13 +2224,14 @@ var TestCommonAccountMixins = {
     var self = this,
         testFolder = this.T.thing('testFolder', folderName + suffix);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder =
-        self.testUniverse.allFoldersSlice.getFirstFolderWithName(folderName);
+        self.foldersSlice.getFirstFolderWithName(folderName);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder) {
         testFolder.serverFolder = oldFolder.serverFolder;
@@ -1742,13 +2267,14 @@ var TestCommonAccountMixins = {
         folderName = folderType + suffix,
         testFolder = this.T.thing('testFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
-                                        folderName);
-    testFolder.storageActor = this.T.actor('FolderStorage', folderName);
+                                        folderName, null, this);
+    testFolder.storageActor = this.T.actor('FolderStorage', folderName,
+                                           null, this);
     testFolder._approxMessageCount = 30;
 
     this.T.convenienceSetup('find test folder', testFolder, function() {
       testFolder.mailFolder =
-        self.testUniverse.allFoldersSlice.getFirstFolderWithType(folderType);
+        self.foldersSlice.getFirstFolderWithType(folderType);
       testFolder.id = testFolder.mailFolder.id;
       if (oldFolder) {
         testFolder.serverFolder = oldFolder.serverFolder;
@@ -1839,8 +2365,98 @@ var TestCommonAccountMixins = {
       { local: false,
         server: true,
         save: 'server' });
-  }
+  },
 
+  /**
+   * Helper method to compose and send a message which either results in
+   * success or failure; you tell us which is gonna happen, and we expect the
+   * right things.  (We're not psychic.)
+   *
+   * Use this to get messages in the outbox!
+   *
+   * @param {string} subject
+   *   Subject for this message.
+   * @param {object} opts
+   *   Optional test-specific things. This could be cleaned up.
+   * @param {string} opts.to
+   *   Override the message's address with this parameter.
+   * @param {array} [opts.existingRetryResults]
+   *   A list with one item for each already existing message in the outbox where
+   *   the item is 'success' if we expect the send to succeed, or false if we
+   *   expect it to fail.
+   * @param {object} [opts.outboxView]
+   *   If you want us to check that there are the right number of messages in
+   *   the outbox, pass us an open viewThing.
+   * @param {boolean} opts.success
+   *   If true, assert things that indicate that the message sent successfully.
+   *   Otherwise, assert that the message failed to send, and is still in the
+   *   outbox.
+   */
+  do_composeAndSendMessage: function (subject, opts) {
+    var shouldSucceed = opts.success;
+    var TEST_PARAMS = this.RT.envOptions;
+    var composer;
+
+    this.T.action(this, 'begin composition', function() {
+      this.expect_composerReady();
+      var inboxMailFolder =
+            this.foldersSlice.getFirstFolderWithType('inbox');
+      composer = this.MailAPI.beginMessageComposition(
+        null, inboxMailFolder, null,
+        this._logger.composerReady.bind(this._logger));
+    }.bind(this));
+
+    this.T.action(this, 'compose and send', function() {
+      composer.to.push({ name: 'Myself',
+                         address: opts.to || TEST_PARAMS.emailAddress });
+      composer.subject = subject;
+      composer.body.text = 'Antelope banana credenza.\n\nDialog excitement!';
+      this.expect_runOp(
+        'saveDraft',
+        { local: true, server: false, save: 'local' });
+
+      if (shouldSucceed) {
+        this.expect_sendMessageWithOutbox('success', 'conn');
+        this.expect_sendCompleted('success');
+      } else {
+        this.expect_moveMessageToOutbox();
+        this.expect_sendOutboxMessages();
+        this.expect_sendCompleted('error');
+      }
+
+      var existingRetryResults = opts.existingRetryResults || [];
+      var outboxView = opts.outboxView;
+      if (outboxView &&
+          existingRetryResults.length < outboxView.slice.items.length - 1) {
+        throw new Error('Incorrect existingRetryResults argument provided; ' +
+                        'length is ' + existingRetryResults.length + ' but ' +
+                        'should be ' + (outboxView.slice.items.length - 1));
+      }
+      for (var i = 0; i < existingRetryResults.length; i++) {
+        this.expect_sendOutboxMessages();
+        if (existingRetryResults[i] === 'success') {
+          this.expect_saveSentMessage();
+        }
+      }
+
+      this.expect_accountOpsCompleted();
+      this.MailAPI.onbackgroundsendstatus = function(data) {
+        if (!data.emitNotifications) {
+          return;
+        }
+        // we only care about termination; not 'sending'
+        if (data.state === 'success' || data.state === 'error') {
+          this._logger.sendCompleted(data.state);
+          this.MailAPI.onbackgroundsendstatus = null;
+          this.universe.waitForAccountOps(
+            this.account,
+            this._logger.accountOpsCompleted.bind(this._logger));
+        }
+      }.bind(this);
+
+      composer.finishCompositionSendMessage();
+    }.bind(this)).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
+  },
 };
 
 var TestFolderMixins = {
@@ -1942,13 +2558,24 @@ var TestCompositeAccountMixins = {
     self._unusedConnections = 0;
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
-      self.testServer = self.T.actor('testFake' + TYPE + 'Server', self.__name,
-                                     { restored: opts.restored,
-                                       imapExtensions: opts.imapExtensions });
+      self.testServer = self.T.actor(
+        'testFake' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored,
+          imapExtensions: opts.imapExtensions,
+          deliveryMode: opts.deliveryMode
+        },
+        null, self);
     }
     else {
-      self.testServer = self.T.actor('testReal' + TYPE + 'Server', self.__name,
-                                     { restored: opts.restored });
+      self.testServer = self.T.actor(
+        'testReal' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored
+        },
+        null, self);
     }
 
     if (opts.restored) {
@@ -1958,6 +2585,13 @@ var TestCompositeAccountMixins = {
     else {
       self._do_createAccount();
     }
+  },
+
+  ignore_connectionStuff: function() {
+    // both imap and pop3 share the same logger stuff.
+    this.eFolderAccount.ignore_createConnection();
+    this.eFolderAccount.ignore_reuseConnection();
+    this.eFolderAccount.ignore_releaseConnection();
   },
 
   expect_shutdown: function() {
@@ -2020,6 +2654,9 @@ var TestCompositeAccountMixins = {
       self.imapHost = self.pop3Host = receiveConnInfo.hostname;
       self.imapPort = self.pop3Port = receiveConnInfo.port;
 
+      self._expect_commonTestAccountConfig();
+      self._help_commonTestAccountConfig();
+
       self.testServer.finishSetup(self);
     });
   },
@@ -2038,11 +2675,12 @@ var TestCompositeAccountMixins = {
       self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eSmtpAccount);
       self.RT.reportActiveActorThisStep(self.eBackoff);
-      self.expect_accountCreated();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
       self.rawAccount = null;
+
+      self._expect_commonTestAccountConfig();
 
       // we expect the connection to be reused and release to sync the folders
       if (self.type === 'imap') {
@@ -2062,10 +2700,10 @@ var TestCompositeAccountMixins = {
       var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: TEST_PARAMS.name,
-          emailAddress: TEST_PARAMS.emailAddress,
-          password: TEST_PARAMS.password,
-          accountName: self._opts.name || null,
+          displayName: self.displayName,
+          emailAddress: self.emailAddress,
+          password: self.initialPassword,
+          accountName: self._opts.name || null, // null means use email
           forceCreate: self._opts.forceCreate
         },
         null,
@@ -2104,14 +2742,9 @@ var TestCompositeAccountMixins = {
           self.imapHost = self.pop3Host = receiveConnInfo.hostname;
           self.imapPort = self.pop3Port = receiveConnInfo.port;
 
-          self.testServer.finishSetup(self);
+          self._help_commonTestAccountConfig();
 
-          // Because folder list synchronizing happens as an operation, we want
-          // to wait for that operation to complete before declaring the account
-          // created.
-          self.universe.waitForAccountOps(self.compositeAccount, function() {
-            self._logger.accountCreated();
-          });
+          self.testServer.finishSetup(self);
         });
     }).timeoutMS = 10000; // there can be slow startups...
   },
@@ -2675,16 +3308,15 @@ var TestActiveSyncAccountMixins = {
     // have a lifetime of this current test step.  We use the blackboard
     // instead of the universe because a freshly started universe currently
     // does not know about the universe it is replacing.
-    else if (!opts.server) {
-      if (!self.RT.caseBlackboard.testActiveSyncServer) {
-        self.RT.caseBlackboard.testActiveSyncServer =
-          self.T.actor('testActiveSyncServer', 'S',
-                       { universe: opts.universe });
-      }
-      self.testServer = self.RT.caseBlackboard.testActiveSyncServer;
-    }
     else {
-      self.testServer = opts.server;
+      self.testServer = self.T.actor(
+        'testActiveSyncServer', self.__name,
+        {
+          testAccount: self,
+          universe: opts.universe,
+          deliveryMode: opts.deliveryMode
+        },
+        null, self);
     }
 
     // dummy attributes to be more like IMAP to reuse some logic:
@@ -2711,6 +3343,9 @@ var TestActiveSyncAccountMixins = {
       self.folderAccount = self.account = self.universe.accounts[idxAccount];
       self.accountId = self.account.id;
 
+      self._expect_commonTestAccountConfig();
+      self._help_commonTestAccountConfig();
+
       self.testServer.finishSetup(self);
     });
   },
@@ -2727,25 +3362,19 @@ var TestActiveSyncAccountMixins = {
 
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.RT.reportActiveActorThisStep(self.eJobDriver);
-      self.expect_accountCreated();
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
+      self._expect_commonTestAccountConfig();
 
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
-      var TEST_PARAMS = self.RT.envOptions,
-          displayName, emailAddress, password;
-
-      displayName = self._opts.displayName || TEST_PARAMS.name;
-      emailAddress = self._opts.emailAddress || TEST_PARAMS.emailAddress;
-      password = self._opts.password || TEST_PARAMS.password;
-
+      var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
-          displayName: displayName,
-          emailAddress: emailAddress,
-          password: password,
-          accountName: self._opts.name || null,
+          displayName: self.displayName,
+          emailAddress: self.emailAddress,
+          password: self.initialPassword,
+          accountName: self._opts.name || null, // null means use email
           forceCreate: self._opts.forceCreate
         },
         null,
@@ -2771,19 +3400,9 @@ var TestActiveSyncAccountMixins = {
             do_throw('Unable to find account for ' + TEST_PARAMS.emailAddress +
                      ' (id: ' + self.accountId + ')');
 
-          self.testServer.finishSetup(self);
+          self._help_commonTestAccountConfig();
 
-          // Because folder list synchronizing happens as an operation, we want
-          // to wait for that operation to complete before declaring the account
-          // created...
-          self.universe.waitForAccountOps(self.account, function() {
-            // We also want to make sure that all the folder splice
-            // notifications have had a chance to be round-tripped, so use a
-            // ping command to do that.
-            self.MailAPI.ping(function() {
-              self._logger.accountCreated();
-            });
-          });
+          self.testServer.finishSetup(self);
         });
     });
     if (self._opts.realAccountNeeded)
@@ -2915,6 +3534,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       operationsDone: {},
 
       cleanShutdown: {},
+
+      apiCronSyncStartReported: { accountIds: false },
+      apiCronSyncStopReported: { accountsResults: false },
     },
     errors: {
       dbProblem: { err: false },
@@ -2926,9 +3548,9 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
     topBilling: true,
 
     events: {
-      accountCreated: {},
       accountDeleted: {},
       foundFolder: { found: true, rep: false },
+      folderSlicePopulated: {},
 
       // the accounts recreateFolder notification should be converted to an
       // async process with begin/end, replacing this.
@@ -2953,6 +3575,23 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       viewWithoutExpectationsCompleted: {},
 
       changesReported: { additions: true, changes: true, deletions: true },
+
+      accountModified: {},
+      identityModified: {},
+
+      composerReady: {},
+      sendCompleted: { result: true },
+      // Dubious but semantically explicit waiting for operations to complete
+      // to make sure the test step catches everything that happens inside it.
+      // Since waitForAccountOpts is a MailUniverse thing, this inherently leads
+      // to potential races against the front-end and may be a bad idea unless
+      // a MailAPI.ping is also being used.
+      accountOpsCompleted: {},
+
+      mutexStolen: { folderType: true },
+      mutexReturned: { folderType: true },
+      interceptedAccountSave: {},
+      releasedAccountSave: {},
     },
     errors: {
       accountCreationError: { err: false },
@@ -2968,7 +3607,7 @@ exports.TESTHELPER = {
     LOGFAB,
     $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
     $mailslice.LOGFAB, $searchfilter.LOGFAB,
-    $errbackoff.LOGFAB,
+    $errbackoff.LOGFAB, $cronsync.LOGFAB,
     // IMAP!
     $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
     // POP3!

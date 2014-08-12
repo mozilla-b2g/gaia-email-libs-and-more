@@ -63,7 +63,7 @@ var TestFakePOP3ServerMixins = {
     if (!serverExists)
       self.RT.fileBlackboard.fakePOP3Servers[normName] = true;
 
-    self.testAccount = null;
+    self.testAccount = opts.testAccount;
 
     self.folderMessages = {};
 
@@ -80,12 +80,12 @@ var TestFakePOP3ServerMixins = {
           {
             command: 'make_pop3_and_smtp',
             credentials: {
-              username: extractUsernameFromEmail(TEST_PARAMS.emailAddress),
-              password: TEST_PARAMS.password
+              username: extractUsernameFromEmail(self.testAccount.emailAddress),
+              password: self.testAccount.initialPassword
             },
             options: {
-
-            }
+            },
+            deliveryMode: opts.deliveryMode
           });
 
         // now we only want to talk to our specific server control endpoint
@@ -106,7 +106,6 @@ var TestFakePOP3ServerMixins = {
   },
 
   finishSetup: function(testAccount) {
-    this.testAccount = testAccount;
     this.supportsServerFolders =
       testAccount.folderAccount.supportsServerFolders;
     if (testAccount._useDate)
@@ -178,10 +177,15 @@ var TestFakePOP3ServerMixins = {
 
       return rep;
     });
+    // XXX There is something inconsistent/wrong with this fake-server or its
+    // use by the composite test mixins that folderPath could be an object or
+    // a string.  Per debug logs, it definitely is an object at least some of
+    // the time.  And a brief foray to address this found instances where some
+    // caller must be providing a string.
     if ((folderPath.path || folderPath) === 'INBOX') {
       var ret = this._backdoor({
         command: 'addMessagesToFolder',
-        name: folderPath,
+        name: folderPath.path || folderPath,
         messages: transformedMessages
       });
       return ret;

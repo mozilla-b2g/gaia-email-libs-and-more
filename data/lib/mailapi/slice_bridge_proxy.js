@@ -7,6 +7,24 @@ define(
     exports
   ) {
 
+/**
+ * The abstraction for back-end slices to talk to front-end slices.
+ *
+ * Consolidates communication which allows us to provide transparent batching
+ * to our multiple varieties of slices as well as allowing for us to be hacked
+ * up to not actually send anything anywhere.
+ *
+ * The types of slices we support are:
+ * - The main `MailSlice` implementation in mailslice.js
+ * - The filtering `SearchSlice` implementation in searchfilter.js
+ * - The cronsync.js use-case that uses us to be able to hook up a normal
+ *   `MailSlice` without there actually being anything to listen to what it
+ *   says.  It gives us a minimal/fake MailBridge that has a no-op
+ *   __sendMessage.
+ *
+ * If you change this class, you want to make sure you've considered those
+ * slices and their tests too.
+ */
 function SliceBridgeProxy(bridge, ns, handle) {
   this._bridge = bridge;
   this._ns = ns;
