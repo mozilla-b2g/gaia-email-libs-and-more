@@ -602,8 +602,7 @@ var TestUniverseMixins = {
    *   The test accounts you expect to participate in the cronsync.  We don't
    *   second-guess you, so don't screw up.
    * @param {Number} inboxHasNewMessages
-   *   Do you expect the inbox to fetch new messages?  How many?  (This
-   *   informs
+   *   Do you expect the inbox to fetch new messages?  How many?
    * @param {Number} outboxHasMessages
    *   Do you expect the outbox to have messages?  How many?
    */
@@ -918,8 +917,6 @@ var TestUniverseMixins = {
           testAccount.expect_saveSentMessage(true);
         }
 
-        //
-
         if (testAccount.eImapAccount) {
           testAccount.eImapAccount.expect_deadConnection('unused');
           // By definition an unused reaping brings us to 0 unused.
@@ -1095,16 +1092,17 @@ var TestCommonAccountMixins = {
    * Modify a particular identity, at index i in account.identities
    */
   do_modifyIdentity: function(i, options) {
-    var eCheck = this.T.lazyLogger('check');
-    this.T.action(this, 'modify identity', eCheck,
+    this.T.action(this, 'modify identity',
                   'with options', JSON.stringify(options), function() {
+      this.expect_identityModified();
+      this.expect_saveAccountDef();
+
       var acct = this.testUniverse.allAccountsSlice
             .getAccountById(this.accountId);
       var identity = acct.identities[i];
-      eCheck.expect_event('modifyIdentity done');
       identity.modifyIdentity(options, function() {
-        eCheck.event('modifyIdentity done');
-      });
+        this._logger.identityModified();
+      }.bind(this));
     }.bind(this));
   },
 
@@ -3579,6 +3577,7 @@ var LOGFAB = exports.LOGFAB = $log.register($module, {
       changesReported: { additions: true, changes: true, deletions: true },
 
       accountModified: {},
+      identityModified: {},
 
       composerReady: {},
       sendCompleted: { result: true },

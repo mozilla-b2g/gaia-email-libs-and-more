@@ -348,7 +348,7 @@ MailFolder.prototype = {
     this.neededForHierarchy = !this.selectable;
 
     /**
-     *  isValidMoveTarget denotes whether this folder is a valid 
+     *  isValidMoveTarget denotes whether this folder is a valid
      *  place for messages to be moved into.
      */
     switch (this.type) {
@@ -2847,8 +2847,12 @@ MailAPI.prototype = {
     delete this._pendingRequests[msg.handle];
 
     // We create this account to expose modifications functions to the
-    // frontend before we have access to the full accounts slice
-    var account = new MailAccount(this, msg.account, null);
+    // frontend before we have access to the full accounts slice.  Note that
+    // we may not have an account if we failed to create the account!
+    var account;
+    if (msg.account) {
+      account = new MailAccount(this, msg.account, null);
+    }
 
     req.callback.call(null, msg.error, msg.errorDetails, account);
     return true;
