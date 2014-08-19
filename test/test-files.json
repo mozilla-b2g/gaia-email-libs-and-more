@@ -156,14 +156,9 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
-    "test_upgrade.js": {
-      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
-    },
-
     "test_storage_upgrade.js": {
       "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
-
 
     "test_compose_blobs.js": {
       "variants": ["imap:fake", "activesync:fake"]

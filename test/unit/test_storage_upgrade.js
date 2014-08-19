@@ -47,16 +47,18 @@ TD.commonCase('with version 0, upgrade is triggered', function(T) {
     storage.folderMeta.unreadCount = 0;
     testAccount.expect_runOp('upgradeDB',
       { local: true, server: false, save: false });
-    console.log(testAccount.id);
-    storage.upgradeIfNeeded();
+    testAccount.account.upgradeFolderStoragesIfNeeded();
     eSync.expect_event('ops-clear');
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
         eSync.event('ops-clear');
-        testAccount.expect_unread('After upgrade', testFolder.id,
-      eSync, 7);
       });
+  });
+
+  T.check('unread counts', eSync, function() {
+    testAccount.expect_unread('After upgrade', testFolder.id,
+      eSync, 7);
   });
 
   T.group('cleanup');

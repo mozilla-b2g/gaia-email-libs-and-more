@@ -268,13 +268,17 @@ exports.runAfterSaves = function(callback) {
   }
 };
 
+/**
+ * This function goes through each folder storage object in
+ * an account and performs the necessary upgrade steps if
+ * there is a new version. See upgradeIfNeeded in mailslice.js.
+ * Note: This function schedules a job for each folderStorage
+ * object in the account.
+ */
 exports.upgradeFolderStoragesIfNeeded = function() {
   for (var key in this._folderStorages) {
-    console.log(key);
     var storage = this._folderStorages[key];
-    if (storage.folderMeta.type === 'inbox') {
-      storage.upgradeIfNeeded();
-    }
+    storage.upgradeIfNeeded();
   }
 }
 

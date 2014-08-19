@@ -134,11 +134,5 @@ exports.formatAddresses = function(nameAddrPairs) {
 
   return addrstrings.join(', ');
 };
-/**
- * The current version, used to decided when to trigger update
- * jobs
- * @type {Number}
- */
-exports.CUR_VERSION = 2;
 
 }); // end define

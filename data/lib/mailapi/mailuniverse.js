@@ -2261,7 +2261,6 @@ MailUniverse.prototype = {
    */
   performFolderUpgrade: function(folderId, callback) {
     var account = this.getAccountForFolderId(folderId);
-    console.log('performFolderUpgrade');
     this._queueAccountOp(
       account,
       {

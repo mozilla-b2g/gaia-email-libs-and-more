@@ -517,6 +517,9 @@ MailSlice.prototype = {
   },
 };
 
+
+var FOLDER_DB_VERSION = 2;
+
 /**
  * Per-folder message caching/storage; issues per-folder `MailSlice`s and keeps
  * them up-to-date.  Access is mediated through the use of mutexes which must be
@@ -1150,8 +1153,8 @@ FolderStorage.prototype = {
    * This queues the proper upgrade jobs and updates the version, if necessary
    */
   upgradeIfNeeded: function() {
-    if (!this.folderMeta.version || $util.CUR_VERSION > this.folderMeta.version) {
-      this.folderMeta.version = $util.CUR_VERSION;
+    if (!this.folderMeta.version || FOLDER_DB_VERSION > this.folderMeta.version) {
+      this.folderMeta.version = FOLDER_DB_VERSION;
       this._account.universe.performFolderUpgrade(this.folderMeta.id);
     }
   },
@@ -3130,24 +3133,6 @@ FolderStorage.prototype = {
       count += blockInfo.count;
     }
     return count;
-  },
-
-  /**
-   * Tally and the number of unread messages we believe to exist in the folder. Then
-   * set the folderMeta value appropriately.
-   */
-  refreshUnreadCount: function() {
-    console.log('refreshUnreadCount');
-    var unreadCount = 0;
-    for (var blockId in this._headerBlocks) {
-      var headerBlock = this._headerBlocks[blockId];
-      for (var i = 0; i < headerBlock.headers.length; i++) {
-        if (header.flags && header.flags.indexOf('\\Seen') === -1) {
-          unreadCount++;
-        }
-      }
-    }
-    this.folderMeta.unreadCount = unreadCount
   },
 
   /**
