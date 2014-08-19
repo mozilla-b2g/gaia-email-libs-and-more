@@ -517,6 +517,9 @@ MailSlice.prototype = {
   },
 };
 
+
+var FOLDER_DB_VERSION = 2;
+
 /**
  * Per-folder message caching/storage; issues per-folder `MailSlice`s and keeps
  * them up-to-date.  Access is mediated through the use of mutexes which must be
@@ -1146,6 +1149,17 @@ FolderStorage.prototype = {
       this._invokeNextMutexedCall();
   },
 
+  /**
+   * This queues the proper upgrade jobs and updates the version, if necessary
+   */
+  upgradeIfNeeded: function() {
+    if (!this.folderMeta.version || FOLDER_DB_VERSION > this.folderMeta.version) {
+      this.folderMeta.version = FOLDER_DB_VERSION;
+      this._account.universe.performFolderUpgrade(this.folderMeta.id);
+    }
+  },
+
+
   _issueNewHeaderId: function() {
     return this._folderImpl.nextId++;
   },
@@ -1201,7 +1215,21 @@ FolderStorage.prototype = {
 
   _deleteHeaderFromBlock: function ifs__deleteHeaderFromBlock(uid, info, block) {
     var idx = block.ids.indexOf(uid), header;
+
+    // Whatever we're looking for should absolutely exist; log an error if it
+    // does not.  But just silently return since there's little to be gained
+    // from blowing up the world.
+    if (idx === -1) {
+      this._LOG.badDeletionRequest('header', null, uid);
+      return;
+    }
+    header = block.headers[idx];
+
     // - remove, update counts
+    if (header.flags && header.flags.indexOf('\\Seen') === -1) {
+      this.folderMeta.unreadCount--;
+    }
+
     block.ids.splice(idx, 1);
     block.headers.splice(idx, 1);
     info.estSize -= $sync.HEADER_EST_SIZE_IN_BYTES;
@@ -3834,6 +3862,11 @@ FolderStorage.prototype = {
                                  this, header, body, callback));
       return;
     }
+
+    if (header.flags && header.flags.indexOf('\\Seen') === -1) {
+      this.folderMeta.unreadCount++;
+    }
+
     this._LOG.addMessageHeader(header.date, header.id, header.srvid);
 
     this.headerCount += 1;

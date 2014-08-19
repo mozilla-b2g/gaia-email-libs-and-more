@@ -329,6 +329,11 @@ ImapJobDriver.prototype = {
   undo_download: $jobmixins.undo_download,
 
   //////////////////////////////////////////////////////////////////////////////
+  // upgrade: perfom necessary upgrades when the db version changes
+
+  local_do_upgradeDB: $jobmixins.local_do_upgradeDB,
+
+  //////////////////////////////////////////////////////////////////////////////
   // modtags: Modify tags on messages
 
   local_do_modtags: $jobmixins.local_do_modtags,

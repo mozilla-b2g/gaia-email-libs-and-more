@@ -1,8 +1,8 @@
 define([
   'rdcommon/log', '../a64', '../accountmixins', '../mailslice',
-  '../searchfilter', '../util', 'require', 'exports'],
+  '../searchfilter', '../util', '../db/folder_info_rep', 'require', 'exports'],
   function(log, $a64, $acctmixins, $mailslice,
-  $searchfilter, $util, require, exports) {
+  $searchfilter, $util, $folder_info, require, exports) {
 
 var bsearchForInsert = $util.bsearchForInsert;
 
@@ -151,7 +151,7 @@ CompositeIncomingAccount.prototype = {
                               suppressNotification) {
     var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
-      $meta: {
+      $meta: $folder_info.makeFolderMeta({
         id: folderId,
         name: name,
         type: type,
@@ -159,8 +159,9 @@ CompositeIncomingAccount.prototype = {
         parentId: parentId,
         delim: delim,
         depth: depth,
-        lastSyncedAt: 0
-      },
+        lastSyncedAt: 0,
+        version: $util.CUR_VERSION
+      }),
       $impl: {
         nextId: 0,
         nextHeaderBlock: 0,

@@ -31,7 +31,10 @@ TD.commonCase('detect server changes', function(T) {
 
   T.group('sync detects additions/modifications/deletions with fresh view');
   // Change existing messages and delete some existing ones (3, so => 6).
-  T.action('mutate', testFolder, function() {
+  T.action('mutate', testFolder, eSync, function() {
+    // All 9 messages are new and accordingly unread...
+    testAccount.expect_unread('Unread Before Server Changes', testFolder.id,
+                              eSync, 9);
     testAccount.modifyMessageFlagsOnServerButNotLocally(
       manipView, [3], ['\\Seen'], null);
     testAccount.modifyMessageFlagsOnServerButNotLocally(
@@ -51,6 +54,12 @@ TD.commonCase('detect server changes', function(T) {
     [{ count: 11, full: 5, flags: 6, changed: 2, deleted: 3 }],
     // these messages are all older than the newest message, none are 'new'
     { top: true, bottom: true, grow: false, newCount: 0 });
+  T.check('check unread count', eSync, function() {
+    // We had 9 unread, we marked 1 read, then deleted 3 others, then added
+    // 5 more.  So 9 - 1 - 3 + 5 = 10.
+    testAccount.expect_unread('Unread After 1st Server Changes', testFolder.id,
+                              eSync, 10);
+  });
 
   /**
    * Perform some manipulations with the view still open, then trigger a refresh
@@ -85,6 +94,10 @@ TD.commonCase('detect server changes', function(T) {
   T.group('fail to get the message body for a deleted message');
   T.action(eSync, 'request deleted message body from',
            testFolder.storageActor, function() {
+    // We had 10 unread, then we deleted another 2 and marked another 1 read, so
+    // 10 - 2 - 1 = 7.
+    testAccount.expect_unread('Unread After Server Changes', testFolder.id,
+                              eSync, 7);
     eSync.expect_namedValue('bodyInfo', null);
     testFolder.storageActor.expect_bodyNotFound();
     var deletedHeader = expectedRefreshChanges.deletions[0];

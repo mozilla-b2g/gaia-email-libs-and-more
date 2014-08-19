@@ -10,7 +10,8 @@ define(
     './wakelocks',
     './date',
     './syncbase',
-    'exports'
+    './headerCounter',
+    'exports',
   ],
   function(
     $router,
@@ -19,12 +20,14 @@ define(
     $wakelocks,
     $date,
     $sync,
+    $count,
     exports
   ) {
 
 var sendMessage = $router.registerCallbackType('devicestorage');
 
 exports.local_do_modtags = function(op, doneCallback, undo) {
+  var self = this;
   var addTags = undo ? op.removeTags : op.addTags,
       removeTags = undo ? op.addTags : op.removeTags;
   this._partitionAndAccessFoldersSequentially(
@@ -42,6 +45,11 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (addTags) {
           for (iTag = 0; iTag < addTags.length; iTag++) {
             tag = addTags[iTag];
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount--;
+              self.account.universe.__notifyModifiedFolder(self.account,
+                storage.folderMeta);
+            }
             // The list should be small enough that native stuff is better
             // than JS bsearch.
             existing = header.flags.indexOf(tag);
@@ -55,6 +63,11 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
         if (removeTags) {
           for (iTag = 0; iTag < removeTags.length; iTag++) {
             tag = removeTags[iTag];
+            if (tag === '\\Seen') {
+              storage.folderMeta.unreadCount++;
+              self.account.universe.__notifyModifiedFolder(self.account,
+                storage.folderMeta);
+            }
             existing = header.flags.indexOf(tag);
             if (existing === -1)
               continue;
@@ -884,6 +897,16 @@ exports._partitionAndAccessFoldersSequentially = function(
   openNextFolder();
 };
 
-
+exports.local_do_upgradeDB = function (op, doneCallback) {
+  var storage = this.account.getFolderStorageForFolderId(op.folderId);
+  var filter = function(header) {
+    return header.flags &&
+      header.flags.indexOf('\\Seen') === -1;
+  };
+  $count.countHeaders(storage, filter, function(num) {
+    storage.folderMeta.unreadCount = num;
+    doneCallback();
+  });
+};
 
 }); // end define
