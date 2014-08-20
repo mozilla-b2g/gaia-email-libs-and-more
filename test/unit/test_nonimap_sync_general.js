@@ -18,6 +18,7 @@ var TD = exports.TD = $tc.defineTestsFor(
   [$th_main.TESTHELPER], ['app']);
 
 TD.commonCase('folder sync', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
   const FilterType = $ascp.AirSync.Enums.FilterType;
   var type = RT.envOptions.type;
 
@@ -30,7 +31,7 @@ TD.commonCase('folder sync', function(T, RT) {
   T.action(eSync, 'check initial folder list', testAccount, function() {
     eSync.expect_namedValue('inbox', {
       syncKey: (type === 'activesync' ? '0' : null),
-      hasServerId: true
+      hasServerId:  (type === 'activesync' ? true : false),
     });
     var folder = testAccount.account.getFirstFolderWithType('inbox');
     eSync.namedValue('inbox', {
@@ -126,6 +127,12 @@ TD.commonCase('folder sync', function(T, RT) {
     { count: INITIAL_FILL_SIZE, full: 0, flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: false, grow: false });
 
+  /* ACTIVESYNC ONLY FROM HERE ON DOWN! */
+  if (TEST_PARAMS.type === 'pop3') {
+    T.group('cleanup');
+    return;
+  }
+
   /**
    * Perform a folder sync where our initial time fetch window contains a subset
    * of the messages in the folder.
@@ -151,13 +158,7 @@ TD.commonCase('folder sync', function(T, RT) {
     { top: true, bottom: false, grow: false });
 
   T.group('change sync range to all messages');
-  T.action(eSync, 'change sync range', function() {
-    eSync.expect_event('modifyAccount done');
-    var acct = testUniverse.allAccountsSlice.items[0];
-    acct.modifyAccount({ syncRange: 'all' }, function() {
-      eSync.event('modifyAccount done');
-    });
-  });
+  testAccount.do_modifyAccount({ syncRange: 'all' });
   testAccount.do_viewFolder(
     'syncs', partialSyncFolder,
     { count: INITIAL_FILL_SIZE, full: 60, flags: 0, changed: 0, deleted: 0 },

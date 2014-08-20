@@ -14,59 +14,26 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase',
+        './resources/folder_storage_shared', 'mailapi/date',
+        'mailapi/mailslice', 'mailapi/syncbase',
         'mailapi/slice_bridge_proxy', 'exports'],
-       function($tc, $th_main, $date, $mailslice, $syncbase,
+       function($tc, $th_main, $shared, $date, $mailslice, $syncbase,
                 $sliceBridgeProxy, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_folder_storage' }, null,
   [$th_main.TESTHELPER], ['app']);
 
-function MockDB() {
-}
-MockDB.prototype = {
-};
+var makeTestContext = $shared.makeTestContext;
+var makeMockishSlice = $shared.makeMockishSlice;
+var makeDummyHeaders = $shared.makeDummyHeaders;
+var injectSomeMessages = $shared.injectSomeMessages;
+var DateUTC = $shared.DateUTC;
+const BIG2 = $shared.BIG2;
+const BIG3 = $shared.BIG3;
+const BIG5 = $shared.BIG5;
+const TOOBIG = $shared.TOOBIG;
 
-function MockAccount() {
-}
-MockAccount.prototype = {
-  accountDef: {
-    syncRange: 'auto',
-  },
-  tzOffset: 0,
-  scheduleMessagePurge: function() {
-  },
-};
-
-function MockBridge() {
-}
-MockBridge.prototype = {
-  __sendMesage: function() {
-  },
-};
-
-/**
- * Create a slice that won't actually ever do anything.  It's mainly suitable
- * for checking its state after causing things to happen to it.  For fancier
- * things you'll need to expand this or come up with something better.
- * Previously we got all of our slice coverage from higher-level synchronization
- * tests.
- */
-function makeMockishSlice(storage) {
-  var mockBridge = new MockBridge();
-  var bridgeProxy = new $sliceBridgeProxy.SliceBridgeProxy(
-                      mockBridge, 'fakeHeaders', 'fakeHandle');
-  // Lie and say there's an update pending so it doesn't try and create any
-  // timeouts.
-  bridgeProxy.scheduledUpdate = true;
-  // And let's never actually try and send anything.
-  bridgeProxy.flushUpdates = function() {
-  };
-
-  var mailSlice = new $mailslice.MailSlice(bridgeProxy, storage, storage._LOG);
-  return mailSlice;
-}
 
 var gLazyLogger = null;
 
@@ -88,267 +55,13 @@ function do_throw(msg) {
   throw new Error(msg);
 }
 
-/**
- * Create the FolderStorage instance for a test run plus the required mocks.
- */
-function makeTestContext(account) {
-  var db = new MockDB();
-
-  // some tests interact with account features like the universe so generally we
-  // are only testing FolderStorage but we also want to verify that
-  // FolderStorage will interact correctly with the world.
-  account = account || new MockAccount();
-
-  var folderId = 'A/1';
-  var storage = new $mailslice.FolderStorage(
-    account, folderId,
-    {
-      $meta: {
-        id: folderId,
-        name: 'Inbox',
-        path: 'Inbox',
-        type: 'inbox',
-        depth: 0
-      },
-      $impl: {
-        nextId: 0,
-        nextHeaderBlock: 0,
-        nextBodyBlock: 0,
-      },
-      accuracy: [],
-      headerBlocks: [],
-      bodyBlocks: [],
-      serverIdHeaderBlockMapping: {},
-    },
-    db,
-    null);
-  return {
-    account: account,
-    db: db,
-    storage: storage,
-
-    bodyFactory: function(date, size, overrides) {
-      var body = {
-        date: date,
-        size: size,
-        attachments: [],
-        relatedParts: [],
-        references: [],
-        bodyReps: []
-      };
-
-      if (overrides) {
-        for (var key in overrides) {
-          body[key] = overrides[key];
-        }
-      }
-
-      return body;
-    },
-
-    insertBody: function(date, uid, size, expectedBlockIndex) {
-      var blockInfo = null;
-      var bodyInfo = this.bodyFactory(date, size);
-      storage._insertIntoBlockUsingDateAndUID(
-        'body', date, uid, 'S' + uid, size, bodyInfo,
-        function blockPicked(info, block) {
-          // Make sure the insertion happens in the block location we were
-          // expecting.
-          do_check_eq(storage._bodyBlockInfos.indexOf(info),
-                      expectedBlockIndex);
-          blockInfo = info;
-
-          // Make sure the insertion took.
-          if (block.ids.indexOf(uid) === -1)
-            do_throw('UID was not inserted!');
-          if (!block.bodies.hasOwnProperty(uid))
-            do_throw('body was not inserted!');
-        });
-      return bodyInfo;
-    },
-    deleteBody: function(date, uid) {
-      storage._deleteFromBlock('body', date, uid, function blockDeleted() {
-      });
-    },
-    /**
-     * Clear the list of dirty blocks.
-     */
-    resetDirtyBlocks: function() {
-      storage._dirtyBodyBlocks = {};
-    },
-    /**
-     * Assert that all of the given body blocks are marked dirty.
-     */
-    checkDirtyBodyBlocks: function(bodyIndices, nukedInfos) {
-      var i, blockInfo;
-      if (bodyIndices == null)
-        bodyIndices = [];
-      for (i = 0; i < bodyIndices.length; i++) {
-        blockInfo = storage._bodyBlockInfos[bodyIndices[i]];
-        do_check_true(
-          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
-        do_check_true(
-          storage._dirtyBodyBlocks[blockInfo.blockId] ===
-            storage._bodyBlocks[blockInfo.blockId]);
-      }
-      if (nukedInfos == null)
-        nukedInfos = [];
-      for (i = 0; i < nukedInfos.length; i++) {
-        blockInfo = nukedInfos[blockInfo];
-        do_check_true(
-          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
-        do_check_true(
-          storage._dirtyBodyBlocks[blockInfo.blockId] === null);
-      }
-    },
-    /**
-     * Create a new header; no expectations, this is just setup logic.
-     */
-    insertHeader: function(date, uid) {
-      var headerInfo = {
-        date: date,
-        id: uid,
-        // have the server-id differ
-        srvid: 'S' + uid,
-        suid: folderId + '/' + uid,
-        guid: uid,
-      };
-      storage.addMessageHeader(headerInfo);
-      return headerInfo;
-    },
-
-    checkServerIdMapForHeaders: function(headers, expectedBlockId) {
-      var serverIdHeaderBlockMapping = storage._serverIdHeaderBlockMapping,
-          msg;
-      for (var i = 0; i < headers.length; i++) {
-        var header = headers[i];
-        if (expectedBlockId !== null) {
-          if (!serverIdHeaderBlockMapping.hasOwnProperty(header.srvid) ||
-              serverIdHeaderBlockMapping[header.srvid] !== expectedBlockId) {
-            msg = 'header with server id ' + header.srvid + ' has block id ' +
-                  'of ' + serverIdHeaderBlockMapping[header.srvid] +
-                  ' instead of ' + expectedBlockId;
-            console.error(msg);
-            do_throw(msg);
-          }
-       }
-       else {
-         if (serverIdHeaderBlockMapping.hasOwnProperty(header.srvid)) {
-           msg = 'header with server id ' + header.srvid + ' should not be ' +
-             'present in server id map, but has value: ' +
-             serverIdHeaderBlockMapping[header.srvid];
-           console.error(msg);
-           do_throw(msg);
-         }
-       }
-      }
-    },
-
-    checkNeedsRefresh: function(checkStart, checkEnd,
-                                expectedStart, expectedEnd) {
-      var result = storage.checkAccuracyCoverageNeedingRefresh(
-                     checkStart, checkEnd, $syncbase.OPEN_REFRESH_THRESH_MS);
-      do_check_eq(expectedStart, result && result.startTS);
-      do_check_eq(expectedEnd, result && result.endTS);
-    },
-
-    /**
-     * Create a slice defined by the given headers and force it into the _slices
-     * array to bypass all the affiliated synchronization logic.
-     */
-    makeSliceBoundByHeaders: function(endHeader, startHeader, headersInSlice,
-                                      opts) {
-      var slice = makeMockishSlice(storage);
-      if (endHeader && startHeader) {
-        slice.endTS = endHeader.date;
-        slice.endUID = endHeader.id;
-        slice.startTS = startHeader.date;
-        slice.startUID = startHeader.id;
-      }
-      slice.headers = headersInSlice;
-      slice.desiredHeaders = slice.headers.length;
-      if (opts && ('ignoreHeaders' in opts)) {
-        slice.ignoreHeaders = opts.ignoreHeaders;
-      }
-      storage._slices.push(slice);
-      return slice;
-    },
-  };
-}
-
-function makeDummyHeaders(count) {
-  var dayNum = 1, monthNum = 0;
-  var headers = [], uid = 100;
-  while (count--) {
-    headers.push({
-      id: uid,
-      srvid: 'S' + uid,
-      suid: 'H/1/' + uid,
-      guid: 'message-' + uid++,
-      author: null,
-      date: Date.UTC(2010, monthNum, dayNum++),
-      flags: null, hasAttachments: null, subject: null, snippet: null,
-    });
-    // rather limited rollover support
-    if (monthNum === 0 && dayNum === 32) {
-      monthNum = 1;
-      dayNum = 1;
-    }
-  }
-  headers.reverse();
-  return headers;
-}
-
-var EXPECTED_BLOCK_SIZE = 8;
-
-/**
- * Byte size so that 2 fit in a block, but 3 will not.
- */
-const BIG2 = (EXPECTED_BLOCK_SIZE / 2.6) * 1024;
-/**
- * Byte size so that 3 fit in a block, but 4 will not.
- */
-const BIG3 = Math.floor((EXPECTED_BLOCK_SIZE / 3.4) * 1024);
-/**
- * Byte size so that 5 fit in a block, but 6 will not.
- */
-const BIG5 = (EXPECTED_BLOCK_SIZE / 5) * 1024;
-
-/**
- * Byte size that exceeds our target block size.
- */
-const TOOBIG = Math.ceil(((EXPECTED_BLOCK_SIZE * 1.4) * 1024));
-
-
-/**
- * Create messages distributed so that we have 5 headers per header block and
- * 3 bodies per body blocks.
- */
-function injectSomeMessages(ctx, count, bodySize) {
-  var headers = makeDummyHeaders(count),
-      BS = BIG3;
-
-  // headers are ordered newest[0] to oldest[n-1]
-  for (var i = 0; i < headers.length; i++) {
-    var header = headers[i];
-    ctx.storage.addMessageHeader(header);
-    var bodyInfo = {
-      date: header.date, get size() { return bodySize; },
-      set size(val) {},
-      to: null, cc: null, bcc: null, replyTo: null,
-      attachments: null, relatedParts: null, bodyReps: null
-    };
-    ctx.storage.addMessageBody(header, bodyInfo);
-  }
-  return headers;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Test helper functions
 
 TD.commonSimple('tuple range intersection',
                 function test_tuple_range_isect(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var intersect = $mailslice.tupleRangeIntersectsTupleRange;
 
   function checkBoth(a, b, result) {
@@ -416,14 +129,6 @@ TD.commonSimple('tuple range intersection',
 // NB: End dates are EXCLUSIVE.
 
 /**
- * We were using Date.UTC, but it turns out those timestamps are hard to read,
- * so let's just encode things so that they make sense to us...
- */
-function DateUTC(y, m, d) {
-  return y * 100000 + m * 1000 + d * 10;
-}
-
-/**
  * Helper to check the values of an accuracy range entry.
  */
 function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
@@ -438,6 +143,7 @@ function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
  */
 TD.commonSimple('accuracy base case', function test_accuracy_base_case(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -455,6 +161,7 @@ TD.commonSimple('accuracy base case', function test_accuracy_base_case(eLazy) {
 TD.commonSimple('accuracy non-overlapping',
                 function test_accuracy_nonoverlap(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -497,6 +204,7 @@ TD.commonSimple('accuracy non-overlapping',
  */
 TD.commonSimple('accuracy contains', function test_accuracy_contains(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d2 = DateUTC(2010, 0, 2),
       d3 = DateUTC(2010, 0, 3),
@@ -565,6 +273,7 @@ TD.commonSimple('accuracy contains', function test_accuracy_contains(eLazy) {
  */
 TD.commonSimple('accuracy overlapping', function test_accuracy_overlap(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d2 = DateUTC(2010, 0, 2),
       d3 = DateUTC(2010, 0, 3),
@@ -623,6 +332,7 @@ TD.commonSimple('accuracy overlapping', function test_accuracy_overlap(eLazy) {
  */
 TD.commonSimple('accuracy merge', function test_accuracy_merge(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d4 = DateUTC(2010, 0, 4),
       d5 = DateUTC(2010, 0, 5),
@@ -675,6 +385,7 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge(eLazy) {
 TD.commonSimple('accuracy refresh check',
                 function test_accuracy_refresh(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -779,6 +490,7 @@ function check_body_block_contents(bodyBlock, ids, bodies) {
 TD.commonSimple('insertion: no existing blocks',
                 function test_insertion_no_existing_blocks(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       uid1 = 101,
@@ -804,6 +516,7 @@ TD.commonSimple('insertion: no existing blocks',
 TD.commonSimple('insertion: adjacent simple',
                 function test_insertion_adjacent_simple(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -856,6 +569,7 @@ TD.commonSimple('insertion: adjacent simple',
 TD.commonSimple('insertion in existing block',
                 function test_insertion_in_block_use(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -886,6 +600,7 @@ TD.commonSimple('insertion in existing block',
 TD.commonSimple('inserting larger-than-block items',
                 function test_insertion_oversized_items(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d3 = DateUTC(2010, 0, 3),
       d4 = DateUTC(2010, 0, 4),
@@ -961,6 +676,7 @@ TD.commonSimple('inserting larger-than-block items',
 TD.commonSimple('insertion in block that will overflow',
                 function test_insertion_in_block_overflow_split(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -1035,6 +751,7 @@ TD.commonSimple('insertion in block that will overflow',
 TD.commonSimple('header block splitting',
                 function test_header_block_splitting(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       expectedHeadersPerBlock = 115, // Math.ceil(48 * 1024 / 430)
       numHeaders = 230,
@@ -1251,6 +968,7 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
  */
 TD.commonSimple('body deletion', function test_body_deletion(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d7 = DateUTC(2010, 0, 7),
@@ -1310,6 +1028,7 @@ TD.commonSimple('body deletion', function test_body_deletion(eLazy) {
 TD.commonSimple('srvid mapping for add/del',
                 function test_header_deletion(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   // - add header and body.
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
@@ -1358,6 +1077,7 @@ TD.commonSimple(
     'insertion outside existing blocks',
     function test_insertion_outside_use_nonoverflow_to_overflow(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       d6 = DateUTC(2010, 0, 6),
@@ -1414,6 +1134,7 @@ TD.commonSimple(
 TD.commonSimple('insertion differing only by UIDs',
                 function test_insertion_differing_only_by_uids(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d5 = DateUTC(2010, 0, 5),
       uid1 = 101,
@@ -1534,6 +1255,7 @@ function rexpect(firstDate, firstUID, lastDate, lastUID) {
  */
 TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       dA = DateUTC(2010, 0, 4),
       uidA1 = 101, uidA2 = 103, uidA3 = 105,
@@ -1789,6 +1511,7 @@ TD.commonSimple('getMessagesBeforeMessage, different dates', function(eLazy) {
  */
 TD.commonSimple('future headers', function test_future_headers(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       // Ensure that our message's date is in the future (without messing with
       // $date.NOW()).
@@ -1811,6 +1534,7 @@ TD.commonSimple('future headers', function test_future_headers(eLazy) {
 
 TD.commonSimple('block cache flushing', function(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext();
 
   // no blocks should be loaded before stuff starts
@@ -1913,6 +1637,7 @@ TD.commonSimple('block cache flushing', function(eLazy) {
 TD.commonSimple('discard cached blocks by message', function(eLazy) {
   // Note: This test is derived from 'block cache flushing'.
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext();
 
   // no blocks should be loaded before stuff starts
@@ -1966,6 +1691,7 @@ TD.commonSimple('discard cached blocks by message', function(eLazy) {
 // Confirm headerCount is tracked correctly
 TD.commonSimple('headerCount folderStorage tracking', function(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -2015,6 +1741,7 @@ TD.commonSimple('headerCount folderStorage tracking', function(eLazy) {
  */
 TD.commonSimple('headerCount slice tracking', function(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d1 = DateUTC(2010, 0, 1),
       d2 = DateUTC(2010, 0, 2),
@@ -2070,6 +1797,7 @@ TD.commonSimple('headerCount slice tracking', function(eLazy) {
  */
 TD.commonSimple('headerCount ignoreHeaders case', function(eLazy) {
   gLazyLogger = eLazy;
+  $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
       d2 = DateUTC(2010, 0, 2),
       d4 = DateUTC(2010, 0, 4),
