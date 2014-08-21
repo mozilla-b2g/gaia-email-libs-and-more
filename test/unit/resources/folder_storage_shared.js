@@ -2,9 +2,9 @@ define(
   [
     'module',
     'exports',
-    'mailapi/mailslice',
-    'mailapi/syncbase',
-    'mailapi/slice_bridge_proxy'
+    'mailslice',
+    'syncbase',
+    'slice_bridge_proxy'
   ],
   function(
     $module,

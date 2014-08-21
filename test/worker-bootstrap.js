@@ -12,7 +12,27 @@
 var window = self;
 var testLogEnable = false;
 
-importScripts('../deps/alameda.js');
+var gelamWorkerBaseUrl = '../js';
+
+importScripts('../js/ext/alameda.js');
+importScripts('../js/worker-config.js');
+
+requirejs.config({
+  // This map config exists because mailapi is loaded in a worker for tests.
+  // Normally for main-frame-setup use, mailapi references
+  // './ext/addressparser', to avoid outside consumers of gelam from needing
+  // any special config. However, this conflicts with the 'addressparser'
+  // usage inside the worker. Since this concern is only for tests, it is not
+  // the normal way gelam is consumed, this map config is set up just for the
+  // tests.
+  map: {
+    'mailapi': {
+      'ext/addressparser': 'addressparser'
+    }
+  },
+  // For tests, time out in case there are non-404 errors.
+  waitSeconds: 10
+});
 
 function makeConsoleFunc(prefix) {
   return function() {
@@ -48,72 +68,12 @@ window.navigator.mozContacts = {
 
 var document = { cookie: null };
 
-require({
-  catchError: {
-    define: true,
-  },
-  baseUrl: '../',
+// Configure path for the test directory, relative to gelamWorkerBaseUrl
+require.config({
   paths: {
-    // - test stuff!
-    // XXX should these be exposed just via 'test'?
-    "loggest-runner": "test/loggest-runner",
-    "loggest-runner-worker": "test/loggest-runner-worker",
+    test: '../test',
+    gelam: '.'
+  }
+});
 
-    "tests": "test/unit",
-
-    // - map similar to the one in copy-to-gaia.js
-
-    // NOP's
-    "http": "data/lib/nop",
-    "https": "data/lib/nop2",
-    "url": "data/lib/nop3",
-    "fs": "data/lib/nop4",
-    "child_process": "data/lib/nop5",
-    "xoauth2": "data/lib/nop6",
-
-    "q": "data/lib/q",
-    "text": "data/lib/text",
-    "mix": "data/lib/mix",
-    // silly shim
-    "event-queue": "data/lib/js-shims/event-queue",
-    "microtime": "data/lib/js-shims/microtime",
-    "path": "data/lib/js-shims/path",
-    "utf7": "data/lib/js-shims/utf7",
-
-    "wbxml": "deps/activesync/wbxml/wbxml",
-    "activesync": "deps/activesync",
-
-    "bleach": "deps/bleach.js/lib/bleach",
-
-    "imap": "data/lib/imap",
-    "pop3": "data/lib/pop3",
-
-    "rdplat": "data/lib/rdplat",
-    "rdcommon": "data/lib/rdcommon",
-    "mailapi": "data/lib/mailapi",
-
-    "buffer": "data/lib/node-buffer",
-    "crypto": "data/lib/node-crypto",
-    "net": "data/lib/node-net",
-    "tls": "data/lib/node-tls",
-    "os": "data/lib/node-os",
-    "timers": "data/lib/web-timers",
-
-    "iconv": "data/lib/js-shims/faux-iconv",
-    "encoding": "data/lib/js-shims/faux-encoding",
-
-    "assert": "data/deps/browserify-builtins/assert",
-    "events": "data/deps/browserify-builtins/events",
-    "stream": "data/deps/browserify-builtins/stream",
-    "util": "data/deps/browserify-builtins/util",
-
-    // These used to be packages but we have AMD shims for their mains where
-    // appropriate, so we can just use paths.
-    "addressparser": "data/deps/addressparser",
-    "mimelib": "data/deps/mimelib",
-    "mailparser": "data/deps/mailparser/lib",
-    "simplesmtp": "data/deps/simplesmtp",
-    "mailcomposer": "data/deps/mailcomposer",
-  },
-  definePrim: 'prim'
-}, ['loggest-runner-worker']);
+require(['test/loggest-runner-worker']);

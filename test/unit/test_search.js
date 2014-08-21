@@ -3,7 +3,7 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/searchfilter', 'exports'],
+        'searchfilter', 'exports'],
        function($tc, $th_imap, $filters, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(

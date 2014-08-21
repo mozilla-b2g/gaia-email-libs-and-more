@@ -21,7 +21,7 @@ TD.commonCase('connection use', function(T, RT) {
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
 
   T.action('close existing connection', function() {
-    testAccount.folderAccount._conn.disconnect();
+    testAccount.folderAccount._conn.close();
   });
 
   // Trash must not create a connection.

@@ -1,36 +1,11 @@
 define(['rdcommon/testcontext', './resources/th_main',
-        'encoding', 'exports'],
-       function($tc, $th_main, $encoding,
+        'mimefuncs', 'exports'],
+       function($tc, $th_main, mimefuncs,
                 exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_intl_unit' }, null,
   [$th_main.TESTHELPER], ['app']);
-
-TD.commonSimple('encoding aliases', function(eLazy) {
-  var aliases = [
-    ['latin1', 'iso-8859-1'], // TextDecoder actually understands latin1...
-    ['latin-1', 'iso-8859-1'], // but not these.
-    ['latin_1', 'iso-8859-1'],
-    ['latin2', 'iso-8859-2'], // TextDecoder actually understands latin2...
-    ['latin-2', 'iso-8859-2'], // but not these.
-    ['latin_2', 'iso-8859-2'],
-    ['ms949', 'windows-949'],
-    ['MS949', 'windows-949'],
-    ['win949', 'windows-949'],
-    ['win-949', 'windows-949'],
-  ];
-
-  var i, alias;
-  for (i = 0; i < aliases.length; i++) {
-    alias = aliases[i];
-    eLazy.expect_namedValue(alias[0], alias[1]);
-  }
-  for (i = 0; i < aliases.length; i++) {
-    alias = aliases[i];
-    eLazy.namedValue(alias[0], $encoding.checkEncoding(alias[0]));
-  }
-});
 
 /**
  * Run some encodings that actually exist but are unsupported by us /
@@ -65,7 +40,8 @@ TD.commonCase('unsupported bad news encodings', function(T, RT) {
   cases.forEach(function(info) {
     T.action(eCheck, info.name, function() {
       eCheck.expect_namedValue('converted', info.weWant);
-      var outstr = $encoding.convert(info.input, 'utf-8', info.encoding);
+      var outstr = new TextDecoder('utf-8').decode(
+        mimefuncs.charset.convert(info.input, info.encoding));
       eCheck.namedValue('converted', outstr);
     });
   });

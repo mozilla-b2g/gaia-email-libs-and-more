@@ -7,8 +7,8 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/folder_storage_shared',
-        'mailapi/date', 'mailapi/mailslice', 'mailapi/syncbase',
-        'mailapi/slice_bridge_proxy', 'mailapi/headerCounter', 'exports'],
+        'date', 'mailslice', 'syncbase',
+        'slice_bridge_proxy', 'headerCounter', 'exports'],
        function($tc, $th_main, $shared, $date, $mailslice, $syncbase,
                 $sliceBridgeProxy, $headerCounter, exports) {
 

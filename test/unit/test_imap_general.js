@@ -21,7 +21,6 @@ define(['rdcommon/testcontext', './resources/th_main',
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
-
 const INITIAL_SYNC_DAYS = 5,
       // This is the number of messages after which the sync logic will
       // declare victory and stop filling.

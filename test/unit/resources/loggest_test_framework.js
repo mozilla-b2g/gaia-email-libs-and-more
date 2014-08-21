@@ -6,22 +6,21 @@
 
 // prefixing everything since we are running in the global scope and I don't
 // want the modules to accidentally see these because of a lack of shadowing.
-var $_mailuniverse = require('mailapi/mailuniverse'),
-    $_accountcommon = require('mailapi/accountcommon'),
-    $_mailbridge = require('mailapi/mailbridge'),
-    $_mailapi = require('mailapi/mailapi'),
-    $_allback = require('mailapi/allback'),
-    $_date = require('mailapi/date'),
-    $_syncbase = require('mailapi/syncbase'),
-    $_imapfolder = require('mailapi/imap/folder'),
-    $_mailslice = require('mailapi/mailslice'),
-    $_quotechew = require('mailapi/quotechew'),
+var $_mailuniverse = require('mailuniverse'),
+    $_accountcommon = require('accountcommon'),
+    $_mailbridge = require('mailbridge'),
+    $_mailapi = require('mailapi'),
+    $_allback = require('allback'),
+    $_date = require('date'),
+    $_syncbase = require('syncbase'),
+    $_imapfolder = require('imap/folder'),
+    $_mailslice = require('mailslice'),
+    $_quotechew = require('quotechew'),
     $_wbxml = require('activesync/wbxml/wbxml'),
     $_ascp = require('activesync/codepages'),
-    $_Q = require('q'),
     $tc = require('rdcommon/testcontext'),
     $_testdriver = require('rdcommon/testdriver'),
-    $th_imap = require('mailapi/testhelper');
+    $th_imap = require('testhelper');
 
 // this is relative to our caller, which is a bit crap, but should be fine
 load('resources/messageGenerator.js');
@@ -69,14 +68,13 @@ function runMyTests(maxRunInSecs) {
   };
   gRunner = new $_testdriver.TestDefinerRunner(
     TD, true, options);
-  $_Q.when(gRunner.runAll(ErrorTrapper, options.defaultStepDuration),
-           function success() {
-             dumpLogs();
-             do_check_true(true);
-             do_test_finished();
-           },
-           function failure() {
-             do_throw('A test failed!');
-             do_test_finished();
-           });
+  gRunner.runAll(ErrorTrapper, options.defaultStepDuration)
+    .then(function success() {
+      dumpLogs();
+      do_check_true(true);
+      do_test_finished();
+    }, function failure() {
+      do_throw('A test failed!');
+      do_test_finished();
+    });
 }

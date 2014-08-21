@@ -9,7 +9,7 @@ define(
   [
     'rdcommon/log',
     './messageGenerator',
-    'mailapi/accountcommon',
+    'accountcommon',
     'pop3/pop3',
     'module',
     'exports'

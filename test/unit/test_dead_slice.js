@@ -1,5 +1,5 @@
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/mailslice', 'exports'],
+        'mailslice', 'exports'],
        function($tc, $th_main, $mailslice, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(

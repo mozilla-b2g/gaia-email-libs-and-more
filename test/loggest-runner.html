@@ -32,9 +32,19 @@
     return false;
   };
 </script>
-  <script type="application/javascript" defer src="/deps/alameda.js"></script>
-  <script type="application/javascript" defer src="gelam-require-map.js">
-  </script>
+<script src="/js/ext/alameda.js"></script>
+<script>
+  require.config({
+    baseUrl: '/js/ext',
+    paths: {
+      gelam: '../',
+      test: '../../test'
+    },
+    // For tests, time out in case there are non-404 errors.
+    waitSeconds: 10
+  });
+  require(['test/loggest-runner']);
+</script>
 </head>
 <body style="background-color: #eeeeff;">
 This is loggest-runner.html.

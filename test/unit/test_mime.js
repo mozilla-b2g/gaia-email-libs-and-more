@@ -2,8 +2,8 @@
  * Test our processing of MIME messages.  Because we leave most of this up to
  * the IMAP server, this ends up being a test of:
  * - `imapchew.js`
- * - the sync logic in `mailslice.js`'s ability to cram things into mailparser
- * - the (external) mailparser lib
+ * - the sync logic in `mailslice.js`'s ability to cram things into mimeparser
+ * - the (external) mimeparser lib
  * - `htmlchew.js`
  * - the (external) bleach.js lib
  **/
@@ -36,7 +36,7 @@ var rawSammySnake = '\u00dfnake, \u00dfammy',
     mwbBase64Gibberish = '=?UTF-8?B?Q!Q#@Q$RR$RR=====?=';
 
 var rawUnicodeName = 'Figui\u00e8re',
-    utf8UnicodeName = new Buffer('Figui\u00c3\u00a8re', 'binary'),
+    utf8UnicodeName = 'Figuière',
     utf7UnicodeName = 'Figui+AOg-re',
     qpUtf8UnicodeName = 'Figui=C3=A8re';
 
@@ -273,35 +273,36 @@ TD.commonCase('MIME hierarchies', function(T) {
         '    <br>',
         '  </body>',
         '</html>'].join('\n'),
+  // This one has one less space on each line due to space-stuffing (format=flowed)
       bstrSanitizedForwardedHtml = [
         '',
-        '  ',
+        ' ',
         '',
-        '    ',
-        '  ',
-        '  ',
-        '    <br/>',
-        '    <div class="moz-forward-container"><br/>',
-        '      <br/>',
-        '      -------- Original Message --------',
-        '      <table class="moz-email-headers-table" border="0" cellpadding="0" cellspacing="0">',
-        '        <tbody>',
-        '          <tr>',
-        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">Date: </th>',
-        '            <td>Wed, 30 Jan 2013 18:01:02 +0530</td>',
-        '          </tr>',
-        '          <tr>',
-        '            <th nowrap="nowrap" valign="BASELINE" align="RIGHT">From: </th>',
-        '            <td>Foo Bar <a class="moz-txt-link-rfc2396E moz-external-link" ext-href="mailto:foo@example.com">&lt;foo@example.com&gt;</a></td>',
-        '          </tr>',
-        '        </tbody>',
-        '      </table>',
-        '      <br/>',
-        '      <br/>',
-        '      <br/>',
-        '    </div>',
-        '    <br/>',
-        '  ',
+        '   ',
+        ' ',
+        ' ',
+        '   <br/>',
+        '   <div class="moz-forward-container"><br/>',
+        '     <br/>',
+        '     -------- Original Message --------',
+        '     <table class="moz-email-headers-table" border="0" cellpadding="0" cellspacing="0">',
+        '       <tbody>',
+        '         <tr>',
+        '           <th nowrap="nowrap" valign="BASELINE" align="RIGHT">Date: </th>',
+        '           <td>Wed, 30 Jan 2013 18:01:02 +0530</td>',
+        '         </tr>',
+        '         <tr>',
+        '           <th nowrap="nowrap" valign="BASELINE" align="RIGHT">From: </th>',
+        '           <td>Foo Bar <a class="moz-txt-link-rfc2396E moz-external-link" ext-href="mailto:foo@example.com">&lt;foo@example.com&gt;</a></td>',
+        '         </tr>',
+        '       </tbody>',
+        '     </table>',
+        '     <br/>',
+        '     <br/>',
+        '     <br/>',
+        '   </div>',
+        '   <br/>',
+        ' ',
         ''].join('\n'),
       bpartForwardedHtml =
         new SyntheticPartLeaf(
@@ -665,7 +666,8 @@ TD.commonCase('MIME hierarchies', function(T) {
   T.group('setup');
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
+                            { universe: testUniverse,
+                              restored: true }),
       eCheck = T.lazyLogger('messageCheck');
 
 

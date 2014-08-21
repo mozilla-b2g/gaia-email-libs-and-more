@@ -1,24 +1,9 @@
-[submodule "deps/wmsy"]
-	path = deps/wmsy
+[submodule "js/ext/wmsy"]
+	path = js/ext/wmsy
 	url = git://github.com/asutherland/wmsy.git
-[submodule "node-deps/mailparser"]
-	path = node-deps/mailparser
-	url = git://github.com/asutherland/mailparser.git
-[submodule "node-deps/mimelib"]
-	path = node-deps/mimelib
-	url = git://github.com/andris9/mimelib.git
-[submodule "node-deps/mailcomposer"]
-	path = node-deps/mailcomposer
-	url = git://github.com/andris9/mailcomposer.git
-[submodule "node-deps/simplesmtp"]
-	path = node-deps/simplesmtp
-	url = git://github.com/asutherland/simplesmtp.git
-[submodule "deps/activesync"]
-	path = deps/activesync
+[submodule "js/ext/activesync-lib"]
+	path = js/ext/activesync-lib
 	url = git://github.com/mozilla-b2g/jsas.git
-[submodule "deps/bleach.js"]
-	path = deps/bleach.js
+[submodule "js/ext/bleach.js"]
+	path = js/ext/bleach.js
 	url = git://github.com/mozilla-b2g/bleach.js.git
-[submodule "node-deps/addressparser"]
-	path = node-deps/addressparser
-	url = git://github.com/andris9/addressparser.git

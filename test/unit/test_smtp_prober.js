@@ -8,19 +8,19 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'mailapi/smtp/probe',
+        './resources/fault_injecting_socket', 'smtp/probe',
+        'smtp/client', 'syncbase',
         'exports'],
-       function($tc, $th_imap, $fawlty, $smtpprobe, exports) {
+       function($tc, $th_imap, $fawlty, $smtpprobe, $smtpclient,
+                syncbase, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
-
-$smtpprobe.TEST_USE_DEBUG_MODE = true;
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_smtp_prober' }, null, [$th_imap.TESTHELPER], ['app']);
 
 function thunkSmtpTimeouts(lazyLogger) {
   var timeouts = [];
-  $smtpprobe.TEST_useTimeoutFuncs(
+  $smtpclient.setTimeoutFunctions(
     function thunkedSetTimeout(func, delay) {
       lazyLogger.namedValue('smtp:setTimeout', delay);
       return timeouts.push(func);
@@ -54,19 +54,16 @@ function makeCredsAndConnInfo() {
 
 TD.commonCase('timeout failure', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
-  var eCheck = T.lazyLogger('check'),
-      prober = null;
-
+  var eCheck = T.lazyLogger('check');
   var fireTimeout = thunkSmtpTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
 
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
-    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
-    prober.onresult = function(err) {
+    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
   });
   T.action(eCheck, 'trigger timeout', function() {
     eCheck.expect_event('smtp:clearTimeout');
@@ -77,19 +74,17 @@ TD.commonCase('timeout failure', function(T, RT) {
 
 TD.commonCase('SSL failure', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
-  var eCheck = T.lazyLogger('check'),
-      prober = null;
+  var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkSmtpTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
 
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
-    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
-    prober.onresult = function(err) {
+    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
@@ -100,8 +95,7 @@ var SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
 
 TD.commonCase('STARTTLS unsupported', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
-  var eCheck = T.lazyLogger('check'),
-      prober = null;
+  var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkSmtpTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
@@ -136,11 +130,10 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
           ],
         },
       ]);
-      eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
-    prober.onresult = function(err) {
+      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
@@ -152,8 +145,7 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
  */
 TD.commonCase('EHLO unsupported does not bypass startTLS', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
-  var eCheck = T.lazyLogger('check'),
-      prober = null;
+  var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkSmtpTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
@@ -179,11 +171,10 @@ TD.commonCase('EHLO unsupported does not bypass startTLS', function(T, RT) {
           ],
         },
       ]);
-      eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
-    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
-    prober.onresult = function(err) {
+      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
@@ -195,11 +186,10 @@ function cannedLoginTest(T, RT, opts) {
   var eCheck = T.lazyLogger('check');
 
   var fireTimeout = thunkSmtpTimeouts(eCheck),
-      cci = makeCredsAndConnInfo(),
-      prober;
+      cci = makeCredsAndConnInfo();
 
   T.action('connect, get error, return', eCheck, function() {
-    eCheck.expect_namedValue('smtp:setTimeout', $smtpprobe.CONNECT_TIMEOUT_MS);
+    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
     eCheck.expect_event('smtp:clearTimeout');
     eCheck.expect_namedValue('probe result', opts.expectResult);
     var precommands = [
@@ -231,10 +221,12 @@ function cannedLoginTest(T, RT, opts) {
         cmd: 'fake',
         data: SMTP_GREETING,
       }, precommands);
-    prober = new $smtpprobe.SmtpProber(cci.credentials, cci.connInfo);
-    prober.onresult = function(err) {
-      eCheck.namedValue('probe result', err);
-    };
+    $smtpprobe.probeAccount(cci.credentials, cci.connInfo)
+      .then(function(result) {
+        eCheck.namedValue('probe result', null);
+      }).catch(function(err) {
+        eCheck.namedValue('probe result', err);
+      });
   });
 };
 
@@ -308,7 +300,7 @@ TD.commonCase('good address', function(T, RT) {
         actions: [
           {
             cmd: 'fake-receive',
-            data: '200 go ahead\r\n',
+            data: '354 go ahead\r\n',
           }
         ]
       },

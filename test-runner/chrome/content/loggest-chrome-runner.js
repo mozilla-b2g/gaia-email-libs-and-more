@@ -329,7 +329,7 @@ function register_resource_alias(alias, file) {
 }
 
 register_resource_alias('fakeserver', do_get_file('node_modules/mail-fakeservers/xpcom'));
-register_resource_alias('activesync', do_get_file('deps/activesync'));
+register_resource_alias('activesync', do_get_file('js/ext/activesync-lib'));
 
 
 ////////////////////////////////////////////////////////////////////////////////

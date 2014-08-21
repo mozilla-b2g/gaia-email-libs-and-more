@@ -1,6 +1,6 @@
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/messageGenerator',
-        'mailapi/util', 'exports'],
+        'util', 'exports'],
        function($tc, $th_main, $msggen,
                 $util, exports) {
 

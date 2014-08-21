@@ -1,16 +1,14 @@
 define(
   [
-    'events',
-    'net',
-    'tls',
+    'tcp-socket',
     'exports'
   ],
   function(
-    $events,
-    $net,
-    $tls,
+    tcpSocket,
     exports
   ) {
+
+var realTcpSocketOpen = tcpSocket.open.bind(tcpSocket);
 
 /**
  * For debugging and easy identification of spy sockets.
@@ -29,8 +27,6 @@ function FawltySocket(host, port, options, cmdDict) {
   console.log('FawltySocket constructor for:', host, port);
   this._sock = null;
   this._mockId = lastMockId++;
-
-  $events.EventEmitter.call(this);
 
   this._receiveWatches = [];
   this._sendWatches = [];
@@ -71,7 +67,7 @@ function FawltySocket(host, port, options, cmdDict) {
       case 'fake':
         // We are only going to send fake data, so don't bother establishing
         // a connection.
-        this._queueEvent('connect');
+        this._queueEvent('open');
         if (precmd.data) {
           console.log('Fake-receiving:', precmd.data);
           this._queueEvent('data',
@@ -84,7 +80,7 @@ function FawltySocket(host, port, options, cmdDict) {
 
       case 'fake-no-connect':
         // just be fake, but don't even send a fake connect event yet.  owner
-        // should call _queueEvent('connect') when ready to connect.
+        // should call _queueEvent('open') when ready to connect.
         return;
 
       case 'port-not-listening':
@@ -102,66 +98,40 @@ function FawltySocket(host, port, options, cmdDict) {
 
   // anything we send over the wire will be utf-8
   this._utf8Decoder = new TextDecoder('UTF-8');
-  this._eventConsumers = {};
 
   console.log('Creating real socket for:', host, port);
-  this._sock = new $net.NetSocket(port, host, options.useSSL);
-  this._sock.on('connect', this._reEmit.bind(this, 'connect'));
-  this._sock.on('data', this._reEmit.bind(this, 'data'));
-  this._sock.on('error', this._reEmit.bind(this, 'error'));
-  this._sock.on('close', this._reEmit.bind(this, 'close'));
-  this._sock.on('end', this._reEmit.bind(this, 'end'));
+  this._sock = realTcpSocketOpen(host, port, {
+    useSecureTransport: options.useSecureTransport
+  });
+  this._sock.onopen = this._reEmit.bind(this, 'open');
+  this._sock.ondrain = this._reEmit.bind(this, 'drain');
+  this._sock.onerror = this._reEmit.bind(this, 'error');
+  this._sock.ondata = this._reEmit.bind(this, 'data');
+  this._sock.onclose = this._reEmit.bind(this, 'close');
 }
-FawltySocket.prototype = {
-  addListener: $events.EventEmitter.prototype.on,
-  emit: $events.EventEmitter.prototype.emit,
-  on: $events.EventEmitter.prototype.on,
-  once: $events.EventEmitter.prototype.once,
-  removeListener: $events.EventEmitter.prototype.removeListener,
-  removeAllListeners: $events.EventEmitter.prototype.removeAllListeners,
 
+
+FawltySocket.prototype = {
   setTimeout: function() {},
   setKeepAlive: function() {},
 
-  _reEmit: function(name, data) {
-    if (name === 'error' || name === 'close')
-      FawltySocketFactory.__deadSocket(this);
-
-    var consumer = this._eventConsumers[name];
+  get readyState() {
     if (this._sock) {
-      if (consumer && consumer(data)) {
-        // event was consumed
-        return;
-      }
-
-      this.emit(name, data);
+      return this._sock.readyState;
+    } else {
+      return this._readyState;
     }
   },
 
-  /**
-   * Every event sent by this socket will clear the given function
-   * prior to being passed off to the real event handler.
-   *
-   *
-   *    socket.consumeEventHandler('data', function(event) {
-   *      if (...) {
-   *        // true indicates that this event should _not_ be sent
-   *        // to the real .ondata handler...
-   *        return true;
-   *      }
-   *    });
-   *
-   */
-  consumeEventHandler: function(type, callback) {
-    this._eventConsumers[type] = callback;
-  },
-
-  clearConsumeEventsHandler: function(type) {
-    if (type) {
-      return (delete this._eventConsumers[type]);
+  _reEmit: function(name, data) {
+    if (name === 'error' || name === 'close') {
+      FawltySocketFactory.__deadSocket(this);
     }
 
-    this._eventConsumers = {};
+    var handler = 'on' + name;
+    if (this[handler]) {
+      this[handler].call(this, data);
+    }
   },
 
   // XXX This is currently a hack and just operates based on the number of
@@ -240,9 +210,8 @@ FawltySocket.prototype = {
           // detach the real socket so that we don't generate any more events
           // from it.
           this._queueEvent('close');
-          this._queueEvent('end');
           if (this._sock) {
-            this._sock.end();
+            this._sock.close();
             this._sock = null;
           }
           FawltySocketFactory.__deadSocket(this);
@@ -251,7 +220,7 @@ FawltySocket.prototype = {
           // stop being connected to the real socket
           var sock = this._sock;
           this._sock = null;
-          sock.end();
+          sock.close();
           FawltySocketFactory.__deadSocket(this);
           break;
         case 'fake-receive':
@@ -264,18 +233,42 @@ FawltySocket.prototype = {
     }
   },
 
-  end: function() {
-    if (!this._sock)
+  emit: function(name, data) {
+    var handler = 'on' + name;
+    var evt = { name: name, data: data };
+
+    if (name === 'open') {
+      this._readyState = 'open';
+    } else if (name === 'close') {
+      this._readyState = 'closed';
+    };
+
+    if (this._sock && this._sock[handler]) {
+      this._sock[handler].call(this._sock, evt);
+    }
+    if (this[handler]) {
+      this[handler].call(this, evt);
+    }
+  },
+
+  close: function() {
+    if (!this._sock) {
       return;
-    console.log('FawltySocket: end() called by user code');
+    }
+    console.log('FawltySocket: close() called by user code');
     this.emit('close');
-    this.emit('end');
     var sock = this._sock;
     this._sock = null;
-    sock.end();
+    sock.close();
     FawltySocketFactory.__deadSocket(this);
   },
-  write: function(data) {
+
+  send: function(data) {
+    if (data instanceof ArrayBuffer) {
+      data = new Uint8Array(data);
+    } else if (typeof data === 'string') {
+      data = new TextEncoder('utf-8').encode(data);
+    }
     var sendText;
     if (this._sendWatches.length) {
       sendText = new TextDecoder('utf-8').decode(data);
@@ -284,11 +277,12 @@ FawltySocket.prototype = {
       if (firstWatch.match === true ||
           firstWatch.match.test(sendText)) {
         this._sendWatches.shift();
-        console.log('In response to send of: ', data);
+        console.log('In response to send of: ', sendText);
         this.doNow(firstWatch.actions);
         return true;
       }
     }
+
     if (this._callOnWrite) {
       sendText = new TextDecoder('utf-8').decode(data);
       this._callOnWrite(sendText);
@@ -300,7 +294,7 @@ FawltySocket.prototype = {
       return null;
     }
 
-    return this._sock.write(data);
+    return this._sock.send(data);
   },
 };
 
@@ -398,16 +392,9 @@ var FawltySocketFactory = exports.FawltySocketFactory = {
   },
 };
 
-var realNetConnect = $net.connect;
-$net.connect = function fakeConnect(port, host) {
-  return FawltySocketFactory.open(host, port, { useSSL: false });
-};
-var realTlsConnect = $tls.connect;
-$tls.connect = function fakeTlsConnect(port, host, wuh, onconnect) {
-  var sock = FawltySocketFactory.open(host, port, { useSSL: true });
-  if (onconnect)
-    sock.on('connect', onconnect);
-  return sock;
+
+tcpSocket.open = function(host, port, options) {
+  return FawltySocketFactory.open(host, port, options);
 };
 
 window.navigator.realMozTCPSocket = window.navigator.mozTCPSocket;

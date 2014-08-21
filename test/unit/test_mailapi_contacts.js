@@ -5,7 +5,7 @@
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_contacts',
         'activesync/codepages/AirSync',
-        'mailapi/mailapi', 'exports'],
+        'mailapi', 'exports'],
        function($tc, $th_main, $th_contacts, $airsync, $mailapi, exports) {
 const FilterType = $airsync.Enums.FilterType;
 

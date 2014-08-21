@@ -6,7 +6,7 @@ define(
   [
     'rdcommon/log',
     './messageGenerator',
-    'mailapi/accountcommon',
+    'accountcommon',
     'module',
     'exports'
   ],
@@ -157,7 +157,7 @@ var TestActiveSyncServerMixins = {
       var bodyPart = message.bodyPart;
       var attachments = [];
       // XXX FIXME! this is a way too simplified transform of bodies!
-      if (!(bodyPart instanceof $msggen.SyntheticPartLeaf)) {
+      if (bodyPart.parts) {
         attachments = bodyPart.parts.slice(1);
         bodyPart = bodyPart.parts[0];
       }

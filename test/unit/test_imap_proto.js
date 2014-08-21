@@ -3,15 +3,16 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main',
-  './resources/fault_injecting_socket', 'imap', 'exports'],
-function($tc, $th_main, $fawlty, $imap, exports) {
+        './resources/fault_injecting_socket', 'browserbox', 'wo-utf7',
+        'imap/imapchew', 'exports'],
+function($tc, $th_main, $fawlty, BrowserBox, utf7, $imapchew, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_imap_proto' }, null, [$th_main.TESTHELPER], ['app']);
 
 TD.commonSimple('decodeModifiedUtf7', function(lazy) {
-  var decodeModifiedUtf7 = $imap.decodeModifiedUtf7;
+  var decodeModifiedUtf7 = utf7.imap.decode;
 
   function check(encoded, expected) {
     lazy.expect_namedValue(encoded, expected);
@@ -30,7 +31,7 @@ TD.commonSimple('decodeModifiedUtf7', function(lazy) {
 
 TD.commonSimple('parseImapDateTime', function(lazy) {
   function check(str, expectedTimestamp) {
-    var parsedTS = $imap.parseImapDateTime(str);
+    var parsedTS = $imapchew.parseImapDateTime(str);
 
     lazy.expect_namedValue(str, expectedTimestamp);
     lazy.namedValue(str, parsedTS);
@@ -51,37 +52,9 @@ TD.commonSimple('parseImapDateTime', function(lazy) {
         Date.UTC(2013, 5, 14, 19, 15, 49));
 });
 
-function thunkTimeouts(lazyLogger) {
-  var timeouts = [];
-  function thunkedSetTimeout(func, delay) {
-    lazyLogger.namedValue('incoming:setTimeout', delay);
-    return timeouts.push(func);
-  }
-  function thunkedClearTimeout() {
-    lazyLogger.event('incoming:clearTimeout');
-  }
-
-  $imap.TEST_useTimeoutFuncs(thunkedSetTimeout, thunkedClearTimeout);
-  return function fireThunkedTimeout(index) {
-    timeouts[index]();
-    timeouts[index] = null;
-  };
-}
-
 // Currently all the tests in here are completely fake; we never connect.
 const HOST = 'localhost', PORT = 65535;
 var CONN_TIMEOUT = 10000;
-
-function makeCredsAndConnInfo() {
-  return {
-    username: 'USERNAME',
-    password: 'PASSWORD',
-    hostname: HOST,
-    port: PORT,
-    crypto: false,
-
-  };
-}
 
 /**
  * Connection test helper.  Cases basically go like this:
@@ -99,14 +72,11 @@ function cannedConnectTest(T, RT, opts) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
-  var fireTimeout = thunkTimeouts(eCheck),
-      cci = makeCredsAndConnInfo(),
-      prober;
+  var prober;
 
   var imapConn = null;
   T.action('create IMAP proto, see connect req, no write', eCheck, function() {
     eCheck.expect_event('socket opened');
-    eCheck.expect_namedValue('incoming:setTimeout', CONN_TIMEOUT);
 
     FawltySocketFactory.precommand(
       HOST, PORT,
@@ -123,20 +93,30 @@ function cannedConnectTest(T, RT, opts) {
           eCheck.event('socket opened');
         },
         callOnWrite: function(str) {
+          if (str === "W1 ID NIL\r\n") {
+            this.doNow({
+              cmd: 'fake-receive',
+              data: 'W1 OK\r\n'
+            });
+            return;
+          }
           eCheck.namedValue('clientWrite', str);
         }
       });
 
-    imapConn = new $imap.ImapConnection(makeCredsAndConnInfo());
+    imapConn = new BrowserBox(HOST, PORT, {
+      auth: {
+        user: 'USERNAME',
+        pass: 'PASSWORD'
+      }
+    });
     imapConn.connect();
   });
 
   var fakeSock;
   T.action('send connect notification, see no writes', eCheck, function() {
     fakeSock = FawltySocketFactory.getMostRecentLiveSocket();
-    // the connect notification should cancel the timeout, but that's it!
-    eCheck.expect_event('incoming:clearTimeout');
-    fakeSock._queueEvent('connect');
+    fakeSock._queueEvent('open');
   });
 
   T.action('send greeting, see expected first write', eCheck, function() {
@@ -151,33 +131,10 @@ function cannedConnectTest(T, RT, opts) {
       ]);
   });
 
-  if (opts.capabilities) {
-    T.check(eCheck, 'capabilities', function() {
-      eCheck.expect_namedValue('capabilities', opts.capabilities);
-      eCheck.namedValue('capabilities', imapConn.capabilities);
-    });
-  }
-
   T.cleanup('kill IMAP conn', eCheck, function() {
-    imapConn.die();
+    imapConn.close();
   });
 }
-
-var NON_DOVECOT_GREETING = '* OK whatever\r\n';
-var CAPABILITY_REQUEST = 'A1 CAPABILITY\r\n';
-
-/**
- * In https://bugzil.la/977867 gmail would ignore anything we managed to send
- * prior to the greeting / in our TLS-finalization packet, so we need to make
- * sure that we do not send our CAPABILITY request until the server issues
- * a greeting.
- */
-TD.commonCase('wait for server greeting, no inline CAPABILITY', function(T,RT) {
-  cannedConnectTest(T, RT, {
-    greeting: NON_DOVECOT_GREETING,
-    firstRequest: CAPABILITY_REQUEST
-  });
-});
 
 var DOVECOT_CAPABILITY_GREETING =
   '* OK [CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID' +
@@ -185,11 +142,11 @@ var DOVECOT_CAPABILITY_GREETING =
 var DOVECOT_CAPABILITIES = [
   'IMAP4REV1', 'LITERAL+', 'SASL-IR', 'LOGIN-REFERRALS', 'ID',
   'ENABLE', 'IDLE', 'STARTTLS', 'AUTH=PLAIN'];
-var LOGIN_REQUEST = 'A1 LOGIN "USERNAME" "PASSWORD"\r\n';
+var LOGIN_REQUEST = 'W2 login "USERNAME" "PASSWORD"\r\n';
 
 /**
- * Same as the previous case but dovecot likes to send a CAPABILITY response
- * in the greeting.  We should consume that and not bother
+ * Dovecot likes to send a CAPABILITY response in the greeting. We
+ * should consume that and not bother.
  */
 TD.commonCase('wait for server greeting, inline CAPABILITY', function(T,RT) {
   cannedConnectTest(T, RT, {

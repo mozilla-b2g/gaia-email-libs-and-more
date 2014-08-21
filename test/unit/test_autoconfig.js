@@ -4,7 +4,7 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fake_xhr', 'mailapi/accountcommon',
+        './resources/fake_xhr', 'accountcommon',
         'exports'],
        function($tc, $th_main, $fakexhr, $accountcommon, exports) {
 
