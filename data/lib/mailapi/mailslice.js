@@ -1072,6 +1072,18 @@ FolderStorage.prototype = {
     this._dirtyBodyBlocks = {};
     this._dirty = false;
     this.flushExcessCachedBlocks('persist');
+    // Generate a notification that something about this folder has probably
+    // changed.  If it was important enough to save us, then it's arguably
+    // important enough to tell the front-end about it too.  Plus the I/O
+    // overhead is way more costly than throwing some minimal updates at the
+    // front-end.
+    //
+    // (Previously all that could change was our last sync time and so
+    // we only did this in markSyncRange().  Now we maintain an unread count
+    // too.  And it's likely we'll be adding more values we care about in the
+    // future.)
+    this._account.universe.__notifyModifiedFolder(this._account,
+                                                  this.folderMeta);
     return pinfo;
   },
 
@@ -3592,9 +3604,6 @@ FolderStorage.prototype = {
     /*lastSyncedAt depends on current timestamp of the client device
      should not be added timezone offset*/
     this.folderMeta.lastSyncedAt = NOW();
-    if (this._account.universe)
-      this._account.universe.__notifyModifiedFolder(this._account,
-                                                    this.folderMeta);
   },
 
   /**

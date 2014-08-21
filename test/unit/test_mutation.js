@@ -102,8 +102,7 @@ TD.commonCase('mutate flags', function(T, RT) {
 
   T.check('initial unread counts', eSync, function() {
     // We added 7 messages and they all start out unread.
-    testAccount.expect_unread('Before messages are read', testFolder.id,
-      eSync, 7);
+    testAccount.expect_unread('Before messages are read', testFolder, eSync, 7);
   });
 
   var doHeaderExps = null, undoHeaderExps = null, undoOps = null,
@@ -193,7 +192,7 @@ TD.commonCase('mutate flags', function(T, RT) {
 
   T.check('unread counts after local op mutations', eSync, function() {
     // We had 7 unread and then read 2, so down to 5.
-    testAccount.expect_unread('Unread count after local ops', testFolder.id,
+    testAccount.expect_unread('Unread count after local ops', testFolder,
       eSync, 5);
   });
 
@@ -248,7 +247,7 @@ TD.commonCase('mutate flags', function(T, RT) {
 
   T.check('unread counts after local op undo ops', eSync, function() {
     // We undo both mark read operations, so our 5 is back up to 7.
-    testAccount.expect_unread('Unread count after local ops', testFolder.id,
+    testAccount.expect_unread('Unread count after local ops', testFolder,
       eSync, 7);
   });
 
@@ -640,9 +639,9 @@ TD.commonCase('move/trash messages', function(T, RT) {
   T.check('initial unread counts', eSync, function() {
     // All 5 messages in source are unread, and there are none in target.
     testAccount.expect_unread('Before Move and Trash Unread Count',
-      sourceFolder.id, eSync, 5);
+      sourceFolder, eSync, 5);
     testAccount.expect_unread('Target Folder Before Unread',
-      targetFolder.id, eSync, 0);
+      targetFolder, eSync, 0);
   });
   T.group('offline manipulation; released to server');
 
@@ -694,10 +693,10 @@ TD.commonCase('move/trash messages', function(T, RT) {
     // Starting with 5 unread messages, we move 2 messages out of the source
     // folder and delete 1, leaving us with 2.
     testAccount.expect_unread('After Move and Trash Unread Count',
-      sourceFolder.id, eSync, 2);
+      sourceFolder, eSync, 2);
     // And we moved one of those unread to the target folder.
     testAccount.expect_unread('Target Folder After Unread',
-      targetFolder.id, eSync, 1);
+      targetFolder, eSync, 1);
   });
   T.action('go online, see changes happen for', eAccount,
            eSync, function() {

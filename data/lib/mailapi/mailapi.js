@@ -261,7 +261,7 @@ MailSenderIdentity.prototype = {
   },
 };
 // For testing
-exports._MailFolder = MailFolder
+exports._MailFolder = MailFolder;
 
 function MailFolder(api, wireRep) {
   this._api = api;

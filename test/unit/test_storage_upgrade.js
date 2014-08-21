@@ -39,27 +39,41 @@ TD.commonCase('with version 0, upgrade is triggered', function(T) {
   T.group('add messages and upgrade');
   T.check('initial unread counts', eSync, function() {
     // We added 7 messages and they all start out unread.
-    testAccount.expect_unread('Before Upgrade', testFolder.id,
-      eSync, 7);
+    testAccount.expect_unread('Normal up-to-date behaviour',
+                              testFolder, eSync, 7);
   });
 
-  T.action('run upgrade', eSync, function(T) {
+  T.action('clobber database to pre-version 2 state', eSync, function() {
     var storage = testAccount.universe
       .getFolderStorageForFolderId(testFolder.id);
     storage.folderMeta.version = 0;
     storage.folderMeta.unreadCount = 0;
+
+    testAccount.universe.__notifyModifiedFolder(testAccount.account,
+                                                storage.folderMeta);
+    // wait for a front-end/back-end roundtrip so the folder update notification
+    // definitely has been processed.
+    eSync.expect_event('roundtrip');
+    testAccount.MailAPI.ping(eSync.event.bind(eSync, 'roundtrip'));
+  });
+
+  T.action('run upgrade', eSync, function(T) {
+    testAccount.expect_unread('After clobbering, before upgrade',
+                              testFolder, eSync, 0);
+
+    var storage = testAccount.universe
+      .getFolderStorageForFolderId(testFolder.id);
     eSync.expect_namedValue('version after scheduling but before job completes',
                             0);
     testAccount.expect_runOp('upgradeDB',
-      { local: true, server: false, save: false });
+      { local: true, server: false, save: 'local' });
     testAccount.account.upgradeFolderStoragesIfNeeded();
     eSync.namedValue('version after scheduling but before job completes',
                      storage.folderMeta.version);
   });
 
   T.check('unread counts', eSync, function() {
-    testAccount.expect_unread('After upgrade', testFolder.id,
-      eSync, 7);
+    testAccount.expect_unread('After upgrade', testFolder, eSync, 7);
   });
 
   T.group('cleanup');
