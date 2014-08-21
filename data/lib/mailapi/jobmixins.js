@@ -49,8 +49,6 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
             tag = addTags[iTag];
             if (tag === '\\Seen') {
               storage.folderMeta.unreadCount--;
-              self.account.universe.__notifyModifiedFolder(self.account,
-                storage.folderMeta);
             }
             // The list should be small enough that native stuff is better
             // than JS bsearch.
@@ -67,8 +65,6 @@ exports.local_do_modtags = function(op, doneCallback, undo) {
             tag = removeTags[iTag];
             if (tag === '\\Seen') {
               storage.folderMeta.unreadCount++;
-              self.account.universe.__notifyModifiedFolder(self.account,
-                storage.folderMeta);
             }
             existing = header.flags.indexOf(tag);
             if (existing === -1)
@@ -906,9 +902,11 @@ exports.local_do_upgradeDB = function (op, doneCallback) {
       header.flags.indexOf('\\Seen') === -1;
   };
   $count.countHeaders(storage, filter, function(num) {
+    storage._dirty = true;
     storage.folderMeta.version = $mailslice.FOLDER_DB_VERSION;
     storage.folderMeta.unreadCount = num;
-    doneCallback();
+    doneCallback(/* no error */ null, /* no result */ null,
+                 /* yes save */ true);
   });
 };
 

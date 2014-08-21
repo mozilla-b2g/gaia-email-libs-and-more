@@ -1261,11 +1261,14 @@ var TestCommonAccountMixins = {
   /**
    * Expect the number of unread messaged in the folder to equal num
    */
-  expect_unread: function(desc, folderId, eSync, num) {
-    var unread = this.universe
-      .getFolderStorageForFolderId(folderId).folderMeta.unreadCount;
-    eSync.expect_namedValue(desc, num);
-    eSync.namedValue(desc, unread);
+  expect_unread: function(desc, testFolder, eSync, num) {
+    eSync.expect_namedValue(desc + ' backend', num);
+    eSync.expect_namedValue(desc + ' frontend', num);
+
+    var backendUnread = this.universe
+      .getFolderStorageForFolderId(testFolder.id).folderMeta.unreadCount;
+    eSync.namedValue(desc + ' backend', backendUnread);
+    eSync.namedValue(desc + ' frontend', testFolder.mailFolder.unread);
   },
 
   /**

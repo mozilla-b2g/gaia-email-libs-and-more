@@ -261,7 +261,7 @@ MailSenderIdentity.prototype = {
   },
 };
 // For testing
-exports._MailFolder = MailFolder
+exports._MailFolder = MailFolder;
 
 function MailFolder(api, wireRep) {
   this._api = api;
@@ -294,6 +294,8 @@ MailFolder.prototype = {
   __update: function(wireRep) {
     // Hold on to wireRep for caching
     this._wireRep = wireRep;
+
+    this.unread = wireRep.unreadCount;
 
     this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
                                              : null;
