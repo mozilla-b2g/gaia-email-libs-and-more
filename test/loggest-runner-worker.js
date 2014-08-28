@@ -3,15 +3,11 @@
  **/
 define(
   [
-    'q',
-    'mailapi/shim-sham', // needed for global mocks
-    'mailapi/worker-router',
+    'gelam/worker-router',
     'rdcommon/testdriver',
     'require'
   ],
   function(
-    $Q,
-    $shimsham,
     $router,
     $td,
     require
@@ -96,7 +92,7 @@ var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
         exposeToTest: msg.args.testParams,
         resultsReporter: function(jsonnableObj) {
           sendMessage('done', JSON.stringify(jsonnableObj));
-          self.close();
+          //self.close();
         }
       },
       ErrorTrapper,

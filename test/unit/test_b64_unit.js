@@ -1,10 +1,11 @@
 /**
  * Test our rfc2822-specialized base64 encoder.
  **/
-define(['rdcommon/testcontext',
-        'mailapi/b64', 'exports'],
-       function($tc, b64,
-                exports) {
+define([
+  'rdcommon/testcontext',
+  'safe-base64',
+  'exports'
+], function($tc, base64, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_b64_unit' }, null,
@@ -120,7 +121,7 @@ TD.commonCase('base64 encoding', function(T, RT) {
       eCheck.expect_namedValue('encoded', correctEncoding);
 
       var u8Input = makeU8Range(tc.low, tc.count);
-      var actualU8Encoding = b64.mimeStyleBase64Encode(u8Input);
+      var actualU8Encoding = base64.mimeStyleBase64Encode(u8Input);
       var actualEncoding = asciiDecoder.decode(actualU8Encoding);
       eCheck.namedValue('encoded', actualEncoding);
     });

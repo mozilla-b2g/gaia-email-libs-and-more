@@ -4,7 +4,7 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_contacts',
-        'mailapi/mailapi',
+        'mailapi',
         'exports'],
        function($tc, $th_main, $th_contacts,
         $mailapi,

@@ -10,7 +10,7 @@
 
 define(['rdcommon/testcontext', './resources/th_main',
         './resources/th_devicestorage', './resources/messageGenerator',
-        'mailapi/util', 'mailapi/accountcommon', 'exports'],
+        'util', 'accountcommon', 'exports'],
        function($tc, $th_imap, $th_devicestorage, $msggen,
                 $util, $accountcommon, exports) {
 
@@ -360,8 +360,7 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
           '> this is a test',
           '',
           '-- ',
-          'this is a test',
-          ''
+          'this is a test'
           // XXX we used to have a default signature; when we start letting
           // users configure signatures again, then we will want the test to
           // use one and put this back.

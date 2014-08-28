@@ -10,7 +10,7 @@ define(
     'rdcommon/testcontext',
     './resources/th_main',
     './resources/fake_xhr',
-    'mailapi/worker-support/net-main',
+    'worker-support/net-main',
     'exports'
   ],
   function(

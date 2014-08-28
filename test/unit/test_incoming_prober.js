@@ -8,10 +8,12 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main',
-  './resources/fault_injecting_socket', 'mailapi/imap/probe', 'imap',
-  'mailapi/pop3/probe', 'pop3/pop3', 'mailapi/smtp/probe', 'exports'],
+  './resources/fault_injecting_socket', 'imap/probe',
+        'syncbase', 'slog',
+  'pop3/probe', 'pop3/pop3', 'smtp/probe',
+        'imap/client', 'exports'],
 function($tc, $th_main, $fawlty, $imapProbe,
-         $imap, $pop3Probe, $pop3, $smtpProbe, exports) {
+         syncbase, slog, $pop3Probe, $pop3, $smtpProbe, imapclient, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -27,27 +29,28 @@ function thunkTimeouts(lazyLogger) {
     lazyLogger.event('incoming:clearTimeout');
   }
 
-  $imap.TEST_useTimeoutFuncs(thunkedSetTimeout, thunkedClearTimeout);
-  $pop3.setTimeoutFuncs(thunkedSetTimeout, thunkedClearTimeout);
+  imapclient.setTimeoutFunctions(thunkedSetTimeout, thunkedClearTimeout);
+  $pop3.setTimeoutFunctions(thunkedSetTimeout, thunkedClearTimeout);
+
   return function fireThunkedTimeout(index) {
     timeouts[index]();
     timeouts[index] = null;
   };
 }
 
-function proberTimeout(RT) {
-  if (RT.envOptions.type === "imap") {
-    return $imapProbe.CONNECT_TIMEOUT_MS;
-  } else if (RT.envOptions.type === "pop3") {
-    return $pop3Probe.CONNECT_TIMEOUT_MS;
-  }
+// Utility function for properly raising errors in promises.
+function thrower(err) {
+  console.error(err);
+  throw err;
 }
-function proberClass(RT) {
-  if (RT.envOptions.type === "imap") {
-    return $imapProbe.ImapProber;
-  } else if (RT.envOptions.type === "pop3") {
-    return $pop3Probe.Pop3Prober;
-  }
+
+function proberTimeout(RT) {
+  return syncbase.CONNECT_TIMEOUT_MS;
+}
+function constructProber(RT, cci) {
+  var probeAccount = (RT.envOptions.type === "imap") ?
+        $imapProbe.probeAccount : $pop3Probe.probeAccount;
+  return probeAccount(cci.credentials, cci.connInfo);
 }
 
 function openResponse(RT) {
@@ -60,7 +63,7 @@ function openResponse(RT) {
 
 function badStarttlsResponse(RT) {
   if (RT.envOptions.type === "imap") {
-    return 'A1 BAD STARTTLS Unsupported\r\n';
+    return 'W1 BAD STARTTLS Unsupported\r\n';
   } else if (RT.envOptions.type === "pop3") {
     return '-ERR no starttls\r\n';
   }
@@ -71,7 +74,7 @@ function capabilityResponse(RT) {
     return [
       '* CAPABILITY IMAP4rev1 LITERAL+ SASL-IR LOGIN-REFERRALS ID ENABLE IDLE' +
         ' STARTTLS AUTH=PLAIN',
-      'A1 OK Pre-login capabilities listed, post-login capabilities have more.',
+      'W1 OK Pre-login capabilities listed, post-login capabilities have more.',
     ].join('\r\n') + '\r\n';
   } else if (RT.envOptions.type === "pop3") {
     return '+OK\r\n.\r\n';
@@ -107,11 +110,9 @@ TD.commonCase('timeout failure', function(T, RT) {
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
   });
   T.action(eCheck, 'trigger timeout', function() {
     eCheck.expect_event('incoming:clearTimeout');
@@ -131,11 +132,9 @@ TD.commonCase('SSL failure', function(T, RT) {
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
@@ -149,15 +148,18 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
   var fireTimeout = thunkTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
 
+  var log = new slog.LogChecker(T, RT);
+
   T.action(eCheck, 'with custom SMTP creds', function() {
     cci.credentials.outgoingUsername = 'user1';
     cci.credentials.outgoingPassword = 'pass1';
-    prober = new $smtpProbe.SmtpProber(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    eCheck.expect_namedValue('user', 'user1');
-    eCheck.expect_namedValue('pass', 'pass1');
-    eCheck.namedValue('user', prober._conn.options.auth.user);
-    eCheck.namedValue('pass', prober._conn.options.auth.pass);
+
+    log.mustLog('smtp:connect', function (data) {
+      return (data._auth.user === 'user1' &&
+              data._auth.pass === 'pass1');
+    });
+
+    $smtpProbe.probeAccount(cci.credentials, cci.connInfo);
   });
 
   T.action(eCheck, 'with matching incoming/outgoing creds', function() {
@@ -165,12 +167,13 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
     cci.credentials.password = 'pass1';
     cci.credentials.outgoingUsername = undefined;
     cci.credentials.outgoingPassword = undefined;
-    prober = new $smtpProbe.SmtpProber(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    eCheck.expect_namedValue('user', 'user1');
-    eCheck.expect_namedValue('pass', 'pass1');
-    eCheck.namedValue('user', prober._conn.options.auth.user);
-    eCheck.namedValue('pass', prober._conn.options.auth.pass);
+
+    log.mustLog('smtp:connect', function (data) {
+      return (data._auth.user === 'user1' &&
+              data._auth.pass === 'pass1');
+    });
+
+    $smtpProbe.probeAccount(cci.credentials, cci.connInfo);
   });
 });
 
@@ -204,11 +207,9 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('probe result', 'bad-security');
   });
@@ -263,11 +264,9 @@ TD.commonCase('POP3 UIDL unsupported', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('probe result', 'pop-server-not-great');
   });
@@ -322,11 +321,9 @@ TD.commonCase('POP3 TOP unsupported', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('probe result', 'pop-server-not-great');
   });
@@ -405,11 +402,9 @@ TD.commonCase('POP3 selects preferredAuthMethod', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err, conn) {
-      eCheck.namedValue('authMethod', conn.authMethod);
-    };
+    constructProber(RT, cci).then(function(info) {
+      eCheck.namedValue('authMethod', info.conn.authMethod);
+    }, thrower);
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('authMethod', 'user-pass');
   });
@@ -468,10 +463,9 @@ TD.commonCase('POP3 APOP', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err, conn) {
-      eCheck.namedValue('authMethod', conn.authMethod);
-    };
+    constructProber(RT, cci).then(function(info) {
+      eCheck.namedValue('authMethod', info.conn.authMethod);
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('authMethod', 'apop');
   });
@@ -516,10 +510,9 @@ TD.commonCase('POP3 bad creds on server that hangs up', function(T, RT) {
       },
       precommands);
     eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    prober = new (proberClass(RT))(cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err, conn) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('err', err);
-    };
+    });
     eCheck.expect_event('incoming:clearTimeout');
     eCheck.expect_namedValue('err', 'bad-user-or-pass');
   });
@@ -575,7 +568,7 @@ function cannedLoginTest(T, RT, opts) {
       actions: [
         {
           cmd: 'fake-receive',
-          data: (RT.envOptions.type === 'imap' ? 'A2 ' : '-ERR ') +
+          data: (RT.envOptions.type === 'imap' ? 'W2 OK\r\nW3 ' : '-ERR ') +
             opts.loginErrorString + '\r\n',
         }
       ],
@@ -588,11 +581,9 @@ function cannedLoginTest(T, RT, opts) {
         data: opts.openResponse || openResponse(RT),
       },
       precommands);
-    prober = new (proberClass(RT))(
-      cci.credentials, cci.connInfo, eCheck._logger);
-    prober.onresult = function(err) {
+    constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
-    };
+    });
   });
 };
 
@@ -667,12 +658,9 @@ TD.commonCase('timezone extraction unit', function(T, RT) {
     var caseData = [
       {
         name: '2nd',
-        headers: [
-          { key: 'received',
-            value: 'from 127.0.0.1  (EHLO lists.mozilla.org) (63.245.216.66)\n' +
-            '  by mta1310.mail.gq1.yahoo.com with SMTP; ' +
-            'Wed, 09 Jan 2013 05:46:19 -0800' },
-        ],
+        value: 'from 127.0.0.1  (EHLO lists.mozilla.org) (63.245.216.66)\n' +
+          '  by mta1310.mail.gq1.yahoo.com with SMTP; ' +
+          'Wed, 09 Jan 2013 05:46:19 -0800',
         tzHours: -8
       }
     ];
@@ -680,7 +668,7 @@ TD.commonCase('timezone extraction unit', function(T, RT) {
     caseData.forEach(function(data) {
       T.check(data.name, eCheck, function() {
         eCheck.expect_namedValue('tzHours', data.tzHours);
-        var tz = $imapProbe._extractTZFromHeaders(data.headers);
+        var tz = $imapProbe.extractTZFromString(data.value);
         eCheck.namedValue('tzHours', tz && tz / (60 * 60 * 1000));
       });
     });

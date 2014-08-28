@@ -1,5 +1,5 @@
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'mailapi/errbackoff', 'exports'],
+        './resources/fault_injecting_socket', 'errbackoff', 'exports'],
        function($tc, $th_imap, $fawlty, $errbackoff, exports) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 

@@ -10,34 +10,34 @@
 
 'use strict';
 
-load('deps/activesync/wbxml/wbxml.js');
+load('js/ext/activesync-lib/wbxml/wbxml.js');
 
-load('deps/activesync/codepages/AirSyncBase.js');
-load('deps/activesync/codepages/AirSync.js');
-load('deps/activesync/codepages/Calendar.js');
-load('deps/activesync/codepages/Common.js');
-load('deps/activesync/codepages/ComposeMail.js');
-load('deps/activesync/codepages/Contacts2.js');
-load('deps/activesync/codepages/Contacts.js');
-load('deps/activesync/codepages/DocumentLibrary.js');
-load('deps/activesync/codepages/Email2.js');
-load('deps/activesync/codepages/Email.js');
-load('deps/activesync/codepages/FolderHierarchy.js');
-load('deps/activesync/codepages/GAL.js');
-load('deps/activesync/codepages/ItemEstimate.js');
-load('deps/activesync/codepages/ItemOperations.js');
-load('deps/activesync/codepages/MeetingResponse.js');
-load('deps/activesync/codepages/Move.js');
-load('deps/activesync/codepages/Notes.js');
-load('deps/activesync/codepages/Ping.js');
-load('deps/activesync/codepages/Provision.js');
-load('deps/activesync/codepages/ResolveRecipients.js');
-load('deps/activesync/codepages/RightsManagement.js');
-load('deps/activesync/codepages/Search.js');
-load('deps/activesync/codepages/Settings.js');
-load('deps/activesync/codepages/Tasks.js');
-load('deps/activesync/codepages/ValidateCert.js');
-load('deps/activesync/codepages.js');
+load('js/ext/activesync-lib/codepages/AirSyncBase.js');
+load('js/ext/activesync-lib/codepages/AirSync.js');
+load('js/ext/activesync-lib/codepages/Calendar.js');
+load('js/ext/activesync-lib/codepages/Common.js');
+load('js/ext/activesync-lib/codepages/ComposeMail.js');
+load('js/ext/activesync-lib/codepages/Contacts2.js');
+load('js/ext/activesync-lib/codepages/Contacts.js');
+load('js/ext/activesync-lib/codepages/DocumentLibrary.js');
+load('js/ext/activesync-lib/codepages/Email2.js');
+load('js/ext/activesync-lib/codepages/Email.js');
+load('js/ext/activesync-lib/codepages/FolderHierarchy.js');
+load('js/ext/activesync-lib/codepages/GAL.js');
+load('js/ext/activesync-lib/codepages/ItemEstimate.js');
+load('js/ext/activesync-lib/codepages/ItemOperations.js');
+load('js/ext/activesync-lib/codepages/MeetingResponse.js');
+load('js/ext/activesync-lib/codepages/Move.js');
+load('js/ext/activesync-lib/codepages/Notes.js');
+load('js/ext/activesync-lib/codepages/Ping.js');
+load('js/ext/activesync-lib/codepages/Provision.js');
+load('js/ext/activesync-lib/codepages/ResolveRecipients.js');
+load('js/ext/activesync-lib/codepages/RightsManagement.js');
+load('js/ext/activesync-lib/codepages/Search.js');
+load('js/ext/activesync-lib/codepages/Settings.js');
+load('js/ext/activesync-lib/codepages/Tasks.js');
+load('js/ext/activesync-lib/codepages/ValidateCert.js');
+load('js/ext/activesync-lib/codepages.js');
 
 // Prefixing since we are running in the global scope and we don't want modules
 // under test that use $wbxml without requiring/defining it to accidentally

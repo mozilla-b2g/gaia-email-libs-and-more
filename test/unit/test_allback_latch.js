@@ -1,5 +1,5 @@
 define(['rdcommon/testcontext',
-        'mailapi/allback', 'exports'],
+        'allback', 'exports'],
        function($tc, allback,
                 exports) {
 

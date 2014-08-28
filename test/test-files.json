@@ -72,10 +72,6 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
-    "test_imap_literals.js": {
-      "variants": ["imap:fake", "imap:real"]
-    },
-
     "test_imap_lazybodies.js": {
       "variants": ["imap:fake", "imap:real"]
     },
@@ -102,10 +98,6 @@
 
     "test_incoming_prober.js": {
       "variants": ["imap:noserver", "pop3:noserver"]
-    },
-
-    "test_imap_bad_servers.js": {
-      "variants": ["imap:fake"]
     },
 
     "test_smtp_prober.js": {

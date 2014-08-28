@@ -14,9 +14,8 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        './resources/folder_storage_shared', 'mailapi/date',
-        'mailapi/mailslice', 'mailapi/syncbase',
-        'mailapi/slice_bridge_proxy', 'exports'],
+        './resources/folder_storage_shared', 'date', 'mailslice', 'syncbase',
+        'slice_bridge_proxy', 'exports'],
        function($tc, $th_main, $shared, $date, $mailslice, $syncbase,
                 $sliceBridgeProxy, exports) {
 

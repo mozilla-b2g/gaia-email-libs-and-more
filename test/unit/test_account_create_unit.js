@@ -9,9 +9,9 @@
  */
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/accountcommon',
-        'mailapi/imap/probe', 'mailapi/pop3/probe',
-        'mailapi/smtp/probe', 'activesync/protocol',
+        'accountcommon',
+        'imap/probe', 'pop3/probe',
+        'smtp/probe', 'activesync/protocol',
         'exports'],
        function($tc, $th_imap,
                 $accountcommon, $imapprobe, $pop3probe,
@@ -28,24 +28,36 @@ var gNextIncomingProbeResult = null,
     gNextActivesyncResult = null,
     gFakeIncomingConn = null;
 
-$imapprobe.ImapProber = $pop3probe.Pop3Prober = function() {
-  var self = this;
-  this.onresult = null;
-  window.setZeroTimeout(function() {
-    self.onresult(gNextIncomingProbeResult, gFakeIncomingConn,
-                  gNextIncomingProbeResult && { server: 'mail.example.com' });
-    gNextIncomingProbeResult = null;
-    gFakeIncomingConn = null;
+$smtpprobe.probeAccount = function() {
+  return new Promise(function(resolve, reject) {
+    var err = gNextSmtpProbeResult;
+    gNextSmtpProbeResult = null;
+    if (err) {
+      reject(err);
+    } else {
+      resolve({
+        conn: null,
+        timezoneOffset: 0
+      });
+    }
   });
 };
 
-$smtpprobe.SmtpProber = function() {
-  var self = this;
-  this.onresult = null;
-  window.setZeroTimeout(function() {
-    self.onresult(gNextSmtpProbeResult,
-                  gNextSmtpProbeResult && { server: 'smtp.example.com' });
-    gNextSmtpProbeResult = null;
+$imapprobe.probeAccount =
+$pop3probe.probeAccount = function() {
+  return new Promise(function(resolve, reject) {
+    var err = gNextIncomingProbeResult;
+    var conn = gFakeIncomingConn;
+    gNextIncomingProbeResult = null;
+    gFakeIncomingConn = null;
+    if (err) {
+      reject(err);
+    } else {
+      resolve({
+        conn: conn,
+        timezoneOffset: 0
+      });
+    }
   });
 };
 
@@ -119,24 +131,22 @@ var FakeActivesyncDomainInfo = {
         gNextIncomingProbeResult = mix.incoming;
         gNextSmtpProbeResult = mix.smtp;
         if (!mix.incoming) {
-          eCheck.expect_event('incoming.die()');
+          eCheck.expect_event('incoming.close()');
           gFakeIncomingConn = {
-            die: function() {
-              eCheck.event('incoming.die()');
+            close: function() {
+              eCheck.event('incoming.close()');
             },
           };
         }
 
         eCheck.expect_namedValue('err', mix.reportAs);
         eCheck.expect_namedValue('account', null);
-        eCheck.expect_namedValue('errServer', mix.server);
 
         $accountcommon.tryToManuallyCreateAccount(
           FakeUniverse, FakeUserDetails, FakeIncomingDomainInfo,
           function (err, account, errDetails) {
             eCheck.namedValue('err', err);
             eCheck.namedValue('account', null);
-            eCheck.namedValue('errServer', errDetails && errDetails.server);
           });
       });
     });
@@ -171,14 +181,12 @@ TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
 
       eCheck.expect_namedValue('err', mix.reportAs);
       eCheck.expect_namedValue('account', null);
-      eCheck.expect_namedValue('errServer', mix.server);
 
       $accountcommon.tryToManuallyCreateAccount(
         FakeUniverse, FakeUserDetails, FakeActivesyncDomainInfo,
         function (err, account, errDetails) {
           eCheck.namedValue('err', err);
           eCheck.namedValue('account', null);
-          eCheck.namedValue('errServer', errDetails && errDetails.server);
         });
     });
   });

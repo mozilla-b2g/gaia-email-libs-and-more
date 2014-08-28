@@ -36,45 +36,33 @@ help:
 	@echo ""
 	@echo "To enable verbose log output to the console: TEST_LOG_ENABLE=true"
 
-# full rsync
-RSYNC=rsync -avL
-# rsync JS files only, ignore jsdoc subdir.
-RSYNC_JS=rsync -r -f "- jsdoc/" -f "+ */" -f "+ *.js" -f "- *" --prune-empty-dirs
-
-VOLO=./scripts/volo
-
 TEST_VARIANT ?= all
 
-# Volo does its transformations in-place, so we need to copy junk across,
-#  transform it, then copy it to the destination dir.
-NODE_PKGS := addressparser mailparser mailcomposer mimelib simplesmtp browserify-builtins
+rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst *,%,$2),$d))
 
-TRANS_NODE_PKGS := $(addprefix node-transformed-deps/,$(NODE_PKGS))
-DEP_NODE_PKGS := $(addprefix data/deps/,$(NODE_PKGS))
+OUR_JS_DEPS := $(rwildcard js/*.js)
 
-node-transformed-deps:
-	mkdir -p node-transformed-deps
+install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
+	rsync --delete -arv --exclude='.git' \
+	                    --exclude='.gitignore' \
+	                    --exclude='.gitmodules' \
+	                    --exclude='.jshintrc' \
+	                    --exclude='.travis.yml' \
+	                    --exclude='Gruntfile.js' \
+	                    --exclude='LICENSE' \
+	                    --exclude='Makefile' \
+	                    --exclude='NOTICE' \
+	                    --exclude='package.json' \
+	                    --exclude='README.*' \
+	                    --exclude='examples' \
+	                    --exclude='test' \
+	                    --exclude='ext/wmsy' \
+	                    --exclude='ext/rdplat' \
+	                    js/ gaia-symlink/apps/email/js/ext/
 
-$(TRANS_NODE_PKGS): node-transformed-deps
-	$(RSYNC) node-deps/$(notdir $@) node-transformed-deps
-	$(VOLO) npmrel $@
-	touch $@
-
-# the cp is for main shims created by volo
-$(DEP_NODE_PKGS): $(TRANS_NODE_PKGS)
-	mkdir -p $@
-	-cp node-transformed-deps/$(notdir $@).js data/deps/
-	$(RSYNC_JS) node-transformed-deps/$(notdir $@)/ $@/
-	touch $@
-
-OUR_JS_DEPS := $(wildcard data/lib/mailapi/*.js) $(wildcard data/lib/mailapi/imap/*.js) $(wildcard data/lib/mailapi/smtp*.js) $(wildcard data/lib/mailapi/activesync/*.js) $(wildcard data/deps/rdcommon/*.js)
-
-install-into-gaia: clean gaia-symlink $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
-	rm -rf `readlink -n gaia-symlink`/apps/email/js/ext
-	node scripts/copy-to-gaia.js gaia-symlink/apps/email
-
-build: $(DEP_NODE_PKGS) $(OUR_JS_DEPS)
-
+build: $(OUR_JS_DEPS)
+	git submodule update --init --recursive
+	node scripts/sync-js-ext-deps.js
 
 .PHONY: download-b2g
 download-b2g: b2g
@@ -111,7 +99,7 @@ define run-tests  # $(call run-tests)
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
-	$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
 endef
 
 # run one test
@@ -120,14 +108,8 @@ define run-one-test
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
 	-rm -f test-logs/$(basename $(SOLO_FILE))-*.log
-	$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
 	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
-endef
-
-define run-no-test #(call run-no-test,command,profdir)
-	-rm -rf $(2)
-	-mkdir -p $(2)
-	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/$(2) --test-config $(CURDIR)/test/test-files.json --test-command $(1)
 endef
 
 ######################
@@ -190,9 +172,6 @@ clean:
 
 .DEFAULT_GOAL=help
 .PHONY: build install-into-gaia
-
-node_modules: package.json
-	npm install
 
 b2g: node_modules
 	./node_modules/.bin/mozilla-download \

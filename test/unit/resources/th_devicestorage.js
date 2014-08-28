@@ -6,7 +6,7 @@
 define(
   [
     'rdcommon/log',
-    'mailapi/worker-router',
+    'worker-router',
     'module',
     'exports'
   ],

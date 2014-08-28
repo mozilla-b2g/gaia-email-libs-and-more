@@ -4,7 +4,7 @@
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'mailapi/mailapi', 'exports'],
+        'activesync/codepages', 'mailapi', 'exports'],
        function($tc, $th_main, $ascp, $mailapi, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -199,99 +199,71 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
     });
   }
 
-  T.group('check folder list');
-  T.check('check folder list', testAccount, eSync, function(T) {
-    var myFolderExp = new RegExp('^' + testAccount.accountId + '/');
-    var folders = testUniverse.allFoldersSlice.items.filter(function(x) {
-      return myFolderExp.test(x.id);
-    });
-
-    var hierarchy = [];
-    for (var i = 0; i < folders.length; i++) {
-      if (folders[i].depth < hierarchy.length)
-        hierarchy.length = folders[i].depth;
-      if (folders[i].depth === hierarchy.length)
-        hierarchy.push(folders[i].name);
-
-      eSync.expect_namedValue('path', folders[i].path);
-      eSync.namedValue('path', hierarchy.join('/'));
-    }
-  });
-
   if (TEST_PARAMS.type === 'imap') {
     T.group('check folder type');
     T.check('check folder type', testAccount, eSync, function(T) {
-      var validNamespace = { "personal":[{"prefix":"INBOX.","delim":"."}],
-                             "other":[],
-                             "shared":[
-                               {"prefix":"#shared.","delim":"."},
-                               {"prefix":"shared.","delim":"."}
-                             ]
-                           };
-      var invalidNamespace =
-                           { "personal":[],
-                             "other":[],
-                             "shared":[
-                               {"prefix":"#shared.","delim":"."},
-                               {"prefix":"shared.","delim":"."}
-                             ]
-                           };
-      var folders = [
-        {
-          "box": {"displayName": "INBOX", "attribs": [] },
-          "path": "INBOX",
-          "ns": validNamespace,
-          "expType": "inbox"
-        },
-        {
-          "box": {"displayName": "INBOX", "attribs": [] },
-          "path": "INBOX",
-          "ns": invalidNamespace,
-          "expType": "inbox"
-        },
-        {
-          "box": {"displayName": "Sent", "attribs": [] },
-          "path": "INBOX.Sent",
-          "ns": validNamespace,
-          "expType": "sent"
-        },
-        {
-          "box": {"displayName": "Sent", "attribs": [] },
-          "path": "Sent",
-          "ns": invalidNamespace,
-          "expType": "sent"
-        },
-        {
-          "box": {"displayName": "Sent", "attribs": [] },
-          "path": "INBOX.Sent",
-          "ns": invalidNamespace,
-          "expType": "normal"
-        },
-        {
-          "box": {"displayName": "Sent", "attribs": [] },
-          "path": "INBOX.Subfolder.Sent",
-          "ns": validNamespace,
-          "expType": "normal"
-        },
-        {
-          "box": {"displayName": "Sent", "attribs": [] },
-          "path": "INBOX.Subfolder.Sent",
-          "ns": invalidNamespace,
-          "expType": "normal"
-        },
-      ];
-      for (var i = 0; i < folders.length; i++) {
-        var box = folders[i].box;
-        var path = folders[i].path;
-        var ns = folders[i].ns;
-        var eType = folders[i].expType;
+      var validNS = { "personal":[{"prefix":"INBOX.","delimiter":"."}],
+                      "other":[],
+                      "shared":[
+                        {"prefix":"#shared.","delimiter":"."},
+                        {"prefix":"shared.","delimiter":"."}
+                      ]
+                    };
+      var invalidNS = { "personal":[],
+                        "other":[],
+                        "shared":[
+                          {"prefix":"#shared.","delimiter":"."},
+                          {"prefix":"shared.","delimiter":"."}
+                        ]
+                      };
+      var folders = {
+        root: true,
+        children: [
+          { name: 'INBOX', path: 'INBOX', ns: validNS, expType: 'inbox',
+            children: [
+              { name: 'Sent', path: 'INBOX.Sent',
+                ns: validNS, expType: 'sent' },
+              { name: 'Sent', path: 'INBOX.Sent',
+                ns: invalidNS, expType: 'normal' }
+            ]
+          },
+          { name: 'INBOX', path: 'INBOX', ns: invalidNS, expType: 'inbox',
+            children: [
+              { name: 'Sent', path: 'INBOX.Sent',
+                ns: validNS, expType: 'sent' },
+              { name: 'Sent', path: 'INBOX.Sent',
+                ns: invalidNS, expType: 'normal' },
+              { name: 'Subfolder', path: 'INBOX.Subfolder',
+                ns: validNS, expType: 'normal',
+                children: [
+                  { name: 'Sent', path: 'INBOX.Subfolder.Sent',
+                    ns: validNS, expType: 'normal' },
+                  { name: 'Sent', path: 'INBOX.Subfolder.Sent',
+                    ns: invalidNS, expType: 'normal' }
+                ]
+              }
+            ]
+          },
+          { name: 'Sent', path: 'Sent', ns: validNS, expType: 'sent' }
+        ]
+      };
 
-        var fakeConn = { namespaces: ns };
-        var type = testAccount.imapAccount._determineFolderType(
-                     box, path, fakeConn);
-        eSync.expect_namedValue('folder type', eType);
-        eSync.namedValue('folder type', type);
+      function visitFolderLevel(children) {
+        children.forEach(function(node) {
+          if (node.ns) {
+            testAccount.imapAccount._namespaces = node.ns;
+          }
+          var type = testAccount.imapAccount._determineFolderType(
+            node, node.path);
+          eSync.expect_namedValue('folder ' + node.path, node.expType);
+          eSync.namedValue('folder ' + node.path, type);
+          if (node.children) {
+            visitFolderLevel(node.children);
+          }
+        });
       }
+
+      visitFolderLevel(folders.children);
     });
   }
 

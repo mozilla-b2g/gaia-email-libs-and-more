@@ -7,15 +7,11 @@ var TD = exports.TD = $tc.defineTestsFor(
   [$th_imap.TESTHELPER], ['app']
 );
 
-TD.commonCase('body properly updates when attachments change', function(T, RT) {
+TD.commonCase('(POP3) body updates when attachments change', function(T, RT) {
   var testUniverse = T.actor('testUniverse', 'U'),
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
 
   var eLazy = T.lazyLogger('misc');
-  // We want just one message in the inbox; IMAP already adds one for
-  // tests so that we can detect timezones, so only add one for other
-  // account types.
-  var messageCount = (testAccount.type === 'imap' ? 0 : 1);
 
   // Set POP3 to not retrieve any of the message when fetching
   // headers. Otherwise it might have already finished downloading
@@ -27,22 +23,21 @@ TD.commonCase('body properly updates when attachments change', function(T, RT) {
 
   // Use the inbox, so that POP3 will actually run its sync logic.
   var testFolder = testAccount.do_useExistingFolderWithType('inbox', '');
-  if (messageCount > 0) {
-    testAccount.do_addMessagesToFolder(testFolder, {
-      count: messageCount,
-      attachments: [{
-        filename: 'stuff.png',
-        contentType: 'image/png',
-        encoding: 'base64',
-        body: 'YWJj\n'
-      },{
-        filename: 'stuff.png',
-        contentType: 'image/png',
-        encoding: 'base64',
-        body: 'YWJj\n'
-      }],
-    });
-  }
+  testAccount.do_addMessagesToFolder(testFolder, {
+    count: 2,
+    attachments: [{
+      filename: 'stuff.png',
+      contentType: 'image/png',
+      encoding: 'base64',
+      body: 'YWJj\n'
+    },{
+      filename: 'stuff.png',
+      contentType: 'image/png',
+      encoding: 'base64',
+      body: 'YWJj\n'
+    }],
+  });
+
 
   var testView = testAccount.do_openFolderView(
     'syncs', testFolder, null, null,
@@ -56,20 +51,24 @@ TD.commonCase('body properly updates when attachments change', function(T, RT) {
     //    download, we set an "onchange" handler.
     //
     // 2. The initial body returned before we download reps will
-    //    expect _one_ attachment, because the mime type of the
-    //    message is multipart.
+    //    expect zero attachments, because we haven't downloaded
+    //    enough of the message to actually know. However,
+    //    we do know that there _are_ attachments, because of
+    //    the multipart/mixed mime type.
     //
     // 3. After the body's "onchange" handler fires, we should see
     //    both attachments listed on the MailBody object. Before this
     //    patch, the MailBody object did not update to include the
     //    correct number of attachments.
 
-    eLazy.expect_namedValue('initial attachments length', 1);
+    eLazy.expect_namedValue('initial attachments length', 0);
     eLazy.expect_namedValue('attachments length', 2);
+    eLazy.expect_namedValue('hasAttachments', true);
     header.getBody({ downloadBodyReps: true }, function (body) {
       eLazy.namedValue('initial attachments length', body.attachments.length);
       body.onchange = function() {
         eLazy.namedValue('attachments length', body.attachments.length);
+        eLazy.namedValue('hasAttachments', true);
       }
     });
   }).timeoutMS = 5000;

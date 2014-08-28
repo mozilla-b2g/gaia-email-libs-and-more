@@ -41,7 +41,7 @@ define(['rdcommon/testcontext', './resources/th_main',
        function($tc, $th_main, $msggen, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mime' }, null, [$th_main.TESTHELPER], ['app']);
+  { id: 'test_search_slice' }, null, [$th_main.TESTHELPER], ['app']);
 
 /*
  * Novelty matching/non-matching word prefixes that are also somewhat obvious

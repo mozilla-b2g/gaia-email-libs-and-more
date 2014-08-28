@@ -1,12 +1,12 @@
 /**
  * Test our processing of MIME messages.  Because we leave most of this up to
  * the IMAP server, this ends up being a test of `imapchew.js`, the sync logic
- * in `mailslice.js`'s ability to cram things into mailparser, and the
- * mailparser lib itself.
+ * in `mailslice.js`'s ability to cram things into mimeparser, and the
+ * mimeparser lib itself.
  **/
 
 define(['rdcommon/testcontext', './resources/th_main',
-        'mailapi/quotechew', 'mailapi/mailchew', 'exports'],
+        'quotechew', 'mailchew', 'exports'],
        function($tc, $th_imap, $quotechew, $mailchew, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(

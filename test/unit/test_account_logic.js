@@ -146,27 +146,38 @@ TD.commonCase('account creation/deletion', function(T, RT) {
                                   testAccountA.accountId);
     eSliceCheck.expect_namedValue('folder[AB].account',
                                   testAccountC.accountId);
+
+    // IMAP accounts still have one connection open.
+    if (TEST_PARAMS.type === 'imap') {
+      testAccountB.eOpAccount.expect_deadConnection();
+    }
     testAccountB.eOpAccount.expect_accountDeleted('saveAccountState');
 
     // this does not have a callback, so use a ping to wait...
+    // ... but the ping fires too early, so wait for onremove,
+    // and _then_ ping (because onremove is fired before the
+    // item is actually spliced from gAllAccountsSlice).
     gAllAccountsSlice.items[1].deleteAccount();
-    MailAPI.ping(function() {
-      var i;
-      for (i = 0; i < gAllAccountsSlice.items.length; i++) {
-        eSliceCheck.namedValue('remaining account',
-                               gAllAccountsSlice.items[i].id);
-      }
+    gAllAccountsSlice.onremove = function() {
+      testUniverse.MailAPI.ping(function() {
+        gAllAccountsSlice.onremove = null;
+        var i;
+        for (i = 0; i < gAllAccountsSlice.items.length; i++) {
+          eSliceCheck.namedValue('remaining account',
+                                 gAllAccountsSlice.items[i].id);
+        }
 
-      eSliceCheck.namedValue('num folders', gAllFoldersSlice.items.length);
-      eSliceCheck.namedValue(
-        'folder[AB-1].account',
-        gAllFoldersSlice.items[folderPointAB-1].id[0]);
-      eSliceCheck.namedValue(
-        'folder[AB].account',
-        gAllFoldersSlice.items[folderPointAB].id[0]);
+        eSliceCheck.namedValue('num folders', gAllFoldersSlice.items.length);
+        eSliceCheck.namedValue(
+          'folder[AB-1].account',
+          gAllFoldersSlice.items[folderPointAB-1].id[0]);
+        eSliceCheck.namedValue(
+          'folder[AB].account',
+          gAllFoldersSlice.items[folderPointAB].id[0]);
 
-      testAccountB.account.saveAccountState();
-    });
+        testAccountB.account.saveAccountState();
+      });
+    };
   });
 
   T.action(testUniverse, 'check database does not contain', function() {
