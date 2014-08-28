@@ -50,27 +50,16 @@
  *
  **/
 
-define(
-  [
-    'rdcommon/log',
-    './util',
-    './a64',
-    './allback',
-    './date',
-    './syncbase',
-    'module',
-    'exports'
-  ],
-  function(
-    $log,
-    $util,
-    $a64,
-    $allback,
-    $date,
-    $sync,
-    $module,
-    exports
-  ) {
+define(function(require, exports, module) {
+
+var $log = require('rdcommon/log');
+var $util = require('./util');
+var $a64 = require('./a64');
+var $allback = require('./allback');
+var $date = require('./date');
+var $sync = require('./syncbase');
+var DisasterRecovery = require('./disaster-recovery');
+
 var bsearchForInsert = $util.bsearchForInsert,
     bsearchMaybeExists = $util.bsearchMaybeExists,
     cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
@@ -1093,11 +1082,12 @@ FolderStorage.prototype = {
     this._LOG.mutexedCall_begin(callInfo.name);
 
     try {
-      callInfo.func(function mutexedOpDone() {
+      var mutexedOpDone = function() {
         if (done) {
           self._LOG.tooManyCallbacks(callInfo.name);
           return;
         }
+        DisasterRecovery.clearCurrentMutexCall(self._account);
         self._LOG.mutexedCall_end(callInfo.name);
         done = true;
         if (self._mutexQueue[0] !== callInfo) {
@@ -1112,7 +1102,10 @@ FolderStorage.prototype = {
           window.setZeroTimeout(self._invokeNextMutexedCall.bind(self));
         else if (self._slices.length === 0)
           self.folderSyncer.allConsumersDead();
-      });
+      }
+
+      DisasterRecovery.setCurrentMutexCall(this._account, mutexedOpDone);
+      callInfo.func(mutexedOpDone);
     }
     catch (ex) {
       this._LOG.mutexedOpErr(ex);
@@ -4602,7 +4595,7 @@ FolderStorage.prototype = {
   },
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
+var LOGFAB = exports.LOGFAB = $log.register(module, {
   MailSlice: {
     type: $log.QUERY,
     events: {

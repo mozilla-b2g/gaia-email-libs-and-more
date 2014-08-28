@@ -1321,6 +1321,10 @@ var TestCommonAccountMixins = {
    *       Indicate that no network traffic is expected.  This is only relevant
    *       if we think we are online.
    *     }
+   *     @key[noexpectations #:default false Boolean]{
+   *       Indicate that we don't want to assert viewWithoutExpectationsCompleted,
+   *       e.g. if we had to abort before completion on purpose.
+   *     }
    *     @key[syncedToDawnOfTime #:optional Boolean]{
    *       Assert that we are synced to the dawn of time at the end of this
    *       sync IFF this is known to be a PASTWARDS-sync.  We've recently
@@ -1422,7 +1426,9 @@ var TestCommonAccountMixins = {
       // sync to complete.  The exception is that if a syncblocked is reported,
       // then we just expect that...
       else if (!syncblocked) {
-        self.expect_viewWithoutExpectationsCompleted();
+        if (!checkFlagDefault(extraFlags, 'noexpectations', false)) {
+          self.expect_viewWithoutExpectationsCompleted();
+        }
       }
       else {
         self.expect_syncblocked();
@@ -1887,7 +1893,7 @@ var TestCommonAccountMixins = {
     }
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))
-      this.eOpAccount.expect_runOp_end(mode, jobName);
+      this.eOpAccount.expect_runOp_end(mode, jobName, err);
     // - save (server)
     if (serverSave) {
       this.eOpAccount.expect_saveAccountState_begin('serverOp:' + jobName);
