@@ -51,7 +51,6 @@ define('slog', function(require, exports, module) {
   var LogChecker = exports.LogChecker = function(T, RT) {
     this.T = T;
     this.RT = RT;
-    this.eLazy = T.lazyLogger('slog');
   };
 
   /**
@@ -64,9 +63,10 @@ define('slog', function(require, exports, module) {
    *   of the slog.log() call. Return true if the log matched.
    */
   LogChecker.prototype.mustLog = function(name, /* optional */ predicate) {
-    this.RT.reportActiveActorThisStep(this.eLazy);
-    var successDesc = predicate && predicate.toString() || 'ok';
-    this.eLazy.expect_namedValue(name, true);
+    var eLazy = this.T.lazyLogger('slog');
+
+    this.RT.reportActiveActorThisStep(eLazy);
+    eLazy.expect_namedValue(name, true);
 
     logEmitter.once(name, function(details) {
       try {
@@ -74,7 +74,35 @@ define('slog', function(require, exports, module) {
         if (predicate) {
           result = predicate(details);
         }
-        this.eLazy.namedValue(name, result);
+        eLazy.namedValue(name, result);
+      } catch(e) {
+        console.error('Exception running LogChecker predicate:', e);
+      }
+    }.bind(this));
+  };
+
+  /**
+   * Assert that a log with the given name, and optionally matching
+   * the given predicate function, is NOT logged during this test
+   * step. This is the inverse of `mustLog`.
+   *
+   * @param {String} name
+   * @param {function(details) => boolean} [predicate]
+   *   Optional predicate; called with the 'details' (second argument)
+   *   of the slog.log() call. Return true if the log matched.
+   */
+  LogChecker.prototype.mustNotLog = function(name, /* optional */ predicate) {
+    var notLogLazy = this.T.lazyLogger('slog');
+    this.RT.reportActiveActorThisStep(notLogLazy);
+    notLogLazy.expectNothing();
+
+    logEmitter.once(name, function(details) {
+      try {
+        var result = true;
+        if (predicate) {
+          result = predicate(details);
+        }
+        notLogLazy.namedValue(name, JSON.stringify(details));
       } catch(e) {
         console.error('Exception running LogChecker predicate:', e);
       }
