@@ -66,8 +66,6 @@ window.navigator.mozContacts = {
   },
 };
 
-var document = { cookie: null };
-
 // Configure path for the test directory, relative to gelamWorkerBaseUrl
 require.config({
   paths: {
