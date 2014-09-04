@@ -242,7 +242,7 @@ MailBridge.prototype = {
         return (!err || (
           err !== 'bad-user-or-pass' &&
           err !== 'bad-address' &&
-          err !== 'needs-app-pass' &&
+          err !== 'needs-oauth-reauth' &&
           err !== 'imap-disabled'
         ));
       }

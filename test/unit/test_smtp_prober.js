@@ -7,12 +7,15 @@
  * - Auth failure.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'smtp/probe',
-        'smtp/client', 'syncbase',
-        'exports'],
-       function($tc, $th_imap, $fawlty, $smtpprobe, $smtpclient,
-                syncbase, exports) {
+define(function(require, exports) {
+
+var $tc = require('rdcommon/testcontext');
+var $th_imap = require('./resources/th_main');
+var $fawlty = require('./resources/fault_injecting_socket');
+var $smtpprobe = require('smtp/probe');
+var $smtpclient = require('smtp/client');
+var syncbase = require('syncbase');
+var slog = require('slog');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -188,9 +191,18 @@ function cannedLoginTest(T, RT, opts) {
   var fireTimeout = thunkSmtpTimeouts(eCheck),
       cci = makeCredsAndConnInfo();
 
+  if (opts.mutateConnInfo) {
+    opts.mutateConnInfo(cci);
+  }
+
   T.action('connect, get error, return', eCheck, function() {
-    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
-    eCheck.expect_event('smtp:clearTimeout');
+    if (opts.expectFunc) {
+      opts.expectFunc();
+    }
+    if (!opts.willNotMakeConnection) {
+      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+      eCheck.expect_event('smtp:clearTimeout');
+    }
     eCheck.expect_namedValue('probe result', opts.expectResult);
     var precommands = [
       {
@@ -215,12 +227,14 @@ function cannedLoginTest(T, RT, opts) {
     if (opts.precommands) {
       precommands = precommands.concat(opts.precommands);
     }
-    FawltySocketFactory.precommand(
-      HOST, PORT,
-      {
-        cmd: 'fake',
-        data: SMTP_GREETING,
-      }, precommands);
+    if (!opts.willNotMakeConnection) {
+      FawltySocketFactory.precommand(
+        HOST, PORT,
+        {
+          cmd: 'fake',
+          data: SMTP_GREETING,
+        }, precommands);
+    }
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo)
       .then(function(result) {
         eCheck.namedValue('probe result', null);
@@ -245,6 +259,219 @@ TD.commonCase('angry server', function(T, RT) {
     expectResult: 'server-problem',
   });
 });
+
+/**
+ * When our access token expires, we must make a [successful] request
+ * to the Gmail OAUTH server, and update the credentials.
+ */
+TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: '200 Keep up the good work\r\n',
+    mutateConnInfo: function(cci) {
+      cci.credentials.refreshToken = 'valid refresh token';
+      cci.credentials.accessToken = "expired access token";
+      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+    },
+    expectFunc: function() {
+      var lc = new slog.LogChecker(T, RT, 'logs');
+
+      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+        var xhr = {
+          open: function() { },
+          setRequestHeader: function() { },
+          send: function(dataStr) {
+            xhr.status = 200;
+            xhr.responseText = JSON.stringify({
+              expires_in: 3600,
+              access_token: 'valid access token'
+            });
+
+            setTimeout(function() {
+              xhr.onload();
+            });
+          }
+        };
+        return xhr;
+      });
+
+      // We should properly update our credentials:
+      lc.mustLog('oauth:got-access-token', {
+        _accessToken: 'valid access token'
+      });
+      lc.mustLog('oauth:credentials-changed');
+      lc.mustLog('probe:smtp:credentials-updated');
+    },
+    precommands: [
+      {
+        match: /MAIL FROM:<username@domain>/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 Continue\r\n',
+          }
+        ]
+      },
+      {
+        match: /RCPT TO:<username@domain>/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 rock on little buddy\r\n',
+          }
+        ]
+      },
+      {
+        match: /DATA/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '354 go ahead\r\n',
+          }
+        ]
+      },
+    ],
+    expectResult: null
+  });
+});
+
+/**
+ * Assume that everything works fine; we shouldn't log any updates to
+ * credentials, as the access token remains unchanged.
+ */
+TD.commonCase('oauth, access token is fine', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: '200 Keep up the good work\r\n',
+    mutateConnInfo: function(cci) {
+      cci.credentials.refreshToken = 'valid refresh token';
+      cci.credentials.accessToken = "valid access token";
+      cci.credentials.expireTimeMS = Date.now() + 1000000;
+    },
+    expectFunc: function() {
+      var lc = new slog.LogChecker(T, RT, 'logs');
+      lc.mustNotLog('oauth:credentials-changed');
+    },
+    precommands: [
+      {
+        match: /MAIL FROM:<username@domain>/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 Continue\r\n',
+          }
+        ]
+      },
+      {
+        match: /RCPT TO:<username@domain>/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '200 rock on little buddy\r\n',
+          }
+        ]
+      },
+      {
+        match: /DATA/ig,
+        actions: [
+          {
+            cmd: 'fake-receive',
+            data: '354 go ahead\r\n',
+          }
+        ]
+      },
+    ],
+    expectResult: null
+  });
+});
+
+/**
+ * In this case, our credentials check out locally, but the server
+ * still rejects us, likely because the user revoked the key. They
+ * must go through the OAUTH setup process again.
+ */
+TD.commonCase('oauth, access token is fine but server still hates us', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    // The first part of the SASL response is a base64-encoded
+    // challenge response that we don't care about; the SMTP server
+    // then responds with a typical error for AUTH.
+    loginErrorString: '334 XXXXXXX\r\n535 Invalid Credentials (Failure).\r\n',
+    mutateConnInfo: function(cci) {
+      cci.credentials.refreshToken = 'valid refresh token';
+      cci.credentials.accessToken = "valid access token";
+      cci.credentials.expireTimeMS = Date.now() + 1000000;
+    },
+    expectResult: 'needs-oauth-reauth'
+  });
+});
+
+/**
+ * If the server refuses to give us a new access token for some reason
+ * (though the server remains reachable, so it's not a connectivity
+ * problem), kick the user back through the OAUTH flow.
+ */
+TD.commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    willNotMakeConnection: true,
+    mutateConnInfo: function(cci) {
+      cci.credentials.refreshToken = 'valid refresh token';
+      cci.credentials.accessToken = "expired access token";
+      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+    },
+    expectFunc: function() {
+      var lc = new slog.LogChecker(T, RT, 'logs');
+
+      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+        var xhr = {
+          open: function() { },
+          setRequestHeader: function() { },
+          send: function(dataStr) {
+            xhr.status = 400;
+            setTimeout(function() {
+              xhr.onload();
+            });
+          }
+        };
+        return xhr;
+      });
+    },
+    expectResult: 'needs-oauth-reauth'
+  });
+});
+
+/**
+ * If we just can't reach the OAUTH server, this really just indicates
+ * a connectivity problem, as we might be able to "just deal" when the
+ * connection comes back online. Bail with "unresponsive-server",
+ * rather than needs-oauth-reauth.
+ */
+TD.commonCase('oauth, access token is expired, refresh unreachable', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    willNotMakeConnection: true,
+    mutateConnInfo: function(cci) {
+      cci.credentials.refreshToken = 'valid refresh token';
+      cci.credentials.accessToken = "expired access token";
+      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+    },
+    expectFunc: function() {
+      var lc = new slog.LogChecker(T, RT, 'logs');
+
+      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+        var xhr = {
+          open: function() { },
+          setRequestHeader: function() { },
+          send: function(dataStr) {
+            xhr.status = 0;
+            setTimeout(function() {
+              xhr.onerror({ name: 'ConnectionRefusedError' });
+            });
+          }
+        };
+        return xhr;
+      });
+    },
+    expectResult: 'unresponsive-server'
+  });
+});
+
 
 TD.commonCase('bad address', function(T, RT) {
   cannedLoginTest(T, RT, {

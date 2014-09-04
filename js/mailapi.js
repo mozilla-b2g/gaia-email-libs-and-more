@@ -61,7 +61,7 @@ function MailAccount(api, wireRep, acctsSlice) {
    * @listof[@oneof[
    *   @case['bad-user-or-pass']
    *   @case['bad-address']
-   *   @case['needs-app-pass']
+   *   @case['needs-oauth-reauth']
    *   @case['imap-disabled']
    *   @case['pop-server-not-great']{
    *     The POP3 server doesn't support IDLE and TOP, so we can't use it.
@@ -2843,9 +2843,10 @@ MailAPI.prototype = {
    *   @case['pop3-disabled']{
    *     POP3 support is not enabled for the Gmail account in use.
    *   }
-   *   @case['needs-app-pass']{
-   *     The Gmail account has two-factor authentication enabled, so the user
-   *     must provide an application-specific password.
+   *   @case['needs-oauth-reauth']{
+   *     The OAUTH refresh token was invalid, or there was some problem with
+   *     the OAUTH credentials provided. The user needs to go through the
+   *     OAUTH flow again.
    *   }
    *   @case['not-authorized']{
    *     The username and password are correct, but the user isn't allowed to
