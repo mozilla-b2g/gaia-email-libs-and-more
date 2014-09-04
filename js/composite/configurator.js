@@ -70,6 +70,10 @@ exports.configurator = {
       };
     }
 
+    // Note: For OAUTH accounts, the credentials may be updated
+    // in-place if a new access token was required. We don't need to
+    // explicitly save those changes here because we define the
+    // account with the same object below.
     var incomingPromise = new Promise(function(resolve, reject) {
       if (incomingType === 'imap') {
         require(['../imap/probe'], function(probe) {
