@@ -2722,6 +2722,50 @@ MailAPI.prototype = {
   },
 
   /**
+   * Given a user's email address, try and see if we can autoconfigure the
+   * account and what information we'll need to configure it, specifically
+   * a password or if XOAuth2 credentials will be needed.
+   *
+   * @param {Object} details
+   * @param {String} details.emailAddress
+   *   The user's email address.
+   * @param {Function} callback
+   *   Invoked once we have an answer.  The object will look something like
+   *   one of the following results:
+   *
+   *   No autoconfig information is available and the user has to do manual
+   *   setup:
+   *
+   *     {
+   *       result: 'no-config-info',
+   *       configInfo: null
+   *     }
+   *
+   *   Autoconfig information is available and to complete the autoconfig
+   *   we need the user's password.  For IMAP and POP3 this means we know
+   *   everything we need and can actually create the account.  For ActiveSync
+   *   we actually need the password to try and perform autodiscovery.
+   *
+   *     {
+   *       result: 'need-password',
+   *       configInfo: { incoming, outgoing }
+   *     }
+   *
+   *   Autoconfig information is available and XOAuth2 authentication should
+   *   be attempted and those credentials then provided to us.
+   *
+   *     {
+   *       result: 'need-oauth2',
+   *       configInfo: { incoming, outgoing, oauth2Settings }
+   *     }
+   *
+   *   configInfo is actually
+   *
+   */
+  learnAboutAccount: function(details, callback) {
+  },
+
+  /**
    * Try to create an account.  There is currently no way to abort the process
    * of creating an account.
    *
@@ -2804,6 +2848,27 @@ MailAPI.prototype = {
    *     No error, the account was created and everything is terrific.
    *   }
    * ]]
+   *
+   * @param {Object} details
+   * @param {String} details.emailAddress
+   * @param {"manual"|"auto"} [details.mode="auto"]
+   * @param {String} [details.password]
+   *   The user's password
+   * @param {Object} [configInfo]
+   *   If continuing an autoconfig initiated by learnAboutAccount, the
+   *   configInfo it returned as part of its results.  If performing a manual
+   *   config, a manually created configInfo object of the following form:
+   *
+   *     {
+   *       incoming: { hostname, port, socketType, username, password }
+   *       outgoing: { hostname, port, socketType, username, password }
+   *     }
+   *
+   * @param {Function} callback
+   *   The callback to invoke upon success or failure.  The callback will be
+   *   called with 2 arguments in the case of failure: the error string code,
+   *   and the error details object.
+   *
    *
    * @args[
    *   @param[details @dict[

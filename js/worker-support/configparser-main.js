@@ -23,17 +23,35 @@ define(function() {
                             .singleNodeValue;
     };
 
+    var dictifyChildNodes = function(node) {
+      if (!node) {
+        return null;
+      }
+      var dict = {};
+      for (var key in node) {
+        var child = node[key];
+        dict[child.tagName] = child.textContent;
+      }
+      return dict;
+    };
+
     var provider = getNode('/clientConfig/emailProvider');
     // Get the first incomingServer we can use (we assume first == best).
     var incoming = getNode('incomingServer[@type="imap"] | ' +
                            'incomingServer[@type="activesync"] | ' +
                            'incomingServer[@type="pop3"]', provider);
     var outgoing = getNode('outgoingServer[@type="smtp"]', provider);
+    var oauth2Settings = dictifyChildNodes(getNode('oauth2Settings', provider));
 
     var config = null;
     var status = null;
     if (incoming) {
-      config = { type: null, incoming: {}, outgoing: {} };
+      config = {
+        type: null,
+        incoming: {},
+        outgoing: {},
+        oauth2Settings: oauth2Settings
+      };
       for (var iter in Iterator(incoming.children)) {
         var child = iter[1];
         config.incoming[child.tagName] = child.textContent;

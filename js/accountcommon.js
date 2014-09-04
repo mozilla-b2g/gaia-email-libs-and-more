@@ -164,28 +164,63 @@ exports.recreateIdentities = recreateIdentities;
  * There are some important differences, however, since we support ActiveSync
  * whereas Thunderbird does not.
  *
- * The process is as follows:
+ * The v2 process is as follows.  All of this is done without a password (since
+ * it might turn out we don't need a password in the case of OAuth2-based auth.)
  *
  *  1) Get the domain from the user's email address
  *  2) Check hardcoded-into-GELAM account settings for the domain (useful for
  *     unit tests)
  *  3) Check locally stored XML config files in Gaia for the domain at
  *     `/autoconfig/<domain>`
- *  4) Look on the domain for an XML config file at
- *     `http://autoconfig.<domain>/mail/config-v1.1.xml` and
- *     `http://<domain>/.well-known/autoconfig/mail/config-v1.1.xml`, passing
- *     the user's email address in the query string (as `emailaddress`)
- *  5) Query the domain for ActiveSync Autodiscover at
- *     `https://<domain>/autodiscover/autodiscover.xml` and
+ *  4) In parallel:
+ *     - Do server-hosted autoconfig checks at URLs, passing the user's email
+ *       address in the query string (as `emailaddress`)
+ *       - `https://autoconfig.<domain>/mail/config-v1.1.xml` and
+ *       - `https://<domain>/.well-known/autoconfig/mail/config-v1.1.xml`,
+ *     - Check the Mozilla ISPDB for the domain:
+ *       - `https://live.mozillamessaging.com/autoconfig/v1.1/<domain>`
+ *     - Having the Mozilla ISPDB do an MX lookup.
+ *  5) If we didn't reach a conclusion in step 4, check the MX lookup result.
+ *     If it differed from the domain, then re-lookup the locally stored XML
+ *     config and failing that, check the ISPDB for that domain.
+ *  6) If that didn't net us anything, query the domain for ActiveSync
+ *     Autodiscover at:
+ *     `https://<domain>/autodiscover/autodiscover.xml` followed by another
+ *     request if the first one didn't work out to:
  *     `https://autodiscover.<domain>/autodiscover/autodiscover.xml`
  *     (TODO: perform a DNS SRV lookup on the server)
  *     Note that we do not treat a failure of autodiscover as fatal; we keep
  *     going, but will save off the error to report if we don't end up with a
  *     successful account creation.
- *  6) Check the Mozilla ISPDB for an XML config file for the domain at
- *     `https://live.mozillamessaging.com/autoconfig/v1.1/<domain>`
- *  7) Perform an MX lookup on the domain, and, if we get a different domain,
- *     check the Mozilla ISPDB for that domain too.
+ *
+ * This differs from the v1 process in that:
+ * - v1 did everything in serial not parallel
+ * - v1 used http, not httpS, to look for self-hosted autoconfig servers.
+ * - v1 ran autodiscover before checking with the ISPDB but after local and
+ *   server-hosted ISPDB autoconfig files.
+ * - v1 wanted the user's password
+ *
+ * These changes were informed by the following needs and observations:
+ * - http was a bad idea security-wise, but was done for consistency with
+ *   Thunderbird.  The Thunderbird rationale involved DNS also being insecure,
+ *   so an attacker could already win with local network control.  However,
+ *   Thunderbird also allowed autoconfig to return settings that didn't
+ *   use SSL/TLS, whereas we do not.  (We ignore them).
+ *
+ *   Thunderbird has recently come around to the use of https instead of http
+ *   for this purpose.  It's also worth noting that as far as we know, almost
+ *   no one actually hosts their own autoconfig servers.
+ *
+ * - AutoDiscover can be very slow, especially if we're waiting for our requests
+ *   to timeout.
+ *
+ * - It's become common to see servers that implement ActiveSync (which we
+ *   strongly dislike) as well as IMAP (which we strongly prefer).  By letting
+ *   ActiveSync derail the decision-making process we rob ourselves of the
+ *   ability to have the ISPDB indicate the IMAP is an option.
+ *
+ * - If the user's server supports OAuth2, there's no need to make them type in
+ *   their password; it might even be confusing to them.
  *
  * If the process is successful, we pass back a JSON object that looks like
  * this for IMAP/SMTP:
@@ -197,16 +232,25 @@ exports.recreateIdentities = recreateIdentities;
  *     port: <imap port number>,
  *     socketType: <one of 'plain', 'SSL', 'STARTTLS'>,
  *     username: <imap username>,
+ *     authentication: <one of 'password-cleartext', 'xoauth2'>
  *   },
  *   outgoing: {
  *     hostname: <smtp hostname>,
  *     port: <smtp port>,
  *     socketType: <one of 'plain', 'SSL', 'STARTTLS'>,
  *     username: <smtp username>,
+ *     authentication: <one of 'password-cleartext', 'xoauth2'>
  *   },
+ *   oauth2Settings: null or {
+ *     secretGroup: <group identify which app secrets should be used>,
+ *     authEndpoint: <auth url of the page to show to the user>,
+ *     tokenEndpoint: <url for getting/refreshing tokens (no user ui)>,
+ *     scope: <space-delimited scopes to request>
+ *   }
  * }
  *
- * And like this for ActiveSync:
+ * POP3 is similar to IMAP/SMTP but it's 'pop3+smtp'.  ActiveSync looks
+ * like:
  *
  * {
  *   type: 'activesync',
@@ -390,7 +434,7 @@ Autoconfigurator.prototype = {
                                                      callback) {
     var suffix = '/mail/config-v1.1.xml?emailaddress=' +
                  encodeURIComponent(userDetails.emailAddress);
-    var url = 'http://autoconfig.' + domain + suffix;
+    var url = 'https://autoconfig.' + domain + suffix;
     var self = this;
 
     this._getXmlConfig(url, function(error, config, errorDetails) {
@@ -400,7 +444,7 @@ Autoconfigurator.prototype = {
       }
 
       // See <http://tools.ietf.org/html/draft-nottingham-site-meta-04>.
-      var url = 'http://' + domain + '/.well-known/autoconfig' + suffix;
+      var url = 'https://' + domain + '/.well-known/autoconfig' + suffix;
       self._getXmlConfig(url, callback);
     });
   },
@@ -495,6 +539,10 @@ Autoconfigurator.prototype = {
    *
    * @param userDetails an object containing `emailAddress` and `password`
    *        attributes
+   * @param {String} userDetails.emailAddress
+   *   The user's email account.  Required.
+   * @param {String} [userDetails.password]
+   *
    * @param callback a callback taking an error string (if any) and the config
    *        info, formatted as JSON
    */
