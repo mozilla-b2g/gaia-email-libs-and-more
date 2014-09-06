@@ -2759,11 +2759,37 @@ MailAPI.prototype = {
    *       configInfo: { incoming, outgoing, oauth2Settings }
    *     }
    *
-   *   configInfo is actually
-   *
+   *   A `source` property will also be present in the result object.  Its
+   *   value will be one of: 'hardcoded', 'local', 'ispdb',
+   *   'autoconfig-subdomain', 'autoconfig-wellknown', 'mx local', 'mx ispdb',
+   *   'autodiscover'.
    */
   learnAboutAccount: function(details, callback) {
+    var handle = this._nextHandle++;
+    this._pendingRequests[handle] = {
+      type: 'learnAboutAccount',
+      details: details,
+      callback: callback
+    };
+    this.__bridgeSend({
+      type: 'learnAboutAccount',
+      handle: handle,
+      details: details
+    });
   },
+
+  _recv_learnAboutAccountResults: function(msg) {
+    var req = this._pendingRequests[msg.handle];
+    if (!req) {
+      unexpectedBridgeDataError('Bad handle:', msg.handle);
+      return true;
+    }
+    delete this._pendingRequests[msg.handle];
+
+    req.callback.call(null, msg.data);
+    return true;
+  },
+
 
   /**
    * Try to create an account.  There is currently no way to abort the process

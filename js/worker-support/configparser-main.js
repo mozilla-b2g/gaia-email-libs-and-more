@@ -28,9 +28,9 @@ define(function() {
         return null;
       }
       var dict = {};
-      for (var key in node) {
-        var child = node[key];
-        dict[child.tagName] = child.textContent;
+      for (var kid = node.firstElementChild; kid;
+           kid = kid.nextElementSibling) {
+        dict[kid.tagName] = kid.textContent;
       }
       return dict;
     };

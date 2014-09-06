@@ -739,6 +739,11 @@ MailUniverse.prototype = {
       this._bridges.splice(idx, 1);
   },
 
+  learnAboutAccount: function(details) {
+    var configurator = new $acctcommon.Autoconfigurator(this._LOG);
+    return configurator.learnAboutAccount(details);
+  },
+
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, domainInfo,
                                                      callback) {
     if (!this.online) {
