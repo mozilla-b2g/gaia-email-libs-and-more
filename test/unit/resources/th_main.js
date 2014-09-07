@@ -3384,6 +3384,24 @@ var TestActiveSyncAccountMixins = {
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
+      // Creation via autodiscover.  The idea here is that we're pretending like
+      // we're the front end who called learnAboutAccount and got back an
+      // autodiscover probe that resulted in a named autodiscoverEndpoint.  The
+      // endpoint is our fake activesync server's fake autodiscover endpoint.
+      //
+      // This is important/notable because otherwise autoconfig uses our
+      // hardcoded test mapping which bypasses autodiscover entirely.
+      var configInfo = null;
+      if (self._opts.createVia === 'autodiscover') {
+        configInfo = {
+          type: 'activesync',
+          incoming: {
+            autodiscoverEndpoint:
+              self.testServer.serverInfo.url + '/autodiscover/autodiscover.xml'
+          }
+        };
+      }
+
       var TEST_PARAMS = self.RT.envOptions;
       self.MailAPI.tryToCreateAccount(
         {
@@ -3393,7 +3411,7 @@ var TestActiveSyncAccountMixins = {
           accountName: self._opts.name || null, // null means use email
           forceCreate: self._opts.forceCreate
         },
-        null,
+        configInfo,
         function accountMaybeCreated(error, errorDetails, account) {
           if (error) {
             self._logger.accountCreationError(error);

@@ -1287,6 +1287,9 @@ function DOMLoaded() {
       }
       configData.tests = keepTests;
     }
+    else {
+      configData.runner = 'loggest-runner.html';
+    }
 
     try {
       runTests(configData).then(function(summaries) {

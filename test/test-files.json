@@ -140,6 +140,10 @@
       "variants": ["pop3:fake"]
     },
 
+    "test_activesync_autodiscover.js": {
+      "variants": ["activesync:fake"]
+    },
+
     "test_activesync_recreate.js": {
       "variants": ["activesync:fake"]
     },

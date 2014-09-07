@@ -87,7 +87,7 @@ define(function() {
     self.sendMessage(uid, cmd, [config, status]);
   }
 
-  function parseActiveSyncAccount(uid, cmd, text) {
+  function parseActiveSyncAccount(uid, cmd, text, aNoRedirect) {
     var doc = new DOMParser().parseFromString(text, 'text/xml');
 
     var getNode = function(xpath, rel) {
@@ -114,7 +114,11 @@ define(function() {
       return postResponse(error);
     }
 
-    var responseNode = getNode('/ad:Autodiscover/ms:Response', doc);
+    // Note: specs seem to indicate the root should be ms:Autodiscover too.
+    // It's not clear why we were using ad:Autodiscover or if it ever worked,
+    // but there's no meaningful cost to leave that around.
+    var responseNode = getNode('/ad:Autodiscover/ms:Response', doc) ||
+                       getNode('/ms:Autodiscover/ms:Response', doc);
     if (!responseNode) {
       error = 'Missing Autodiscover Response node';
       return postResponse(error);
@@ -186,7 +190,7 @@ define(function() {
           parseAccountCommon(uid, cmd, args[0]);
           break;
         case 'accountactivesync':
-          parseActiveSyncAccount(uid, cmd, args[0]);
+          parseActiveSyncAccount(uid, cmd, args[0], args[1]);
           break;
       }
     }

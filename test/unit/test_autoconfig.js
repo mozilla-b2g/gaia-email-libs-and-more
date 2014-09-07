@@ -318,7 +318,6 @@ var goodActivesyncAutodiscoverSubdirConfig = {
     autodiscoverEndpoint: AUTODISCOVER_SUBDIR_URL,
   },
 };
-
 var goodActivesyncAutodiscoverDomainConfig = {
   type: 'activesync',
   incoming: {
