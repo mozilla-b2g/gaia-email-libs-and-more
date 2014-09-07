@@ -698,8 +698,12 @@ Autoconfigurator.prototype = {
         } else {
           result = 'no-config-info';
         }
-        slog.log('autoconfig:end',
-                 { domain: domain, result: result, source: source });
+        slog.log(
+          'autoconfig:end',
+          {
+            domain: domain, result: result, source: source,
+            configInfo: configInfo
+          });
         resolve({ result: result, source: source, configInfo: configInfo });
       }.bind(this);
       // Call this if we can't find a configuration.
@@ -841,12 +845,6 @@ Autoconfigurator.prototype = {
       function failure(err) {
         callback(err, null, null);
       }.bind(this));
-    var self = this;
-    this.getConfig(userDetails, function(error, config, errorDetails) {
-      if (error)
-        return callback(error, null, errorDetails);
-
-    });
   },
 };
 

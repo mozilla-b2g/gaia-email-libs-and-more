@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+<script type="application/javascript">
+  function makeConsoleFunc(prefix) {
+    return function() {
+      if (!this._enabled)
+        return;
+      var msg = prefix + ':';
+      for (var i = 0; i < arguments.length; i++) {
+        msg += ' ' + arguments[i];
+      }
+      msg += '\x1b[0m\n';
+      dump(msg);
+    };
+  }
+
+  window.console = {
+    _enabled: false,
+    log: makeConsoleFunc('\x1b[32mLOG'),
+    error: makeConsoleFunc('\x1b[31mERR'),
+    info: makeConsoleFunc('\x1b[36mINF'),
+    warn: makeConsoleFunc('\x1b[33mWAR'),
+  };
+
+  window.onerror = function errHandler(msg, url, line) {
+    console.error('onerror reporting:', msg, '@', url, ':', line);
+    return false;
+  };
+</script>
+<script src="/js/ext/alameda.js"></script>
+<script>
+  require.config({
+    baseUrl: '/js/ext',
+    paths: {
+      gelam: '../',
+      test: '../../test'
+    },
+    // For tests, time out in case there are non-404 errors.
+    waitSeconds: 10
+  });
+  require(['test/script-runner']);
+</script>
+</head>
+<body style="background-color: #eeffee;">
+This is script-runner.html.
+</body>
+</html>

@@ -72,6 +72,42 @@ function checkServerCertificate(url, callback) {
 
 exports.account = $asacct;
 exports.configurator = {
+  _getConfigFromAutodiscover: function getConfigFromAutodiscover(userDetails) {
+
+    return new Promise(function (resolve, reject) {
+      require(['activesync/protocol'], function (protocol) {
+        protocol.autodiscover(userDetails.emailAddress, userDetails.password,
+                              self.timeout, function(error, config) {
+          if (error) {
+            var failureType = 'no-config-info',
+                failureDetails = {};
+
+            if (error instanceof protocol.HttpError) {
+              if (error.status === 401)
+                failureType = 'bad-user-or-pass';
+              else if (error.status === 403)
+                failureType = 'not-authorized';
+              else
+                failureDetails.status = error.status;
+            }
+            callback(failureType, null, failureDetails);
+            return;
+          }
+
+          var autoconfig = {
+            type: 'activesync',
+            displayName: config.user.name,
+            incoming: {
+              server: config.mobileSyncServer.url,
+              username: config.user.email
+            },
+          };
+          callback(null, autoconfig, null);
+        });
+      }.bind(this));
+    }.bind(this));
+  },
+
   tryToCreateAccount: function cfg_as_ttca(universe, userDetails, domainInfo,
                                            callback, _LOG) {
     require(['activesync/protocol'], function ($asproto) {

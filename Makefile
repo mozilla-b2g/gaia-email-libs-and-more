@@ -17,6 +17,10 @@ help:
 	@echo "make activesync-server"
 	@echo "  Run the ActiveSync fake-server"
 	@echo ""
+	@echo "## USEFUL STUFF ##"
+	@echo ""
+	@echo "make autoconfig DOMAIN=example.com"
+	@echo ""
 	@echo "## TESTING ##"
 	@echo ""
 	@echo "make tests"
@@ -112,6 +116,13 @@ define run-one-test
 	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
 endef
 
+define run-no-test
+	-rm -rf $(2)
+	-mkdir -p $(2)/device-storage $(2)/fake-sdcard
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/$(2) --test-config $(CURDIR)/test/test-files.json --test-command "$(1)" --test-log-enable "true" --test-arg "$(3)"
+endef
+
+
 ######################
 # All tests
 
@@ -165,6 +176,12 @@ activesync-server:
 FAKE_IMAP_PROFILE=fake-imap-server-profile
 imap-server:
 	$(call run-no-test,imap-fake-server,$(FAKE_IMAP_PROFILE))
+
+DOMAIN ?= $(error You need to specify DOMAIN=thedomain.duh when using autoconfig)
+GENERIC_RUN_PROFILE=generic-profile
+autoconfig:
+	$(call run-no-test,autoconfig,$(GENERIC_RUN_PROFILE),$(DOMAIN))
+
 
 clean:
 	rm -rf data/deps

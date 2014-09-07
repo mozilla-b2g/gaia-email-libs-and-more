@@ -400,6 +400,7 @@ var TEST_PARAMS = {
   logFailuresOnly: false,
   printTravisUrls: false,
 };
+var SCRIPT_PARAMS = {};
 
 var TEST_NAME = null;
 var TEST_CONFIG = null;
@@ -409,6 +410,7 @@ var TEST_CONFIG = null;
  * have used to spin it up from a unit test.
  */
 var TEST_COMMAND = null;
+var TEST_ARG = null;
 
 // Trigger just one variant of tests to run.
 var TEST_VARIANT = null;
@@ -451,6 +453,10 @@ function populateTestParams() {
   // test-command is optional
   if (args.findFlag('test-command', false) !== -1)
     TEST_COMMAND = args.handleFlagWithParam('test-command', caseInsensitive);
+
+  if (args.findFlag('test-arg', false) !== -1)
+    TEST_ARG = args.handleFlagWithParam('test-arg', caseInsensitive);
+
 
   let environ = Cc["@mozilla.org/process/environment;1"]
                   .getService(Ci.nsIEnvironment);
@@ -802,16 +808,17 @@ function resolveUriToAppId(uri) {
 /**
  * @param controlServer The ControlServer to point the test at.
  */
-function runTestFile(testFileName, variant, controlServer) {
+function runTestFile(runner, testFileName, variant, controlServer) {
   try {
-    return _installTestFileThenRun(testFileName, variant, controlServer);
+    return _installTestFileThenRun(runner, testFileName, variant,
+                                   controlServer);
   }
   catch(ex) {
     console.error('Error in runTestFile', ex, '\n', ex.stack);
     throw ex;
   }
 };
-function _installTestFileThenRun(testFileName, variant, controlServer) {
+function _installTestFileThenRun(runner, testFileName, variant, controlServer) {
   // Our testfile protocol allows us to use the test file as an origin, so every
   // test file gets its own instance of the e-mail database.  This is better
   // than deleting the database every time because at the end of the run we
@@ -866,7 +873,7 @@ function _installTestFileThenRun(testFileName, variant, controlServer) {
           /* preinstalled */ true,
           /* system update? */ true);
         console.harness('permissions compelled');
-        return _runTestFile(testFileName, variant, baseUrl, manifestUrl,
+        return _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
                             controlServer);
       },
       function(err) {
@@ -874,7 +881,8 @@ function _installTestFileThenRun(testFileName, variant, controlServer) {
       });
   });
 };
-function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer) {
+function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
+                      controlServer) {
   console.harness('running', testFileName, 'variant', variant);
 
   // Parameters to pass into the test.
@@ -935,6 +943,8 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
     case 'pop3:noserver':
       testParams = {type: 'pop3'};
       break;
+    case 'script':
+      testParams = SCRIPT_PARAMS;
     case 'noserver':
     default:
       testParams = {};
@@ -990,21 +1000,27 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
     }
     processedLog = true;
 
-    console.harness('calling writeTestLog and resolving');
-    var jsonStr = event.data.data,
-        logData = JSON.parse(jsonStr);
-    // this must be done prior to the compartment getting killed
-    var summary = summaryFromLoggest(testFileName, variant, logData);
-    if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
-      writeTestLog(testFileName, variant, jsonStr, summary).then(
-        function() {
-          console.harness('write completed!');
-          deferred.resolve(summary);
-        });
+    if (event.data.type === 'loggest-test-results') {
+      console.harness('calling writeTestLog and resolving');
+      var jsonStr = event.data.data,
+          logData = JSON.parse(jsonStr);
+      // this must be done prior to the compartment getting killed
+      var summary = summaryFromLoggest(testFileName, variant, logData);
+      if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
+        writeTestLog(testFileName, variant, jsonStr, summary).then(
+          function() {
+            console.harness('write completed!');
+            deferred.resolve(summary);
+          });
+      }
+      else {
+        console.harness('not a failure, not writing');
+        deferred.resolve(summary);
+      }
     }
     else {
-      console.harness('not a failure, not writing');
-      deferred.resolve(summary);
+      console.harness('Got non-summary result type:', event.data.type);
+      deferred.resolve(null);
     }
 
     // cleanup may kill things, so don't do this until after the above
@@ -1038,7 +1054,7 @@ function _runTestFile(testFileName, variant, baseUrl, manifestUrl, controlServer
   });
 
   runnerIframe.setAttribute(
-    'src', baseUrl + 'test/loggest-runner.html?' + buildQuery(passToRunner));
+    'src', baseUrl + 'test/' + runner + '?' + buildQuery(passToRunner));
   console.harness('src set to:', runnerIframe.getAttribute('src'));
 
   console.harness('about to append');
@@ -1093,7 +1109,7 @@ function writeFile(dirPath, filename, str) {
 
 
 /**
- * Run one or more tests.
+ * Run one or more tests/scripts.
  */
 function runTests(configData) {
   var deferred = defer();
@@ -1158,7 +1174,8 @@ function runTests(configData) {
 
     curTestInfo = runTests[iTest];
 
-    runTestFile(curTestInfo.name, curTestInfo.variants[iVariant++],
+    runTestFile(configData.runner,
+                curTestInfo.name, curTestInfo.variants[iVariant++],
                 controlServer)
       .then(runNextTest,
             function(err) { console.error('Problem running test:', err); });
@@ -1168,6 +1185,28 @@ function runTests(configData) {
   return deferred.promise;
 }
 
+/**
+ * Our main() function, effectively.
+ *
+ * Determines which mode we're operating in
+ *
+ * - Run test servers.  Just run test-servers.  We stay in chrome space and
+ *   don't do anything with content.
+ *
+ * - Run a command / script file.  We spin up the same content mechanism that
+ *   we use to run tests, but with much less specialized support infrastructure.
+ *   GELAM runs very similarly to how it runs in a real app.
+ *
+ * - Run tests!  We spin up a series of content mozapp frames, one for each test
+ *   file and variant.  They run our test runner infrastructure in a somewhat
+ *   faked up scenario.  (All the testing stuff happens in a soupy worker
+ *   scenario rather than in the main page.)
+ *
+ * Note that since the intent was always just to run tests and the script stuff
+ * is a hacked-up afterthought, all the variable names and such lean heavily
+ * towards test because I don't want to rename everything to be generic and
+ * confusing.
+ */
 function DOMLoaded() {
   OS.File.read(TEST_CONFIG).then(function(dataArr) {
     var decoder = new TextDecoder('utf-8');
@@ -1178,9 +1217,11 @@ function DOMLoaded() {
       console.error('Problem with JSON config file:', ex);
     }
 
+    // --- Commands!
     if (TEST_COMMAND) {
       console.log('got command:', TEST_COMMAND);
       switch (TEST_COMMAND) {
+        // -- Fake servers
         case 'imap-fake-server':
           try {
             window.imapServer = FakeServerSupport.makeIMAPServer(
@@ -1201,7 +1242,7 @@ function DOMLoaded() {
 
           console.log('IMAP server up on port', window.imapServer.port);
           console.log('SMTP server up on port', window.smtpServer.port);
-          break;
+          return;
 
         case 'activesync-fake-server':
           try {
@@ -1214,15 +1255,28 @@ function DOMLoaded() {
           }
           console.log('ActiveSync server up on port',
                       window.activesyncServer.port);
+          return;
+
+        // -- Scripts
+        case 'autoconfig':
+          configData.tests = {
+            'autoconfig.js': {
+              variants: ['script']
+            }
+          };
+          configData.variants = {
+            script: { desc: 'for scripts, yo', optional: false }
+          };
+          SCRIPT_PARAMS.domain = TEST_ARG;
           break;
       }
-      return;
+      configData.runner = 'script-runner.html';
     }
-
     // If there's a TEST_NAME, we use it to filter the list of tests to things
     // that have a substring match.  So if a full filename is provided, we
     // should still correctly only run that file.
-    if (TEST_NAME) {
+    else if (TEST_NAME) {
+      configData.runner = 'loggest-runner.html';
       var lowerCheck = TEST_NAME.toLowerCase();
       var keepTests = {};
       for (var testName in configData.tests) {
@@ -1232,6 +1286,7 @@ function DOMLoaded() {
       }
       configData.tests = keepTests;
     }
+
     try {
       runTests(configData).then(function(summaries) {
         dump('\n\n***** ' + summaries.length + ' tests run: *****\n\n');
