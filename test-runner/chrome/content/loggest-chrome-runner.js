@@ -945,6 +945,7 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
       break;
     case 'script':
       testParams = SCRIPT_PARAMS;
+      break;
     case 'noserver':
     default:
       testParams = {};

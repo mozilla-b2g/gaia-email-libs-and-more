@@ -200,14 +200,14 @@ MailBridge.prototype = {
   _cmd_learnAboutAccount: function(msg) {
     this.universe.learnAboutAccount(msg.details).then(
       function success(info) {
-        self.__sendMessage({
+        this.__sendMessage({
             type: 'learnAboutAccountResults',
             handle: msg.handle,
             data: info
           });
       }.bind(this),
       function errback(err) {
-        self.__sendMessage({
+        this.__sendMessage({
             type: 'learnAboutAccountResults',
             handle: msg.handle,
             data: { result: 'no-config-info', configInfo: null }
