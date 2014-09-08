@@ -77,6 +77,16 @@ define(function(require, exports) {
         // is that the problem will be resolved, or clarified by
         // instructing the user to reauthenticate.
         if (xhr.status < 200 || xhr.status >= 300) {
+          // We do still get a JSON response if that goes bad, so let's include
+          // it.
+          try {
+            var errResp = JSON.parse(xhr.responseText);
+          }
+          catch (ex) {
+          }
+          slog.error('oauth:xhr-fail',
+                     { tokenEndpoint: oauthInfo.tokenEndpoint,
+                       status: xhr.status, errResp: errResp });
           reject('needs-oauth-reauth');
         } else {
           try {
@@ -109,6 +119,10 @@ define(function(require, exports) {
 
       xhr.onerror = function(err) {
         reject(errorutils.analyzeException(err));
+      };
+
+      xhr.ontimeout = function() {
+        reject('unresponsive-server');
       };
     });
   }

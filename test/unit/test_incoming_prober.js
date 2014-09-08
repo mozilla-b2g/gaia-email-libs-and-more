@@ -632,6 +632,10 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
   var refreshToken = 'refresh';
   var accessToken = 'access';
 
+  var tokenEndpoint = 'token-url';
+  var clientId = 'client-id';
+  var clientSecret = 'client-secret';
+
   cannedLoginTest(T, RT, {
     loginErrorString: 'NO [UNAVAILABLE] Server down for maintenance.',
     capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
@@ -639,10 +643,10 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
     mutateConnInfo: function(cci) {
       cci.credentials.oauth2 = {
         authEndpoint: 'auth-url',
-        tokenEndpoint: 'token-url',
+        tokenEndpoint: tokenEndpoint,
         scope: 'the-scope',
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
+        clientId: clientId,
+        clientSecret: clientSecret,
         refreshToken: refreshToken,
         accessToken: 'expired access token',
         expireTimeMS: Date.now() - 1000 // before now
@@ -656,7 +660,9 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
       // Mock out the XHR asking Google to give us a new access token.
       lc.interceptOnce('oauth:renew-xhr', function(xhr) {
         xhr = {
-          open: function() { },
+          open: function(method, url, async) {
+            eLazy.namedValue('xhrUrl', url);
+          },
           setRequestHeader: function() { },
           send: function(dataStr) {
             var formData = dataStr.split('&').reduce(
@@ -668,7 +674,7 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
               {}
             );
 
-            eLazy.namedValue('refresh_token', formData.refresh_token);
+            eLazy.namedValue('formData', formData);
 
             xhr.status = 200;
             xhr.responseText = JSON.stringify({
@@ -684,7 +690,15 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
         return xhr;
       });
 
-      eLazy.expect_namedValue('refresh_token', refreshToken);
+      eLazy.expect_namedValue('xhrUrl', tokenEndpoint);
+      eLazy.expect_namedValue(
+        'formData',
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        });
 
       // We should properly update our credentials:
       lc.mustLog('oauth:got-access-token', {
