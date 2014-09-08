@@ -637,9 +637,16 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
     capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
                                                        'AUTH=XOAUTH2'),
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = refreshToken;
-      cci.credentials.accessToken = "expired access token";
-      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: refreshToken,
+        accessToken: 'expired access token',
+        expireTimeMS: Date.now() - 1000 // before now
+      };
     },
     expectFunc: function() {
       var eLazy = T.lazyLogger('lazy');
@@ -648,7 +655,7 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
       var lc = new slog.LogChecker(T, RT, 'logs');
       // Mock out the XHR asking Google to give us a new access token.
       lc.interceptOnce('oauth:renew-xhr', function(xhr) {
-        var xhr = {
+        xhr = {
           open: function() { },
           setRequestHeader: function() { },
           send: function(dataStr) {
@@ -660,7 +667,7 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
               },
               {}
             );
-            
+
             eLazy.namedValue('refresh_token', formData.refresh_token);
 
             xhr.status = 200;
@@ -708,9 +715,16 @@ TD.commonCase('Gmail OAUTH: server hates your access token', function(T, RT) {
     capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
                                                        'AUTH=XOAUTH2'),
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'refreshtoken';
-      cci.credentials.accessToken = 'accesstoken';
-      cci.credentials.expireTimeMS = Date.now() + 1000000;
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'refreshtoken',
+        accessToken: 'accesstoken',
+        expireTimeMS:  Date.now() + 1000000
+      };
     },
     expectResult: 'needs-oauth-reauth'
   });
@@ -733,9 +747,16 @@ TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
   cannedLoginTest(T, RT, {
     willNotMakeConnection: true,
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = refreshToken;
-      cci.credentials.accessToken = "expired access token";
-      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: refreshToken,
+        accessToken: 'expired access token',
+        expireTimeMS:  Date.now() - 1000 // before now
+      };
     },
     expectFunc: function() {
       var eLazy = T.lazyLogger('lazy');
@@ -744,7 +765,7 @@ TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
       var lc = new slog.LogChecker(T, RT, 'logs');
       // Mock out the XHR asking Google to give us a new access token.
       lc.interceptOnce('oauth:renew-xhr', function(xhr) {
-        var xhr = {
+        xhr = {
           open: function() { },
           setRequestHeader: function() { },
           send: function(dataStr) {

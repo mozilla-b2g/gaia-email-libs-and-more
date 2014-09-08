@@ -268,9 +268,16 @@ TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'valid refresh token';
-      cci.credentials.accessToken = "expired access token";
-      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'valid refresh token',
+        accessToken: 'expired access token',
+        expireTimeMS: Date.now() - 1000 // before now
+      };
     },
     expectFunc: function() {
       var lc = new slog.LogChecker(T, RT, 'logs');
@@ -342,9 +349,16 @@ TD.commonCase('oauth, access token is fine', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'valid refresh token';
-      cci.credentials.accessToken = "valid access token";
-      cci.credentials.expireTimeMS = Date.now() + 1000000;
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'valid refresh token',
+        accessToken: 'valid access token',
+        expireTimeMS:  Date.now() + 1000000
+      };
     },
     expectFunc: function() {
       var lc = new slog.LogChecker(T, RT, 'logs');
@@ -395,9 +409,16 @@ TD.commonCase('oauth, access token is fine but server still hates us', function(
     // then responds with a typical error for AUTH.
     loginErrorString: '334 XXXXXXX\r\n535 Invalid Credentials (Failure).\r\n',
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'valid refresh token';
-      cci.credentials.accessToken = "valid access token";
-      cci.credentials.expireTimeMS = Date.now() + 1000000;
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'valid refresh token',
+        accessToken: 'valid access token',
+        expireTimeMS:  Date.now() + 1000000
+      };
     },
     expectResult: 'needs-oauth-reauth'
   });
@@ -412,9 +433,16 @@ TD.commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
   cannedLoginTest(T, RT, {
     willNotMakeConnection: true,
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'valid refresh token';
-      cci.credentials.accessToken = "expired access token";
-      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'valid refresh token',
+        accessToken: 'expired access token',
+        expireTimeMS: Date.now() - 1000 // before now
+      };
     },
     expectFunc: function() {
       var lc = new slog.LogChecker(T, RT, 'logs');
@@ -447,15 +475,22 @@ TD.commonCase('oauth, access token is expired, refresh unreachable', function(T,
   cannedLoginTest(T, RT, {
     willNotMakeConnection: true,
     mutateConnInfo: function(cci) {
-      cci.credentials.refreshToken = 'valid refresh token';
-      cci.credentials.accessToken = "expired access token";
-      cci.credentials.expireTimeMS = Date.now() - 1000; // before today
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'valid refresh token',
+        accessToken: 'expired access token',
+        expireTimeMS: Date.now() - 1000 // before now
+      };
     },
     expectFunc: function() {
       var lc = new slog.LogChecker(T, RT, 'logs');
 
       lc.interceptOnce('oauth:renew-xhr', function(xhr) {
-        var xhr = {
+        xhr = {
           open: function() { },
           setRequestHeader: function() { },
           send: function(dataStr) {

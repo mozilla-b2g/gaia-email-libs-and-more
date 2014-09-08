@@ -43,7 +43,7 @@ define(function(require, exports) {
   exports.createImapConnection = function(credentials, connInfo,
                                           credsUpdatedCallback) {
     var conn;
-    
+
     return oauth.ensureUpdatedCredentials(
       credentials
     ).then(function(credentialsChanged) {
@@ -57,7 +57,8 @@ define(function(require, exports) {
             auth: {
               user: credentials.username,
               pass: credentials.password,
-              xoauth2: credentials.accessToken || null // Only set for OAUTH
+              xoauth2: credentials.oauth2 ?
+                         credentials.oauth2.accessToken : null
             },
             useSecureTransport: (connInfo.crypto === 'ssl' ||
                                  connInfo.crypto === true),

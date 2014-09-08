@@ -307,6 +307,12 @@ MailBridge.prototype = {
         case 'outgoingPassword':
           accountDef.credentials.outgoingPassword = val;
           break;
+        case 'oauthTokens':
+          var oauth2 = accountDef.credentials.oauth2;
+          oauth2.accessToken = val.accessToken;
+          oauth2.refreshToken = val.refreshToken;
+          oauth2.expireTimeMS = val.expireTimeMS;
+          break;
 
         case 'identities':
           // TODO: support identity mutation

@@ -53,11 +53,12 @@ define(function(require, exports) {
           pass: (credentials.outgoingPassword !== undefined ?
                  credentials.outgoingPassword :
                  credentials.password),
-          xoauth2: credentials.accessToken || null // Only available for OAUTH.
+          xoauth2: credentials.oauth2 ?
+                     credentials.oauth2.accessToken : null
         };
         slog.log('smtp:connect', {
           _auth: auth,
-          hasAccessToken: !!credentials.accessToken,
+          usingOauth2: !!credentials.oauth2,
           connInfo: connInfo
         });
         conn = new SmtpClient(

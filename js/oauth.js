@@ -4,12 +4,6 @@ define(function(require, exports) {
   var syncbase = require('./syncbase');
   var slog = require('./slog');
 
-  // We only support Gmail's OAUTH mechanism right now.
-  var OAUTH_URL = 'https://accounts.google.com/o/oauth2/token';
-  var OAUTH_CLIENT_ID = ('673813704507-educiq1od0atkerkb73qjlnphr5cg61h' +
-                         '.apps.googleusercontent.com');
-  var OAUTH_CLIENT_SECRET = '0A4iZ7SjLYCbm4JvmKm6D5xz';
-
   /**
    * Ensure that the credentials given are still valid, and refresh
    * them if not. For an OAUTH account, this may entail obtaining a
@@ -24,20 +18,20 @@ define(function(require, exports) {
    *   failure: {String} A normalized error string.
    */
   exports.ensureUpdatedCredentials = function(credentials) {
-    var isOauth = !!credentials.refreshToken;
+    var oauth2 = credentials.oauth2;
     // If this is an OAUTH account, see if we need to refresh the
     // accessToken. If not, just continue on our way.
-    if (isOauth &&
-        (!credentials.accessToken ||
-         credentials.expireTimeMS < Date.now())) {
-      return renewAccessToken(credentials.refreshToken)
+    if (oauth2 &&
+        (!oauth2.accessToken ||
+         oauth2.expireTimeMS < Date.now())) {
+      return renewAccessToken(oauth2)
         .then(function(newTokenData) {
-          credentials.accessToken = newTokenData.accessToken;
-          credentials.expireTimeMS = newTokenData.expireTimeMS;
+          oauth2.accessToken = newTokenData.accessToken;
+          oauth2.expireTimeMS = newTokenData.expireTimeMS;
 
           slog.log('oauth:credentials-changed', {
-            _accessToken: credentials.accessToken,
-            expireTimeMS: credentials.expireTimeMS
+            _accessToken: oauth2.accessToken,
+            expireTimeMS: oauth2.expireTimeMS
           });
 
           return true;
@@ -61,19 +55,19 @@ define(function(require, exports) {
    *   success: {String} { accessToken, expireTimeMS }
    *   failure: {String} normalized errorString
    */
-  function renewAccessToken(refreshToken) {
+  function renewAccessToken(oauthInfo) {
     slog.log('oauth:renewing-access-token');
     return new Promise(function(resolve, reject) {
       var xhr = slog.interceptable('oauth:renew-xhr', function() {
         return new XMLHttpRequest({ mozSystem: true });
       });
-      xhr.open('POST', OAUTH_URL, true);
+      xhr.open('POST', oauthInfo.tokenEndpoint, true);
       xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
       xhr.timeout = syncbase.CONNECT_TIMEOUT_MS;
       xhr.send([
-        'client_id=', encodeURIComponent(OAUTH_CLIENT_ID),
-        '&client_secret=', encodeURIComponent(OAUTH_CLIENT_SECRET),
-        '&refresh_token=', encodeURIComponent(refreshToken),
+        'client_id=', encodeURIComponent(oauthInfo.clientId),
+        '&client_secret=', encodeURIComponent(oauthInfo.clientSecret),
+        '&refresh_token=', encodeURIComponent(oauthInfo.refreshToken),
         '&grant_type=refresh_token'
       ].join(''));
       xhr.onload = function() {
@@ -111,7 +105,7 @@ define(function(require, exports) {
             reject('needs-oauth-reauth');
           }
         }
-      }
+      };
 
       xhr.onerror = function(err) {
         reject(errorutils.analyzeException(err));

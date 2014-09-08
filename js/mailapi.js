@@ -88,6 +88,8 @@ function MailAccount(api, wireRep, acctsSlice) {
   this.username = wireRep.credentials.username;
   this.servers = wireRep.servers;
 
+  this.authMechanism = wireRep.credentials.oauth2 ? 'oauth2' : 'password';
+
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
   this.data = null;
@@ -2756,7 +2758,16 @@ MailAPI.prototype = {
    *
    *     {
    *       result: 'need-oauth2',
-   *       configInfo: { incoming, outgoing, oauth2Settings }
+   *       configInfo: {
+   *         incoming,
+   *         outgoing,
+   *         oauth2Settings: {
+   *           secretGroup: 'google' or 'microsoft' or other arbitrary string,
+   *           authEndpoint: 'url to the auth endpoint',
+   *           tokenEndpoint: 'url to where you ask for tokens',
+   *           scope: 'space delimited list of scopes to request'
+   *         }
+   *       }
    *     }
    *
    *   A `source` property will also be present in the result object.  Its
@@ -2793,7 +2804,8 @@ MailAPI.prototype = {
 
   /**
    * Try to create an account.  There is currently no way to abort the process
-   * of creating an account.
+   * of creating an account.  You really want to use learnAboutAccount before
+   * you call this unless you are an automated test.
    *
    * @typedef[AccountCreationError @oneof[
    *   @case['offline']{
@@ -2878,18 +2890,28 @@ MailAPI.prototype = {
    *
    * @param {Object} details
    * @param {String} details.emailAddress
-   * @param {"manual"|"auto"} [details.mode="auto"]
    * @param {String} [details.password]
    *   The user's password
    * @param {Object} [configInfo]
    *   If continuing an autoconfig initiated by learnAboutAccount, the
-   *   configInfo it returned as part of its results.  If performing a manual
-   *   config, a manually created configInfo object of the following form:
+   *   configInfo it returned as part of its results, although you will need
+   *   to poke the following structured properties in if you're doing the oauth2
+   *   thing:
+   *
+   *     {
+   *       oauth2Secrets: { client_id, client_secret }
+   *       oauth2Tokens: { accessToken, refreshToken, expireTimeMS }
+   *     }
+   *
+   *   If performing a manual config, a manually created configInfo object of
+   *   the following form:
    *
    *     {
    *       incoming: { hostname, port, socketType, username, password }
    *       outgoing: { hostname, port, socketType, username, password }
    *     }
+   *
+   *
    *
    * @param {Function} callback
    *   The callback to invoke upon success or failure.  The callback will be
