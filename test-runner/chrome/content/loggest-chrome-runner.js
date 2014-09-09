@@ -39,7 +39,7 @@ Cu.import("resource://gre/modules/osfile.jsm");
 // (Commented out stuff was in shell.js but we don't think we need it or
 // absolutely don't want it.)
 Cu.import('resource://gre/modules/ContactService.jsm');
-Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
+//Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
 Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
