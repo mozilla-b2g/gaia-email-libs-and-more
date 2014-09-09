@@ -2899,7 +2899,7 @@ MailAPI.prototype = {
    *   thing:
    *
    *     {
-   *       oauth2Secrets: { client_id, client_secret }
+   *       oauth2Secrets: { clientId, clientSecret }
    *       oauth2Tokens: { accessToken, refreshToken, expireTimeMS }
    *     }
    *

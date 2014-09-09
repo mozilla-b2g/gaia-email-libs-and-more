@@ -60,8 +60,8 @@ exports.configurator = {
           authEndpoint: domainInfo.oauth2Settings.authEndpoint,
           tokenEndpoint: domainInfo.oauth2Settings.tokenEndpoint,
           scope: domainInfo.oauth2Settings.scope,
-          clientId: domainInfo.oauth2Secrets.client_id,
-          clientSecret: domainInfo.oauth2Secrets.client_secret,
+          clientId: domainInfo.oauth2Secrets.clientId,
+          clientSecret: domainInfo.oauth2Secrets.clientSecret,
           refreshToken: domainInfo.oauth2Tokens.refreshToken,
           accessToken: domainInfo.oauth2Tokens.accessToken,
           expireTimeMS: domainInfo.oauth2Tokens.expireTimeMS
