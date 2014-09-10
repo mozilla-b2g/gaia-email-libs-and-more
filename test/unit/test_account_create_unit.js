@@ -89,12 +89,12 @@ var FakeUserDetails = {
 var FakeIncomingDomainInfo = {
   type: null, // populated below
   incoming: {
-    hostname: null,
+    hostname: 'mail.example.com',
     port: null,
     socketType: null
   },
   outgoing: {
-    hostname: null,
+    hostname: 'smtp.example.com',
     port: null,
     socketType: null
   },
@@ -117,13 +117,16 @@ var FakeActivesyncDomainInfo = {
     var errorMixtures = [
       { name: type + ' error only',
         incoming: 'unresponsive-server', smtp: null,
-        reportAs: 'unresponsive-server',  server: 'mail.example.com' },
+        reportAs: 'unresponsive-server',
+        server: FakeIncomingDomainInfo.incoming.hostname },
       { name: 'smtp error only',
         incoming: null, smtp: 'unresponsive-server',
-        reportAs: 'unresponsive-server', server: 'smtp.example.com' },
+        reportAs: 'unresponsive-server',
+        server: FakeIncomingDomainInfo.outgoing.hostname },
       { name: type + ' and smtp errors prioritize ' + type,
         incoming: 'server-problem', smtp: 'unresponsive-server',
-        reportAs: 'server-problem', server: 'mail.example.com' },
+        reportAs: 'server-problem',
+        server: FakeIncomingDomainInfo.incoming.hostname }
     ];
 
     errorMixtures.forEach(function(mix) {
@@ -140,12 +143,14 @@ var FakeActivesyncDomainInfo = {
         }
 
         eCheck.expect_namedValue('err', mix.reportAs);
+        eCheck.expect_namedValueD('errDetails', { server: mix.server });
         eCheck.expect_namedValue('account', null);
 
         $accountcommon.tryToManuallyCreateAccount(
           FakeUniverse, FakeUserDetails, FakeIncomingDomainInfo,
           function (err, account, errDetails) {
             eCheck.namedValue('err', err);
+            eCheck.namedValueD('errDetails', errDetails);
             eCheck.namedValue('account', null);
           });
       });
