@@ -159,7 +159,14 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
               data._auth.pass === 'pass1');
     });
 
-    $smtpProbe.probeAccount(cci.credentials, cci.connInfo);
+
+    eCheck.expect_value('done');
+    function done() {
+      eCheck.value('done');
+    }
+
+    $smtpProbe.probeAccount(cci.credentials, cci.connInfo)
+      .then(done, done);
   });
 
   T.action(eCheck, 'with matching incoming/outgoing creds', function() {
@@ -173,7 +180,13 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
               data._auth.pass === 'pass1');
     });
 
-    $smtpProbe.probeAccount(cci.credentials, cci.connInfo);
+    eCheck.expect_value('done');
+    function done() {
+      eCheck.value('done');
+    }
+
+    $smtpProbe.probeAccount(cci.credentials, cci.connInfo)
+      .then(done, done);
   });
 });
 
@@ -529,10 +542,21 @@ function cannedLoginTest(T, RT, opts) {
       cci = makeCredsAndConnInfo(),
       prober;
 
+  if (opts.mutateConnInfo) {
+    opts.mutateConnInfo(cci);
+  }
+
   T.action('connect, get error, return', eCheck, function() {
-    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    eCheck.expect_event('incoming:clearTimeout');
+    if (opts.expectFunc) {
+      opts.expectFunc();
+    }
+
+    if (!opts.willNotMakeConnection) {
+      eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+      eCheck.expect_event('incoming:clearTimeout');
+    }
     eCheck.expect_namedValue('probe result', opts.expectResult);
+
     // Even though we will fail to login, from the IMAP connection's
     // perspective we won't want the connection to die.
     // ...And now I've restored the original event functionality.
@@ -574,25 +598,203 @@ function cannedLoginTest(T, RT, opts) {
       ],
     });
 
-    FawltySocketFactory.precommand(
-      HOST, PORT,
-      {
-        cmd: 'fake',
-        data: opts.openResponse || openResponse(RT),
-      },
-      precommands);
+    if (!opts.willNotMakeConnection) {
+      FawltySocketFactory.precommand(
+        HOST, PORT,
+        {
+          cmd: 'fake',
+          data: opts.openResponse || openResponse(RT),
+        },
+        precommands);
+    }
+
     constructProber(RT, cci).catch(function(err) {
       eCheck.namedValue('probe result', err);
     });
   });
 };
 
-TD.commonCase('gmail 2-factor auth error', function(T, RT) {
+/**
+ * Test the case where we have an access token, but we already know
+ * the access token is expired. We should discard our current access
+ * token and fetch a new one. In this test, we successfully obtain a
+ * new access token, but the server happens to be down for maintenance
+ * (mainly because the test boilerplate here doesn't run with a
+ * server, so it'd be a pain to try to mimic a full-on successful
+ * login.)
+ */
+TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) {
+  if (RT.envOptions.type !== 'imap') {
+    // POP3 OAUTH is unsupported.
+    return;
+  }
+
+  var refreshToken = 'refresh';
+  var accessToken = 'access';
+
+  var tokenEndpoint = 'token-url';
+  var clientId = 'client-id';
+  var clientSecret = 'client-secret';
+
   cannedLoginTest(T, RT, {
-    loginErrorString: (RT.envOptions.type === 'imap' ?
-                       'NO [ALERT] Application-specific password required' :
-                       '-ERR [AUTH] Application-specific password required'),
-    expectResult: 'needs-app-pass',
+    loginErrorString: 'NO [UNAVAILABLE] Server down for maintenance.',
+    capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
+                                                       'AUTH=XOAUTH2'),
+    mutateConnInfo: function(cci) {
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: tokenEndpoint,
+        scope: 'the-scope',
+        clientId: clientId,
+        clientSecret: clientSecret,
+        refreshToken: refreshToken,
+        accessToken: 'expired access token',
+        expireTimeMS: Date.now() - 1000 // before now
+      };
+    },
+    expectFunc: function() {
+      var eLazy = T.lazyLogger('lazy');
+      RT.reportActiveActorThisStep(eLazy);
+
+      var lc = new slog.LogChecker(T, RT, 'logs');
+      // Mock out the XHR asking Google to give us a new access token.
+      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+        xhr = {
+          open: function(method, url, async) {
+            eLazy.namedValue('xhrUrl', url);
+          },
+          setRequestHeader: function() { },
+          send: function(dataStr) {
+            var formData = dataStr.split('&').reduce(
+              function(m, kvstr) {
+                var kv = kvstr.split('='); // ignoring parsing escapes
+                m[kv[0]] = decodeURIComponent(kv[1]);
+                return m;
+              },
+              {}
+            );
+
+            eLazy.namedValue('formData', formData);
+
+            xhr.status = 200;
+            xhr.responseText = JSON.stringify({
+              expires_in: 3600,
+              access_token: accessToken
+            });
+
+            setTimeout(function() {
+              xhr.onload();
+            });
+          }
+        };
+        return xhr;
+      });
+
+      eLazy.expect_namedValue('xhrUrl', tokenEndpoint);
+      eLazy.expect_namedValue(
+        'formData',
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        });
+
+      // We should properly update our credentials:
+      lc.mustLog('oauth:got-access-token', {
+        _accessToken: accessToken
+      });
+      lc.mustLog('oauth:credentials-changed');
+      lc.mustLog('probe:imap:credentials-updated');
+    },
+    // But alas, the server still didn't let us in.
+    expectResult: 'server-maintenance'
+  });
+});
+
+/**
+ * In this test, we have an access token that is allegedly valid, but
+ * the server rejects it anyway. In this case, fetching a new access
+ * token won't do any good; kick the user back through the OAUTH
+ * process, because they have likely revoked our refresh token.
+ */
+TD.commonCase('Gmail OAUTH: server hates your access token', function(T, RT) {
+  if (RT.envOptions.type !== 'imap') {
+    // POP3 OAUTH is unsupported.
+    return;
+  }
+
+  cannedLoginTest(T, RT, {
+    loginErrorString: 'NO [ALERT] Invalid credentials (Failure).',
+    capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
+                                                       'AUTH=XOAUTH2'),
+    mutateConnInfo: function(cci) {
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: 'refreshtoken',
+        accessToken: 'accesstoken',
+        expireTimeMS:  Date.now() + 1000000
+      };
+    },
+    expectResult: 'needs-oauth-reauth'
+  });
+});
+
+/**
+ * Test the case where we try to refresh our access token, but for
+ * some reason the Gmail refresh-token-request refuses to respond;
+ * i.e. network conditions are terrible.
+ */
+TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
+  if (RT.envOptions.type !== 'imap') {
+    // POP3 OAUTH is unsupported.
+    return;
+  }
+
+  var refreshToken = 'refresh';
+  var accessToken = 'access';
+
+  cannedLoginTest(T, RT, {
+    willNotMakeConnection: true,
+    mutateConnInfo: function(cci) {
+      cci.credentials.oauth2 = {
+        authEndpoint: 'auth-url',
+        tokenEndpoint: 'token-url',
+        scope: 'the-scope',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        refreshToken: refreshToken,
+        accessToken: 'expired access token',
+        expireTimeMS:  Date.now() - 1000 // before now
+      };
+    },
+    expectFunc: function() {
+      var eLazy = T.lazyLogger('lazy');
+      RT.reportActiveActorThisStep(eLazy);
+
+      var lc = new slog.LogChecker(T, RT, 'logs');
+      // Mock out the XHR asking Google to give us a new access token.
+      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+        xhr = {
+          open: function() { },
+          setRequestHeader: function() { },
+          send: function(dataStr) {
+            xhr.status = 0;
+            setTimeout(function() {
+              xhr.onerror({ name: 'ConnectionRefusedError' });
+            });
+          }
+        };
+        return xhr;
+      });
+
+    },
+    // But alas, the server still didn't let us in.
+    expectResult: 'unresponsive-server'
   });
 });
 

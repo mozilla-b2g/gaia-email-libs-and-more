@@ -11,7 +11,28 @@ define(['rdcommon/testcontext', './resources/th_main',
 var TD = exports.TD = $tc.defineTestsFor(
   { id: 'test_autoconfig' }, null, [$th_main.TESTHELPER], ['app']);
 
-var goodImapXML =
+var LOCAL_AUTOCONFIG_URL = '/autoconfig/xampl.tld';
+
+var AUTOCONFIG_DOMAIN_URL =
+  'https://autoconfig.xampl.tld/mail/config-v1.1.xml' +
+    '?emailaddress=user%40xampl.tld';
+var AUTOCONFIG_WELLKNOWN_URL =
+  'https://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml' +
+    '?emailaddress=user%40xampl.tld';
+var ISPDB_ENTRY_URL =
+  'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld';
+var ISPDB_MX_LOOKUP_URL = 'https://live.mozillamessaging.com/dns/mx/xampl.tld';
+var ISPDB_MX_ENTRY_URL =
+  'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld';
+
+var LOCAL_MX_AUTOCONFIG_URL = '/autoconfig/mx-xampl.tld';
+
+var AUTODISCOVER_SUBDIR_URL =
+  'https://xampl.tld/autodiscover/autodiscover.xml';
+var AUTODISCOVER_DOMAIN_URL =
+  'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml';
+
+var goodImapPasswordXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
   '<clientConfig version="1.1"><emailProvider id="blah">' +
     '<incomingServer type="imap">' +
@@ -28,7 +49,54 @@ var goodImapXML =
       '<username>%EMAILADDRESS%</username>' +
       '<authentication>password-cleartext</authentication>' +
     '</outgoingServer>' +
-      '</emailProvider></clientConfig>';
+  '</emailProvider></clientConfig>';
+
+// For the cases that should "lose" where we're performing parallel fetches.
+// (AKA, we don't want this result, we want a different one.)
+var conflictingImapPasswordXML =
+  '<?xml version="1.0" encoding="utf-8"?>\n' +
+  '<clientConfig version="1.1"><emailProvider id="blah">' +
+    '<incomingServer type="imap">' +
+      '<hostname>imap.WRONG.tld</hostname>' +
+      '<port>993</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</incomingServer>' +
+    '<outgoingServer type="smtp">' +
+      '<hostname>smtp.WRONG.tld</hostname>' +
+      '<port>465</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>password-cleartext</authentication>' +
+    '</outgoingServer>' +
+  '</emailProvider></clientConfig>';
+
+var goodImapOauthXML =
+  '<?xml version="1.0" encoding="utf-8"?>\n' +
+  '<clientConfig version="1.1"><emailProvider id="blah">' +
+    '<incomingServer type="imap">' +
+      '<hostname>imap.xampl.tld</hostname>' +
+      '<port>993</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>xoauth2</authentication>' +
+    '</incomingServer>' +
+    '<outgoingServer type="smtp">' +
+      '<hostname>smtp.xampl.tld</hostname>' +
+      '<port>465</port>' +
+      '<socketType>SSL</socketType>' +
+      '<username>%EMAILADDRESS%</username>' +
+      '<authentication>xoauth2</authentication>' +
+    '</outgoingServer>' +
+    '<oauth2Settings>' +
+      '<secretGroup>oauthy</secretGroup>' +
+      '<authEndpoint>https://accounts.xampl.tld/o/oauth2/auth</authEndpoint>' +
+      '<tokenEndpoint>https://accounts.xampl.tld/o/oauth2/token</tokenEndpoint>' +
+      '<scope>https://mail.xampl.tld/</scope>' +
+    '</oauth2Settings>' +
+  '</emailProvider></clientConfig>';
+
 
 var goodPop3XML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
@@ -114,7 +182,7 @@ var goodImapMixedXML =
   '</emailProvider></clientConfig>';
 
 
-var goodImapConfig = {
+var goodImapPasswordConfig = {
   type: 'imap+smtp',
   incoming: {
     hostname: 'imap.xampl.tld',
@@ -130,7 +198,33 @@ var goodImapConfig = {
     username: 'user@xampl.tld',
     authentication: 'password-cleartext',
   },
+  oauth2Settings: null
 };
+
+var goodImapOauthConfig = {
+  type: 'imap+smtp',
+  incoming: {
+    hostname: 'imap.xampl.tld',
+    port: '993',
+    socketType: 'SSL',
+    username: 'user@xampl.tld',
+    authentication: 'xoauth2',
+  },
+  outgoing: {
+    hostname: 'smtp.xampl.tld',
+    port: '465',
+    socketType: 'SSL',
+    username: 'user@xampl.tld',
+    authentication: 'xoauth2',
+  },
+  oauth2Settings: {
+    secretGroup: 'oauthy',
+    authEndpoint: 'https://accounts.xampl.tld/o/oauth2/auth',
+    tokenEndpoint: 'https://accounts.xampl.tld/o/oauth2/token',
+    scope: 'https://mail.xampl.tld/'
+  },
+};
+
 
 var goodPop3Config = {
   type: 'pop3+smtp',
@@ -148,6 +242,7 @@ var goodPop3Config = {
     username: 'user@xampl.tld',
     authentication: 'password-cleartext',
   },
+  oauth2Settings: null
 };
 
 var goodImapStarttlsConfig = {
@@ -166,6 +261,7 @@ var goodImapStarttlsConfig = {
     username: 'user@xampl.tld',
     authentication: 'password-cleartext',
   },
+  oauth2Settings: null
 };
 
 var goodImapMixedConfig = {
@@ -184,9 +280,10 @@ var goodImapMixedConfig = {
     username: 'user@xampl.tld',
     authentication: 'password-cleartext',
   },
+  oauth2Settings: null
 };
 
-var unsafeImapXML = goodImapXML.replace('SSL', 'plain', 'g');
+var unsafeImapXML = goodImapPasswordXML.replace('SSL', 'plain', 'g');
 
 var goodActivesyncXML =
   '<?xml version="1.0" encoding="utf-8"?>\n' +
@@ -197,7 +294,11 @@ var goodActivesyncXML =
     '</incomingServer>' +
   '</emailProvider></clientConfig>';
 
+// Report a different MX domain
 var MXtext = 'mx-xampl.tld';
+
+// Report the same domain as the MX
+var MXsame = 'xampl.tld';
 
 var goodActivesyncConfig = {
   type: 'activesync',
@@ -207,14 +308,20 @@ var goodActivesyncConfig = {
   },
   outgoing: {
   },
+  oauth2Settings: null
 };
 
-var goodActivesyncAutodiscoverConfig = {
+
+var goodActivesyncAutodiscoverSubdirConfig = {
   type: 'activesync',
-  displayName: 'DISPLAYNAME',
   incoming: {
-    server: 'https://m.xampl.tld/',
-    username: 'EMAILADDRESS',
+    autodiscoverEndpoint: AUTODISCOVER_SUBDIR_URL,
+  },
+};
+var goodActivesyncAutodiscoverDomainConfig = {
+  type: 'activesync',
+  incoming: {
+    autodiscoverEndpoint: AUTODISCOVER_DOMAIN_URL,
   },
 };
 
@@ -289,16 +396,19 @@ function cannedTest(T, RT, xhrs, results) {
     var configurator = new $accountcommon.Autoconfigurator();
     var userDetails = {
       emailAddress: 'user@xampl.tld',
-      password: 'PASSWORD',
     };
-    eCheck.expect_namedValue('error', results.error);
-    eCheck.expect_namedValue('config', results.config);
-    eCheck.expect_namedValue('errorDetails', results.errorDetails);
-    configurator.getConfig(userDetails, function(error, config, errorDetails) {
-      eCheck.namedValue('error', error);
-      eCheck.namedValue('config', config);
-      eCheck.namedValue('errorDetails', errorDetails);
-    });
+    eCheck.expect_namedValue('result', results.result);
+    eCheck.expect_namedValue('source', results.source);
+    eCheck.expect_namedValue('configInfo', results.configInfo);
+    configurator.learnAboutAccount(userDetails)
+      .then(function(actualResults) {
+        eCheck.namedValue('result', actualResults.result);
+        eCheck.namedValue('source', actualResults.source);
+        eCheck.namedValue('configInfo', actualResults.configInfo);
+      })
+      .catch(function(err) {
+        eCheck.error('err', err);
+      });
   });
 };
 
@@ -308,31 +418,45 @@ function cannedTest(T, RT, xhrs, results) {
 TD.commonCase('successful local activesync', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodActivesyncXML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodActivesyncXML },
     ],
     {
-      error: null,
-      config: goodActivesyncConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodActivesyncConfig,
     });
 });
 
 /**
- * local XML config file tells us IMAP.
+ * local XML config file tells us IMAP using password.
  */
-TD.commonCase('successful local IMAP', function(T, RT) {
+TD.commonCase('successful local IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodImapXML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodImapPasswordXML },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodImapPasswordConfig,
     });
 });
+
+/**
+ * local XML config file tells us IMAP using xoauth2.
+ */
+TD.commonCase('successful local IMAP w/xoauth2', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      { url: LOCAL_AUTOCONFIG_URL, data: goodImapOauthXML },
+    ],
+    {
+      result: 'need-oauth2',
+      source: 'local',
+      configInfo: goodImapOauthConfig,
+    });
+});
+
 
 /**
  * local XML config file tells us IMAP AND POP3 and for the love of
@@ -341,13 +465,12 @@ TD.commonCase('successful local IMAP', function(T, RT) {
 TD.commonCase('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodImapAndPop3XML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodImapAndPop3XML },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
@@ -357,13 +480,12 @@ TD.commonCase('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
 TD.commonCase('successful local POP3', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodPop3XML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodPop3XML },
     ],
     {
-      error: null,
-      config: goodPop3Config,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodPop3Config,
     });
 });
 
@@ -373,13 +495,12 @@ TD.commonCase('successful local POP3', function(T, RT) {
 TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodImapStarttlsXML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodImapStarttlsXML },
     ],
     {
-      error: null,
-      config: goodImapStarttlsConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodImapStarttlsConfig,
     });
 });
 
@@ -389,188 +510,197 @@ TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
 TD.commonCase('successful IMAP with STARTTLS, SMTP with SSL', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        data: goodImapMixedXML },
+      { url: LOCAL_AUTOCONFIG_URL, data: goodImapMixedXML },
     ],
     {
-      error: null,
-      config: goodImapMixedConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'local',
+      configInfo: goodImapMixedConfig,
     });
 });
 
+
 /**
- * The domain self-hosts an XML config at autoconfig.domain.
+ * The domain self-hosts an XML config at autoconfig.domain and we use that in
+ * the absence of ISPDB and we don't care about the MX lookup.
  */
 TD.commonCase('successful IMAP autoconfig.domain', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, data: goodImapPasswordXML },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext }
+      // no group 3
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'autoconfig-subdomain',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
 /**
- * The domain self-hosts an XML config at domain/.well-known/
+ * The domain self-hosts an XML config at domain/.well-known/ and we use that
+ * in the absence of ISPDB and we don't care about the MX lookup.
  */
 TD.commonCase('successful IMAP domain/.well-known/', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, data: goodImapPasswordXML },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext }
+      // no group 3
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'autoconfig-wellknown',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
 /**
- * ActiveSync autodiscovery worked for the domain via /autodiscover/.
+ * The domain self-hosts an XML config at autoconfig.domain and we use that in
+ * preference over the ISPDB entry.
  */
-TD.commonCase('successful activesync domain/autodiscover/ autodiscovery',
+TD.commonCase('successful IMAP autoconfig.domain ignoring ISPDB',
               function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', data: goodActivesyncAutodiscoverXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, data: goodImapPasswordXML },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, data: conflictingImapPasswordXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext }
+      // no group 3
     ],
     {
-      error: null,
-      config: goodActivesyncAutodiscoverConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'autoconfig-subdomain',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
 /**
- * ActiveSync autodiscovery worked for the domain via autodiscover.domain.
+ * The domain self-hosts an XML config at domain/.well-known/ and we use that
+ * in preference over the ISPDB entry.
  */
-TD.commonCase('successful activesync autodiscover.domain autodiscovery',
+TD.commonCase('successful IMAP domain/.well-known/ ignoring ISPDB',
               function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', data: gibberishXML },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', data: goodActivesyncAutodiscoverXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, data: goodImapPasswordXML },
+      { url: ISPDB_ENTRY_URL, data: conflictingImapPasswordXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext }
+      // no group 3
     ],
     {
-      error: null,
-      config: goodActivesyncAutodiscoverConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'autoconfig-wellknown',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
 /**
- * Auth failure (401: bad-user-or-pass) in autodiscover process ends the
- * autoconfig process.  Note that this is different from the 403 case (see
- * below) where we keep going because 403 has been used to indicate that the
- * user needs to pay money to use ActiveSync but can use IMAP for free.
+ * ISPDB lookup found the domain and told us IMAP w/Password.
  */
-TD.commonCase('ActiveSync autodiscover 401 tries ISPDB but fails',
-              function(T, RT) {
+TD.commonCase('successful ISPDB IMAP w/Password', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      // here's the autodiscover failure!
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 401 },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, data: goodImapPasswordXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
     ],
     {
-      error: 'bad-user-or-pass',
-      config: null,
-      errorDetails: {},
+      result: 'need-password',
+      source: 'ispdb',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
 /**
- * ISPDB lookup found the domain and told us IMAP.
+ * ISPDB lookup found the domain and told us IMAP w/xoauth2.  We currently don't
+ * expect or really support this mode of operation (everything should be local
+ * autoconfig), but it's good to make sure it's an option open to us.
  */
-TD.commonCase('successful ISPDB IMAP', function(T, RT) {
+TD.commonCase('successful ISPDB IMAP w/xoauth2', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, data: goodImapOauthXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-oauth2',
+      source: 'ispdb',
+      configInfo: goodImapOauthConfig,
     });
 });
 
 /**
- * Verify that even if there is an ActiveSync autodiscover mechanism that fails
- * to auth us that we keep going to perform a successful ISPDB IMAP lookup.
- * This is the case for t-online.de right now where ActiveSync is provided as
- * a premium service but free IMAP is available.  (Note that we are also
- * going to address the t-online.de case by using a local config XML since we
- * prefer to use IMAP over ActiveSync.)
+ * local XML config file tells us IMAP w/password after checking MX.
  */
-TD.commonCase('ActiveSync auth failure followed by successful ISPDB IMAP',
-              function(T, RT) {
+TD.commonCase('successful MX local IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      // for t-online.de, there is no server at the base domain
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 'error' },
-      // 403 is 'not-authorized'
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 403 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, data: goodImapPasswordXML },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'mx local',
+      configInfo: goodImapPasswordConfig,
+    });
+});
+
+/**
+ * local XML config file tells us IMAP w/password after checking MX.
+ */
+TD.commonCase('successful MX local IMAP w/oauth2', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, data: goodImapOauthXML },
+    ],
+    {
+      result: 'need-oauth2',
+      source: 'mx local',
+      configInfo: goodImapOauthConfig,
     });
 });
 
@@ -580,186 +710,225 @@ TD.commonCase('ActiveSync auth failure followed by successful ISPDB IMAP',
 TD.commonCase('successful MX local activesync', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        data: goodActivesyncXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, data: goodActivesyncXML },
     ],
     {
-      error: null,
-      config: goodActivesyncConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'mx local',
+      configInfo: goodActivesyncConfig,
     });
 });
 
-/**
- * local XML config file tells us IMAP after checking MX.
- */
-TD.commonCase('successful MX local IMAP', function(T, RT) {
+TD.commonCase('successful MX ISPDB IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, data: goodImapPasswordXML },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-password',
+      source: 'mx ispdb',
+      configInfo: goodImapPasswordConfig,
     });
 });
 
-/**
- * ISPDB lookup found the MX-resolved domain
- */
-TD.commonCase('successful MX ISPDB IMAP', function(T, RT) {
+TD.commonCase('successful MX ISPDB IMAP w/oauth2', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
-        data: goodImapXML },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, data: goodImapOauthXML },
     ],
     {
-      error: null,
-      config: goodImapConfig,
-      errorDetails: null,
+      result: 'need-oauth2',
+      source: 'mx ispdb',
+      configInfo: goodImapOauthConfig,
     });
 });
 
 TD.commonCase('everything fails, get no-config-info', function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
-        status: 404 },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, status: 404 },
+      // group 4:
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 404 },
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 404 },
     ],
     {
-      error: 'no-config-info',
-      config: null,
-      errorDetails: { status: 404 },
-    });
-});
-
-TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
-  cannedTest(T, RT,
-    [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
-        data: unsafeImapXML },
-    ],
-    {
-      error: 'no-config-info',
-      config: null,
-      errorDetails: { status: 'unsafe' },
+      result: 'no-config-info',
+      source: null,
+      configInfo: null,
     });
 });
 
 /**
- * See the t-online.de notes above.  Basically, if ActiveSync autodiscover
- * doesn't work, we want to try all other setup options but then report the
- * original autodiscover error as our error.
- *
- * This case is for a 403 which we map to not-authorized.  This is what a
- * well behaved server will do and there's very little ambiguity here.
+ * If the MX lookup told us the same domain we already knew, we skip the group 3
+ * local autoconfig and ISPDB re-lookups.
  */
-TD.commonCase('ActiveSync autodiscover 403 tries ISPDB but fails',
+TD.commonCase('everything fails, same MX, get no-config-info', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXsame },
+      // group 3 is skipped since it's redundant
+      // group 4:
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 404 },
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 404 },
+    ],
+    {
+      result: 'no-config-info',
+      source: null,
+      configInfo: null,
+    });
+});
+
+/**
+ * If the ISPDB tells us something but it's unsafe, ignore it like it's not a
+ * thing.  We currently don't have a level of confidence in the ISPDB's accuracy
+ * to be able to authoritatively state that this means there is no secure way to
+ * contact the server, so all we can say is no-config-info.
+ */
+TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, data: unsafeImapXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXsame },
+      // group 3 skipped since it's redundant
+      // group 4:
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 404 },
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 404 },
+    ],
+    {
+      result: 'no-config-info',
+      source: null,
+      configInfo: null
+    });
+});
+
+/**
+ * Unsafe case same as before but with the MX ISPDB lookup happening too
+ */
+TD.commonCase('non-SSL ISPDB w/MX turns into no-config-info', function(T, RT) {
+  cannedTest(T, RT,
+    [
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, data: unsafeImapXML },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, data: unsafeImapXML },
+      // group 4:
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 404 },
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 404 },
+    ],
+    {
+      result: 'no-config-info',
+      source: null,
+      configInfo: null
+    });
+});
+
+/**
+ * We end up probing for autodiscover and finding the subdir point.
+ */
+TD.commonCase('successful activesync domain/autodiscover/ autodiscovery',
               function(T, RT) {
   cannedTest(T, RT,
     [
-      { url: '/autoconfig/xampl.tld',
-        status: 404 },
-      { url: 'http://autoconfig.xampl.tld/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'http://xampl.tld/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=user%40xampl.tld',
-        status: 404 },
-      { url: 'https://xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 404 },
-      // here's the autodiscover failure!
-      { url: 'https://autodiscover.xampl.tld/autodiscover/autodiscover.xml',
-        method: 'POST', status: 403 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/dns/mx/xampl.tld',
-        data: MXtext },
-      { url: '/autoconfig/mx-xampl.tld',
-        status: 404 },
-      { url: 'https://live.mozillamessaging.com/autoconfig/v1.1/mx-xampl.tld',
-        status: 404 },
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, status: 404 },
+      // group 4:
+      // 401 is success for us since it wants us to auth
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 401 },
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 404 },
     ],
     {
-      error: 'not-authorized',
-      config: null,
-      errorDetails: {},
+      result: 'need-password',
+      source: 'autodiscover',
+      configInfo: goodActivesyncAutodiscoverSubdirConfig
+    });
+});
+
+/**
+ * We end up probing for autodiscover and finding the autodiscover domain point.
+ */
+TD.commonCase('successful activesync autodiscover.domain autodiscovery',
+              function(T, RT) {
+  cannedTest(T, RT,
+    [
+      // group 1:
+      { url: LOCAL_AUTOCONFIG_URL, status: 404 },
+      // group 2:
+      { url: AUTOCONFIG_DOMAIN_URL, status: 404 },
+      { url: AUTOCONFIG_WELLKNOWN_URL, status: 404 },
+      { url: ISPDB_ENTRY_URL, status: 404 },
+      { url: ISPDB_MX_LOOKUP_URL, data: MXtext },
+      // group 3:
+      { url: LOCAL_MX_AUTOCONFIG_URL, status: 404 },
+      { url: ISPDB_MX_ENTRY_URL, status: 404 },
+      // group 4:
+      { url: AUTODISCOVER_SUBDIR_URL, method: 'POST', status: 404 },
+      // 401 is success for us since it wants us to auth
+      { url: AUTODISCOVER_DOMAIN_URL, method: 'POST', status: 401 },
+    ],
+    {
+      result: 'need-password',
+      source: 'autodiscover',
+      configInfo: goodActivesyncAutodiscoverDomainConfig
     });
 });
 

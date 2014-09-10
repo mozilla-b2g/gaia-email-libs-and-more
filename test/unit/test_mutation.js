@@ -90,6 +90,21 @@ TD.commonCase('mutate flags', function(T, RT) {
       eSync = T.lazyLogger('sync'),
       numMessages = 7;
 
+  // Ugh, so we need to make sure the front-end rep has actually heard
+  // everything so we can use expect_unread to assert.  Unfortunately there are
+  // cases where expect_unread needs to in fact execute synchronously, so we
+  // can't sprinkle this in there.  I'm just fighting an intermittent here and
+  // we just need our new test refactoring infra.  Ugh ugh ugh.
+  function do_ensureFrontEndUpdatesReceived() {
+    T.action('(wait for ping roundtrip to ensure front-end is up-to-date',
+             eSync, ')', function() {
+      eSync.expect_event('ping');
+      testAccount.MailAPI.ping(function() {
+        eSync.event('ping');
+      });
+    });
+  }
+
   var testFolder = testAccount.do_createTestFolder(
     'test_mutation_flags',
     { count: numMessages, age_incr: { days: 1 } });
@@ -190,6 +205,7 @@ TD.commonCase('mutate flags', function(T, RT) {
       doHeaderExps.changes.length);
   });
 
+  do_ensureFrontEndUpdatesReceived();
   T.check('unread counts after local op mutations', eSync, function() {
     // We had 7 unread and then read 2, so down to 5.
     testAccount.expect_unread('Unread count after local ops', testFolder,
@@ -245,6 +261,7 @@ TD.commonCase('mutate flags', function(T, RT) {
       undoHeaderExps.changes.length);
   });
 
+  do_ensureFrontEndUpdatesReceived();
   T.check('unread counts after local op undo ops', eSync, function() {
     // We undo both mark read operations, so our 5 is back up to 7.
     testAccount.expect_unread('Unread count after local ops', testFolder,
@@ -596,6 +613,16 @@ TD.commonCase('move/trash messages', function(T, RT) {
                                                testAccount.eAccount,
       eSync = T.lazyLogger('sync');
 
+  function do_ensureFrontEndUpdatesReceived() {
+    T.action('(wait for ping roundtrip to ensure front-end is up-to-date',
+             eSync, ')', function() {
+      eSync.expect_event('ping');
+      testAccount.MailAPI.ping(function() {
+        eSync.event('ping');
+      });
+    });
+  }
+
   if (TEST_PARAMS.type === 'imap') {
     // Our test requires 4 connections because we hold open 3 views at once and
     // then perform a move to a folder that doesn't have an open view.
@@ -689,6 +716,7 @@ TD.commonCase('move/trash messages', function(T, RT) {
     undoMoveVisible = toMoveVisible.moveMessage(targetFolder.mailFolder);
     undoDelete = toDelete.deleteMessage();
   });
+  do_ensureFrontEndUpdatesReceived();
   T.check('verify unread counts after local ops have run', eSync, function() {
     // Starting with 5 unread messages, we move 2 messages out of the source
     // folder and delete 1, leaving us with 2.

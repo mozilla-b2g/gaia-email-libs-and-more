@@ -58,7 +58,7 @@ var TestActiveSyncServerMixins = {
       if (!serverExists) {
         // talk to the control server to get it to create our server
         self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
-        serverInfo = self._backdoor(
+        serverInfo = self.serverInfo = self._backdoor(
           {
             command: 'make_activesync',
             credentials: {
@@ -73,7 +73,8 @@ var TestActiveSyncServerMixins = {
         self.RT.fileBlackboard.fakeActiveSyncServers[normName] = serverInfo;
       }
       else {
-        serverInfo = self.RT.fileBlackboard.fakeActiveSyncServers[normName];
+        serverInfo = self.serverInfo =
+          self.RT.fileBlackboard.fakeActiveSyncServers[normName];
         self.backdoorUrl = serverInfo.url + '/backdoor';
       }
 

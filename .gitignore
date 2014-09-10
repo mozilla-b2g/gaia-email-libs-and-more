@@ -9,5 +9,6 @@
 /test-logs
 /fake-imap-server-profile
 /fake-activesync-server-profile
+/generic-profile
 *~
 .tern-port
