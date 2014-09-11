@@ -65,6 +65,7 @@ TD.commonCase('large attachments', function(T, RT) {
         'localdrafts', localDraftsFolder, null, null,
         { nonet: true });
 
+  var NUM_ATTACHMENTS = 3;
   var BLOB_CONVERT_SIZE = 2 * 57;
   var BLOB_TARGET_SIZE = 78 * 2;
   T.action('set blob size to 2 lines (57 bytes per)', function() {
@@ -103,41 +104,49 @@ TD.commonCase('large attachments', function(T, RT) {
           eLazy.event('compose setup completed');
         });
     });
-    T.action(eLazy, 'attach blob, saveDraft compelled', function() {
-      var attachmentName = 'bytes' + numBytes;
-      var attachmentType = 'application/bytes' + numBytes;
-      // Check that the generated attachment def matches what we expect
-      eLazy.expect_namedValue('fake attachment', {
-        name: attachmentName,
-        blob: {
-          size: numBytes,
-          type: attachmentType
-        }
-      });
-      // Because the draft wasn't already saved, the call will compel a save to
-      // occur.
-      testAccount.expect_runOp(
-        'saveDraft',
-        { local: true, server: false, save: 'local' });
-      // Which will be followed by the actual attaching operation.
-      testAccount.expect_runOp(
-        'attachBlobToDraft',
-        { local: true, server: false, flushBodyLocalSaves: numBlobs });
-      eLazy.expect_namedValue('attach result', null);
-      eLazy.expect_namedValue('composer passed in', composer);
 
-      var fakeDef = composer.addAttachment(
-        {
+    // Attach multiple attachments to ensure we properly attach them all.
+    for (var i = 0; i < NUM_ATTACHMENTS; i++) {
+      T.action(eLazy, 'attach' + i + ', saveDraft compelled', function(i) {
+        var attachmentName = 'bytes' + numBytes + 'x' + numBlobs + '-' + i;
+        var attachmentType = 'application/bytes' + numBytes +
+              'x' + numBlobs + '-' + i;
+        // Check that the generated attachment def matches what we expect
+        eLazy.expect_namedValue('fake attachment', {
           name: attachmentName,
-          blob: makeBlobOfSize(numBytes, attachmentType)
-        },
-        function(err, _composer) {
-          eLazy.namedValue('attach result', err);
-          eLazy.namedValue('composer passed in', _composer);
+          blob: {
+            size: numBytes,
+            type: attachmentType
+          }
+        });
+        // Because the draft wasn't already saved, the call will
+        // compel a save to occur (but only for the first attachment):
+        if (i === 0) {
+          testAccount.expect_runOp(
+            'saveDraft',
+            { local: true, server: false, save: 'local' });
         }
-      );
-      eLazy.namedValue('fake attachment', fakeDef);
-    });
+        // Which will be followed by the actual attaching operation.
+        testAccount.expect_runOp(
+          'attachBlobToDraft',
+          { local: true, server: false, flushBodyLocalSaves: numBlobs });
+        eLazy.expect_namedValue('attach result', null);
+        eLazy.expect_namedValue('composer passed in', composer);
+
+        var fakeDef = composer.addAttachment(
+          {
+            name: attachmentName,
+            blob: makeBlobOfSize(numBytes, attachmentType)
+          },
+          function(err, _composer) {
+            eLazy.namedValue('attach result', err);
+            eLazy.namedValue('composer passed in', _composer);
+          }
+        );
+        eLazy.namedValue('fake attachment', fakeDef);
+
+      }.bind(null, i));
+    }
     // - get the draft body so we can check the Blob list
     T.check(eLazy, 'blob count', function() {
       // The Blob sizes are the encoded size, not the source size.
@@ -188,13 +197,13 @@ TD.commonCase('large attachments', function(T, RT) {
       }
     });
     T.action(eLazy, 'download attachment', function() {
-      eLazy.expect_namedValue(
-        'attachment[0].size', numBytes);
-      eLazy.expect_namedValue(
-        'attachment[0].data', makeArrOfSize(numBytes));
-
       var attachments = [];
       body.attachments.forEach(function(att, iAtt) {
+        eLazy.expect_namedValue(
+          'attachment[' + iAtt + '].size', numBytes);
+        eLazy.expect_namedValue(
+          'attachment[' + iAtt + '].data', makeArrOfSize(numBytes));
+
         att.download(function() {
           testStorage.get(
             att._file[1],
