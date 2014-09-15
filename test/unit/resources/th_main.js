@@ -1406,9 +1406,20 @@ var TestCommonAccountMixins = {
           self.eAccount.expect_saveAccountState_end();
           self.eAccount.expect_saveAccountState_begin();
           self.eAccount.expect_saveAccountState_end();
-          testFolder.storageActor.expect_mutexedCall_begin('sync');
+
+          var storage =
+                self.universe.getFolderStorageForFolderId(testFolder.id);
+
+          // Local-only folders don't grab the mutex for sync operations.
+          if (!storage.isLocalOnly) {
+            testFolder.storageActor.expect_mutexedCall_begin('sync');
+          }
+
           testFolder.storageActor.expect_syncedToDawnOfTime();
-          testFolder.storageActor.expect_mutexedCall_end('sync');
+
+          if (!storage.isLocalOnly) {
+            testFolder.storageActor.expect_mutexedCall_end('sync');
+          }
         }
 
         // Generate overall count expectation and first and last message
@@ -1708,13 +1719,20 @@ var TestCommonAccountMixins = {
   },
 
   /**
-   * Expect that a mutex operation will be run on the provided storageActor of
-   * the given type.  Ignore block load and deletion notifications during this
-   * time.
+   * Expect that a mutex operation will be run on the provided
+   * storageActor of the given type. (Local-only folders do not
+   * actually grab the mutex any more, but we pass them through here
+   * for simplicity.) Ignore block load and deletion notifications
+   * during this time.
    */
   _expect_storage_mutexed: function(testFolder, syncType, extraFlags) {
     var storageActor = testFolder.storageActor;
     this.RT.reportActiveActorThisStep(storageActor);
+
+    var storage = this.universe.getFolderStorageForFolderId(testFolder.id);
+
+    // Local-only folders don't grab the mutex for sync operations.
+    var shouldGrabMutex = !storage.isLocalOnly;
 
     // If we are going to re-create the folder during this call, we do not
     // expect the mutex to get closed out, and we do not expect the dawn-of-time
@@ -1724,7 +1742,10 @@ var TestCommonAccountMixins = {
     var syncblocked = checkFlagDefault(extraFlags, 'syncblocked', false),
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
 
-    storageActor.expect_mutexedCall_begin(syncType);
+    if (shouldGrabMutex) {
+      storageActor.expect_mutexedCall_begin(syncType);
+    }
+
     // activesync always syncs the entire folder
     if (this.type === 'activesync') {
       // activesync only syncs when online and when it's a real folder
@@ -1752,8 +1773,10 @@ var TestCommonAccountMixins = {
           break;
       }
     }
-    if (!recreateFolder)
+    if (!recreateFolder && shouldGrabMutex) {
       storageActor.expect_mutexedCall_end(syncType);
+    }
+
     storageActor.ignore_loadBlock_begin();
     storageActor.ignore_loadBlock_end();
     // all of these manipulations are interesting, but they're new and we haven't
