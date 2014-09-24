@@ -136,7 +136,15 @@
       "variants": ["pop3:fake"]
     },
 
+    "test_pop3_dead_connection.js": {
+      "variants": ["pop3:fake"]
+    },
+
     "test_pop3_overflow_sync.js": {
+      "variants": ["pop3:fake"]
+    },
+
+    "test_pop3_no_date.js": {
       "variants": ["pop3:fake"]
     },
 

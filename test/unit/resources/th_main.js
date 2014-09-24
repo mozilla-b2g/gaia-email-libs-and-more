@@ -3161,8 +3161,10 @@ var TestCompositeAccountMixins = {
               this.eFolderAccount.expect_saveAccountState_begin('syncBatch');
               this.eFolderAccount.expect_saveAccountState_end('syncBatch');
             }
-            this.eFolderAccount.expect_saveAccountState_begin('syncComplete');
-            this.eFolderAccount.expect_saveAccountState_end('syncComplete');
+            if (!isFailure) {
+              this.eFolderAccount.expect_saveAccountState_begin('syncComplete');
+              this.eFolderAccount.expect_saveAccountState_end('syncComplete');
+            }
           }
         }
         // IMAP only saves once per sync
