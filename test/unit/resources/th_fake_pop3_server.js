@@ -166,7 +166,7 @@ var TestFakePOP3ServerMixins = {
 
       var rep = {
         flags: [],
-        date: message.date.valueOf(),
+        date: message.date && message.date.valueOf(),
         msgString: msgString
       };
 

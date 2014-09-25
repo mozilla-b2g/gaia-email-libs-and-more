@@ -896,7 +896,8 @@ MessageGenerator.prototype = {
    * @param [aArgs.clobberHeaders] An object whose contents will overwrite the
    *     contents of the headers object.  This should only be used to construct
    *     illegal header values; general usage should use another explicit
-   *     mechanism.
+   *     mechanism.  If a null value is provided, the header is deleted
+   *     entirely.
    * @param [aArgs.junk] Should this message be flagged as junk for the benefit
    *     of the messageInjection helper so that it can know to flag the message
    *     as junk?  We have no concept of marking a message as definitely not
@@ -967,14 +968,21 @@ MessageGenerator.prototype = {
     if ("clobberHeaders" in aArgs) {
       for (var key in aArgs.clobberHeaders) {
         var value = aArgs.clobberHeaders[key];
-        msg.headers[key] = value;
+        if (value === null) {
+          delete msg.headers[key];
+        }
+        else {
+          msg.headers[key] = value;
+        }
         // clobber helper...
-        if (key == "From")
+        if (key === "From")
           msg._from = {name: "", address: ""};
-        if (key == "To")
+        if (key === "To")
           msg._to = [{name: "", address: ""}];
-        if (key == "Cc")
+        if (key === "Cc")
           msg._cc = [{name: "", address: ""}];
+        if (key === "Date")
+          msg._date = value;
       }
     }
 
