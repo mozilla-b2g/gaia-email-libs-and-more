@@ -28,9 +28,9 @@ define(function(require, exports) {
    * Open a connection to an IMAP server.
    *
    * @param {object} credentials
-   *   keys: hostname, port, crypto
+   *   keys: username, password, [oauth2]
    * @param {object} connInfo
-   *   keys: username, password, accessToken and/or refreshToken
+   *   keys: hostname, port, crypto
    * @param {function(credentials)} credsUpdatedCallback
    *   Callback, called if the credentials have been updated and
    *   should be stored to disk. Not called if the credentials are
@@ -98,8 +98,7 @@ define(function(require, exports) {
         });
       } else {
         slog.error('imap:connect-error', {
-          error: errorString,
-          connInfo: connInfo
+          error: errorString
         });
         throw errorString;
       }
@@ -203,7 +202,6 @@ define(function(require, exports) {
       return null;
     }
 
-    var state = conn && conn.state;
     var wasOauth = conn && !!conn.options.auth.xoauth2;
 
     // Structure of an IMAP error response:
@@ -238,7 +236,9 @@ define(function(require, exports) {
                /Invalid credentials/i.test(str) || // Gmail bad access token
                /login failed/i.test(str) ||
                /password/.test(str) ||
-               state <= BrowserBox.prototype.STATE_NOT_AUTHENTICATED) {
+               // We can't trust state since it gets updated on close, but
+               // authenticated latches to true and stays that way.
+               !conn.authenticated) {
       // If we got a protocol-level error but we weren't authenticated
       // yet, it's likely an authentication problem, as authenticating
       // is the first thing we do. Any other socket-level connection

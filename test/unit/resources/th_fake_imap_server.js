@@ -81,7 +81,9 @@ var TestFakeIMAPServerMixins = {
               password: self.testAccount.initialPassword
             },
             options: {
-              imapExtensions: imapExtensions
+              imapExtensions: imapExtensions,
+              smtpExtensions: opts.smtpExtensions,
+              oauth: opts.oauth
             },
             deliveryMode: opts.deliveryMode
           });
@@ -125,6 +127,8 @@ var TestFakeIMAPServerMixins = {
         serverInfo = self.RT.fileBlackboard.fakeIMAPServers[normName];
         self.backdoorUrl = serverInfo.controlUrl;
       }
+
+      self.serverInfo = serverInfo;
 
       var configEntry = $accountcommon._autoconfigByDomain['fakeimaphost'];
       configEntry.incoming.hostname = serverInfo.imapHost;
@@ -286,6 +290,13 @@ var TestFakeIMAPServerMixins = {
       folderPath, messages, ['\\Deleted'], null);
   },
 
+  setValidOAuthAccessTokens: function(accessTokens) {
+    return this._backdoor({
+      command: 'setValidOAuthAccessTokens',
+      accessTokens: accessTokens
+    });
+  },
+
   changeCredentials: function(newCreds) {
     return this._backdoor({
       command: 'changeCredentials',
@@ -307,7 +318,38 @@ var TestFakeIMAPServerMixins = {
     return this._backdoor({
       command: 'moveSystemFoldersUnderneathInbox'
     });
-  }
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // OAuth stuff
+  //
+  // This should all probably be on a separate helper object.  Another thing for
+  // the great test refactoring/cleanup.
+  _oauth_backdoor: function(request, explicitPath) {
+    var xhr = new XMLHttpRequest({mozSystem: true, mozAnon: true});
+    xhr.open('POST', this.serverInfo.oauthInfo.backdoor, false);
+    xhr.send(JSON.stringify(request));
+    var response = xhr.response || null;
+    try {
+      if (response)
+        response = JSON.parse(response);
+    }
+    catch (ex) {
+      console.error('JSON parsing problem!');
+      this._logger.backdoorError(request, response, this.backdoorUrl);
+      return null;
+    }
+    this._logger.backdoor(request, response, this.backdoorUrl);
+    return response;
+  },
+
+  oauth_getNumAccessTokensProvided: function(params) {
+    return this._oauth_backdoor({
+      command: 'getNumAccessTokensProvided',
+      reset: params.reset
+    });
+  },
+
 };
 
 

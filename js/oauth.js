@@ -5,15 +5,17 @@ define(function(require, exports) {
   var slog = require('./slog');
   var date = require('./date');
 
-  // A window in which a renew request can be sent as a last ditch effort to
-  // get a valid access_token. This value is consulted when a connection fails
-  // due to an expired access_token, but the code did not realize it needed to
-  // try for a renew due to problems with an incorrect system clock. Most access
-  // tokens only last about an hour. So pick a renew window time that is shorter
-  // than that but would only result in one or two tries for a last ditch
-  // effort. If the token is really bad or the user really needs to just
-  // reauthorize the app, then do not want to keep hammering away at the renew
-  // API.
+  /**
+   * A window in which a renew request can be sent as a last ditch effort to
+   * get a valid access_token. This value is consulted when a connection fails
+   * due to an expired access_token, but the code did not realize it needed to
+   * try for a renew due to problems with an incorrect system clock. Most access
+   * tokens only last about an hour. So pick a renew window time that is shorter
+   * than that but would only result in one or two tries for a last ditch
+   * effort. If the token is really bad or the user really needs to just
+   * reauthorize the app, then do not want to keep hammering away at the renew
+   * API.
+   */
   var RENEW_WINDOW_MS = 30 * 60 * 1000;
 
   // Extra timeout padding for oauth tokens.
@@ -39,7 +41,7 @@ define(function(require, exports) {
       return false;
     }
 
-    if (!oauth2 || (lastRenew > 0 && (now - lastRenew) > RENEW_WINDOW_MS)) {
+    if (!oauth2 || (lastRenew && (now - lastRenew) < RENEW_WINDOW_MS)) {
       return false;
     } else {
       return true;
@@ -155,7 +157,7 @@ define(function(require, exports) {
               // to give a buffer from a the token expiring before a renewal is
               // attempted.
               var expiresInMS = data.expires_in * 1000;
-              var expireTimeMS = Date.now() +
+              var expireTimeMS = date.NOW() +
                                  Math.max(0, expiresInMS - TIMEOUT_MS);
               resolve({
                 accessToken: data.access_token,
