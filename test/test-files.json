@@ -56,6 +56,10 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_oauth.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_disaster_recovery.js": {
       "variants": ["imap:fake", "imap:real"]
     },

@@ -60,6 +60,7 @@ function makeConsoleForLogger(logger) {
   // (test) 'run time' when the steps are running.  As such this shouldn't break
   // anyone.
   $slog.resetEmitter();
+  $slog.setSensitiveDataLoggingEnabled(true);
   window.console = {
     set _enabled(val) {
       window.originalConsole._enabled = val;
@@ -177,7 +178,7 @@ var TestUniverseMixins = {
       self._useDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
       // use local noon.
       self._useDate.setHours(12, 0, 0, 0);
-      $date.TEST_LetsDoTheTimewarpAgain(self._useDate);
+      $date.TEST_LetsDoTheTimewarpAgain(self._useDate.valueOf());
     }
     else {
       self._useDate = null;
@@ -413,7 +414,7 @@ var TestUniverseMixins = {
       throw new Error('You need to provide a message! The humans like them!');
     var self = this;
     this.T.convenienceSetup(humanMsg, function() {
-      self._useDate = useAsNowTS;
+      self._useDate = new Date(useAsNowTS);
 
       // -- Timezone compensation horrors!
       // If we are using a real IMAP server like dovecot, then it will use its
@@ -442,7 +443,7 @@ var TestUniverseMixins = {
           }
         }
         // tell the server about the date we're using
-        testAccount.testServer.setDate(testAccount._useDate);
+        testAccount.testServer.setDate(testAccount._useDate.valueOf());
       }
       $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });
@@ -1369,8 +1370,8 @@ var TestCommonAccountMixins = {
         self.eImapAccount.expectUseSetMatching();
         if (isFailure !== true &&
             !checkFlagDefault(extraFlags, 'nonet', false)) {
-          self.help_expect_connection();
-          if (isFailure === 'deadconn') {
+          self.help_expect_connection(isFailure);
+          if (isFailure === 'deadconn' || isFailure === 'connect-error') {
             self.eImapAccount.expect_deadConnection();
             // dead connection will be removed from the pool
             self._unusedConnections--;
@@ -2566,6 +2567,7 @@ var TestCompositeAccountMixins = {
     // for logging, etc, something capitalized
     var Type = self.Type = (self.type === 'imap' ? 'Imap' : 'Pop3');
     var TYPE = self.TYPE = self.type.toUpperCase();
+    self.opts = opts;
 
     if (self.type === 'pop3') {
       self.USES_CONN = false;
@@ -2607,7 +2609,9 @@ var TestCompositeAccountMixins = {
           testAccount: self,
           restored: opts.restored,
           imapExtensions: opts.imapExtensions,
-          deliveryMode: opts.deliveryMode
+          smtpExtensions: opts.smtpExtensions,
+          deliveryMode: opts.deliveryMode,
+          oauth: opts.oauth
         },
         null, self);
     }
@@ -2648,7 +2652,7 @@ var TestCompositeAccountMixins = {
     this.eFolderAccount.expect_saveAccountState_end();
   },
 
-  help_expect_connection: function() {
+  help_expect_connection: function(failureType) {
     // POP3 set USES_CONN to false and accordingly will not call this method,
     // but let's sorta assert on that
     if (this.type === 'pop3') {
@@ -2662,7 +2666,9 @@ var TestCompositeAccountMixins = {
       // the end of the step...
       this._unusedConnections++;
     }
-    this.eFolderAccount.expect_reuseConnection();
+    if (failureType !== 'connect-error') {
+      this.eFolderAccount.expect_reuseConnection();
+    }
   },
 
   _expect_restore: function() {
@@ -2701,7 +2707,17 @@ var TestCompositeAccountMixins = {
     });
   },
 
-  _do_createAccount: function() {
+  /**
+   * Account creation normally uses the legacy single-shot tryToCreateAccount
+   * call that uses autoconfig entries that we clobbered to correctly reference
+   * the fake-servers.
+   *
+   * However, if oauth is specified, we use a faked variant of the two-step
+   * learnAboutAccount/tryToCreateAccount dance that actual front-end code
+   * uses.  We do this mainly because the front-end also has to do the entire
+   * oauth2 dance
+   */
+  _do_createAccount: function composite_createAccount() {
     var self = this;
     /**
      * Create a test account as defined by TEST_PARAMS and query for the list of
@@ -2737,15 +2753,57 @@ var TestCompositeAccountMixins = {
         $date.TEST_LetsDoTheTimewarpAgain(self._opts.timeWarp);
 
       var TEST_PARAMS = self.RT.envOptions;
+
+      var userDetails = {
+        displayName: self.displayName,
+        emailAddress: self.emailAddress,
+        password: self.initialPassword,
+        accountName: self._opts.name || null, // null means use email
+        forceCreate: self._opts.forceCreate
+      };
+
+      var configInfo = null;
+      // Per our doc-block, if we're using oauth, build a configInfo like the
+      // combination of learnAboutAccount and the stuff the frontend would
+      // assemble from its oauth dance and its secrets.
+      if (self.opts.oauth) {
+        // we don't use a password for oauth; avoid things accidentally
+        // working by clobbering the password.
+        userDetails.password = '';
+
+        var initialTokens = self.opts.oauth.initialTokens;
+        var fakeOAuthServerInfo = self.testServer.serverInfo.oauthInfo;
+        // pull the (already fixed-up by the fake-server) autoconfig details for
+        // fakeimaphost and fill-in placeholders (which creates a mutated copy)
+        var autoconfigEntry =
+              $accountcommon.fillConfigPlaceholders(
+                userDetails,
+                $accountcommon._autoconfigByDomain['fakeimaphost']);
+        configInfo = {
+          type: autoconfigEntry.type,
+          incoming: autoconfigEntry.incoming,
+          outgoing: autoconfigEntry.outgoing,
+          oauth2Settings: {
+            secretGroup: 'fake', // unused by us
+            authEndpoint: fakeOAuthServerInfo.authEndpoint,
+            tokenEndpoint: fakeOAuthServerInfo.tokenEndpoint,
+            scope: 'mail'
+          },
+          oauth2Secrets: {
+            clientId: 'gelam',
+            clientSecret: 'weuseanhtmlcookiecache'
+          },
+          oauth2Tokens: {
+            accessToken: initialTokens.accessToken,
+            refreshToken: initialTokens.refreshToken,
+            expireTimeMS: $date.NOW() + (60 * 60 - 30) * 1000
+          },
+        };
+      }
+
       self.MailAPI.tryToCreateAccount(
-        {
-          displayName: self.displayName,
-          emailAddress: self.emailAddress,
-          password: self.initialPassword,
-          accountName: self._opts.name || null, // null means use email
-          forceCreate: self._opts.forceCreate
-        },
-        null,
+        userDetails,
+        configInfo,
         function accountMaybeCreated(error, errorDetails, account) {
           if (error) {
             self._logger.accountCreationError(error);

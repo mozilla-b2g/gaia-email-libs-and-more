@@ -417,7 +417,11 @@ TD.commonCase('oauth, access token is fine but server still hates us', function(
         clientSecret: 'client-secret',
         refreshToken: 'valid refresh token',
         accessToken: 'valid access token',
-        expireTimeMS:  Date.now() + 1000000
+        expireTimeMS:  Date.now() + 1000000,
+        // the composite configurator does this too with the goal of not
+        // immediately reacquiring an access token since it should already
+        // be fresh.
+        _transientLastRenew: Date.now()
       };
     },
     expectResult: 'needs-oauth-reauth'
