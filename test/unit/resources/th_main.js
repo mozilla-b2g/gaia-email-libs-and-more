@@ -1885,10 +1885,6 @@ var TestCommonAccountMixins = {
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
       this.eOpAccount.expect_runOp_begin(mode, jobName);
-    while (flushBodyServerSaves--) {
-      this.eOpAccount.expect_saveAccountState_begin('flushBody');
-      this.eOpAccount.expect_saveAccountState_end('flushBody');
-    }
     if (this.USES_CONN) {
       // - conn, (conn) release
       var connMode = checkFlagDefault(flags, 'conn', false);
@@ -1920,6 +1916,10 @@ var TestCommonAccountMixins = {
               jobName === 'downloadBodies') &&
              checkFlagDefault(flags, 'conn', true)) {
       this.eOpAccount.expect_createConnection();
+    }
+    while (flushBodyServerSaves--) {
+      this.eOpAccount.expect_saveAccountState_begin('flushBody');
+      this.eOpAccount.expect_saveAccountState_end('flushBody');
     }
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))

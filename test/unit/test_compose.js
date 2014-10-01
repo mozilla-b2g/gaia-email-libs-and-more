@@ -8,10 +8,10 @@
  * might not have an easy way to know where the headers stop, etc. etc.)
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
+define(['rdcommon/testcontext', './resources/th_main', 'date',
         './resources/th_devicestorage', './resources/messageGenerator',
         'util', 'accountcommon', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
+       function($tc, $th_imap, $date, $th_devicestorage, $msggen,
                 $util, $accountcommon, exports) {
 
 var TD = exports.TD = $tc.defineTestsFor(
@@ -86,7 +86,10 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
   //   encoding snafus.
   // - Be long enough that the base64 encoding will cross multiple lines.
   // - Be non-repeating so that slice errors show up.
-  const ATTACHMENT_SIZE = 2048;
+  // - Be large enough so that POP3 doesn't download the whole message during
+  //   sync.  Specifically, we want our getBody call to trigger the attachment
+  //   download rather than having it as a byproduct of the sync process.
+  const ATTACHMENT_SIZE = 8192;
   const attachmentData = [];
   for (var iData = 0; iData < ATTACHMENT_SIZE; iData++) {
     attachmentData.push(iData % 256);
@@ -225,185 +228,226 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     });
   });
 
+
+  var commonVerifySentMessageExpect = function(folderType) {
+    // We are going to want to add some expectations in the withMessage case
+    // so avoid early resolution of the account's logs.
+    testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
+
+    var eDownloader;
+    if (testAccount.type !== 'pop3') {
+      eDownloader = testAccount.eJobDriver;
+      RT.reportActiveActorThisStep(eDownloader);
+    } else if (folderType === 'inbox') {
+      eDownloader = inboxFolder.connActor;
+      RT.reportActiveActorThisStep(eDownloader);
+      eDownloader.expect_sync_begin();
+      eDownloader.expect_sync_end();
+    }
+    RT.reportActiveActorThisStep(eLazy);
+    RT.reportActiveActorThisStep(testStorage);
+    eLazy.expect_namedValue('subject', uniqueSubject);
+    // only IMAP exposes message-id's right now
+    if (testAccount.type === 'imap') {
+      eLazy.expect_namedValue('message-id', sentMessageId);
+    }
+    eLazy.expect_namedValue(
+      'sent body text',
+      'Antelope banana credenza.\n\nDialog excitement!' + finalSignature);
+    eLazy.expect_namedValue(
+      'attachments',
+      [{
+        filename: 'foo.png',
+        mimetype: (folderType !== 'sent' || testAccount.type !== 'pop3') ?
+                    'image/png' : 'application/x-gelam-no-download',
+        // there is some guessing/rounding involved
+        sizeEstimateInBytes: testAccount.exactAttachmentSizes ?
+          ATTACHMENT_SIZE : ATTACHMENT_SIZE - 1,
+        isDownloadable: (folderType === 'sent') ?
+                          (testAccount.type !== 'pop3') : true,
+       }]);
+    // For POP3 we discard the sent attachments in the sent folder.
+    if (folderType !== 'sent' || testAccount.type !== 'pop3') {
+      // the second time we save we'll get a conflict
+      var filesuffix = '';
+      if (folderType === 'inbox' && testAccount.type !== 'pop3') {
+        // make the filename we come up with predictable
+        $date.TEST_LetsDoTheTimewarpAgain(Date.now());
+        eDownloader.expect_saveFailure('sdcard', 'image/png');
+        filesuffix = '-' + $date.NOW();
+      }
+      eDownloader.expect_savedAttachment(
+          'sdcard', 'image/png', ATTACHMENT_SIZE);
+      // adding a file sends created and modified
+      testStorage.expect_created('foo' + filesuffix + '.png');
+      testStorage.expect_modified('foo' + filesuffix + '.png');
+      eLazy.expect_namedValue(
+        'attachment[0].size', ATTACHMENT_SIZE);
+      eLazy.expect_namedValue(
+        'attachment[0].data', attachmentData.concat());
+    }
+  };
+  var verifyAttachmentContents = function(body, path, iAtt) {
+    testStorage.get(
+      path,
+      function gotBlob(error, blob) {
+        if (error) {
+          console.error('blob fetch error:', error);
+          return;
+        }
+        var reader = new FileReaderSync();
+        try {
+          var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+          var dataArr = [];
+          console.log('got', data.length, 'bytes, readyState',
+                      reader.readyState);
+          for (var i = 0; i < data.length; i++) {
+            dataArr.push(data[i]);
+          }
+          eLazy.namedValue('attachment[' + iAtt + '].size',
+                           body.attachments[iAtt].sizeEstimateInBytes);
+          eLazy.namedValue('attachment[' + iAtt + '].data',
+                           dataArr);
+        }
+        catch(ex) {
+          console.error('reader error', ex);
+        }
+      });
+  };
+  var commonVerifySentMessageWithMessage = function(folderType, header) {
+    // (POP3's sent folder is synthetic and no download is required for it,
+    // but POP3 will need to download things in the inbox.)
+    if (folderType !== 'sent' || testAccount.type !== 'pop3') {
+      // getBody({ withBodyReps }) causes this.
+      testAccount.expect_runOp(
+        'downloadBodyReps',
+        { local: false, server: true,
+          save: testAccount.type === 'pop3' ? false : 'server',
+          flushBodyServerSaves: testAccount.type === 'pop3' ? 1 : 0});
+    }
+    // POP3 does not perform separate download operations; attachments are saved
+    // as part of the download case above.
+    if (testAccount.type !== 'pop3') {
+      // att.download causes this
+      testAccount.expect_runOp(
+        'download',
+        // the local stuff is because it's a no-op.  we should remove.
+        { local: true, server: true, save: 'server',
+          flushBodyServerSaves: 1 });
+    }
+    // okay, we now added all the expectations on the test account.
+    testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
+
+    eLazy.namedValue('subject', header.subject);
+    if (testAccount.type === 'imap') {
+      eLazy.namedValue('message-id', header.guid);
+    }
+    header.getBody({ withBodyReps: true }, function(body) {
+      eLazy.namedValue('sent body text', body.bodyReps[0].content[1]);
+      var attachments = [];
+      body.attachments.forEach(function(att, iAtt) {
+        attachments.push({
+          filename: att.filename,
+          mimetype: att.mimetype,
+          sizeEstimateInBytes: att.sizeEstimateInBytes,
+          isDownloadable: att.isDownloadable
+        });
+        // non-POP3 accounts have to download the message
+        if (testAccount.type !== 'pop3') {
+          att.download(function() {
+            if (folderType === 'inbox') {
+              // we can now restore time to its rightful workingness
+              $date.TEST_LetsDoTheTimewarpAgain(null);
+            }
+            verifyAttachmentContents(body, att._file[1], iAtt);
+          });
+        } else if (folderType !== 'sent') {
+          verifyAttachmentContents(body, att._file[1], iAtt);
+        }
+      });
+      eLazy.namedValue('attachments', attachments);
+    });
+  };
+
+
   // - verify sent folder contents
   testAccount.do_waitForMessage(sentView, uniqueSubject, {
     expect: function() {
-      // We are going to want to add some expectations in the withMessage case
-      // so avoid early resolution of the account's logs.
-      testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
-
-      RT.reportActiveActorThisStep(testAccount.eJobDriver);
-      RT.reportActiveActorThisStep(eLazy);
-      RT.reportActiveActorThisStep(testStorage);
-      eLazy.expect_namedValue('subject', uniqueSubject);
-      // only IMAP exposes message-id's right now
-      if (testAccount.type === 'imap') {
-        eLazy.expect_namedValue('message-id', sentMessageId);
-      }
-      eLazy.expect_namedValue(
-        'sent body text',
-        'Antelope banana credenza.\n\nDialog excitement!' + finalSignature);
-      eLazy.expect_namedValue(
-        'attachments',
-        [{
-          filename: 'foo.png',
-          mimetype: (testAccount.type !== 'pop3') ?
-                      'image/png' : 'application/x-gelam-no-download',
-          // there is some guessing/rounding involved
-          sizeEstimateInBytes: testAccount.exactAttachmentSizes ?
-            ATTACHMENT_SIZE : ATTACHMENT_SIZE - 1,
-          isDownloadable: (testAccount.type !== 'pop3')
-         }]);
-      // For POP3 we discard the sent attachments.
-      if (testAccount.type !== 'pop3') {
-        testAccount.eJobDriver.expect_savedAttachment(
-            'sdcard', 'image/png', ATTACHMENT_SIZE);
-        // adding a file sends created and modified
-        testStorage.expect_created('foo.png');
-        testStorage.expect_modified('foo.png');
-        eLazy.expect_namedValue(
-          'attachment[0].size', ATTACHMENT_SIZE);
-        eLazy.expect_namedValue(
-          'attachment[0].data', attachmentData.concat());
-      }
+      commonVerifySentMessageExpect('sent');
     },
     withMessage: function(header) {
-      if (testAccount.type !== 'pop3') {
-        // getBody({ withBodyReps }) causes this.
-        testAccount.expect_runOp(
-          'downloadBodyReps',
-          { local: false, server: true, save: 'server' });
-        // att.download causes this
-        testAccount.expect_runOp(
-          'download',
-          // the local stuff is because it's a no-op.  we should remove.
-          { local: true, server: true, save: 'server',
-            flushBodyServerSaves: 1 });
-      }
-      // okay, we now added all the expectations on the test account.
-      testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
-
-      eLazy.namedValue('subject', header.subject);
-      if (testAccount.type === 'imap') {
-        eLazy.namedValue('message-id', header.guid);
-      }
-      header.getBody({ withBodyReps: true }, function(body) {
-        eLazy.namedValue('sent body text', body.bodyReps[0].content[1]);
-        var attachments = [];
-        body.attachments.forEach(function(att, iAtt) {
-          attachments.push({
-            filename: att.filename,
-            mimetype: att.mimetype,
-            sizeEstimateInBytes: att.sizeEstimateInBytes,
-            isDownloadable: att.isDownloadable
-          });
-          if (testAccount.type === 'pop3')
-            return;
-          att.download(function() {
-            testStorage.get(
-              att._file[1],
-              function gotBlob(error, blob) {
-                if (error) {
-                  console.error('blob fetch error:', error);
-                  return;
-                }
-                var reader = new FileReaderSync();
-                try {
-                  var data = new Uint8Array(reader.readAsArrayBuffer(blob));
-                  var dataArr = [];
-                  console.log('got', data.length, 'bytes, readyState',
-                              reader.readyState);
-                  for (var i = 0; i < data.length; i++) {
-                    dataArr.push(data[i]);
-                  }
-                  eLazy.namedValue('attachment[' + iAtt + '].size',
-                                   body.attachments[iAtt].sizeEstimateInBytes);
-                  eLazy.namedValue('attachment[' + iAtt + '].data',
-                                   dataArr);
-                }
-                catch(ex) {
-                  console.error('reader error', ex);
-                }
-              });
-          });
-        });
-        eLazy.namedValue('attachments', attachments);
-      });
+      commonVerifySentMessageWithMessage('sent', header);
     }
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
 
   // - see the new message, start to reply to the message!
-  T.group('see sent message, reply');
+  T.group('validate message in inbox');
+  var receivedHeader = null;
   testAccount.do_waitForMessage(inboxView, uniqueSubject, {
     expect: function() {
-      // We are going to want to add some expectations in the withMessage case
-      // so avoid early resolution of the account's logs.
-      testAccount.eOpAccount.asyncEventsAreComingDoNotResolve();
-
-      RT.reportActiveActorThisStep(eLazy);
-      eLazy.expect_namedValue(
-        'received body text',
-        'Antelope banana credenza.\n\nDialog excitement!'+ finalSignature);
-      if (testAccount.type !== 'activesync')
-        eLazy.expect_namedValue('source message-id', sentMessageId);
-      // We are top-posting biased, so we automatically insert two blank lines;
-      // one for typing to start at, and one for whitespace purposes.
-      expectedReplyBody = {
-        text: [
-          '', '',
-          TEST_PARAMS.name + ' wrote:',
-          '> Antelope banana credenza.',
-          '>',
-          '> Dialog excitement!',
-          '>',
-          '> --',
-          '> this is a test',
-          '',
-          '-- ',
-          'this is a test'
-          // XXX we used to have a default signature; when we start letting
-          // users configure signatures again, then we will want the test to
-          // use one and put this back.
-          //'', '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
-        ].join('\n'),
-        html: null
-      };
-      eLazy.expect_event('reply setup completed');
-      eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
-                                       address: TEST_PARAMS.emailAddress }]);
-      eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
-      if (testAccount.type !== 'activesync')
-        eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
-      else
-        eLazy.expect_namedValue('references', '');
-      eLazy.expect_namedValue('body text', expectedReplyBody.text);
-      eLazy.expect_namedValue('body html', expectedReplyBody.html);
+      commonVerifySentMessageExpect('inbox');
     },
     // trigger the reply composer
     withMessage: function(header) {
-      if (testAccount.type !== 'pop3') {
-        testAccount.expect_runOp(
-          'downloadBodyReps',
-          { local: false, server: true, save: 'server' });
-      }
-      // okay, we now added all the expectations on the test account.
-      testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
-
-      header.getBody({ withBodyReps: true }, function(body) {
-        eLazy.namedValue('received body text', body.bodyReps[0].content[1]);
-        if (testAccount.type !== 'activesync')
-          eLazy.namedValue('source message-id', header.guid);
-        replyComposer = header.replyToMessage('sender', function() {
-          eLazy.event('reply setup completed');
-          eLazy.namedValue('to', replyComposer.to);
-          eLazy.namedValue('subject', replyComposer.subject);
-          eLazy.namedValue('references', replyComposer._references);
-          eLazy.namedValue('body text', replyComposer.body.text);
-          eLazy.namedValue('body html', replyComposer.body.html);
-        });
-      });
+      receivedHeader = header;
+      commonVerifySentMessageWithMessage('inbox', header);
     },
   }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
+
+  T.group('reply');
+  T.action(eLazy, 'begin reply', function() {
+    eLazy.expect_namedValue(
+      'received body text',
+      'Antelope banana credenza.\n\nDialog excitement!'+ finalSignature);
+    if (testAccount.type !== 'activesync')
+      eLazy.expect_namedValue('source message-id', sentMessageId);
+    // We are top-posting biased, so we automatically insert two blank lines;
+    // one for typing to start at, and one for whitespace purposes.
+    expectedReplyBody = {
+      text: [
+        '', '',
+        TEST_PARAMS.name + ' wrote:',
+        '> Antelope banana credenza.',
+        '>',
+        '> Dialog excitement!',
+        '>',
+        '> --',
+        '> this is a test',
+        '',
+        '-- ',
+        'this is a test'
+        // XXX we used to have a default signature; when we start letting
+        // users configure signatures again, then we will want the test to
+        // use one and put this back.
+        //'', '-- ', $accountcommon.DEFAULT_SIGNATURE, '',
+      ].join('\n'),
+      html: null
+    };
+    eLazy.expect_event('reply setup completed');
+    eLazy.expect_namedValue('to', [{ name: TEST_PARAMS.name,
+                                     address: TEST_PARAMS.emailAddress }]);
+    eLazy.expect_namedValue('subject', 'Re: ' + uniqueSubject);
+    if (testAccount.type !== 'activesync')
+      eLazy.expect_namedValue('references', '<' + sentMessageId + '>');
+    else
+      eLazy.expect_namedValue('references', '');
+    eLazy.expect_namedValue('body text', expectedReplyBody.text);
+    eLazy.expect_namedValue('body html', expectedReplyBody.html);
+
+    receivedHeader.getBody({ withBodyReps: true }, function(body) {
+      eLazy.namedValue('received body text', body.bodyReps[0].content[1]);
+      if (testAccount.type !== 'activesync')
+        eLazy.namedValue('source message-id', receivedHeader.guid);
+      replyComposer = receivedHeader.replyToMessage('sender', function() {
+        eLazy.event('reply setup completed');
+        eLazy.namedValue('to', replyComposer.to);
+        eLazy.namedValue('subject', replyComposer.subject);
+        eLazy.namedValue('references', replyComposer._references);
+        eLazy.namedValue('body text', replyComposer.body.text);
+        eLazy.namedValue('body html', replyComposer.body.html);
+      });
+    });
+  });
 
   // - complete and send the reply
   var replySentDate, replyMessageId, replyReferences;
