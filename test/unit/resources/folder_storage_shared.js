@@ -2,6 +2,7 @@ define(
   [
     'module',
     'exports',
+    './th_main',
     'mailslice',
     'syncbase',
     'slice_bridge_proxy'
@@ -9,6 +10,7 @@ define(
   function(
     $module,
     exports,
+    $th_main,
     $mailslice,
     $syncbase,
     $sliceBridgeProxy
@@ -16,8 +18,25 @@ define(
 
 
 function MockDB() {
+  this.fakeUnloadedBodyBlocks = {};
+  this._pendingLoad = null;
 }
 MockDB.prototype = {
+  loadBodyBlock: function(folderId, blockId, onLoaded) {
+    this._pendingLoad = function() {
+      onLoaded(this.fakeUnloadedBodyBlocks[blockId]);
+    }.bind(this);
+  },
+
+  get hasPendingLoad() {
+    return this._pendingLoad !== null;
+  },
+
+  releasePendingLoad: function() {
+    var pendingLoad = this._pendingLoad;
+    this._pendingLoad = null;
+    pendingLoad();
+  }
 };
 
 function MockAccount() {
@@ -81,6 +100,7 @@ exports.makeMockishSlice = function makeMockishSlice(storage) {
  * Create the FolderStorage instance for a test run plus the required mocks.
  */
 exports.makeTestContext = function makeTestContext(account) {
+  $th_main.thunkConsoleForNonTestUniverse();
   var db = new MockDB();
 
   // some tests interact with account features like the universe so generally we
@@ -141,6 +161,8 @@ exports.makeTestContext = function makeTestContext(account) {
     insertBody: function(date, uid, size, expectedBlockIndex) {
       var blockInfo = null;
       var bodyInfo = this.bodyFactory(date, size);
+      // snapshot the block info state prior to manipulation
+      var preBlockStateString = JSON.stringify(storage._bodyBlockInfos);
       storage._insertIntoBlockUsingDateAndUID(
         'body', date, uid, 'S' + uid, size, bodyInfo,
         function blockPicked(info, block) {
@@ -156,43 +178,139 @@ exports.makeTestContext = function makeTestContext(account) {
           if (!block.bodies.hasOwnProperty(uid))
             do_throw('body was not inserted!');
         });
+      if (storage._imapDb.hasPendingLoad) {
+        // Make sure that the block info state did not change yet!
+        do_check_eq(JSON.stringify(storage._bodyBlockInfos),
+                    preBlockStateString,
+                    'insert with a load should not have changed the state');
+        // inserts can only trigger one load at a time; so just this one release
+        // is fine.
+        storage._imapDb.releasePendingLoad();
+      }
       return bodyInfo;
     },
     deleteBody: function(date, uid) {
+      // snapshot the block info state prior to manipulation
+      var preBlockStateString = JSON.stringify(storage._bodyBlockInfos);
       storage._deleteFromBlock('body', date, uid, function blockDeleted() {
       });
+      if (storage._imapDb.hasPendingLoad) {
+        // Make sure that the block info state did not change yet!
+        do_check_eq(JSON.stringify(storage._bodyBlockInfos),
+                    preBlockStateString,
+                    'delete with a load should not have changed the state');
+        storage._imapDb.releasePendingLoad();
+      }
     },
     /**
-     * Clear the list of dirty blocks.
+     * Clear the list of dirty body blocks and transfer the blocks to be in a
+     * mock unloaded state.
      */
     resetDirtyBlocks: function() {
+      var fakeUnloadedBodyBlocks = storage._imapDb.fakeUnloadedBodyBlocks;
+      var dirtyBlocks = storage._dirtyBodyBlocks;
+      for (var blockId in dirtyBlocks) {
+        var blockValue = dirtyBlocks[blockId];
+        // Actually delete from the map so we get undefined and are otherwise
+        // consistent with how the DB would handle this, etc.
+        if (blockValue === null) {
+          delete fakeUnloadedBodyBlocks[blockId];
+        } else {
+          fakeUnloadedBodyBlocks[blockId] = blockValue;
+        }
+        delete storage._bodyBlocks[blockId];
+        var idx = storage._loadedBodyBlockInfos.findIndex(function(bi) {
+          return bi.blockId === blockId;
+        });
+        storage._loadedBodyBlockInfos.splice(idx, 1);
+      }
       storage._dirtyBodyBlocks = {};
     },
     /**
-     * Assert that all of the given body blocks are marked dirty.
+     * Assert that all of the given body blocks are marked dirty and that the
+     * given blocks were marked as nuked.
+     *
+     * @param {Number[]} [bodyIndices]
+     *   The *INDICES* of the blocks in their ordered list that we expect to
+     *   be dirty.  This is different and has nothing to do with the block id!
+     * @param {BlockInfo[]} [nukedInfos]
+     *   The BlockInfos of nuked blocks.
      */
     checkDirtyBodyBlocks: function(bodyIndices, nukedInfos) {
       var i, blockInfo;
+      var actualDirtyBlockIndices = [], actualNukedBlocks = [];
+
       if (bodyIndices == null)
         bodyIndices = [];
-      for (i = 0; i < bodyIndices.length; i++) {
-        blockInfo = storage._bodyBlockInfos[bodyIndices[i]];
-        do_check_true(
-          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
-        do_check_true(
-          storage._dirtyBodyBlocks[blockInfo.blockId] ===
-            storage._bodyBlocks[blockInfo.blockId]);
-      }
       if (nukedInfos == null)
         nukedInfos = [];
-      for (i = 0; i < nukedInfos.length; i++) {
-        blockInfo = nukedInfos[blockInfo];
-        do_check_true(
-          storage._dirtyBodyBlocks.hasOwnProperty(blockInfo.blockId));
-        do_check_true(
-          storage._dirtyBodyBlocks[blockInfo.blockId] === null);
+
+      // note: it's absolutely required that we snapshot the contents of the
+      // list even if we weren't trying to do sorting things/etc.
+      var sortedExpectedDirty = bodyIndices.concat();
+      sortedExpectedDirty.sort();
+      var sortedExpectedNuked = nukedInfos.map(
+                                  function(x) { return x.blockId; });
+      sortedExpectedNuked.sort();
+      exports.gLazyLogger.expect_namedValue(
+        'dirtyBlockIndices', sortedExpectedDirty);
+      exports.gLazyLogger.expect_namedValue(
+        'nukedBlockIds', sortedExpectedNuked);
+
+      for (var key in storage._dirtyBodyBlocks) {
+        var dirtyBlock = storage._dirtyBodyBlocks[key];
+        if (dirtyBlock === null) {
+          actualNukedBlocks.push(key);
+          if (storage._bodyBlocks.hasOwnProperty(key)) {
+            exports.gLazyLogger.error(
+              'nuked block should no longer be present');
+          }
+        } else {
+          // that dirty Block had better be the same reference as in our
+          // canonical dictionary too!
+          if (dirtyBlock !== storage._bodyBlocks[key]) {
+            exports.gLazyLogger.error('dirty block identity mismatch!');
+          }
+          var dirtyBlockIndex = storage._bodyBlockInfos.findIndex(function(x) {
+            return x.blockId === key;
+          });
+          actualDirtyBlockIndices.push(dirtyBlockIndex);
+        }
       }
+      actualDirtyBlockIndices.sort();
+      actualNukedBlocks.sort();
+
+      exports.gLazyLogger.namedValue(
+        'dirtyBlockIndices', actualDirtyBlockIndices);
+      exports.gLazyLogger.namedValue(
+        'nukedBlockIds', actualNukedBlocks);
     },
+
+    checkBodyBlockContents: function(bodyIndex, ids, bodies) {
+      var blockInfo = storage._bodyBlockInfos[bodyIndex];
+      var bodyBlock = storage._bodyBlocks[blockInfo.blockId];
+      // Because of our hack where we fake write-outs/discarding, we need to
+      // check the written-to-disk store when the current state isn't covered
+      // by the body map or the dirty state map (which includes deletions)
+      var blockId = blockInfo.blockId;
+      if (!storage._bodyBlocks.hasOwnProperty(blockId) &&
+          !storage._dirtyBodyBlocks.hasOwnProperty(blockId) &&
+          storage._imapDb.fakeUnloadedBodyBlocks.hasOwnProperty(blockId)) {
+        bodyBlock = storage._imapDb.fakeUnloadedBodyBlocks[blockId];
+      }
+      do_check_neq(bodyBlock, undefined);
+      do_check_eq(ids.length, bodyBlock.ids.length);
+      for (var i = 0; i < ids.length; i++){
+        do_check_eq(ids[i], bodyBlock.ids[i]);
+        do_check_eq(bodies[i], bodyBlock.bodies[ids[i]]);
+      }
+      for (var key in bodyBlock.bodies) {
+        if (ids.indexOf(parseInt(key, 10)) === -1) {
+          do_throw('Body block contains body it should not: ' + key);
+        }
+      };
+    },
+
     /**
      * Create a new header; no expectations, this is just setup logic.
      */
