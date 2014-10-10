@@ -1787,6 +1787,7 @@ var TestCommonAccountMixins = {
     storageActor.ignore_updateMessageHeader();
     storageActor.ignore_updateMessageBody();
     storageActor.ignore_deleteFromBlock();
+    storageActor.ignore_generatePersistenceInfo();
   },
 
   /**

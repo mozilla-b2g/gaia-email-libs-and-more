@@ -99,7 +99,7 @@ TD.commonCase('stop searching when killed', function(T, RT) {
     backendSlice.die();
     eLazy.namedValue('slices.length post-die', folderStorage._slices.length);
 
-    folderStorage.runAfterDeferredCalls(function() {
+    folderStorage._deferredCalls.push(function() {
       eLazy.event('all blocks loaded');
       eLazy.namedValue('messages checked',
                        backendSlice.filterer.messagesChecked);

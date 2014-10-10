@@ -465,22 +465,14 @@ TD.commonSimple('accuracy refresh check',
 /**
  * Helper to check the values in a block info structure.
  */
-function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID) {
+function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID,
+                     uidsAsIds) {
   do_check_eq(blockInfo.count, count);
   do_check_eq(blockInfo.startTS, startTS);
   do_check_eq(blockInfo.startUID, startUID);
   do_check_eq(blockInfo.endTS, endTS);
   do_check_eq(blockInfo.endUID, endUID);
   do_check_eq(blockInfo.estSize, size);
-}
-
-function check_body_block_contents(bodyBlock, ids, bodies) {
-  do_check_neq(bodyBlock, undefined);
-  do_check_eq(ids.length, bodyBlock.ids.length);
-  for (var i = 0; i < ids.length; i++){
-    do_check_eq(ids[i], bodyBlock.ids[i]);
-    do_check_eq(bodies[i], bodyBlock.bodies[ids[i]]);
-  }
 }
 
 /**
@@ -511,6 +503,13 @@ TD.commonSimple('insertion: no existing blocks',
  * use the block, checking directional preferences.  The directional preferences
  * test requires us to artificially inject an additional block since we aren't
  * triggering deletion for these tests.
+ *
+ * Specifically:
+ * - We have a directional preference of preferring older blocks over newer
+ *   blocks as long as we fit.
+ * - We create a (real) body block 0 that entirely takes place on d5
+ * - We create a (fake) body block 1 that is newer and allegedly covers d8/d9,
+ *   it ends up at index 0.
  */
 TD.commonSimple('insertion: adjacent simple',
                 function test_insertion_adjacent_simple(eLazy) {
@@ -534,32 +533,42 @@ TD.commonSimple('insertion: adjacent simple',
   // base case
   ctx.insertBody(d5, uid2, BS, 0);
 
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
   // - uid growth cases
   // numerically greater UID
   ctx.insertBody(d5, uid3, BS, 0);
 
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 2, 2 * BS, d5, uid2, d5, uid3);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   // numerically lesser UID
   ctx.insertBody(d5, uid1, BS, 0);
 
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 3, 3 * BS, d5, uid1, d5, uid3);
-
   ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   // - directional preferences (after injecting more recent block)
-  // inject the block that shouldn't be there...
+  // inject the block that shouldn't be there.  It will have
   var synInfo = ctx.storage._makeBodyBlock(d8, uid4, d9, uid5);
   synInfo.count = 2;
   synInfo.estSize = 2 * BS;
   bodyBlocks.splice(0, 0, synInfo);
 
-  // inject one in between, it should favor the older block
+  // the newly inserted block is dirty and at index 0
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
+  // inject one in between, it should favor the older block (at index 1)
   ctx.insertBody(d7, uid6, BS, 1);
   check_block(bodyBlocks[0], 2, 2 * BS, d8, uid4, d9, uid5);
   check_block(bodyBlocks[1], 4, 4 * BS, d5, uid1, d7, uid6);
+  ctx.checkDirtyBodyBlocks([1]);
 });
 
 /**
@@ -580,13 +589,23 @@ TD.commonSimple('insertion in existing block',
       bodyBlocks = ctx.storage._bodyBlockInfos;
 
   ctx.insertBody(d5, uid1, BS, 0);
+
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
+
   ctx.insertBody(d7, uid2, BS, 0);
   check_block(bodyBlocks[0], 2, 2 * BS, d5, uid1, d7, uid2);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
 
   ctx.insertBody(d6, uid3, BS, 0);
 
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 3, 3 * BS, d5, uid1, d7, uid2);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 });
 
 /**
@@ -625,12 +644,20 @@ TD.commonSimple('inserting larger-than-block items',
   var b6 = ctx.insertBody(d6, uid6, TOOBIG, 0);
   do_check_eq(bodyBlockInfos.length, 1);
   check_block(bodyBlockInfos[0], 1, TOOBIG, d6, uid6, d6, uid6);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   // - insert younger oversized
   var b8 = ctx.insertBody(d8, uid8, TOOBIG, 0);
   do_check_eq(bodyBlockInfos.length, 2);
   check_block(bodyBlockInfos[0], 1, TOOBIG, d8, uid8, d8, uid8);
   check_block(bodyBlockInfos[1], 1, TOOBIG, d6, uid6, d6, uid6);
+  // New block at index 0 was split out of the previous block at index 0, now
+  // index 1.  (Yes, this is more dirtying than required in this test case, but
+  // our logic is going for a generic / balancing thing where bodies are
+  // potentially small enough to fit at least a few in.)
+  ctx.checkDirtyBodyBlocks([0, 1]);
+  ctx.resetDirtyBlocks();
 
   // - insert older oversized
   var b4 = ctx.insertBody(d4, uid4, TOOBIG, 2);
@@ -638,6 +665,8 @@ TD.commonSimple('inserting larger-than-block items',
   check_block(bodyBlockInfos[0], 1, TOOBIG, d8, uid8, d8, uid8);
   check_block(bodyBlockInfos[1], 1, TOOBIG, d6, uid6, d6, uid6);
   check_block(bodyBlockInfos[2], 1, TOOBIG, d4, uid4, d4, uid4);
+  ctx.checkDirtyBodyBlocks([1, 2]); // new block at index 2, split off of 1
+  ctx.resetDirtyBlocks();
 
   // - insert youngest smalls
   var b9 = ctx.insertBody(d9, uid9, size9, 0),
@@ -647,6 +676,8 @@ TD.commonSimple('inserting larger-than-block items',
   check_block(bodyBlockInfos[1], 1, TOOBIG, d8, uid8, d8, uid8);
   check_block(bodyBlockInfos[2], 1, TOOBIG, d6, uid6, d6, uid6);
   check_block(bodyBlockInfos[3], 1, TOOBIG, d4, uid4, d4, uid4);
+  ctx.checkDirtyBodyBlocks([0, 1]); // new block at index 0, split from old0=1
+  ctx.resetDirtyBlocks();
 
   // - insert oldest smalls
   var b3 = ctx.insertBody(d3, uid3, size3, 4);
@@ -656,6 +687,8 @@ TD.commonSimple('inserting larger-than-block items',
   check_block(bodyBlockInfos[2], 1, TOOBIG, d6, uid6, d6, uid6);
   check_block(bodyBlockInfos[3], 1, TOOBIG, d4, uid4, d4, uid4);
   check_block(bodyBlockInfos[4], 1, size3, d3, uid3, d3, uid3);
+  ctx.checkDirtyBodyBlocks([3, 4]); // new block at index 4, split off of 3
+  ctx.resetDirtyBlocks();
 
   // - insert small between bigs
   var b7 = ctx.insertBody(d7, uid7, size7, 2);
@@ -666,7 +699,12 @@ TD.commonSimple('inserting larger-than-block items',
   check_block(bodyBlockInfos[3], 1, TOOBIG, d6, uid6, d6, uid6);
   check_block(bodyBlockInfos[4], 1, TOOBIG, d4, uid4, d4, uid4);
   check_block(bodyBlockInfos[5], 1, size3, d3, uid3, d3, uid3);
-
+  // the insert logic scanned to index 2, saw it was less than 2.5 (list length
+  // was 5, which we divide by 2 to figure out how to move further from the
+  // center), so decided on using block 1.  Which we then split, resulting in
+  // index 2 popping out (since d7 is older than d8).
+  ctx.checkDirtyBodyBlocks([1, 2]);
+  ctx.resetDirtyBlocks();
 });
 
 /**
@@ -693,10 +731,7 @@ TD.commonSimple('insertion in block that will overflow',
   var b1 = ctx.insertBody(d5, uid1, size1, 0);
   var b2 = ctx.insertBody(d8, uid2, size2, 0);
   check_block(bodyBlockInfos[0], 2, size1 + size2, d5, uid1, d8, uid2);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[0].blockId],
-    [uid2, uid1],
-    [b2, b1]);
+  ctx.checkBodyBlockContents(0, [uid2, uid1], [b2, b1]);
 
   ctx.checkDirtyBodyBlocks([0]);
   ctx.resetDirtyBlocks();
@@ -706,14 +741,8 @@ TD.commonSimple('insertion in block that will overflow',
 
   do_check_eq(bodyBlockInfos.length, 2);
   check_block(bodyBlockInfos[0], 1, size2, d8, uid2, d8, uid2);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[0].blockId],
-    [uid2],
-    [b2]);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[1].blockId],
-    [uid3, uid1],
-    [b3, b1]);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
+  ctx.checkBodyBlockContents(1, [uid3, uid1], [b3, b1]);
   check_block(bodyBlockInfos[1], 2, size3 + size1, d5, uid1, d7, uid3);
 
   ctx.checkDirtyBodyBlocks([0, 1]);
@@ -725,20 +754,11 @@ TD.commonSimple('insertion in block that will overflow',
 
   do_check_eq(bodyBlockInfos.length, 3);
   check_block(bodyBlockInfos[0], 1, size2, d8, uid2, d8, uid2);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[0].blockId],
-    [uid2],
-    [b2]);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
   check_block(bodyBlockInfos[1], 2, size3 + size4, d6, uid4, d7, uid3);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[1].blockId],
-    [uid3, uid4],
-    [b3, b4]);
+  ctx.checkBodyBlockContents(1, [uid3, uid4], [b3, b4]);
   check_block(bodyBlockInfos[2], 1, size1, d5, uid1, d5, uid1);
-  check_body_block_contents(
-    bodyBlockMap[bodyBlockInfos[2].blockId],
-    [uid1],
-    [b1]);
+  ctx.checkBodyBlockContents(2, [uid1], [b1]);
 
   ctx.checkDirtyBodyBlocks([1, 2]);
 });
@@ -980,43 +1000,71 @@ TD.commonSimple('body deletion', function test_body_deletion(eLazy) {
       bodyBlocks = ctx.storage._bodyBlockInfos;
 
   // - Setup: [1, 2]
-  ctx.insertBody(d5, uid1, BIG2, 0);
-  ctx.insertBody(d8, uid2, BIG2, 0);
-  ctx.insertBody(d7, uid3, BIG2, 1);
+  var b1 = ctx.insertBody(d5, uid1, BIG2, 0);
+  var b2 = ctx.insertBody(d8, uid2, BIG2, 0);
+  var b3 = ctx.insertBody(d7, uid3, BIG2, 1);
 
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
+  ctx.checkBodyBlockContents(1, [uid3, uid1], [b3, b1]);
+
+  ctx.checkDirtyBodyBlocks([0, 1]); // (block 0 and 1 are both new)
+  ctx.resetDirtyBlocks();
 
   // - Delete to [1, 1], end-side
+  var nuking = []; // no blocks will be deleted
   ctx.deleteBody(d7, uid3);
 
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 1, 1 * BIG2, d5, uid1, d5, uid1);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
+  ctx.checkBodyBlockContents(1, [uid1], [b1]);
+  ctx.checkDirtyBodyBlocks([1], nuking);
+  ctx.resetDirtyBlocks();
 
   // - Put it back in!
-  ctx.insertBody(d7, uid3, BIG2, 1);
+  b3 = ctx.insertBody(d7, uid3, BIG2, 1);
 
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
+  ctx.checkBodyBlockContents(1, [uid3, uid1], [b3, b1]);
+  ctx.checkDirtyBodyBlocks([1]); // it got put back in the same block
+  ctx.resetDirtyBlocks();
 
   // - Delete to [1, 1], start-side
+  nuking = []; // no blocks will be deleted!
   ctx.deleteBody(d5, uid1);
 
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 1, 1 * BIG2, d7, uid3, d7, uid3);
+  ctx.checkBodyBlockContents(0, [uid2], [b2]);
+  ctx.checkBodyBlockContents(1, [uid3], [b3]);
+  ctx.checkDirtyBodyBlocks([1], nuking);
+  ctx.resetDirtyBlocks();
 
   // - Delete the d8 block entirely
+  nuking = [bodyBlocks[0]]; // the first block is getting nuked
   ctx.deleteBody(d8, uid2);
+
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d7, uid3, d7, uid3);
+  ctx.checkBodyBlockContents(0, [uid3], [b3]);
+  ctx.checkDirtyBodyBlocks([], nuking);
+  ctx.resetDirtyBlocks();
 
   // - Delete the d7 block entirely
+  nuking = [bodyBlocks[0]];
   ctx.deleteBody(d7, uid3);
+
   do_check_eq(bodyBlocks.length, 0);
+  ctx.checkDirtyBodyBlocks([], nuking);
+  ctx.resetDirtyBlocks();
 });
 
 
@@ -1099,24 +1147,33 @@ TD.commonSimple(
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d7, uid3);
+  ctx.checkDirtyBodyBlocks([0, 1]);
+  ctx.resetDirtyBlocks();
+
 
   ctx.deleteBody(d7, uid3);
 
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 1, 1 * BIG2, d5, uid1, d5, uid1);
+  ctx.checkDirtyBodyBlocks([1]);
+  ctx.resetDirtyBlocks();
 
   // - Insert d6, it picks the older one because it's not overflowing
   ctx.insertBody(d6, uid4, BIG2, 1);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 1, 1 * BIG2, d8, uid2, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d6, uid4);
+  ctx.checkDirtyBodyBlocks([1]);
+  ctx.resetDirtyBlocks();
 
   // - Insert d7, it picks the newer one because the older one is overflowing
   ctx.insertBody(d7, uid3, BIG2, 0);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 2, 2 * BIG2, d7, uid3, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d5, uid1, d6, uid4);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   // - Insert another d7 with lower UID so it is 'outside', picks older
   ctx.insertBody(d7, uid0, BIG2, 1);
@@ -1124,6 +1181,8 @@ TD.commonSimple(
   check_block(bodyBlocks[0], 2, 2 * BIG2, d7, uid3, d8, uid2);
   check_block(bodyBlocks[1], 2, 2 * BIG2, d6, uid4, d7, uid0);
   check_block(bodyBlocks[2], 1, 1 * BIG2, d5, uid1, d5, uid1);
+  ctx.checkDirtyBodyBlocks([1, 2]); // it picks 1 which gets split into 1,2
+  ctx.resetDirtyBlocks();
 });
 
 /**
@@ -1148,32 +1207,54 @@ TD.commonSimple('insertion differing only by UIDs',
   ctx.insertBody(d5, uid5, BIG3, 0);
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid2, d5, uid5);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   ctx.insertBody(d5, uid4, BIG3, 0);
   do_check_eq(bodyBlocks.length, 1);
   check_block(bodyBlocks[0], 3, 3 * BIG3, d5, uid2, d5, uid5);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   ctx.insertBody(d5, uid3, BIG3, 1);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid4, d5, uid5);
   check_block(bodyBlocks[1], 2, 2 * BIG3, d5, uid2, d5, uid3);
+  ctx.checkDirtyBodyBlocks([0, 1]);
+  ctx.resetDirtyBlocks();
 
   ctx.insertBody(d5, uid1, BIG3, 1);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid4, d5, uid5);
+  check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
+  ctx.checkDirtyBodyBlocks([1]);
+  ctx.resetDirtyBlocks();
+
   ctx.insertBody(d5, uid6, BIG3, 0);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 3, 3 * BIG3, d5, uid4, d5, uid6);
   check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
 
   ctx.deleteBody(d5, uid4);
+  check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
+  check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
+  ctx.checkDirtyBodyBlocks([0]);
+  ctx.resetDirtyBlocks();
+
   ctx.deleteBody(d5, uid3);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
   check_block(bodyBlocks[1], 2, 2 * BIG3, d5, uid1, d5, uid2);
+  ctx.checkDirtyBodyBlocks([1]);
+  ctx.resetDirtyBlocks();
 
   ctx.insertBody(d5, uid3, BIG3, 1);
   do_check_eq(bodyBlocks.length, 2);
   check_block(bodyBlocks[0], 2, 2 * BIG3, d5, uid5, d5, uid6);
   check_block(bodyBlocks[1], 3, 3 * BIG3, d5, uid1, d5, uid3);
+  ctx.checkDirtyBodyBlocks([1]);
+  ctx.resetDirtyBlocks();
 });
 
 // Expect, where 'first' is first reported, and 'last' is last reported,

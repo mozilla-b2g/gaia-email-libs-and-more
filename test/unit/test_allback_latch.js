@@ -25,6 +25,46 @@ TD.commonSimple('basic latch', function(eLazy) {
   });
 });
 
+TD.commonSimple('extract error results', function(eLazy) {
+  eLazy.expect_namedValueD('no errors', null);
+  eLazy.expect_namedValueD('one error', 'justme');
+  eLazy.expect_namedValueD('first error of two', 'one');
+
+  var latchNoErrors = allback.latch();
+  latchNoErrors.defer('one')(null);
+  latchNoErrors.defer('two')(null);
+
+  var latchOneError = allback.latch();
+  latchOneError.defer('one')(null);
+  latchOneError.defer('two')('justme');
+
+  var latchTwoErrors = allback.latch();
+  latchTwoErrors.defer('one')('one');
+  latchTwoErrors.defer('two')('two');
+
+  latchNoErrors.then(function(results) {
+    eLazy.namedValueD('no errors',
+                      allback.extractErrFromCallbackArgs(results),
+                      results);
+  });
+
+  latchOneError.then(function(results) {
+    eLazy.namedValueD('one error',
+                      allback.extractErrFromCallbackArgs(results),
+                      results);
+  });
+
+  // Note that objects maintain their ordering although the caller arguably
+  // should probably avoid depending on this a bit.
+  latchTwoErrors.then(function(results) {
+    eLazy.namedValueD('first error of two',
+                      allback.extractErrFromCallbackArgs(results),
+                      results);
+  });
+
+});
+
+
 TD.commonSimple('latchedWithRejections', function(eLazy) {
 
   eLazy.expect_namedValue(
