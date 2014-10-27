@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "name": "Gaia taskgraph",
+    "description": "Gaia taskgraph generator"
+  },
+  "tags": {},
+  "tasks": [
+    {
+      "task": {
+        "metadata": {
+          "name": "Task graph construction...."
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "ubuntu:14.04",
+          "command": [
+            "/bin/bash",
+            "-c",
+            "echo 'hello world'"
+          ]
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "G"
+          }
+        }
+      }
+    }
+  ]
+}
