@@ -98,9 +98,16 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
     var headers = sourceView.slice.items,
         toMove = headers[1];
 
+    // The deadConnection notification is inherently going to race the end of
+    // the job-op in multiprocess because the close is generated locally but
+    // then goes up to the parent process and the parent then has to generate
+    // the close event notification.  That will be wiggly.
+    testAccount.expectUseSetMatching();
     testAccount.expect_runOp(
       'move',
-      { local: true, server: true, save: true });
+      { local: true, server: true, save: true,
+        // The connect-closing will occur
+        release: 'deadconn' });
 
     var log = new slog.LogChecker(T, RT, 'disaster');
     // The local job will succeed and it will release its mutexes without having
@@ -109,9 +116,6 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
                 { folderId: sourceFolder.id, err: null });
     log.mustLog('mailslice:mutex-released',
                 { folderId: targetFolder.id, err: null });
-
-    // When the error is thrown, we'll kill the connection:
-    testAccount.eImapAccount.expect_deadConnection();
 
     testAccount.expect_runOp(
       'move',
