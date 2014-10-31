@@ -93,7 +93,9 @@ var TestContactsMixins = {
             return;
           var result;
           if (options.filterBy[0] === 'email') {
-            var emailAddr = options.filterValue.toLowerCase();
+            // do *not* lowercase this because the real API is a jerk about this
+            // and doesn't lowercase.  Perhaps we should be filing a bug...
+            var emailAddr = options.filterValue;
             if (!self._dbByEmail.hasOwnProperty(emailAddr))
               result = [];
             else // this is already a list! no wrapping required!

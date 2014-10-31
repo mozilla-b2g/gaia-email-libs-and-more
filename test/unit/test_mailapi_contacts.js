@@ -177,6 +177,47 @@ TD.commonCase('do not die on empty names', function(T, RT) {
 });
 
 
+/**
+ * Handle mixed-case email addresses when searching.
+ */
+TD.commonCase('mixed case emails are found', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
+      testContacts = T.actor('testContacts', 'contacts'),
+      eCheck = T.lazyLogger('check');
+  var ContactCache = $mailapi.ContactCache;
+
+  // Add our contact.
+  var etiennesEmail = 'Etienne@etienne.nul';
+  T.setup('create Etienne', function() {
+    testContacts.createContact('Etienne', [etiennesEmail], 'quiet');
+  });
+
+  T.group('cache miss, lookup hit');
+  T.action(eCheck, 'etienne asynchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    // The email address should still have its uppercase stuff!
+    eCheck.expect_namedValue('address', etiennesEmail);
+    testUniverse.MailAPI.resolveEmailAddressToPeep(etiennesEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('address', peep.address);
+    });
+  });
+
+  T.group('cache hit');
+  T.action(eCheck, 'etienne synchronously hits', function() {
+    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect_namedValue('address', etiennesEmail);
+    testUniverse.MailAPI.resolveEmailAddressToPeep(etiennesEmail, function(peep) {
+      eCheck.namedValue('isContact', peep.isContact);
+      eCheck.namedValue('address', peep.address);
+    });
+  });
+
+  T.group('cleanup');
+});
+
+
 
 /**
  * Make sure we clear the cache when we hit the appropriate number of hits

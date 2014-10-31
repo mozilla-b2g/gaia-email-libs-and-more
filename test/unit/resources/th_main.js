@@ -518,6 +518,9 @@ var TestUniverseMixins = {
 
   do_setOutboxSyncEnabled: function(enabled) {
     this.T.convenienceSetup('setOutboxSyncEnabled = ' + enabled, function() {
+      this.__testAccounts[0].expect_runOp(
+        'setOutboxSyncEnabled',
+        { local: true, server: false });
       this.universe.setOutboxSyncEnabled(this.universe.accounts[0], enabled);
     }.bind(this));
   },
