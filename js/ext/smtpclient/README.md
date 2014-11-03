@@ -10,11 +10,21 @@ This module requires `TextEncoder` and `TextDecoder` to exist as part of the Str
 
 Depending on your browser, you might need [this polyfill for ArrayBuffer #slice](https://github.com/ttaubert/node-arraybuffer-slice), e.g. phantomjs.
 
+## TCPSocket API
+
+There is a [shim](https://github.com/whiteout-io/tcp-socket) that brings [Mozilla-flavored](https://developer.mozilla.org/en-US/docs/WebAPI/TCP_Socket) version of the [Raw Socket API](http://www.w3.org/TR/raw-sockets/) to other platforms.
+
+If you are on a platform that uses forge instead of a native TLS implementation (e.g. chrome.socket), you have to set the .oncert(pemEncodedCertificate) handler that passes the TLS certificate that the server presents. It can be used on a trust-on-first-use basis for subsequent connection.
+
+If forge is used to handle TLS traffic, you may choose to handle the TLS-related load in a Web Worker. Please use tlsWorkerPath to point to `tcp-socket-tls-worker.js`!
+
+Please take a look at the [tcp-socket documentation](https://github.com/whiteout-io/tcp-socket) for more information!
+
 ## Installation
 
 ### [npm](https://www.npmjs.org/):
 
-    npm install https://github.com/whiteout-io/smtpclient/tarball/<TAG_NAME>
+    npm install --save wo-smtpclient
 
 ## Quirks
 
@@ -56,15 +66,22 @@ where
 
 The following connection options can be used with `simplesmtp.connect`:
 
-  * **useSSL** *Boolean* Set to true, to use encrypted connection
+  * **useSecureTransport** *Boolean* Set to true, to use encrypted connection
   * **name** *String* Client hostname for introducing itself to the server
   * **auth** *Object* Authentication options. Depends on the preferred authentication method
     * **user** is the username for the user (also applies to OAuth2)
     * **pass** is the password for the user if plain auth is used
     * **xoauth2** is the OAuth2 access token to be used instead of password. If both password and xoauth2 token are set, the token is preferred.
   * **authMethod** *String* Force specific authentication method (eg. `"PLAIN"` for using `AUTH PLAIN` or `"XOAUTH2"` for `AUTH XOAUTH2`)
+  * **ca** (optional) (only in conjunction with this [TCPSocket shim](https://github.com/whiteout-io/tcp-socket)) if you use TLS with forge, pin a PEM-encoded certificate as a string. Please refer to the [tcp-socket documentation](https://github.com/whiteout-io/tcp-socket) for more information!
+  * **tlsWorkerPath** (optional) (only in conjunction with this [TCPSocket shim](https://github.com/whiteout-io/tcp-socket)) if you use TLS with forge, this path indicates where the file for the TLS Web Worker is located. Please refer to the [tcp-socket documentation](https://github.com/whiteout-io/tcp-socket) for more information!
   * **disableEscaping** *Boolean* If set to true, do not escape dots on the beginning of the lines
   * **logLength** *Number* How many messages between the client and the server to log. Set to false to disable logging. Defaults to 6
+  * **ignoreTLS** – if set to true, do not issue STARTTLS even if the server supports it
+  * **requireTLS** – if set to true, always use STARTTLS before authentication even if the host does not advertise it. If STARTTLS fails, do not try to authenticate the user
+  * **lmtp** - if set to true use LMTP commands instead of SMTP commands
+
+Default STARTTLS support is opportunistic – if the server advertises STARTTLS in EHLO response, the client tries to use it. If STARTTLS is not advertised, the clients sends passwords in the plain. You can use `ignoreTLS` and `requireTLS` to change this behavior by explicitly enabling or disabling STARTTLS usage.
 
 ### XOAUTH2
 

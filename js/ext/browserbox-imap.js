@@ -22,7 +22,7 @@
     'use strict';
 
     if (typeof define === 'function' && define.amd) {
-        define(['tcp-socket', 'wo-imap-handler', 'mimefuncs', 'axe-logger'], function(TCPSocket, imapHandler, mimefuncs, axe) {
+        define(['tcp-socket', 'imap-handler', 'mimefuncs', 'axe'], function(TCPSocket, imapHandler, mimefuncs, axe) {
             return factory(TCPSocket, imapHandler, mimefuncs, axe);
         });
     } else if (typeof exports === 'object') {
@@ -88,7 +88,7 @@
         /**
          * Does the connection use SSL/TLS
          */
-        this._secureMode = !!this.options.useSecureTransport;
+        this.secureMode = !!this.options.useSecureTransport;
 
         /**
          * Is the conection established and greeting is received from the server
@@ -201,12 +201,16 @@
     ImapClient.prototype.connect = function() {
         this.socket = this._TCPSocket.open(this.host, this.port, {
             binaryType: 'arraybuffer',
-            useSecureTransport: this._secureMode,
-            ca: this.options.ca
+            useSecureTransport: this.secureMode,
+            ca: this.options.ca,
+            tlsWorkerPath: this.options.tlsWorkerPath
         });
 
         // allows certificate handling for platform w/o native tls support
-        this.socket.oncert = this.oncert;
+        // oncert is non standard so setting it might throw if the socket object is immutable
+        try {
+            this.socket.oncert = this.oncert;
+        } catch (E) {}
 
         this.socket.onerror = this._onError.bind(this);
         this.socket.onopen = this._onOpen.bind(this);
@@ -221,6 +225,18 @@
         } else {
             this._destroy();
         }
+    };
+
+    /**
+     * Closes the connection to the server
+     */
+    ImapClient.prototype.upgrade = function(callback) {
+        if (this.secureMode) {
+            return callback(null, false);
+        }
+        this.secureMode = true;
+        this.socket.upgradeToSecure();
+        callback(null, true);
     };
 
     /**

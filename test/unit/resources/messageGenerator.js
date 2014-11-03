@@ -81,6 +81,15 @@ var SUBJECT_SUFFIXES = [
   "In The Lobby", "On Your Desk", "In Your Car", "Hiding Behind The Door",
   ];
 
+
+function normalizeNewlines(body) {
+  // If regexps supported look-behinds we could avoid the wasted identity
+  // transform on \r\n but that's the only way to find an \n not preceded by
+  // an \r.  We don't really need the lone \r but if we're normalizing why
+  // not normalize 100%?
+  return body.replace(/\r?\n|\r/g, '\r\n');
+}
+
 /**
  * Base class for MIME Part representation.
  */
@@ -167,7 +176,7 @@ SyntheticPart.prototype = {
  */
 function SyntheticPartLeaf(aBody, aProperties) {
   SyntheticPart.call(this, aProperties);
-  this.body = aBody;
+  this.body = normalizeNewlines(aBody);
 }
 exports.SyntheticPartLeaf = SyntheticPartLeaf;
 SyntheticPartLeaf.prototype = Object_extend(SyntheticPart.prototype, {

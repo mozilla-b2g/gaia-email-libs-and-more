@@ -8,7 +8,7 @@ UMD module that parses and compiles IMAP commands.
 
 ### [npm](https://www.npmjs.org/):
 
-    npm install https://github.com/whiteout-io/imap-handler/tarball/<TAG_NAME>
+    npm install wo-imap-handler
 
 ## Usage
 

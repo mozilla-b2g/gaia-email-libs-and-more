@@ -1,7 +1,7 @@
 {
 	"name": "wo-imap-handler",
 	"main": "src/imap-handler.js",
-	"version": "0.1.11",
+	"version": "0.1.13",
 	"homepage": "https://github.com/whiteout-io/imap-handler",
 	"author": "Andris Reinman <andris@kreata.ee>",
 	"description": "Parse and compile IMAP commands",
@@ -9,6 +9,10 @@
 	"license": "MIT",
 	"scripts": {
 		"test": "grunt"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git://github.com/whiteout-io/imap-handler.git"
 	},
 	"dependencies": {},
 	"devDependencies": {

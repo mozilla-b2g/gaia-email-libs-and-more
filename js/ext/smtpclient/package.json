@@ -1,6 +1,6 @@
 {
   "name": "wo-smtpclient",
-  "version": "0.3.3",
+  "version": "0.5.0",
   "homepage": "https://github.com/whiteout-io/smtpclient",
   "description": "SMTP Client allows you to connect to and stream data to a SMTP server in the browser.",
   "author": "Andris Reinman <andris@kreata.ee>",
@@ -9,7 +9,7 @@
   ],
   "license": "MIT",
   "scripts": {
-    "pretest": "cd node_modules/tcp-socket/node_modules/node-forge/ && npm install && npm run minify && cd ../../../..",
+    "pretest": "dir=$(pwd) && cd node_modules/tcp-socket/node_modules/node-forge/ && npm install && npm run minify && cd $dir",
     "test": "grunt"
   },
   "repository": {
@@ -18,9 +18,9 @@
   },
   "main": "src/smtpclient",
   "dependencies": {
-    "tcp-socket": "~0.3.0",
-    "stringencoding": "https://github.com/whiteout-io/stringencoding/tarball/v0.1.0",
-    "axe": "https://github.com/whiteout-io/axe/tarball/v0.0.2"
+    "tcp-socket": "~0.4.0",
+    "wo-stringencoding": "~0.1.1",
+    "axe-logger": "~0.0.2"
   },
   "devDependencies": {
     "chai": "~1.8.1",
@@ -35,7 +35,6 @@
     "mocha": "~1.16.2",
     "requirejs": "~2.1.10",
     "simplesmtp": "^0.3.27",
-    "sinon": "^1.9.0",
-    "amdefine": "^0.1.0"
+    "sinon": "^1.11.0"
   }
 }

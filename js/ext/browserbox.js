@@ -22,7 +22,7 @@
     'use strict';
 
     if (typeof define === 'function' && define.amd) {
-        define(['browserbox-imap', 'wo-utf7', 'wo-imap-handler', 'mimefuncs', 'axe-logger'], function(ImapClient, utf7, imapHandler, mimefuncs, axe) {
+        define(['browserbox-imap', 'utf7', 'imap-handler', 'mimefuncs', 'axe'], function(ImapClient, utf7, imapHandler, mimefuncs, axe) {
             return factory(ImapClient, utf7, imapHandler, mimefuncs, axe);
         });
     } else if (typeof exports === 'object') {
@@ -204,16 +204,24 @@
         this._changeState(this.STATE_NOT_AUTHENTICATED);
 
         this.updateCapability(function() {
-            this.updateId(this.options.id, function() {
-                this.login(this.options.auth, function(err) {
-                    if (err) {
-                        // emit an error
-                        this.onerror(err);
-                        this.close();
-                        return;
-                    }
-                    // emit
-                    this.onauth();
+            this.upgradeConnection(function(err) {
+                if (err) {
+                    // emit an error
+                    this.onerror(err);
+                    this.close();
+                    return;
+                }
+                this.updateId(this.options.id, function() {
+                    this.login(this.options.auth, function(err) {
+                        if (err) {
+                            // emit an error
+                            this.onerror(err);
+                            this.close();
+                            return;
+                        }
+                        // emit
+                        this.onauth();
+                    }.bind(this));
                 }.bind(this));
             }.bind(this));
         }.bind(this));
@@ -259,7 +267,9 @@
             if (typeof callback === 'function') {
                 callback(err || null);
             }
-        });
+
+            this.client.close();
+        }.bind(this));
     };
 
     /**
@@ -356,6 +366,43 @@
         axe.debug(DEBUG_TAG, 'idle terminated');
 
         return callback();
+    };
+
+    /**
+     * Runs STARTTLS command if needed
+     *
+     * STARTTLS details:
+     *   http://tools.ietf.org/html/rfc3501#section-6.2.1
+     *
+     * @param {Boolean} [forced] By default the command is not run if capability is already listed. Set to true to skip this validation
+     * @param {Function} callback Callback function
+     */
+    BrowserBox.prototype.upgradeConnection = function(callback) {
+
+        // skip request, if already secured
+        if (this.client.secureMode) {
+            return callback(null, false);
+        }
+
+        // skip if STARTTLS not available or starttls support disabled
+        if ((this.capability.indexOf('STARTTLS') < 0 || this.options.ignoreTLS) && !this.options.requireTLS) {
+            return callback(null, false);
+        }
+
+        this.exec('STARTTLS', function(err, response, next) {
+            if (err) {
+                callback(err);
+                next();
+            } else {
+                this.capability = [];
+                this.client.upgrade(function(err, upgraded) {
+                    this.updateCapability(function() {
+                        callback(err, upgraded);
+                    });
+                    next();
+                }.bind(this));
+            }
+        }.bind(this));
     };
 
     /**
@@ -613,7 +660,7 @@
                 if (!item || !item.attributes || item.attributes.length < 3) {
                     return;
                 }
-                var branch = this._ensurePath(tree, (item.attributes[2].value || '').toString(), (item.attributes[1].value).toString());
+                var branch = this._ensurePath(tree, (item.attributes[2].value || '').toString(), (item.attributes[1] ? item.attributes[1].value : '/').toString());
                 branch.flags = [].concat(item.attributes[0] || []).map(function(flag) {
                     return (flag.value || '').toString();
                 });
@@ -640,7 +687,7 @@
                     if (!item || !item.attributes || item.attributes.length < 3) {
                         return;
                     }
-                    var branch = this._ensurePath(tree, (item.attributes[2].value || '').toString(), (item.attributes[1].value).toString());
+                    var branch = this._ensurePath(tree, (item.attributes[2].value || '').toString(), (item.attributes[1] ? item.attributes[1].value : '/').toString());
                     [].concat(item.attributes[0] || []).map(function(flag) {
                         flag = (flag.value || '').toString();
                         if (!branch.flags || branch.flags.indexOf(flag) < 0) {
@@ -1414,7 +1461,7 @@
                         curNode.parameters = {};
                         [].concat(node[i] || []).forEach(function(val, j) {
                             if (j % 2) {
-                                curNode.parameters[key] = (val && val.value || '').toString();
+                                curNode.parameters[key] = mimefuncs.mimeWordsDecode((val && val.value || '').toString());
                             } else {
                                 key = (val && val.value || '').toString().toLowerCase();
                             }
@@ -1434,7 +1481,7 @@
                     curNode.parameters = {};
                     [].concat(node[i] || []).forEach(function(val, j) {
                         if (j % 2) {
-                            curNode.parameters[key] = (val && val.value || '').toString();
+                            curNode.parameters[key] = mimefuncs.mimeWordsDecode((val && val.value || '').toString());
                         } else {
                             key = (val && val.value || '').toString().toLowerCase();
                         }
@@ -1524,7 +1571,7 @@
                         curNode.dispositionParameters = {};
                         [].concat(node[i][1] || []).forEach(function(val, j) {
                             if (j % 2) {
-                                curNode.dispositionParameters[key] = (val && val.value || '').toString();
+                                curNode.dispositionParameters[key] = mimefuncs.mimeWordsDecode((val && val.value || '').toString());
                             } else {
                                 key = (val && val.value || '').toString().toLowerCase();
                             }
@@ -1752,13 +1799,14 @@
      * @return {Object} branch for used path
      */
     BrowserBox.prototype._ensurePath = function(tree, path, delimiter) {
-        var names = path.split(delimiter),
-            branch = tree,
-            i, j, found;
+        var names = path.split(delimiter);
+        var branch = tree;
+        var i, j, found;
+
         for (i = 0; i < names.length; i++) {
             found = false;
             for (j = 0; j < branch.children.length; j++) {
-                if (branch.children[j].name === utf7.imap.decode(names[i])) {
+                if (this._compareMailboxNames(branch.children[j].name, utf7.imap.decode(names[i]))) {
                     branch = branch.children[j];
                     found = true;
                     break;
@@ -1775,6 +1823,17 @@
             }
         }
         return branch;
+    };
+
+    /**
+     * Compares two mailbox names. Case insensitive in case of INBOX, otherwise case sensitive
+     *
+     * @param {String} a Mailbox name
+     * @param {String} b Mailbox name
+     * @returns {Boolean} True if the folder names match
+     */
+    BrowserBox.prototype._compareMailboxNames = function(a, b) {
+        return (a.toUpperCase() === 'INBOX' ? 'INBOX' : a) === (b.toUpperCase() === 'INBOX' ? 'INBOX' : b);
     };
 
     /**
