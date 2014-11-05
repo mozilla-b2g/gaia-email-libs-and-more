@@ -116,6 +116,10 @@
       "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
     },
 
+    "test_account_updates.js": {
+      "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
+    },
+
     "test_dead_slice.js": {
       "variants": ["activesync:fake", "imap:fake", "pop3:fake"]
     },
