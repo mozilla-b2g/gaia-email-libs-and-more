@@ -13,12 +13,12 @@
         "provisionerId": "aws-provisioner",
         "workerType": "gaia",
         "payload": {
-          "image": "ubuntu:14.04",
+          "image": "quay.io/mozilla/gelam-taskenv:0.7.3",
           "command": [
-            "/bin/bash",
-            "-c",
-            "echo 'hello world'"
-          ]
+            "entrypoint",
+            "npm install && ./ci/entrypoint.js > /graph.json"
+          ],
+          "graphs": ["/graph.json"]
         },
         "extra": {
           "treeherder": {
