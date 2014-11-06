@@ -1,5 +1,6 @@
 # Loggest tests
 ---
+reruns: 3 # automatically retry 3 times before failing
 task:
   metadata:
     name: Loggest based unit tests for gelam
