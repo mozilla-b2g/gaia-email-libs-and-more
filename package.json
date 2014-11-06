@@ -23,8 +23,13 @@
     "url": "https://github.com/mozilla-b2g/gaia-email-libs-and-more/issues"
   },
   "devDependencies": {
+    "argparse": "~0.1.15",
+    "js-yaml": "~3.2.2",
     "mail-fakeservers": "~0.0.29",
-    "mozilla-download": "~0.4"
+    "mozilla-download": "~0.4",
+    "ms": "~0.6.2",
+    "mustache": "~0.8.2",
+    "slugid": "~1.0.3"
   },
   "volo": {
     "baseDir": "js/ext",

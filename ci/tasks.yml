@@ -1,0 +1,7 @@
+# Tasks which gelam should run
+---
+
+# Names map to tasks for more configuration possibilities in the future...
+loggest:
+  # Paths relative to current directory
+  task: tasks/loggest.yml

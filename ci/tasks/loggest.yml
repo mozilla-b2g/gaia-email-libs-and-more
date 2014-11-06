@@ -1,0 +1,45 @@
+# Loggest tests
+---
+task:
+  metadata:
+    name: Loggest based unit tests for gelam
+    description: GELAM unit tests
+    owner: jlal@mozilla.com
+    source: https://github.com/mozilla-b2g/gaia-email-libs-and-more/
+
+  # run in same pool as gaia so we don't wait for new machines.
+  workerType: gaia
+
+  schedulerId: task-graph-scheduler
+
+  # aws-provisioner is currently the only provisioner option.
+  provisionerId: aws-provisioner
+
+  # Absolute maximum time to run the task
+  deadline: {{#time}}1 day{{/time}}
+  created: {{#time}}0ms{{/time}} # Hack for current time
+
+  payload:
+    image: {{{gelamDockerImage}}}
+    maxRunTime: 600 # 10 minutes
+    # Command is in argv like format
+    command:
+      # Entrypoint is part of the docker image it will bootstrap the repo.
+      - entrypoint
+      # Command run inside of the git checkout.
+      - npm install && ./tools/ci/unit/travis.sh
+
+    # We can have as many artifacts as we like
+    artifacts:
+      'public/test-logs':
+        type: directory
+        # Path is relative to _root_ of the docker image so this can vary.
+        path: '/home/tester/git_checkout/test-logs'
+        expires: '{{#time}}1 year{{/time}}'
+
+  extra:
+    treeherder:
+      groupName: 'Loggest unit tests'
+      groupSymbol: GELAM
+      symbol: U
+

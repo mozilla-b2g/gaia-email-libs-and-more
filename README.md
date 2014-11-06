@@ -126,3 +126,5 @@ From the "Open Protocols" page, if you click on the following links in successio
 There is also a [commercial licensing program](http://www.microsoft.com/about/legal/en/us/intellectualproperty/iplicensing/programs/exchangeactivesyncprotocol.aspx) known to exist.
 
 We are not lawyers and this is not legal advice. The above links will hopefully save you time when you or your lawyer do your research.
+
+# CI
