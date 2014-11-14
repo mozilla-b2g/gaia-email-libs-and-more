@@ -39,7 +39,7 @@
       "imap-handler": "github:whiteout-io/imap-handler/v0.1.13",
       "mimefuncs": "github:whiteout-io/mimefuncs/v0.3.9",
       "axe": "github:whiteout-io/axe/v0.0.2",
-      "smtpclient": "github:whiteout-io/smtpclient/v0.5.0",
+      "smtpclient": "github:whiteout-io/smtpclient/v0.5.1",
       "mimeparser": "github:whiteout-io/mimeparser/v0.3.8",
       "mailbuild": "github:whiteout-io/mailbuild/v0.3.7",
       "browserbox-imap": "github:whiteout-io/browserbox/v0.4.0#src/browserbox-imap.js",

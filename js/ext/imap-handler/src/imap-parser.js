@@ -356,9 +356,6 @@
 
                     // space finishes an atom
                     if (chr === " ") {
-                        if ([")", "]"].indexOf(this.str.charAt(i + 1)) >= 0) {
-                            throw new Error("Unexpected whitespace at position " + (this.pos + i + 1));
-                        }
                         this.currentNode.endPos = this.pos + i - 1;
                         this.currentNode = this.currentNode.parentNode;
                         this.state = "NORMAL";

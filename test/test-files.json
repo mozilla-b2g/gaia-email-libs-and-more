@@ -108,6 +108,14 @@
       "variants": ["imap:noserver", "pop3:noserver"]
     },
 
+    "test_incoming_imap_prober.js": {
+      "variants": ["imap:noserver"]
+    },
+
+    "test_incoming_pop3_prober.js": {
+      "variants": ["pop3:noserver"]
+    },
+
     "test_smtp_prober.js": {
       "variants": ["noserver"]
     },

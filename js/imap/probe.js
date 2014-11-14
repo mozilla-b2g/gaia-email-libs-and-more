@@ -48,6 +48,9 @@ define([
         // If there are no messages in the inbox, assume the default offset.
         if (inboxInfo.exists === 0) {
           return syncbase.DEFAULT_TZ_OFFSET;
+        // Some servers do not provide UIDNEXT even though RFC 3501 says they
+        // should.  Why, servers, why?!  Why must you cover the entire
+        // permutation space!
         } else {
           return determineTimezoneFromInboxMessage(conn, inboxInfo.uidNext - 1);
         }
