@@ -22,18 +22,27 @@ define(
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
               'Oct', 'Nov', 'Dec'];
 
-// from (node-imap) imap.js
-function formatImapDateTime(date) {
+/**
+ * Format an IMAP date-time or an 2822 date-time string.  The difference is
+ * whether the date has dashes between it or spaces.
+ *
+ * An RFC 3501 example is: 17-Jul-1996 02:44:25 -0700
+ * An RFC 2822 example is: 21 Nov 1997 10:05:43 -0600
+ */
+function formatDateTime(date, format, forceTZOffset) {
   var s;
-  s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + '-' +
-       MONTHS[date.getMonth()] + '-' +
+  var dateSpacer = (format === 'imap') ? '-' : ' ';
+  var tzOffset = (forceTZOffset != null) ? forceTZOffset :
+                   date.getTimezoneOffset();
+  s = ((date.getDate() < 10) ? ' ' : '') + date.getDate() + dateSpacer +
+       MONTHS[date.getMonth()] + dateSpacer +
        date.getFullYear() + ' ' +
        ('0'+date.getHours()).slice(-2) + ':' +
        ('0'+date.getMinutes()).slice(-2) + ':' +
        ('0'+date.getSeconds()).slice(-2) +
-       ((date.getTimezoneOffset() > 0) ? ' -' : ' +' ) +
-       ('0'+(Math.abs(date.getTimezoneOffset()) / 60)).slice(-2) +
-       ('0'+(Math.abs(date.getTimezoneOffset()) % 60)).slice(-2);
+       ((tzOffset > 0) ? ' -' : ' +' ) +
+       ('0'+(Math.abs(tzOffset) / 60)).slice(-2) +
+       ('0'+(Math.abs(tzOffset) % 60)).slice(-2);
   return s;
 }
 
@@ -73,6 +82,7 @@ var TestFakeIMAPServerMixins = {
       if (!serverExists) {
         // talk to the control server to get it to create our server
         self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
+        self._useTimeZoneMins = opts.useTimezoneMins || null;
         serverInfo = self._backdoor(
           {
             command: 'make_imap_and_smtp',
@@ -112,7 +122,8 @@ var TestFakeIMAPServerMixins = {
           metaState: {},
           toMessageString: function() {
             return [
-              'Date: ' + fakeMsgDate,
+              'Date: ' + formatDateTime(fakeMsgDate, 'rfc2822',
+                                        self._useTimeZoneMins),
               'From: superfake@example.nul',
               'Subject: blaaaah',
               'Message-ID: <blaaaaaaaaaah@example.nul>',
@@ -213,7 +224,8 @@ var TestFakeIMAPServerMixins = {
       // dependent.
       var msgString =
         'Received: from 127.1.2.3 by 127.1.2.3; ' +
-        formatImapDateTime(message.date) + '\r\n' +
+        formatDateTime(message.date, 'rfc2822', this._useTimeZoneMins ) +
+            '\r\n' +
         message.toMessageString();
 
       var rep = {
@@ -228,7 +240,7 @@ var TestFakeIMAPServerMixins = {
         rep.flags.push('\\Seen');
 
       return rep;
-    });
+    }.bind(this));
 
     var ret = this._backdoor({
       command: 'addMessagesToFolder',

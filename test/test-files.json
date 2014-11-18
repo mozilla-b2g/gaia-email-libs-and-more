@@ -112,6 +112,10 @@
       "variants": ["imap:noserver"]
     },
 
+    "test_incoming_imap_tz_prober.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_incoming_pop3_prober.js": {
       "variants": ["pop3:noserver"]
     },

@@ -2615,7 +2615,8 @@ var TestCompositeAccountMixins = {
           imapExtensions: opts.imapExtensions,
           smtpExtensions: opts.smtpExtensions,
           deliveryMode: opts.deliveryMode,
-          oauth: opts.oauth
+          oauth: opts.oauth,
+          useTimezoneMins: opts.useTimezoneMins
         },
         null, self);
     }
@@ -2755,6 +2756,10 @@ var TestCompositeAccountMixins = {
 
       if (self._opts.timeWarp)
         $date.TEST_LetsDoTheTimewarpAgain(self._opts.timeWarp);
+
+      if (self._opts.expectDuringCreate) {
+        self._opts.expectDuringCreate.call(self);
+      }
 
       var TEST_PARAMS = self.RT.envOptions;
 

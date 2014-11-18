@@ -1,10 +1,8 @@
 /**
- * Test the IMAP and POP3 probers in isolation.
- *
- * None of these test actually establish a network connection.  They all use
- * FawltySocketFactory to generate canned failures.  We test timeouts by mocking
- * out the setTimeout/clearTimeout used by imap.js so we can log when timers
- * are set/cleared and we can control exactly when the timers fire.
+ * IMAP-specific prober tests that don't need a network connection.
+ * test_incoming_prober contains the prober logic tests shared with POP3.
+ * test_incoming_imap_tz_prober covers the timezone prober logic that needs
+ * a realistic-seeming IMAP server.
  */
 
 define(['rdcommon/testcontext', './resources/th_main',

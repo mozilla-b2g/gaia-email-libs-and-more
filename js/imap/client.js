@@ -7,6 +7,7 @@ define(function(require, exports) {
 
   var BrowserBox = require('browserbox');
   var ImapClient = require('browserbox-imap');
+  var imapHandler = require('imap-handler');
   var slog = require('slog');
   var syncbase = require('../syncbase');
   var errorutils = require('../errorutils');
@@ -132,7 +133,10 @@ define(function(require, exports) {
 
     if (['NO', 'BAD'].indexOf(cmd) !== -1) {
       slog.log('imap:protocol-error', {
-        humanReadable: response.humanReadable
+        humanReadable: response.humanReadable,
+        // Include the command structure
+        commandData: this._currentCommand && this._currentCommand.request &&
+                     imapHandler.compiler(this._currentCommand.request)
       });
       this._lastImapError = {
         // To most accurately report STARTTLS issues, latch the active command
