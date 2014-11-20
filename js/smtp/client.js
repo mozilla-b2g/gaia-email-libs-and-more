@@ -227,6 +227,16 @@ define(function(require, exports) {
             normalizedError = 'bad-user-or-pass';
           }
           break;
+        // This technically means that the auth mechanism is weaker than
+        // required.  We've only seen this for the gmail case where two
+        // factor is needed, we're not doing oauth, and the user is using
+        // their normal password instead of an application-specific password
+        // (and we've now removed support for providing a special error for
+        // that).  We're calling this bad-user-or-pass because it's less
+        // misleading than 'unknown' is.
+        case 534:
+          normalizedError = 'bad-user-or-pass';
+          break;
         case 501: // Invalid Syntax
           if (wasSending) {
             normalizedError = 'bad-message';
