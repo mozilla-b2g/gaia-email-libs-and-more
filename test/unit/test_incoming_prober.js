@@ -131,59 +131,6 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
 
   T.action(eCheck, 'create prober, STARTTLS fails', function() {
     var precommands = [];
-    // IMAP currently does a CAPABILITY check even though it really is a waste
-    // of effort.  Tracked on
-    // https://github.com/whiteout-io/browserbox/issues/35
-    if (RT.envOptions.type === 'imap') {
-      precommands.push({
-        match: /CAPABILITY/,
-        actions: [
-          {
-            cmd: 'fake-receive',
-            data: capabilityResponse(RT),
-          },
-        ],
-      });
-    }
-    precommands.push({
-      match: /TLS/,
-      actions: [
-        {
-          cmd: 'fake-receive',
-          data: badStarttlsResponse(RT),
-        }
-      ],
-    });
-    FawltySocketFactory.precommand(
-      HOST, cci.connInfo.port,
-      {
-        cmd: 'fake',
-        data: openResponse(RT)
-      },
-      precommands);
-    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-    constructProber(RT, cci).catch(function(err) {
-      eCheck.namedValue('probe result', err);
-    });
-    eCheck.expect_event('incoming:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
-  });
-  // Just IMAP from here on out
-  if (RT.envOptions.type === 'pop3') {
-    return;
-  }
-  T.action(eCheck, 'create prober, CAPABILITY claims no STARTTLS', function() {
-    var precommands = [];
-    // send a lie about
-    precommands.push({
-      match: /CAPABILITY/,
-      actions: [
-        {
-          cmd: 'fake-receive',
-          data: capabilityResponse(RT).replace('STARTTLS', 'BORT'),
-        },
-      ],
-    });
     precommands.push({
       match: /TLS/,
       actions: [

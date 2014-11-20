@@ -52,7 +52,7 @@ function openResponse(RT) {
 
 function badStarttlsResponse(RT) {
   if (RT.envOptions.type === "imap") {
-    return 'W2 BAD STARTTLS Unsupported\r\n';
+    return 'W1 BAD STARTTLS Unsupported\r\n';
   } else if (RT.envOptions.type === "pop3") {
     return '-ERR no starttls\r\n';
   }

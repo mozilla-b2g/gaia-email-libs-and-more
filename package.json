@@ -34,7 +34,7 @@
   "volo": {
     "baseDir": "js/ext",
     "dependencies": {
-      "browserbox": "github:whiteout-io/browserbox/v0.4.0",
+      "browserbox": "github:whiteout-io/browserbox/v0.5.2",
       "utf7": "github:whiteout-io/utf7/v2.0.2",
       "imap-handler": "github:whiteout-io/imap-handler/v0.1.13",
       "mimefuncs": "github:whiteout-io/mimefuncs/v0.3.9",

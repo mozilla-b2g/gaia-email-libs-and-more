@@ -104,19 +104,19 @@
     // Timeout constants
 
     /**
-     * How much time to wait for the greeting from the server until the connection is considered failed
+     * Milliseconds to wait for the greeting from the server until the connection is considered failed
      */
     BrowserBox.prototype.TIMEOUT_CONNECTION = 90 * 1000;
 
     /**
-     * Time between NOOP commands while idling
+     * Milliseconds between NOOP commands while idling
      */
-    BrowserBox.prototype.TIMEOUT_NOOP = 1 * 60 * 1000;
+    BrowserBox.prototype.TIMEOUT_NOOP = 60 * 1000;
 
     /**
-     * Time until IDLE command is cancelled
+     * Milliseconds until IDLE command is cancelled
      */
-    BrowserBox.prototype.TIMEOUT_IDLE = 3 * 60 * 1000;
+    BrowserBox.prototype.TIMEOUT_IDLE = 60 * 1000;
 
     /**
      * Initialization method. Setup event handlers and such
@@ -340,6 +340,7 @@
             }.bind(this));
             this._idleTimeout = setTimeout(function() {
                 axe.debug(DEBUG_TAG, 'sending idle DONE');
+                // [0x44, 0x4f, 0x4e, 0x45, 0x0d, 0x0a] is ASCII for "DONE\r\n"
                 this.client.socket.send(new Uint8Array([0x44, 0x4f, 0x4e, 0x45, 0x0d, 0x0a]).buffer);
                 this._enteredIdle = false;
             }.bind(this), this.TIMEOUT_IDLE);
@@ -422,8 +423,15 @@
             callback = forced;
             forced = undefined;
         }
+
         // skip request, if not forced update and capabilities are already loaded
         if (!forced && this.capability.length) {
+            return callback(null, false);
+        }
+
+        // If STARTTLS is required then skip capability listing as we are going to try
+        // STARTTLS anyway and we re-check capabilities after connection is secured
+        if (!this.client.secureMode && this.options.requireTLS) {
             return callback(null, false);
         }
 
@@ -1175,7 +1183,7 @@
                     mailbox.uidNext = Number(ok.uidnext) || 0;
                     break;
                 case 'HIGHESTMODSEQ':
-                    mailbox.highestModseq = Number(ok.highestmodseq) || 0;
+                    mailbox.highestModseq = ok.highestmodseq || '0'; // keep 64bit uint as a string
                     break;
             }
         });
@@ -1269,11 +1277,12 @@
 
         if (options.changedSince) {
             command.attributes.push([{
-                    type: 'ATOM',
-                    value: 'CHANGEDSINCE'
-                },
-                options.changedSince
-            ]);
+                type: 'ATOM',
+                value: 'CHANGEDSINCE'
+            }, {
+                type: 'ATOM',
+                value: options.changedSince
+            }]);
         }
         return command;
     };
@@ -1331,9 +1340,10 @@
         if (!Array.isArray(value)) {
             switch (key) {
                 case 'uid':
-                case 'modseq':
                 case 'rfc822.size':
                     return Number(value.value) || 0;
+                case 'modseq': // do not cast 64 bit uint to a number
+                    return value.value || '0';
             }
             return value.value;
         }
@@ -1351,7 +1361,7 @@
                 value = this._parseBODYSTRUCTURE([].concat(value || []));
                 break;
             case 'modseq':
-                value = Number((value.shift() || {}).value) || 0;
+                value = (value.shift() || {}).value || '0';
                 break;
         }
 
@@ -1629,6 +1639,8 @@
             command: options.byUid ? 'UID SEARCH' : 'SEARCH'
         };
 
+        var isAscii = true;
+
         var buildTerm = function(query) {
             var list = [];
 
@@ -1646,6 +1658,14 @@
                                 value: param
                             };
                         } else if (typeof param === "string") {
+                            if (/[\u0080-\uFFFF]/.test(param)) {
+                                isAscii = false;
+                                return {
+                                    type: "literal",
+                                    // cast unicode string to pseudo-binary as imap-handler compiles strings as octets
+                                    value: mimefuncs.fromTypedArray(mimefuncs.charset.encode(param))
+                                };
+                            }
                             return {
                                 type: "string",
                                 value: param
@@ -1689,6 +1709,18 @@
         };
 
         command.attributes = [].concat(buildTerm(query || {}) || []);
+
+        // If any string input is using 8bit bytes, prepend the optional CHARSET argument
+        if (!isAscii) {
+            command.attributes.unshift({
+                type: "atom",
+                value: "UTF-8"
+            });
+            command.attributes.unshift({
+                type: "atom",
+                value: "CHARSET"
+            });
+        }
 
         return command;
     };
