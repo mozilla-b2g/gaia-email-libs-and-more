@@ -104,6 +104,10 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_internaldate_no_tz.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_incoming_prober.js": {
       "variants": ["imap:noserver", "pop3:noserver"]
     },
