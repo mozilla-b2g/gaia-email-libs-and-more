@@ -979,7 +979,7 @@
             try {
                 return new TextDecoder(fromCharset).decode(buf);
             } catch (E) {
-                return this.fromTypedArray(buf);
+                return mimefuncs.fromTypedArray(buf);
             }
 
         },
