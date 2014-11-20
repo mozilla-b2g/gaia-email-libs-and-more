@@ -813,7 +813,7 @@ var properties = {
         messageText: blob,
         // do not specify date; let the server use its own timestamping
         // since we want the approximate value of 'now' anyways.
-        flags: ['Seen'],
+        flags: ['\\Seen'],
       };
 
       var sentFolder = this.getFirstFolderWithType('sent');
