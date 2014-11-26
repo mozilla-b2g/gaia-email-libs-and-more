@@ -663,7 +663,8 @@ var properties = {
           slog.log('imap:folder-sync:existing', {
             type: type,
             name: box.name,
-            path: path
+            path: path,
+            delim: delim
           });
 
           // mark it with true to show that we've seen it.
@@ -762,7 +763,7 @@ var properties = {
     for (var type in essentialFolders) {
       if (!this.getFirstFolderWithType(type)) {
         this.universe.createFolder(
-          this.id, null, essentialFolders[type], false, latch.defer());
+          this.id, null, essentialFolders[type], type, false, latch.defer());
       }
     }
 

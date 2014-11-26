@@ -134,6 +134,7 @@ define(function(require, exports) {
     if (['NO', 'BAD'].indexOf(cmd) !== -1) {
       slog.log('imap:protocol-error', {
         humanReadable: response.humanReadable,
+        responseCode: response.code,
         // Include the command structure
         commandData: this._currentCommand && this._currentCommand.request &&
                      imapHandler.compiler(this._currentCommand.request)

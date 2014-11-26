@@ -92,6 +92,8 @@ var TestFakeIMAPServerMixins = {
             },
             options: {
               imapExtensions: imapExtensions,
+              folderConfig: opts.folderConfig || null,
+              useTimezoneMins: opts.useTimezoneMins || null,
               smtpExtensions: opts.smtpExtensions,
               oauth: opts.oauth
             },
@@ -224,7 +226,7 @@ var TestFakeIMAPServerMixins = {
       // dependent.
       var msgString =
         'Received: from 127.1.2.3 by 127.1.2.3; ' +
-        formatDateTime(message.date, 'rfc2822', this._useTimeZoneMins ) +
+        formatDateTime(message.date, 'rfc2822', this._useTimeZoneMins) +
             '\r\n' +
         message.toMessageString();
 

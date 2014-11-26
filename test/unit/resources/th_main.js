@@ -2613,6 +2613,7 @@ var TestCompositeAccountMixins = {
           testAccount: self,
           restored: opts.restored,
           imapExtensions: opts.imapExtensions,
+          folderConfig: opts.folderConfig,
           smtpExtensions: opts.smtpExtensions,
           deliveryMode: opts.deliveryMode,
           oauth: opts.oauth,
