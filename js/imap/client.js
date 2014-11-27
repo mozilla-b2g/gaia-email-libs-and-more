@@ -57,6 +57,12 @@ define(function(require, exports) {
               xoauth2: credentials.oauth2 ?
                          credentials.oauth2.accessToken : null
             },
+            id: {
+              vendor: 'Mozilla',
+              name: 'GaiaMail',
+              version: '0.2',
+              'support-url': 'http://mzl.la/file-gaia-email-bug'
+            },
             useSecureTransport: (connInfo.crypto === 'ssl' ||
                                  connInfo.crypto === true),
             requireTLS: connInfo.crypto === 'starttls',
