@@ -103,9 +103,15 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
     // then goes up to the parent process and the parent then has to generate
     // the close event notification.  That will be wiggly.
     testAccount.expectUseSetMatching();
+    // the local part will run okay
     testAccount.expect_runOp(
       'move',
-      { local: true, server: true, save: true,
+      { local: true, server: false, save: false });
+    // the server part will fail
+    testAccount.expect_runOp(
+      'move',
+      { local: false, server: true, save: true,
+        error: 'disastrous-error',
         // The connect-closing will occur
         release: 'deadconn' });
 

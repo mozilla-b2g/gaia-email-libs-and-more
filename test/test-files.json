@@ -80,6 +80,10 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_create_folders.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_imap_lazybodies.js": {
       "variants": ["imap:fake", "imap:real"]
     },
@@ -104,8 +108,24 @@
       "variants": ["imap:fake", "imap:real"]
     },
 
+    "test_imap_internaldate_no_tz.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_incoming_prober.js": {
       "variants": ["imap:noserver", "pop3:noserver"]
+    },
+
+    "test_incoming_imap_prober.js": {
+      "variants": ["imap:noserver"]
+    },
+
+    "test_incoming_imap_tz_prober.js": {
+      "variants": ["imap:fake"]
+    },
+
+    "test_incoming_pop3_prober.js": {
+      "variants": ["pop3:noserver"]
     },
 
     "test_smtp_prober.js": {

@@ -251,6 +251,19 @@ TD.commonCase('bad username or password', function(T, RT) {
   });
 });
 
+/**
+ * We removed specific error code handling for this, but it ended up that
+ * we returned "unknown", which is not what we wanted.  So now we make sure
+ * that we at least return "bad-user-or-pass" based on the status code.
+ * (As opposed to our previous regexp.)
+ */
+TD.commonCase('gmail application-specific password', function(T, RT) {
+  cannedLoginTest(T, RT, {
+    loginErrorString: '534 5.7.9 Application-specific password needed!\r\n',
+    expectResult: 'bad-user-or-pass',
+  });
+});
+
 TD.commonCase('angry server', function(T, RT) {
   cannedLoginTest(T, RT, {
     ehloResponse: '500 go away!\r\n',

@@ -246,6 +246,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     }
     RT.reportActiveActorThisStep(eLazy);
     RT.reportActiveActorThisStep(testStorage);
+    // be read in the sent folder
+    eLazy.expect_namedValue('isRead', folderType === 'sent');
     eLazy.expect_namedValue('subject', uniqueSubject);
     // only IMAP exposes message-id's right now
     if (testAccount.type === 'imap') {
@@ -338,6 +340,8 @@ TD.commonCase('compose, save, edit, reply (text/plain), forward',
     // okay, we now added all the expectations on the test account.
     testAccount.eOpAccount.asyncEventsAllDoneDoResolve();
 
+    // be read in the sent folder
+    eLazy.namedValue('isRead', folderType === 'sent');
     eLazy.namedValue('subject', header.subject);
     if (testAccount.type === 'imap') {
       eLazy.namedValue('message-id', header.guid);
@@ -970,6 +974,7 @@ TD.commonCase('bcc self', function(T, RT) {
     expect: function() {
       __deviceStorageLogFunc = eLazy.namedValue.bind(eLazy);
       RT.reportActiveActorThisStep(eLazy);
+      eLazy.expect_namedValue('isRead', true);
       eLazy.expect_namedValue('subject', uniqueSubject);
       eLazy.expect_namedValue(
         'bcc',
@@ -980,6 +985,7 @@ TD.commonCase('bcc self', function(T, RT) {
              contactId: null }] : null);
     },
     withMessage: function(header) {
+      eLazy.namedValue('isRead', header.isRead);
       eLazy.namedValue('subject', header.subject);
       eLazy.namedValue('bcc', header.bcc);
     }

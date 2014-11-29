@@ -24,6 +24,7 @@ var TD = exports.TD = $tc.defineTestsFor(
 // Stubs!
 
 var gNextIncomingProbeResult = null,
+    gDelayIncomingProbeResult = false,
     gNextSmtpProbeResult = null,
     gNextActivesyncResult = null,
     gFakeIncomingConn = null;
@@ -50,13 +51,20 @@ $pop3probe.probeAccount = function() {
     var conn = gFakeIncomingConn;
     gNextIncomingProbeResult = null;
     gFakeIncomingConn = null;
-    if (err) {
-      reject(err);
+    var go = function() {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          conn: conn,
+          timezoneOffset: 0
+        });
+      }
+    };
+    if (gDelayIncomingProbeResult) {
+      window.setTimeout(go, 0);
     } else {
-      resolve({
-        conn: conn,
-        timezoneOffset: 0
-      });
+      go();
     }
   });
 };
@@ -126,6 +134,13 @@ var FakeActivesyncDomainInfo = {
       { name: type + ' and smtp errors prioritize ' + type,
         incoming: 'server-problem', smtp: 'unresponsive-server',
         reportAs: 'server-problem',
+        server: FakeIncomingDomainInfo.incoming.hostname },
+      // same as above, but let SMTP resolve first to make sure we still
+      // favor the correct error message
+      { name: 'delayed ' + type + ' and smtp errors prioritize ' + type,
+        incoming: 'server-problem', smtp: 'unresponsive-server',
+        reportAs: 'server-problem',
+        delayIncoming: true,
         server: FakeIncomingDomainInfo.incoming.hostname }
     ];
 
@@ -133,6 +148,7 @@ var FakeActivesyncDomainInfo = {
       T.action(eCheck, mix.name, function() {
         gNextIncomingProbeResult = mix.incoming;
         gNextSmtpProbeResult = mix.smtp;
+        gDelayIncomingProbeResult = mix.delayIncoming || false;
         if (!mix.incoming) {
           eCheck.expect_event('incoming.close()');
           gFakeIncomingConn = {

@@ -131,8 +131,6 @@ TD.commonCase('MIME hierarchies', function(T) {
         new SyntheticPartLeaf(''),
       bpartStraightASCII =
         new SyntheticPartLeaf('I am text! Woo!'),
-      bpartPeriod =
-        new SyntheticPartLeaf('start\n.with\n.\nperiod\n.two.'),
       longBodyStr =
         'This is a very long message that wants to be snippeted to a ' +
         'reasonable length that is reasonable and not unreasonable.  It is ' +
@@ -188,7 +186,7 @@ TD.commonCase('MIME hierarchies', function(T) {
           bstrQpFlowed,
           { charset: 'iso-8859-1', format: 'flowed',
             encoding: 'quoted-printable' }),
-      period = 'start\n.withperiod\n.two',
+      period = 'start\n.withperiod\n.\nthatwasblank\n.two',
 
   // - bodies: text/enriched (ignored!)
   // This exists just to test the alternatives logic.

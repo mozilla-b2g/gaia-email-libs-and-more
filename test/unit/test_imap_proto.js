@@ -64,6 +64,9 @@ var CONN_TIMEOUT = 10000;
  *   response from this.
  * - test over! we win! party at IMAP's house!
  *
+ * I think the point of this test was to ensure that we waited for the greeting
+ * to say something because gmail had a bug in their proxy.
+ *
  * @param opts.greeting
  * @param opts.firstRequest
  * @param opts.capabilities
@@ -142,7 +145,7 @@ var DOVECOT_CAPABILITY_GREETING =
 var DOVECOT_CAPABILITIES = [
   'IMAP4REV1', 'LITERAL+', 'SASL-IR', 'LOGIN-REFERRALS', 'ID',
   'ENABLE', 'IDLE', 'STARTTLS', 'AUTH=PLAIN'];
-var LOGIN_REQUEST = 'W2 login "USERNAME" "PASSWORD"\r\n';
+var STARTTLS_REQUEST = 'W1 STARTTLS\r\n';
 
 /**
  * Dovecot likes to send a CAPABILITY response in the greeting. We
@@ -151,7 +154,7 @@ var LOGIN_REQUEST = 'W2 login "USERNAME" "PASSWORD"\r\n';
 TD.commonCase('wait for server greeting, inline CAPABILITY', function(T,RT) {
   cannedConnectTest(T, RT, {
     greeting: DOVECOT_CAPABILITY_GREETING,
-    firstRequest: LOGIN_REQUEST,
+    firstRequest: STARTTLS_REQUEST,
     capabilities: DOVECOT_CAPABILITIES
   });
 });
