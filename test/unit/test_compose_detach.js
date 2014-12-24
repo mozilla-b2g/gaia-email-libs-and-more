@@ -157,6 +157,18 @@ TD.commonCase('detach attachments', function(T, RT) {
   }
   helpCloseComposition();
 
+  T.group('verify draft header after attach');
+  function helpVerifyHeader() {
+    T.check(eLazy, 'verify draft header after attach', function() {
+      var draftHeader = localDraftsView.slice.items[0];
+      eLazy.expect_namedValueD('header has attachments', true);
+      eLazy.namedValueD('header has attachments',
+                        draftHeader.hasAttachments,
+                        draftHeader);
+    });
+  }
+  helpVerifyHeader();
+
   T.group('reopen draft');
   function helpReopenComposition(numDraftsExpected) {
     T.action(eLazy, 'reopen composition', function() {
