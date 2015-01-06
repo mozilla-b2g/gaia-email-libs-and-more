@@ -704,6 +704,18 @@ TD.commonCase('linkify plaintext', function(T, RT) {
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
+  T.group('character: <');
+  TEXT_CASES.forEach(function(tcase) {
+    if (tcase.url.indexOf('http') == -1) {
+      T.check(eLazy, tcase.name, function() {
+        expectUrl(tcase);
+        var nodes = testUniverse.MailAPI.utils.linkifyPlain(
+          '<' + (tcase.raw || tcase.text),
+          new FakeDoc());
+        reportUrls(nodes);
+      }).timeoutMS = 1; // (tests are synchronous)
+    }
+  });
 });
 
 /**
@@ -796,5 +808,4 @@ TD.commonCase('linkify HTML', function(T, RT) {
     traverseAndLogNodes(doc.body.childNodes);
   });
 });
-
 }); // end define
