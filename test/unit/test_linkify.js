@@ -13,6 +13,26 @@ var TD = exports.TD = $tc.defineTestsFor(
 /**
  * Standalone linkification test-cases to check our parsing logic and any
  * transformations we might do.
+ *
+ * The cases must include:
+ * - name: The name of the test; this is used to create the test case name.
+ * - text: What should be the textContent of the generated "a" link produced
+ *   by the linkification logic.
+ * - url: What should be the "href" of the generated "a" link produced by
+ *   the linkification logic.
+ *
+ * Optional values and their defaults are:
+ * - raw: The value to use in the source string that we run the linkification
+ *   logic against.  If omitted, the value provided for "text" is used.  You
+ *   would use this if you want to add surrounding characters/strings to the
+ *   input that are not part of what gets linkified.  If you do this, you will
+ *   probably need to also provide "extraPre" and "extraPost".
+ * - extraPre: Non-linkified text that will precede the linkified "text".
+ *   Probably any things you put in "raw" that you did not put in "text" that
+ *   preceded the thing that gets linkified.
+ * - extraPost: Non-linkified text that will follow the linkified "text".
+ *   Probably any things you put in "raw" that you did not put in "text" that
+ *   followed the think that gets linkified.
  */
 var TEXT_CASES = [
   // HTML
@@ -160,6 +180,66 @@ var TEXT_CASES = [
     text: 'foo2@bar2.example2.com',
     url: 'mailto:foo2@bar2.example2.com',
   },
+  // email addresses with angle brackets adjacent to the address.  This
+  // is primarily a problem for when email addresses are quoted in the text
+  // and there was a display name present so the email address is enclosed
+  // in angle brackets.
+  {
+    name: 'bare angle bracketed email address',
+    raw: '<foo@example.com>',
+    extraPre: '<',
+    text: 'foo@example.com',
+    extraPost: '>',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'angle bracketed email address preceded by unquoted display name',
+    raw: 'Foo Bar <foo@example.com>',
+    extraPre: 'Foo Bar <',
+    text: 'foo@example.com',
+    extraPost: '>',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'angle bracketed email address preceded by quoted display name',
+    raw: '"Foo Bar" <foo@example.com>',
+    extraPre: '"Foo Bar" <',
+    text: 'foo@example.com',
+    extraPost: '>',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'left angle bracket before email address',
+    raw: '<foo@example.com',
+    extraPre: '<',
+    text: 'foo@example.com',
+    extraPost: '',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'right angle bracket after email address',
+    raw: 'foo@example.com>',
+    extraPre: '',
+    text: 'foo@example.com',
+    extraPost: '>',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'right angle bracket before email address',
+    raw: '>foo@example.com',
+    extraPre: '>',
+    text: 'foo@example.com',
+    extraPost: '',
+    url: 'mailto:foo@example.com'
+  },
+  {
+    name: 'left angle bracket after email address',
+    raw: 'foo@example.com<',
+    extraPre: '',
+    text: 'foo@example.com',
+    extraPost: '<',
+    url: 'mailto:foo@example.com'
+  },
   // IDN e-mail addresses from: http://idn.icann.org/E-mail_test
   // These are actually valid e-mail addresses that can respond.
   {
@@ -280,6 +360,18 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     }
   }
 
+  // -- TEXT_CASES with some permutations
+  // The various permutations are to help pick up the obvious potential
+  // edge cases that affect every regexp.  Probably only add more of these
+  // if you would otherwise be duplicating all the existing TEXT_CASES with
+  // some manual transforms.  If you are seeing specific cases that need
+  // test coverage and/or benefit from being labeled/explicitly called out,
+  // then just add the cases to TEXT_CASES directly.
+
+  // - Test the regular expressions with no surrounding text.
+  // This helps make sure we still linkify even if the linky thing was the only
+  // thing in the message (covering 1 of the 2 basic boundary condition
+  // permutations.)
   T.group('no surrounding text');
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
@@ -290,6 +382,9 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     }).timeoutMS = 1; // (tests are synchronous)
   });
 
+  // - Test the regular expression with some surrounding text
+  // This basically just covers the other basic boundary condition permutation;
+  // it would be very embarassing if we couldn't find links in text!
   T.group('text before and after');
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
@@ -302,17 +397,26 @@ TD.commonCase('linkify plaintext', function(T, RT) {
   });
 
   T.group('wrapped with punctuation');
+  // - Test text reporting as well as url reporting; also some punctuation
+  // We also wrap the patterns with some punctuation without whitespace, but
+  // this is more about making sure that we properly report the stuff that is
+  // not linkified.  (In the loops above, we only checked what got linkified,
+  // not the text.)  If there are specific punctuation permutations to check
+  // out, you may just want to add entries to TEXT_CASES and use raw, extraPre,
+  // and extraPost appropriately.
   TEXT_CASES.forEach(function(tcase) {
     T.check(eLazy, tcase.name, function() {
-      expectText('see the thing (');
+      var extraPre = tcase.extraPre || '';
+      var extraPost = tcase.extraPost || '';
+      expectText('see the thing (' + extraPre);
       expectUrl(tcase);
-      expectText(') or the other,');
+      expectText(extraPost + ') or the other,' + extraPre);
       expectUrl(tcase);
-      expectText(', or with a period ');
+      expectText(extraPost + ', or with a period ' + extraPre);
       expectUrl(tcase);
-      expectText('. (Or with both: ');
+      expectText(extraPost + '. (Or with both: ' + extraPre);
       expectUrl(tcase);
-      expectText('.)');
+      expectText(extraPost + '.)');
       var nodes = testUniverse.MailAPI.utils.linkifyPlain(
         'see the thing (' + (tcase.raw || tcase.text) + ') or the other,' +
         (tcase.raw || tcase.text) + ', or with a period ' +
@@ -703,18 +807,6 @@ TD.commonCase('linkify plaintext', function(T, RT) {
         new FakeDoc());
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
-  });
-  T.group('character: <');
-  TEXT_CASES.forEach(function(tcase) {
-    if (tcase.url.indexOf('http') == -1) {
-      T.check(eLazy, tcase.name, function() {
-        expectUrl(tcase);
-        var nodes = testUniverse.MailAPI.utils.linkifyPlain(
-          '<' + (tcase.raw || tcase.text),
-          new FakeDoc());
-        reportUrls(nodes);
-      }).timeoutMS = 1; // (tests are synchronous)
-    }
   });
 });
 
