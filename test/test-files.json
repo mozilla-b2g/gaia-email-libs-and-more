@@ -32,6 +32,10 @@
   },
   "tests": {
 
+    "test_move_offline.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_outbox_stuck_retry.js": {
       "variants": ["imap:fake", "pop3:fake", "activesync:fake"]
     },
