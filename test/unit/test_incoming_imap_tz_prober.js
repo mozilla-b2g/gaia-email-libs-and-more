@@ -17,6 +17,11 @@ var TD = exports.TD = $tc.defineTestsFor(
  * Some servers, for example coremail (used by 163.com and 126.com) may not
  * report UIDNEXT when SELECTing or EXAMINEing a folder.  It's important that
  * we are still able to establish an account with this.
+ *
+ * Note that the fake server acting this way is controlled by the variant
+ * listed for this test file in "test-files.json".  (This then lets other
+ * normal IMAP tests run without UIDNEXT support.)  We do have a check in here
+ * to ensure that mechanism is working as far as we can tell.
  */
 TD.commonCase('lack of UIDNEXT on TZ prober', function(T, RT) {
   T.group('setup');
@@ -41,12 +46,10 @@ TD.commonCase('lack of UIDNEXT on TZ prober', function(T, RT) {
     DEFAULT_TZ_OFFSET: -useTimezoneMins * 60 * 1000
   });
 
-
   var testAccount = T.actor(
     'testAccount', 'A',
     {
       universe: testUniverse,
-      imapExtensions: ['NOUIDNEXT'],
       useTimezoneMins: useTimezoneMins,
       expectDuringCreate: function() {
         // note that the sign flip is intentional, see above.
@@ -54,6 +57,14 @@ TD.commonCase('lack of UIDNEXT on TZ prober', function(T, RT) {
                    { how: 'seq', tzMillis: -useTimezoneMins * 60 * 1000 });
       }
     });
+
+  // Make sure that our test infrastructure is properly running this test with
+  // the NOUIDNEXT variant.
+  T.check('ensure server variant', function() {
+    if (testAccount.testServer.imapExtensions.indexOf('NOUIDNEXT') === -1) {
+      throw new Error('This test demands that the server be NOUIDNEXT');
+    }
+  });
 
   T.group('that was the test');
   T.check('seriously, if we got this far, we passed', function() {

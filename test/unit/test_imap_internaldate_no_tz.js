@@ -25,6 +25,15 @@ TD.commonCase('basic sync succeeds', function(T, RT) {
       imapExtensions: ['NO_INTERNALDATE_TZ']
     });
 
+  // Make sure that our test infrastructure is properly running this test
+  T.check('ensure server variant', function() {
+    if (testAccount.testServer.imapExtensions.indexOf('NO_INTERNALDATE_TZ') ===
+        -1) {
+      throw new Error(
+        'This test demands that the server be NO_INTERNALDATE_TZ');
+    }
+  });
+
   T.group('sync');
   var saturatedFolder = testAccount.do_createTestFolder(
     'test_internaldate_no_tz',

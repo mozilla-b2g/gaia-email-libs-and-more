@@ -77,7 +77,12 @@ var TestFakeIMAPServerMixins = {
 
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
 
-      var imapExtensions = opts.imapExtensions || ['RFC2195'];
+      // The specific test always wins, but if not specified, we leave it up to
+      // the test variant.
+      var imapExtensions = self.imapExtensions =
+            opts.imapExtensions ||
+            TEST_PARAMS.imapExtensions ||
+            ['RFC2195'];
 
       if (!serverExists) {
         // talk to the control server to get it to create our server

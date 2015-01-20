@@ -889,6 +889,9 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
   var testParams;
   switch (variant) {
     case 'imap:fake':
+    // fakeserver variants
+    case 'imap:fake:nouidnext':
+    case 'imap:fake:no_internaldate_tz':
       testParams = {
         name: 'Baron von Testendude',
         emailAddress: 'testy@fakeimaphost',
@@ -901,6 +904,14 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
 
         controlServerBaseUrl: controlServer.baseUrl,
       };
+      switch (variant) {
+        case 'imap:fake:nouidnext':
+          testParams.imapExtensions = ['NOUIDNEXT'];
+          break;
+        case 'imap:fake:no_internaldate_tz':
+          testParams.imapExtensions = ['NO_INTERNALDATE_TZ'];
+          break;
+      }
       break;
     case 'pop3:fake':
       testParams = {
@@ -938,10 +949,10 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
       testParams = TEST_PARAMS;
       break;
     case 'imap:noserver':
-      testParams = {type: 'imap'};
+      testParams = { type: 'imap' };
       break;
     case 'pop3:noserver':
-      testParams = {type: 'pop3'};
+      testParams = { type: 'pop3' };
       break;
     case 'script':
       testParams = SCRIPT_PARAMS;
