@@ -1479,12 +1479,13 @@ var TestCommonAccountMixins = {
               slice.userCanGrowUpwards,
               slice.userCanGrowDownwards, slice.status,
               newEmailCount === undefined ? null : newEmailCount);
-            if (!_saveToThing) {
-              slice.die();
-            }
           }
           else {
             self._logger.viewWithoutExpectationsCompleted();
+          }
+          // The slice must die even if we don't expect values.
+          if (!_saveToThing) {
+            slice.die();
           }
         };
       }
