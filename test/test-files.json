@@ -21,6 +21,14 @@
       "desc": "IMAP tests against our fake-server",
       "optional": false
     },
+    "imap:fake:nouidnext": {
+      "desc": "jerky IMAP fake-server that never provides UIDNEXT on SELECT/EXAMINE",
+      "optional": false
+    },
+    "imap:fake:no_internaldate_tz": {
+      "desc": "jerky IMAP fake-server that does not include a timezone in its INTERNALDATE values.  (the +000 part)",
+      "optional": false
+    },
     "imap:real": {
       "desc": "IMAP tests against a real server",
       "optional": true
@@ -53,11 +61,11 @@
     },
 
     "test_imap_complex.js": {
-      "variants": ["imap:fake", "imap:real"]
+      "variants": ["imap:fake", "imap:fake:nouidnext", "imap:real"]
     },
 
     "test_imap_general.js": {
-      "variants": ["imap:fake", "imap:real"]
+      "variants": ["imap:fake", "imap:fake:nouidnext", "imap:real"]
     },
 
     "test_imap_oauth.js": {
@@ -81,7 +89,7 @@
     },
 
     "test_imap_internals.js": {
-      "variants": ["imap:fake", "imap:real"]
+      "variants": ["imap:fake", "imap:fake:nouidnext", "imap:real"]
     },
 
     "test_imap_create_folders.js": {
@@ -113,7 +121,7 @@
     },
 
     "test_imap_internaldate_no_tz.js": {
-      "variants": ["imap:fake"]
+      "variants": ["imap:fake:no_internaldate_tz"]
     },
 
     "test_incoming_prober.js": {
@@ -125,7 +133,7 @@
     },
 
     "test_incoming_imap_tz_prober.js": {
-      "variants": ["imap:fake"]
+      "variants": ["imap:fake:nouidnext"]
     },
 
     "test_incoming_pop3_prober.js": {
@@ -238,7 +246,7 @@
     },
 
     "test_mutation.js": {
-      "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
+      "variants": ["imap:fake", "imap:fake:nouidnext", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
     "test_sync_server_changes.js": {
