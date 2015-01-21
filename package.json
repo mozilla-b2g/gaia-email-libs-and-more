@@ -44,7 +44,7 @@
       "mailbuild": "github:whiteout-io/mailbuild/v0.3.7",
       "browserbox-imap": "github:whiteout-io/browserbox/v0.4.0#src/browserbox-imap.js",
       "mimeparser-tzabbr": "github:whiteout-io/mimeparser/v0.3.8#src/mimeparser-tzabbr.js",
-      "addressparser": "github:whiteout-io/addressparser/v0.1.3",
+      "addressparser": "github:whiteout-io/addressparser/e5c9c0c985caa5a740cd7863370929e3e1611077",
       "mimetypes": "github:whiteout-io/mimetypes/v0.1.1",
       "punycode": "github:bestiejs/punycode.js/v1.2.4"
     }
