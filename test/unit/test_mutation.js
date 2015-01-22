@@ -17,6 +17,10 @@
  *   originating from the server (presumably from another client), as well as
  *   local manipulations like moving a message.
  *
+ * - Do not screw up when the requested manipulation already reflects the
+ *   *local* state of the message.  For example, marking a message as (un)read
+ *   that already has that state should not mess up our per-folder unread count.
+ *
  * Our mutation logic is also somewhat tested by `test_imap_general.js` which
  * relies on it to effect mutations to test the sync logic.  However, those
  * tests do not perform local database changes since then the sync logic might
@@ -66,10 +70,13 @@ TD.commonCase('deleting headers midflight', function(T, RT) {
 
     testAccount.expect_runOp(
       'modtags',
-      { local: true, server: true, save: true }
+      // server is false because in the local case we will notice we did no
+      // work locally so there is no work to do on the server and will set
+      // it to skip.
+      { local: true, server: false, save: true }
     );
 
-    // then delete it
+    // fake delete it *locally*
     testAccount.fakeServerMessageDeletion(header);
   });
 
@@ -597,6 +604,135 @@ TD.commonCase('mutate flags', function(T, RT) {
   T.group('cleanup');
   // save our state so the next unit test doesn't try and re-run our ops
   testUniverse3.do_saveState();
+});
+
+/**
+ * We want to test redundant flag changes, especially read/unread status which
+ * impacts our folder's unread count.
+ *
+ * We do this as a black-box test.  Specifically, we test:
+ * - Requesting a redundant change to a single message.  Something that could
+ *   potentially result in us being clever enough to never queue or run a job
+ *   at all.  Although for now we'll assume the job happens.  The test can just
+ *   be revised when that changes.
+ * - Requesting a batch change to a set of messages where it's redundant for
+ *   some messages and not redundant for other messages.
+ *
+ * Note that this test is only run for IMAP servers because right now only
+ * IMAP lets us insert messages into a folder with them already marked as read.
+ * We could make this work with ActiveSync if we cared, but POP3 is sorta a
+ * hassle.  But we don't actually get any extra coverage with them, so they
+ * get auto-bailed.
+ */
+TD.commonCase('redundant flag changes', function(T, RT) {
+  var TEST_PARAMS = RT.envOptions;
+  // Auto-bail for non-IMAP, see above.
+  if (TEST_PARAMS.type !== 'imap') {
+    return;
+  }
+
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A', {
+        universe: testUniverse,
+        restored: true
+      }),
+      eSync = T.lazyLogger('sync');
+
+  // Create a folder that looks like so to us:
+  // [unread    read   unread read   unread read unread read]
+  // and which our operations will be, in this order with ASCII art positioning
+  // being significant:
+  //         (redundant)
+  //  (redundant)
+  //  (semi-redundant setRead(true))
+  //                                 (semi-redundant setRead(false))
+
+  var testFolder = testAccount.do_createTestFolder(
+    'test_redundant_mutation_flags',
+    { count: 4, read: false, age_incr: { days: 1 } });
+  testAccount.do_addMessagesToFolder(
+    testFolder,
+    { count: 4, read: true, age: { hours: 2 }, age_incr: { days: 1 } });
+  var folderView = testAccount.do_openFolderView(
+    'folderView', testFolder,
+    { count: 8, full: 8, flags: 0, changed: 0, deleted: 0,
+      filterType: FilterType.NoFilter },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  /**
+   * Helper to ensure that each message has the expected read state (true for
+   * read, false for unread) and that our counts also match up.  This
+   * automatically waits for a ping round-trip before checking since job
+   */
+  function do_assertReadStates(expectedStates) {
+    T.check('assert read states', eSync, function() {
+      eSync.asyncEventsAreComingDoNotResolve();
+
+      var expectedUnread = expectedStates.reduce(function(unreadTally, isRead) {
+          return unreadTally + (isRead ? 0 : 1);
+        }, 0);
+
+      eSync.expect_namedValue('readStates', expectedStates);
+      testAccount.MailAPI.ping(function() {
+        var actualStates = folderView.slice.items.map(function(header) {
+          return header.isRead;
+        });
+        eSync.namedValue('readStates', actualStates);
+        testAccount.expect_unread('unread tally', testFolder, eSync,
+                                  expectedUnread);
+        eSync.asyncEventsAllDoneDoResolve();
+      });
+    });
+  }
+
+  do_assertReadStates([false, true, false, true, false, true, false, true]);
+
+  T.group('single redundant setRead(true)');
+  T.action('items[1].setRead(true)', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: 'local' });
+
+    folderView.slice.items[1].setRead(true);
+  });
+  do_assertReadStates([false, true, false, true, false, true, false, true]);
+
+  T.group('single redundant setRead(false)');
+  T.action('items[0].setRead(false)', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: false, save: 'local' });
+
+    folderView.slice.items[0].setRead(false);
+  });
+  do_assertReadStates([false, true, false, true, false, true, false, true]);
+
+  T.group('semi-redundant batch setRead(true)');
+  T.action('items[0:3].setRead(true)', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: true, save: 'local' });
+
+    testAccount.MailAPI.markMessagesRead(
+      folderView.slice.items.slice(0, 4), true);
+  });
+  do_assertReadStates([true, true, true, true, false, true, false, true]);
+
+  T.group('semi-redundant batch setRead(false)');
+  T.action('items[0:3].setRead(true)', function() {
+    testAccount.expect_runOp(
+      'modtags',
+      { local: true, server: true, save: 'local' });
+
+    testAccount.MailAPI.markMessagesRead(
+      folderView.slice.items.slice(4, 8), false);
+  });
+  do_assertReadStates([true, true, true, true, false, false, false, false]);
+
+  T.group('cleanup');
+  testUniverse.do_saveState();
 });
 
 /**
