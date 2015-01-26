@@ -52,6 +52,25 @@ var MATCHING_WORD    = 'yeaaaaaah';
 var NONMATCHING_WORD = 'noooooooo';
 
 /**
+ * Helper that keeps growing the slice until it claims it is atBottom.
+ */
+function waitForSearchToSearchEverything(slice, callback) {
+  function completeHandler() {
+    // all done at the bottom
+    if (slice.atBottom) {
+      callback();
+    }
+    else {
+      slice.oncomplete = completeHandler;
+      // request the default chunk size which is what front-ends should
+      // theoretically be using unless they know better.
+      slice.requestGrowth(1);
+    }
+  }
+  slice.oncomplete = completeHandler;
+}
+
+/**
  * Create a search-filter on the back-end side and kill it immediately before
  * any of its database calls can complete.  Verify that no comparisons are run.
  *
@@ -103,6 +122,52 @@ TD.commonCase('stop searching when killed', function(T, RT) {
       eLazy.event('all blocks loaded');
       eLazy.namedValue('messages checked',
                        backendSlice.filterer.messagesChecked);
+    });
+  });
+});
+
+TD.commonCase('empty search returns zero results', function(T, RT) {
+  T.group('setup');
+  var testUniverse = T.actor('testUniverse', 'U'),
+      testAccount = T.actor('testAccount', 'A', { universe: testUniverse,
+                                                  restored: true }),
+      eBackendSearchSlice = T.actor('SearchSlice'),
+      eBodies = T.lazyLogger('bodies'),
+      eFolderSlice = T.lazyLogger('folderSlice'),
+      eSearch = T.lazyLogger('searchy');
+
+  var testFolder = testAccount.do_createTestFolder(
+    'search_empty', { count: 3, age: { days: 1 }, age_incr: {days: 1 } });
+
+  var fullView = testAccount.do_openFolderView(
+    'full download view', testFolder,
+    { count: 3, full: 3, flags: 0, deleted: 0 },
+    { top: true, bottom: true, grow: false },
+    { syncedToDawnOfTime: true });
+
+  T.action('download all bodies', eBodies, function() {
+    eBodies.expect_event('downloaded');
+    fullView.slice.maybeRequestBodies(
+      0, fullView.slice.items.length - 1,
+      // none of these bodies will be more than a meg.
+      { maximumBytesToFetch: 1024 * 1024 },
+      function() {
+        eBodies.event('downloaded');
+      });
+  });
+
+  T.group('empty search');
+  var searchSlice, initialMatchHeaders;
+  T.action('initial', eSearch, eBackendSearchSlice, function() {
+    eSearch.expect_event('initial search completed');
+    eSearch.expect_namedValue('slice item length zero', 0);
+
+    searchSlice = testAccount.MailAPI.searchFolderMessages(
+      testFolder.mailFolder, '', { subject: true });
+
+    waitForSearchToSearchEverything(searchSlice, function() {
+      eSearch.event('initial search completed');
+      eSearch.namedValue('slice item length zero', searchSlice.items.length);
     });
   });
 });
@@ -301,25 +366,6 @@ function testSearchSlices(T, RT, opts) {
         eBodies.event('downloaded');
       });
   });
-
-  /**
-   * Helper that keeps growing the slice until it claims it is atBottom.
-   */
-  function waitForSearchToSearchEverything(slice, callback) {
-    function completeHandler() {
-      // all done at the bottom
-      if (slice.atBottom) {
-        callback();
-      }
-      else {
-        slice.oncomplete = completeHandler;
-        // request the default chunk size which is what front-ends should
-        // theoretically be using unless they know better.
-        slice.requestGrowth(1);
-      }
-    };
-    slice.oncomplete = completeHandler;
-  }
 
   T.group('search on initial state');
   var searchSlice, initialMatchHeaders;
