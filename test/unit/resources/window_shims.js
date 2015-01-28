@@ -161,13 +161,6 @@ var _window_mixin = {
         return req;
       },
     },
-    // By default we start up disabled, so it's not really a biggie either way.
-    mozAlarms: {
-      add: function() {},
-      get: function() {},
-      getAll: function() {},
-      remove: function() {},
-    },
 
     getDeviceStorage: function(ds) {
       return {
