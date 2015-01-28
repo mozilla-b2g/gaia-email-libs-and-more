@@ -132,10 +132,6 @@
       "variants": ["imap:noserver"]
     },
 
-    "test_incoming_imap_tz_prober.js": {
-      "variants": ["imap:fake:nouidnext"]
-    },
-
     "test_incoming_pop3_prober.js": {
       "variants": ["pop3:noserver"]
     },
@@ -294,6 +290,10 @@
     },
 
     "test_search_slice.js": {
+      "variants": ["imap:fake"]
+    },
+
+    "test_imap_internaldate_search_ambiguity.js": {
       "variants": ["imap:fake"]
     },
 

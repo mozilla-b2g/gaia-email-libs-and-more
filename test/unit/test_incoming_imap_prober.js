@@ -197,30 +197,4 @@ TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
   });
 });
 
-/**
- * Test the timezone parsing logic from received headers that is used by the
- * timezone offset calculation logic.
- */
-TD.commonCase('timezone extraction unit', function(T, RT) {
-  $th_main.thunkConsoleForNonTestUniverse();
-  var eCheck = T.lazyLogger('check');
-  var caseData = [
-    {
-      name: '2nd',
-      value: 'from 127.0.0.1  (EHLO lists.mozilla.org) (63.245.216.66)\n' +
-        '  by mta1310.mail.gq1.yahoo.com with SMTP; ' +
-        'Wed, 09 Jan 2013 05:46:19 -0800',
-      tzHours: -8
-    }
-  ];
-
-  caseData.forEach(function(data) {
-    T.check(data.name, eCheck, function() {
-      eCheck.expect_namedValue('tzHours', data.tzHours);
-      var tz = $imapProbe.extractTZFromString(data.value);
-      eCheck.namedValue('tzHours', tz && tz / (60 * 60 * 1000));
-    });
-  });
-});
-
 }); // end define

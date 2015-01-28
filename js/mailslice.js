@@ -1697,7 +1697,7 @@ FolderStorage.prototype = {
     // Quantize to the subsequent UTC midnight, then apply the timezone
     // adjustment that is what our IMAP database lookup does to account for
     // skew.  (See `ImapFolderConn.syncDateRange`)
-    cutTS = quantizeDate(cutTS + DAY_MILLIS) - this._account.tzOffset;
+    cutTS = quantizeDate(cutTS + DAY_MILLIS);
 
     // Update the accuracy ranges by nuking accuracy ranges that are no longer
     // relevant and updating any overlapped range.
@@ -2646,14 +2646,13 @@ FolderStorage.prototype = {
             // NB: We use OPEN_REFRESH_THRESH_MS here because since we are
             // growing past-wards, we don't really care about refreshing things
             // in our future.  This is not the case for FUTUREWARDS.
-            highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS +
-                                  this._account.tzOffset;
-            endTS = slice.startTS + $date.DAY_MILLIS + this._account.tzOffset;
+            highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS;
+            endTS = slice.startTS + $date.DAY_MILLIS;
 
             if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id))
               startTS = this.getOldestFullSyncDate();
             else
-              startTS = oldestHeader.date + this._account.tzOffset;
+              startTS = oldestHeader.date;
           }
           else { // dir === FUTUREWARDS
             // Unlike PASTWARDS, we do want to be more aggressively up-to-date
@@ -2661,14 +2660,12 @@ FolderStorage.prototype = {
             // (If we didn't subtract anything off, quick scrolling back and
             // forth could cause us to refresh more frequently than
             // GROW_REFRESH_THRESH_MS, which is not what we want.)
-            highestLegalEndTS = NOW() - $sync.GROW_REFRESH_THRESH_MS +
-                                  this._account.tzOffset;
+            highestLegalEndTS = NOW() - $sync.GROW_REFRESH_THRESH_MS;
 
             var youngestHeader = batchHeaders[0];
             // see the PASTWARDS case for why we don't add a day to this
-            startTS = slice.endTS + this._account.tzOffset;
-            endTS = youngestHeader.date + $date.DAY_MILLIS +
-                      this._account.tzOffset;
+            startTS = slice.endTS;
+            endTS = youngestHeader.date + $date.DAY_MILLIS;
           }
           // We do not want this clamped/saturated case quantized, but we do
           // want all the (other) future-dated endTS cases quantized.
@@ -2909,21 +2906,15 @@ FolderStorage.prototype = {
       // quantized to midnight, we need to adjust forward a day and then
       // quantize.  We also need to compensate for the timezone; we want this
       // time in terms of server time, so we add the timezone offset.
-      endTS = quantizeDate(endTS + DAY_MILLIS + this._account.tzOffset);
+      endTS = quantizeDate(endTS + DAY_MILLIS);
     }
 
     // - Grow startTS
     // Grow the start-stamp to include the oldest continuous accuracy range
     // coverage date.  Keep original date around for bisect per above.
     if (this.headerIsOldestKnown(startTS, slice.startUID)) {
-      origStartTS = quantizeDate(startTS + this._account.tzOffset);
+      origStartTS = quantizeDate(startTS);
       startTS = this.getOldestFullSyncDate();
-    }
-    // If we didn't grow based on the accuracy range, then apply the time-zone
-    // adjustment so that our day coverage covers the actual INTERNALDATE day
-    // of the start message.
-    else {
-      startTS += this._account.tzOffset;
     }
 
     // quantize the start date
@@ -2939,7 +2930,7 @@ FolderStorage.prototype = {
       if (this.checkAccuracyCoverageNeedingRefresh(
              startTS,
              endTS ||
-               NOW() - $sync.OPEN_REFRESH_THRESH_MS + this._account.tzOffset,
+               NOW() - $sync.OPEN_REFRESH_THRESH_MS,
              $sync.OPEN_REFRESH_THRESH_MS) === null) {
         doneCallback();
         return;
@@ -3133,7 +3124,7 @@ FolderStorage.prototype = {
       return true;
 
     var newestSyncTS = this.getNewestFullSyncDate();
-    return SINCE(newestSyncTS, quantizeDate(NOW() + this._account.tzOffset));
+    return SINCE(newestSyncTS, quantizeDate(NOW()));
   },
 
   /**
@@ -3547,7 +3538,7 @@ FolderStorage.prototype = {
     // +2 to get to 1am, which is then what we want to use for markSyncRange.
     //
     if (!endTS)
-      endTS = NOW() + this._account.tzOffset;
+      endTS = NOW();
     if (startTS > endTS)
       throw new Error('Your timestamps are switched!');
 
@@ -4007,11 +3998,22 @@ FolderStorage.prototype = {
    *
    * This function can either be used to replace the header or to look it up
    * and then call a function to manipulate the header.
+   *
+   * Options:
+   *   { silent: true }
+   *     Don't send slice updates. Used when updating an internal
+   *     IMAP-specific flag (imapMissingInSyncRange: slices don't need
+   *     to know about it) so that existing tests don't get mad that
+   *     we're sending out extra updateMessageHeader events without
+   *     expecting them. This flag should be removed in the test
+   *     refactoring to allow more fine-grained control over
+   *     onHeaderModified assertions.
    */
   updateMessageHeader: function ifs_updateMessageHeader(date, id, partOfSync,
                                                         headerOrMutationFunc,
                                                         body,
-                                                        callback) {
+                                                        callback,
+                                                        opts) {
     // (While this method can complete synchronously, we want to maintain its
     // perceived ordering relative to those that cannot be.)
     if (this._pendingLoads.length) {
@@ -4059,6 +4061,9 @@ FolderStorage.prototype = {
             var slice = self._slices[iSlice];
             if (partOfSync && slice === self._curSyncSlice)
               continue;
+            if (opts && opts.silent) {
+              continue;
+            }
             if (BEFORE(date, slice.startTS) ||
                 STRICTLY_AFTER(date, slice.endTS))
               continue;

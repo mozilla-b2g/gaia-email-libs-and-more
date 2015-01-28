@@ -785,12 +785,16 @@ TD.commonCase('repeated refresh is stable', function(T) {
     growRefreshThresh: HOUR_MILLIS,
   });
 
-  // XXX I just changed this from 11pm to 10:30pm to hack around DST issues.
+  // XXX :asuth changed this from 11pm to 10:30pm to hack around DST issues.
   // This may or may not compromise the effectiveness of the test.  The fact
   // that we have explicitly-set refresh start/end time spans probably does
   // help rule out the original regression.  It might be worth doing the
   // limited archaeology work required.
-  var staticNow = new Date(2000, 0, 3, 22, 30, 0).valueOf();
+  // XXX2 :mcav then changed this to 15:30 (10:30pm - 7hrs) when we
+  // nuked the account-specific timezone offset, because the server
+  // still defaults to PST when no specific timezone is given, and
+  // that changes where messages fall in the sync ranges for this test.
+  var staticNow = new Date(2000, 0, 3, 15, 30, 0).valueOf();
   testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
 
   var testFolder = testAccount.do_createTestFolder(
