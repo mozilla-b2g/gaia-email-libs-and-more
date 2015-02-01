@@ -14,8 +14,8 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
       testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
   var lc = new slog.LogChecker(T, RT, 'logs');
 
-  var staticNow = new Date(2015, 0, 28, 0, 0, 0).valueOf();
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th 0:00');
+  var staticNow = Date.UTC(2015, 0, 28, 12, 0, 0);
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th 12:00 UTC');
 
   testUniverse.do_adjustSyncValues({
     INITIAL_SYNC_DAYS: 10

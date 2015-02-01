@@ -581,12 +581,18 @@ ImapFolderConn.prototype = {
           // So, how long has this message been missing for?
           var fuzz = $sync.IMAP_SEARCH_AMBIGUITY_MS;
           var date = localHeader.date;
+          // (Note that "Infinity" JSON stringifies to null, so be aware when
+          // looking at logs involving this code.  But the values are structured
+          // cloned for bridge and database purposes and so remain intact.)
           var missingRange = localHeader.imapMissingInSyncRange ||
                 (localHeader.imapMissingInSyncRange =
                  { startTS: startTS || 0, endTS: endTS || Infinity });
 
           // Mark the message as missing in this sync range too,
           // making sure to treat 'null' startTS and endTS correctly.
+          // (This is a union range.  We can state that we have not found the
+          // message in the time range SINCE missingRange.startTS and BEFORE
+          // missingRange.endTS.)
           missingRange.startTS = Math.min(startTS || 0,
                                           missingRange.startTS || 0);
           missingRange.endTS = Math.max(endTS || Infinity,
@@ -594,6 +600,10 @@ ImapFolderConn.prototype = {
 
           // Have we looked all around where the message is supposed
           // to be, and the server never coughed it up? Delete it.
+          // (From a range perspective, we want to ensure that the missingRange
+          // completely contains the date +/- fuzz range.  We use an inclusive
+          // comparison in both cases because we are comparing two ranges, not
+          // a single date and a range.)
           if (missingRange.startTS <= date - fuzz &&
               missingRange.endTS >= date + fuzz) {
             slog.log('imap:unambiguously-deleted-uid',
@@ -607,7 +617,7 @@ ImapFolderConn.prototype = {
             slog.log('imap:ambiguously-missing-uid',
                      { uid: uid, missingRange: missingRange,
                        rangeToDelete: { startTS: date - fuzz, endTS: date + fuzz },
-                      syncRange: { startTS: startTS, endTS: endTS }});
+                       syncRange: { startTS: startTS, endTS: endTS }});
             storage.updateMessageHeader(
               localHeader.date, localHeader.id, true, localHeader,
               /* body hint */ null, latch.defer(), { silent: true });

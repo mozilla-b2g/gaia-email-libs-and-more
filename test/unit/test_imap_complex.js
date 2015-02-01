@@ -94,7 +94,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
 
   const MINUTE_MILLIS = 60 * 1000, HOUR_MILLIS = 60 * MINUTE_MILLIS,
         DAY_MILLIS = 24 * HOUR_MILLIS;
@@ -191,7 +191,7 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
 
   T.group('lots of messages: setup');
   // May 28th, intentionally staying far away from daylight savings time.
-  staticNow = new Date(2012, 4, 28, 12, 0, 0).valueOf();
+  staticNow = Date.UTC(2012, 4, 28, 12, 0, 0);
   testUniverse.do_timewarpNow(staticNow, 'May 28th noon-ish');
   createdAt = staticNow;
   var c2Folder = testAccount.do_createTestFolder(
@@ -303,7 +303,7 @@ TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
 
   // We used to use a relative timestamp for this, but that made understanding
   // a regression of this test harder to understand.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
   testUniverse.do_timewarpNow(staticNow, 'Jan 28th, 2012 noon-ish');
 
   // Note: 6 messages only differing in age by 1 second!
@@ -419,7 +419,7 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -490,7 +490,7 @@ TD.commonCase('just-synced headers returned without re-refresh', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 4;
@@ -547,7 +547,7 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000;
   testUniverse.do_adjustSyncValues({
@@ -631,7 +631,7 @@ TD.commonCase('newy messages beyond oldest-synced discoverable', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000;
   testUniverse.do_adjustSyncValues({
@@ -739,7 +739,7 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
   });
 
   T.group('make there be 1 unexpunged but deleted message');
-  var staticNow = new Date(2000, 0, 1, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2000, 0, 1, 12, 0, 0);
   testUniverse.do_timewarpNow(staticNow, 'Jan 1, 2000');
   T.setup('disable folder closing', function() {
     testAccount.imapAccount._TEST_doNotCloseFolder = true;
@@ -794,7 +794,7 @@ TD.commonCase('repeated refresh is stable', function(T) {
   // nuked the account-specific timezone offset, because the server
   // still defaults to PST when no specific timezone is given, and
   // that changes where messages fall in the sync ranges for this test.
-  var staticNow = new Date(2000, 0, 3, 15, 30, 0).valueOf();
+  var staticNow = Date.UTC(2000, 0, 3, 15, 30, 0);
   testUniverse.do_timewarpNow(staticNow, 'Jan 3rd, 2000');
 
   var testFolder = testAccount.do_createTestFolder(

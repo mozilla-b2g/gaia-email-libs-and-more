@@ -211,7 +211,7 @@ TD.commonCase('sync further back in time on demand', function(T) {
     growRefreshThresh: 30 * MINUTE_MILLIS,
   });
 
-  var staticNow = new Date(2012, 0, 28, 12, 0, 0).valueOf();
+  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
   testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon');
 
   T.group('initial sync');
