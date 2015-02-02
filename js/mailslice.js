@@ -2649,10 +2649,21 @@ FolderStorage.prototype = {
             highestLegalEndTS = NOW() - $sync.OPEN_REFRESH_THRESH_MS;
             endTS = slice.startTS + $date.DAY_MILLIS;
 
-            if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id))
+            // (Note that unlike the else case, we don't need to worry about
+            // IMAP_SEARCH_AMBIGUITY since by definition the message can't
+            // belong to a time range we haven't searched over.  Well, ignoring
+            // daylight-savings-time snafus, but that would be a super edge
+            // case we're willing to glitch on.)
+            if (this.headerIsOldestKnown(oldestHeader.date, oldestHeader.id)) {
               startTS = this.getOldestFullSyncDate();
-            else
-              startTS = oldestHeader.date;
+            // Because of deletion ambiguity and our desire to make sure we are
+            // up-to-date for all of the headers we are telling the user about,
+            // we need to subtract off an extra ambiguity interval.  (Otherwise
+            // we might only declare a message deleted after a user had already
+            // scrolled beyond it!  Oops!)
+            } else {
+              startTS = oldestHeader.date - $sync.IMAP_SEARCH_AMBIGUITY_MS;
+            }
           }
           else { // dir === FUTUREWARDS
             // Unlike PASTWARDS, we do want to be more aggressively up-to-date
@@ -2915,6 +2926,13 @@ FolderStorage.prototype = {
     if (this.headerIsOldestKnown(startTS, slice.startUID)) {
       origStartTS = quantizeDate(startTS);
       startTS = this.getOldestFullSyncDate();
+    // Because of deletion ambiguity and our desire to make sure we are
+    // up-to-date for all of the headers we are telling the user about,
+    // we need to subtract off an extra ambiguity interval.  (Otherwise
+    // we might only declare a message deleted after a user had already
+    // scrolled beyond it!  Oops!)
+    } else {
+      startTS -= $sync.IMAP_SEARCH_AMBIGUITY_MS;
     }
 
     // quantize the start date

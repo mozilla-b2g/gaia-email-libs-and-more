@@ -112,6 +112,10 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
     // cause a refresh to trigger.
     openRefreshThresh: 30 * MINUTE_MILLIS,
     growRefreshThresh: 30 * MINUTE_MILLIS,
+
+    // Disable the ambiguity growth factor; these tests were written before it
+    // was a thing and this logic is orthogonal.
+    IMAP_SEARCH_AMBIGUITY_MS: 0,
   });
 
   T.group('no change: setup');
@@ -298,6 +302,9 @@ TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
     // we want refreshing to be smart,
     openRefreshThresh: 60 * 60 * 1000,
     growRefreshThresh: 3 * 60 * 1000,
+    // Disable the ambiguity growth factor; these tests were written before it
+    // was a thing and this logic is orthogonal.
+    IMAP_SEARCH_AMBIGUITY_MS: 0,
   });
 
 
@@ -559,6 +566,9 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
     // overlap the already-in-slice messages.
     openRefreshThresh: 0.5 * HOUR_MILLIS,
     growRefreshThresh: 0.5 * HOUR_MILLIS,
+    // Disable the ambiguity growth factor; these tests were written before it
+    // was a thing and this logic is orthogonal.
+    IMAP_SEARCH_AMBIGUITY_MS: 0,
   });
 
   T.group('initial sync, grow, close');
@@ -783,6 +793,9 @@ TD.commonCase('repeated refresh is stable', function(T) {
     // refresh thresholds, so make sure they wouldn't help us.
     openRefreshThresh: HOUR_MILLIS,
     growRefreshThresh: HOUR_MILLIS,
+    // Disable the ambiguity growth factor; these tests were written before it
+    // was a thing and this logic is orthogonal.
+    IMAP_SEARCH_AMBIGUITY_MS: 0,
   });
 
   // XXX :asuth changed this from 11pm to 10:30pm to hack around DST issues.
