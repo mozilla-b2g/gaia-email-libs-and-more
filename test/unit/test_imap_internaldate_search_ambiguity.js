@@ -25,6 +25,11 @@ var TD = exports.TD = $tc.defineTestsFor(
  * - Test growing to a deleted after that not deleted one.
  * - Test growing to a not-deleted one that is the last message in the folder
  *   and so triggers a dawn-of-time sync.
+ * - (Tricky!) Ensure that in the complicated situation where we have marked a
+ *   message as ambiguous on its old side, that we don't mark it deleted when
+ *   we're also seeing it be ambiguous on new side *but not in its core day*.
+ *   Prior to this case, we would naively do a set union which would make it
+ *   seem like we had checked that core day when we, in fact, had not.
  *
  * For the slice growing logic to window off any message, we need (at least) 2
  * most recent messages, then we can do our deletion and such.
@@ -176,8 +181,55 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
     growSliceAndWait(1);
   });
 
-  T.group('cleanup');
+  T.group('tricky double-sided ambiguity');
+  // We could do this by shrinking stuff off, but given the current front-end
+  // and how I reproduced this manually, it's more realistic to close and open
+  // the view with the used headers so we're right up against the ambiguous new
+  // side of 7.
+
   testAccount.do_closeFolderView(checkView);
+
+  // jump time forward so we will trigger a refresh
+  staticNow += 2 * $date.HOUR_MILLIS;
+  testUniverse.do_timewarpNow(staticNow,
+                              'advance a day for refresh thresholds');
+
+  // By asking through UID 5, the search range will cover UID 6 and be on the
+  // "new" ambiguous side of 7.
+  //
+  // Slice UIDs:  [1 2     5]
+  // Server UIDs: [           ]    SINCE 22-Jan (UID 6)
+  // DB Lookup:               [7]
+  // DB After:                [7]
+  testUniverse.do_adjustSyncValues({
+    INITIAL_FILL_SIZE: 3
+  });
+  T.action('fix-up knownMessages', function() {
+    // Because we bypassed the th_main infrastructure above but use
+    // do_openFolderView, it freaks out if knownMessages is out-of-date, so just
+    // manually update it.
+    folder.knownMessages = folder.serverMessages;
+    // (Note that the logUid expectations are generally sufficient, it's just
+    // there was no open helper and this was pretty easy, and if we need to mix
+    // a bisect case into thise later, we really do need the do_openFolderView
+    // helper then.)
+  });
+  var trickyView = testAccount.do_openFolderView(
+    'sync/refresh #1', folder,
+    { count: 3, full: 0, flags: 3, deleted: 0 },
+    { top: true, bottom: false, grow: false, newCount: 0 },
+    {
+      syncedToDawnOfTime: true,
+      expectFunc: function() {
+        logUid('imap:updated-uid', 1);
+        logUid('imap:updated-uid', 2);
+        logUid('imap:updated-uid', 5);
+        logUid('imap:ambiguously-missing-uid', 7);
+      }
+    });
+
+  T.group('cleanup');
+  testAccount.do_closeFolderView(trickyView);
 });
 
 });

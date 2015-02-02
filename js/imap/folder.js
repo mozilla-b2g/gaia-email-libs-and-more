@@ -581,22 +581,42 @@ ImapFolderConn.prototype = {
           // So, how long has this message been missing for?
           var fuzz = $sync.IMAP_SEARCH_AMBIGUITY_MS;
           var date = localHeader.date;
-          // (Note that "Infinity" JSON stringifies to null, so be aware when
-          // looking at logs involving this code.  But the values are structured
-          // cloned for bridge and database purposes and so remain intact.)
-          var missingRange = localHeader.imapMissingInSyncRange ||
-                (localHeader.imapMissingInSyncRange =
-                 { startTS: startTS || 0, endTS: endTS || Infinity });
 
-          // Mark the message as missing in this sync range too,
-          // making sure to treat 'null' startTS and endTS correctly.
-          // (This is a union range.  We can state that we have not found the
-          // message in the time range SINCE missingRange.startTS and BEFORE
-          // missingRange.endTS.)
-          missingRange.startTS = Math.min(startTS || 0,
-                                          missingRange.startTS || 0);
-          missingRange.endTS = Math.max(endTS || Infinity,
-                                        missingRange.endTS || Infinity);
+          // There are 3 possible cases for imapMissingInSyncRange:
+          // 1) We don't have one, so just use the current search range.
+          // 2) It's disjoint from the current search range, so just use the
+          //    current search range.  We do this because we only track one
+          //    range for the message, and unioning disjoint ranges erroneously
+          //    assumes that we know something about the gap range *when we do
+          //    not*.  This situation arises because we previously had synced
+          //    backwards in time so that we were on the "old" ambiguous side
+          //    of the message.  We now must be on the "new" ambiguous side.
+          //    Since our sync range (currently) only ever moves backwards in
+          //    time, it is safe for us to discard the information about the
+          //    "old" side because we'll get that coverage again soon.
+          // 3) It overlaps the current range and we can take their union.
+          var missingRange;
+          if (!localHeader.imapMissingInSyncRange || // (#1)
+              ((localHeader.imapMissingInSyncRange.endTS < startTS) || // (#2)
+               (localHeader.imapMissingInSyncRange.startTS > endTS))) {
+            // adopt/clobber!
+            // (Note that "Infinity" JSON stringifies to null, so be aware when
+            // looking at logs involving this code.  But the values are
+            // structured cloned for bridge and database purposes and so remain
+            // intact.)
+            missingRange = localHeader.imapMissingInSyncRange =
+              { startTS: startTS || 0, endTS: endTS || Infinity };
+          } else { // (#3, union!)
+            missingRange = localHeader.imapMissingInSyncRange;
+            // Make sure to treat 'null' startTS and endTS correctly.
+            // (This is a union range.  We can state that we have not found the
+            // message in the time range SINCE missingRange.startTS and BEFORE
+            // missingRange.endTS.)
+            missingRange.startTS = Math.min(startTS || 0,
+                                            missingRange.startTS || 0);
+            missingRange.endTS = Math.max(endTS || Infinity,
+                                          missingRange.endTS || Infinity);
+          }
 
           // Have we looked all around where the message is supposed
           // to be, and the server never coughed it up? Delete it.
