@@ -409,6 +409,37 @@ var TestUniverseMixins = {
     this._sendHelperMessage('create-mailapi');
   },
 
+  /**
+   * Have the test universe and all accounts act like today is some date in the
+   * past.  We do this so date ranges in our test can be absolute rather than
+   * relative for sanity purposes.  It also helps rule out tests flaking out
+   * at certain times of the month/year/millenium/etc.
+   *
+   * IMPORTANT TIME RULES TO AVOID HAVING YOUR MOGWAI TURN INTO A GREMLIN, OR
+   * A HISTORY OF OUR PRIOR TRAIN WRECK OF TIMEZONE STUFF AND WHY YOU HAVE TO
+   * DO WHAT I SAY BELOW HERE IN OUR UNIT TESTS ONCE I STOP SHOUTING.
+   *
+   * In the before times when we tracked timezone offset, we created the
+   * timestamp provided here in our local timezone.  This worked out okay no
+   * matter what timezone the test was being run in because our fake server
+   * would be running in the same time zone as us (it's in the same process as
+   * us!) and we would normalize our IMAP queries to be in that time zone.
+   *
+   * (Also, messageGenerator.js always reports time-stamps in our local
+   * timezone, but that's neither here nor there since we never assume the
+   * sender of a message is in our timezone or has an accurate clock.)
+   *
+   * Now that our deletion inference is rockin', we no longer adjust our
+   * queries to the IMAP server to account for timezone.  We just use UTC.
+   * As such, we want to be specifying times in UTC.  And we want our servers
+   * to use UTC for their searching so things line up.  So all these things
+   * happen now!  (See th_fake_imap_server.js for it forcing the default
+   * timezone offset to 0.)
+   *
+   * @param {Number} useAsNowTS
+   *   The value you got from "Date.UTC(...)" and not "new Date(...)" or you're
+   *   gonna have a gremlin and then you're gonna have a bad time.
+   */
   do_timewarpNow: function(useAsNowTS, humanMsg) {
     if (!humanMsg)
       throw new Error('You need to provide a message! The humans like them!');
@@ -416,34 +447,10 @@ var TestUniverseMixins = {
     this.T.convenienceSetup(humanMsg, function() {
       self._useDate = new Date(useAsNowTS);
 
-      // -- Timezone compensation horrors!
-      // If we are using a real IMAP server like dovecot, then it will use its
-      // INTERNALDATE logic regardless of what timezone we cram into the
-      // message.  As such, we need to detect a daylight savings time delta
-      // between our current offset and the IMAP server offset and apply a fixup
-      // to our message generator.
-      //
-      // This is a stop-gap solution that currently only affects
-      // test_imap_complex.js's "repeated refresh is stable" unit test which
-      // cares about the edge case.  It needs to be using a fake IMAP server to
-      // have the desired control.  We will predicate that test on using the
-      // IMAP fake server.
-      var thenTzOffset = new Date(useAsNowTS).getTimezoneOffset() * -60000;
       for (var i = 0; i < self.__testAccounts.length; i++) {
         var testAccount = self.__testAccounts[i];
         testAccount._useDate = useAsNowTS;
-        if (testAccount._useDate &&
-            testAccount.imapAccount &&
-            testAccount.testServer.NEEDS_REL_TZ_OFFSET_ADJUSTMENT) {
-          var nowTzOffset = testAccount.imapAccount.tzOffset;
-          if (nowTzOffset !== thenTzOffset) {
-            console.log('current offset', nowTzOffset, 'versus', thenTzOffset,
-                        'adjusting useDate by', thenTzOffset - nowTzOffset);
-            testAccount._useDate += (thenTzOffset - nowTzOffset);
-          }
-        }
-        // tell the server about the date we're using
-        testAccount.testServer.setDate(testAccount._useDate.valueOf());
+        testAccount.testServer.setDate(useAsNowTS);
       }
       $date.TEST_LetsDoTheTimewarpAgain(useAsNowTS);
     });

@@ -45,7 +45,6 @@ MockAccount.prototype = {
   accountDef: {
     syncRange: 'auto',
   },
-  tzOffset: 0,
   scheduleMessagePurge: function() {
   },
 };

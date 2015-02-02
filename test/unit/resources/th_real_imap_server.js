@@ -20,8 +20,6 @@ define(
   ) {
 
 var TestRealIMAPServerMixins = {
-  NEEDS_REL_TZ_OFFSET_ADJUSTMENT: true,
-
   __constructor: function(self, opts) {
     self.testAccount = null;
     self.testUniverse = null;

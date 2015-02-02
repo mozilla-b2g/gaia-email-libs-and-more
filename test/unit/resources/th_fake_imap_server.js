@@ -54,8 +54,6 @@ function extractUsernameFromEmail(str) {
 }
 
 var TestFakeIMAPServerMixins = {
-  NEEDS_REL_TZ_OFFSET_ADJUSTMENT: false,
-
   __constructor: function(self, opts) {
     if (!("fakeIMAPServers" in self.RT.fileBlackboard))
       self.RT.fileBlackboard.fakeIMAPServers = {};
@@ -87,7 +85,8 @@ var TestFakeIMAPServerMixins = {
       if (!serverExists) {
         // talk to the control server to get it to create our server
         self.backdoorUrl = TEST_PARAMS.controlServerBaseUrl + '/control';
-        self._useTimeZoneMins = opts.useTimezoneMins || null;
+        self._useTimeZoneMins = (opts.useTimezoneMins != null) ?
+                                  opts.useTimezoneMins : 0;
         serverInfo = self._backdoor(
           {
             command: 'make_imap_and_smtp',
@@ -98,7 +97,7 @@ var TestFakeIMAPServerMixins = {
             options: {
               imapExtensions: imapExtensions,
               folderConfig: opts.folderConfig || null,
-              useTimezoneMins: opts.useTimezoneMins || null,
+              useTimezoneMins: self._useTimeZoneMins,
               smtpExtensions: opts.smtpExtensions,
               oauth: opts.oauth
             },

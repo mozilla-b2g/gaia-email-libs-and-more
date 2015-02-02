@@ -48,8 +48,6 @@ function extractUsernameFromEmail(str) {
 }
 
 var TestFakePOP3ServerMixins = {
-  NEEDS_REL_TZ_OFFSET_ADJUSTMENT: false,
-
   __constructor: function(self, opts) {
     if (!("fakePOP3Servers" in self.RT.fileBlackboard))
       self.RT.fileBlackboard.fakePOP3Servers = {};

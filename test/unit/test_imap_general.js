@@ -35,6 +35,9 @@ TD.commonCase('folder sync', function(T) {
   testUniverse.do_adjustSyncValues({
     fillSize: INITIAL_FILL_SIZE,
     days: INITIAL_SYNC_DAYS,
+    // Disable the ambiguity growth factor; these tests were written before it
+    // was a thing and this logic is orthogonal.
+    IMAP_SEARCH_AMBIGUITY_MS: 0,
   });
 
   /**
