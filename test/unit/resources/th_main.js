@@ -609,8 +609,8 @@ var TestUniverseMixins = {
    * do_cronsync_releaseOutbox for each account to un-wedge them.  We wedge
    * both of them every time.
    *
-   * We trigger the cronsync by directly poking its onAlarm method.  It has no
-   * cleverness that would defeat this (at this time).
+   * We trigger the cronsync by directly poking its onRequestSync method.  It
+   * has no cleverness that would defeat this (at this time).
    *
    * @param {Object} opts
    * @param {TestAccount[]} accounts
@@ -688,7 +688,7 @@ var TestUniverseMixins = {
 
       var accountIds = [];
 
-      this.eCronSync.expect_alarmFired();
+      this.eCronSync.expect_requestSyncFired();
       this.eCronSync.expect_cronSync_begin();
       this.eCronSync.expect_ensureSync_begin();
       this.eCronSync.expect_syncAccounts_begin();
@@ -710,7 +710,7 @@ var TestUniverseMixins = {
 
       this.expect_apiCronSyncStartReported(accountIds);
 
-      this.universe._cronSync.onAlarm(accountIds);
+      this.universe._cronSync.onRequestSync(accountIds);
     }.bind(this));
   },
 

@@ -57,13 +57,17 @@ TD.commonCase('modifyAccount updates should be reflected', function(T, RT) {
 
   T.group('verify the changes took');
   T.check('verify', eLazy, function() {
-    var mailAccount = testUniverse.allAccountsSlice.items[0];
-    var modifyKeys = Object.keys(modifyValues);
-    modifyKeys.forEach(function(key) {
-      var current = mailAccount[key];
-      var modifyTo = modifyValues[key];
-      eLazy.expect_namedValue(key, modifyTo);
-      eLazy.namedValue(key, current);
+    // Ping to make sure modifyAccount work fully completes and notifies out
+    // before testing slice results.
+    testUniverse.MailAPI.ping(function() {
+      var mailAccount = testUniverse.allAccountsSlice.items[0];
+      var modifyKeys = Object.keys(modifyValues);
+      modifyKeys.forEach(function(key) {
+        var current = mailAccount[key];
+        var modifyTo = modifyValues[key];
+        eLazy.expect_namedValue(key, modifyTo);
+        eLazy.namedValue(key, current);
+      });
     });
   });
 

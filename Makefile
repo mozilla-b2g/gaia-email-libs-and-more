@@ -74,13 +74,22 @@ download-b2g: b2g
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
+SYS=$(shell uname -s)
 B2GBD := b2g-builddir-symlink
 ifeq ($(wildcard b2g-bindir-symlink),)
-  B2GBIND := $(B2GBD)/dist/bin
-  RUNB2G := $(B2GBIND)/b2g
+	B2GBIND := $(B2GBD)/dist/bin
+	RUNB2G := $(B2GBIND)/b2g
 else
-  B2GBIND := b2g-bindir-symlink
-  RUNB2G := $(B2GBIND)/b2g-bin
+	# OS X has trouble launching the executable via the symlink, gets a "Couldn't
+	# load XPCOM" error, so resolve the symlink first. Do not generically use
+	# readlink on all platforms, since it behaves slightly differently, and only
+	# the OS X platform seems to exhibit this problem.
+	ifeq ($(SYS),Darwin)
+		B2GBIND=`readlink b2g-bindir-symlink`
+	else
+		B2GBIND := b2g-bindir-symlink
+	endif
+	RUNB2G := $(B2GBIND)/b2g-bin
 endif
 
 ARBPLD=arbpl-dir-symlink

@@ -8,11 +8,10 @@
     "url": "https://github.com/mozilla-b2g/gaia-email-libs-and-more"
   },
   "messages": [
-    { "alarm": "/index.html" },
-    { "notification": "/index.html" }
+    { "notification": "/index.html" },
+    { "request-sync": "/index.html" }
   ],
   "permissions": {
-    "alarms":{},
     "audio-channel-notification":{},
     "contacts":{ "access": "readcreate" },
     "desktop-notification":{},
