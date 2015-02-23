@@ -237,6 +237,10 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
+    "test_folder_localize.js": {
+      "variants": ["activesync:fake"]
+    },
+
     "test_folder_storage.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
