@@ -192,6 +192,10 @@
       "variants": ["activesync:fake"]
     },
 
+    "test_activesync_foldersync.js": {
+      "variants": ["activesync:fake"]
+    },
+
     "test_activesync_html.js": {
       "variants": ["activesync:fake"]
     },
@@ -231,6 +235,10 @@
 
     "test_account_folder_logic.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
+    },
+
+    "test_folder_localize.js": {
+      "variants": ["activesync:fake"]
     },
 
     "test_folder_storage.js": {
