@@ -34,15 +34,15 @@
   "volo": {
     "baseDir": "js/ext",
     "dependencies": {
-      "browserbox": "github:whiteout-io/browserbox/v0.5.2",
+      "browserbox": "github:whiteout-io/browserbox/v0.8.1",
+      "browserbox-imap": "github:whiteout-io/browserbox/v0.8.1#src/browserbox-imap.js",
       "utf7": "github:whiteout-io/utf7/v2.0.2",
-      "imap-handler": "github:whiteout-io/imap-handler/3b54101d43925a17c793d7f02d555d6e0c1144c2",
+      "imap-handler": "github:whiteout-io/imap-handler/v0.1.14",
       "mimefuncs": "github:whiteout-io/mimefuncs/e37b8f7d976d83d6ae126a33c1b9adeef880332a",
       "axe": "github:whiteout-io/axe/v0.0.2",
       "smtpclient": "github:whiteout-io/smtpclient/v0.5.1",
       "mimeparser": "github:whiteout-io/mimeparser/v0.3.8",
       "mailbuild": "github:whiteout-io/mailbuild/v0.3.7",
-      "browserbox-imap": "github:whiteout-io/browserbox/v0.4.0#src/browserbox-imap.js",
       "mimeparser-tzabbr": "github:whiteout-io/mimeparser/v0.3.8#src/mimeparser-tzabbr.js",
       "addressparser": "github:whiteout-io/addressparser/e5c9c0c985caa5a740cd7863370929e3e1611077",
       "mimetypes": "github:whiteout-io/mimetypes/v0.1.1",
