@@ -112,6 +112,7 @@ Where
 
   * **commandObject** is an object parsed with `imapHandler.parser()` or self generated
   * **asArray** if set to `true` return the value as an array instead of a string where the command is split on LITERAL notions
+  * **isLogging** if set to true, do not include literals and long strings, useful when logging stuff and do not want to include message bodies etc. Additionally nodes with `sensitive: true` options are also not displayed (useful with logging passwords) if `logging` is used.
 
 The function returns a string or if `asArray` is set to true, as an array which is split on LITERAL notions, eg. "{4}\r\nabcde" becomes ["{4}\r\n", "abcde"]. This is useful if you need to wait for "+" response from the server before you can transmit the literal data.
 
