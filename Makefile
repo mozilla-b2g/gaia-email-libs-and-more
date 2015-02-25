@@ -60,7 +60,6 @@ install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
 	                    --exclude='README.*' \
 	                    --exclude='examples' \
 	                    --exclude='test' \
-	                    --exclude='ext/wmsy' \
 	                    --exclude='ext/rdplat' \
 	                    js/ gaia-symlink/apps/email/js/ext/
 
