@@ -212,6 +212,10 @@
       "variants": ["imap:fake", "activesync:fake"]
     },
 
+    "test_compose_mime.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_compose_detach.js": {
       "variants": ["imap:fake", "activesync:fake"]
     },

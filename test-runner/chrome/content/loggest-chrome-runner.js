@@ -427,10 +427,11 @@ function populateTestParams() {
   // the second argument to handleFlagWithParam is case sensitivity.
   var caseInsensitive = false;
 
-  // test-name is optional
+  // test-name is optional.  We used to strip the .js if present, but that
+  // made it impossible to run a test that was strictly a prefix of other test
+  // names (ignoring the extension).
   if (args.findFlag('test-name', false) !== -1)
-    TEST_NAME = args.handleFlagWithParam('test-name', caseInsensitive)
-                  .replace(/\.js$/, '');
+    TEST_NAME = args.handleFlagWithParam('test-name', caseInsensitive);
   else
     TEST_NAME = null;
   // but the configuration is not
