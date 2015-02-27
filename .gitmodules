@@ -1,6 +1,3 @@
-[submodule "js/ext/wmsy"]
-	path = js/ext/wmsy
-	url = git://github.com/asutherland/wmsy.git
 [submodule "js/ext/activesync-lib"]
 	path = js/ext/activesync-lib
 	url = git://github.com/mozilla-b2g/jsas.git

@@ -1,5 +1,6 @@
 # Loggest tests
 ---
+reruns: 4
 task:
   metadata:
     name: Loggest based unit tests for gelam
