@@ -1,15 +1,10 @@
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_downloadbodyreps_idempotency' },
-  null,
-  [$th_imap.TESTHELPER], ['app']
-);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('fetch only snippets', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+return new LegacyGelamTest('fetch only snippets', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
 
   // Create a folder to test on
   var eLazy = T.lazyLogger('misc');
@@ -66,10 +61,10 @@ TD.commonCase('fetch only snippets', function(T, RT) {
     var header = testView.slice.items[0];
 
     // The first call should receive a modified onchange event.
-    eLazy.expect_value('modified');
+    eLazy.expect('modified');
     // Then we called getBody twice, so we should see two more
     // "done" events _without_ seeing more change events.
-    eLazy.expect_value('done');
+    eLazy.expect('done');
 
     // Fetch the body thrice; the first will generate onchange;
     // the other two should just indicate that we've finished.
@@ -78,7 +73,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
       // called once even though we're calling getBody multiple
       // times.
       body.onchange = function() {
-        eLazy.value('modified');
+        eLazy.log('modified');
       }
     });
 
@@ -86,7 +81,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
       // Use { withBodyReps: true } so that the 'done' event
       // happens after we see onchange.
       header.getBody({ withBodyReps: true }, function() {
-        eLazy.value('done');
+        eLazy.log('done');
       });
     });
   });

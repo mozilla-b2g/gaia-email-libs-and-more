@@ -1,11 +1,8 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'exports'],
-       function($tc, $th_main, $ascp, exports) {
-var FilterType = $ascp.AirSync.Enums.FilterType;
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_body_observers' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $ascp = require('activesync/codepages');
+var FilterType = $ascp.AirSync.Enums.FilterType;
 
 /**
  * Verify that when we have an active body listener (and body.die() has not been
@@ -18,9 +15,9 @@ var TD = exports.TD = $tc.defineTestsFor(
  * correctly performed.  That is tested in the tests that make the manipulations
  * (download tests, body rep download tests, etc.)
  */
-TD.commonCase('body update events', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+return new LegacyGelamTest('body update events', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: false });
 
@@ -57,16 +54,16 @@ TD.commonCase('body update events', function(T, RT) {
     };
 
     // Do not generate the expectation on the body until we have the body.
-    eLazy.asyncEventsAreComingDoNotResolve();
+    eLazy.expect('got body');
 
     header.getBody(function(body) {
-      eLazy.expect_namedValue('update body', {
+      eLazy.log('got body');
+      eLazy.expect('update body', {
         detail: expectedDetail,
         body: body
       });
-      eLazy.expect_event('dead');
-      eLazy.expect_namedValue('free backend handle', false);
-      eLazy.asyncEventsAllDoneDoResolve();
+      eLazy.expect('dead');
+      eLazy.expect('free backend handle',  false);
 
       // This will currently corrupt the body state since this expects a valid
       // BodyInfo structure, but we don't care.
@@ -78,7 +75,7 @@ TD.commonCase('body update events', function(T, RT) {
         // should close when we call die...
         triggerUpdate(header, { hax: true }, gibberishBodyInfo);
 
-        eLazy.namedValue('update body', {
+        eLazy.log('update body', {
           detail: detail,
           body: updateBody
         });
@@ -86,8 +83,8 @@ TD.commonCase('body update events', function(T, RT) {
         body.die();
 
         body.ondead = function() {
-          eLazy.event('dead');
-          eLazy.namedValue(
+          eLazy.log('dead');
+          eLazy.log(
             'free backend handle',
             MailBridge.bodyHasObservers(header.id)
           );

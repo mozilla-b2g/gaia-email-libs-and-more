@@ -1,15 +1,11 @@
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_body_modified_attachments' },
-  null,
-  [$th_imap.TESTHELPER], ['app']
-);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('(POP3) body updates when attachments change', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+return new LegacyGelamTest('(POP3) body updates when attachments change',
+                           function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
 
   var eLazy = T.lazyLogger('misc');
 
@@ -61,14 +57,14 @@ TD.commonCase('(POP3) body updates when attachments change', function(T, RT) {
     //    patch, the MailBody object did not update to include the
     //    correct number of attachments.
 
-    eLazy.expect_namedValue('initial attachments length', 0);
-    eLazy.expect_namedValue('attachments length', 2);
-    eLazy.expect_namedValue('hasAttachments', true);
+    eLazy.expect('initial attachments length',  0);
+    eLazy.expect('attachments length',  2);
+    eLazy.expect('hasAttachments',  true);
     header.getBody({ downloadBodyReps: true }, function (body) {
-      eLazy.namedValue('initial attachments length', body.attachments.length);
+      eLazy.log('initial attachments length', body.attachments.length);
       body.onchange = function() {
-        eLazy.namedValue('attachments length', body.attachments.length);
-        eLazy.namedValue('hasAttachments', true);
+        eLazy.log('attachments length', body.attachments.length);
+        eLazy.log('hasAttachments', true);
       }
     });
   }).timeoutMS = 5000;

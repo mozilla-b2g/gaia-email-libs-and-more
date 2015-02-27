@@ -7,18 +7,18 @@
  * - Sync further back into time on demand ('grow')
  **/
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_internals' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('account persistence', function(T) {
+return [
+
+new LegacyGelamTest('account persistence', function(T) {
   T.group('U1: create universe, account');
   //////////////////////////////////////////////////////////////////////////////
   // Universe 1 : initial
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   T.group('cram messages in, sync them');
@@ -39,8 +39,8 @@ TD.commonCase('account persistence', function(T) {
   // Universe 2 : add messages
   T.group('U2 [add]: reload account, universe');
   // rebind to new universe / (loaded) account
-  testUniverse = T.actor('testUniverse', 'U2', { old: testUniverse });
-  var TA2 = testAccount = T.actor('testAccount', 'A2',
+  testUniverse = T.actor('TestUniverse', 'U2', { old: testUniverse });
+  var TA2 = testAccount = T.actor('TestAccount', 'A2',
                                   { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -66,8 +66,8 @@ TD.commonCase('account persistence', function(T) {
   // Universe 3 : delete messages
   T.group('U3 [delete]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU3 = testUniverse = T.actor('testUniverse', 'U3', { old: testUniverse });
-  var TA3 = testAccount = T.actor('testAccount', 'A3',
+  var TU3 = testUniverse = T.actor('TestUniverse', 'U3', { old: testUniverse });
+  var TA3 = testAccount = T.actor('TestAccount', 'A3',
                                   { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -103,8 +103,8 @@ TD.commonCase('account persistence', function(T) {
   // Universe 4 : change messages
   T.group('U4 [change]: reload account, universe');
   // rebind to new universe / (loaded) account
-  var TU4 = testUniverse = T.actor('testUniverse', 'U4', { old: testUniverse });
-  var TA4 = testAccount = T.actor('testAccount', 'A4',
+  var TU4 = testUniverse = T.actor('TestUniverse', 'U4', { old: testUniverse });
+  var TA4 = testAccount = T.actor('TestAccount', 'A4',
                             { universe: testUniverse, restored: true });
 
   T.group('verify sync is not starting from scratch');
@@ -149,8 +149,8 @@ TD.commonCase('account persistence', function(T) {
   //////////////////////////////////////////////////////////////////////////////
   // Universe 5 : checks
   T.group('U5 [check]: reload account, universe');
-  var TU5 = testUniverse = T.actor('testUniverse', 'U5', { old: testUniverse });
-  testAccount = T.actor('testAccount', 'A5',
+  var TU5 = testUniverse = T.actor('TestUniverse', 'U5', { old: testUniverse });
+  testAccount = T.actor('TestAccount', 'A5',
                         { universe: testUniverse, restored: true });
   var TF5 = testFolder = testAccount.do_useExistingFolder(
                            'test_internals', '#', testFolder);
@@ -162,39 +162,39 @@ TD.commonCase('account persistence', function(T) {
 
   T.group('verify modified message flags');
   T.check('check modified message flags', eSync, function() {
-    eSync.expect_namedValue('0:read', true);
-    eSync.expect_namedValue('1:starred', true);
+    eSync.expect('0:read',  true);
+    eSync.expect('1:starred',  true);
 
-    eSync.namedValue('0:read', TV5.slice.items[0].isRead);
-    eSync.namedValue('1:starred', TV5.slice.items[1].isStarred);
+    eSync.log('0:read', TV5.slice.items[0].isRead);
+    eSync.log('1:starred', TV5.slice.items[1].isStarred);
   });
   testAccount.do_closeFolderView(TV5);
 
   T.group('fail to get the message body for a deleted message');
   T.action(eSync, 'request deleted message body from',
            testFolder.storageActor, function() {
-    eSync.expect_namedValue('bodyInfo', null);
+    eSync.expect('bodyInfo',  null);
     // TF5/TU6 are latched in case we add another step and the static/dynamic
     // values no longer line up.
-    TF5.storageActor.expect_bodyNotFound();
+    TF5.storageActor.expect('bodyNotFound');
     // Use the underlying method used by header.getBody since the dead header
     // is part of a dead object tree.
     TU5.MailAPI._getBodyForMessage(deletedHeader, null, function(bodyInfo) {
-      eSync.namedValue('bodyInfo', bodyInfo);
+      eSync.log('bodyInfo', bodyInfo);
     });
   });
 
   T.group('cleanup');
-});
+}),
 
 
 /**
  * This is our primary test of 'grow' logic.
  */
-TD.commonCase('sync further back in time on demand', function(T) {
+new LegacyGelamTest('sync further back in time on demand', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
   // Use a fill size of 14 messages because it's easy to get 14 in 7 days with
@@ -329,16 +329,16 @@ TD.commonCase('sync further back in time on demand', function(T) {
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);
-});
+}),
 
 /**
  * Grow a slice where the initial sync will fail to find any messages and so
  * it will need to issue additional requests to find those messages.
  */
-TD.commonCase('grow with deepening required', function(T) {
+new LegacyGelamTest('grow with deepening required', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -368,6 +368,8 @@ TD.commonCase('grow with deepening required', function(T) {
 
   T.group('cleanup');
   testAccount.do_closeFolderView(syncView);
-});
+})
+
+];
 
 });

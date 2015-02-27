@@ -3,22 +3,19 @@
  * ActiveSync.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $msggen, $wbxml, $ascp, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_html' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $wbxml = require('wbxml');
+var $ascp = require('activesync/codepages');
+var $msggen = require('./resources/messageGenerator');
 
-TD.commonCase('folder sync', function(T) {
+return new LegacyGelamTest('folder sync', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
 
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('messageCheck');
 
@@ -178,20 +175,20 @@ TD.commonCase('folder sync', function(T) {
     }
 
     T.check(eCheck, 'check body', function() {
-      eCheck.expect_namedValue('body', msgDef.checkBody);
+      eCheck.expect('body',  msgDef.checkBody);
 
       if (msgDef.checkSnippet)
-        eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
+        eCheck.expect('snippet',  msgDef.checkSnippet);
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
           var prefix = msgDef.attachments[i].contentId ?
                        'relatedpart' : 'attachment';
-          eCheck.expect_namedValue(prefix + '-name',
-                                   msgDef.attachments[i].filename);
-          eCheck.expect_namedValue(prefix + '-size',
-                                   msgDef.attachments[i].body.length);
-          eCheck.expect_namedValue(prefix + '-contenttype-guess',
-                                   msgDef.attachments[i].contentType);
+          eCheck.expect(prefix + '-name',
+                        msgDef.attachments[i].filename);
+          eCheck.expect(prefix + '-size',
+                        msgDef.attachments[i].body.length);
+          eCheck.expect(prefix + '-contenttype-guess',
+                        msgDef.attachments[i].contentType);
         }
       }
 
@@ -200,27 +197,27 @@ TD.commonCase('folder sync', function(T) {
         header,
         function(_body) {
           body = _body;
-          eCheck.namedValue('body', body.bodyReps[0].content);
+          eCheck.log('body', body.bodyReps[0].content);
           if (msgDef.checkSnippet)
-            eCheck.namedValue('snippet', header.snippet);
+            eCheck.log('snippet', header.snippet);
 
           if (body.attachments && body.attachments.length) {
             for (var i = 0; i < body.attachments.length; i++) {
-              eCheck.namedValue('attachment-name',
+              eCheck.log('attachment-name',
                                 body.attachments[i].filename);
-              eCheck.namedValue('attachment-size',
+              eCheck.log('attachment-size',
                                 body.attachments[i].sizeEstimateInBytes);
-              eCheck.namedValue('attachment-contenttype-guess',
+              eCheck.log('attachment-contenttype-guess',
                                 body.attachments[i].mimetype);
             }
           }
           if (body._relatedParts && body._relatedParts.length) {
             for (var i = 0; i < body._relatedParts.length; i++) {
-              eCheck.namedValue('relatedpart-name',
+              eCheck.log('relatedpart-name',
                                 body._relatedParts[i].name);
-              eCheck.namedValue('relatedpart-size',
+              eCheck.log('relatedpart-size',
                                 body._relatedParts[i].sizeEstimate);
-              eCheck.namedValue('relatedpart-contenttype-guess',
+              eCheck.log('relatedpart-contenttype-guess',
                                 body._relatedParts[i].type);
             }
           }
@@ -241,23 +238,23 @@ TD.commonCase('folder sync', function(T) {
 
     if (hasRelatedParts) {
       T.check(eCheck, 'download embedded images', function() {
-        eCheck.expect_event('downloaded');
+        eCheck.expect('downloaded');
         if ('attachments' in msgDef) {
           for (var i = 0; i < msgDef.attachments.length; i++) {
             if (msgDef.attachments[i].contentId) {
-              eCheck.expect_namedValue('relatedpart', true);
-              eCheck.expect_namedValue('relatedpart-contenttype',
-                                       msgDef.attachments[i].contentType);
+              eCheck.expect('relatedpart',  true);
+              eCheck.expect('relatedpart-contenttype',
+                            msgDef.attachments[i].contentType);
             }
           }
         }
 
         body.downloadEmbeddedImages(function() {
-          eCheck.event('downloaded');
+          eCheck.log('downloaded');
           for (var i = 0; i < body._relatedParts.length; i++) {
-            eCheck.namedValue('relatedpart', !!body._relatedParts[i].file);
-            eCheck.namedValue('relatedpart-contenttype',
-                              body._relatedParts[i].type);
+            eCheck.log('relatedpart', !!body._relatedParts[i].file);
+            eCheck.log('relatedpart-contenttype',
+                       body._relatedParts[i].type);
           }
         });
       });
@@ -266,12 +263,12 @@ TD.commonCase('folder sync', function(T) {
     if (hasAttachments) {
       T.check(eCheck, 'download attachments', function() {
         for (var i = 0; i < body.attachments.length; i++) {
-          eCheck.expect_event('downloaded');
-          eCheck.expect_namedValue('attachment', true);
+          eCheck.expect('downloaded');
+          eCheck.expect('attachment',  true);
 
           body.attachments[i].download((function(attachment) {
-            eCheck.event('downloaded');
-            eCheck.namedValue('attachment', attachment.isDownloaded);
+            eCheck.log('downloaded');
+            eCheck.log('attachment', attachment.isDownloaded);
           }).bind(this, body.attachments[i]));
         }
       });

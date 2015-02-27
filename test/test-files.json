@@ -30,7 +30,7 @@
       "optional": false
     },
     "imap:real": {
-      "desc": "IMAP tests against a real server",
+      "desc": "IMAP tests against a real server (BROKEN)",
       "optional": true
     },
     "activesync:fake": {
@@ -204,10 +204,6 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
-    "test_storage_upgrade.js": {
-      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
-    },
-
     "test_compose_blobs.js": {
       "variants": ["imap:fake", "activesync:fake"]
     },
@@ -218,6 +214,10 @@
 
     "test_compose_detach.js": {
       "variants": ["imap:fake", "activesync:fake"]
+    },
+
+    "test_storage_upgrade.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
 
     "test_body_observers.js": {

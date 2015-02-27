@@ -36,12 +36,11 @@
  * forward to that.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_main, $msggen, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_search_slice' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
+var $searchfilter = require('searchfilter');
 
 /*
  * Novelty matching/non-matching word prefixes that are also somewhat obvious
@@ -70,16 +69,22 @@ function waitForSearchToSearchEverything(slice, callback) {
   slice.oncomplete = completeHandler;
 }
 
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
 /**
  * Create a search-filter on the back-end side and kill it immediately before
  * any of its database calls can complete.  Verify that no comparisons are run.
  *
  * Also, make sure the slice gets added to/removed from _slices appropriately.
  */
-TD.commonCase('stop searching when killed', function(T, RT) {
+commonCase('stop searching when killed', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse,
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse,
                                                   restored: false }),
       eLazy = T.lazyLogger('lazy');
   var testFolder = testAccount.do_createTestFolder(
@@ -97,11 +102,11 @@ TD.commonCase('stop searching when killed', function(T, RT) {
   T.action('search and abort', eLazy, function() {
     // there should be one load trying to load the header block after we
     // initiate the search.
-    eLazy.expect_namedValue('pending loads', 1);
-    eLazy.expect_namedValue('slices.length pre-die', 1);
-    eLazy.expect_namedValue('slices.length post-die', 0);
-    eLazy.expect_event('all blocks loaded');
-    eLazy.expect_namedValue('messages checked', 0);
+    eLazy.expect('pending loads',  1);
+    eLazy.expect('slices.length pre-die',  1);
+    eLazy.expect('slices.length post-die',  0);
+    eLazy.expect('all blocks loaded');
+    eLazy.expect('messages checked',  0);
 
     var dummyProxy = {
       sendStatus: function() {}
@@ -113,23 +118,23 @@ TD.commonCase('stop searching when killed', function(T, RT) {
     var backendSlice = testAccount.account.searchFolderMessages(
       testFolder.mailFolder.id, dummyProxy, 'foo', { subject: true });
     var folderStorage = backendSlice._storage;
-    eLazy.namedValue('pending loads', folderStorage._pendingLoads.length);
-    eLazy.namedValue('slices.length pre-die', folderStorage._slices.length);
+    eLazy.log('pending loads', folderStorage._pendingLoads.length);
+    eLazy.log('slices.length pre-die', folderStorage._slices.length);
     backendSlice.die();
-    eLazy.namedValue('slices.length post-die', folderStorage._slices.length);
+    eLazy.log('slices.length post-die', folderStorage._slices.length);
 
     folderStorage._deferredCalls.push(function() {
-      eLazy.event('all blocks loaded');
-      eLazy.namedValue('messages checked',
+      eLazy.log('all blocks loaded');
+      eLazy.log('messages checked',
                        backendSlice.filterer.messagesChecked);
     });
   });
 });
 
-TD.commonCase('empty search returns zero results', function(T, RT) {
+commonCase('empty search returns zero results', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse,
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse,
                                                   restored: true }),
       eBackendSearchSlice = T.actor('SearchSlice'),
       eBodies = T.lazyLogger('bodies'),
@@ -146,28 +151,28 @@ TD.commonCase('empty search returns zero results', function(T, RT) {
     { syncedToDawnOfTime: true });
 
   T.action('download all bodies', eBodies, function() {
-    eBodies.expect_event('downloaded');
+    eBodies.expect('downloaded');
     fullView.slice.maybeRequestBodies(
       0, fullView.slice.items.length - 1,
       // none of these bodies will be more than a meg.
       { maximumBytesToFetch: 1024 * 1024 },
       function() {
-        eBodies.event('downloaded');
+        eBodies.log('downloaded');
       });
   });
 
   T.group('empty search');
   var searchSlice, initialMatchHeaders;
   T.action('initial', eSearch, eBackendSearchSlice, function() {
-    eSearch.expect_event('initial search completed');
-    eSearch.expect_namedValue('slice item length zero', 0);
+    eSearch.expect('initial search completed');
+    eSearch.expect('slice item length zero',  0);
 
     searchSlice = testAccount.MailAPI.searchFolderMessages(
       testFolder.mailFolder, '', { subject: true });
 
     waitForSearchToSearchEverything(searchSlice, function() {
-      eSearch.event('initial search completed');
-      eSearch.namedValue('slice item length zero', searchSlice.items.length);
+      eSearch.log('initial search completed');
+      eSearch.log('slice item length zero', searchSlice.items.length);
     });
   });
 });
@@ -186,8 +191,8 @@ TD.commonCase('empty search returns zero results', function(T, RT) {
  */
 function testSearchSlices(T, RT, opts) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse,
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse,
                                                   restored: true }),
       eBackendSearchSlice = T.actor('SearchSlice'),
       eBodies = T.lazyLogger('bodies'),
@@ -355,7 +360,7 @@ function testSearchSlices(T, RT, opts) {
 
   var initialHeadersDict = null;
   T.action('download all bodies', eBodies, function() {
-    eBodies.expect_event('downloaded');
+    eBodies.expect('downloaded');
     fullView.slice.maybeRequestBodies(
       0, fullView.slice.items.length - 1,
       // none of these bodies will be more than a meg.
@@ -363,14 +368,14 @@ function testSearchSlices(T, RT, opts) {
       function() {
         initialHeadersDict = matchAndAssertHeadersMatchExpectedNamesAsDict(
                                fullView.slice, initialMsgNames);
-        eBodies.event('downloaded');
+        eBodies.log('downloaded');
       });
   });
 
   T.group('search on initial state');
   var searchSlice, initialMatchHeaders;
   T.action('initial', eSearch, eBackendSearchSlice, function() {
-    eSearch.expect_event('initial search completed');
+    eSearch.expect('initial search completed');
 
     searchSlice = testAccount.MailAPI.searchFolderMessages(
       testFolder.mailFolder, MATCHING_WORD, opts.searchFlags);
@@ -379,19 +384,19 @@ function testSearchSlices(T, RT, opts) {
       initialMatchHeaders =
         matchAndAssertHeadersMatchExpectedNamesAsDict(searchSlice,
                                                       initialMatchNames);
-      eSearch.event('initial search completed');
+      eSearch.log('initial search completed');
     });
   });
   T.action('hook search changes', function() {
     searchSlice.onadd = function(match) {
-      eSearch.namedValue('header added', match.header.subject);
+      eSearch.log('header added', match.header.subject);
     };
     searchSlice.onchange = function(match) {
-      eSearch.namedValue('header changed', match.header);
-      eSearch.namedValue('starred', match.header.isStarred);
+      eSearch.log('header changed', match.header.subject);
+      eSearch.log('starred', match.header.isStarred);
     };
     searchSlice.onremove = function(match) {
-      eSearch.namedValue('header removed', match.header);
+      eSearch.log('header removed', match.header.subject);
     };
   });
 
@@ -400,15 +405,17 @@ function testSearchSlices(T, RT, opts) {
   // shrink some off, we should hear splices to know when it's done
   T.action('shrink', eSearch, function() {
     // the high range is chopped off first with a splice so locally ascending
-    eSearch.expect_namedValue(
-      'header removed', initialMatchHeaders.spareShrunkOldishMatchToDelete);
-    eSearch.expect_namedValue(
-      'header removed', initialMatchHeaders.oldestMatchToShrinkOff);
+    eSearch.expect(
+      'header removed',
+      initialMatchHeaders.spareShrunkOldishMatchToDelete.subject);
+    eSearch.expect(
+      'header removed', initialMatchHeaders.oldestMatchToShrinkOff.subject);
     // then the low range, again locally ascending
-    eSearch.expect_namedValue(
-      'header removed', initialMatchHeaders.newestMatchToShrinkOff);
-    eSearch.expect_namedValue(
-      'header removed', initialMatchHeaders.spareShrunkNewishMatchToDelete);
+    eSearch.expect(
+      'header removed', initialMatchHeaders.newestMatchToShrinkOff.subject);
+    eSearch.expect(
+      'header removed',
+      initialMatchHeaders.spareShrunkNewishMatchToDelete.subject);
 
     searchSlice.requestShrinkage(
       searchSlice.items.indexOf(
@@ -425,9 +432,9 @@ function testSearchSlices(T, RT, opts) {
    */
   T.group('updates');
   T.action('see update for match in search slice', eSearch, function() {
-    eSearch.expect_namedValue('header changed',
-                              initialMatchHeaders.insideMatchToMessWith);
-    eSearch.expect_namedValue('starred', true);
+    eSearch.expect('header changed',
+                   initialMatchHeaders.insideMatchToMessWith.subject);
+    eSearch.expect('starred',  true);
 
     testAccount.expect_runOp(
       'modtags',
@@ -442,19 +449,19 @@ function testSearchSlices(T, RT, opts) {
   T.action('no updates for matches outside slice', eSearch, eFolderSlice,
            function() {
     // the job is explicitly processed oldest to newest
-    eFolderSlice.expect_namedValue('folder header changed',
-                                   initialMatchHeaders.oldestMatchToShrinkOff);
-    eFolderSlice.expect_namedValue('starred', true);
-    eFolderSlice.expect_namedValue('folder header changed',
-                                   initialMatchHeaders.newestMatchToShrinkOff);
-    eFolderSlice.expect_namedValue('starred', true);
+    eFolderSlice.expect('folder header changed',
+                        initialMatchHeaders.oldestMatchToShrinkOff.subject);
+    eFolderSlice.expect('starred',  true);
+    eFolderSlice.expect('folder header changed',
+                        initialMatchHeaders.newestMatchToShrinkOff.subject);
+    eFolderSlice.expect('starred',  true);
 
     testAccount.expect_runOp(
       'modtags',
       { local: true, server: true, save: 'local' });
 
     fullView.slice.onadd = function(header) {
-      eFolderSlice.namedValue('folder header added',
+      eFolderSlice.log('folder header added',
                               header.subject);
       if (opts.bodyRequiredForMatch) {
         // suppress until we get the body loaded.
@@ -464,19 +471,19 @@ function testSearchSlices(T, RT, opts) {
         // the parts are actually downloaded.
         header.getBody({ withBodyReps: true }, function() {
           header.data.suppress = false;
-          eFolderSlice.namedValue('folder header body downloaded',
+          eFolderSlice.log('folder header body downloaded',
                                   header.subject);
         });
       }
     };
     fullView.slice.onchange = function(header) {
       if (!header.data || !header.data.suppress) {
-        eFolderSlice.namedValue('folder header changed', header);
-        eFolderSlice.namedValue('starred', header.isStarred);
+        eFolderSlice.log('folder header changed', header.subject);
+        eFolderSlice.log('starred', header.isStarred);
       }
     };
     fullView.slice.onremove = function(header) {
-      eFolderSlice.namedValue('folder header removed', header);
+      eFolderSlice.log('folder header removed', header.subject);
     };
 
     testAccount.MailAPI.markMessagesStarred([
@@ -486,9 +493,9 @@ function testSearchSlices(T, RT, opts) {
   });
   T.action('no updates for misses inside slice', eSearch, eFolderSlice,
            function() {
-    eFolderSlice.expect_namedValue('folder header changed',
-                                   initialHeadersDict.insideMissToMessWith);
-    eFolderSlice.expect_namedValue('starred', true);
+    eFolderSlice.expect('folder header changed',
+                        initialHeadersDict.insideMissToMessWith.subject);
+    eFolderSlice.expect('starred',  true);
 
     testAccount.expect_runOp(
       'modtags',
@@ -499,8 +506,8 @@ function testSearchSlices(T, RT, opts) {
 
   T.group('deletions');
   T.action('see deletions of match in search slice', eSearch, function() {
-    eSearch.expect_namedValue('header removed',
-                              initialMatchHeaders.insideMatchToMessWith);
+    eSearch.expect('header removed',
+                   initialMatchHeaders.insideMatchToMessWith.subject);
 
     testAccount.expect_runOp(
       'delete',
@@ -511,8 +518,8 @@ function testSearchSlices(T, RT, opts) {
   });
   T.action('no deletions for misses inside slice', eSearch, eFolderSlice,
            function() {
-    eFolderSlice.expect_namedValue('folder header removed',
-                                   initialHeadersDict.insideMissToMessWith);
+    eFolderSlice.expect('folder header removed',
+                        initialHeadersDict.insideMissToMessWith.subject);
 
     testAccount.expect_runOp(
       'delete',
@@ -523,12 +530,12 @@ function testSearchSlices(T, RT, opts) {
   T.action('no deletions for matches outside slice', eSearch, eFolderSlice,
            function() {
     // the job is explicitly processed oldest to newest
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header removed',
-      initialMatchHeaders.spareShrunkOldishMatchToDelete);
-    eFolderSlice.expect_namedValue(
+      initialMatchHeaders.spareShrunkOldishMatchToDelete.subject);
+    eFolderSlice.expect(
       'folder header removed',
-      initialMatchHeaders.spareShrunkNewishMatchToDelete);
+      initialMatchHeaders.spareShrunkNewishMatchToDelete.subject);
 
     testAccount.expect_runOp(
       'delete',
@@ -554,19 +561,19 @@ function testSearchSlices(T, RT, opts) {
   T.action('see addition of match in search slice', eSearch, eFolderSlice,
            function() {
     var addingSubject = synMsgDict.insideMatchToAdd.subject;
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header added', addingSubject);
-    eFolderSlice.expect_event('synced');
+    eFolderSlice.expect('synced');
     if (opts.bodyRequiredForMatch) {
-      eFolderSlice.expect_namedValue(
+      eFolderSlice.expect(
         'folder header body downloaded', addingSubject);
     }
     // (This is using a different logger so the ordering of the search add
     // versus when the download occurs does not affect test correctness.)
-    eSearch.expect_namedValue('header added', addingSubject);
+    eSearch.expect('header added',  addingSubject);
 
     fullView.slice.oncomplete = function() {
-      eFolderSlice.event('synced');
+      eFolderSlice.log('synced');
     };
 
     fullView.slice.refresh();
@@ -581,16 +588,16 @@ function testSearchSlices(T, RT, opts) {
   T.action('no additions for misses inside slice', eSearch, eFolderSlice,
            function() {
     var addingSubject = synMsgDict.insideMissToAdd.subject;
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header added', addingSubject);
-    eFolderSlice.expect_event('synced');
+    eFolderSlice.expect('synced');
     if (opts.bodyRequiredForMatch) {
-      eFolderSlice.expect_namedValue(
+      eFolderSlice.expect(
         'folder header body downloaded', addingSubject);
     }
 
     fullView.slice.oncomplete = function() {
-      eFolderSlice.event('synced');
+      eFolderSlice.log('synced');
     };
 
     fullView.slice.refresh();
@@ -606,20 +613,20 @@ function testSearchSlices(T, RT, opts) {
            function() {
     var newSubject = synMsgDict.ignoredNewishMatchToAdd.subject,
         oldSubject = synMsgDict.ignoredOldishMatchToAdd.subject;
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header added', newSubject);
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header added', oldSubject);
-    eFolderSlice.expect_event('synced');
+    eFolderSlice.expect('synced');
     if (opts.bodyRequiredForMatch) {
-      eFolderSlice.expect_namedValue(
+      eFolderSlice.expect(
         'folder header body downloaded', newSubject);
-      eFolderSlice.expect_namedValue(
+      eFolderSlice.expect(
         'folder header body downloaded', oldSubject);
     }
 
     fullView.slice.oncomplete = function() {
-      eFolderSlice.event('synced');
+      eFolderSlice.log('synced');
     };
 
     fullView.slice.refresh();
@@ -630,51 +637,51 @@ function testSearchSlices(T, RT, opts) {
   T.action('grow to bottom again, encompassing added headers too', eSearch,
            function() {
     // so, first off, we should absolutely not be at the bottom right now.
-    eSearch.expect_namedValue('at bottom before grow', false);
+    eSearch.expect('at bottom before grow',  false);
     // and then we should hear about the messages in order (noting that we
     // deleted "spareShrunkOldishMatchToDelete")
-    eSearch.expect_namedValue('header added',
-                              synMsgDict.ignoredOldishMatchToAdd.subject);
-    eSearch.expect_namedValue('header added',
-                              synMsgDict.oldestMatchToShrinkOff.subject);
-    eSearch.expect_namedValue('at bottom after grow', true);
-    eSearch.expect_namedValue('headers.length', searchSlice.items.length + 2);
-    eSearch.expect_namedValue('desiredHeaders', searchSlice.items.length + 2);
+    eSearch.expect('header added',
+                   synMsgDict.ignoredOldishMatchToAdd.subject);
+    eSearch.expect('header added',
+                   synMsgDict.oldestMatchToShrinkOff.subject);
+    eSearch.expect('at bottom after grow',  true);
+    eSearch.expect('headers.length',  searchSlice.items.length + 2);
+    eSearch.expect('desiredHeaders',  searchSlice.items.length + 2);
 
-    var backendSearchSlice = eBackendSearchSlice._logger.__instance;
+    var backendSearchSlice = $searchfilter.SearchSlice._TEST_latestInstance;
     searchSlice.oncomplete = function() {
-      eSearch.namedValue('at bottom after grow', searchSlice.atBottom);
-      eSearch.namedValue('headers.length', searchSlice.items.length);
-      eSearch.namedValue('desiredHeaders', backendSearchSlice.desiredHeaders);
+      eSearch.log('at bottom after grow', searchSlice.atBottom);
+      eSearch.log('headers.length', searchSlice.items.length);
+      eSearch.log('desiredHeaders', backendSearchSlice.desiredHeaders);
     };
 
-    eSearch.namedValue('at bottom before grow', searchSlice.atBottom);
+    eSearch.log('at bottom before grow', searchSlice.atBottom);
     // ask for way more messages than we know are there.
     searchSlice.requestGrowth(10, false);
   });
   T.action('grow to top again, encompassing added headers too', eSearch,
            function() {
     // so, first off, we should absolutely not be at the top right now.
-    eSearch.expect_namedValue('at top before grow', false);
+    eSearch.expect('at top before grow',  false);
     // and then we should hear about the messages newest to oldest because the
     // splice is processed in batch order and these should all be in a single
     // block (noting that we deleted "spareShrunkNewishMatchToDelete")
-    eSearch.expect_namedValue('header added',
-                              synMsgDict.newestMatchToShrinkOff.subject);
-    eSearch.expect_namedValue('header added',
-                              synMsgDict.ignoredNewishMatchToAdd.subject);
-    eSearch.expect_namedValue('at top after grow', true);
-    eSearch.expect_namedValue('headers.length', searchSlice.items.length + 2);
-    eSearch.expect_namedValue('desiredHeaders', searchSlice.items.length + 2);
+    eSearch.expect('header added',
+                   synMsgDict.newestMatchToShrinkOff.subject);
+    eSearch.expect('header added',
+                   synMsgDict.ignoredNewishMatchToAdd.subject);
+    eSearch.expect('at top after grow',  true);
+    eSearch.expect('headers.length',  searchSlice.items.length + 2);
+    eSearch.expect('desiredHeaders',  searchSlice.items.length + 2);
 
-    var backendSearchSlice = eBackendSearchSlice._logger.__instance;
+    var backendSearchSlice = $searchfilter.SearchSlice._TEST_latestInstance;
     searchSlice.oncomplete = function() {
-      eSearch.namedValue('at top after grow', searchSlice.atTop);
-      eSearch.namedValue('headers.length', searchSlice.items.length);
-      eSearch.namedValue('desiredHeaders', backendSearchSlice.desiredHeaders);
+      eSearch.log('at top after grow', searchSlice.atTop);
+      eSearch.log('headers.length', searchSlice.items.length);
+      eSearch.log('desiredHeaders', backendSearchSlice.desiredHeaders);
     };
 
-    eSearch.namedValue('at top before grow', searchSlice.atTop);
+    eSearch.log('at top before grow', searchSlice.atTop);
     // ask for way more messages than we know are there.
     searchSlice.requestGrowth(-10, false);
   });
@@ -689,27 +696,27 @@ function testSearchSlices(T, RT, opts) {
   T.action('see addition of new match when latched to top/new', eSearch,
            eFolderSlice, function() {
     var addingSubject = synMsgDict.newMatchToAdd.subject;
-    eFolderSlice.expect_namedValue(
+    eFolderSlice.expect(
       'folder header added', addingSubject);
-    eFolderSlice.expect_event('synced');
+    eFolderSlice.expect('synced');
     if (opts.bodyRequiredForMatch) {
-      eFolderSlice.expect_namedValue(
+      eFolderSlice.expect(
         'folder header body downloaded', addingSubject);
     }
     // (This is using a different logger so the ordering of the search add
     // versus when the download occurs does not affect test correctness.)
-    eSearch.expect_namedValue(
+    eSearch.expect(
       'header added', addingSubject);
 
     fullView.slice.oncomplete = function() {
-      eFolderSlice.event('synced');
+      eFolderSlice.log('synced');
     };
 
     fullView.slice.refresh();
   });
 }
 
-TD.commonCase('search author', function(T, RT) {
+commonCase('search author', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_author',
     searchFlags: { author: true },
@@ -720,7 +727,7 @@ TD.commonCase('search author', function(T, RT) {
   });
 });
 
-TD.commonCase('search recipients', function(T, RT) {
+commonCase('search recipients', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_recipients',
     searchFlags: { recipients: true },
@@ -731,7 +738,7 @@ TD.commonCase('search recipients', function(T, RT) {
   });
 });
 
-TD.commonCase('search subject', function(T, RT) {
+commonCase('search subject', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_subject',
     searchFlags: { subject: true },
@@ -745,7 +752,7 @@ TD.commonCase('search subject', function(T, RT) {
 /**
  * Vary where we stash the matching keyword.
  */
-TD.commonCase('search recipients or subject', function(T, RT) {
+commonCase('search recipients or subject', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_subject',
     searchFlags: { recipients: true, subject: true },
@@ -762,7 +769,7 @@ TD.commonCase('search recipients or subject', function(T, RT) {
 });
 
 
-TD.commonCase('search unquoted text/plain bodies', function(T, RT) {
+commonCase('search unquoted text/plain bodies', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_body_unquoted_plain',
     searchFlags: { body: 'no-quotes' },
@@ -773,7 +780,7 @@ TD.commonCase('search unquoted text/plain bodies', function(T, RT) {
   });
 });
 
-TD.commonCase('search quoted text/plain bodies', function(T, RT) {
+commonCase('search quoted text/plain bodies', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_body_quoted_plain',
     searchFlags: { body: 'yes-quotes' },
@@ -784,7 +791,7 @@ TD.commonCase('search quoted text/plain bodies', function(T, RT) {
   });
 });
 
-TD.commonCase('search unquoted text/html bodies', function(T, RT) {
+commonCase('search unquoted text/html bodies', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_body_unquoted_html',
     searchFlags: { body: 'no-quotes' },
@@ -798,7 +805,7 @@ TD.commonCase('search unquoted text/html bodies', function(T, RT) {
   });
 });
 
-TD.commonCase('search quoted text/html bodies', function(T, RT) {
+commonCase('search quoted text/html bodies', function(T, RT) {
   testSearchSlices(T, RT, {
     folderName: 'search_body_quoted_html',
     searchFlags: { body: 'yes-quotes' },
@@ -810,5 +817,7 @@ TD.commonCase('search quoted text/html bodies', function(T, RT) {
     },
   });
 });
+
+return allTests;
 
 }); // end define

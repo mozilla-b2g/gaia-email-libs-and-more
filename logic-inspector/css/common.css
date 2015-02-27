@@ -1,0 +1,22 @@
+/**
+ * Styles common to both test-logs/index.html and individual test suite logs.
+ */
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #efefef;
+  font: 12px Helvetica, sans-serif;
+}
+
+.index-link {
+  text-decoration: none;
+  display: block;
+  width: 20em;
+  padding: 1em;
+}
+
+.index-header {
+  background: white;
+  padding: 1em;
+}

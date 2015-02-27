@@ -1,21 +1,21 @@
-define(['rdcommon/testcontext', './th_main',
+define(['./th_main',
         './fault_injecting_socket', 'imap/probe',
-        'syncbase', 'slog',
+        'syncbase',
         'pop3/probe', 'pop3/pop3', 'smtp/probe',
         'imap/client'],
-function($tc, $th_main, $fawlty, $imapProbe,
-         syncbase, slog, $pop3Probe, $pop3, $smtpProbe, imapclient) {
+function($th_main, $fawlty, $imapProbe,
+         syncbase, $pop3Probe, $pop3, $smtpProbe, imapclient) {
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 
 function thunkTimeouts(lazyLogger) {
   var timeouts = [];
   function thunkedSetTimeout(func, delay) {
-    lazyLogger.namedValue('incoming:setTimeout', delay);
+    lazyLogger.log('incoming:setTimeout', delay);
     return timeouts.push(func);
   }
   function thunkedClearTimeout() {
-    lazyLogger.event('incoming:clearTimeout');
+    lazyLogger.log('incoming:clearTimeout');
   }
 
   imapclient.setTimeoutFunctions(thunkedSetTimeout, thunkedClearTimeout);
@@ -108,15 +108,15 @@ function cannedLoginTest(T, RT, opts) {
     }
 
     if (!opts.willNotMakeConnection) {
-      eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
-      eCheck.expect_event('incoming:clearTimeout');
+      eCheck.expect('incoming:setTimeout',  proberTimeout(RT));
+      eCheck.expect('incoming:clearTimeout');
     }
-    eCheck.expect_namedValue('probe result', opts.expectResult);
+    eCheck.expect('probe result',  opts.expectResult);
 
     // Even though we will fail to login, from the IMAP connection's
     // perspective we won't want the connection to die.
     // ...And now I've restored the original event functionality.
-    //eCheck.expect_namedValue('incoming:setTimeout', KEEP_ALIVE_TIMEOUT_MS);
+    //eCheck.expect('incoming:setTimeout',  KEEP_ALIVE_TIMEOUT_MS);
     var precommands = [];
 
     if (RT.envOptions.type === 'pop3') {
@@ -165,7 +165,7 @@ function cannedLoginTest(T, RT, opts) {
     }
 
     constructProber(RT, cci).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
   });
 };

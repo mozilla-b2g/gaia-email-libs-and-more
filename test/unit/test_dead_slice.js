@@ -1,15 +1,13 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'mailslice', 'exports'],
-       function($tc, $th_main, $mailslice, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_dead_slice' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $mailslice = require('mailslice');
 
 // Ensure that if we end up trying to refresh a dead slice, we bail out.
-TD.commonCase('refresh a dead slice', function(T, RT) {
+return new LegacyGelamTest('refresh a dead slice', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
@@ -35,8 +33,7 @@ TD.commonCase('refresh a dead slice', function(T, RT) {
     // We expect the forthcoming sliceOpenMostRecent() call to do nothing;
     // i.e. it should definitely not mess with the accuracy ranges, as it
     // did before <https://bugzil.la/941991>.
-    eSync.expect_namedValue('accuracyRangeStart',
-                            storage._accuracyRanges[0].startTS);
+    eSync.expect('accuracyRangeStart', storage._accuracyRanges[0].startTS);
 
     // Now, open the dead slice.
     storage.sliceOpenMostRecent(slice, true);
@@ -45,8 +42,7 @@ TD.commonCase('refresh a dead slice', function(T, RT) {
     // doesn't offer a callback. We just want to know what happens
     // after sync finishes.
     slice.setStatus = function(status) {
-      eSync.namedValue('accuracyRangeStart',
-                       storage._accuracyRanges[0].startTS);
+      eSync.log('accuracyRangeStart', storage._accuracyRanges[0].startTS);
     };
   });
 

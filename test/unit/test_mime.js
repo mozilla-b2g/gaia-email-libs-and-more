@@ -8,12 +8,11 @@
  * - the (external) bleach.js lib
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_imap, $msggen, exports) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mime' }, null, [$th_imap.TESTHELPER], ['app']);
+define(function(require) {
+
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
 
 // The example string comes from wikipedia, and it now seems to be a popular
 // test phrase.  See http://en.wikipedia.org/wiki/Quoted-printable
@@ -41,14 +40,15 @@ var rawUnicodeName = 'Figui\u00e8re',
     qpUtf8UnicodeName = 'Figui=C3=A8re';
 
 
+return [
 /**
  * Create messages with very explicit body contents using the fake account's
  * message generator fork.
  */
-TD.commonCase('message encodings', function(T) {
+new LegacyGelamTest('message encodings', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eBodies = T.lazyLogger('bodies');
 
   var fullSyncFolder = testAccount.do_createTestFolder(
@@ -82,37 +82,37 @@ TD.commonCase('message encodings', function(T) {
     { syncedToDawnOfTime: true });
 
   T.check('check messages', eBodies, function() {
-    eBodies.expect_namedValue('from name', rawSammySnake);
-    eBodies.expect_namedValue('to[0] name', rawSammySnake);
-    eBodies.expect_namedValue('to[1] name', rawMultiBase64);
-    eBodies.expect_namedValue('to[2] name', rawBase64Gibberish);
-    eBodies.expect_namedValue('cc[0] name', rawSammySnake);
-    eBodies.expect_namedValue('qp', rawTruthBeauty);
-    eBodies.expect_namedValue('b64', rawTruthBeauty);
+    eBodies.expect('from name',  rawSammySnake);
+    eBodies.expect('to[0] name',  rawSammySnake);
+    eBodies.expect('to[1] name',  rawMultiBase64);
+    eBodies.expect('to[2] name',  rawBase64Gibberish);
+    eBodies.expect('cc[0] name',  rawSammySnake);
+    eBodies.expect('qp',  rawTruthBeauty);
+    eBodies.expect('b64',  rawTruthBeauty);
 
     var qpHeader = folderView.slice.items[0],
         b64Header = folderView.slice.items[1];
 
-    eBodies.namedValue('from name', qpHeader.author.name);
+    eBodies.log('from name', qpHeader.author.name);
 
-    eBodies.namedValue('to[0] name', qpHeader.to[0].name);
-    eBodies.namedValue('to[1] name', qpHeader.to[1].name);
-    eBodies.namedValue('to[2] name', qpHeader.to[2].name);
-    eBodies.namedValue('cc[0] name', qpHeader.cc[0].name);
+    eBodies.log('to[0] name', qpHeader.to[0].name);
+    eBodies.log('to[1] name', qpHeader.to[1].name);
+    eBodies.log('to[2] name', qpHeader.to[2].name);
+    eBodies.log('cc[0] name', qpHeader.cc[0].name);
 
     qpHeader.getBody({ withBodyReps: true }, function(qpBody) {
-      eBodies.namedValue('qp', qpBody.bodyReps[0].content[1]);
+      eBodies.log('qp', qpBody.bodyReps[0].content[1]);
       qpBody.die();
     });
 
     b64Header.getBody({ withBodyReps: true }, function(b64Body) {
-      eBodies.namedValue('b64', b64Body.bodyReps[0].content[1]);
+      eBodies.log('b64', b64Body.bodyReps[0].content[1]);
       b64Body.die();
     });
   });
 
   T.group('cleanup');
-});
+}),
 
 /**
  * Use Thunderbird/gloda's synthetic message generator support and some of its
@@ -120,7 +120,7 @@ TD.commonCase('message encodings', function(T) {
  * explicitly indicate what parts should be seen as bodies or attachments by
  * us, differing from what gloda's time_mime_emitter.js checks.
  */
-TD.commonCase('MIME hierarchies', function(T) {
+new LegacyGelamTest('MIME hierarchies', function(T) {
   var SyntheticPartLeaf = $msggen.SyntheticPartLeaf,
       SyntheticPartMultiAlternative = $msggen.SyntheticPartMultiAlternative;
 
@@ -662,8 +662,8 @@ TD.commonCase('MIME hierarchies', function(T) {
   ];
 
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               restored: true }),
       eCheck = T.lazyLogger('messageCheck');
@@ -712,8 +712,8 @@ TD.commonCase('MIME hierarchies', function(T) {
     { syncedToDawnOfTime: true,
       expectFunc: function() {
         if (testAccount.type === 'pop3') {
-          fullSyncFolder.connActor.ignore_savedAttachment();
-          fullSyncFolder.connActor.ignore_saveFailure();
+           // fullSyncFolder.connActor.ignore_savedAttachment();
+           // fullSyncFolder.connActor.ignore_saveFailure();
         }
       }});
 
@@ -721,27 +721,27 @@ TD.commonCase('MIME hierarchies', function(T) {
   function checkMessage(folderView, msgDef, iMsg) {
     T.check(eCheck, msgDef.name, function() {
       if (!msgDef.createAttachment)
-        eCheck.expect_namedValue('body', msgDef.checkBody);
+        eCheck.expect('body',  msgDef.checkBody);
       if (msgDef.checkSnippet)
-        eCheck.expect_namedValue('snippet', msgDef.checkSnippet);
+        eCheck.expect('snippet',  msgDef.checkSnippet);
       if (msgDef.checkWholeBody) {
-        eCheck.expect_namedValue('wholeBody', msgDef.checkWholeBody);
+        eCheck.expect('wholeBody',  msgDef.checkWholeBody);
       }
       // This test case doesn't quite fit into the general model,
       // since it is supposed to force an inline image to an attachment
       if (msgDef.createAttachment) {
-        eCheck.expect_namedValue('attachment-name', 'photo.JPG');
+        eCheck.expect('attachment-name',  'photo.JPG');
       }
       if ('attachments' in msgDef) {
         for (var i = 0; i < msgDef.attachments.length; i++) {
-          eCheck.expect_namedValue('attachment-name',
-                                   msgDef.attachments[i].decodedFilename);
+          eCheck.expect('attachment-name',
+                        msgDef.attachments[i].decodedFilename);
           if (testAccount.type !== 'pop3') {
             // since POP3 always downloads the entire attachment and
             // it reports the after-base64-decoding size rather than
             // the raw transfer size in bytes, just skip this test.
-            eCheck.expect_namedValue('attachment-size',
-                                     msgDef.attachments[i].body.length);
+            eCheck.expect('attachment-size',
+                          msgDef.attachments[i].body.length);
           }
         }
       }
@@ -764,10 +764,10 @@ TD.commonCase('MIME hierarchies', function(T) {
         }
 
         if (!msgDef.createAttachment)
-          eCheck.namedValue('body', bodyValue);
+          eCheck.log('body', bodyValue);
 
         if (msgDef.checkWholeBody) {
-          eCheck.namedValue('wholeBody', body.bodyReps.reduce(function(s, rep) {
+          eCheck.log('wholeBody', body.bodyReps.reduce(function(s, rep) {
             if (rep.type === 'html' || rep.type === 'plain') {
               return s + rep.content;
             } else {
@@ -776,14 +776,14 @@ TD.commonCase('MIME hierarchies', function(T) {
           }, ''));
         }
         if (msgDef.checkSnippet)
-          eCheck.namedValue('snippet', header.snippet);
+          eCheck.log('snippet', header.snippet);
 
         if (('attachments' in msgDef || msgDef.createAttachment )
           && body.attachments && body.attachments.length) {
           for (var i = 0; i < body.attachments.length; i++) {
-            eCheck.namedValue('attachment-name', body.attachments[i].filename);
+            eCheck.log('attachment-name', body.attachments[i].filename);
             if (testAccount.type !== 'pop3' && !msgDef.createAttachment) {
-              eCheck.namedValue('attachment-size',
+              eCheck.log('attachment-size',
                                 body.attachments[i].sizeEstimateInBytes);
             }
           }
@@ -815,12 +815,12 @@ TD.commonCase('MIME hierarchies', function(T) {
     { syncedToDawnOfTime: true });
   // request up to 4k of partial bodies for all messages!
   T.action(eCheck, 'fetch body snippets', function() {
-    eCheck.expect_event('got snippets');
+    eCheck.expect('got snippets');
     folderView2.slice.maybeRequestBodies(
       0, folderView2.slice.items.length,
       { maximumBytesToFetch: 4096 },
       function() {
-        eCheck.event('got snippets');
+        eCheck.log('got snippets');
     });
   });
 
@@ -829,6 +829,8 @@ TD.commonCase('MIME hierarchies', function(T) {
   testMessages.forEach(checkMessage.bind(null, folderView2));
 
   T.group('cleanup');
-});
+})
+
+];
 
 }); // end define

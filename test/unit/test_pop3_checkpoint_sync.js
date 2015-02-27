@@ -1,20 +1,14 @@
 /**
  * Make sure POP3 pauses to saveAccountState every once in a while.
  **/
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_pop3_checkpoint_sync' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('checkpoint sync', function(T, RT) {
+return new LegacyGelamTest('checkpoint sync', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
   var eSync = T.lazyLogger('sync');
 
   var NUM_MSGS = 10;

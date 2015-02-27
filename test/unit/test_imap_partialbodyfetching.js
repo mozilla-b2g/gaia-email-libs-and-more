@@ -1,15 +1,10 @@
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_partialbodyfetching' },
-  null,
-  [$th_imap.TESTHELPER], ['app']
-);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('fetch only snippets', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+return new LegacyGelamTest('fetch only snippets', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
 
   var eLazy = T.lazyLogger('misc');
   var folderName = 'test_partialbodyfetch_only';
@@ -38,32 +33,32 @@ TD.commonCase('fetch only snippets', function(T, RT) {
     var slice = folderView.slice;
 
     slice.items.forEach(function(header) {
-      eLazy.expect_namedValue('snippet', {
+      eLazy.expect('snippet', {
         id: header.id,
         hasSnippet: true
       });
 
       header.onchange = function() {
         originalSnippets[header.id] = header.snippet;
-        eLazy.namedValue('snippet', {
+        eLazy.log('snippet', {
           id: header.id,
           hasSnippet: !!header.snippet
         });
       };
     });
 
-    eLazy.expect_namedValue('request complete', true);
+    eLazy.expect('request complete',  true);
 
     slice.maybeRequestBodies(0, 1, function() {
-      eLazy.namedValue('request complete', true);
+      eLazy.log('request complete', true);
     });
   });
 
   testAccount.do_closeFolderView(folderView);
   testUniverse.do_shutdown();
 
-  var testUniverse2 = T.actor('testUniverse', 'U');
-  var testAccount2 = T.actor('testAccount', 'A', {
+  var testUniverse2 = T.actor('TestUniverse', 'U');
+  var testAccount2 = T.actor('TestAccount', 'A', {
     universe: testUniverse2,
     restored: true
   });
@@ -76,14 +71,14 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
   T.action('verify snippets exist', eLazy, function() {
     for (var headerId in originalSnippets) {
-      eLazy.expect_namedValue('header snippet', {
+      eLazy.expect('header snippet', {
         id: headerId,
         snippet: originalSnippets[headerId]
       });
     }
 
     recreateView.slice.items.forEach(function(header) {
-      eLazy.namedValue('header snippet', {
+      eLazy.log('header snippet', {
         id: header.id,
         snippet: header.snippet
       });
@@ -91,10 +86,10 @@ TD.commonCase('fetch only snippets', function(T, RT) {
   });
 
   T.check('requesting existing headers', eLazy, function() {
-    eLazy.expect_namedValue('fires callback', false);
+    eLazy.expect('fires callback',  false);
     recreateView.slice.maybeRequestBodies(0, 1, function() {
       // false means it does not queue
-      eLazy.namedValue('fires callback', false);
+      eLazy.log('fires callback', false);
     });
   });
 
@@ -103,7 +98,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
       var content =
         reuseFolder.serverMessageContent(header.guid);
 
-      eLazy.expect_namedValue('body content', {
+      eLazy.expect('body content', {
         id: header.id,
         isDownloaded: true,
         content: content,
@@ -112,7 +107,7 @@ TD.commonCase('fetch only snippets', function(T, RT) {
 
       header.getBody({ withBodyReps: true }, function(body) {
         var rep = body.bodyReps[0];
-        eLazy.namedValue('body content', {
+        eLazy.log('body content', {
           id: header.id,
           isDownloaded: rep.isDownloaded,
           content: rep.content,

@@ -1,15 +1,18 @@
 /**
  * Test the search filters.
  **/
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'searchfilter', 'exports'],
-       function($tc, $th_imap, $filters, exports) {
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $filters = require('searchfilter');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_search' }, null, [$th_imap.TESTHELPER], ['app']);
+var allTests = [];
 
-TD.commonCase('author filter', function(T) {
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
+commonCase('author filter', function(T) {
   var eLazy = T.lazyLogger('filter');
 
   var samples = [
@@ -76,26 +79,25 @@ TD.commonCase('author filter', function(T) {
 
   samples.forEach(function(sample) {
     T.action(sample.name, eLazy, function() {
-      eLazy.expect_namedValueD('matches?', sample.result);
+      eLazy.expect('matches?',  sample.result);
       if (sample.result) {
-        eLazy.expect_namedValue('offset', sample.index);
-        eLazy.expect_namedValue('length',
-                                sample.length || sample.phrase.length);
+        eLazy.expect('offset',  sample.index);
+        eLazy.expect('length', sample.length || sample.phrase.length);
       }
 
       var author = new $filters.AuthorFilter(sample.phrase);
       var match = {};
       var ret = author.testMessage(sample.headers, '', match);
-      eLazy.namedValueD('matches?', !!ret, match);
+      eLazy.log('matches?', !!ret, match);
       if (!ret)
         return;
-      eLazy.namedValue('offset', match.author.matchRuns[0].start);
-      eLazy.namedValue('length', match.author.matchRuns[0].length);
+      eLazy.log('offset', match.author.matchRuns[0].start);
+      eLazy.log('length', match.author.matchRuns[0].length);
     });
   });
 });
 
-TD.commonCase('recipient filter', function(T) {
+commonCase('recipient filter', function(T) {
   var eLazy = T.lazyLogger('filter');
 
   var samples = [
@@ -130,29 +132,28 @@ TD.commonCase('recipient filter', function(T) {
 
   samples.forEach(function(sample) {
     T.action(sample.name, eLazy, function() {
-      eLazy.expect_namedValueD('matches?', sample.result);
+      eLazy.expect('matches?',  sample.result);
       if (sample.result) {
-        eLazy.expect_namedValue('count', 1);
-        eLazy.expect_namedValue('offset', sample.index);
-        eLazy.expect_namedValue('length',
-                                sample.length || sample.phrase.length);
+        eLazy.expect('count',  1);
+        eLazy.expect('offset',  sample.index);
+        eLazy.expect('length', sample.length || sample.phrase.length);
       }
 
       var recipient = new $filters.RecipientFilter(
         sample.phrase, 1, true, true, true);
       var match = {};
       var ret = recipient.testMessage(sample.header, {}, match);
-      eLazy.namedValueD('matches?', ret, match);
+      eLazy.log('matches?', ret, match);
       if (!ret)
         return;
-      eLazy.namedValue('count', match.recipients.length, 1);
-      eLazy.namedValue('offset', match.recipients[0].matchRuns[0].start);
-      eLazy.namedValue('length', match.recipients[0].matchRuns[0].length);
+      eLazy.log('count', match.recipients.length, 1);
+      eLazy.log('offset', match.recipients[0].matchRuns[0].start);
+      eLazy.log('length', match.recipients[0].matchRuns[0].length);
     });
   });
 });
 
-TD.commonCase('subject filter', function(T) {
+commonCase('subject filter', function(T) {
   var eLazy = T.lazyLogger('filter');
 
   var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 4;
@@ -296,10 +297,10 @@ TD.commonCase('subject filter', function(T) {
 
   samples.forEach(function(sample) {
     T.action(sample.name, eLazy, function() {
-      eLazy.expect_namedValueD('matches?', sample.result);
+      eLazy.expect('matches?',  sample.result);
       if (sample.result) {
         for (var i = 0; i < sample.matches.length; i++) {
-          eLazy.expect_namedValue('match[' + i + ']', sample.matches[i]);
+          eLazy.expect('match[' + i + ']',  sample.matches[i]);
         }
       }
 
@@ -307,11 +308,11 @@ TD.commonCase('subject filter', function(T) {
                                                CONTEXT_BEFORE, CONTEXT_AFTER);
       var match = {};
       var ret = subject.testMessage(sample.header, {}, match);
-      eLazy.namedValueD('matches?', !!ret, match);
+      eLazy.log('matches?', !!ret, match);
       if (!ret)
         return;
       for (i = 0; i < match.subject.length; i++) {
-        eLazy.namedValue('match[' + i + ']', match.subject[i]);
+        eLazy.log('match[' + i + ']', match.subject[i]);
       }
     });
   });
@@ -321,7 +322,7 @@ TD.commonCase('subject filter', function(T) {
  * Find matches in quotechew'ed text/plain body.  We're assuming the subject
  * tests took care of testing the edge cases in snippetMatchHelper.
  */
-TD.commonCase('body plain', function(T) {
+commonCase('body plain', function(T) {
   var eLazy = T.lazyLogger('filter');
 
   var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 4;
@@ -469,19 +470,15 @@ TD.commonCase('body plain', function(T) {
 
   samples.forEach(function(sample) {
     T.action(sample.name, eLazy, function() {
-      eLazy.expect_namedValueD('matches?', sample.result);
+      eLazy.expect('matches?',  sample.result);
       if (sample.result) {
         // the advantage to breaking these out is that the diff algorithm in the
         // ArbPL/loggest UI can do useful things; but this is a little silly.
         for (var i = 0; i < sample.matches.length; i++) {
-          eLazy.expect_namedValue('body[].text',
-                                  sample.matches[i].text);
-          eLazy.expect_namedValue('body[].offset',
-                                  sample.matches[i].offset);
-          eLazy.expect_namedValue('body[].matchRuns',
-                                  sample.matches[i].matchRuns);
-          eLazy.expect_namedValue('body[].path',
-                                  sample.matches[i].path);
+          eLazy.expect('body[].text', sample.matches[i].text);
+          eLazy.expect('body[].offset', sample.matches[i].offset);
+          eLazy.expect('body[].matchRuns', sample.matches[i].matchRuns);
+          eLazy.expect('body[].path', sample.matches[i].path);
         }
       }
 
@@ -489,21 +486,21 @@ TD.commonCase('body plain', function(T) {
         sample.phrase, sample.matchQuotes, 20, CONTEXT_BEFORE, CONTEXT_AFTER);
       var match = {};
       var ret = bodyFilter.testMessage(sample.header, sample.body, match);
-      eLazy.namedValueD('matches?', !!ret, match);
+      eLazy.log('matches?', !!ret, match);
       if (!ret) {
         return;
       }
       for (i = 0; i < match.body.length; i++) {
-        eLazy.namedValue('body[].text', match.body[i].text);
-        eLazy.namedValue('body[].offset', match.body[i].offset);
-        eLazy.namedValue('body[].matchRuns', match.body[i].matchRuns);
-        eLazy.namedValue('body[].path', match.body[i].path);
+        eLazy.log('body[].text', match.body[i].text);
+        eLazy.log('body[].offset', match.body[i].offset);
+        eLazy.log('body[].matchRuns', match.body[i].matchRuns);
+        eLazy.log('body[].path', match.body[i].path);
       }
     });
   });
 });
 
-TD.commonCase('body html', function(T) {
+commonCase('body html', function(T) {
   var eLazy = T.lazyLogger('filter');
 
   var CONTEXT_BEFORE = 4, CONTEXT_AFTER = 12;
@@ -597,19 +594,15 @@ TD.commonCase('body html', function(T) {
 
   samples.forEach(function(sample) {
     T.action(sample.name, eLazy, function() {
-      eLazy.expect_namedValueD('matches?', sample.result);
+      eLazy.expect('matches?',  sample.result);
       if (sample.result) {
         // the advantage to breaking these out is that the diff algorithm in the
         // ArbPL/loggest UI can do useful things; but this is a little silly.
         for (var i = 0; i < sample.matches.length; i++) {
-          eLazy.expect_namedValue('body[].text',
-                                  sample.matches[i].text);
-          eLazy.expect_namedValue('body[].offset',
-                                  sample.matches[i].offset);
-          eLazy.expect_namedValue('body[].matchRuns',
-                                  sample.matches[i].matchRuns);
-          eLazy.expect_namedValue('body[].path',
-                                  sample.matches[i].path);
+          eLazy.expect('body[].text', sample.matches[i].text);
+          eLazy.expect('body[].offset', sample.matches[i].offset);
+          eLazy.expect('body[].matchRuns', sample.matches[i].matchRuns);
+          eLazy.expect('body[].path', sample.matches[i].path);
         }
       }
 
@@ -617,18 +610,20 @@ TD.commonCase('body html', function(T) {
         sample.phrase, sample.matchQuotes, 20, CONTEXT_BEFORE, CONTEXT_AFTER);
       var match = {};
       var ret = bodyFilter.testMessage(sample.header, sample.body, match);
-      eLazy.namedValueD('matches?', !!ret, match);
+      eLazy.log('matches?', !!ret, match);
       if (!ret) {
         return;
       }
       for (i = 0; i < match.body.length; i++) {
-        eLazy.namedValue('body[].text', match.body[i].text);
-        eLazy.namedValue('body[].offset', match.body[i].offset);
-        eLazy.namedValue('body[].matchRuns', match.body[i].matchRuns);
-        eLazy.namedValue('body[].path', match.body[i].path);
+        eLazy.log('body[].text', match.body[i].text);
+        eLazy.log('body[].offset', match.body[i].offset);
+        eLazy.log('body[].matchRuns', match.body[i].matchRuns);
+        eLazy.log('body[].path', match.body[i].path);
       }
     });
   });
 });
+
+return allTests;
 
 }); // end define

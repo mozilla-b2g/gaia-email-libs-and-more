@@ -2,21 +2,37 @@
  * IMAP protocol implementation tests.  Also check out test_incoming_prober.js.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'browserbox', 'wo-utf7',
-        'imap/imapchew', 'exports'],
-function($tc, $th_main, $fawlty, BrowserBox, utf7, $imapchew, exports) {
+define(function(require) {
+
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $fawlty = require('./resources/fault_injecting_socket');
+var BrowserBox = require('browserbox');
+var utf7 = require('wo-utf7');
+var $imapchew = require('imap/imapchew');
+var $th_main = require('./resources/th_main');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_proto' }, null, [$th_main.TESTHELPER], ['app']);
+var allTests = [];
 
-TD.commonSimple('decodeModifiedUtf7', function(lazy) {
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
+function commonSimple(name, fn) {
+  allTests.push(new LegacyGelamTest(name, (T, RT) => {
+    T.action(() => {
+      var eLazy = T.lazyLogger();
+      fn(eLazy);
+    });
+  }));
+}
+
+commonSimple('decodeModifiedUtf7', function(lazy) {
   var decodeModifiedUtf7 = utf7.imap.decode;
 
   function check(encoded, expected) {
-    lazy.expect_namedValue(encoded, expected);
-    lazy.namedValue(encoded, decodeModifiedUtf7(encoded));
+    lazy.expect(encoded, expected);
+    lazy.log(encoded, decodeModifiedUtf7(encoded));
   }
 
   check('&-', '&');
@@ -29,12 +45,12 @@ TD.commonSimple('decodeModifiedUtf7', function(lazy) {
         '~peter/mail/\u53f0\u5317/\u65e5\u672c\u8a9e');
 });
 
-TD.commonSimple('parseImapDateTime', function(lazy) {
+commonSimple('parseImapDateTime', function(lazy) {
   function check(str, expectedTimestamp) {
     var parsedTS = $imapchew.parseImapDateTime(str);
 
-    lazy.expect_namedValue(str, expectedTimestamp);
-    lazy.namedValue(str, parsedTS);
+    lazy.expect(str, expectedTimestamp);
+    lazy.log(str, parsedTS);
   }
 
   // remember! dates are zero-based!
@@ -79,7 +95,7 @@ function cannedConnectTest(T, RT, opts) {
 
   var imapConn = null;
   T.action('create IMAP proto, see connect req, no write', eCheck, function() {
-    eCheck.expect_event('socket opened');
+    eCheck.expect('socket opened');
 
     FawltySocketFactory.precommand(
       HOST, PORT,
@@ -93,7 +109,7 @@ function cannedConnectTest(T, RT, opts) {
       // log all writes from the client.
       {
         callOnOpen: function() {
-          eCheck.event('socket opened');
+          eCheck.log('socket opened');
         },
         callOnWrite: function(str) {
           if (str === "W1 ID NIL\r\n") {
@@ -103,7 +119,7 @@ function cannedConnectTest(T, RT, opts) {
             });
             return;
           }
-          eCheck.namedValue('clientWrite', str);
+          eCheck.log('clientWrite', str);
         }
       });
 
@@ -123,7 +139,7 @@ function cannedConnectTest(T, RT, opts) {
   });
 
   T.action('send greeting, see expected first write', eCheck, function() {
-    eCheck.expect_namedValue('clientWrite', opts.firstRequest);
+    eCheck.expect('clientWrite',  opts.firstRequest);
 
     fakeSock.doNow(
       [
@@ -151,12 +167,14 @@ var STARTTLS_REQUEST = 'W1 STARTTLS\r\n';
  * Dovecot likes to send a CAPABILITY response in the greeting. We
  * should consume that and not bother.
  */
-TD.commonCase('wait for server greeting, inline CAPABILITY', function(T,RT) {
+commonCase('wait for server greeting, inline CAPABILITY', function(T,RT) {
   cannedConnectTest(T, RT, {
     greeting: DOVECOT_CAPABILITY_GREETING,
     firstRequest: STARTTLS_REQUEST,
     capabilities: DOVECOT_CAPABILITIES
   });
 });
+
+return allTests;
 
 }); // end define

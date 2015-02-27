@@ -5,15 +5,9 @@
  * `test_compose.js`) for message-specific edge cases like attachments,
  * MIME parsing, and other such stuff.
  */
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_devicestorage', './resources/messageGenerator',
-        'util', 'accountcommon', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, $accountcommon, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_outbox_some_stuck' }, null,
-  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 // We cannot use a static subject in case we run this test on a real
 // server, which may have messages in folders already.
@@ -25,11 +19,12 @@ function makeRandomSubject() {
 // only let the second message through but still fail the first
 // message. Trigger re-send, make sure the first message is still
 // stuck in the outbox. Clear the problem, then let it get sent.
-TD.commonCase('fail the first message, succeed the second', function(T, RT) {
+return new LegacyGelamTest('fail the first message, succeed the second',
+                           function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true });
-  var testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true });
+  var testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse });
   var eLazy = T.lazyLogger('misc');
 
@@ -73,10 +68,10 @@ TD.commonCase('fail the first message, succeed the second', function(T, RT) {
       testAccount.do_waitForMessage(views.outbox, subject, {
         expect: function() {
           RT.reportActiveActorThisStep(eLazy);
-          eLazy.expect_namedValue('subject', subject);
+          eLazy.expect('subject',  subject);
         },
         withMessage: function(header) {
-          eLazy.namedValue('subject', header.subject);
+          eLazy.log('subject', header.subject);
         }
       }).timeoutMS = TEST_PARAMS.slow ? 10000 : 5000;
     }
@@ -86,7 +81,7 @@ TD.commonCase('fail the first message, succeed the second', function(T, RT) {
     var outboxHeader = views.outbox.slice.items[0];
     var storage = testAccount.folderAccount.getFolderStorageForFolderId(
       folders.outbox.id);
-    eLazy.expect_value('done');
+    eLazy.expect('done');
     var id = parseInt(outboxHeader.id.substring(
       outboxHeader.id.lastIndexOf('/') + 1));
 
@@ -100,27 +95,27 @@ TD.commonCase('fail the first message, succeed the second', function(T, RT) {
         return true;
       },
       /* body hint */ null, function() {
-        eLazy.value('done');
+        eLazy.log('done');
       });
   });
 
   T.check('send', eLazy, function() {
     testAccount.expect_sendOutboxMessages();
     testAccount.expect_saveSentMessage('conn');
-    eLazy.expect_event('sent');
+    eLazy.expect('sent');
     testUniverse.universe.sendOutboxMessages(testUniverse.universe.accounts[0]);
     testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
       if (data.state === 'success') {
-        eLazy.event('sent');
+        eLazy.log('sent');
       }
     };
   });
 
   // Ensure there are no more outbox messages.
   T.check('outbox messages deleted', eLazy, function() {
-    eLazy.expect_namedValue('outbox count', 0);
+    eLazy.expect('outbox count', 0);
     testAccount.MailAPI.ping(function() {
-      eLazy.namedValue('outbox count', views.outbox.slice.items.length);
+      eLazy.log('outbox count', views.outbox.slice.items.length);
     });
   });
 

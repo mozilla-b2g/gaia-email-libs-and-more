@@ -5,15 +5,9 @@
  * that looks a lot like this file.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_devicestorage', './resources/messageGenerator',
-        'util', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_compose_mime' }, null,
-  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
@@ -30,7 +24,7 @@ function makeRandomSubject() {
 /**
  *
  */
-TD.commonCase('varying compose structures', function(T, RT) {
+return new LegacyGelamTest('varying compose structures', function(T, RT) {
   var textContentsStr = 'purple monkey dishwasher';
   var textContentsUint8 = new TextEncoder().encode(textContentsStr);
   var toCompose = [
@@ -49,10 +43,10 @@ TD.commonCase('varying compose structures', function(T, RT) {
 
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
-      testStorage = T.actor('testDeviceStorage', 'sdcard',
+      testStorage = T.actor('TestDeviceStorage', 'sdcard',
                             { storage: 'sdcard' }),
       eLazy = T.lazyLogger('check');
 
@@ -87,7 +81,7 @@ TD.commonCase('varying compose structures', function(T, RT) {
     var composer;
     // Create the draft,
     T.action(eLazy, 'create draft, draft not saved', function() {
-      eLazy.expect_event('compose setup completed');
+      eLazy.expect('compose setup completed');
 
       composer = testUniverse.MailAPI.beginMessageComposition(
         null, inboxFolder, null,
@@ -96,7 +90,7 @@ TD.commonCase('varying compose structures', function(T, RT) {
             { name: 'Myself', address: TEST_PARAMS.emailAddress });
           composer.subject = uniqueSubject;
           composer.body.text = 'I like to type!';
-          eLazy.event('compose setup completed');
+          eLazy.log('compose setup completed');
         });
     });
 
@@ -105,7 +99,7 @@ TD.commonCase('varying compose structures', function(T, RT) {
       var toAttach = composeDef.attachments[i];
       T.action(eLazy, 'attach: ' + toAttach.name, function(i) {
         // Check that the generated attachment def matches what we expect
-        eLazy.expect_namedValue('fake attachment', {
+        eLazy.expect('fake attachment', {
           name: toAttach.name,
           blob: {
             size: toAttach.blob.size,
@@ -124,8 +118,8 @@ TD.commonCase('varying compose structures', function(T, RT) {
           'attachBlobToDraft',
           { local: true, server: false,
             flushBodyLocalSaves: toAttach.saveCount || 1 });
-        eLazy.expect_namedValue('attach result', null);
-        eLazy.expect_namedValue('composer passed in', composer);
+        eLazy.expect('attach result', null);
+        eLazy.expect('composer passed in', composer);
 
         var fakeDef = composer.addAttachment(
           {
@@ -133,11 +127,11 @@ TD.commonCase('varying compose structures', function(T, RT) {
             blob: toAttach.blob,
           },
           function(err, _composer) {
-            eLazy.namedValue('attach result', err);
-            eLazy.namedValue('composer passed in', _composer);
+            eLazy.log('attach result', err);
+            eLazy.log('composer passed in', _composer);
           }
         );
-        eLazy.namedValue('fake attachment', fakeDef);
+        eLazy.log('fake attachment', fakeDef);
 
       }.bind(null, i));
     }
@@ -147,12 +141,12 @@ TD.commonCase('varying compose structures', function(T, RT) {
         { local: true, server: false, save: 'local' });
       testAccount.expect_sendMessageWithOutbox('success', 'conn');
 
-      eLazy.expect_event('sent');
+      eLazy.expect('sent');
 
       composer.finishCompositionSendMessage();
       testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
         if (data.state === 'success') {
-          eLazy.event('sent');
+          eLazy.log('sent');
         }
       };
     });
@@ -160,14 +154,14 @@ TD.commonCase('varying compose structures', function(T, RT) {
     testAccount.do_waitForMessage(inboxView, uniqueSubject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_namedValueD('got body with attachments',
+        eLazy.expect('got body with attachments',
                                  composeDef.attachments.length);
       },
       withMessage: function(_header) {
         header = _header;
         header.getBody(function(_body) {
           body = _body;
-          eLazy.namedValueD('got body with attachments',
+          eLazy.log('got body with attachments',
                             body.attachments.length,
                             body.attachments);
         });
@@ -177,9 +171,9 @@ TD.commonCase('varying compose structures', function(T, RT) {
       var attachments = [];
       body.attachments.forEach(function(att, iAtt) {
         var toAttach = composeDef.attachments[iAtt];
-        eLazy.expect_namedValue(
+        eLazy.expect(
           'attachment[' + iAtt + '].size', toAttach.blob.size);
-        eLazy.expect_namedValue(
+        eLazy.expect(
           'attachment[' + iAtt + '].data', toAttach.verifyContents);
 
         att.download(function() {
@@ -195,9 +189,9 @@ TD.commonCase('varying compose structures', function(T, RT) {
                 var data = new Uint8Array(reader.readAsArrayBuffer(blob));
                 console.log('got', data.length, 'bytes, readyState',
                             reader.readyState);
-                eLazy.namedValue('attachment[' + iAtt + '].size',
+                eLazy.log('attachment[' + iAtt + '].size',
                                  body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.namedValue('attachment[' + iAtt + '].data', data);
+                eLazy.log('attachment[' + iAtt + '].data', data);
               }
               catch(ex) {
                 console.error('reader error', ex);
