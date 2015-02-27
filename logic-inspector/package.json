@@ -1,0 +1,15 @@
+{
+  "name": "logic-inspector",
+  "version": "1.0.0",
+  "description": "",
+  "main": "logic-inspector.js",
+  "scripts": {
+    "compile": "babel logic-inspector.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "babel": "^4.4.5"
+  }
+}

@@ -229,6 +229,10 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
+    "logic_test.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_account_folder_logic.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },

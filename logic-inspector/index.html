@@ -1,0 +1,54 @@
+<!doctype html>
+<head>
+  <title>Log Viewer</title>
+  <script defer src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+  <!-- <\!-- The script below is compiled from 'src/'; run "make" when changed! -\-> -->
+  <!-- <script defer src="http://marvl.infotech.monash.edu/webcola/cola.v3.js"></script> -->
+  <script defer src="dom.jsPlumb-1.7.2.js"></script>
+  <script defer src="lib/main.js"></script>
+  <style>
+    body, html {
+    height: 100%; background: #eee; }
+
+    body {
+      font: 14px Helvetica, sans-serif;
+    }
+    .event {
+      background: white;
+      padding: 5px;
+      border-radius: 4px;
+    }
+
+    .event dt {
+      font-weight: bold;
+      display: inline;
+    }
+    .event dd {
+      display: inline;
+    }
+    .event dd:after {
+    content: '';
+    display: block;
+    }
+
+    .event dl {
+      margin: 0;
+    }
+
+    .asyncType-then path, .asyncType-then {
+      stroke-dasharray: 4, 8;
+      stroke-opacity: 0.2;
+    }
+
+    .event .kv-sourceEventId,
+    .event .kv-ns,
+    .event .kv-id,
+    .event .kv-time {
+      display: none;
+    }
+
+  </style>
+</head>
+
+<body id="root">
+</body>
