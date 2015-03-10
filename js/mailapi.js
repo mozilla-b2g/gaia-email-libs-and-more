@@ -141,6 +141,24 @@ MailAPI.prototype = evt.mix({
   // probably just move consumers to directly require the module.
   utils: Linkify,
 
+  extractAccountIdFromFolderId: function(folderId) {
+    var lastDot = folderId.lastIndexOf('.');
+    return folderId.substring(0, lastDot);
+  },
+
+  eventuallyGetAccountById: function(accountId) {
+    return this.accounts.eventuallyGetAccountById(accountId);
+  },
+
+  eventuallyGetFolderById: function(folderId) {
+    var accountId = this.extractAccountIdFromFolderId(folderId);
+    return this.accounts.eventuallyGetAccountById(accountId).then(
+      function gotAccount(account) {
+        return account.folders.eventuallyGetFolderById(folderId);
+      }
+    );
+  },
+
   /**
    * Send a message over/to the bridge.  The idea is that we (can) communicate
    * with the backend using only a postMessage-style JSON channel.
@@ -286,6 +304,8 @@ MailAPI.prototype = evt.mix({
         slice.emit('change', itemObj, idx);
         itemObj.emit('change', itemObj, idx);
       }
+      // XXX hacky batch change notification for react hacking
+      slice.emit('changes', slice);
     }
     catch (ex) {
       reportClientCodeError('onchange notification error', ex,
@@ -357,6 +377,7 @@ MailAPI.prototype = evt.mix({
       if (slice.pendingRequestCount)
         slice.pendingRequestCount--;
 
+      slice.complete = true;
       slice.emit('complete', splice.newEmailCount);
     }
   },
@@ -787,12 +808,19 @@ MailAPI.prototype = evt.mix({
     }
     delete this._pendingRequests[msg.handle];
 
-    // We create this account to expose modifications functions to the
-    // frontend before we have access to the full accounts slice.  Note that
-    // we may not have an account if we failed to create the account!
     var account;
+    // (On failure, there is no account.)
     if (msg.account) {
-      account = new MailAccount(this, msg.account, null);
+      // Pull the account out of our automatically created accounts slice.  We
+      // guarantee that slice notification went out over the bridge prior to
+      // this notification so we can just pull it out of the slice.
+      // XXX THE ABOVE IS LIES!  THIS IS NOT CURRENTLY GUARANTEED!  I NEED TO
+      // FIX THIS!
+      account = this.accounts.getAccountById(msg.account.id);
+      if (!account) {
+        throw new Error('invariant violation: account is unknown: ' +
+                        msg.account.id);
+      }
     }
 
     req.callback.call(null, msg.error, msg.errorDetails, account);

@@ -70,10 +70,6 @@ function MailAccount(api, wireRep, acctsSlice) {
   if (acctsSlice._autoViewFolders) {
     this.folders = api.viewFolders('account', this)
   }
-
-  // build a place for the DOM element and arbitrary data into our shape
-  this.element = null;
-  this.data = null;
 }
 MailAccount.prototype = {
   toString: function() {

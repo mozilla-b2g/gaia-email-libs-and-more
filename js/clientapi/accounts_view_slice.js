@@ -22,6 +22,38 @@ AccountsViewSlice.prototype.getAccountById = function(id) {
   return null;
 };
 
+AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
+  return new Promise(function(resolve, reject) {
+    var account = this.getAccountById(id);
+    if (account) {
+      resolve(account);
+      return;
+    }
+    // If already completed, immediately reject.
+    if (this.complete) {
+      reject();
+      return;
+    }
+
+    // Otherwise we're still loading and we'll either find victory in an add or
+    // inferred defeat when we get the completion notificaiton.
+    var addListener = function(account) {
+      if (account.id === id) {
+        this.removeListener('add', addListener);
+        this.removeListener('complete', completeListener);
+        resolve(account);
+      }
+    }.bind(this);
+    var completeListener = function() {
+      this.removeListener('add', addListener);
+      this.removeListener('complete', completeListener);
+      reject();
+    }
+    this.on('add', addListener);
+    this.on('complete', completeListener);
+  }.bind(this));
+};
+
 Object.defineProperty(AccountsViewSlice.prototype, 'defaultAccount', {
   get: function () {
     var defaultAccount = this.items[0];

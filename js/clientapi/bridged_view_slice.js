@@ -16,6 +16,11 @@ function BridgedViewSlice(api, ns, handle) {
   this._handle = handle;
 
   this.items = [];
+  /**
+   * Has this slice been completely initially populated?  If you want to wait
+   * for this, use once('complete').
+   */
+  this.complete = false;
 
   /**
    * @oneof[
@@ -89,14 +94,6 @@ function BridgedViewSlice(api, ns, handle) {
    * The direction we are growing, if any (0 if not).
    */
   this._growing = 0;
-
-  this.onadd = null;
-  this.onchange = null;
-  this.onsplice = null;
-  this.onremove = null;
-  this.onstatus = null;
-  this.oncomplete = null;
-  this.ondead = null;
 }
 BridgedViewSlice.prototype = evt.mix({
   toString: function() {
@@ -151,14 +148,10 @@ BridgedViewSlice.prototype = evt.mix({
   },
 
   die: function() {
-    // Null out all listeners except for the ondead listener.  This avoids
-    // the callbacks from having to filter out messages from dead slices.
-    this.onadd = null;
-    this.onchange = null;
-    this.onsplice = null;
-    this.onremove = null;
-    this.onstatus = null;
-    this.oncomplete = null;
+    // XXX we used to null out our event handlers here; it may be appropriate to
+    // do something to ensure that after die() is called no more events are
+    // heard from us.  Like re-initing our Emitter or synchronously notifying
+    // the API to forget about us or setting some flag, etc.
     this._api.__bridgeSend({
         type: 'killSlice',
         handle: this._handle
