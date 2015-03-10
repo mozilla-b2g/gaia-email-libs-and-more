@@ -60,7 +60,6 @@ install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
 	                    --exclude='README.*' \
 	                    --exclude='examples' \
 	                    --exclude='test' \
-	                    --exclude='ext/wmsy' \
 	                    --exclude='ext/rdplat' \
 	                    js/ gaia-symlink/apps/email/js/ext/
 
@@ -121,7 +120,7 @@ define run-one-test
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
 	-mkdir -p test-logs
 	-rm -f test-logs/$(basename $(SOLO_FILE))-*.log
-	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
+	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(SOLO_FILE) --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
 	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
 endef
 

@@ -153,7 +153,7 @@ MailBody.prototype = evt.mix({
         callWhenDone();
       return;
     }
-    this._api._downloadAttachments(this, relPartIndices, [],
+    this._api._downloadAttachments(this, relPartIndices, [], [],
                                    callWhenDone, callOnProgress);
   },
 

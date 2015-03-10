@@ -522,6 +522,7 @@ MailAPI.prototype = evt.mix({
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,
+                                 registerAttachments,
                                  callWhenDone, callOnProgress) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
@@ -538,7 +539,8 @@ MailAPI.prototype = evt.mix({
       suid: body.id,
       date: body._date,
       relPartIndices: relPartIndices,
-      attachmentIndices: attachmentIndices
+      attachmentIndices: attachmentIndices,
+      registerAttachments: registerAttachments
     });
   },
 
