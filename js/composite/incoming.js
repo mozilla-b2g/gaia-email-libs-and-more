@@ -153,7 +153,7 @@ CompositeIncomingAccount.prototype = {
    */
   _learnAboutFolder: function(name, path, parentId, type, delim, depth,
                               suppressNotification) {
-    var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
+    var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: $folder_info.makeFolderMeta({
         id: folderId,
@@ -311,7 +311,7 @@ CompositeIncomingAccount.prototype = {
   },
 
   getFolderStorageForMessageSuid: function(messageSuid) {
-    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('/'));
+    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('.'));
     if (this._folderStorages.hasOwnProperty(folderId))
       return this._folderStorages[folderId];
     throw new Error('No folder with id: ' + folderId);

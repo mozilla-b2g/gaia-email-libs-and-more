@@ -510,8 +510,8 @@ MailDB.prototype = {
 
     trans.objectStore(TBL_CONFIG).delete('accountDef:' + accountId);
     trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
-    var range = IDBKeyRange.bound(accountId + '/',
-                                  accountId + '/\ufff0',
+    var range = IDBKeyRange.bound(accountId + '.',
+                                  accountId + '.\ufff0',
                                   false, false);
     trans.objectStore(TBL_HEADER_BLOCKS).delete(range);
     trans.objectStore(TBL_BODY_BLOCKS).delete(range);

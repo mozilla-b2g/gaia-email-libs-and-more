@@ -241,7 +241,7 @@ exports.configurator = {
 
         identities: [
           {
-            id: accountId + '/' +
+            id: accountId + '.' +
                 $a64.encodeInt(universe.config.nextIdentityNum++),
             name: userDetails.displayName || domainInfo.displayName,
             address: userDetails.emailAddress,

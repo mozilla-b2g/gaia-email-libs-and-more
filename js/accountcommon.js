@@ -154,7 +154,7 @@ function recreateIdentities(universe, accountId, oldIdentities) {
   for (var iter in Iterator(oldIdentities)) {
     var oldIdentity = iter[1];
     identities.push({
-      id: accountId + '/' + $a64.encodeInt(universe.config.nextIdentityNum++),
+      id: accountId + '.' + $a64.encodeInt(universe.config.nextIdentityNum++),
       name: oldIdentity.name,
       address: oldIdentity.address,
       replyTo: oldIdentity.replyTo,

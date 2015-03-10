@@ -747,7 +747,7 @@ ImapJobDriver.prototype = {
                     uidnext = msg.uid + 1;
                     var newSuid = state.moveMap[namer.suid];
                     var newId =
-                          parseInt(newSuid.substring(newSuid.lastIndexOf('/') + 1));
+                          parseInt(newSuid.substring(newSuid.lastIndexOf('.') + 1));
 
                     targetStorage.updateMessageHeader(
                       namer.date, newId, false,

@@ -573,7 +573,7 @@ ActiveSyncAccount.prototype = {
       }
     }
 
-    var folderId = this.id + '/' + $a64.encodeInt(this.meta.nextFolderNum++);
+    var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: $folder_info.makeFolderMeta({
         id: folderId,

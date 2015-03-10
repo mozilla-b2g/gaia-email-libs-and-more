@@ -3825,7 +3825,7 @@ FolderStorage.prototype = {
    * only had the SUID and date, like in a 'job'.
    */
   getMessageHeader: function ifs_getMessageHeader(suid, date, callback) {
-    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
+    var id = parseInt(suid.substring(suid.lastIndexOf('.') + 1)),
         posInfo = this._findRangeObjIndexForDateAndID(this._headerBlockInfos,
                                                       date, id);
 
@@ -4471,7 +4471,7 @@ FolderStorage.prototype = {
       return;
     }
 
-    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1)),
+    var id = parseInt(suid.substring(suid.lastIndexOf('.') + 1)),
         posInfo = this._findRangeObjIndexForDateAndID(this._bodyBlockInfos,
                                                       date, id);
     if (posInfo[1] === null) {
@@ -4612,7 +4612,7 @@ FolderStorage.prototype = {
     }
 
     var suid = header.suid;
-    var id = parseInt(suid.substring(suid.lastIndexOf('/') + 1));
+    var id = parseInt(suid.substring(suid.lastIndexOf('.') + 1));
     var self = this;
 
     // (called when addMessageBody completes)

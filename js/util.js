@@ -95,7 +95,7 @@ exports.partitionMessagesByFolderId =
   for (var i = 0; i < messageNamers.length; i++) {
     var messageNamer = messageNamers[i],
         messageSuid = messageNamer.suid,
-        idxLastSlash = messageSuid.lastIndexOf('/'),
+        idxLastSlash = messageSuid.lastIndexOf('.'),
         folderId = messageSuid.substring(0, idxLastSlash);
 
     if (!foldersToMsgs.hasOwnProperty(folderId)) {

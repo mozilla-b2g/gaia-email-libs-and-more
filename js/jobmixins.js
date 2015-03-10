@@ -180,7 +180,7 @@ exports.local_do_move = function(op, doneCallback, targetFolderId) {
 
         // - update id fields
         header.id = targetStorage._issueNewHeaderId();
-        header.suid = targetStorage.folderId + '/' + header.id;
+        header.suid = targetStorage.folderId + '.' + header.id;
         if (nukeServerIds)
           header.srvid = null;
 
@@ -250,7 +250,7 @@ exports.local_undo_delete = function(op, doneCallback) {
 
 exports.do_download = function(op, callback) {
   var self = this;
-  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+  var idxLastSlash = op.messageSuid.lastIndexOf('.'),
       folderId = op.messageSuid.substring(0, idxLastSlash);
 
   var folderConn, folderStorage;
@@ -453,7 +453,7 @@ exports.check_downloadBodyReps = function(op, callback) {
 
 exports.do_downloadBodyReps = function(op, callback) {
   var self = this;
-  var idxLastSlash = op.messageSuid.lastIndexOf('/'),
+  var idxLastSlash = op.messageSuid.lastIndexOf('.'),
       folderId = op.messageSuid.substring(0, idxLastSlash);
 
   var folderConn, folderStorage;

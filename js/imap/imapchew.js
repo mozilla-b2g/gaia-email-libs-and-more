@@ -383,7 +383,7 @@ exports.chewHeaderAndBodyStructure = function(msg, folderId, newMsgId) {
       srvid: msg.uid,
       // The sufficiently unique id is a concatenation of the UID onto the
       // folder id.
-      suid: folderId + '/' + newMsgId,
+      suid: folderId + '.' + newMsgId,
       // The message-id header value; as GUID as get for now; on gmail we can
       // use their unique value, or if we could convince dovecot to tell us.
       guid: stripArrows(valuesOnly(firstHeader(msg, 'message-id'))),

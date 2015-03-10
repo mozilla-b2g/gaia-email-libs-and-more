@@ -1058,7 +1058,7 @@ MailUniverse.prototype = {
    * Given a folder-id, get the owning account.
    */
   getAccountForFolderId: function mu_getAccountForFolderId(folderId) {
-    var accountId = folderId.substring(0, folderId.indexOf('/')),
+    var accountId = folderId.substring(0, folderId.indexOf('.')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -1067,7 +1067,7 @@ MailUniverse.prototype = {
    * Given a message's sufficiently unique identifier, get the owning account.
    */
   getAccountForMessageSuid: function mu_getAccountForMessageSuid(messageSuid) {
-    var accountId = messageSuid.substring(0, messageSuid.indexOf('/')),
+    var accountId = messageSuid.substring(0, messageSuid.indexOf('.')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -1080,14 +1080,14 @@ MailUniverse.prototype = {
 
   getFolderStorageForMessageSuid: function mu_getFolderStorageForFolderId(
                                     messageSuid) {
-    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('/')),
+    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('.')),
         account = this.getAccountForFolderId(folderId);
     return account.getFolderStorageForFolderId(folderId);
   },
 
   getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(
                                    identityId) {
-    var accountId = identityId.substring(0, identityId.indexOf('/')),
+    var accountId = identityId.substring(0, identityId.indexOf('.')),
         account = this._accountsById[accountId];
     return account;
   },
@@ -1112,7 +1112,7 @@ MailUniverse.prototype = {
     for (var i = 0; i < messageNamers.length; i++) {
       var messageNamer = messageNamers[i],
           messageSuid = messageNamer.suid,
-          accountId = messageSuid.substring(0, messageSuid.indexOf('/'));
+          accountId = messageSuid.substring(0, messageSuid.indexOf('.'));
       if (!acctToMsgs.hasOwnProperty(accountId)) {
         var messages = [messageNamer];
         results.push({
@@ -1604,7 +1604,7 @@ MailUniverse.prototype = {
     if (op.longtermId === null) {
       // mutation job must be persisted until completed otherwise bad thing
       // will happen.
-      op.longtermId = account.id + '/' +
+      op.longtermId = account.id + '.' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
       account.mutations.push(op);
       // Clear out any completed/dead operations that put us over the undo
@@ -1617,7 +1617,7 @@ MailUniverse.prototype = {
       }
     }
     else if (op.longtermId === 'session') {
-      op.longtermId = account.id + '/' +
+      op.longtermId = account.id + '.' +
                         $a64.encodeInt(account.meta.nextMutationNum++);
     }
 
@@ -2052,7 +2052,7 @@ MailUniverse.prototype = {
     var newId = draftsFolderStorage._issueNewHeaderId();
     var newDraftInfo = {
       id: newId,
-      suid: draftsFolderStorage.folderId + '/' + newId,
+      suid: draftsFolderStorage.folderId + '.' + newId,
       // There are really 3 possible values we could use for this; when the
       // front-end initiates the draft saving, when we, the back-end observe and
       // enqueue the request (now), or when the draft actually gets saved to

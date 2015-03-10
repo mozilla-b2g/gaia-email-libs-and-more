@@ -196,7 +196,7 @@ var properties = {
 
     var sentStorage = this.getFolderStorageForFolderId(sentFolder.id);
     var id = sentStorage._issueNewHeaderId();
-    var suid = sentStorage.folderId + '/' + id;
+    var suid = sentStorage.folderId + '.' + id;
 
     var sentPieces = draftRep.cloneDraftMessageForSentFolderWithoutAttachments(
       composer.header, composer.body, { id: id, suid: suid });

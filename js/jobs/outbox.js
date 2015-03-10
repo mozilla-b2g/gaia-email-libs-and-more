@@ -110,7 +110,7 @@ define(function(require) {
       if (beforeMessage) {
         // getMessagesBeforeMessage expects an 'id', not a 'suid'.
         var id = parseInt(beforeMessage.suid.substring(
-          beforeMessage.suid.lastIndexOf('/') + 1));
+          beforeMessage.suid.lastIndexOf('.') + 1));
         storage.getMessagesBeforeMessage(
           beforeMessage.date,
           id,

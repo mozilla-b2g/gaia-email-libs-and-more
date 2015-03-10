@@ -609,7 +609,7 @@ ActiveSyncFolderConn.prototype = {
         id: newId,
         // This will be fixed up afterwards for control flow paranoia.
         srvid: null,
-        suid: storage.folderId + '/' + newId,
+        suid: storage.folderId + '.' + newId,
         // ActiveSync does not/cannot tell us the Message-ID header unless we
         // fetch the entire MIME body
         guid: '',

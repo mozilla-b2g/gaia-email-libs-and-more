@@ -197,7 +197,7 @@ Pop3FolderSyncer.prototype = {
       } else {
         header.id = knownId;
       }
-      header.suid = this.storage.folderId + '/' + header.id;
+      header.suid = this.storage.folderId + '.' + header.id;
       header.guid = header.guid || header.srvid;
     }
 
