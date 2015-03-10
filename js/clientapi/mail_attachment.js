@@ -15,9 +15,6 @@ function MailAttachment(_body, wireRep) {
   this.sizeEstimateInBytes = wireRep.sizeEstimate;
   this._file = wireRep.file;
 
-  // build a place for the DOM element and arbitrary data into our shape
-  this.element = null;
-  this.data = null;
 }
 MailAttachment.prototype = {
   toString: function() {

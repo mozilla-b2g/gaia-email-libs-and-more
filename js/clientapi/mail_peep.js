@@ -1,20 +1,20 @@
 define(function(require) {
 'use strict';
 
+var evt = require('evt');
+
 function MailPeep(name, address, contactId, thumbnailBlob) {
+  evt.Emitter.call(this);
+
   this.name = name;
   this.address = address;
   this.contactId = contactId;
   this._thumbnailBlob = thumbnailBlob;
 
-  this.element = null;
-  this.data = null;
   // peeps are usually one of: from, to, cc, bcc
   this.type = null;
-
-  this.onchange = null;
 }
-MailPeep.prototype = {
+MailPeep.prototype = evt.mix({
   get isContact() {
     return this.contactId !== null;
   },
@@ -47,7 +47,7 @@ MailPeep.prototype = {
     if (this._thumbnailBlob)
       showBlobInImg(imgNode, this._thumbnailBlob);
   },
-};
+});
 
 return MailPeep;
 });

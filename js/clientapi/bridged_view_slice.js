@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+var evt = require('evt');
+
 /**
  * Ordered list collection abstraction where we may potentially only be viewing
  * a subset of the actual items in the collection.  This allows us to handle
@@ -8,6 +10,7 @@ define(function(require) {
  * from a remote server to populate the list.
  */
 function BridgedViewSlice(api, ns, handle) {
+  evt.Emitter.call(this);
   this._api = api;
   this._ns = ns;
   this._handle = handle;
@@ -95,7 +98,7 @@ function BridgedViewSlice(api, ns, handle) {
   this.oncomplete = null;
   this.ondead = null;
 }
-BridgedViewSlice.prototype = {
+BridgedViewSlice.prototype = evt.mix({
   toString: function() {
     return '[BridgedViewSlice: ' + this._ns + ' ' + this._handle + ']';
   },
@@ -166,7 +169,7 @@ BridgedViewSlice.prototype = {
       item.__die();
     }
   },
-};
+});
 
 return BridgedViewSlice;
 });

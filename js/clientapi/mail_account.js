@@ -66,6 +66,11 @@ function MailAccount(api, wireRep, acctsSlice) {
 
   this.authMechanism = wireRep.credentials.oauth2 ? 'oauth2' : 'password';
 
+  this.folders = null;
+  if (acctsSlice._autoViewFolders) {
+    this.folders = api.viewFolders('account', this)
+  }
+
   // build a place for the DOM element and arbitrary data into our shape
   this.element = null;
   this.data = null;

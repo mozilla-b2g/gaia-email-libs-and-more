@@ -1,19 +1,15 @@
 define(function(require) {
 'use strict';
 
+var evt = require('evt');
+
 function MailFolder(api, wireRep) {
+  evt.Emitter.call(this);
   this._api = api;
 
   this.__update(wireRep);
-
-  this.onchange = null;
-  this.onremove = null;
-
-  // build a place for the DOM element and arbitrary data into our shape
-  this.element = null;
-  this.data = null;
 }
-MailFolder.prototype = {
+MailFolder.prototype = evt.mix({
   toString: function() {
     return '[MailFolder: ' + this.path + ']';
   },
@@ -111,7 +107,7 @@ MailFolder.prototype = {
   __die: function() {
     // currently nothing to clean up
   }
-};
+});
 
 return MailFolder;
 });

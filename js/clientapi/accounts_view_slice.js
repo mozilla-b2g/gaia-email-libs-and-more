@@ -3,8 +3,10 @@ define(function(require) {
 
 var BridgedViewSlice = require('./bridged_view_slice');
 
-function AccountsViewSlice(api, handle) {
+function AccountsViewSlice(api, handle, opts) {
   BridgedViewSlice.call(this, api, 'accounts', handle);
+
+  this._autoViewFolders = opts && opts.autoViewFolders || false;
 }
 AccountsViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
 

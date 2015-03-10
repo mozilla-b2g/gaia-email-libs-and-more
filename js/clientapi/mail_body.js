@@ -1,6 +1,7 @@
 define(function(require) {
 'use strict';
 
+var evt = require('evt');
 var MailAttachment = require('./mail_attachment');
 
 function revokeImageSrc() {
@@ -32,6 +33,8 @@ function showBlobInImg(imgNode, blob) {
  * and worry about its lifetime since the message can get deleted, etc.
  */
 function MailBody(api, suid, wireRep, handle) {
+  evt.Emitter.call(this);
+
   this._api = api;
   this.id = suid;
   this._date = wireRep.date;
@@ -49,11 +52,8 @@ function MailBody(api, suid, wireRep, handle) {
   this.bodyReps = wireRep.bodyReps;
   // references is included for debug/unit testing purposes, hence is private
   this._references = wireRep.references;
-
-  this.onchange = null;
-  this.ondead = null;
 }
-MailBody.prototype = {
+MailBody.prototype = evt.mix({
   toString: function() {
     return '[MailBody: ' + this.id + ']';
   },
@@ -236,7 +236,7 @@ MailBody.prototype = {
       handle: this._handle
     });
   }
-};
+});
 
 return MailBody;
 });

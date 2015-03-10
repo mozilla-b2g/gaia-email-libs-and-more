@@ -69,6 +69,7 @@ var unexpectedBridgeDataError = reportError,
  * The public API exposed to the client via the MailAPI global.
  */
 function MailAPI() {
+  evt.Emitter.call(this);
   this._nextHandle = 1;
 
   this._slices = {};
@@ -107,7 +108,7 @@ function MailAPI() {
    */
   this.config = {};
 
-  /**
+  /* PROPERLY DOCUMENT EVENT 'badlogin'
    * @func[
    *   @args[
    *     @param[account MailAccount]
@@ -121,12 +122,14 @@ function MailAPI() {
    *
    * }
    */
-  this.onbadlogin = null;
 
   ContactCache.init();
+
+  // Default slices:
+  this.accounts = this.viewAccounts({ autoViewFolders: true });
 }
 exports.MailAPI = MailAPI;
-MailAPI.prototype = {
+MailAPI.prototype = evt.mix({
   toString: function() {
     return '[MailAPI]';
   },
@@ -192,10 +195,10 @@ MailAPI.prototype = {
   },
 
   _recv_badLogin: function ma__recv_badLogin(msg) {
-    if (this.onbadlogin)
-      this.onbadlogin(new MailAccount(this, msg.account, null),
-                      msg.problem,
-                      msg.whichSide);
+    this.emit('badlogin',
+              new MailAccount(this, msg.account, null),
+              msg.problem,
+              msg.whichSide);
     return true;
   },
 
@@ -249,8 +252,8 @@ MailAPI.prototype = {
   },
 
   _fireStatusNotifications: function (updateStatus, slice) {
-    if (updateStatus && slice.onstatus) {
-      slice.onstatus(slice.status);
+    if (updateStatus) {
+      slice.emit('status', slice.status);
     }
   },
 
@@ -280,12 +283,8 @@ MailAPI.prototype = {
         var idx = splice[i], wireRep = splice[i + 1],
             itemObj = slice.items[idx];
         itemObj.__update(wireRep);
-        if (slice.onchange) {
-          slice.onchange(itemObj, idx);
-        }
-        if (itemObj.onchange) {
-          itemObj.onchange(itemObj, idx);
-        }
+        slice.emit('change', itemObj, idx);
+        itemObj.emit('change', itemObj, idx);
       }
     }
     catch (ex) {
@@ -327,33 +326,18 @@ MailAPI.prototype = {
     }
 
     // - generate slice 'onsplice' notification
-    if (slice.onsplice) {
-      try {
-        slice.onsplice(splice.index, splice.howMany, transformedItems,
-                       splice.requested, splice.moreExpected, fake);
-      }
-      catch (ex) {
-        reportClientCodeError('onsplice notification error', ex,
-                              '\n', ex.stack);
-      }
-    }
+    slice.emit('splice', splice.index, splice.howMany, transformedItems,
+               splice.requested, splice.moreExpected, fake);
+
     // - generate item 'onremove' notifications
     if (splice.howMany) {
-      try {
-        stopIndex = splice.index + splice.howMany;
-        for (i = splice.index; i < stopIndex; i++) {
-          var item = slice.items[i];
-          if (slice.onremove)
-            slice.onremove(item, i);
-          if (item.onremove)
-            item.onremove(item, i);
-          // the item needs a chance to clean up after itself.
-          item.__die();
-        }
-      }
-      catch (ex) {
-        reportClientCodeError('onremove notification error', ex,
-                              '\n', ex.stack);
+      stopIndex = splice.index + splice.howMany;
+      for (i = splice.index; i < stopIndex; i++) {
+        var item = slice.items[i];
+        slice.emit('remove', item, i);
+        item.emit('remove', item, i);
+        // the item needs a chance to clean up after itself.
+        item.__die();
       }
     }
     // - perform actual splice
@@ -362,17 +346,9 @@ MailAPI.prototype = {
       [splice.index, splice.howMany].concat(transformedItems));
 
     // - generate item 'onadd' notifications
-    if (slice.onadd) {
-      try {
-        stopIndex = splice.index + transformedItems.length;
-        for (i = splice.index; i < stopIndex; i++) {
-          slice.onadd(slice.items[i], i);
-        }
-      }
-      catch (ex) {
-        reportClientCodeError('onadd notification error', ex,
-                              '\n', ex.stack);
-      }
+    stopIndex = splice.index + transformedItems.length;
+    for (i = splice.index; i < stopIndex; i++) {
+      slice.emit('add', slice.items[i], i);
     }
 
     // - generate 'oncomplete' notification
@@ -381,19 +357,7 @@ MailAPI.prototype = {
       if (slice.pendingRequestCount)
         slice.pendingRequestCount--;
 
-      if (slice.oncomplete) {
-        var completeFunc = slice.oncomplete;
-        // reset before calling in case it wants to chain.
-        slice.oncomplete = null;
-        try {
-          // Maybe defer here?
-          completeFunc(splice.newEmailCount);
-        }
-        catch (ex) {
-          reportClientCodeError('oncomplete notification error', ex,
-                                '\n', ex.stack);
-        }
-      }
+      slice.emit('complete', splice.newEmailCount);
     }
   },
 
@@ -442,9 +406,7 @@ MailAPI.prototype = {
   _recv_sliceDead: function(msg) {
     var slice = this._slices[msg.handle];
     delete this._slices[msg.handle];
-    if (slice.ondead)
-      slice.ondead(slice);
-    slice.ondead = null;
+    slice.emit('dead', slice);
 
     return true;
   },
@@ -522,12 +484,7 @@ MailAPI.prototype = {
     // Blobs can be garbage collected.
     body.__update(wireRep, msg.detail);
 
-    if (body.onchange) {
-      body.onchange(
-        msg.detail,
-        body
-      );
-    }
+    body.emit('change', msg.detail, body);
 
     return true;
   },
@@ -535,8 +492,8 @@ MailAPI.prototype = {
   _recv_bodyDead: function(msg) {
     var body = this._liveBodies[msg.handle];
 
-    if (body && body.ondead) {
-      body.ondead();
+    if (body) {
+      body.emit('dead');
     }
 
     delete this._liveBodies[msg.handle];
@@ -916,17 +873,14 @@ MailAPI.prototype = {
    * setttings or for a folder tree where only one account's folders are visible
    * at a time.
    *
-   * @args[
-   *   @param[realAccountsOnly Boolean]{
-   *     Should we only list real accounts (aka not unified accounts)?  This is
-   *     meaningful for the settings UI and for the move-to-folder UI where
-   *     selecting a unified account's folders is useless.
-   *   }
-   * ]
+   * @param {Object} [opts]
+   * @param {Boolean} [opts.autoViewFolders=false]
+   *   Should the `MailAccount` instances automatically issue viewFolders
+   *   requests and assign them to a "folders" property?
    */
-  viewAccounts: function ma_viewAccounts(realAccountsOnly) {
+  viewAccounts: function ma_viewAccounts(opts) {
     var handle = this._nextHandle++,
-        slice = new AccountsViewSlice(this, handle);
+        slice = new AccountsViewSlice(this, handle, opts);
     this._slices[handle] = slice;
 
     this.__bridgeSend({
@@ -1552,21 +1506,17 @@ MailAPI.prototype = {
    * Receive events about the start and stop of periodic syncing
    */
   _recv_cronSyncStart: function ma__recv_cronSyncStart(msg) {
-    if (this.oncronsyncstart)
-      this.oncronsyncstart(msg.accountIds);
+    this.emit('cronsyncstart', msg.accountIds)
     return true;
   },
 
   _recv_cronSyncStop: function ma__recv_cronSyncStop(msg) {
-    if (this.oncronsyncstop)
-      this.oncronsyncstop(msg.accountsResults);
+    this.emit('cronsyncstop', msg.accountsResults);
     return true;
   },
 
   _recv_backgroundSendStatus: function(msg) {
-    if (this.onbackgroundsendstatus) {
-      this.onbackgroundsendstatus(msg.data);
-    }
+    this.emit('backgroundsendstatus', msg.data);
     return true;
   },
 
@@ -1696,6 +1646,6 @@ MailAPI.prototype = {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-};
+});
 
 }); // end define

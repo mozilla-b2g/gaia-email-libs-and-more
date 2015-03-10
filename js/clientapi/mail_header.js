@@ -1,6 +1,7 @@
 define(function(require) {
 'use strict';
 
+var evt = require('evt');
 var ContactCache = require('./contact_cache');
 
 // so, we could mutate in-place if we were sure the wire rep actually came
@@ -42,6 +43,7 @@ function serializeMessageName(x) {
  * of what messages are being displayed/still alive to need updates.
  */
 function MailHeader(slice, wireRep) {
+  evt.Emitter.call(this);
   this._slice = slice;
 
   // Store the wireRep so it can be used for caching.
@@ -63,15 +65,8 @@ function MailHeader(slice, wireRep) {
 
   this.subject = wireRep.subject;
   this.snippet = wireRep.snippet;
-
-  this.onchange = null;
-  this.onremove = null;
-
-  // build a place for the DOM element and arbitrary data into our shape
-  this.element = null;
-  this.data = null;
 }
-MailHeader.prototype = {
+MailHeader.prototype = evt.mix({
   toString: function() {
     return '[MailHeader: ' + this.id + ']';
   },
@@ -284,7 +279,7 @@ MailHeader.prototype = {
     return this._slice._api.beginMessageComposition(
       this, null, { forwardOf: this, forwardMode: forwardMode }, callback);
   },
-};
+});
 
 return MailHeader;
 });
