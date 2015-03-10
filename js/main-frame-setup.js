@@ -31,7 +31,6 @@ define(
     './worker-support/configparser-main',
     './worker-support/cronsync-main',
     './worker-support/devicestorage-main',
-    './worker-support/maildb-main',
     './worker-support/net-main',
     './worker-support/wakelocks-main',
     'require'
@@ -42,7 +41,6 @@ define(
     $configparser,
     $cronsync,
     $devicestorage,
-    $maildb,
     $net,
     $wakelocks,
     require
@@ -105,7 +103,6 @@ define(
   $router.register($configparser);
   $router.register($cronsync);
   $router.register($devicestorage);
-  $router.register($maildb);
   $router.register($net);
   $router.register($wakelocks);
 
