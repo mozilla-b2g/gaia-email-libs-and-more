@@ -26,7 +26,7 @@ function createBridgePair(universe) {
   var sendMessage = routerInfo.sendMessage;
 
   TMB.__sendMessage = function(msg) {
-    TMB._LOG.send(msg.type, msg);
+    TMB.logic('send', { type: msg.type, msg: msg });
     sendMessage(null, msg);
   };
 

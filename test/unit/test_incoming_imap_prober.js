@@ -5,17 +5,16 @@
  * a realistic-seeming IMAP server.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/incoming_prober_shared',
-        './resources/fault_injecting_socket', 'imap/probe',
-        'syncbase', 'slog',
-        'imap/client', 'exports'],
-function($tc, $th_main, proberShared, $fawlty, $imapProbe,
-         syncbase, slog, imapclient, exports) {
-var FawltySocketFactory = $fawlty.FawltySocketFactory;
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_incoming_imap_prober' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var logic = require('logic');
+var proberShared = require('./resources/incoming_prober_shared');
+var $fawlty = require('./resources/fault_injecting_socket');
+var $imapProbe = require('imap/probe');
+var syncbase = require('syncbase');
+var imapclient = require('imap/client');
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var {
   thunkTimeouts, thrower, proberTimeout, constructProber, openResponse,
@@ -23,6 +22,8 @@ var {
   HOST, PORT, KEEP_ALIVE_TIMEOUT_MS,
   cannedLoginTest
 } = proberShared;
+
+return [
 
 /**
  * Test the case where we have an access token, but we already know
@@ -33,7 +34,8 @@ var {
  * server, so it'd be a pain to try to mimic a full-on successful
  * login.)
  */
-TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) {
+new LegacyGelamTest('Gmail OAUTH: access_token expired by timestamp',
+                    function(T, RT) {
   var refreshToken = 'refresh';
   var accessToken = 'access';
 
@@ -61,12 +63,11 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
       var eLazy = T.lazyLogger('lazy');
       RT.reportActiveActorThisStep(eLazy);
 
-      var lc = new slog.LogChecker(T, RT, 'logs');
       // Mock out the XHR asking Google to give us a new access token.
-      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+      logic.interceptOnce('oauth:renew-xhr', function(xhr) {
         xhr = {
           open: function(method, url, async) {
-            eLazy.namedValue('xhrUrl', url);
+            eLazy.log('xhrUrl', url);
           },
           setRequestHeader: function() { },
           send: function(dataStr) {
@@ -79,7 +80,7 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
               {}
             );
 
-            eLazy.namedValue('formData', formData);
+            eLazy.log('formData', formData);
 
             xhr.status = 200;
             xhr.responseText = JSON.stringify({
@@ -95,27 +96,27 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
         return xhr;
       });
 
-      eLazy.expect_namedValue('xhrUrl', tokenEndpoint);
-      eLazy.expect_namedValue(
-        'formData',
-        {
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-        });
+      eLazy.expect('xhrUrl',  tokenEndpoint);
+      eLazy.expect('formData', {
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      });
+
+      var eOauth = T.lazyLogger('Oauth');
 
       // We should properly update our credentials:
-      lc.mustLog('oauth:got-access-token', {
+      eOauth.expect('got-access-token', {
         _accessToken: accessToken
       });
-      lc.mustLog('oauth:credentials-changed');
-      lc.mustLog('probe:imap:credentials-updated');
+      eOauth.expect('credentials-changed');
+      T.lazyLogger('ImapProber').expect('credentials-updated');
     },
     // But alas, the server still didn't let us in.
     expectResult: 'server-maintenance'
   });
-});
+}),
 
 /**
  * In this test, we have an access token that is allegedly valid, but
@@ -123,7 +124,8 @@ TD.commonCase('Gmail OAUTH: access_token expired by timestamp', function(T, RT) 
  * token won't do any good; kick the user back through the OAUTH
  * process, because they have likely revoked our refresh token.
  */
-TD.commonCase('Gmail OAUTH: server hates your access token', function(T, RT) {
+new LegacyGelamTest('Gmail OAUTH: server hates your access token',
+                    function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: 'NO [ALERT] Invalid credentials (Failure).',
     capabilityResponse: capabilityResponse(RT).replace('AUTH=PLAIN',
@@ -146,14 +148,15 @@ TD.commonCase('Gmail OAUTH: server hates your access token', function(T, RT) {
     },
     expectResult: 'needs-oauth-reauth'
   });
-});
+}),
 
 /**
  * Test the case where we try to refresh our access token, but for
  * some reason the Gmail refresh-token-request refuses to respond;
  * i.e. network conditions are terrible.
  */
-TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
+new LegacyGelamTest('Gmail OAUTH: network prevents token refresh',
+                    function(T, RT) {
   var refreshToken = 'refresh';
   var accessToken = 'access';
 
@@ -175,9 +178,8 @@ TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
       var eLazy = T.lazyLogger('lazy');
       RT.reportActiveActorThisStep(eLazy);
 
-      var lc = new slog.LogChecker(T, RT, 'logs');
       // Mock out the XHR asking Google to give us a new access token.
-      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+      logic.interceptOnce('oauth:renew-xhr', function(xhr) {
         xhr = {
           open: function() { },
           setRequestHeader: function() { },
@@ -195,6 +197,8 @@ TD.commonCase('Gmail OAUTH: network prevents token refresh', function(T, RT) {
     // But alas, the server still didn't let us in.
     expectResult: 'unresponsive-server'
   });
-});
+})
+
+];
 
 }); // end define

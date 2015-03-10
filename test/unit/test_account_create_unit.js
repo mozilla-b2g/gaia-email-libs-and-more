@@ -8,17 +8,14 @@
  * of IMAP+SMTP we handle either of the two generating failures.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'accountcommon',
-        'imap/probe', 'pop3/probe',
-        'smtp/probe', 'activesync/protocol',
-        'exports'],
-       function($tc, $th_imap,
-                $accountcommon, $imapprobe, $pop3probe,
-                $smtpprobe, $asproto, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_create_unit' }, null, [$th_imap.TESTHELPER], ['app']);
+var $accountcommon = require('accountcommon');
+var $imapprobe = require('imap/probe');
+var $pop3probe = require('pop3/probe');
+var $smtpprobe = require('smtp/probe');
+var $asproto = require('activesync/protocol');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 ////////////////////////////////////////////////////////////////////////////////
 // Stubs!
@@ -118,9 +115,12 @@ var FakeActivesyncDomainInfo = {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+var testCases = [];
+
 ['imap', 'pop3'].forEach(function (type) {
   FakeIncomingDomainInfo.type = type + '+smtp';
-  TD.commonCase(type.toUpperCase() + ' tryToCreateAccount', function(T, RT) {
+  testCases.push(new LegacyGelamTest(type.toUpperCase() + ' tryToCreateAccount',
+                                     function(T, RT) {
     var eCheck = T.lazyLogger('check');
     var errorMixtures = [
       { name: type + ' error only',
@@ -150,31 +150,32 @@ var FakeActivesyncDomainInfo = {
         gNextSmtpProbeResult = mix.smtp;
         gDelayIncomingProbeResult = mix.delayIncoming || false;
         if (!mix.incoming) {
-          eCheck.expect_event('incoming.close()');
+          eCheck.expect('incoming.close()');
           gFakeIncomingConn = {
             close: function() {
-              eCheck.event('incoming.close()');
+              eCheck.log('incoming.close()');
             },
           };
         }
 
-        eCheck.expect_namedValue('err', mix.reportAs);
-        eCheck.expect_namedValueD('errDetails', { server: mix.server });
-        eCheck.expect_namedValue('account', null);
+        eCheck.expect('err',  mix.reportAs);
+        eCheck.expect('errDetails',  { server: mix.server });
+        eCheck.expect('account',  null);
 
         $accountcommon.tryToManuallyCreateAccount(
           FakeUniverse, FakeUserDetails, FakeIncomingDomainInfo,
           function (err, account, errDetails) {
-            eCheck.namedValue('err', err);
-            eCheck.namedValueD('errDetails', errDetails);
-            eCheck.namedValue('account', null);
+            eCheck.log('err', err);
+            eCheck.log('errDetails', errDetails);
+            eCheck.log('account', null);
           });
       });
     });
-  });
+  }));
 });
 
-TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
+testCases.push(new LegacyGelamTest('ActiveSync tryToCreateAccount',
+                                   function(T, RT) {
   var eCheck = T.lazyLogger('check');
   var errorMixtures = [
     { name: '401',
@@ -200,18 +201,20 @@ TD.commonCase('ActiveSync tryToCreateAccount', function(T, RT) {
     T.action(eCheck, mix.name, function() {
       gNextActivesyncResult = mix.err;
 
-      eCheck.expect_namedValue('err', mix.reportAs);
-      eCheck.expect_namedValue('account', null);
+      eCheck.expect('err',  mix.reportAs);
+      eCheck.expect('account',  null);
 
       $accountcommon.tryToManuallyCreateAccount(
         FakeUniverse, FakeUserDetails, FakeActivesyncDomainInfo,
         function (err, account, errDetails) {
-          eCheck.namedValue('err', err);
-          eCheck.namedValue('account', null);
+          eCheck.log('err', err);
+          eCheck.log('account', null);
         });
     });
   });
 
-});
+}));
+
+return testCases;
 
 }); // end define

@@ -7,23 +7,20 @@
  * - The accountDef.connInfo.deviceId does not change as a result of an upgrade.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+define(function(require, exports) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_recreate' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $wbxml = require('wbxml');
+var $ascp = require('activesync/codepages');
 
-TD.commonCase('create, recreate offline', function(T) {
+return new LegacyGelamTest('create, recreate offline', function(T) {
   const FilterType = $ascp.AirSync.Enums.FilterType;
   const DEFAULT_MESSAGE_COUNT = 10;
 
   T.group('create old db');
   // create a database that will get migrated at next universe
-  var TU1 = T.actor('testUniverse', 'U1', { dbDelta: -1 }),
-      TA1 = T.actor('testAccount', 'A1',
+  var TU1 = T.actor('TestUniverse', 'U1', { dbDelta: -1 }),
+      TA1 = T.actor('TestAccount', 'A1',
                     { universe: TU1 }),
       eCheck = T.lazyLogger('check');
 
@@ -37,12 +34,12 @@ TD.commonCase('create, recreate offline', function(T) {
   T.group('go offline, shutdown');
   TU1.do_pretendToBeOffline(true);
   T.action(eCheck, 'nuke device id, save account def', function() {
-    eCheck.expect_event('account def saved');
+    eCheck.expect('account def saved');
 
     delete TA1.account.accountDef.connInfo.deviceId;
     TA1.universe.saveAccountDef(
       TA1.account.accountDef, null, function() {
-        eCheck.event('account def saved');
+        eCheck.log('account def saved');
       });
   });
   TU1.do_saveState();
@@ -50,16 +47,16 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('migrate while offline');
   // this universe will trigger lazy upgrade migration
-  var TU2 = T.actor('testUniverse', 'U2', { old: TU1, upgrade: true }),
-      TA2 = T.actor('testAccount', 'A2',
+  var TU2 = T.actor('TestUniverse', 'U2', { old: TU1, upgrade: true }),
+      TA2 = T.actor('TestAccount', 'A2',
                     { universe: TU2, restored: 'upgrade' });
   // check that the inbox exists
   var inbox2 = TA2.do_useExistingFolderWithType('inbox', '2', inbox1);
 
   T.check(eCheck, 'account has device id', function() {
-    eCheck.expect_namedValueD('has device id', true);
+    eCheck.expect('has device id',  true);
     var deviceId = TA2.account.accountDef.connInfo.deviceId;
-    eCheck.namedValueD('has device id', !!deviceId, deviceId);
+    eCheck.log('has device id', !!deviceId, deviceId);
   });
 
   T.group('kill folder sync, go online, try and sync');
@@ -78,7 +75,7 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('sync folder list triggers sync');
   TU2.do_restoreQueuedOperationsAndWait(TA2, savedFolderSyncOpList, function() {
-    TA2.expect_messagesReported(DEFAULT_MESSAGE_COUNT);
+    TA2.expect('messagesReported', { count: DEFAULT_MESSAGE_COUNT });
     TA2.expect_headerChanges(
       view2,
       { additions: inbox2.serverMessages, changes: [], deletions: [] });
@@ -92,9 +89,9 @@ TD.commonCase('create, recreate offline', function(T) {
 
   T.group('create old db via nuke');
   // create a universe that nukes everything.
-  var TU3 = T.actor('testUniverse', 'U3',
+  var TU3 = T.actor('TestUniverse', 'U3',
                     { old: TU2, dbDelta: 1, nukeDb: true }),
-      TA3 = T.actor('testAccount', 'A3',
+      TA3 = T.actor('TestAccount', 'A3',
                     { universe: TU3 });
   var savedDeviceId;
   T.check('save off device id', function () {
@@ -107,15 +104,15 @@ TD.commonCase('create, recreate offline', function(T) {
   // TODO: re-enable in whatever manner is appropriate, if at all
   // https://bugzil.la/1049264 filed with discussion
   /*
-  var TU4 = T.actor('testUniverse', 'U4',
+  var TU4 = T.actor('TestUniverse', 'U4',
                     { old: TU3, dbDelta: 2, upgrade: 'nowait' }),
-      TA4 = T.actor('testAccount', 'A4',
+      TA4 = T.actor('TestAccount', 'A4',
                     { universe: TU4, restored: 'upgrade' });
   var inbox4 = TA4.do_useExistingFolderWithType('inbox', '4', inbox1);
 
   T.check(eCheck, 'device id stayed the same', function() {
-    eCheck.expect_namedValue('device id', savedDeviceId);
-    eCheck.namedValue('device id', TA4.account.accountDef.connInfo.deviceId);
+    eCheck.expect('device id',  savedDeviceId);
+    eCheck.log('device id', TA4.account.accountDef.connInfo.deviceId);
   });
 
   TA4.do_viewFolder(

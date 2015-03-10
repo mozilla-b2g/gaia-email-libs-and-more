@@ -1,19 +1,14 @@
+define(function(require, exports) {
 
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $airsync = require('activesync/codepages/AirSync');
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'activesync/codepages/AirSync', 'exports'],
-       function($tc, $th_main, $ascp, $airsync, exports) {
 const FilterType = $airsync.Enums.FilterType;
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_storage_upgrade' }, null,
-  [$th_main.TESTHELPER], ['app']);
 
-
-
-TD.commonCase('with version 0, upgrade is triggered', function(T) {
+return new LegacyGelamTest('with version 0, upgrade is triggered', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
@@ -53,8 +48,8 @@ TD.commonCase('with version 0, upgrade is triggered', function(T) {
                                                 storage.folderMeta);
     // wait for a front-end/back-end roundtrip so the folder update notification
     // definitely has been processed.
-    eSync.expect_event('roundtrip');
-    testAccount.MailAPI.ping(eSync.event.bind(eSync, 'roundtrip'));
+    eSync.expect('roundtrip');
+    testAccount.MailAPI.ping(eSync.log.bind(eSync, 'roundtrip'));
   });
 
   T.action('run upgrade', eSync, function(T) {
@@ -63,12 +58,11 @@ TD.commonCase('with version 0, upgrade is triggered', function(T) {
 
     var storage = testAccount.universe
       .getFolderStorageForFolderId(testFolder.id);
-    eSync.expect_namedValue('version after scheduling but before job completes',
-                            0);
+    eSync.expect('version after scheduling but before job completes', 0);
     testAccount.expect_runOp('upgradeDB',
       { local: true, server: false, save: 'local' });
     testAccount.account.upgradeFolderStoragesIfNeeded();
-    eSync.namedValue('version after scheduling but before job completes',
+    eSync.log('version after scheduling but before job completes',
                      storage.folderMeta.version);
   });
 

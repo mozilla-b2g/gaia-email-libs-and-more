@@ -5,14 +5,14 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     './messageGenerator',
     'accountcommon',
     'module',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $msggen,
     $accountcommon,
     $module,
@@ -69,10 +69,10 @@ var TestFakeIMAPServerMixins = {
 
     self.testAccount = opts.testAccount;
 
+    logic.defineScope(self, 'TestFakeIMAPServer');
+
     self.T.convenienceSetup(setupVerb, self,
                             function() {
-      self.__attachToLogger(LOGFAB.testFakeIMAPServer(self, null, self.__name));
-
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
 
       // The specific test always wins, but if not specified, we leave it up to
@@ -177,10 +177,18 @@ var TestFakeIMAPServerMixins = {
     }
     catch (ex) {
       console.error('JSON parsing problem!');
-      this._logger.backdoorError(request, response, this.backdoorUrl);
+      logic(this, 'backdoorError', {
+        request: request,
+        response: response,
+        backdoorUrl: this.backdoorUrl
+      });
       return null;
     }
-    this._logger.backdoor(request, response, this.backdoorUrl);
+    logic(this, 'backdoor', {
+      request: request,
+      response: response,
+      backdoorUrl: this.backdoorUrl
+    });
     return response;
   },
 
@@ -217,7 +225,7 @@ var TestFakeIMAPServerMixins = {
       name: folderPath
     });
     if (result !== true)
-      this._logger.folderDeleteFailure(folderPath);
+      logic(this, 'folderDeleteFailure', { path: folderPath });
   },
 
   addMessagesToFolder: function(folderPath, messages) {
@@ -354,10 +362,18 @@ var TestFakeIMAPServerMixins = {
     }
     catch (ex) {
       console.error('JSON parsing problem!');
-      this._logger.backdoorError(request, response, this.backdoorUrl);
+      logic(this, 'backdoorError', {
+        request: request,
+        response: response,
+        backdoorUrl: this.backdoorUrl
+      });
       return null;
     }
-    this._logger.backdoor(request, response, this.backdoorUrl);
+    logic(this, 'backdoor', {
+      request: request,
+      response: response,
+      backdoorUrl: this.backdoorUrl
+    });
     return response;
   },
 
@@ -372,33 +388,9 @@ var TestFakeIMAPServerMixins = {
 
 
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testFakeIMAPServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      backdoor: { request: false, response: false, url: false },
-    },
-    errors: {
-      backdoorError: { request: false, response: false, url: false },
-
-      folderDeleteFailure: { folderPath: false }
-    },
-    TEST_ONLY_events: {
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB,
-  ],
   actorMixins: {
-    testFakeIMAPServer: TestFakeIMAPServerMixins,
+    TestFakeIMAPServer: TestFakeIMAPServerMixins,
   }
 };
 

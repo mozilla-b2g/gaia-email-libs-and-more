@@ -200,16 +200,16 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
-    "test_storage_upgrade.js": {
-      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
-    },
-
     "test_compose_blobs.js": {
       "variants": ["imap:fake", "activesync:fake"]
     },
 
     "test_compose_detach.js": {
       "variants": ["imap:fake", "activesync:fake"]
+    },
+
+    "test_storage_upgrade.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
 
     "test_body_observers.js": {
@@ -227,10 +227,6 @@
 
     "test_account_logic.js": {
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
-    },
-
-    "logic_test.js": {
-      "variants": ["imap:fake"]
     },
 
     "test_account_folder_logic.js": {

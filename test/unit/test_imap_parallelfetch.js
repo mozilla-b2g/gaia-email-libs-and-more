@@ -3,28 +3,21 @@
  * loss variant for downloadBodies is in test_imap_errors.js.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', './resources/fault_injecting_socket',
-        'exports'],
-       function($tc, $th_imap, $msggen, $fawlty, exports) {
+define(function(require) {
 
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
+var $fawlty = require('./resources/fault_injecting_socket')
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_parallelfetch' },
-  null,
-  [$th_imap.TESTHELPER],
-  ['app']
-);
 
 /**
  * This case is to verify the ordering and content of the initial sync messages.
  * This does _not_ cover database persistence (which is handled in other test
  * cases).
  */
-TD.commonCase('fetch N body snippets at once', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+return new LegacyGelamTest('fetch N body snippets at once', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: true });
 
@@ -122,7 +115,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
 
   T.action('recieve fetches in random order', eLazy, function() {
     // we don't care about order only correctness
-    eLazy.expectUseSetMatching();
+    eLazy.useSetMatching();
 
     folderView.slice.items.forEach(function(header) {
       var serverMsg = testFolder.findServerMessage(header.guid);
@@ -133,13 +126,13 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         throw new Error('no server content for guid: ' + header.guid);
       var snippet = snippetBodyRepContent.slice(0, 20);
 
-      eLazy.expect_namedValue('snippet', {
+      eLazy.expect('snippet', {
         id: header.id,
         // snippets are usually trimmed
         approxSnippet: snippet.trim()
       });
 
-      eLazy.expect_namedValue('bodyReps', {
+      eLazy.expect('bodyReps', {
         id: header.id,
         contents: msgDef.expectedContents,
         isDownloaded: true
@@ -158,7 +151,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
           header.getBody({ withBodyReps: true }, function(body) {
             if (!body) {
               // ???!
-              eLazy.namedValue('missing body for header', header.id);
+              eLazy.log('missing body for header', header.id);
               return;
             }
 
@@ -167,7 +160,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
                       item.content[1] : item.content).trim();
             });
 
-            eLazy.namedValue('bodyReps', {
+            eLazy.log('bodyReps', {
               id: header.id,
               contents: contents,
               isDownloaded: body.bodyReps[0].isDownloaded
@@ -176,7 +169,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
             body.die();
           });
 
-          eLazy.namedValue('snippet', {
+          eLazy.log('snippet', {
             id: header.id,
             approxSnippet: header.snippet.slice(0, 20).trim()
           });

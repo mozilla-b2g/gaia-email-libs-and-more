@@ -1,17 +1,12 @@
 /**
  * Test our rfc2822-specialized base64 encoder.
  **/
-define([
-  'rdcommon/testcontext',
-  'safe-base64',
-  'exports'
-], function($tc, base64, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_b64_unit' }, null,
-  [], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var base64 = require('safe-base64');
 
-TD.commonCase('base64 encoding', function(T, RT) {
+return new LegacyGelamTest('base64 encoding', function(T, RT) {
   var eCheck = T.lazyLogger('check');
 
   /**
@@ -118,12 +113,12 @@ TD.commonCase('base64 encoding', function(T, RT) {
   cases.forEach(function(tc) {
     T.check(eCheck, tc.name, function() {
       var correctEncoding = correctB64Range(tc.low, tc.count);
-      eCheck.expect_namedValue('encoded', correctEncoding);
+      eCheck.expect('encoded',  correctEncoding);
 
       var u8Input = makeU8Range(tc.low, tc.count);
       var actualU8Encoding = base64.mimeStyleBase64Encode(u8Input);
       var actualEncoding = asciiDecoder.decode(actualU8Encoding);
-      eCheck.namedValue('encoded', actualEncoding);
+      eCheck.log('encoded', actualEncoding);
     });
   });
 });

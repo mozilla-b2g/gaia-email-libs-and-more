@@ -7,18 +7,19 @@
  * are set/cleared and we can control exactly when the timers fire.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/incoming_prober_shared',
-        './resources/fault_injecting_socket', 'imap/probe',
-        'syncbase', 'slog',
-        'pop3/probe', 'pop3/pop3', 'smtp/probe',
-        'imap/client', 'exports'],
-function($tc, $th_main, proberShared, $fawlty, $imapProbe,
-         syncbase, slog, $pop3Probe, $pop3, $smtpProbe, imapclient, exports) {
-var FawltySocketFactory = $fawlty.FawltySocketFactory;
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_incoming_prober' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var logic = require('logic');
+var proberShared = require('./resources/incoming_prober_shared');
+var $fawlty = require('./resources/fault_injecting_socket');
+var $th_main = require('./resources/th_main');
+var $pop3Probe = require('pop3/probe');
+var $imapProbe = require('imap/probe');
+var imapclient = require('imap/client');
+var $pop3 = require('pop3/pop3');
+var $smtpProbe = require('smtp/probe');
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 var {
   thunkTimeouts, thrower, proberTimeout, constructProber, openResponse,
@@ -27,7 +28,9 @@ var {
   cannedLoginTest
 } = proberShared;
 
-TD.commonCase('timeout failure', function(T, RT) {
+return [
+
+new LegacyGelamTest('timeout failure', function(T, RT) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
@@ -37,19 +40,19 @@ TD.commonCase('timeout failure', function(T, RT) {
 
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
-    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+    eCheck.expect('incoming:setTimeout',  proberTimeout(RT));
     constructProber(RT, cci).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
   });
   T.action(eCheck, 'trigger timeout', function() {
-    eCheck.expect_event('incoming:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'unresponsive-server');
+    eCheck.expect('incoming:clearTimeout');
+    eCheck.expect('probe result',  'unresponsive-server');
     fireTimeout(0);
   });
-});
+}),
 
-TD.commonCase('SSL failure', function(T, RT) {
+new LegacyGelamTest('SSL failure', function(T, RT) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
@@ -59,16 +62,16 @@ TD.commonCase('SSL failure', function(T, RT) {
 
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
-    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+    eCheck.expect('incoming:setTimeout',  proberTimeout(RT));
     constructProber(RT, cci).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
-    eCheck.expect_event('incoming:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
+    eCheck.expect('incoming:clearTimeout');
+    eCheck.expect('probe result',  'bad-security');
   });
-});
+}),
 
-TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
+new LegacyGelamTest('Proper SMTP credentials get passed through', (T, RT) => {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
@@ -76,21 +79,19 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
   var fireTimeout = thunkTimeouts(eCheck);
   var cci = makeCredsAndConnInfo();
 
-  var log = new slog.LogChecker(T, RT);
-
   T.action(eCheck, 'with custom SMTP creds', function() {
     cci.credentials.outgoingUsername = 'user1';
     cci.credentials.outgoingPassword = 'pass1';
 
-    log.mustLog('smtp:connect', function (data) {
+    T.actor('SmtpClient').expect('connect', function (data) {
       return (data._auth.user === 'user1' &&
               data._auth.pass === 'pass1');
     });
 
 
-    eCheck.expect_value('done');
+    eCheck.expect('done');
     function done() {
-      eCheck.value('done');
+      eCheck.log('done');
     }
 
     $smtpProbe.probeAccount(cci.credentials, cci.connInfo)
@@ -103,22 +104,22 @@ TD.commonCase('Proper SMTP credentials get passed through', function(T, RT) {
     cci.credentials.outgoingUsername = undefined;
     cci.credentials.outgoingPassword = undefined;
 
-    log.mustLog('smtp:connect', function (data) {
+    T.actor('SmtpClient').expect('connect', function (data) {
       return (data._auth.user === 'user1' &&
               data._auth.pass === 'pass1');
     });
 
-    eCheck.expect_value('done');
+    eCheck.expect('done');
     function done() {
-      eCheck.value('done');
+      eCheck.log('done');
     }
 
     $smtpProbe.probeAccount(cci.credentials, cci.connInfo)
       .then(done, done);
   });
-});
+}),
 
-TD.commonCase('STARTTLS unsupported', function(T, RT) {
+new LegacyGelamTest('STARTTLS unsupported', function(T, RT) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check'),
       prober = null;
@@ -147,16 +148,16 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
         data: openResponse(RT)
       },
       precommands);
-    eCheck.expect_namedValue('incoming:setTimeout', proberTimeout(RT));
+    eCheck.expect('incoming:setTimeout',  proberTimeout(RT));
     constructProber(RT, cci).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
-    eCheck.expect_event('incoming:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
+    eCheck.expect('incoming:clearTimeout');
+    eCheck.expect('probe result',  'bad-security');
   });
-});
+}),
 
-TD.commonCase('gmail user disabled error', function(T, RT) {
+new LegacyGelamTest('gmail user disabled error', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: (RT.envOptions.type === 'imap' ?
                        'NO [ALERT] Your account is not enabled for IMAP use.' :
@@ -164,9 +165,9 @@ TD.commonCase('gmail user disabled error', function(T, RT) {
     expectResult:
     (RT.envOptions.type === 'imap' ? 'imap-disabled' : 'pop3-disabled'),
   });
-});
+}),
 
-TD.commonCase('gmail domain disabled error', function(T, RT) {
+new LegacyGelamTest('gmail domain disabled error', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString:
     (RT.envOptions.type === 'imap' ?
@@ -175,9 +176,9 @@ TD.commonCase('gmail domain disabled error', function(T, RT) {
     expectResult:
     (RT.envOptions.type === 'imap' ? 'imap-disabled' : 'pop3-disabled'),
   });
-});
+}),
 
-TD.commonCase('server maintenance', function(T, RT) {
+new LegacyGelamTest('server maintenance', function(T, RT) {
   if (RT.envOptions.type === "imap") {
     cannedLoginTest(T, RT, {
       openResponse: openResponse(RT).replace('AUTH=PLAIN', 'LOGINDISABLED'),
@@ -196,6 +197,8 @@ TD.commonCase('server maintenance', function(T, RT) {
       expectResult: 'server-maintenance',
     });
   }
-});
+})
+
+];
 
 }); // end define

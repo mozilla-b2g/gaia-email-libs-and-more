@@ -4,11 +4,9 @@
  * lot of the growth logic cases.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_complex' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 // This gets clobbered into $mailslice by testhelper.js as a default.
 // This really means 7.5 days
@@ -16,6 +14,13 @@ const INITIAL_SYNC_DAYS = 7,
       // This is the number of messages after which the sync logic will
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 15;
+
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
 
 /**
  * In the new only-refresh world view, the key things we check:
@@ -30,10 +35,10 @@ const INITIAL_SYNC_DAYS = 7,
  *   bucket and make sure we indicate possible growth and that growth can sync
  *   the message.
  */
-TD.commonCase('sliceOpenMostRecent', function(T) {
+commonCase('sliceOpenMostRecent', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   /**
@@ -281,10 +286,10 @@ TD.commonCase('sliceOpenMostRecent', function(T) {
  * - The need to bisect down from our initial coverage range where we stabilized
  *   at 3 days, never reaching 2 days.
  */
-TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
+commonCase('bisect on initial sync with follow-up growth', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -415,10 +420,10 @@ TD.commonCase('bisect on initial sync with follow-up growth', function(T) {
  * For our test, we choose an initial sync of 3 days, a fill size of 4 messages,
  * and we just cram 6 messages in one day.
  */
-TD.commonCase('refresh does not break when db limit hit', function(T) {
+commonCase('refresh does not break when db limit hit', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -486,10 +491,10 @@ TD.commonCase('refresh does not break when db limit hit', function(T) {
  * - Those 'remainder' messages that were already synchronized still get
  *   returned when growth is requested, and do not fall into cracks.
  */
-TD.commonCase('just-synced headers returned without re-refresh', function(T) {
+commonCase('just-synced headers returned without re-refresh', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -543,10 +548,10 @@ TD.commonCase('just-synced headers returned without re-refresh', function(T) {
  * While we are able to explicitly check the sync time span covers Tuesday, we
  * also put some new messages in there to make sure Sync picks up on them.
  */
-TD.commonCase('growth into already-synced does not skip any time', function(T) {
+commonCase('growth into already-synced does not skip any time', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -630,10 +635,10 @@ TD.commonCase('growth into already-synced does not skip any time', function(T) {
  * We also run a check to make sure that this refresh is stable in terms of
  * startTS; it would be bad for us if the date slid around.
  */
-TD.commonCase('newy messages beyond oldest-synced discoverable', function(T) {
+commonCase('newy messages beyond oldest-synced discoverable', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -721,10 +726,10 @@ TD.commonCase('newy messages beyond oldest-synced discoverable', function(T) {
  * messages in our database and our sync time range covers the oldest message
  * in the database.
  */
-TD.commonCase('do not sync earlier than 1990', function(T) {
+commonCase('do not sync earlier than 1990', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -780,10 +785,10 @@ TD.commonCase('do not sync earlier than 1990', function(T) {
  * deletions and eventually ended up with no covered messages.  This caused
  * the refresh to screw up and try and sync from 0 milliseconds.
  */
-TD.commonCase('repeated refresh is stable', function(T) {
+commonCase('repeated refresh is stable', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', {}),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', {}),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true });
 
   const fillSize = 3, totalCount = 4, HOUR_MILLIS = 60 * 60 * 1000;
@@ -851,11 +856,11 @@ TD.commonCase('repeated refresh is stable', function(T) {
   T.group('cleanup');
 });
 
-TD.commonCase('sync entire folder with limited messages in one pass ',
+commonCase('sync entire folder with limited messages in one pass ',
               function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', {}),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', {}),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true });
 
   var HOUR_MILLIS = 60 * 60 * 1000;
@@ -893,5 +898,6 @@ TD.commonCase('sync entire folder with limited messages in one pass ',
   T.group('cleanup');
 });
 
+return allTests;
 
 }); // end define

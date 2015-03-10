@@ -15,9 +15,10 @@
  * move on.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_main, $msggen, exports) {
+define(function(require) {
+
+var $msggen = require('./resources/messageGenerator');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * Given a dictionary whose keys are property names and values are lists of
@@ -63,18 +64,13 @@ function permuteUsingDict(factorDict, invokeWhat) {
   iterationIsForSuckers(0);
 }
 
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_cronsync_wait_for_completion' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('cronsync waits for completion', function(T, RT) {
+return new LegacyGelamTest('cronsync waits for completion', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
 
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
       testAccountA = T.actor(
-        'testAccount', 'A',
+        'TestAccount', 'A',
         {
           universe: testUniverse,
           displayName: 'A Xample',
@@ -82,7 +78,7 @@ TD.commonCase('cronsync waits for completion', function(T, RT) {
           // put the messages we send into a black hole rather than the inbox
           deliveryMode: 'blackhole'
         }),
-      testAccountB = T.actor('testAccount', 'B',
+      testAccountB = T.actor('TestAccount', 'B',
         {
           universe: testUniverse,
           displayName: 'B Xample',

@@ -7,7 +7,7 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     './messageGenerator',
     'accountcommon',
     'pop3/pop3',
@@ -15,7 +15,7 @@ define(
     'exports'
   ],
   function(
-    $log,
+    logic,
     $msggen,
     $accountcommon,
     pop3,
@@ -63,12 +63,12 @@ var TestFakePOP3ServerMixins = {
 
     self.testAccount = opts.testAccount;
 
+    logic.defineScope(self, 'TestFakePOP3Server');
+
     self.folderMessages = {};
 
     self.T.convenienceSetup(setupVerb, self,
                             function() {
-      self.__attachToLogger(LOGFAB.testFakePOP3Server(self, null, self.__name));
-
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
 
       if (!serverExists) {
@@ -121,10 +121,18 @@ var TestFakePOP3ServerMixins = {
     }
     catch (ex) {
       console.error('JSON parsing problem!');
-      this._logger.backdoorError(request, response, this.backdoorUrl);
+      logic(this, 'backdoorError', {
+        request: request,
+        response: response,
+        backdoorUrl: this.backdoorUrl
+      });
       return null;
     }
-    this._logger.backdoor(request, response, this.backdoorUrl);
+    logic(this, 'backdoor', {
+      request: request,
+      response: response,
+      backdoorUrl: this.backdoorUrl
+    });
     return response;
   },
 
@@ -329,33 +337,9 @@ var TestFakePOP3ServerMixins = {
 
 
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testFakePOP3Server: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      backdoor: { request: false, response: false, url: false },
-    },
-    errors: {
-      backdoorError: { request: false, response: false, url: false },
-
-      folderDeleteFailure: { folderPath: false }
-    },
-    TEST_ONLY_events: {
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB,
-  ],
   actorMixins: {
-    testFakePOP3Server: TestFakePOP3ServerMixins,
+    TestFakePOP3Server: TestFakePOP3ServerMixins,
   }
 };
 

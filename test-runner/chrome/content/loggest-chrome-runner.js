@@ -672,77 +672,9 @@ function buildQuery(args) {
   return bits.join("&");
 };
 
-/**
- * Create a summary object for the given log run.
- */
-function summaryFromLoggest(testFileName, variant, logData) {
-  var summary = {
-    filename: testFileName,
-    result: null,
-    tests: []
-  };
-  var anyFailures = false;
-  try {
-    if (logData.fileFailure) {
-      summary.tests.push({
-        name: '*file level problem*',
-        result: 'fail',
-        // in the case of a file failure, we need the variant hint...
-        variant: variant
-      });
-      anyFailures = true;
-    }
-    var definerLog = logData.log;
-
-    // we're currently pre-toJSON, so we need to directly look at the loggers;
-    // this will need to be changed up pretty shortly.
-    if (!definerLog || !definerLog.kids)
-      return summary;
-    for (var iKid = 0; iKid < definerLog.kids.length; iKid++) {
-      var testCaseLog = definerLog.kids[iKid];
-      var testPermLog = testCaseLog.kids[0];
-
-      var result = testCaseLog.latched.result;
-      if (result === 'fail') {
-        anyFailures = true;
-      }
-
-      // try and generate a concise summary of what failed.  In this case, we
-      // pick the step that failed to report.
-      var firstFailedStep = null;
-      if (result === 'fail' && testPermLog.kids) {
-        for (var iStep = 0; iStep < testPermLog.kids.length; iStep++) {
-          var step = testPermLog.kids[iStep];
-          if (step.latched && step.latched.result === 'fail') {
-            firstFailedStep = '' + step.semanticIdent;
-            break;
-          }
-        }
-      }
-
-      summary.tests.push({
-        name: '' + testCaseLog.semanticIdent,
-        result: result,
-        // although the latched variant should match up with the passed-in
-        // variant, let's avoid non-obvious clobbering and just propagate
-        variant: testPermLog.latched.variant,
-        firstFailedStep: firstFailedStep
-      });
-    }
-  }
-  catch (ex) {
-    console.harness('Problem generating loggest summary:', ex, '\n', ex.stack);
-  }
-
-  if (anyFailures) {
-    summary.result = 'fail';
-  }
-
-  return summary;
-}
-
 function printTestSummary(summary) {
-  dump('Test: ' + summary.filename + '\n');
+  dump('File: ' + summary.filename + '\n');
+
   summary.tests.forEach(function(test) {
     var str = '    ';
     switch (test.result) {
@@ -762,15 +694,21 @@ function printTestSummary(summary) {
     str += '\x1b[0m ' + test.name + ' (' + test.variant + ')\n';
     dump(str);
 
-    // (brief) failure details:
-    if (test.result === 'fail') {
-      dump('             failing step: ' + test.firstFailedStep + '\n');
-
-      if (TEST_PARAMS.printTravisUrls && summary._filename) {
-        dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
-             TEST_PARAMS.printTravisUrls + summary._filename + '\n');
+    if (test.result === 'fail' && test.lastError) {
+      dump('             last error: ' + test.lastError + '\n');
+      if (test.lastError.stack) {
+        dump(test.lastError.stack + '\n');
       }
     }
+    // // (brief) failure details:
+    // if (test.result === 'fail') {
+    //   dump('             failing step: ' + test.firstFailedStep + '\n');
+
+    //   if (TEST_PARAMS.printTravisUrls && summary._filename) {
+    //     dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
+    //          TEST_PARAMS.printTravisUrls + summary._filename + '\n');
+    //   }
+    // }
   });
 }
 
@@ -1014,21 +952,51 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
 
     if (event.data.type === 'loggest-test-results') {
       console.harness('calling writeTestLog and resolving');
-      var jsonStr = event.data.data,
-          logData = JSON.parse(jsonStr);
-      // this must be done prior to the compartment getting killed
-      var summary = summaryFromLoggest(testFileName, variant, logData);
-      if (!TEST_PARAMS.logFailuresOnly || summary.result === 'fail') {
-        writeTestLog(testFileName, variant, jsonStr, summary).then(
-          function() {
-            console.harness('write completed!');
-            deferred.resolve(summary);
-          });
-      }
-      else {
-        console.harness('not a failure, not writing');
-        deferred.resolve(summary);
-      }
+      var testLogs = JSON.parse(event.data.data);
+      var time = Date.now();
+      var basename = testFileName + '-' + variant.replace(/:/g, '_');
+
+      var latestPointerUrl = '.latest-' + basename;
+
+      var summary = {
+        filename: testFileName,
+        href: basename + '-' + time + '.html',
+        time: time,
+        tests: testLogs.map((resultData) => {
+          return { name: resultData.name,
+                   variant: resultData.variant,
+                   lastError: resultData.lastError,
+                   result: resultData.result };
+        }),
+        result: testLogs.every((resultData) => resultData.result === 'pass')
+      };
+
+      var logResults = {
+        filename: summary.filename,
+        href: summary.href,
+        time: time,
+        tests: testLogs
+      };
+
+      var logHtml = `
+            <!doctype html>
+            <meta charset="utf-8">
+            <script>
+              window.LATEST_VERSION_POINTER_URL = ${JSON.stringify(latestPointerUrl)};
+              window.results = ${JSON.stringify(logResults)};
+            </script>
+            <script defer src="./logic-inspector/loader.js"></script>
+        `;
+
+      writeFile('test-logs', summary.href, logHtml)
+        .then(() => {
+          // Update the '.latest-TESTNAME' file to point to the URL of
+          // the latest run, which is unique to each run.
+          return writeFile('test-logs', latestPointerUrl, summary.href)
+        })
+        .then(() => {
+          deferred.resolve(summary);
+        });
     }
     else {
       console.harness('Got non-summary result type:', event.data.type);
@@ -1076,48 +1044,26 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
   return deferred.promise;
 }
 
-function writeTestLog(testFileName, variant, jsonStr, summary) {
-  try {
-    var encoder = new TextEncoder('utf-8');
-    var logFilename = testFileName + '-' +
-                      variant.replace(/:/g, '_') + '.log';
-    summary._filename = logFilename;
-    var logPath = do_get_file('test-logs').path +
-                  '/' + logFilename;
-    console.harness('writing to', logPath);
-    var str;
-    // If we know the output is for Travis, don't put in the detector blocks,
-    // just generate raw JSON.
-    if (TEST_PARAMS.printTravisUrls) {
-      str = jsonStr;
-    }
-    else {
-      str = '##### LOGGEST-TEST-RUN-BEGIN #####\n' +
-            jsonStr + '\n' +
-            '##### LOGGEST-TEST-RUN-END #####\n';
-    }
-    var arr = encoder.encode(str);
-    return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
-  }
-  catch (ex) {
-    console.error('Error trying to write log to disk!', ex, '\n', ex.stack);
-    return null;
-  }
-}
-
 function writeFile(dirPath, filename, str) {
   try {
-    var encoder = new TextEncoder('utf-8');
-    var logPath = do_get_file(dirPath).path +
-                  '/' + filename;
-    var arr = encoder.encode(str);
-    return OS.File.writeAtomic(logPath, arr, { tmpPath: logPath + '.tmp' });
+    var logPath = do_get_file(dirPath).path + '/' + filename;
+    console.harness('writing to', logPath);
+    return OS.File.writeAtomic(
+      logPath,
+      new TextEncoder('utf-8').encode(str),
+      { tmpPath: logPath + '.tmp' });
   }
   catch (ex) {
     console.error('Error trying to write file to disk!', ex, '\n', ex.stack);
     return null;
   }
 }
+
+function readFile(dirPath, filename, str) {
+  var logPath = do_get_file(dirPath).path + '/' + filename;
+  return OS.File.read(logPath, { encoding: "utf-8" });
+}
+
 
 
 /**
@@ -1304,18 +1250,46 @@ function DOMLoaded() {
 
     try {
       runTests(configData).then(function(summaries) {
-        dump('\n\n***** ' + summaries.length + ' tests run: *****\n\n');
+        dump('\n************************\n\n');
+
         summaries.forEach(function(summary) {
           printTestSummary(summary);
         });
+
         dump('\n************************\n\n');
 
         var testResult = getTestResult(summaries);
         var jsonString = JSON.stringify({ result: testResult });
 
-        writeFile('test-logs', 'test-run.summary', jsonString).then(function() {
-          quitApp();
-        });
+        var RESULT_KEY = '/* ${NEXT_RESULT} */';
+        var latestPointerUrl = '.latest';
+
+        readFile('test-logs', 'index.html')
+          .catch((err) => {
+            return `
+            <!doctype html>
+            <meta charset="utf-8">
+            <script>
+              window.LATEST_VERSION_POINTER_URL = ${JSON.stringify(latestPointerUrl)};
+              window.results = [ ${RESULT_KEY} ];
+            </script>
+            <script defer src="./logic-inspector/loader.js"></script>
+            `;
+          })
+          .then((indexHtml) => {
+            return writeFile(
+              'test-logs',
+              'index.html',
+              indexHtml.replace(RESULT_KEY,
+                                JSON.stringify(summaries) +
+                                ',\n    ' + RESULT_KEY))
+          }).then(() => {
+            return Promise.all([
+              writeFile('test-logs', latestPointerUrl, 'index.html?time=' + Date.now()),
+            ]);
+          }).then(() => {
+            quitApp();
+          });
       });
     }
     catch (ex) {

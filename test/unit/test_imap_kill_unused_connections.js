@@ -1,19 +1,17 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'syncbase', 'exports'],
-       function($tc, $th_imap, $sync, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_kill_unused_connections' },
-  null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $sync = require('syncbase');
 
+return [
 /**
  * Test that we actually kill all outstanding connections after all
  * slices have been closed.
  */
-TD.commonCase('kill connections === true', function(T, RT) {
+new LegacyGelamTest('kill connections === true', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   // create the folder before turning the connection killer on
@@ -41,20 +39,20 @@ TD.commonCase('kill connections === true', function(T, RT) {
 
   T.action('no connections should remain open', eSync, function() {
     var acct = testUniverse.universe.accounts[0]._receivePiece;
-    eSync.expect_namedValue('conns left', 0);
-    eSync.namedValue('conns left', acct._ownedConns.length);
+    eSync.expect('conns left',  0);
+    eSync.log('conns left', acct._ownedConns.length);
   });
 
  T.group('cleanup');
-});
+}),
 
 /**
  * Test that we leave the connection open if we flipped the flag off.
  */
-TD.commonCase('kill connections === false', function(T, RT) {
+new LegacyGelamTest('kill connections === false', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse,
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse,
                                                   restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -77,11 +75,13 @@ TD.commonCase('kill connections === false', function(T, RT) {
 
   T.action('one connection should remain open', eSync, function() {
     var acct = testUniverse.universe.accounts[0]._receivePiece;
-    eSync.expect_namedValue('conns left', 1);
-    eSync.namedValue('conns left', acct._ownedConns.length);
+    eSync.expect('conns left',  1);
+    eSync.log('conns left', acct._ownedConns.length);
   });
 
  T.group('cleanup');
-});
+})
+
+];
 
 }); // end define

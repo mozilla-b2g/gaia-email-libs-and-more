@@ -5,14 +5,14 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     './messageGenerator',
     'accountcommon',
     'module',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $msggen,
     $accountcommon,
     $module,
@@ -23,14 +23,10 @@ var TestRealIMAPServerMixins = {
   __constructor: function(self, opts) {
     self.testAccount = null;
     self.testUniverse = null;
+    logic.defineScope(self, 'TestRealIMAPServer');
     self.universe = null;
     self.eAccount = null;
     self.account = null;
-
-    self.T.convenienceSetup(self, 'sets up', function() {
-      self.__attachToLogger(LOGFAB.testRealIMAPServer(self, null, self.__name));
-    });
-
   },
 
   /**
@@ -58,25 +54,33 @@ var TestRealIMAPServerMixins = {
     this.RT.reportActiveActorThisStep(this.testAccount);
     this.RT.reportActiveActorThisStep(testFolder.connActor);
     this.RT.reportActiveActorThisStep(testFolder.storageActor);
-    this.eAccount.expect_runOp_begin('local_do', 'createFolder');
-    this.eAccount.expect_runOp_end('local_do', 'createFolder');
-    this.eAccount.expect_runOp_begin('do', 'createFolder');
+    this.eAccount.expect('runOp_begin',
+                         { mode: 'local_do',
+                           type: 'createFolder' });
+    this.eAccount.expect('runOp_end',
+                         { mode: 'local_do',
+                           type: 'createFolder' });
+    this.eAccount.expect('runOp_begin',
+                         { mode: 'do',
+                           type: 'createFolder' });
     this.testAccount.help_expect_connection();
-    this.eAccount.expect_releaseConnection();
-    this.eAccount.expect_runOp_end('do', 'createFolder');
-    this.expect_creationNotified(1);
+    this.eAccount.expect('releaseConnection');
+    this.eAccount.expect('runOp_end',
+                         { mode: 'do',
+                           type: 'createFolder' });
+    this.expect('creationNotified', 1);
 
     var self = this, allFoldersSlice = this.testUniverse.allFoldersSlice;
     allFoldersSlice.onsplice = function(index, howMany, added,
                                         requested, expected) {
       allFoldersSlice.onsplice = null;
-      self._logger.creationNotified(added.length);
+      logic(self, 'creationNotified', { count: added.length });
       testFolder.mailFolder = added[0];
     };
     this.universe.createFolder(this.testAccount.accountId, null, name, false,
       function createdFolder(err, folderMeta) {
       if (err) {
-        self._logger.folderCreationError(err);
+        logic(self, 'folderCreationError', { error: err });
         return;
       }
       testFolder.id = folderMeta.id;
@@ -86,15 +90,15 @@ var TestRealIMAPServerMixins = {
   removeFolder: function(folderMeta) {
     this.RT.reportActiveActorThisStep(this.eAccount);
     this.testAccount.help_expect_connection();
-    this.eAccount.expect_releaseConnection();
-    this.eAccount.expect_deleteFolder();
-    this.testAccount.expect_deletionNotified(1);
+    this.eAccount.expect('releaseConnection');
+    this.eAccount.expect('deleteFolder');
+    this.testAccount.expect('deletionNotified', 1);
 
     var self = this, allFoldersSlice = this.testUniverse.allFoldersSlice;
     allFoldersSlice.onsplice = function(index, howMany, added,
                                         requested, expected) {
       allFoldersSlice.onsplice = null;
-      self._logger.deletionNotified(howMany);
+      logic(self, 'deletionNotified', { count: howMany });
     };
     this.testAccount.account.deleteFolder(folderMeta.id);
   },
@@ -105,11 +109,11 @@ var TestRealIMAPServerMixins = {
     this.universe._testModeDisablingLocalOps = true;
 
     // the append will need to check out and check back-in a connection
-    this.expect_runOp(
+    this.testAccount.expect_runOp(
       'append',
       { local: false, server: true, save: false,
         conn: testFolder._liveSliceThings.length === 0 });
-    this.expect_appendNotified();
+    this.expect('appendNotified');
 
     // turn the messages into something appendable
     var messagesToAppend = messages.map(function(message) {
@@ -126,7 +130,7 @@ var TestRealIMAPServerMixins = {
     });
     self.universe.appendMessages(folderMeta.id, messagesToAppend);
     self.universe.waitForAccountOps(self.compositeAccount, function() {
-      self._logger.appendNotified();
+      logic(self, 'appendNotified');
       self.universe._testModeDisablingLocalOps = false;
     });
   },
@@ -149,7 +153,7 @@ var TestRealIMAPServerMixins = {
    */
   modifyMessagesInFolder: function(folderPath, messages, addFlags, delFlags) {
     var self = this;
-    this.expect_modifyNotified(messages.length);
+    this.expect('modifyNotified', { count: messages.length });
 
     this.testAccount.expect_runOp(
       'modtags', { local: false, server: true, save: false });
@@ -163,7 +167,7 @@ var TestRealIMAPServerMixins = {
     this.testUniverse.MailAPI.ping(function() {
       self.universe.waitForAccountOps(self.account, function() {
         self.universe._testModeDisablingLocalOps = false;
-        self._logger.modifyNotified(messages.length);
+        logic(self, 'modifyNotified', { count: messages.length });
       });
     });
   },
@@ -186,33 +190,9 @@ var TestRealIMAPServerMixins = {
   }
 };
 
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testRealIMAPServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      creationNotified: { count: true },
-      deletionNotified: { count: true },
-      appendNotified: {},
-
-      modifyNotified: { count: true },
-    },
-    errors: {
-      folderCreationError: { err: false },
-    },
-    TEST_ONLY_events: {
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB,
-  ],
   actorMixins: {
-    testRealIMAPServer: TestRealIMAPServerMixins,
+    TestRealIMAPServer: TestRealIMAPServerMixins,
   }
 };
 

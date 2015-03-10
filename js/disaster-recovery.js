@@ -19,14 +19,14 @@ define(function(require) {
    * resources we can.
    */
 
-  var slog = require('./slog');
+  var logic = require('./logic');
 
   var socketToAccountMap = new WeakMap();
   var accountToOperationMap = new WeakMap();
 
-  var DisasterRecovery = {
+  var scope = logic.scope('DisasterRecovery');
 
-    // Monitor in-progress job operations in case we must abort.
+  var DisasterRecovery = {
 
     setCurrentAccountOp: function(account, op, jobCompletedCallback) {
       accountToOperationMap.set(account, {
@@ -88,7 +88,7 @@ define(function(require) {
         }
       }
 
-      slog.error('disaster-recovery:exception', {
+      logic(scope, 'exception', {
         accountId: account && account.id,
         op: op,
         error: e,
@@ -107,7 +107,7 @@ define(function(require) {
         if (op) {
           console.warn('Force-completing in-progress op:', op);
           jobDoneCallback('disastrous-error');
-          slog.log('disaster-recovery:finished-job', { error: e });
+          logic(scope, 'finished-job', { error: e });
         } else {
           console.warn('No job operation was currently running.');
         }

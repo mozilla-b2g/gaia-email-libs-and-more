@@ -58,12 +58,12 @@ MockBridge.prototype = {
 
 
 function do_check_eq(expected, actual) {
-  exports.gLazyLogger.expect_value(expected);
-  exports.gLazyLogger.value(actual);
+  exports.gLazyLogger.expect('check_eq', expected);
+  exports.gLazyLogger.log('check_eq', actual);
 }
 function do_check_neq(left, right) {
-  exports.gLazyLogger.expect_namedValueD('neq', left, right);
-  exports.gLazyLogger.namedValueD('neq', left, right);
+  exports.gLazyLogger.expect('neq', { left: left, right: right });
+  exports.gLazyLogger.log('neq', { left: left, right: right });
   if (left == right)
     throw new Error(left + ' == ' + right);
 }
@@ -91,7 +91,7 @@ exports.makeMockishSlice = function makeMockishSlice(storage) {
   bridgeProxy.flushUpdates = function() {
   };
 
-  var mailSlice = new $mailslice.MailSlice(bridgeProxy, storage, storage._LOG);
+  var mailSlice = new $mailslice.MailSlice(bridgeProxy, storage);
   return mailSlice;
 }
 
@@ -251,9 +251,9 @@ exports.makeTestContext = function makeTestContext(account) {
       var sortedExpectedNuked = nukedInfos.map(
                                   function(x) { return x.blockId; });
       sortedExpectedNuked.sort();
-      exports.gLazyLogger.expect_namedValue(
+      exports.gLazyLogger.expect(
         'dirtyBlockIndices', sortedExpectedDirty);
-      exports.gLazyLogger.expect_namedValue(
+      exports.gLazyLogger.expect(
         'nukedBlockIds', sortedExpectedNuked);
 
       for (var key in storage._dirtyBodyBlocks) {
@@ -279,9 +279,9 @@ exports.makeTestContext = function makeTestContext(account) {
       actualDirtyBlockIndices.sort();
       actualNukedBlocks.sort();
 
-      exports.gLazyLogger.namedValue(
+      exports.gLazyLogger.log(
         'dirtyBlockIndices', actualDirtyBlockIndices);
-      exports.gLazyLogger.namedValue(
+      exports.gLazyLogger.log(
         'nukedBlockIds', actualNukedBlocks);
     },
 

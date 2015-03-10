@@ -4,14 +4,14 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     './messageGenerator',
     'accountcommon',
     'module',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $msggen,
     $accountcommon,
     $module,
@@ -49,11 +49,10 @@ var TestActiveSyncServerMixins = {
 
     self.testAccount = opts.testAccount;
 
+    logic.defineScope(self, 'TestActiveSyncServer');
+
     self.T.convenienceSetup(setupVerb, self,
                             function() {
-      self.__attachToLogger(LOGFAB.testActiveSyncServer(self, null,
-                                                        self.__name));
-
       var TEST_PARAMS = self.RT.envOptions, serverInfo;
       if (!serverExists) {
         // talk to the control server to get it to create our server
@@ -110,10 +109,18 @@ var TestActiveSyncServerMixins = {
     }
     catch (ex) {
       console.error('JSON parsing problem!');
-      this._logger.backdoorError(request, response, this.backdoorUrl);
+      logic(this, 'backdoorError', {
+        request: request,
+        response: response,
+        backdoorUrl: this.backdoorUrl
+      });
       return null;
     }
-    this._logger.backdoor(request, response, this.backdoorUrl);
+    logic(this, 'backdoor', {
+      request: request,
+      response: response,
+      backdoorUrl: this.backdoorUrl
+    });
     return response;
   },
 
@@ -302,41 +309,9 @@ var TestActiveSyncServerMixins = {
   }
 };
 
-
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testActiveSyncServer: {
-    type: $log.SERVER,
-    topBilling: true,
-
-    events: {
-      started: { port: false },
-      stopped: {},
-
-      request: { method: false, path: false, headers: false },
-      requestBody: { },
-      response: { status: false, headers: false },
-
-      backdoor: { request: false, response: false, url: false },
-    },
-    errors: {
-      backdoorError: { request: false, response: false, url: false },
-    },
-    // I am putting these under TEST_ONLY_ as a hack to get these displayed
-    // differently since they are walls of text.
-    TEST_ONLY_events: {
-      requestBody: { body: false },
-      response: { body: false },
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB,
-  ],
   actorMixins: {
-    testActiveSyncServer: TestActiveSyncServerMixins,
+    TestActiveSyncServer: TestActiveSyncServerMixins,
   }
 };
 

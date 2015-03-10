@@ -50,7 +50,6 @@
  *   });
  */
 define('slog', function(require, exports, module) {
-  var $log = require('rdcommon/log');
   var evt = require('evt');
 
   var logSensitiveData = false;
@@ -173,7 +172,7 @@ define('slog', function(require, exports, module) {
     } else {
       // But for a predicate (or omitted predicate), expect it to return
       // true.  But also pass the value through as a detail
-      eLazy.expect_namedValueD(name, true);
+      eLazy.expect_namedValue(name, true);
       queued.push(predicate);
     }
   };

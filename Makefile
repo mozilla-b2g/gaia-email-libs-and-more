@@ -74,14 +74,7 @@ download-b2g: b2g
 gaia-symlink:
 	echo "You need to create a symlink 'gaia-symlink' pointing at the gaia dir"
 
-B2GBD := b2g-builddir-symlink
-ifeq ($(wildcard b2g-bindir-symlink),)
-  B2GBIND := $(B2GBD)/dist/bin
-  RUNB2G := $(B2GBIND)/b2g
-else
-  B2GBIND := b2g-bindir-symlink
-  RUNB2G := $(B2GBIND)/b2g-bin
-endif
+RUNB2G := b2g/Contents/MacOS/b2g-bin
 
 ARBPLD=arbpl-dir-symlink
 

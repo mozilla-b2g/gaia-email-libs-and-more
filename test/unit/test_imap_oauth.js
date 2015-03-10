@@ -3,17 +3,10 @@
  * test_smtp_prober.js.
  **/
 
-define(function(require, exports) {
+define(function(require) {
 
-var $tc = require('rdcommon/testcontext');
-var $th_main = require('./resources/th_main');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $date = require('date');
-var slog = require('slog');
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_oauth' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
 
 /**
  * Verify that in the situation where we think our access token is up-to-date
@@ -49,11 +42,11 @@ var TD = exports.TD = $tc.defineTestsFor(
  *   that the refresh sync fails but also that the oauth server gets exactly one
  *   token request.
  */
-TD.commonCase('last-ditch access token renewal', function(T, RT) {
+return new LegacyGelamTest('last-ditch access token renewal', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
+  var testUniverse = T.actor('TestUniverse', 'U');
   var testAccount = T.actor(
-    'testAccount', 'A',
+    'TestAccount', 'A',
     {
       universe: testUniverse,
       imapExtensions: ['XOAUTH2'],
@@ -68,7 +61,7 @@ TD.commonCase('last-ditch access token renewal', function(T, RT) {
       }
     });
   var eSync = T.lazyLogger('sync');
-  var logChecker = new slog.LogChecker(T, RT, 'oauthy');
+  var eOauth = T.lazyLogger('Oauth');
 
   var testFolder = testAccount.do_createTestFolder(
     'test_oauth_renewal', { count: 1 } );
@@ -100,20 +93,20 @@ TD.commonCase('last-ditch access token renewal', function(T, RT) {
       syncedToDawnOfTime: true,
       expectFunc: function() {
         // we will think our credentials are okay...
-        logChecker.mustLog('oauth:credentials-ok');
+        eOauth.expect('credentials-ok');
         // oops, but they weren't!
-        logChecker.mustLog('oauth:renewing-access-token');
+        eOauth.expect('renewing-access-token');
         // and so we should get that new token and change our creds
-        logChecker.mustLog('oauth:got-access-token',
+        eOauth.expect('got-access-token',
                            { _accessToken: 'valid1' });
-        logChecker.mustLog('oauth:credentials-changed');
+        eOauth.expect('credentials-changed');
         // and then we'll think our credentials are okay again...
-        logChecker.mustLog('oauth:credentials-ok');
+        eOauth.expect('credentials-ok');
       }
     });
   T.check(eSync, 'verify oauth server was asked for 1 token', function() {
-    eSync.expect_namedValue('tokens', 1);
-    eSync.namedValue('tokens',
+    eSync.expect('tokens',  1);
+    eSync.log('tokens',
                      testAccount.testServer.oauth_getNumAccessTokensProvided(
                        { reset : true }));
   });
@@ -132,13 +125,15 @@ TD.commonCase('last-ditch access token renewal', function(T, RT) {
       failure: 'connect-error',
       expectFunc: function() {
         // we will think our credentials are okay...
-        logChecker.mustLog('oauth:credentials-ok');
-        logChecker.mustLog('imap:connect-error',
-                           { error: 'needs-oauth-reauth' });
+        eOauth.expect('credentials-ok');
+        T.lazyLogger('ImapClient').expect('connect-error',
+                                          { error: 'needs-oauth-reauth' });
 
         RT.reportActiveActorThisStep(testUniverse.eUniverse);
-        testUniverse.eUniverse.expect_reportProblem('needs-oauth-reauth');
-        testUniverse.eUniverse.expect_reportProblem('connection');
+        testUniverse.eUniverse.expect('reportProblem',
+                                      { problem: 'needs-oauth-reauth' });
+        testUniverse.eUniverse.expect('reportProblem',
+                                      { problem: 'connection' });
       }
     });
 
@@ -159,32 +154,33 @@ TD.commonCase('last-ditch access token renewal', function(T, RT) {
       failure: 'connect-error',
       expectFunc: function() {
         // we will think our credentials are okay...
-        logChecker.mustLog('oauth:credentials-ok');
+        eOauth.expect('credentials-ok');
         // oops, but they weren't!
-        logChecker.mustLog('oauth:renewing-access-token');
+        eOauth.expect('renewing-access-token');
         // and so we should get that new token and change our creds
-        logChecker.mustLog('oauth:got-access-token',
-                           { _accessToken: 'still-not-valid' });
-        logChecker.mustLog('oauth:credentials-changed');
+        eOauth.expect('got-access-token',
+                      { _accessToken: 'still-not-valid' });
+        eOauth.expect('credentials-changed');
         // and then we'll think our credentials are okay again...
-        logChecker.mustLog('oauth:credentials-ok');
+        eOauth.expect('credentials-ok');
 
         // but they aren't!  whoops!
         RT.reportActiveActorThisStep(testUniverse.eUniverse);
-        testUniverse.eUniverse.expect_reportProblem('needs-oauth-reauth');
+        testUniverse.eUniverse.expect('reportProblem',
+                                      { problem: 'needs-oauth-reauth' });
         // (note that calling clearAccountProblems didn't actually reset the
         // clever backoff logic's concept of connection state, so this won't
         // trigger 'connection' to get flagged again.)
 
-        logChecker.mustLog('imap:connect-error',
-                           { error: 'needs-oauth-reauth' });
+        T.lazyLogger('ImapClient').expect('connect-error',
+                                          { error: 'needs-oauth-reauth' });
       }
     });
   T.check(eSync, 'verify oauth server was asked for 1 token', function() {
-    eSync.expect_namedValue('tokens', 1);
-    eSync.namedValue('tokens',
-                     testAccount.testServer.oauth_getNumAccessTokensProvided(
-                       { reset : true }));
+    eSync.expect('tokens', 1);
+    eSync.log('tokens',
+              testAccount.testServer.oauth_getNumAccessTokensProvided(
+                { reset: true }));
   });
 
   T.group('cleanup');

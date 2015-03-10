@@ -2,19 +2,14 @@
  * Make sure POP3 only opens a connection for the inbox.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_pop3_connection_use' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('connection use', function(T, RT) {
+return new LegacyGelamTest('connection use', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
   var eSync = T.lazyLogger('sync');
 
   var trashFolder = testAccount.do_useExistingFolderWithType('trash', '');

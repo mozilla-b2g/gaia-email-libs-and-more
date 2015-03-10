@@ -3,13 +3,13 @@
  * db reuse makes this test unhappy.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'mailapi', 'exports'],
-       function($tc, $th_main, $ascp, $mailapi, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_folder_logic' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var $ascp = require('activesync/codepages');
+var $mailapi = require('mailapi');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+
+return [
 
 /**
  * Make sure we don't get duplicate folders from running syncFolderList a
@@ -19,10 +19,10 @@ var TD = exports.TD = $tc.defineTestsFor(
  * then replaced with effectively identical ones, so we listen for splice
  * notifications.
  */
-TD.commonCase('syncFolderList is idempotent', function(T) {
+new LegacyGelamTest('syncFolderList is idempotent', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               imapExtensions: ['RFC2195', 'RFC6154'] }),
       eSync = T.lazyLogger('sync');
@@ -39,56 +39,55 @@ TD.commonCase('syncFolderList is idempotent', function(T) {
 
     testAccount.expect_runOp('syncFolderList',
                              { local: false, server: true, conn: true });
-    eSync.expect_event('roundtripped');
+    eSync.expect('roundtripped');
     testUniverse.universe.syncFolderList(testAccount.account, function() {
       testUniverse.MailAPI.ping(function() {
-        eSync.event('roundtripped');
+        eSync.log('roundtripped');
       });
     });
   });
   T.check('check folder list', eSync, function(T) {
-    eSync.expect_namedValue('num folders', numFolders);
-    eSync.expect_namedValue('num added', numAdds);
-    eSync.expect_namedValue('num deleted', numDeletes);
-    eSync.namedValue('num folders', testUniverse.allFoldersSlice.items.length);
-    eSync.namedValue('num added', numAdds);
-    eSync.namedValue('num deleted', numDeletes);
+    eSync.expect('num folders',  numFolders);
+    eSync.expect('num added',  numAdds);
+    eSync.expect('num deleted',  numDeletes);
+    eSync.log('num folders', testUniverse.allFoldersSlice.items.length);
+    eSync.log('num added', numAdds);
+    eSync.log('num deleted', numDeletes);
   });
 
   T.group('cleanup');
-});
+}),
 
-TD.commonCase('syncFolderList created offline folders', function(T, RT) {
+new LegacyGelamTest('syncFolderList created offline folders', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
   ['localdrafts', 'outbox'].forEach(function(folderType) {
     T.check(eCheck, folderType + ' folder', function() {
-      eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
+      eCheck.expect('has ' + folderType + ' folder?',  true);
       var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
       // the path should place it next to the existing drafts folder, but we
       // frequently don't have that folder, so use sent, which is our fallback
       // anyways and should be consistently located
-      eCheck.expect_namedValue('path',
-                               sent.path.replace(/sent.*/i, folderType));
+      eCheck.expect('path', sent.path.replace(/sent.*/i, folderType));
 
 
       var folder = testUniverse.allFoldersSlice
             .getFirstFolderWithType(folderType);
-      eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
-      eCheck.namedValue('path', folder.path);
+      eCheck.log('has ' + folderType + ' folder?', !!folder);
+      eCheck.log('path', folder.path);
     });
   });
-});
+}),
 
-TD.commonCase('correct folders designated as valid move targets',
+new LegacyGelamTest('correct folders designated as valid move targets',
   function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
   var folderMoveExps = {
@@ -109,21 +108,21 @@ TD.commonCase('correct folders designated as valid move targets',
   function check(type) {
     T.check(eCheck, type + ' folder', function() {
       var folder = new $mailapi._MailFolder(testUniverse.MailAPI, {type: type});
-      eCheck.expect_namedValue(type + ' folder is valid move target', folderMoveExps[type]);
-      eCheck.namedValue(type + ' folder is valid move target', folder.isValidMoveTarget);
+      eCheck.expect(type + ' folder is valid move target', folderMoveExps[type]);
+      eCheck.log(type + ' folder is valid move target', folder.isValidMoveTarget);
     });
   }
 
   for (var folderType in folderMoveExps) {
     check(folderType);
   }
-});
+}),
 
-TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
+new LegacyGelamTest('normalizeFolderHierarchy', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
@@ -137,41 +136,40 @@ TD.commonCase('normalizeFolderHierarchy', function(T, RT) {
   T.action('run syncFolderList', eCheck, function(T) {
     testAccount.expect_runOp('syncFolderList',
                              { local: false, server: true, conn: true });
-    eCheck.expect_event('roundtripped');
+    eCheck.expect('roundtripped');
     testUniverse.universe.syncFolderList(testAccount.account, function() {
       testUniverse.MailAPI.ping(function() {
-        eCheck.event('roundtripped');
+        eCheck.log('roundtripped');
       });
     });
   });
 
   ['outbox', 'localdrafts'].forEach(function(folderType) {
     T.check(eCheck, folderType + ' folder', function() {
-      eCheck.expect_namedValue('has ' + folderType + ' folder?', true);
+      eCheck.expect('has ' + folderType + ' folder?',  true);
       var sent = testUniverse.allFoldersSlice.getFirstFolderWithType('sent');
       // the path should place it next to the existing drafts folder, but we
       // frequently don't have that folder, so use sent, which is our fallback
       // anyways and should be consistently located
-      eCheck.expect_namedValue('path',
-                               sent.path.replace(/sent.*/i, folderType));
+      eCheck.expect('path', sent.path.replace(/sent.*/i, folderType ));
 
       var folder = testUniverse.allFoldersSlice
             .getFirstFolderWithType(folderType);
-      eCheck.namedValue('has ' + folderType + ' folder?', !!folder);
-      eCheck.namedValue('path', folder.path);
+      eCheck.log('has ' + folderType + ' folder?', !!folder);
+      eCheck.log('path', folder.path);
     });
   });
-});
+}),
 
 
-TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
+new LegacyGelamTest('syncFolderList obeys hierarchy', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
       testServer = null,
       eSync = T.lazyLogger('sync');
 
-  var testAccount = T.actor('testAccount', 'A',
+  var testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               restored: true });
 
@@ -179,7 +177,7 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   if (TEST_PARAMS.type === 'activesync') {
     T.action('create test folders', function() {
       var testServer = testAccount.testServer;
-      
+
       const folderType = $ascp.FolderHierarchy.Enums.Type;
       var inbox = testServer.getFolderByPath('Inbox'),
           sent  = testServer.getFolderByPath('Sent Mail'),
@@ -255,8 +253,8 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
           }
           var type = testAccount.imapAccount._determineFolderType(
             node, node.path);
-          eSync.expect_namedValue('folder ' + node.path, node.expType);
-          eSync.namedValue('folder ' + node.path, type);
+          eSync.expect('folder ' + node.path, node.expType);
+          eSync.log('folder ' + node.path, type);
           if (node.children) {
             visitFolderLevel(node.children);
           }
@@ -268,6 +266,8 @@ TD.commonCase('syncFolderList obeys hierarchy', function(T, RT) {
   }
 
   T.group('cleanup');
-});
+})
+
+];
 
 }); // end define

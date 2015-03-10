@@ -1,13 +1,13 @@
-define(['rdcommon/testcontext', './resources/th_main', 'slog', 'exports'],
-       function($tc, $th_imap, slog, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_disaster_recovery' }, null, [$th_imap.TESTHELPER], ['app']);
+var $msggen = require('./resources/messageGenerator');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('Releases mutex during botched sync', function(T, RT) {
+return [
+new LegacyGelamTest('Releases mutex during botched sync', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('check');
 
@@ -33,33 +33,35 @@ TD.commonCase('Releases mutex during botched sync', function(T, RT) {
       noexpectations: true,
     expectFunc: function() {
       RT.reportActiveActorThisStep(testAccount.eImapAccount);
-      testAccount.eImapAccount.expect_reuseConnection();
+      testAccount.eImapAccount.expect('reuseConnection');
       // When the error is thrown, we'll kill the connection:
-      testAccount.eImapAccount.expect_deadConnection();
+      testAccount.eImapAccount.expect('deadConnection');
 
-      var log = new slog.LogChecker(T, RT, 'disaster');
+      var eDisaster = T.actor('DisasterRecovery');
+      var eFS = T.actor('FolderStorage');
 
       // Make sure we capture an error with the proper details.
-      log.mustLog('disaster-recovery:exception', function(details) {
+      eDisaster.expect('exception', function(details) {
         return (details.accountId === '0' &&
                 details.error.message === 'wtf');
       });
 
       // There should not be a job running now.
-      log.mustNotLog('disaster-recovery:finished-job');
+      eDisaster.expectNot('disaster-recovery:finished-job');
 
       // We _did_ have the mutex; ensure it is released.
       // Note that this release will occur as a result of the connection loss,
       // not as a result of any additional bookkeeping on our part.
-      log.mustLog('mailslice:mutex-released',
-                  { folderId: folder.id, err: 'aborted' });
+      eFS.expect('mailslice:mutex-released',
+                 { folderId: folder.id, err: 'aborted' });
     }});
-});
+}),
 
-TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
+new LegacyGelamTest('Releases both mutexes and job op during move',
+                    function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('check');
 
@@ -102,7 +104,7 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
     // the job-op in multiprocess because the close is generated locally but
     // then goes up to the parent process and the parent then has to generate
     // the close event notification.  That will be wiggly.
-    testAccount.expectUseSetMatching();
+    testAccount.useSetMatching();
     // the local part will run okay
     testAccount.expect_runOp(
       'move',
@@ -115,13 +117,14 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
         // The connect-closing will occur
         release: 'deadconn' });
 
-    var log = new slog.LogChecker(T, RT, 'disaster');
+    var eDisaster = T.actor('DisasterRecovery');
+    var eFS = T.actor('FolderStorage');
     // The local job will succeed and it will release its mutexes without having
     // experienced any errors.
-    log.mustLog('mailslice:mutex-released',
-                { folderId: sourceFolder.id, err: null });
-    log.mustLog('mailslice:mutex-released',
-                { folderId: targetFolder.id, err: null });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: sourceFolder.id, err: null });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: targetFolder.id, err: null });
 
     testAccount.expect_runOp(
       'move',
@@ -135,19 +138,19 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
     };
 
     // Make sure we capture an error with the proper details.
-    log.mustLog('disaster-recovery:exception', function(details) {
+    eDisaster.expect('exception', function(details) {
       return (details.accountId === '0' &&
               details.error.message === 'wtf');
     });
 
     // Then the jobDoneCallback gets invoked.  It will release the mutexes.
-    log.mustLog('mailslice:mutex-released',
-                { folderId: sourceFolder.id, err: 'disastrous-error' });
-    log.mustLog('mailslice:mutex-released',
-                { folderId: targetFolder.id, err: 'disastrous-error' });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: sourceFolder.id, err: 'disastrous-error' });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: targetFolder.id, err: 'disastrous-error' });
 
     // And we mark when the jobDoneCallback finishes running.
-    log.mustLog('disaster-recovery:finished-job', function(details) {
+    eDisaster.expect('finished-job', function(details) {
       return details.error.message === 'wtf';
     });
 
@@ -156,7 +159,8 @@ TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
       [toMove], targetFolder.mailFolder);
   });
 
-});
+})
 
+];
 
 }); // end define

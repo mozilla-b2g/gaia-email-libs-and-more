@@ -1,21 +1,15 @@
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_lazybodies' },
-  null,
-  [$th_imap.TESTHELPER],
-  ['app']
-);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * This case is to verify the ordering and content of the initial sync messages.
  * This does _not_ cover database persistence (which is handled in other test
  * cases).
  */
-TD.commonCase('sync headers then download body', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+return new LegacyGelamTest('sync headers then download body', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: true });
 
@@ -55,10 +49,10 @@ TD.commonCase('sync headers then download body', function(T, RT) {
   function closeSlice() {
     var closeActor = T.lazyLogger('slice closer');
     T.action('close slice', closeActor, function() {
-      closeActor.expect_event('slice died');
+      closeActor.expect('slice died');
       slice.ondead = function() {
         testAccount._unusedConnections++;
-        closeActor.event('slice died');
+        closeActor.log('slice died');
       };
 
       slice.die();
@@ -75,11 +69,11 @@ TD.commonCase('sync headers then download body', function(T, RT) {
     testFolder.serverMessages.forEach(function(msg) {
       var guid = msg.messageId;
 
-      eLazy.expect_namedValue(
-        'add header', { guid: guid, snippet: null }
-      );
+      eLazy.expect(
+        'add header', { guid: guid, snippet: null
+       });
 
-      bodyLog.expect_namedValue('body', {
+      bodyLog.expect('body', {
         guid: guid,
         bodyReps: [{
           hasSize: true,
@@ -91,19 +85,19 @@ TD.commonCase('sync headers then download body', function(T, RT) {
       });
     });
 
-    eLazy.expect_event('sync complete');
+    eLazy.expect('sync complete');
 
     slice.onadd = function(added) {
       var guid = added.guid;
 
-      eLazy.namedValue('add header', {
+      eLazy.log('add header', {
         guid: guid,
         snippet: added.snippet
       });
 
       added.getBody(function(bodyInfo) {
         var rep = bodyInfo.bodyReps[0];
-        bodyLog.namedValue('body', {
+        bodyLog.log('body', {
           guid: guid,
           // in the test environment we know what to expect.
           bodyReps: [{
@@ -118,32 +112,33 @@ TD.commonCase('sync headers then download body', function(T, RT) {
     };
 
     slice.oncomplete = function() {
-      eLazy.event('sync complete');
+      eLazy.log('sync complete');
     };
   });
+
+  var eAsync = T.lazyLogger();
 
   T.action(testAccount, 'fetch body after sync', eLazy, function() {
     var header = slice.items[0];
     // headers are now available
-    eLazy.expect_namedValue('sends body', header.id);
+    eLazy.expect('sends body',  header.id);
     testAccount.expect_runOp(
       'downloadBodyReps',
       { local: false, server: true, save:'server' });
-    eLazy.asyncEventsAreComingDoNotResolve();
+    eAsync.expect('asyncReady');
 
     header.getBody({ downloadBodyReps: true }, function(body) {
-      eLazy.expect_namedValue('update bodyRep', {
+      eLazy.expect('update bodyRep', {
         id: header.id,
-        content:
-          testFolder.serverMessageContent(header.guid),
+        content: testFolder.serverMessageContent(header.guid),
         isDownloaded: true,
         indexesChanged: [0], // first body rep
         updatesAll: true,
         amountGreaterEqToEstimate: true
       });
-      eLazy.asyncEventsAllDoneDoResolve();
+      eAsync.log('asyncReady');
 
-      eLazy.namedValue('sends body', header.id);
+      eLazy.log('sends body', header.id);
 
       // the theory is onchange the contents change based on the new wireRep
       // data but we also want some idea of what changed so we don't blow up
@@ -153,7 +148,7 @@ TD.commonCase('sync headers then download body', function(T, RT) {
           var bodyRep = body.bodyReps[details.changeDetails.bodyReps[0]];
           // details should be the index and new representation
 
-          eLazy.namedValue('update bodyRep', {
+          eLazy.log('update bodyRep', {
             id: header.id,
             indexesChanged: details.changeDetails.bodyReps,
             content: bodyRep.content,
@@ -178,13 +173,13 @@ TD.commonCase('sync headers then download body', function(T, RT) {
     var snippet = content[1].slice(0, 4);
 
     // With batching, this order has to come first
-    eLazy.expect_namedValue('body', {
+    eLazy.expect('body', {
       isDownloaded: false,
       amountDownloaded: 4
     });
-    eLazy.expect_namedValue('snippet', snippet);
+    eLazy.expect('snippet',  snippet);
 
-    eLazy.expect_namedValue('body full', {
+    eLazy.expect('body full', {
       isDownloaded: true,
       content: content
     });
@@ -203,18 +198,18 @@ TD.commonCase('sync headers then download body', function(T, RT) {
         // namedValue.
         if (header.snippet != null && !gotSnippet) {
           gotSnippet = true;
-          eLazy.namedValue('snippet', header.snippet);
+          eLazy.log('snippet', header.snippet);
         }
       };
 
       body.onchange = function() {
-        eLazy.namedValue('body', {
+        eLazy.log('body', {
           isDownloaded: body.bodyReps[0].isDownloaded,
           amountDownloaded: body.bodyReps[0].amountDownloaded
         });
 
         body.onchange = function() {
-          eLazy.namedValue('body full', {
+          eLazy.log('body full', {
             isDownloaded: body.bodyReps[0].isDownloaded,
             content: body.bodyReps[0].content
           });
