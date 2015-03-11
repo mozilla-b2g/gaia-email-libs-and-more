@@ -75,14 +75,9 @@ https://github.com/asutherland/gaia-email-libs-and-more/tree/thunderbird-fakeser
 
 Everything under `test-runner/chrome/fakeserver` is pretty much just existing comm-central or mozilla-central (httpd.js) code, with some outstanding patches that have been reviewed but not yet landed, and a couple of small things that will hopefully be upstreamed at some point.
 
-## If you're using OS X 10.9 Mavericks
-
-If you're running OS X 10.9, the tests might not run for you; see https://bugzilla.mozilla.org/show_bug.cgi?id=936980 for details. (If they do run for you without a hitch, let us know in the bug!) You can work around this by running the tests in a Linux VM.
-
 ## Communication
 
 - Mailing List: **[dev-gaia](https://lists.mozilla.org/listinfo/dev-gaia)**
-
 - IRC: `irc.mozilla.org`, in the `#gelam` channel
 
 ## Legal Notes and Disclaimers
