@@ -72,6 +72,8 @@ function defer() {
 ////////////////////////////////////////////////////////////////////////////////
 console.log('Initial loggest-chrome-runner.js bootstrap begun');
 
+var testRunTimestampMS = Date.now();
+
 ////////////////////////////////////////////////////////////////////////////////
 // Error handling support; call directly into the page's ErrorTrapper
 //
@@ -960,8 +962,8 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
 
       var summary = {
         filename: testFileName,
+        timestamp: testRunTimestampMS,
         href: basename + '-' + time + '.html',
-        time: time,
         tests: testLogs.map((resultData) => {
           return { name: resultData.name,
                    variant: resultData.variant,
@@ -974,7 +976,7 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
       var logResults = {
         filename: summary.filename,
         href: summary.href,
-        time: time,
+        timestamp: time,
         tests: testLogs
       };
 
@@ -1281,8 +1283,8 @@ function DOMLoaded() {
               'test-logs',
               'index.html',
               indexHtml.replace(RESULT_KEY,
-                                JSON.stringify(summaries) +
-                                ',\n    ' + RESULT_KEY))
+                                RESULT_KEY + '\n    ' +
+                                JSON.stringify(summaries) + ',\n'))
           }).then(() => {
             return Promise.all([
               writeFile('test-logs', latestPointerUrl, 'index.html?time=' + Date.now()),

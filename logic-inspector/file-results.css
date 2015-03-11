@@ -1,0 +1,146 @@
+
+.SuiteResults {
+  margin: 1em;
+}
+
+.SuiteResults .header {
+  font-weight: normal;
+}
+
+
+.SuiteResults .result {
+  background: #0a0;
+  color: white;
+  font-size: smaller;
+  font-weight: bold;
+  display: inline-block;
+  padding: 0.2em;
+  width: 3em;
+  text-align: center;
+  margin-right: 1em;
+}
+.SuiteResults.fail .result {
+  background: #a00;
+}
+
+.SuiteResults .filename {
+  font-weight: bold;
+}
+
+.SuiteResults .variant {
+  font-size: smaller;
+  display: inline-block;
+  padding: 0.2em;
+  margin-right: 1em;
+  font-style: italic;
+  opacity: 0.7;
+  min-width: 3em;
+  text-align: center;
+}
+
+.TestResults {
+  background: rgba(255,255,255,0.5);
+}
+
+.TestResults .header {
+  padding: 0.5em 1em;
+  cursor: pointer;
+}
+
+.TestResults .header:hover {
+  background: white;
+}
+
+.TestResults {
+  border-left: 4px solid rgba(0, 100, 0, 0.4);
+}
+
+.TestResults.fail {
+  border-left-color: #c00;
+}
+
+.TestResults .arrow {
+  float: left;
+  padding-right: 1em;
+  position: relative;
+  top: -0.08em;
+  transform-origin: 25%;
+  transition: transform 500ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.TestResults.collapsed .arrow {
+  transform: rotate(-90deg);
+}
+
+.header {
+  border-top: 1px solid transparent;
+}
+
+.collapsed > .header {
+  border-top: 1px solid #fff;
+  border-bottom: 1px solid #ddd;
+}
+
+.collapsed > .body {
+  display: none;
+}
+
+
+
+.EventList {
+  padding: 0 1em 0 1em;
+}
+
+
+
+
+
+.Event {
+  margin: 0.2em 0;
+}
+
+.Event .event-time {
+  font-size: smaller;
+  opacity: 0.3;
+  margin-right: 2em;
+}
+
+.Event .event-namespace {
+  margin-right: 0.5em;
+}
+
+.Event .event-type {
+  margin-right: 2em;
+  font-weight: bold;
+}
+
+.Event .event-details {
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: top;
+  overflow: scroll;
+  max-width: 50%;
+}
+
+.Step {
+  border-left: 4px solid rgba(0, 100, 0, 0.2);
+}
+
+.Step .body {
+  padding-left: 1em;
+}
+
+.Step .header {
+  font-weight: bold;
+}
+
+.Step .error-display {
+  display: none;
+}
+.Step.error {
+  border-left-color: #c00;
+}
+
+.Step.error .error-display {
+  display: block;
+}

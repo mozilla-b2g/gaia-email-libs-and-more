@@ -7,7 +7,6 @@ define(function(require) {
 
 var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-
 return new LegacyGelamTest('obliterate', function(T) {
   T.group('setup');
   var testUniverse = T.actor('TestUniverse', 'U', { stockDefaults: true }),

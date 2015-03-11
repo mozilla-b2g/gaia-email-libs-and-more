@@ -121,6 +121,7 @@ endef
 
 .PHONY: test-deps
 test-deps: node_modules
+	-ln -s '../logic-inspector' test-logs/logic-inspector
 
 # If our package.json has been updated, run npm install
 node_modules: package.json
@@ -179,6 +180,8 @@ autoconfig:
 clean:
 	rm -rf data/deps
 	rm -rf node-transformed-deps
+	rm test-logs/.latest-*
+	rm test-logs/*.html
 
 .DEFAULT_GOAL=help
 .PHONY: build install-into-gaia

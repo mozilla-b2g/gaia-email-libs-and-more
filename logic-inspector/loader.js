@@ -1,7 +1,6 @@
 if (window.parent === window) {
   [
-    "http://d3js.org/d3.v3.min.js",
-    "http://fb.me/react-0.12.2.js",
+    "./logic-inspector/react-0.13.0.js",
     "./logic-inspector/dom.jsPlumb-1.7.2.js",
     "./logic-inspector/lib/main.js",
     "./logic-inspector/logic-inspector.css"

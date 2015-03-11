@@ -1,189 +1,93 @@
 var EL = (tag) => document.createElement(tag);
 
 
-var PLEASING_COLORS = [
-//  'rgb(240,163,255)',
-  'rgb(0,117,220)',
-  'rgb(153,63,0)',
-  'rgb(76,0,92)',
-  'rgb(25,25,25)',
-  'rgb(0,92,49)',
-  'rgb(43,206,72)',
-  'rgb(255,204,153)',
-  'rgb(128,128,128)',
-  'rgb(148,255,181)',
-  'rgb(143,124,0)',
-  'rgb(157,204,0)',
-  'rgb(194,0,136)',
-  'rgb(0,51,128)',
-  'rgb(255,164,5)',
-  'rgb(255,168,187)',
-  'rgb(66,102,0)',
-  'rgb(255,0,16)',
-  'rgb(94,241,242)',
-  'rgb(0,153,143)',
-  'rgb(224,255,102)',
-  'rgb(116,10,255)',
-  'rgb(153,0,0)',
-  'rgb(255,255,128)',
-  'rgb(255,255,0)',
-  'rgb(255,80,5)'
-];
+var getEventColor = function(ns, type, details) {
+  // See if anything stands out:
 
-let colors = function(i) {
-  return PLEASING_COLORS[i] || 'black';
+  if (/error/i.test(type)) {
+    return '#c00'; // red
+  }
+
+  if (type === 'expect') {
+    return 'rgba(0, 75, 20, 0.7)'; // greenish
+  } else if (type === 'match') {
+    return 'rgb(0, 175, 40)'; // greenish
+  } else if (type === 'failed-expectation') {
+    return 'rgb(200, 0, 0)'; // red
+  }
+
+  // Otherwise, colorize based upon namespace:
+
+  if (ns === 'Console') {
+    return 'black';
+  } else if (/Bridge/.test(ns)) {
+    return '#bbb';
+  } else if (/Universe/.test(ns)) {
+    return '#877';
+  } else if (/Account/.test(ns)) {
+    return '#008';
+  } else if (/Sync/.test(ns)) {
+    return '#383';
+  }
+  var hash = 0;
+  for (var i = 0; i < ns.length; i++) {
+    hash = ((hash << 5) - hash) + ns.charCodeAt(i) | 0;
+  }
+  var hue = ((hash & 0x0000FF) / 256) * 360 | 0;
+  return 'hsl(' + hue + ', 80%, 40%)';
 }
-
 
 class LogicViewer {
 
   constructor(rootElement) {
     this.rootElement = rootElement;
     if (window.results.filename) {
-      this.renderFileResults(window.results);
+      this.renderSuiteResults(window.results);
     } else {
       this.renderIndex(window.results);
     }
   }
 
-  renderIndex(results) {
-    React.render(<IndexList results={results} />, this.rootElement);
+  renderIndex(items) {
+    React.render(
+      <div>
+        <div className="index-header">
+        <strong>Recent GELAM Test Runs</strong> <em>(Automatically reloads.)</em>
+        </div>
+        <TestRunList items={items} />
+      </div>,
+      this.rootElement);
   }
 
-  renderFileResults(data) {
+  renderSuiteResults(data) {
+    var variant = data.tests[0] && data.tests[0].variant;
+    var result = data.tests.every((t) => t.result === 'pass') ? 'pass' : 'fail';
+
     React.render(
         <div>
-          <a href="index.html">[Index]</a>
-          <FileResults filename={data.filename} tests={data.tests}/>
+        <a className="index-link" href="index.html">
+        &larr; All Test Results</a>
+        <SuiteResults filename={data.filename}
+                      variant={variant}
+                      result={result}
+                      tests={data.tests}/>
         </div>, this.rootElement);
-
-    // jsPlumb.setContainer(this.rootElement);
-    // jsPlumb.importDefaults({
-    //   PaintStyle : { lineWidth: 2, strokeStyle : "#666" },
-    //   Connector: ['Flowchart', { stub: 3, cornerRadius: 3 }],
-    //   Anchors:['Bottom', 'Top'],
-    //   Endpoint: 'Blank'
-    // });
-
-    // var container = E('div');
-    // this.rootElement.appendChild(container);
-
-
-    // events.forEach((event) => {
-    //   var el = cell.appendChild(EL('div'));
-    //   el.className = 'event';
-    //   idToElement[event.$id] = el;
-    //   el.textContent = event.$type;
-    // });
-    //   var cell;
-    //   var el;
-    //   var row = tbody.appendChild(EL('tr'));
-    //   row.appendChild(EL('td')).textContent = event.$time.toFixed(2) + 'ms';
-    //   for (var j = 0; j < namespaces.length; j++) {
-    //     cell = row.appendChild(EL('td'));
-    //     if (namespaces[j] === event.ns + '') {
-
-    //       el.textContent = event.$type;
-    //       // delete event.time;
-    //       // delete event.id;
-    //       // var dl = el.appendChild(EL('dl'));
-    //       // for (var k in event) {
-    //       //   var dt = dl.appendChild(EL('dt'));
-    //       //   var dd = dl.appendChild(EL('dd'));
-    //       //   dt.classList.add('kv-' + k);
-    //       //   dd.classList.add('kv-' + k);
-    //       //   dt.textContent = k;
-    //       //   dd.textContent = JSON.stringify(event[k]);
-    //       //   dl.appendChild(dt);
-    //       //   dl.appendChild(dd);
-    //       // }
-    //       break;
-    //     }
-    //   }
-
-    // for (var i = 0; i < events.length; i++) {
-    //   var event = events[i];
-    //   var cell;
-    //   var el;
-    //   idToEvent[event.$id] = event;
-    //   var row = tbody.appendChild(EL('tr'));
-    //   row.appendChild(EL('td')).textContent = event.$time.toFixed(2) + 'ms';
-    //   for (var j = 0; j < namespaces.length; j++) {
-    //     cell = row.appendChild(EL('td'));
-    //     if (namespaces[j] === event.ns + '') {
-    //       el = cell.appendChild(EL('div'));
-    //       el.className = 'event';
-    //       idToElement[event.$id] = el;
-
-    //       el.textContent = event.$type;
-    //       // delete event.time;
-    //       // delete event.id;
-    //       // var dl = el.appendChild(EL('dl'));
-    //       // for (var k in event) {
-    //       //   var dt = dl.appendChild(EL('dt'));
-    //       //   var dd = dl.appendChild(EL('dd'));
-    //       //   dt.classList.add('kv-' + k);
-    //       //   dd.classList.add('kv-' + k);
-    //       //   dt.textContent = k;
-    //       //   dd.textContent = JSON.stringify(event[k]);
-    //       //   dl.appendChild(dt);
-    //       //   dl.appendChild(dd);
-    //       // }
-    //       break;
-    //     }
-    //   }
-      // var links = [];
-
-      // if (event.asyncSources) {
-      //   event.asyncSources.forEach((sourceId) => {
-      //     var source = idToElement[sourceId];
-      //     var target = el;
-      //     var color = colors((++numEdges) % 20);
-      //     source.style.marginBottom = '10px';
-      //     target.style.marginTop = '10px';
-      //     links.push({
-      //       source: source,
-      //       target: target,
-      //       cssClass: 'asyncType-' + event.asyncType,
-      //       overlays: [
-      //         //            "Arrow",
-      //         [ "Label", { label: event.asyncType,
-      //                      cssClass: 'asyncType-' + event.asyncType,
-      //                      id: "foo" } ]
-      //       ]
-      //     });
-      //   });
-    //   }
-    // }
-
-
-    // links.forEach((link) => {
-    //   jsPlumb.connect(link);
-    // });
-
   }
 
 }
 
-var TestResultSummary = React.createClass({
-  render() {
-    return (
-        <div className="TestResultSummary">
-        { this.props.test.name } - { this.props.test.variant }
-        <strong>{ this.props.test.result }</strong>
-        </div>
-    );
-  }
-});
+/**
+ * .TestRunList
+ *   .TestRun
+ */
 
-var FileSummary = React.createClass({
+var TestRunList = React.createClass({
   render() {
-    var file = this.props.result;
+    var results = this.props.items;
     return (
-        <div className="FileSummary">
-        <h1><a href={file.href}>{file.filename}</a></h1>
-        {file.tests.map((test, index) => {
-          return <TestResultSummary test={test} key={index}/>
+      <div className="TestRunList">
+        {results.map(function(testRun, index) {
+            return <TestRunSummary testRun={testRun} key={index}/>;
         })}
       </div>
     );
@@ -192,33 +96,58 @@ var FileSummary = React.createClass({
 
 var TestRunSummary = React.createClass({
   render() {
+    var suites = this.props.testRun;
+    var timestamp = new Date(suites[0] && suites[0].timestamp);
     return (
         <div className="TestRunSummary">
-        {
-          this.props.result.map(function(result, index) {
-            return <FileSummary result={result} key={index}/>;
-          })
-        }
+        <div className="timestamp">{timestamp.toLocaleString()}</div>
+        {suites.map(function(suite, index) {
+          return <SuiteSummary suite={suite} key={index}/>;
+        })}
       </div>
     );
   }
 });
 
-var IndexList = React.createClass({
+var SuiteSummary = React.createClass({
   render() {
-    var reversedResults = this.props.results.slice();
-    reversedResults.reverse();
+    var { href, filename, tests } = this.props.suite;
+    var variant = tests[0] && tests[0].variant;
     return (
-        <div className="IndexList">
-        {
-          reversedResults.map(function(result, index) {
-            return <TestRunSummary result={result} key={index}/>;
-          })
-        }
-      </div>
+      <a href={href} className="SuiteSummary">
+          {tests.map((test, index) => {
+            return <TestSummary
+                     filename={filename}
+                     test={test} key={index} />
+          })}
+      </a>
     );
   }
 });
+
+var TestSummary = React.createClass({
+  render() {
+    var filename = this.props.filename;
+    var {name, variant, result} = this.props.test;
+    var shortVariant = {
+      'imap:fake': 'imap',
+      'pop3:fake': 'pop3',
+      'activesync:fake': 'async'
+    }[variant] || variant;
+    return (
+        <div className={['TestSummary',
+                         result,
+                         variant.replace(':', '-')].join(' ')}>
+          <span className="result">{ result }</span>
+          <span className="variant">{ shortVariant }</span>
+          <span className="filename">{ filename }</span>
+          <span className="name">{ name }</span>
+        </div>
+    );
+  }
+});
+
+
 
 //////////////////////////////////////////////
 
@@ -226,33 +155,54 @@ function safeCss(str) {
   return str.replace(/[^a-z0-9-_]/ig, '');
 }
 
-var Event = React.createClass({
-  computeDetails() {
-    var details = this.props.event.details;
-    if (!details) {
-      return '';
-    } else if (details.msg && typeof details.msg === 'string') {
-      return details.msg;
-    } else {
-      return JSON.stringify(details).slice(0, 1000);
-    }
-  },
+
+var SuiteResults = React.createClass({
   render() {
-    var event = this.props.event;
-    var classes = ['Event'];
-    for (var key in event) {
-      var value = event[key];
-      if (typeof value === 'string' && value.length < 30) {
-        classes.push('kv-' + safeCss(key) + '-' + safeCss(event[key]));
-      }
-    }
+    var { filename, variant, result, tests } = this.props;
     return (
-        <div className={classes.join(' ')}>
-        <span className="event-time">{event.time.toFixed(0)}</span>
-        <span className="event-namespace">{event.namespace}</span>
-        <span className="event-type">{event.type}</span>
-        <span className="event-details">{this.computeDetails()}</span>
+      <div className={['SuiteResults',
+                       result,
+                       variant.replace(':', '-')].join(' ')}>
+        <h1 className="header">
+          <span className="result">{result}</span>
+          <span className="variant">{variant}</span>
+          <span className="filename">{filename}</span>
+        </h1>
+        {tests.map((test, index) => {
+          return <TestResults test={test} key={index} />
+        })}
+      </div>
+    );
+  }
+});
+
+
+
+
+var TestResults = React.createClass({
+  getInitialState() {
+    return { collapsed: this.props.test.result === 'pass' };
+  },
+
+  toggleCollapsed: function() {
+    this.setState({ collapsed: !this.state.collapsed });
+  },
+
+  render() {
+    var {result, name, events} = this.props.test;
+    return (
+      <div className={['TestResults',
+                       result,
+                       this.state.collapsed ?
+                       'collapsed' : ''].join(' ')}>
+        <h2 className="header" onClick={this.toggleCollapsed}>
+          <div className="arrow">▼</div>
+          <span className="name">{name}</span>
+        </h2>
+        <div className="body">
+          <EventList events={events} />
         </div>
+      </div>
     );
   }
 });
@@ -268,7 +218,24 @@ var EventList = React.createClass({
     }, {});
 
     var namespaces = Object.keys(eventsByNamespace);
-    var events = this.props.events;
+    var events = this.props.events.slice();
+
+    for (var i = 0; i < events.length; i++) {
+      var event = events[i];
+      if (event.namespace === 'LegacyGelamTest' && event.type === 'step-begin') {
+        event.children = [];
+        var nextEvent;
+        while ((nextEvent = events[i + 1])) {
+          if (nextEvent.namespace === 'LegacyGelamTest' &&
+              nextEvent.type === 'step-end') {
+            event.details.error = nextEvent.details.error;
+            break;
+          } else {
+            event.children.push(events.splice(i + 1, 1)[0]);
+          }
+        }
+      }
+    }
 
     var idToElement = {};
     var idToEvent = {};
@@ -278,54 +245,104 @@ var EventList = React.createClass({
 
     return (
         <div className="EventList">
-        {this.props.events.map(function(e, index) {
-          return <Event event={e} namespaces={namespaces} key={e.$id}/>;
+        {events.map(function(event, index) {
+          return <Event event={event} key={index}/>;
         })}
       </div>
     );
   }
 });
 
-var TestResults = React.createClass({
+var Event = React.createClass({
   getInitialState() {
-    return { expanded: this.props.test.result !== 'pass' };
+    var collapsed = true;
+    if (this.props.event.namespace === 'LegacyGelamTest' &&
+        this.props.event.type === 'step-begin' &&
+        this.props.event.details &&
+        this.props.event.details.error) {
+      collapsed = false;
+    }
+    return { collapsed: collapsed };
   },
 
-  toggleExpanded: function() {
-    this.setState({ expanded: !this.state.expanded });
+  toggleCollapsed() {
+    this.setState({ collapsed: !this.state.collapsed });
+  },
+
+  computeDetails() {
+    var details = this.props.event.details;
+    if (!details) {
+      return '';
+    } else if (details.msg && typeof details.msg === 'string') {
+      return details.msg;
+    } else {
+      return JSON.stringify(details).slice(0, 1000);
+    }
   },
 
   render() {
-    var test = this.props.test;
-    var classes = [
-      'TestResults',
-      'result-' + test.result,
-      this.state.expanded ? 'expanded' : ''
-    ];
+    var event = this.props.event;
+    var children = event.children || [];
+    var classes = ['Event'];
 
-    // .type .result .events
-    return (
-      <div className={classes.join(' ')}>
-        <h2 className="TestResultHeader" onClick={this.toggleExpanded}>
-        {test.name} {test.variant}</h2>
-        <EventList events={test.events} />
-      </div>
-    );
+    if (this.state.collapsed) {
+      classes.push('collapsed');
+    }
+
+    for (var key in event) {
+      var value = event[key];
+      if (typeof value === 'string' && value.length < 30) {
+        classes.push( safeCss(key) + '-' + safeCss(event[key]));
+      }
+    }
+
+    var styles = {
+      color: getEventColor(event.namespace, event.type, event.details)
+    };
+
+    switch(event.namespace + '/' + event.type) {
+    case 'LegacyGelamTest/step-end':
+      return null;
+    case 'LegacyGelamTest/step-begin':
+      if (!children.length) {
+        return null; // No need to render empty steps.
+      }
+      classes.push('Step');
+
+      var stepName =
+        event.details.name
+            .replace(/\[([^\]\s]+)([^\]]*)\]/g, (match, ns, subname) => {
+              return '<span style="color:' + getEventColor(ns) +
+                '">[<strong>' + ns + '</strong> ' + subname + ']</span>';
+            });
+
+      if (event.details.error) {
+        classes.push('error');
+      };
+      return (
+          <div className={classes.join(' ')}>
+          <div className="header" onClick={this.toggleCollapsed}
+        dangerouslySetInnerHTML={ {__html:stepName} }>
+          </div>
+               <div className="body">
+               {children.map((childEvent, key) => {
+                 return <Event event={childEvent} key={key}/>;
+               })}
+              <div className="error-display">{event.details.error}</div>
+            </div>
+          </div>
+      );
+    default:
+      return (
+          <div style={styles} className={classes.join(' ')}>
+          <span className="event-time">{event.time.toFixed(0)}ms</span>
+          <span className="event-namespace">{event.namespace}</span>
+          <span className="event-type">{event.type}</span>
+          <span className="event-details">{this.computeDetails()}</span>
+          </div>
+      );
+    }
   }
 });
-
-var FileResults = React.createClass({
-  render() {
-    return (
-        <div className="FileResults">
-        <h1>{this.props.filename}</h1>
-        {this.props.tests.map((test, index) => {
-          return <TestResults test={test} key={index} />
-        })}
-        </div>
-    );
-  }
-});
-
 
 var viewer = new LogicViewer(document.body);

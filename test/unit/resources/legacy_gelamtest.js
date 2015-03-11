@@ -38,6 +38,10 @@ define(function(require) {
 
   Actor.prototype = {
 
+    toString: function() {
+      return '[' + this.ns + (this.__name ? ' ' + this.__name : '') + ']';
+    },
+
     ensureInStep: function() {
       if (!Actor.currentStepActors) {
         throw new Error('Actor ' + this + ' is not in a step!');
@@ -96,6 +100,7 @@ define(function(require) {
         for (var i = 0; i < this.unmetExpectations.length; i++) {
           var expectation = this.unmetExpectations[i];
           if (event.matches(expectation.type, expectation.details)) {
+            logic(this, 'match', expectation);
             this.unmetExpectations.splice(i, 1);
             break;
           }
@@ -104,6 +109,7 @@ define(function(require) {
         var expectation = this.unmetExpectations[0];
         if (expectation &&
             event.matches(expectation.type, expectation.details)) {
+          logic(this, 'match', expectation);
           this.unmetExpectations.shift();
         }
       }
@@ -138,8 +144,7 @@ define(function(require) {
 
     var T = {
       group: (name) => {
-        T.action(function() {
-          logic(scope, 'group', { name: name });
+        T.action(name, function() {
         });
       },
 
@@ -204,7 +209,7 @@ define(function(require) {
     var executeNextStep = () => {
       var stepFn = this.steps.shift() || this.deferredSteps.shift();
       if (!stepFn) {
-        logic(scope, 'All steps done');
+        // logic(scope, 'All steps done');
         return null;
       }
 
@@ -217,14 +222,19 @@ define(function(require) {
           // the step to time out.
           return new Promise((resolve, reject) => {
             var timeoutId = setTimeout(function() {
+              var firstError = null;
               Actor.currentStepActors.forEach((actor) => {
                 actor.unmetExpectations.forEach((expectation) => {
-                  console.error('Unmet expectation:',
-                                actor.ns, JSON.stringify(expectation));
+                  if (!firstError) {
+                    firstError = 'Failed Expectation: ' +
+                      JSON.stringify(expectation);
+                  }
+                  logic(scope, 'failed-expectation',
+                        actor.ns, JSON.stringify(expectation));
                 });
               });
               logic.removeListener('*', eventListener);
-              reject('timeout');
+              reject(firstError || 'timeout');
             }, stepFn.timeoutMS || 1000);
 
             var stepDefined = false;
@@ -270,6 +280,8 @@ define(function(require) {
           logic(scope, 'step-end', { name: stepFn.stepName });
           return Promise.resolve().then(executeNextStep);
         }).catch((error) => {
+          logic(scope, 'step-end', { name: stepFn.stepName,
+                                     error: error });
           Actor.currentStepActors = null;
           throw error;
         });
