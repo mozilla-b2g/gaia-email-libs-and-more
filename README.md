@@ -16,37 +16,25 @@ The files you see in Gaia at `gaia/apps/email/js/ext` are built from GELAM and s
 
 3. Install [node.js](http://nodejs.org) and [NPM](http://npmjs.org).
 
-4. Recursively install ArbPL (a tool used to view detailed unit test logs) and its node dependencies:
-
-        git clone --recursive https://github.com/asutherland/arbitrarypushlog.git
-        cd arbitrarypushlog
-        npm install
-
-5. Make the following symlinks, replacing the paths as appropriate:
+4. Make the following symlinks, replacing the paths as appropriate:
 
         cd gaia-email-libs-and-more
         ln -s YOUR_GAIA_REPO_PATH gaia-symlink
         ln -s YOUR_B2G_DESKTOP_PATH b2g-bindir-symlink
-        ln -s ARBPL_PATH arbpl-dir-symlink
 
-6. Run `npm install` in GELAM. 
+5. Run `npm install` in GELAM. 
 
 ### Running Unit Tests
 
-ArbPL is used to view test results. When developing GELAM, keep an ArbPL server running as follows:
-
-        cd arbitrarypushlog
-        ./webserve
-
 To run tests, use the following commands:
 
-**To run all tests:** `make post-tests`
+**To run all tests:** `make tests`
+**To run just one test:** `make one-test SOLO_FILE=$filename`
+**To run just one protocol variant**: `make tests TEST_VARIANT=imap:fake`
 
-**To run just one test:** `make post-one-test SOLO_FILE=$filename`
+For instance, to run the `test/unit/test_compose.js` test, you would run `make one-test SOLO_FILE=test_compose`.
 
-**To run just one protocol variant**: `make post-tests TEST_VARIANT=imap:fake`
-
-For instance, to run the `test/unit/test_compose.js` test, you would run `make post-one-test SOLO_FILE=test_compose`.
+GELAM is a complex piece of software; to make it easier to debug tests, GELAM includes a browser-based test viewer. When you run the unit tests, you'll see a reminder to run `make results` to open the detailed logs in your browser.
 
 ### Installing your changes into Gaia
 
@@ -74,15 +62,7 @@ The unit tests can run against real mail servers or fake ones (originally from T
 
 On OS X, your b2g-desktop symlink will be something like `/Applications/B2G.app/Contents/MacOS/`.
 
-To view detailed test results after a `make post-tests` test run, visit http://localhost:8008/ in your browser (after you have started an ArbPL daemon with `./webserve`).
-
 `make help` provides details about all supported commands.
-
-### Viewing the Test Results in ArbPL
-
-Due to the complexity of the email backend, our test runner generates intense JSON files containing detailed logs from the test run. But you don't want to view raw JSON yourself, which is why you went to the trouble to install ArbPL. This tool allows you to inspect detailed logs and extract information that would be difficult to understand with only a raw console dump.
-
-When you run unit tests, ArbPL automatically updates the UI with the latest test runs; no need to refresh every time.
 
 ### Nitty-Gritty Details about Fake Servers
 
