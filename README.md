@@ -29,7 +29,9 @@ The files you see in Gaia at `gaia/apps/email/js/ext` are built from GELAM and s
 To run tests, use the following commands:
 
 **To run all tests:** `make tests`
+
 **To run just one test:** `make one-test SOLO_FILE=$filename`
+
 **To run just one protocol variant**: `make tests TEST_VARIANT=imap:fake`
 
 For instance, to run the `test/unit/test_compose.js` test, you would run `make one-test SOLO_FILE=test_compose`.
