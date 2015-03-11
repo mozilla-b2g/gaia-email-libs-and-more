@@ -34,7 +34,7 @@ To run tests, use the following commands:
 
 For instance, to run the `test/unit/test_compose.js` test, you would run `make one-test SOLO_FILE=test_compose`.
 
-GELAM is a complex piece of software; to make it easier to debug tests, GELAM includes a browser-based test viewer. When you run the unit tests, you'll see a reminder to run `make results` to open the detailed logs in your browser.
+GELAM is a complex piece of software; to make it easier to debug tests, GELAM includes a browser-based test viewer. When you run the unit tests, you'll see a reminder to run `make results` to open the detailed logs in your browser. You don't need to run a web server. See [logic-inspector/README.md](logic-inspector/README.md) for implementation details.
 
 ### Installing your changes into Gaia
 
