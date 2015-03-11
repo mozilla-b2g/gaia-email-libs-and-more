@@ -26,6 +26,10 @@ Both the index at `test-logs/index.html` and individual test logs automatically 
 1. All test run logs are stored with unique filenames, like `test-logs/$FILE-$TIMESTAMP.html`.
 2. When you open any log file, your browser XHR-polls a file named `test-logs/.latest-$TESTNAME` (no timestamp), which contains a plaintext string: a link to the latest file available. 
 3. Our test runner updates `.latest-$TESTNAME` to always point to the latest test run.
-4. Tada! Reloading. The test run index is also updated similarly.
+4. Tada! Reloading.
 
-All of this happens in [test-chrome-runner.js](../test-runner/chrome/content/loggest-chrome-runner.js).
+All of this happens in [loggest-chrome-runner.js](../test-runner/chrome/content/loggest-chrome-runner.js).
+
+## The Test Run Index
+
+After every test run, `loggest-chrome-runner.js` shoves the latest JSON summary at the front of the JSON array in `index.html`. The test run index also watches a `.latest` file for changes, and automatically reloads when you run new tests.
