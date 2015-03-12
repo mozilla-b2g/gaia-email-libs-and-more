@@ -63,6 +63,33 @@ define(function(require) {
     });
   }
 
+  function initServer(opts) {
+    if ('controlServerBaseUrl' in opts) {
+      self.testServer = self.T.actor(
+        'TestFake' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored,
+          imapExtensions: opts.imapExtensions,
+          folderConfig: opts.folderConfig,
+          smtpExtensions: opts.smtpExtensions,
+          deliveryMode: opts.deliveryMode,
+          oauth: opts.oauth,
+          useTimezoneMins: opts.useTimezoneMins
+        },
+        null, self);
+    }
+    else {
+      self.testServer = self.T.actor(
+        'TestReal' + TYPE + 'Server', self.__name,
+        {
+          testAccount: self,
+          restored: opts.restored
+        },
+        null, self);
+    }
+  }
+
   /**
    * Isolate a function from its enclosing scope via stringification.
    */

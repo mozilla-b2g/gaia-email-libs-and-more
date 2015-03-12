@@ -3,16 +3,14 @@ define(function(require) {
   var logic = require('logic');
   var contexts = require('./contexts');
 
-  function GelamTest(name, opts, fn) {
-    if (typeof opts === 'function') {
-      fn = opts;
-      opts = {};
+  function GelamTest(name, options, fn) {
+    if (typeof options === 'function') {
+      fn = options;
+      options = {};
     }
     this.name = name;
-    this.opts = opts;
+    this.options = options;
     this.fn = fn;
-    this.envOptions = {};
-    this.fileBlackboard = {};
   }
 
   GelamTest.prototype = {
@@ -27,16 +25,16 @@ define(function(require) {
       return {
         type: 'test',
         name: this.name,
-        variant: this.envOptions.variant,
+        variant: this.options.variant,
         result: lastError ? 'fail' : 'pass',
         lastError: lastErrorSummary,
         events: this._logs
       }
     },
 
-    run: function(envOptions) {
-      for (var key in envOptions) {
-        this.envOptions[key] = envOptions[key];
+    run: function(options) {
+      for (var key in options) {
+        this.options[key] = options[key];
       }
 
       this._logs = [];
@@ -46,7 +44,11 @@ define(function(require) {
 
       logic.on('*', handleEvent);
       return Promise.resolve()
-      //      .then(() => contexts.init(opts))
+        .then(() => {
+          if (!this.options.legacy) {
+            return contexts.init(this.env)
+          };
+        })
         .then(() => this.fn.call(this))
         .then(() => {
           logic.removeListener('*', handleEvent);

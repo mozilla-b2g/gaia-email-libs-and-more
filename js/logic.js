@@ -126,7 +126,6 @@ define(function(require) {
 
     var event = new LogicEvent(scope, type, details, humanStringTemplate);
 
-    dump("EMIT " + event.type + '\n');
     emitter.emit(event.type, event);
     emitter.emit('*', event);
 
@@ -162,6 +161,8 @@ define(function(require) {
     this.on('*', (event) => {
     });
   }
+
+
 
   var interceptions = {};
 

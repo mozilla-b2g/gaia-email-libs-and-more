@@ -701,16 +701,12 @@ function printTestSummary(summary) {
       if (test.lastError.stack) {
         dump(test.lastError.stack + '\n');
       }
-    }
-    // // (brief) failure details:
-    // if (test.result === 'fail') {
-    //   dump('             failing step: ' + test.firstFailedStep + '\n');
+      if (TEST_PARAMS.printTravisUrls && summary.filename) {
+        dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
+             TEST_PARAMS.printTravisUrls + summary.filename + '\n');
+      }
 
-    //   if (TEST_PARAMS.printTravisUrls && summary._filename) {
-    //     dump('    http://clicky.visophyte.org/tools/arbpl-standalone/?log=' +
-    //          TEST_PARAMS.printTravisUrls + summary._filename + '\n');
-    //   }
-    // }
+    }
   });
 }
 
@@ -1258,7 +1254,10 @@ function DOMLoaded() {
           printTestSummary(summary);
         });
 
-        dump('\n************************\n\n');
+        dump('\n************************\n\n\n');
+        dump(' ╔══════════════════════════════════════════════════════════════╗\n');
+        dump(' ║ Run "make results" to view detailed results in your browser. ║\n');
+        dump(' ╚══════════════════════════════════════════════════════════════╝\n\n\n');
 
         var testResult = getTestResult(summaries);
         var jsonString = JSON.stringify({ result: testResult });

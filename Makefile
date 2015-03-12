@@ -24,16 +24,14 @@ help:
 	@echo "## TESTING ##"
 	@echo ""
 	@echo "make tests"
-	@echo "  Run all tests, do not post results to ArbPL"
-	@echo "make post-tests"
-	@echo "  Run all tests, post results to ArbPL"
+	@echo "  Run all tests"
+	@echo "make results"
+	@echo "  View detailed test results in a browser"
 	@echo ""
 	@echo "make one-test SOLO_FILE=test_name.js"
-	@echo "  Run one test file (all variants), do not post results to ArbPL"
-	@echo "make post-one-test SOLO_FILE=test_name.js"
-	@echo "  Run one test file (all variants), post results to ArbPL"
-	@echo "make post-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
-	@echo "  Run one test file (imap:fake variant), post results to ArbPL"
+	@echo "  Run one test file (all variants)"
+	@echo "make one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
+	@echo "  Run one test file (imap:fake variant)"
 	@echo ""
 	@echo "make gdb-one-test SOLO_FILE=test_name.js TEST_VARIANT=imap:fake"
 	@echo "  Run one test file under gdb.  Set breakpoints, type 'run'"
@@ -76,8 +74,6 @@ gaia-symlink:
 
 RUNB2G := b2g/Contents/MacOS/b2g-bin
 
-ARBPLD=arbpl-dir-symlink
-
 # Best effort use RUNMOZ if its available otherwise ignore it.
 RUNMOZ := $(wildcard $(B2GBIND)/run-mozilla.sh)
 
@@ -92,10 +88,9 @@ TESTRUNNER=$(CURDIR)/test/loggest-runner.js
 
 # run all the tests listed in a test config file
 define run-tests  # $(call run-tests)
-	-rm -f test-logs/*.log test-logs/*.logs
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
-	-mkdir -p test-logs
+
 	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
 endef
 
@@ -103,10 +98,7 @@ endef
 define run-one-test
 	-rm -rf test-profile
 	-mkdir -p test-profile/device-storage test-profile/fake-sdcard
-	-mkdir -p test-logs
-	-rm -f test-logs/$(basename $(SOLO_FILE))-*.log
 	-$(RUNMOZ) $(RUNMOZFLAGS) $(RUNB2G) -app $(CURDIR)/test-runner/application.ini -no-remote -profile $(CURDIR)/test-profile --test-config $(CURDIR)/test/test-files.json --test-name $(basename $(SOLO_FILE)) --test-variant $(TEST_VARIANT) --test-log-enable "$(TEST_LOG_ENABLE)"
-	cat test-logs/$(basename $(SOLO_FILE))-*.log > test-logs/$(basename $(SOLO_FILE)).logs
 endef
 
 define run-no-test
@@ -121,7 +113,10 @@ endef
 
 .PHONY: test-deps
 test-deps: node_modules
+	-mkdir -p test-logs
+	-rm test-logs/logic-inspector
 	-ln -s '../logic-inspector' test-logs/logic-inspector
+	cd logic-inspector; npm install; cd ..
 
 # If our package.json has been updated, run npm install
 node_modules: package.json
@@ -131,13 +126,8 @@ node_modules: package.json
 tests: build test-deps
 	$(call run-tests)
 
-concatenated-tests: tests
-	cat test-logs/*.log > test-logs/all.logs
-
 one-test: build test-deps
 	$(call run-one-test)
-
-
 
 # wrap one-test with gdb flags to RUNMOZ.  Abstraction so I don't have to
 # remember this and because when we shift to using mach or such then it can
@@ -148,18 +138,13 @@ gdb-one-test: export JS_NO_SIGNALS=1
 gdb-one-test: export JS_DISABLE_SLOW_SCRIPT_SIGNALS=1
 gdb-one-test: one-test
 
-post-one-test: one-test test-deps
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/$(basename $(SOLO_FILE)).logs
-
-post-tests: concatenated-tests test-deps
-	cd $(ARBPLD); ./logalchew $(CURDIR)/test-logs/all.logs
-
+post-one-test: one-test
+post-tests: tests
 
 ######################
 # Bundle up all the tests!
 
 all-tests: tests
-
 
 ACTIVESYNC_SERVER_PORT ?= 8880
 
@@ -176,6 +161,9 @@ GENERIC_RUN_PROFILE=generic-profile
 autoconfig:
 	$(call run-no-test,autoconfig,$(GENERIC_RUN_PROFILE),$(DOMAIN))
 
+.PHONY: results
+results:
+	xdg-open test-logs/index.html &> /dev/null || open test-logs/index.html &> /dev/null
 
 clean:
 	rm -rf data/deps

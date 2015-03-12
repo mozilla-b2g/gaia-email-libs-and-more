@@ -25,11 +25,7 @@ var logic = require('logic'),
     $util = require('util'),
     $errbackoff = require('errbackoff'),
     $smtpacct = require('smtp/account'),
-    $router = require('worker-router'),
-    $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
-    $th_fake_pop3_server = require('tests/resources/th_fake_pop3_server'),
-    $th_real_imap_server = require('tests/resources/th_real_imap_server'),
-    $th_fake_as_server = require('tests/resources/th_fake_activesync_server');
+    $router = require('worker-router');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -408,7 +404,7 @@ var TestUniverseMixins = {
    * queries to the IMAP server to account for timezone.  We just use UTC.
    * As such, we want to be specifying times in UTC.  And we want our servers
    * to use UTC for their searching so things line up.  So all these things
-   * happen now!  (See th_fake_imap_server.js for it forcing the default
+   * happen now!  (See th_fake_servers.js for it forcing the default
    * timezone offset to 0.)
    *
    * @param {Number} useAsNowTS
@@ -1077,6 +1073,8 @@ var TestCommonAccountMixins = {
     this.foldersSlice.oncomplete = function() {
       logic(this, 'folderSlicePopulated');
     }.bind(this);
+
+    this.testServer.setAccount(this.folderAccount);
   },
 
   /**
@@ -2763,8 +2761,6 @@ var TestCompositeAccountMixins = {
 
       self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
-
-      self.testServer.finishSetup(self);
     });
   },
 
@@ -2905,8 +2901,6 @@ var TestCompositeAccountMixins = {
           self.imapPort = self.pop3Port = receiveConnInfo.port;
 
           self._help_commonTestAccountConfig();
-
-          self.testServer.finishSetup(self);
         });
     }).timeoutMS = 10000; // there can be slow startups...
   },
@@ -3530,8 +3524,6 @@ var TestActiveSyncAccountMixins = {
 
       self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
-
-      self.testServer.finishSetup(self);
     });
   },
 
@@ -3602,8 +3594,6 @@ var TestActiveSyncAccountMixins = {
                      ' (id: ' + self.accountId + ')');
 
           self._help_commonTestAccountConfig();
-
-          self.testServer.finishSetup(self);
         });
     });
     if (self._opts.realAccountNeeded)
@@ -3706,12 +3696,6 @@ var TestActiveSyncAccountMixins = {
 };
 
 exports.TESTHELPER = {
-  TESTHELPER_DEPS: [
-    $th_fake_as_server.TESTHELPER,
-    $th_fake_imap_server.TESTHELPER,
-    $th_fake_pop3_server.TESTHELPER,
-    $th_real_imap_server.TESTHELPER,
-  ],
   actorMixins: {
     TestUniverse: TestUniverseMixins,
     TestAccount: TestCommonAccountMixins,

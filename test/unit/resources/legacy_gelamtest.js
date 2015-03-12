@@ -5,19 +5,13 @@ define(function(require) {
   var GelamTest = require('./gelamtest');
 
   var $th_main = require('./th_main'),
-      $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
-      $th_fake_pop3_server = require('tests/resources/th_fake_pop3_server'),
-      $th_real_imap_server = require('tests/resources/th_real_imap_server'),
-      $th_fake_as_server = require('tests/resources/th_fake_activesync_server'),
+      $th_fake_servers = require('tests/resources/th_fake_servers'),
       $th_contacts = require('tests/resources/th_contacts'),
       $th_devicestorage = require('tests/resources/th_devicestorage');
 
   var TEST_HELPERS = [
     $th_main.TESTHELPER,
-    $th_fake_as_server.TESTHELPER,
-    $th_fake_imap_server.TESTHELPER,
-    $th_fake_pop3_server.TESTHELPER,
-    $th_real_imap_server.TESTHELPER,
+    $th_fake_servers.TESTHELPER,
     $th_contacts.TESTHELPER,
     $th_devicestorage.TESTHELPER
   ];
@@ -70,7 +64,6 @@ define(function(require) {
 
     error: function(msg) {
       this.ensureInStep();
-      console.error(msg);
       this.unmetExpectations.push(msg);
     },
 
@@ -117,14 +110,16 @@ define(function(require) {
 
   };
 
-  function LegacyGelamTest(name, opts, fn) {
-    if (typeof opts === 'function') {
-      fn = opts;
-      opts = {};
+  function LegacyGelamTest(name, options, fn) {
+    if (typeof options === 'function') {
+      fn = options;
+      options = {};
     }
 
+    options.legacy = true;
+
     this.legacyFn = fn;
-    GelamTest.call(this, name, opts, () => {
+    GelamTest.call(this, name, options, () => {
       return this.init();
     });
   }
@@ -198,7 +193,7 @@ define(function(require) {
     }.bind(this);
 
     var RT = {
-      envOptions: this.envOptions,
+      envOptions: this.options,
       fileBlackboard: fileBlackboard,
       reportActiveActorThisStep: function() { }
     };
@@ -230,7 +225,7 @@ define(function(require) {
                       JSON.stringify(expectation);
                   }
                   logic(scope, 'failed-expectation',
-                        actor.ns, JSON.stringify(expectation));
+                        actor.ns + ': ' + JSON.stringify(expectation));
                 });
               });
               logic.removeListener('*', eventListener);
@@ -280,6 +275,7 @@ define(function(require) {
           logic(scope, 'step-end', { name: stepFn.stepName });
           return Promise.resolve().then(executeNextStep);
         }).catch((error) => {
+          logic(scope, 'error', { error: error + '', stack: error.stack });
           logic(scope, 'step-end', { name: stepFn.stepName,
                                      error: error });
           Actor.currentStepActors = null;
