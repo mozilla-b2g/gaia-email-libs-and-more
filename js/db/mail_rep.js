@@ -274,6 +274,7 @@ function makeAttachmentPart(raw) {
 }
 
 return {
+  makeConversationInfo: makeConversationInfo,
   makeHeaderInfo: makeHeaderInfo,
   makeBodyInfo: makeBodyInfo,
   makeBodyPart: makeBodyPart,

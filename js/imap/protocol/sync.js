@@ -1,14 +1,8 @@
-define(
-  [
-    '../imapchew',
-    '../../allback',
-    'exports'
-  ],
-  function(
-    $imapchew,
-    allback,
-    exports
-  ) {
+define(function(require) {
+
+var $imapchew = require('../imapchew');
+var allback = require('../../allback');
+var co = require('co');
 
 /**
  * Fetch parameters to get the headers / bodystructure; exists to reuse the
@@ -34,13 +28,6 @@ var FLAG_FETCH_PARAMS = ['FLAGS'];
 
 // Number of bytes to fetch for snippet.
 var SNIPPET_BYTES = 256;
-
-// See the `ImapFolderConn` block comment for rationale.
-var KNOWN_HEADERS_AGGR_COST = 20,
-    KNOWN_HEADERS_PER_COST = 1,
-    NEW_HEADERS_AGGR_COST = 20,
-    NEW_HEADERS_PER_COST = 5,
-    NEW_BODIES_PER_COST = 30;
 
 /**
  * Given a list of new-to-us UIDs and known-to-us UIDs and their corresponding

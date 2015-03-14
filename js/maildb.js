@@ -59,79 +59,90 @@ var TBL_CONFIG = 'config',
 
 /**
  * The folder-info table stores meta-data about the known folders for each
- * account.  This information may be blown away on upgrade.
- *
- * While we may eventually stash info like histograms of messages by date in
- * a folder, for now this is all about serving as a directory service for the
- * header and body blocks.  See `ImapFolderStorage` for the details of the
- * payload.
- *
- * All the folder info for each account is stored in a single object since we
- * keep it all in-memory for now.
+ * account.  Per-folder sync-info is stored in the 'folderSync' table.
  *
  * key: `AccountId`
  */
 var TBL_FOLDER_INFO = 'folderInfo';
 
 /**
- * Stores time-clustered information about messages in folders.  Message bodies
- * and attachment names are not included, but initial snippets and the presence
- * of attachments are.
+ * Stores the per-folder sync information.
  *
- * We store headers separately from bodies because our access patterns are
- * different for each.  When we want headers, all we want is headers, and don't
- * need the bodies clogging up our IO.  Additionally, we expect better
- * compression for bodies if they are stored together.
- *
- * key: `FolderId`:`BlockId`
- *
- * Each value is an object dictionary whose keys are either UIDs or a more
- * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
- * the info on the message; see `ImapFolderStorage` for details.
+ * key: `FolderId` (these have the account id baked in)
  */
-var TBL_HEADER_BLOCKS = 'headerBlocks';
-/**
- * Stores time-clustered information about message bodies.  Body details include
- * the list of attachments, as well as the body payloads and the embedded inline
- * parts if they all met the sync heuristics.  (If we can't sync all the inline
- * images, for example, we won't sync any.)
- *
- * Note that body blocks are not paired with header blocks; their storage is
- * completely separate.
- *
- * key: `FolderId`:`BlockId`
- *
- * Each value is an object dictionary whose keys are either UIDs or a more
- * globally unique identifier (ex: gmail's X-GM-MSGID values).  The values are
- * the info on the message; see `ImapFolderStorage` for details.
- */
-var TBL_BODY_BLOCKS = 'bodyBlocks';
+var TBL_FOLDER_SYNC = 'folderSync';
 
 /**
- * DB helper methods for Gecko's IndexedDB implementation.  We are assuming
- * the presence of the Mozilla-specific mozGetAll helper right now.  Since our
- * app is also dependent on the existence of the TCP API that no one else
- * supports right now and we are assuming a SQLite-based IndexedDB
- * implementation, this does not seem too crazy.
+ * Conversation summaries
  *
- * == Useful tidbits on our IndexedDB implementation
+ * key: [`AccountId`, `ConversationId`]
+ */
+var TBL_CONV_INFO = 'convInfo';
+
+/**
+ * Message headers
  *
- * - SQLite page size is 32k
- * - The data persisted to the database (but not Blobs AFAICS) gets compressed
- *   using snappy on a per-value basis.
- * - Blobs/files are stored as files on the file-system that are referenced by
- *   the data row.  Since they are written in one go, they are highly unlikely
- *   to be fragmented.
- * - Blobs/files are clever once persisted.  Specifically, nsDOMFileFile
- *   instances are created with just the knowledge of the file-path.  This means
- *   the data does not have to be marshaled, and it means that it can be
- *   streamed off the disk.  This is primarily beneficial in that if there is
- *   data we don't need to mutate, we can feed it directly to the web browser
- *   engine without potentially creating JS string garbage.
+ * key: [`AccountId`, `ConversationId`, `MessageId`]
+ */
+var TBL_HEADERS = 'headers';
+
+/**
+ * Message bodies
  *
- * Given the page size and snappy compression, we probably only want to spill to
- * a blob for non-binary data that exceeds 64k by a fair margin, and less
- * compressible binary data that is at least 64k.
+ * key: [`AccountId`, `ConversationId`, `MessageId`]
+ */
+var TBL_BODIES = 'bodies';
+
+/**
+ * Back-references for reference counting / correctness checks.
+ *
+ * key: [`AccountId`, `ConversationId`, `MessageId`, `FolderId`, `UID`]
+ */
+var TBL_REFS = 'refs';
+
+/**
+ * Try and create a useful/sane error message from an IDB error and log it or
+ * do something else useful with it.
+ */
+function analyzeAndLogErrorEvent(event) {
+  function explainSource(source) {
+    if (!source)
+      return 'unknown source';
+    if (source instanceof IDBObjectStore)
+      return 'object store "' + source.name + '"';
+    if (source instanceof IDBIndex)
+      return 'index "' + source.name + '" on object store "' +
+        source.objectStore.name + '"';
+    if (source instanceof IDBCursor)
+      return 'cursor on ' + explainSource(source.source);
+    return 'unexpected source';
+  }
+  var explainedSource, target = event.target;
+  if (target instanceof IDBTransaction) {
+    explainedSource = 'transaction (' + target.mode + ')';
+  }
+  else if (target instanceof IDBRequest) {
+    explainedSource = 'request as part of ' +
+      (target.transaction ? target.transaction.mode : 'NO') +
+      ' transaction on ' + explainSource(target.source);
+  }
+  else { // dunno, ask it to stringify itself.
+    explainedSource = target.toString();
+  }
+  var str = 'indexedDB error:' + target.error.name + 'from' + explainedSource;
+  console.error(str);
+  return str;
+};
+
+function analyzeAndRejectErrorEvent(rejectFunc, event) {
+  rejectFunc(analyzeAndRejectErrorEvent(event));
+}
+
+/**
+ * v3 prototype database.  Intended for use on the worker directly.  For
+ * key-encoding efficiency and ease of account-deletion (and for privacy, etc.),
+ * we may want to use one account for config and then separate databases for
+ * each account.
  *
  * @args[
  *   @param[testOptions #:optional @dict[
@@ -156,39 +167,6 @@ function MailDB(testOptions) {
   this._db = null;
 
   this._lazyConfigCarryover = null;
-
-  /**
-   * Fatal error handler.  This gets to be the error handler for all unexpected
-   * error cases.
-   */
-  this._fatalError = function(event) {
-    function explainSource(source) {
-      if (!source)
-        return 'unknown source';
-      if (source instanceof IDBObjectStore)
-        return 'object store "' + source.name + '"';
-      if (source instanceof IDBIndex)
-        return 'index "' + source.name + '" on object store "' +
-          source.objectStore.name + '"';
-      if (source instanceof IDBCursor)
-        return 'cursor on ' + explainSource(source.source);
-      return 'unexpected source';
-    }
-    var explainedSource, target = event.target;
-    if (target instanceof IDBTransaction) {
-      explainedSource = 'transaction (' + target.mode + ')';
-    }
-    else if (target instanceof IDBRequest) {
-      explainedSource = 'request as part of ' +
-        (target.transaction ? target.transaction.mode : 'NO') +
-        ' transaction on ' + explainSource(target.source);
-    }
-    else { // dunno, ask it to stringify itself.
-      explainedSource = target.toString();
-    }
-    console.error('indexedDB error:', target.error.name, 'from',
-                  explainedSource);
-  };
 
   var dbVersion = CUR_VERSION;
   if (testOptions && testOptions.dbDelta)
@@ -245,8 +223,11 @@ MailDB.prototype = {
 
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_FOLDER_INFO);
-    db.createObjectStore(TBL_HEADER_BLOCKS);
-    db.createObjectStore(TBL_BODY_BLOCKS);
+    db.createObjectStore(TBL_FOLDER_SYNC);
+    db.createObjectStore(TBL_CONV_INFO);
+    db.createObjectStore(TBL_HEADERS);
+    db.createObjectStore(TBL_BODIES);
+    db.createObjectStore(TBL_REFS);
   },
 
   close: function() {
@@ -344,24 +325,36 @@ MailDB.prototype = {
     }
   },
 
-  loadHeaderBlock: function(folderId, blockId, callback) {
-    var req = this._db.transaction(TBL_HEADER_BLOCKS, 'readonly')
-                         .objectStore(TBL_HEADER_BLOCKS)
-                         .get(folderId + ':' + blockId);
-    req.onerror = this._fatalError;
-    req.onsuccess = function() {
-      callback(req.result);
-    };
+  loadFolderSyncData: function(folderId) {
+    return new Promise(function(resolve, reject) {
+      var req = this._db.transaction(TBL_FOLDER_SYNC, 'readonly')
+                         .objectStore(TBL_FOLDER_SYNC)
+                         .get(folderId);
+      req.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
+      req.onsuccess = function() {
+        resolve(req.result);
+      };
+    }.bind(this));
   },
 
-  loadBodyBlock: function(folderId, blockId, callback) {
-    var req = this._db.transaction(TBL_BODY_BLOCKS, 'readonly')
-                         .objectStore(TBL_BODY_BLOCKS)
-                         .get(folderId + ':' + blockId);
-    req.onerror = this._fatalError;
-    req.onsuccess = function() {
-      callback(req.result);
-    };
+  saveFolderSyncData: function(folderId, data) {
+    return new Promise(function(resolve, reject) {
+      var req = this._db.transaction(TBL_FOLDER_SYNC, 'readwrite')
+                         .objectStore(TBL_FOLDER_SYNC)
+                         .put(folderId, data);
+      req.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
+      req.onsuccess = function() {
+        resolve(req.result);
+      };
+    }.bind(this));
+
+  },
+
+  /**
+   * Save sync progress.
+   */
+  saveSyncProgress: function() {
+
   },
 
   /**
