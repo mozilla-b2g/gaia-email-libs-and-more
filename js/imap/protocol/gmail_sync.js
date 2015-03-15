@@ -84,9 +84,20 @@ define(function (require) {
  * And so we implement consolidation.  There is a single namespace name for
  * modifying the flags/labels of a message.  When a new request is issued and
  * there is an existing task (that has not yet begun running), the consolidation
- * logic updates the task to the new desired state.
+ * logic updates the task to the new desired state.  NB: If the task is actively
+ * doing something, we will defer unifying/consolidating the request until the
+ * task has finished what it is doing.
+ *
+ * ### But what about batching? ###
+ *
+ * IMAP allows us to issue the same command for a set of messages concisely.
+ * And the FxOS email app lets the user perform bulk manipulations, so it's a
+ * possible thing.
  *
  * ### Parallelism ###
+ *
+ * Local database operations are inherently serialized, so for both sanity and
+ * efficiency
  *
  * ### (Simple) Local Operations are Non-persisted ###
  *

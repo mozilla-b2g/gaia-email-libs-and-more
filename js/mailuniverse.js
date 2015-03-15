@@ -1803,6 +1803,9 @@ MailUniverse.prototype = {
   modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
     var self = this, longtermIds = [];
     this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
+      this._taskManager.scheduleTask({
+
+      });
       var longtermId = self._queueAccountOp(
         x.account,
         {
@@ -1820,7 +1823,7 @@ MailUniverse.prototype = {
           progress: 0,
         });
       longtermIds.push(longtermId);
-    });
+    }.bind(this));
     return longtermIds;
   },
 
