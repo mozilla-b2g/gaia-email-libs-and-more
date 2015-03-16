@@ -134,6 +134,9 @@ function MailSlice(bridgeHandle, storage, _parentLog) {
   this._storage = storage;
   this._LOG = LOGFAB.MailSlice(this, _parentLog, bridgeHandle._handle);
 
+
+  this.focalSUID = null;
+
   // The time range of the headers we are looking at right now.
   this.startTS = null;
   this.startUID = null;

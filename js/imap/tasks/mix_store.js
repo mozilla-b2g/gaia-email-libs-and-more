@@ -1,48 +1,34 @@
 define(function(require) {
 
-var TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_definer');
 
 /**
- * @typedef {Object} StoreFlagsPersistentState
- * @property {PerFlagStorePersistentState} flags
- *   Standard IMAP flag changes.
- * @property {PerFlagStorePersistentState} labels
- *   Gmail specific label changes.
- */
-/**
- * @typedef {Map<FlagStoreAggrString, FlagChangeAggr> PerFlagPersistentState
+ * @typedef {Map<FlagStoreAggrString, FlagChangeAggr>} MixStorePersistentState
  *
  * We aggregate the manipulations we want to perform to leverage IMAP's ability
- * to batch things.  If two separate store_flags requests would issue the same
- * IMAP command (apart from the UID identifier), they should end up in the same
+ * to batch things.  If two separate store requests would issue the same IMAP
+ * command (apart from the UID identifier), they should end up in the same
  * FlagChangeAggr.
  */
 /**
- * @typedef {String} FlagStoreAggrString
+ * @typedef {String} MixStoreAggrString
  *
  * The unique string derived from the add/remove flags that characterizes the
  * operation.
  */
 /**
- * @typedef {Object} FlagChangeAggr
+ * @typedef {Object} MixStoreChangeAggr
  *
  * @property {Array<String>} add
- *   The flags to add.
+ *   The flags/labels to add.
  * @property {Array<String>} remove
- *   The flags to remove.
+ *   The flags/labels to remove.
  * @property {Array<SUID>} messages
  *   The messages we want to perform this operation on.
  */
 
 /**
- * @typedef {Object} StoreFlagsMemoryState
- * @property {PerFlagStoreMemoryState} flags
- *   Standard IMAP flag changes.
- * @property {PerFlagStoreMemoryState} labels
- *   Gmail specific label changes.
- */
-/**
- * @typedef {Map<SUID, FlagStoreAggrString>} PerFlagStoreMemoryState
+ * @typedef {Map<SUID, MixStoreAggrString>} MixStoreMemoryState
  *
  * Maps tracked SUIDs to their current aggregation string so we can easily
  * find what we want to do with them when unifying or mooting.
@@ -50,28 +36,28 @@ var TaskDefiner = require('../../task_definer');
 
 
 /**
- * @typedef {Object} StoreFlagsRequest
- * @property {"flags"|"labels"} type
- *   The type of manipulation being requested.
+ * @typedef {Object} MixStoreRequest
+ *
+ * @property {Array<String>} add
+ *   The flags/labels to add.
+ * @property {Array<String>} remove
+ *   The flags/labels to remove.
  * @property {Array<SUID>} messages
  *   The messages this request is being targeted for.
- * @property
  */
 
 /**
- * Flag manipulations are
+ * For gmail, flag and label manipulation is nearly identical.  Rather than
+ * having the task handle both directly, mixins for the win.
  */
-var GmailStoreFlagsTask = TaskDefiner.defineCleverTask({
+let GmailStoreTaskMixin = {
   name: 'store_flags',
   /**
    * @return {StoreFlagState}
    *   The initial state of this task type for a newly created account.
    */
-  initPersistentStateForAccount: function() {
-    return {
-      flags: new Map(),
-      labels: new Map()
-    };
+  initPersistentStateForAccount: function(account)) {
+    return new Map();
   },
 
   deriveMemoryStateFromPersistentState: function(account, persistentState) {
@@ -79,8 +65,7 @@ var GmailStoreFlagsTask = TaskDefiner.defineCleverTask({
   },
 
   hasWork: function(account, persistentState) {
-    return persistentState.flags.size > 0 ||
-           persistentState.labels.size > 0;
+    return persistentState.size > 0;
   },
 
   /**
@@ -93,7 +78,7 @@ var GmailStoreFlagsTask = TaskDefiner.defineCleverTask({
    *
    * @return {FlagStoreAggrString}
    */
-  _deriveFlagStoreAggrString: function(req) {
+  _deriveMixStoreAggrString: function(req) {
     var s = '';
     s += req.add.map(x => '+' + JSON.stringify(x)).join(' ');
     if (req.add.length && req.remove.length) {
@@ -103,6 +88,9 @@ var GmailStoreFlagsTask = TaskDefiner.defineCleverTask({
     return s;
   }
 
+  /**
+   * Process the provided request
+   */
   unifyRequest: function(account, perstate, memstate, request) {
 
   }
@@ -121,5 +109,5 @@ var GmailStoreFlagsTask = TaskDefiner.defineCleverTask({
   }
 });
 
-return GmailStoreFlagsTask;
+return GmailStoreTaskMixin;
 });
