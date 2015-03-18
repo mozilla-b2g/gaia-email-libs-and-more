@@ -105,9 +105,23 @@ function MailBridge(universe, name) {
     accounts: [],
     identities: [],
     folders: [],
+    conversations: [],
     headers: [],
     matchedHeaders: [],
   };
+
+  this._trackedItemsByType = {
+    accounts: new Map(),
+    identities: new Map(),
+    folders: new Map(),
+    conversations: new Map(),
+    headers: new Map(),
+    matchedHeaders: new Map()
+  };
+  /**
+   * @type {Map<Handle, {type, id}>}
+   */
+  this._trackedItemHandles = new Map();
 
   /**
    * Observed bodies in the format of:
@@ -195,6 +209,24 @@ MailBridge.prototype = {
 
   _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
     $mailchewStrings.set(msg.strings);
+  },
+
+  _cmd_trackItemUpdates: function(msg) {
+
+  },
+
+  _cmd_updateTrackedItemPriorityTags: function(msg) {
+
+  },
+
+  _cmd_stopTrackingItemUpdates: function(msg) {
+    let trackInfo = this._trackedItemHandles.get(msg.handle);
+    let tracksOfType = this._trackedItemsByType[trackInfo.type];
+    let listeningHandles = tracksOfType[trackInfo.id];
+    listeningHandles.splice(listeningHandles.indexOf(msg.handle), 1);
+    if (listeningHandles.length) {
+
+    }
   },
 
   _cmd_learnAboutAccount: function(msg) {
@@ -672,6 +704,15 @@ MailBridge.prototype = {
 
     var account = this.universe.getAccountForFolderId(msg.folderId);
     account.sliceFolderMessages(msg.folderId, proxy);
+  },
+
+  _cmd_viewFolderConversations: function(msg) {
+    var proxy = this._slices[msg.handle] =
+          new SliceBridgeProxy(this, 'conversations', msg.handle);
+    this._slicesByType['conversations'].push(proxy);
+
+    var account = this.universe.getAccountForFolderId(msg.folderId);
+    account.sliceFolderConversations(msg.folderId, proxy);
   },
 
   _cmd_searchFolderMessages: function mb__cmd_searchFolderMessages(msg) {

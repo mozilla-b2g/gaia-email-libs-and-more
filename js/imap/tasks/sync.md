@@ -1,3 +1,178 @@
+## Gmail-specific Concepts and Strategies ##
+
+### "All Mail" all the time, UIDs 4evah ###
+
+"All Mail" has the magically delicious property that all messages that aren't
+trash or spam are in there.  This makes it the best (only?) way to find all the
+messages that are in a conversation.  It also means that the UIDs in the all
+mail folder are eternal (for all intents and purposes).
+
+Because this is super-handy, we bake a message's all mail UID into the SUID.
+
+### Folders are just pre-filtered views of "All Mail", so forget folders ###
+
+Gmail's SEARCH implementation supports searching using "X-GM-LABELS" as a
+predicate to get the equivalent (from our perspective) of performing the search
+in a folder.  (Note that it's conceivable we may be imposing a greater cost
+on Gmail, depending on how their IMAP backend is implemented and optimized.)
+
+To this end we only ever do synchronization in "All Mail".  For date-range
+deepening for a label, we can do our standard date-range source filtered down
+to the labels we care about for that date range.
+
+For CONDSTORE steady-state things are somewhat trickier but CONDSTORE is
+powerful enough that we can pick trade-offs that still work out quite well for
+us.  The main limitation is it won't tell us what got deleted and so we need to
+infer that by noticing the UID is no longer there.  But since people rarely
+delete things on gmail, by doing our sync in All Mail we largely are able to
+reduce the importance of the deletion inference since the likely thing is that
+it'll just cease to have any labels we care about.
+
+## Sync ##
+
+### What to sync ###
+
+Given a set of labels yayLabels and an overall date range yayRange that we care
+about (where yayRange is the max() of the per-yayLabel yayRanges we care about)
+there is a set of maybeYayMessages that are of potential interest to us.  Once
+we apply the more thorough per-label yayRange logic, we end up with the actual
+yayMessages.  The (de-duplicated) set of conversations that these messages
+belong to constitute our yayConversations.  The messages that belong to these
+conversations are our careMessages.  Messages in careMessages but not in
+yayMessages are mehMessages.
+
+Once a message is no longer in careMessages then we no longer want it in our
+storage and it belongs to mootMessages.  Inherently its conversation must also
+be in mootConversations.
+
+### CONDSTORE steady-state case analysis ###
+
+In the abstract, when CONDSTORE knows something has changed on a message, there
+are a number of things that could be happening, and those could mean different
+things to us.  Note that we're ignoring mootMessages for this analysis.
+- It's an entirely new (to us) message, this is known by having a UID higher
+  than the highest UID the last time we were in this folder. We might care about
+  it if:
+  - It has a yayLabel for which its date is in the yayRange.  This is feasible
+    to use search to filter on because the set of yayLabels is small and our
+    overall yayRange is likewise concise.
+    - If the message introduces a new yayConversation we need to trigger a
+      specific sync pass on that conversation.  That will find us all the
+      careMessages.  This is unavoidable.
+    - If the message is part of an existing yayConversation we don't need to do
+      anything particularly special.
+  - It belongs to a yayConversation and is therefore a careMessage.  This is not
+    particularly feasible to use search to filter on because the set of
+    yayConversations is large and it seems likely the IMAP implementation might
+    get angry if we do this.  (Certainly it's not likely to be a particularly
+    supported code path.)  However, since we can filter on new messages based on
+    the UID range we can minimize the bandwidth used by limiting the FETCH to
+    the conversation ids of the messages in question.
+- It's an existing message and:
+  - It's something we have synchronized before (could be yayMessage or
+    careMessage):
+    - It might have become irrelevant by having been a yayMessage, having
+      labels removed, and now no longer meeting any yayLabels.  (Note that
+      yayRanges cannot change as a result of sync.)  Unfortunately, although
+      CONDSTORE does define a MODSEQ Search Criterion that could potentially
+      be used to help filter, it's optional and only allows filtering on a
+      single thing, so it's useless for our purposes.  SEARCH also can't detect
+      the "falling edge" of ceasing to be a yayMessage which means we need to
+      FETCH all the changed messages' relevant features to be able to tell if
+      they are yay or not.  If it did become irrelevant, we need to figure out
+      if this makes its conversation no longer yay.  Options are to have
+      yayConversations maintain a count (or explicitly name its yayMsgs), or to
+      enqueue a task that can lookup the information and make the determination.
+
+  - It's something we have NOT synchronized before (AKA not in careMessages):
+    - It might have become relevant (and a yayMessage) by now matching yayLabels
+      appropriately.  Since it wasn't a careMessage, the conversation must not
+      have been a yayConversation and we could theoretically avoid that check.
+      But since multiple messages in the same conversation could have made this
+      transition we still need to perform a set check (or depend on some other,
+      potentially more expensive suppression mechanism like tasks).
+
+### CONDSTORE new versus changed ###
+
+If we crunch all the bullet points from the steady-state case analysis we can
+determine that unfortunately we need to consume the entire FETCH CHANGEDSINCE
+stream.  The only real question is whether there's an advantage to doing a
+separate query for new UIDs versus UIDs in the known range.
+
+The main thing distinguishing them is that new UIDs are inherently messages that
+we have not synchronized and if they end up as careMessages, we need to fetch
+their envelopes which means we will be issuing a FETCH against them in the
+future.  Whereas for known UIDs it's possible we've already synced the message
+and it's just the mutable metadata that we care about.  In fact, if we haven't
+already synced the message, we know that it's part of a new yayConversation and
+so a converation sync process and therefore an additional FETCH must happen.
+
+Needs:
+- fundamental: UID
+- yay determination
+  - new: X-GM-LABELS, INTERNALDATE
+  - changed: X-GM-LABELS, INTERNALDATE
+- interesting mutable bits
+  - new: don't care, the header/envelope needs to be fetched
+  - changed: X-GM-LABELS, Flags
+- sync prioritization: X-GM-LABELS (sync what the user's looking at first),
+  INTERNALDATE (for ordering)
+- data for syncing new yayConversations:
+  - new: X-GM-THRID
+  - changed: X-GM-THRID
+
+Things we sorta don't need to care about:
+- X-GM-MSGID: the uid is good enough for most of our purposes, and we can pick
+  it up when fetching the envelope since it's immutable.
+
+So the difference ends up being that for changed messages we care about the
+flags.  Which is a savings.
+
+
+### Scalability through Sets ###
+
+By structuring our various logic pieces as sets/maps that we perform
+intersections against, our logic can be adapted to a streaming/chunked
+implementation.  We're not doing that now, though.  Our main goal is to simply
+keep our in-memory sets small enough and the bulk of our processing as
+reasonably sized batches so our working memory needs are always reasonably
+bounded.
+
+### Pseudocode of steady-state ###
+
+
+(Note that nextyuid is the UIDNEXT from when we last synchronized.  Not the
+current UIDNEXT.)
+```
+newMsgs = UID FETCH nextyuid:* (UID INTERNALDATE X-GM-LABELS X-GMTHRID)
+changedMsgs = UID FETCH 1:nextyuid-1 (UID INTERNALDATE X-GM-LABELS X-GMTHRID)
+
+newYayMsgs, newNonYayMsgs = yayFilterMessages(newMsgs)
+changedYayMsgs, ignoredNonYayMsgs = yayFilterMessages(changedMsgs)
+
+newMehMsgs, ignoredNonMehMsgs = filterMessagesOnYayConversations(newNonYayMsgs)
+
+yayConvsWithDates = uniqueifyConvsTrackingHighDate(newYayMsgs, changedYayMsgs)
+newYayConvsWithDates, ignoredExistingYayConvs = yayConvsWithDates - knownConvs
+
+// conversations that are entirely new get synchronized
+scheduleForAll(newYayConvsWithDates, sync_conv)
+
+// new messages for existing conversations just get synced independently
+scheduleForAll(sync_msg)
+
+// XXX messages that are no longer yay.  see above
+
+// existing messages get their metadata updated
+// note that the task is potentially non-trivial since we will also want to
+// apply any currently un-applied tag states (to avoid sync races), and this is
+// potentially a place we might let extensions dig into.
+changedCareMsgs = intersectKeepingData(changedMsgs, knownCareMsgs)
+scheduleForAll(changedCarMsgs, update_metadata)
+```
+
+Sorta notable things
+
 ## Optimizing Time-to-Conversation-List ##
 
 When we synchronize our Inbox for the first time, our goal is to fetch enough of
@@ -21,14 +196,7 @@ grant these sync tasks the priority of the view slice looking at the folder as
 a whole rather than based on specific conversation id's being part of the focal
 area of the view slice.
 
-## "All Mail" all the time, UIDs 4evah ##
-
-"All Mail" has the magically delicious property that all messages that aren't
-trash or spam are in there.  This makes it the best (only?) way to find all the
-messages that are in a conversation.  It also means that the UIDs in the all
-mail folder are eternal (for all intents and purposes).
-
-Because this is super-handy, we bake a message's all mail UID into the SUID.
+## Implementation Details ##
 
 ### SUIDs ###
 
@@ -41,8 +209,14 @@ AllMailUID.
 
 ## Gmail IMAP Notes ##
 
+### Labels ###
+
 Labels are stored per-message even though the Gmail web UI's conversation view
 makes it seem like labels are per-conversation only.
 
 You can create a new label by manipulating X-GM-LABELS; you do not need to
 CREATE it as a folder.
+
+??? What does the gmail ui do message/conversation-wise versus labels.  Like if
+we set a label on a conversation, does it label them all?  Likewise, what's the
+deal with \\Flagged and the starred folder?

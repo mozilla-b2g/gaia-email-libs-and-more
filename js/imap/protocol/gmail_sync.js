@@ -115,8 +115,6 @@ function GmailSync() {
 GmailSync.prototype = {
   syncFolder: namedTask('syncFolder',
                         function* syncFolder(folderSyncDB, convDB) {
-    var folderState = yield folderSyncDB.getSyncState();
-    var conn = yield this.account.get
   })
 };
 

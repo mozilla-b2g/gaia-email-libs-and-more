@@ -13,11 +13,13 @@ var ContactCache = require('./clientapi/contact_cache');
 var UndoableOperation = require('./clientapi/undoable_operation');
 var MailHeader = require('./clientapi/mail_header');
 var MailMatchedHeader = require('./clientapi/mail_matched_header');
+var MailConversation = require('./clientapi/mail_conversation');
 
 var BridgedViewSlice = require('./clientapi/bridged_view_slice');
 var AccountsViewSlice = require('./clientapi/accounts_view_slice');
 var FoldersViewSlice = require('./clientapi/folders_view_slice');
 var HeadersViewSlice = require('./clientapi/headers_view_slice');
+var ConversationsViewSlice = require('./clientapi/conversations_view_slice');
 
 var MessageComposition = require('./clientapi/message_composition');
 
@@ -73,6 +75,14 @@ function MailAPI() {
   this._nextHandle = 1;
 
   this._slices = {};
+  /**
+   * @type {Map<Handle, UpdateableObject>}
+   *
+   * The current mapping for listeners registered with _trackItemUpdates and
+   * not yet canceled with _stopTrackingItemUpdates.  This uses the same handle
+   * space as _slices and _pendingRequests.
+   */
+  this._trackedItemHandles = new Map();
   this._pendingRequests = {};
   this._liveBodies = {};
   /**
@@ -218,6 +228,53 @@ MailAPI.prototype = evt.mix({
               msg.problem,
               msg.whichSide);
     return true;
+  },
+
+
+  /**
+   * Internal-only API for tracking updates for use by instantiated objects to
+   * register to receive updates of themselves independent of the slice
+   * mechanism for updates.
+   *
+   * @return {Handle}
+   *   A handle that you must use in a call to _stopTrackingItemUpdates at some
+   *   point unless you like leaks.
+   */
+  _trackItemUpdates: function(itemType, itemId, updateableObject, priorityTags){
+    var handle = this._nextHandle++;
+    this._trackedItemHandles.set(handle, updateableObject);
+    this.__bridgeSend({
+      type: 'trackItemUpdates',
+      handle: handle,
+      itemType: itemType,
+      itemId: itemId
+    });
+    return handle;
+  },
+
+  _updateTrackedItemPriorityTags: function(handle, priorityTags) {
+    this.__bridgeSend({
+      type: 'updateTrackedItemPriorityTags',
+      handle: handle,
+      priorityTags: priorityTags
+    })
+  },
+
+  _stopTrackingItemUpdates: function(handle) {
+    this._trackedItemHandles.delete(handle);
+    this.__bridgeSend({
+      type: 'stopTrackingItemUpdates',
+      handle: handle
+    });
+  },
+
+  _recv_itemUpdated: function(msg) {
+    for (let handle of msg.handles) {
+      let updateableObject = this._trackedItemHandles.get(handle);
+      if (updateableObject) {
+        updateableObject.__update(msg.data);
+      }
+    }
   },
 
   _fireAllSplices: function() {
@@ -412,6 +469,12 @@ MailAPI.prototype = evt.mix({
       case 'matchedHeaders':
         for (i = 0; i < addItems.length; i++) {
           transformedItems.push(new MailMatchedHeader(slice, addItems[i]));
+        }
+        break;
+
+      case 'conversations':
+        for (i = 0; i < addItems.length; i++) {
+          transformedItems.push(new MailConversation(slice, addItems[i]));
         }
         break;
 
@@ -970,6 +1033,27 @@ MailAPI.prototype = evt.mix({
 
     return slice;
   },
+
+  /**
+   * View the conversations in a folder.
+   */
+  viewFolderConversations: function(folder) {
+    var handle = this._nextHandle++,
+        slice = new ConversationsViewSlice(this, handle);
+    slice.folderId = folder.id;
+    // the initial population counts as a request.
+    slice.pendingRequestCount++;
+    this._slices[handle] = slice;
+
+    this.__bridgeSend({
+      type: 'viewFolderConversations',
+      folderId: folder.id,
+      handle: handle,
+    });
+
+    return slice;
+  },
+
 
   /**
    * Retrieve a slice of the contents of a folder, starting from the most recent

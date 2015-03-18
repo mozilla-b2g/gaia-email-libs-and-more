@@ -1,10 +1,14 @@
-define([
-  'rdcommon/log', '../a64', '../accountmixins', '../mailslice',
-  '../searchfilter', '../util', '../db/folder_info_rep', 'require', 'exports'],
-  function(log, $a64, $acctmixins, $mailslice,
-  $searchfilter, $util, $folder_info, require, exports) {
+define(function(require, exports, module) {
 
-var bsearchForInsert = $util.bsearchForInsert;
+let log = require('rdcommon/log');
+let $a64 = require('../a64');
+let $acctmixins = require('../accountmixins');
+let $mailslice = require('../mailslice');
+let $searchfitler = require('../searchfilter');
+let $util = require('../util');
+let $folder_info = require('../db/folder_info_rep');
+
+let bsearchForInsert = $util.bsearchForInsert;
 
 function cmpFolderPubPath(a, b) {
   return a.path.localeCompare(b.path);
@@ -39,20 +43,14 @@ function CompositeIncomingAccount(
   this._connInfo = connInfo;
   this._db = dbConn;
 
-  // Yes, the pluralization is suspect, but unambiguous.
-  /** @dictof[@key[FolderId] @value[FolderStorage] */
-  var folderStorages = this._folderStorages = {};
-  /** @dictof[@key[FolderId] @value[FolderMeta] */
-  var folderPubs = this.folders = [];
-
-  // This is a class, not an instance, hence the camel case.
-  this.FolderSyncer = FolderSyncer;
-
   /**
-   * The list of dead folder id's that we need to nuke the storage for when
-   * we next save our account status to the database.
+   * @type {Map<FolderId, FolderSyncDB>}
    */
-  this._deadFolderIds = null;
+  this.folderSyncDbById = new Map();
+  /**
+   * @type {Array<FolderInfo>}
+   */
+  this.folders = [];
 
   /**
    * The canonical folderInfo object we persist to the database.
@@ -94,29 +92,15 @@ function CompositeIncomingAccount(
    * }
    */
   this.meta = this._folderInfos.$meta;
-  /**
-   * @listof[SerializedMutation]{
-   *   The list of recently issued mutations against us.  Mutations are added
-   *   as soon as they are requested and remain until evicted based on a hard
-   *   numeric limit.  The limit is driven by our unit tests rather than our
-   *   UI which currently only allows a maximum of 1 (high-level) undo.  The
-   *   status of whether the mutation has been run is tracked on the mutation
-   *   but does not affect its presence or position in the list.
-   *
-   *   Right now, the `MailUniverse` is in charge of this and we just are a
-   *   convenient place to stash the data.
-   * }
-   */
-  this.mutations = this._folderInfos.$mutations;
-  for (var folderId in folderInfos) {
+
+  for (let folderId in folderInfos) {
+    // ignore the $meta structure and now-moot $-prefixed hacks
     if (folderId[0] === '$')
       continue;
     var folderInfo = folderInfos[folderId];
 
-    folderStorages[folderId] =
-      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   FolderSyncer, this._LOG);
-    folderPubs.push(folderInfo.$meta);
+    this.folderSyncDbById.set(folderId, new FolderSyncDB(this._db, folderId));
+    this.folders.push(folderInfo.$meta);
   }
   this.folders.sort(function(a, b) {
     return a.path.localeCompare(b.path);
@@ -166,19 +150,9 @@ CompositeIncomingAccount.prototype = {
         lastSyncedAt: 0,
         version: $mailslice.FOLDER_DB_VERSION
       }),
-      $impl: {
-        nextId: 0,
-        nextHeaderBlock: 0,
-        nextBodyBlock: 0,
-      },
-      accuracy: [],
-      headerBlocks: [],
-      bodyBlocks: [],
       serverIdHeaderBlockMapping: null, // IMAP/POP3 does not need the mapping
     };
-    this._folderStorages[folderId] =
-      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   this.FolderSyncer, this._LOG);
+    this.folderSyncDbById.set(folderId, new FolderSyncDB(this._db, folderId));
 
     var folderMeta = folderInfo.$meta;
     var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);
@@ -193,14 +167,17 @@ CompositeIncomingAccount.prototype = {
     var folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
     delete this._folderInfos[folderId];
-    var folderStorage = this._folderStorages[folderId];
-    delete this._folderStorages[folderId];
+
+    // XXX TODO this needs to be a task that cleans up the database state and
+    // was added as part of the completion of the syncFolderList task.
+    let folderSyncDb = this.folderSyncDbById.get(folderId);
+    if (folderSyncDb) {
+      folderSyncDb.youAreDeadCleanupAfterYourself();
+    }
+    this.folderSyncDbById.delete(folderId);
+
     var idx = this.folders.indexOf(folderMeta);
     this.folders.splice(idx, 1);
-    if (this._deadFolderIds === null)
-      this._deadFolderIds = [];
-    this._deadFolderIds.push(folderId);
-    folderStorage.youAreDeadCleanupAfterYourself();
 
     if (!suppressNotification)
       this.universe.__notifyRemovedFolder(this, folderMeta);
@@ -304,29 +281,12 @@ CompositeIncomingAccount.prototype = {
     this.__folderDemandsConnection(null, 'deleteFolder', gotConn);
   },
 
-  getFolderStorageForFolderId: function(folderId) {
-    if (this._folderStorages.hasOwnProperty(folderId))
-      return this._folderStorages[folderId];
-    throw new Error('No folder with id: ' + folderId);
-  },
-
-  getFolderStorageForMessageSuid: function(messageSuid) {
-    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('.'));
-    if (this._folderStorages.hasOwnProperty(folderId))
-      return this._folderStorages[folderId];
-    throw new Error('No folder with id: ' + folderId);
-  },
-
   getFolderMetaForFolderId: function(folderId) {
     if (this._folderInfos.hasOwnProperty(folderId))
       return this._folderInfos[folderId].$meta;
     return null;
   },
 
-  /**
-   * Create a view slice on the messages in a folder, starting from the most
-   * recent messages and synchronizing further as needed.
-   */
   sliceFolderMessages: function(folderId, bridgeHandle) {
     var storage = this._folderStorages[folderId],
         slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
