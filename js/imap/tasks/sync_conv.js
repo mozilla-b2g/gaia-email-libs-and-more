@@ -6,45 +6,64 @@ var imapchew = require('../imapchew');
 
 let parseGmailMsgId = a64.parseUI64;
 let parseGmailConvId = a64.parseUI64;
+let expandGmailConvId = a64.decodeUI64;
 
 let parseImapDateTime = imapchew.parseImapDateTime;
 
+let INITIAL_FETCH_PARAMS = [
+  'uid',
+  'internaldate',
+  'x-gm-msgid',
+  'bodystructure',
+  'flags',
+  'x-gm-labels'
+  'BODY.PEEK[HEADER.FIELDS (FROM TO CC BCC SUBJECT REPLY-TO MESSAGE-ID REFERENCES)]'
+];
+
 /**
+ * Fetches the envelopes for new messages in a conversation.
+ *
  * Given a conversation-id (X-GM-THRID), synchronize its state by going in the
- * all mail folder, issuing a SEARCH on the conversation, detecting
+ * all mail folder, issuing a SEARCH on the conversation, finding all the
+ * messages,
  *
  */
  return TaskDefiner.defineSimpleTask([
    {
      name: 'sync_conv',
-     args: ['convId'],
-     run: function*(ctx, req) {
-       // Get our current folder state.
-       let folderSyncDb = ctx.account.folderSyncDbById.get(req.folderId);
-       let folderState = yield folderSyncDB.getSyncState();
+     namingArgs: ['convId'],
+     // In the case
+     unifyingArgs: ['uids']
 
-       // XXX growing needs BEFORE as well
-       // Search covering through 2 days ago
-       let startTS = Date.now() - 2 * 24 * 60 * 60 * 1000;
-       let searchSpec = {
-         // (gmail auto-expunges so we don't need to do a NOT DELETED thing)
-         since: startTS
+     priorityTags: [
+       (args) => `view:conv:${args.convId}`
+     ],
+
+     run: function*(ctx, args) {
+       let uids;
+
+       // - Existing conversation
+       // If we were explicitly told the UIDs of the new messages in the
+       // conversation, just use those.
+       if (args.uids && args.uids.size) {
+          let uids = Array.from(args.uids);
+          ctx.log('using provided uids', { uids: uids });
        }
-
-       // Find out new UIDs covering the range in question.
-       let uids = yield ctx.pimap.search(
-         req.folderId, searchSpec, { byUid: true });
-       ctx.log('got uids', { uids: uids });
+       // - New conversation
+       else {
+         // Search for all the messages in the conversation
+         let searchSpec = {
+           'x-gm-thrid': expandGmailConvId(args.convId)
+         }
+         let uids = yield ctx.pimap.search(
+           req.folderId, searchSpec, { byUid: true });
+         ctx.log('search found uids', { uids: uids });
+       }
 
        let messages = yield.ctx.pimap.listMessages(
          req.folderId,
          uids,
-         [
-           'uid',
-           'internaldate',
-           'x-gm-thrid',
-           'x-gm-msgid'
-         ],
+         INITIAL_FETCH_PARAMS,
          { byUid: true }
        );
 

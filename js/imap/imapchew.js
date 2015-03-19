@@ -1,22 +1,12 @@
-/**
- *
- **/
+define(function(require, exports, module) {
 
-define(
-  [
-    'mimefuncs',
-    '../db/mail_rep',
-    '../mailchew',
-    'mimeparser',
-    'exports'
-  ],
-  function(
-    mimefuncs,
-    mailRep,
-    $mailchew,
-    MimeParser,
-    exports
-  ) {
+let a64 = require('../a64');
+let mimefuncs = require('mimefuncs');
+let mailRep = require('../db/mail_rep');
+let $mailchew = require('../mailchew');
+let MimeParser = require('mimeparser');
+
+let parseGmailMsgId = a64.parseUI64;
 
 function parseRfc2231CharsetEncoding(s) {
   // charset'lang'url-encoded-ish
@@ -347,14 +337,14 @@ function valuesOnly(item) {
   }
 }
 
-exports.chewHeaderAndBodyStructure = function(msg, folderId, newMsgId) {
+exports.chewHeaderAndBodyStructure = function(msg, accountId, convId) {
   // begin by splitting up the raw imap message
-  var parts = chewStructure(msg);
+  let parts = chewStructure(msg);
 
   msg.date = msg.internaldate && parseImapDateTime(msg.internaldate);
   msg.headers = {};
 
-  for (var key in msg) {
+  for (let key in msg) {
     // We test the key using a regex here because the key name isn't
     // normalized to a form we can rely on. The browserbox docs in
     // particular indicate that the full key name may be dependent on
@@ -363,7 +353,7 @@ exports.chewHeaderAndBodyStructure = function(msg, folderId, newMsgId) {
     // rely on instead: grabbing the right key based upon just this
     // regex.
     if (/header\.fields/.test(key)) {
-      var headerParser = new MimeParser();
+      let headerParser = new MimeParser();
       headerParser.write(msg[key] + '\r\n');
       headerParser.end();
       msg.headers = headerParser.node.headers;
@@ -371,8 +361,10 @@ exports.chewHeaderAndBodyStructure = function(msg, folderId, newMsgId) {
     }
   }
 
-  var fromArray = valuesOnly(firstHeader(msg, 'from'));
-  var references = valuesOnly(firstHeader(msg, 'references'));
+  let fromArray = valuesOnly(firstHeader(msg, 'from'));
+  let references = valuesOnly(firstHeader(msg, 'references'));
+
+  let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
 
   return {
     header: mailRep.makeHeaderInfo({

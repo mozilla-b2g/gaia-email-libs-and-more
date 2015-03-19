@@ -1,10 +1,10 @@
 define(function(require) {
 'use strict';
 
-var BridgedViewSlice = require('./bridged_view_slice');
+var EntireListView = require('./entire_list_view');
 
 function FoldersViewSlice(api, handle) {
-  BridgedViewSlice.call(this, api, 'folders', handle);
+  EntireListView.call(this, api, 'folders', handle);
 
   // enable use of latestOnce('inbox').  Note that this implementation assumes
   // the inbox is eternal.  This is generally a safe assumption, but since this
@@ -18,7 +18,7 @@ function FoldersViewSlice(api, handle) {
     }
   }.bind(this);
 }
-FoldersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
+FoldersViewSlice.prototype = Object.create(EntireListView.prototype);
 
 /**
  * Get a folder with the given id right now, returning null if we can't find it.

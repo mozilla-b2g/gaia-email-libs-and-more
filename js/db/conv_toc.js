@@ -1,5 +1,9 @@
 define(function(require) {
 
+let a64 = require('../a64');
+let RefedResource = require('../refed_resource');
+let compareMsgIds = a64.cmpUI64;
+
 /**
  * The Conversation Table-of-Contents is in charge of backing view slices
  * listing the messages in a specific conversation.
@@ -14,13 +18,23 @@ define(function(require) {
  * view slices care about.
  */
 function ConversationTOC() {
-  this.ids = [];
+  RefedResource.call(this);
+
+  this.__deactivate();
 }
-ConversationTOC.prototype = {
+ConversationTOC.prototype = RefedResource.mix({
+  __activate: function() {
+
+  },
+
+  __deactivate: function() {
+    this.ids = [];
+  },
+
   getPayloadForId: function() {
 
   }
-};
+});
 
 return ConversationTOC;
 });

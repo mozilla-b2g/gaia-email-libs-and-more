@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-var BridgedViewSlice = require('./bridged_view_slice');
+var WindowedListview = require('./windowed_list_view');
 
 function HeadersViewSlice(api, handle, ns) {
   BridgedViewSlice.call(this, api, ns || 'headers', handle);
@@ -9,7 +9,7 @@ function HeadersViewSlice(api, handle, ns) {
   this._bodiesRequestId = 1;
   this._bodiesRequest = {};
 }
-HeadersViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
+HeadersViewSlice.prototype = Object.create(WindowedListView.prototype);
 
 /**
  * Request a re-sync of the time interval covering the effective time

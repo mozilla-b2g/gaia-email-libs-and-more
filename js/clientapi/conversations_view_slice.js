@@ -1,12 +1,12 @@
 define(function(require) {
 'use strict';
 
-var BridgedViewSlice = require('./bridged_view_slice');
+var WindowedListView = require('./windowed_list_view');
 
 function ConversationsViewSlice(api, handle, ns) {
-  BridgedViewSlice.call(this, api, ns || 'conversations', handle);
+  WindowedListView.call(this, api, ns || 'conversations', handle);
 }
-ConversationsViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
+ConversationsViewSlice.prototype = Object.create(WindowedListView.prototype);
 
 /**
  * Request a re-sync of the time interval covering the effective time

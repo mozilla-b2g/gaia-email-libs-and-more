@@ -1,7 +1,7 @@
 define(function(require) {
 
 function TaskManager() {
-
+  this._
 }
 TaskManager.prototype = {
   /**

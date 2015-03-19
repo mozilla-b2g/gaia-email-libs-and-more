@@ -5,19 +5,14 @@ let RefedResource = require('../refed_resource');
 let compareMsgIds = a64.cmpUI64;
 
 /**
- * Owns the synchronization state of a folder.  It is responsible for
- * maintaining the computed conversation and message arrays of folders as well
- * as being the convenience API for synchronization logic mucking with this
- * state.
- *
- * Our state changes only as a result of synchronization logic run against us.
- * These are issued as coherent batches against us and the other database reps.
+ * Hydration/dehydration and helper logic for dealing with our database
+ * representation of our gmail sync state.
  */
-function FolderSyncDB(db, folderId) {
+function GmailSyncDB(db, accountId) {
   RefedResource.call(this);
 
   this._db = db;
-  this.folderId = folderId;
+  this.accountId = accountId;
 
   /**
    * @typedef {Number} InternalDateTS
@@ -40,16 +35,16 @@ function FolderSyncDB(db, folderId) {
    * @property {GmailConvId} convId
    */
 
-   this.__deinit();
+   this.__deactivate();
 }
-FolderSyncDB.prototype = RefedResource.mix({
+GmailSyncDB.prototype = RefedResource.mix({
   /**
    * Reset our internal state; this is used for initial setup and if we ever
    * forget our state for memory-saving reasons.  This state is intentionally
    * the valid state for a new folder (for which we have no existing state).
    * This is an arbitrary call but is good for type stability.
    */
-  __deinit: function() {
+  __deactivate: function() {
     this.oldestSyncDateTS = 0;
 
     /**
@@ -70,8 +65,8 @@ FolderSyncDB.prototype = RefedResource.mix({
     this.orderedConversations = [];
   },
 
-  __init: co.wrap(function* _init() {
-    let dbState = yield this._db.loadFolderSyncData(this.folderId);
+  __activate: co.wrap(function* _init() {
+    let dbState = yield this._db.loadFolderSyncData();
     if (dbState) {
       this.orderedMessages = dbState.messages;
       this._fullyDeriveConversations();
@@ -115,5 +110,5 @@ FolderSyncDB.prototype = RefedResource.mix({
   }
 });
 
-return FolderSyncDB;
+return GmailSyncDB;
 });

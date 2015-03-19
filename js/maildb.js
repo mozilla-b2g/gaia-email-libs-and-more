@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+let evt = require('evt');
+
 var IndexedDB;
 if (("indexedDB" in window) && window.indexedDB) {
   IndexedDB = window.indexedDB;
@@ -16,24 +18,8 @@ if (("indexedDB" in window) && window.indexedDB) {
 /**
  * The current database version.
  *
- * Explanation of most recent bump:
- *
- * Bumping to 22 because of account changes around cronsyncing, an "undefined"
- * error with summaries and some constant changes.
- *
- * Bumping to 21 because of massive error in partial fetching merges.
- *
- * Bumping to 20 because of block sizing changes.
- *
- * Bumping to 19 because of change from uids to ids, but mainly because we are
- * now doing parallel IMAP fetching and we want to see the results of using it
- * immediately.
- *
- * Bumping to 18 because of massive change for lazily fetching snippets and
- * message bodies.
- *
- * Bumping to 17 because we changed the folder representation to store
- * hierarchy.
+ * For convoy this gets bumped willy-nilly as I make minor changes to things.
+ * We probably want to drop this way back down before merging anywhere official.
  */
 var CUR_VERSION = 22;
 
@@ -73,14 +59,30 @@ var TBL_FOLDER_INFO = 'folderInfo';
 var TBL_FOLDER_SYNC = 'folderSync';
 
 /**
- * Conversation summaries
+ * Conversation summaries.
  *
  * key: [`AccountId`, `ConversationId`]
  */
 var TBL_CONV_INFO = 'convInfo';
 
 /**
- * Message headers
+ * The ordered list of conversations in a folder used by the Folder TOC's to
+ * load the folder ordering somewhat efficiently.  Ideally this would be an
+ * index but until https://www.w3.org/Bugs/Public/show_bug.cgi?id=10000 or
+ * something similar lets us not have to use key-paths, the specific ordering
+ * required and the many potential entries mean we'd be needlessly bloating our
+ * record value with a useless representation.
+ *
+ * This is automatically updated by changes to TBL_CONV_INFO.
+ *
+ * key: [`FolderId`, `DateTS`, `ConversationId`]
+ *
+ * Note that we might eventually want
+ */
+var TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
+
+/**
+ * Message headers.
  *
  * key: [`AccountId`, `ConversationId`, `MessageId`]
  */
@@ -93,12 +95,6 @@ var TBL_HEADERS = 'headers';
  */
 var TBL_BODIES = 'bodies';
 
-/**
- * Back-references for reference counting / correctness checks.
- *
- * key: [`AccountId`, `ConversationId`, `MessageId`, `FolderId`, `UID`]
- */
-var TBL_REFS = 'refs';
 
 /**
  * Try and create a useful/sane error message from an IDB error and log it or
@@ -141,8 +137,10 @@ function analyzeAndRejectErrorEvent(rejectFunc, event) {
 /**
  * v3 prototype database.  Intended for use on the worker directly.  For
  * key-encoding efficiency and ease of account-deletion (and for privacy, etc.),
- * we may want to use one account for config and then separate databases for
- * each account.
+ * we may eventually want to use one account for config and then separate
+ * databases for each account.
+ *
+ * See maildb.md for more info/context.
  *
  * @args[
  *   @param[testOptions #:optional @dict[
@@ -164,7 +162,10 @@ function analyzeAndRejectErrorEvent(rejectFunc, event) {
  * ]
  */
 function MailDB(testOptions) {
+  evt.Emitter.call(this);
   this._db = null;
+
+  this._activeMutations = [];
 
   this._lazyConfigCarryover = null;
 
@@ -211,7 +212,7 @@ function MailDB(testOptions) {
   }.bind(this));
 }
 
-MailDB.prototype = {
+MailDB.prototype = evt.mix({
   /**
    * Reset the contents of the database.
    */
@@ -225,9 +226,9 @@ MailDB.prototype = {
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_FOLDER_SYNC);
     db.createObjectStore(TBL_CONV_INFO);
+    db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
     db.createObjectStore(TBL_HEADERS);
     db.createObjectStore(TBL_BODIES);
-    db.createObjectStore(TBL_REFS);
   },
 
   close: function() {
@@ -351,9 +352,17 @@ MailDB.prototype = {
   },
 
   /**
-   * Save sync progress.
+   * Issue read-only batch requests.
    */
-  saveSyncProgress: function() {
+  read: function() {
+
+  },
+
+  beginMutate: function(ctx, mutateSet) {
+
+  },
+
+  finishMutate: function(ctx, mutations, adds) {
 
   },
 
@@ -478,8 +487,9 @@ MailDB.prototype = {
     trans.objectStore(TBL_HEADER_BLOCKS).delete(range);
     trans.objectStore(TBL_BODY_BLOCKS).delete(range);
   },
-};
+});
 
+// XXX REFACTOR just start returning this directly
 return {
   MailDB: MailDB
 };

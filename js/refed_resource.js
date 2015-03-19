@@ -9,7 +9,7 @@ let mix = require('mix');
  * reasons.
  */
 function RefedResource() {
-  this._initPromise = null;
+  this._activatePromise = null;
   this._valid = false;
   this._activeConsumers = [];
 }
@@ -23,14 +23,14 @@ RefedResource.prototype = {
     }
     this._activeConsumers.push(ctx);
     if (!this._valid && this._activeConsumers.length === 1) {
-      // Since the initalization is async, it's possible for something else to
+      // Since the activation is async, it's possible for something else to
       // acquire us while
-      this._initPromise = this.__init();
-      yield this._initPromise;
+      this._activatePromise = this.__activate();
+      yield this._activatePromise;
       this._valid = true;
-      this._initPromise = null;
-    } else if (this._initPromise) {
-      yield this._initPromise;
+      this._activatePromise = null;
+    } else if (this._activatePromise) {
+      yield this._activatePromise;
     }
   }),
 
@@ -41,7 +41,7 @@ RefedResource.prototype = {
     }
     this._activeConsumers.splice(idx, 1);
     // TODO XXX implement cleanup idiom where we tell the context's manager that
-    // no one cares about us anymore and we can be deinit'ed on demand.
+    // no one cares about us anymore and we can be deactivate'ed on demand.
   })
 };
 

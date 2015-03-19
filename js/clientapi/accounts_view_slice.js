@@ -1,14 +1,14 @@
 define(function(require) {
 'use strict';
 
-var BridgedViewSlice = require('./bridged_view_slice');
+var EntireListView = require('./entire_list_view');
 
 function AccountsViewSlice(api, handle, opts) {
-  BridgedViewSlice.call(this, api, 'accounts', handle);
+  EntireListView.call(this, api, 'accounts', handle);
 
   this._autoViewFolders = opts && opts.autoViewFolders || false;
 }
-AccountsViewSlice.prototype = Object.create(BridgedViewSlice.prototype);
+AccountsViewSlice.prototype = Object.create(EntireListView.prototype);
 
 /**
  * Return the account with the given ID, or null.

@@ -3,12 +3,22 @@ define(function(require) {
 var TaskDefiner = require('../../task_definer');
 
 /**
- * Expand the date-range of known messages in the given folder.
+ * Expand the date-range of known messages for the given folder/label.
  */
 return TaskDefiner.defineSimpleTask([
   {
-    name: 'sync_folder_grow',
-    args: ['folderId'],
+    name: 'sync_grow',
+    args: ['accountId', 'folderId'],
+
+    exclusiveResources: [
+      // Only one of us/sync_refresh is allowed to be active at a time.
+      (args) => `sync:${args.accountId}`,
+    ],
+
+    priorityTags: [
+      (args) => `view:fldr:${args.folderId}`
+    ],
+
     run: function*(ctx, req) {
       // Get our current folder state.
       let folderSyncDb = ctx.account.folderSyncDbById.get(req.folderId);
