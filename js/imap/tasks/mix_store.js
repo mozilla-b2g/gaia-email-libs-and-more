@@ -91,9 +91,9 @@ let GmailStoreTaskMixin = {
   /**
    * Process the provided request
    */
-  unifyRequest: function(account, perstate, memstate, request) {
+  planTask: function(account, perstate, memstate, request) {
 
-  }
+  },
 
   moot_message: function(account, perstate, memstate, suid) {
     function goMoot(map, suid) {

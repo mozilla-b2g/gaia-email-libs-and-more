@@ -39,7 +39,9 @@ let INITIAL_FETCH_PARAMS = [
        (args) => `view:conv:${args.convId}`
      ],
 
-     run: function*(ctx, args) {
+     plan: null,
+
+     execute: function*(ctx, args) {
        let uids;
 
        // - Existing conversation
@@ -60,12 +62,14 @@ let INITIAL_FETCH_PARAMS = [
          ctx.log('search found uids', { uids: uids });
        }
 
-       let messages = yield.ctx.pimap.listMessages(
+       let rawMessages = yield.ctx.pimap.listMessages(
          req.folderId,
          uids,
          INITIAL_FETCH_PARAMS,
          { byUid: true }
        );
+
+
 
        let normalizedMessages = messages.map((msg) => {
          return {

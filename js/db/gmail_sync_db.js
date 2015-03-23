@@ -45,6 +45,8 @@ GmailSyncDB.prototype = RefedResource.mix({
    * This is an arbitrary call but is good for type stability.
    */
   __deactivate: function() {
+    
+
     this.oldestSyncDateTS = 0;
 
     /**

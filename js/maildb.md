@@ -56,38 +56,50 @@ into a single string address space.  (Note that we do have a generational GC
 in Gecko now, so we aren't expecting the temporary strings to be the end of the
 world.)
 
-Here are the events we generated organized by data type.  Concatenate the
-various pieces of the hierarchy to get the true event.
+We generate two types of events for two types of consumers:
+1. TOCs: These cover add, changes, and removal.  They are scoped to the list
+   views we have.
+2. Item-listeners: Changes to and removal of specific items.  Fully qualified
+   identifiers are used.
 
-- `accounts`:
-  - `!added` (account): A new account!
-  - `!changed` (account): An account changed
-  - `!removed` (account): An account was removed
-- `acct!AccountId`: per-account
-  - `!changed` (account): The account was changed
-  - `!removed` (account): The account was removed
-  - `!folders`: Stuff for the account's folders
-    - `!added` (folderMeta)
-    - `!changed` (folderMeta)
-    - `!removed` (folderMeta)
-- `fldr!FolderId` folder info
-  - `!changed` (folderMeta): The folder's record changed
-  - `!removed` (folderMeta): The folder's record was deleted
-  - `!convs`: Something happened with the set of conversations in the folder
-    - `!added` (convInfo):
-    - `!changed` (convInfo, whatChanged: { date }):
-    - `!removed` (convInfo)
-- `conv!ConvSuid` per-conversation
-  - `!changed` (convInfo)
-  - `!removed` (convInfo)
-  - `!messages`:
-    - `!added` (headerInfo)
-    - `!changed` (headerInfo)
-    - `!removed` (headerInfo)
-- `msg!MsgSuid` message header
-  - `!changed` (headerInfo)
-  - `!removed` (headerInfo)
-- `body!MsgSuid` message body
-  - `!changed` (bodyInfo, whatChange)
-  - `!removed`
-- `tach!MsgSuid:AttId` message attachment
+You may wonder about things that logically follow as the consequence of
+something else.  For example, when we create a new account we want to
+synchronize the account's folder list immediately and then we immediately want
+to trigger synchronization of the account's inbox.  That is handled by the task
+infrastructure.  You don't listen for a database change of an account being
+added and then schedule the task.  The task definitions / meta-data cause the
+task manager to do that for you.
+
+### TOC events ###
+
+- `accounts!tocChange`
+- `acct!AccountId!folders!tocChange`
+- `fldr!FolderId!convs!tocChange`
+- `conv!ConvSuid!messages!tocChange`
+
+Note that there are potentially other TOC implementations out there, but since
+their representations aren't directly mapped to the database, we aren't involved
+in their events.  For example, the list of pending downloads is maintained in
+tasks, so that's what the TOC implementation would hang off of.
+
+### Item listener events ###
+
+- `acct!AccountId!change`
+- `fldr!FolderId!change`
+- `conv!ConvSuid!change`
+- `msg!MsgSuid!change`
+- `body!MsgSuid!change`
+- `tach!MsgSuid!AttId!change`
+
+
+### Event Ordering and Commits ###
+
+We issue events as the write transactions are issued.  We do this because it
+means our UI doesn't need to wait for writes to complete which makes us seem
+happy and responsive.  (At least as long as our tasks don't wait for the write
+transactions to notify completion.  If we're waiting, we potentially end up just
+having the UI speculatively one commit ahead of what the disk sees.)
+
+The impact on data loads is they need to buffer the mutation notifications until
+the load completes.  We build convenience helpers into the database to help with
+this boilerplate.

@@ -19,7 +19,10 @@ return TaskDefiner.defineSimpleTask([
       (args) => `view:fldr:${args.folderId}`
     ],
 
-    run: function*(ctx, req) {
+    // There is nothing for us to plan
+    plan: null,
+
+    execute: function*(ctx, req) {
       // Get our current folder state.
       let folderSyncDb = ctx.account.folderSyncDbById.get(req.folderId);
       yield folderSyncDb.acquire(ctx.ctxId);
@@ -46,6 +49,9 @@ return TaskDefiner.defineSimpleTask([
       for (let msg of messages) {
         tasks.push({
           name: 'sync_conv',
+          args: {
+            convId:
+          }
         });
       }
 

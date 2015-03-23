@@ -37,6 +37,9 @@ var ContactCache = require('./contact_cache');
  * @property {Date} mostRecentMessageDate
  *   The (received) date of the most recent message in the conversation.  This
  *   provides the ordering of the conversation.
+ * @property {Array<MailFolder>} labels
+ *   The labels applied to this conversation.  (Actually, the union of the
+ *   per-message labels for all of the messages in the conversation.)
  * @property {String} firstSubject
  *   The subject of the originating thread of the message.
  * @property {Array<MailPeep>} authors

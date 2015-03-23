@@ -11,6 +11,11 @@ function TaskContext(id, args) {
   this._db = args.db;
 
   this._stuffToRelease = [];
+
+  /**
+   * @type {'prep'|'mutate'|'finishing'}
+   */
+   this.state = 'prep';
 }
 TaskContext.prototype = {
   /**
@@ -23,16 +28,44 @@ TaskContext.prototype = {
     return acquireable.__acquire(this);
   },
 
+  _releaseEverything: function() {
+    for (let acquireable of this._stuffToRelease) {
+      try {
+        acquireable.__release(this);
+      } catch (ex) {
+        // XXX proper error-handling via fancy log thing
+        console.error('problem releasing', acquireable, ':', ex, '\n',
+                      ex.stack);
+      }
+    }
+  },
+
   read: function(what) {
     return this._db.read(this, what);
   },
 
   beginMutate: function(what) {
+    if (this.state !== 'prep') {
+      throw new Error(
+        'Cannot switch to mutate state from state: ' + this.state);
+    }
+    this.state = 'mutate';
     return this._db.beginMutate(this, what);
   },
 
-  finishTask: function(mutations, newTasks) {
-
+  /**
+   * @param {Object} finishData
+   * @param {Object} finishData.mutations
+   *   The mutations to finish as a result of the one preceding call to
+   *   `beginMutate`.
+   * @param {Object} finishData.newData
+   *   New records being added to the database.
+   * @param {Array<RawTask>} finishData.newTasks
+   *   The new tasks that should be atomically, persistently tracked as a
+   *   deterministic result of this task.
+   */
+  finishTask: function(finishData) {
+    this.state = 'finishing';
   },
 
   // XXX do auto-fancy log thing

@@ -44,6 +44,16 @@ var TBL_CONFIG = 'config',
       CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
 
 /**
+ * Raw tasks that have yet to be planned.  Each raw task is its own value, and
+ * each is simply named by an autoincrementing value.  Currently we entirely
+ * depend on the database to issue the id's for tasks, but in the future we
+ * might do this internally since it's handy to be able to synchronously assign
+ * an id to a task at the time scheduleTask is called.  (OTOH, there is an
+ * upside to not assigning an id until it's durably persisted.)
+ */
+var TBL_RAW_TASKS = 'rawTasks';
+
+/**
  * The folder-info table stores meta-data about the known folders for each
  * account.  Per-folder sync-info is stored in the 'folderSync' table.
  *
@@ -73,7 +83,10 @@ var TBL_CONV_INFO = 'convInfo';
  * required and the many potential entries mean we'd be needlessly bloating our
  * record value with a useless representation.
  *
- * This is automatically updated by changes to TBL_CONV_INFO.
+ * This is automatically updated by changes to TBL_CONV_INFO, specifically, for
+ * each of the `labels` on the conversation (each a `FolderId`), we keep a
+ * single row in existence here, using the `mostRecentMessageDate` of the
+ * convInfo structure as the `DateTS`.
  *
  * key: [`FolderId`, `DateTS`, `ConversationId`]
  *
@@ -95,6 +108,17 @@ var TBL_HEADERS = 'headers';
  */
 var TBL_BODIES = 'bodies';
 
+
+/**
+ * The set of all object stores our tasks can mutate.  Which is all of them.
+ * It's not worth it for us to actually figure the subset of these that's the
+ * truth.
+ */
+let TASK_MUTATION_STORES = [
+  TBL_CONFIG,
+  TBL_RAW_TASKS, TBL_FOLDER_SYNC, TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
+  TBL_HEADERS, TBL_BODIES
+];
 
 /**
  * Try and create a useful/sane error message from an IDB error and log it or
@@ -132,6 +156,31 @@ function analyzeAndLogErrorEvent(event) {
 
 function analyzeAndRejectErrorEvent(rejectFunc, event) {
   rejectFunc(analyzeAndRejectErrorEvent(event));
+}
+
+function computeSetDelta(before, after) {
+  let added = new Set([x for (x of after) if (!before.has(x))]);
+  let removed = new Set([x for (x of before) if (!after.has(x))]);
+
+  return { added: added, removed: removed };
+}
+
+function wrapReq(idbRequest) {
+  return new Promise(function(resolve, reject) {
+    idbRequest.onsuccess = function(event) {
+      resolve(event.target.result);
+    };
+    idbRequest.onerror = function(event) {
+      reject(analyzeAndRejectErrorEvent));
+    };
+  });
+}
+
+/**
+ *Given an id
+ */
+function nextHigherIdStr(idStr) {
+
 }
 
 /**
@@ -223,6 +272,7 @@ MailDB.prototype = evt.mix({
     }
 
     db.createObjectStore(TBL_CONFIG);
+    db.createObjectStore(TBL_RAW_TASKS, { autoIncrement: true })
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_FOLDER_SYNC);
     db.createObjectStore(TBL_CONV_INFO);
@@ -362,7 +412,109 @@ MailDB.prototype = evt.mix({
 
   },
 
-  finishMutate: function(ctx, mutations, adds) {
+  /**
+   * Load the ordered list of all of the known conversations.  Once loaded, the
+   * caller is expected to keep up with events to maintain this ordering in
+   * memory.
+   *
+   *
+   *
+   * NB: Events are synchronously emitted as writes are queued up.  This means
+   * that during the same event loop that you issue this call you also need to
+   * wire up your event listeners and you need to buffer those events until we
+   * return this data to you.  Then you need to process that backlog of events
+   * until you catch up.
+   */
+  loadFolderConversationIdsAndListen: function(folderId) {
+    return new Promise((resolve, reject) => {
+      let eventId = 'fldr!' + folderId + '!convs!tocChange';
+
+      let bufferedEvents = [];
+      let bufferFunc = (change) => {
+        bufferedEvents.push(change);
+      };
+      let drainEvents = (changeHandler) => {
+        this.removeListener(eventId, bufferFunc);
+        for (let change of bufferedEvents) {
+          changeHandler(change);
+        }
+      };
+
+      this.on(eventId, bufferFunc);
+      let trans = this._db.transaction(TBL_CONV_IDS_BY_FOLDER, 'readonly');
+      let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
+      let folderRange = IDBKeyRange.bound([folderId],
+
+                                folderId + ':\ufff0',
+                                false, false);
+
+      return {
+        idsWithDates: idsWithDates,
+        drainEvents: drainEvents
+      };
+    });
+  },
+
+  /**
+   * Process changes to the
+   */
+  _processConvMutations: function(preStates, convs, trans) {
+    let convStore = trans.objectStore(TBL_CONV_INFO);
+    let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER)
+    for (let convInfo of convs) {
+      let preInfo = preStates[convInfo.id];
+      // If the most recent message date changed, we need to blow away all
+      // the existing mappings and all the mappings are new anyways.
+      if (preInfo.date !== convInfo.date) {
+        for (let folderId of preInfo.folderIds) {
+          convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
+        }
+        for (let folderId of convInfo.folderIds) {
+          convIdsStore.add([folderId, convInfo.date, convInfo.id]);
+        }
+      }
+      // Otherwise we need to cleverly compute the delta
+      else {
+        let { added, removed } = computeSetDelta(preInfo.folderIds,
+                                                 convInfo.folderIds);
+        for (let folderId of removed) {
+          convIdsStore.delete([folderId, convInfo.date, convInfo.id]);
+        }
+        for (let folderId of added) {
+          convIdsStore.add([folderId, convInfo.date, convInfo.id]);
+        }
+      }
+    }
+
+  }
+
+  finishMutate: function(ctx, data) {
+    let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
+
+    let mutations = data.mutations;
+    if (mutations) {
+      if (mutations.conv) {
+        this._processConvMutations(
+          ctx._preMutateStates.conv, mutations.conv, trans);
+      }
+    }
+
+    let newData = data.newData;
+    if (newData) {
+      if (newData.conv) {
+        let convStore = trans.objectStore(TBL_CONV_INFO);
+        for (let convInfo of conv) {
+
+        }
+      }
+      if (newData.msg) {
+
+      }
+      if (newData.body) {
+
+      }
+    }
+
 
   },
 
