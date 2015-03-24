@@ -1,6 +1,11 @@
 define(function(require) {
 
 let a64 = require('../a64');
+
+let utils = require('../utils');
+let bsearchMaybeExists = utils.bsearchMaybeExists;
+let bsearchForInsert = utils.bsearchForInsert;
+
 let RefedResource = require('../refed_resource');
 let compareMsgIds = a64.cmpUI64;
 
@@ -18,27 +23,29 @@ function FolderConversationsTOC(db, folderId) {
   RefedResource.call(this);
   this._db = db;
   this.folderId = folderId;
+  this._eventId = '';
 
-  this.
-  this._bound_onChanges = this.onChanges.bind(this);
+  this._bound_onChange = this.onChange.bind(this);
 
   this.__deactivate();
 }
 FolderConversationsTOC.prototype = RefedResource.mix({
   __activate: function*() {
-    let { idsWithDates, drainEvents } =
+    let { idsWithDates, drainEvents, eventId } =
       yield this._db.loadFolderConversationIdsAndListen(this.folderId);
 
     this.idsWithDates = idsWithDates;
-    drainEvents(this._bound_onChanges);
-    this._db.on('fldr!' + this.folderId + )
+    this._eventId = eventId;
+    drainEvents(this._bound_onChange);
+    this._db.on(eventId, this._bound_onChange);
   },
 
   __deactivate: function() {
     this.idsWithDates = [];
+    this._db.removeListener(this._eventId, this._bound_onChange);
   },
 
-  onChanges: function(change) {
+  onChange: function(change) {
 
   }
 });

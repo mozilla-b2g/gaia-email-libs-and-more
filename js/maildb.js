@@ -177,13 +177,6 @@ function wrapReq(idbRequest) {
 }
 
 /**
- *Given an id
- */
-function nextHigherIdStr(idStr) {
-
-}
-
-/**
  * v3 prototype database.  Intended for use on the worker directly.  For
  * key-encoding efficiency and ease of account-deletion (and for privacy, etc.),
  * we may eventually want to use one account for config and then separate
@@ -402,6 +395,47 @@ MailDB.prototype = evt.mix({
   },
 
   /**
+   * Idiom for buffering write event notifications until the database load
+   * impacted by the writes completes.  See "maildb.md" for more info, but the
+   * key idea is that:
+   * - The caller issues the load and are given the data they asked for, a
+   *   "drainEvents" function, and the name of the event that write mutations
+   *   will occur on (as a convenience to avoid typo mismatches).
+   * - We started buffering the events as soon as the load was issued.  The call
+   *   to drainEvents removes our listener and synchronously calls the provided
+   *   callback.  This structuring ensures that no matter what kind of promise /
+   *   async control-flow shenanigans are going on, events won't get lost.
+   *
+   * The main footgun is:
+   * - The caller needs to be responsible about calling drainEvents even if they
+   *   got canceled.  Otherwise it's memory-leaks-ville.  RefedResource
+   *   implementations can and should simplify their logic by forcing their
+   *   consumers to wait for the load to complete first.
+   *
+   * Returns an object containing { drainEvents, eventId } that you should feel
+   * free to mutate to use as the basis for your own return value.
+   */
+  _bufferChangeEventsIdiom: function(eventId) {
+    let bufferedEvents = [];
+    let bufferFunc = (change) => {
+      bufferedEvents.push(change);
+    };
+    let drainEvents = (changeHandler) => {
+      this.removeListener(eventId, bufferFunc);
+      for (let change of bufferedEvents) {
+        changeHandler(change);
+      }
+    };
+
+    this.on(eventId, bufferFunc);
+
+    return {
+      drainEvents: drainEvents,
+      eventId: eventId
+    };
+  },
+
+  /**
    * Issue read-only batch requests.
    */
   read: function() {
@@ -428,30 +462,22 @@ MailDB.prototype = evt.mix({
   loadFolderConversationIdsAndListen: function(folderId) {
     return new Promise((resolve, reject) => {
       let eventId = 'fldr!' + folderId + '!convs!tocChange';
+      let retval = this._bufferChangeEventsIdiom(eventId);
 
-      let bufferedEvents = [];
-      let bufferFunc = (change) => {
-        bufferedEvents.push(change);
-      };
-      let drainEvents = (changeHandler) => {
-        this.removeListener(eventId, bufferFunc);
-        for (let change of bufferedEvents) {
-          changeHandler(change);
-        }
-      };
-
-      this.on(eventId, bufferFunc);
       let trans = this._db.transaction(TBL_CONV_IDS_BY_FOLDER, 'readonly');
       let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
-      let folderRange = IDBKeyRange.bound([folderId],
+      // [folderId] lower-bounds all [FolderId, DateTS, ...] keys because a
+      // shorter array is by definition less than a longer array that is equal
+      // up to their shared length.
+      // [folderId, []] upper-bounds all [FolderId, DateTS, ...] because arrays
+      // are always greater than strings/dates/numbers.  So we use this idiom
+      // to simplify our lives for sanity purposes.
+      let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
+                                          true, true);
+      let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
 
-                                folderId + ':\ufff0',
-                                false, false);
-
-      return {
-        idsWithDates: idsWithDates,
-        drainEvents: drainEvents
-      };
+      retval.idsWithDates = idsWithDates;
+      return retval;
     });
   },
 
@@ -463,6 +489,12 @@ MailDB.prototype = evt.mix({
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER)
     for (let convInfo of convs) {
       let preInfo = preStates[convInfo.id];
+      this.emit('conv!' + convInfo.id + '!change', convInfo);
+      this.emit('fldr!' + folderId + '!convs!tocChange',
+                { id: convInfo.id,
+                  removeDate: preInfo.date,
+                  addDate: null })
+
       // If the most recent message date changed, we need to blow away all
       // the existing mappings and all the mappings are new anyways.
       if (preInfo.date !== convInfo.date) {
@@ -470,7 +502,9 @@ MailDB.prototype = evt.mix({
           convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
         }
         for (let folderId of convInfo.folderIds) {
-          convIdsStore.add([folderId, convInfo.date, convInfo.id]);
+          let key = [folderId, convInfo.date, convInfo.id];
+          // the key is also the value because we need to use mozGetAll
+          convIdsStore.add(key, key);
         }
       }
       // Otherwise we need to cleverly compute the delta
@@ -481,7 +515,9 @@ MailDB.prototype = evt.mix({
           convIdsStore.delete([folderId, convInfo.date, convInfo.id]);
         }
         for (let folderId of added) {
-          convIdsStore.add([folderId, convInfo.date, convInfo.id]);
+          let key = [folderId, convInfo.date, convInfo.id];
+          // the key is also the value because we need to use mozGetAll
+          convIdsStore.add(key, key);
         }
       }
     }
