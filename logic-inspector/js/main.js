@@ -35,6 +35,18 @@ class LogicInspector extends React.Component {
     } while ((target = target.parentNode));
   }
 
+  shouldComponentUpdate(nextProps, nextState) {
+    // We know that indexData is append-only, so we can fast-path here.
+    if (this.state.href === nextState.href &&
+        this.state.autoReload === nextState.autoReload &&
+        this.state.data === nextState.data &&
+        this.state.indexData.length === nextState.indexData.length) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+
   componentWillMount() {
     var updateIndex = () => {
       this.fetch('test-logs/index.json').then((indexData) => {

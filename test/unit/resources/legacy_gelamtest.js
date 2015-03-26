@@ -306,14 +306,16 @@ define(function(require) {
               var allActorsDone = stepDefined ? true : false;
 
               // Pass each logged event to the current actors.
-              Actor.currentStepActors.forEach((actor) => {
-                if (event) {
-                  actor.handleEvent(event);
-                }
-                if (actor.unmetExpectations.length) {
-                  allActorsDone = false;
-                }
-              });
+              if (Actor.currentStepActors) {
+                Actor.currentStepActors.forEach((actor) => {
+                  if (event) {
+                    actor.handleEvent(event);
+                  }
+                  if (actor.unmetExpectations.length) {
+                    allActorsDone = false;
+                  }
+                });
+              }
 
               // If all actors have fulfilled their expectations,
               // we can finish the current step.

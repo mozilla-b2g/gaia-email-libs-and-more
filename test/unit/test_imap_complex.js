@@ -431,7 +431,7 @@ commonCase('refresh does not break when db limit hit', function(T) {
   // Static in the sense that we vary over the course of this defining function
   // rather than varying during dynamically during the test functions as they
   // run.
-  var staticNow = Date.UTC(2012, 0, 28, 12, 0, 0);
+  var staticNow = Date.UTC(2012, 0, 28, 14, 0, 0);
 
   const HOUR_MILLIS = 60 * 60 * 1000, DAY_MILLIS = 24 * HOUR_MILLIS;
   const TSYNCI = 3;
@@ -454,7 +454,7 @@ commonCase('refresh does not break when db limit hit', function(T) {
   });
 
   T.group('no change: setup');
-  testUniverse.do_timewarpNow(staticNow, 'Jan 28th noon-ish');
+  testUniverse.do_timewarpNow(staticNow, 'Jan 28th 2pm-ish');
   var testFolder = testAccount.do_createTestFolder(
     'test_complex_refresh',
     { count: 6, age: { days: 1 }, age_incr: { hours: 1 } });

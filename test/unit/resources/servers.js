@@ -39,7 +39,7 @@ define((require) => {
     logic.defineScope(this, 'FakeServer');
 
     this.serverInfo = this.backdoor({
-      command: (this.type === 'imap' ? 'make_imap_and_smtp' :
+      command: (this.type === 'imap' ? 'make_hoodiecrow' :
                 (this.type === 'pop3' ? 'make_pop3_and_smtp' :
                  'make_activesync')),
       credentials: {
