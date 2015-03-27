@@ -6,7 +6,21 @@ define(function(require) {
  * work like keeping an ordered view of something, listening for changes, and
  * otherwise interacting with the database.
  *
+ * Our implementation is almost trivially simple.  We listen for changes from
+ * the TOC that affect us and dirty our state (and tell the batch manager we
+ * need to be flushed) if anything interesting happens.
+ *
+ * Almost everything is interesting as far as we're concerned.  Specifically,
+ * there are two types of things that can happen:
+ * - The ordered list of id's owned by the TOC can change.  (We don't care about
+ *   the contents, although changes in contents may be correlated with changes
+ *   in ordering.)  We dirty ourselves because this is at the very least very
+ *   likely to impact the totalCount and necessitate a flush.
+ * - The contents of some stuff in the list changed, but not the ordering.  We
+ *   only care about this if the thing that changed was in our list.
+ *
  * Our responsibilities are pretty simple:
+ * - We convert the front-end's seek request into a stable form
  * - We track the window of interest that is a subset of the TOC and the focused
  *   item.  We update these things so that they don't go out of the date.
  * - We accumulate changes for this window as we hear about them, telling our
@@ -19,6 +33,7 @@ define(function(require) {
  * - We service the seek requests from WindowedListView, updating our state.
  *   (The bridge does know who we are.)
  * - We propagate priority information based on what the user can currently see.
+ *   SOME DAY SOON.
  *
  * Key / notable decisions:
  * - It is possible for us to know the id and position of something in the list
@@ -61,20 +76,56 @@ define(function(require) {
  * handle caching and having us able to synchronously consult the cache during
  * our flush is probably the best architectural choice.
  */
-function WindowedListProxy() {
-  this.viewSet = new Set();
+function WindowedListProxy(toc, batchManager) {
+  this.toc = toc;
+  this.batchManager = batchManager;
 
+  this.viewSet = new Set();
+  this.liveMap = new Map();
 }
 WindowedListProxy.prototype = {
-  seek: function() {
+  seek: function(req) {
+    if (req.mode === 'top')
 
+    this.focusType = focusType;
+    this.focusOn = focusOn;
+    this.numAbove = numAbove;
+    this.numBelow = numBelow;
+    this.dirty = false;
+
+    this.batchManager.registerDirtyView(this, /* immediate */ true);
+  },
+
+  /**
+   * Dirty ourselves if anything happened to the list ordering or if this is an
+   * item change for something that's inside our window.
+   */
+  onChange: function(changeRec) {
+    if (this.dirty) {
+      return;
+    }
+    this.dirty = true;
+    this.batchManager.registerDirtyView(this, /* immediate */ false);
   },
 
   /**
    * Generate
    */
   flush: function() {
+    if (this.mode === 'top') {
+      
+    } else if (this.mode === 'bottom') {
 
+    }
+
+
+
+    return {
+      offset: 0,
+      totalCount: 0,
+      ids: [],
+      values: set
+    };
   }
 };
 

@@ -1,11 +1,12 @@
 define(function (require) {
 
-let slog = require('./slog');
+let logic = require('./logic');
 
 /**
  * Provides helpers and standard arguments/context for tasks.
  */
 function TaskContext(id, args) {
+  logic.defineScope(this, 'TaskContext', { id: id, accountId: args.accountId });
   this.id = id;
   this.account = args.account;
   this._db = args.db;
@@ -33,9 +34,7 @@ TaskContext.prototype = {
       try {
         acquireable.__release(this);
       } catch (ex) {
-        // XXX proper error-handling via fancy log thing
-        console.error('problem releasing', acquireable, ':', ex, '\n',
-                      ex.stack);
+        logic(this, 'problem releasing', { what: acquireable, ex: ex });
       }
     }
   },

@@ -1,31 +1,19 @@
-/**
- *
- **/
+define(function(require, $module, exports) {
 
-define(
-  [
-    'rdcommon/log',
-    './util',
-    './mailchew-strings',
-    './date',
-    './slice_bridge_proxy',
-    'require',
-    'module',
-    'exports'
-  ],
-  function(
-    $log,
-    $imaputil,
-    $mailchewStrings,
-    $date,
-    $sliceBridgeProxy,
-    require,
-    $module,
-    exports
-  ) {
-var bsearchForInsert = $imaputil.bsearchForInsert,
-    bsearchMaybeExists = $imaputil.bsearchMaybeExists,
-    SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
+let logic = require('./logic');
+let $log = require('rdcommon/log');
+let $mailchewStrings = require('./mailchew-strings');
+let $date = require('./date');
+
+let $sliceBridgeProxy = require('./slice_bridge_proxy');
+let SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
+
+let $imaputil = require('./util');
+let bsearchForInsert = $imaputil.bsearchForInsert;
+let bsearchMaybeExists = $imaputil.bsearchMaybeExists;
+
+let BridgeContext = require('./bridge/bridge_context');
+let BatchManager = require('./bridge/batch_manager');
 
 function toBridgeWireOn(x) {
   return x.toBridgeWire();
@@ -57,10 +45,16 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  * now.
  */
 function MailBridge(universe, name) {
+  logic.defineScope(this, 'MailBridge', { name: name });
   this.universe = universe;
   this.universe.registerBridge(this);
 
+  this.bridgeContext = new BridgeContext();
+  this.batchManager = new BatchManager();
+
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
+
+
   /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
   this._slices = {};
   /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
@@ -615,7 +609,9 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_viewFolders: function mb__cmd_viewFolders(msg) {
+  _cmd_viewFolders: function*(msg) {
+    let toc =
+
     var proxy = this._slices[msg.handle] =
           new EntireListProxy()
           new SliceBridgeProxy(this, 'folders', msg.handle);

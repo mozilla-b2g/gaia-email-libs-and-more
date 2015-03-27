@@ -2,48 +2,17 @@
  *
  **/
 /*global define, console, window, Blob */
-define(
-  [
-    'rdcommon/log',
-    'rdcommon/logreaper',
-    'slog',
-    './a64',
-    './date',
-    './syncbase',
-    './worker-router',
-    './maildb',
-    './cronsync',
-    './accountcommon',
-    './allback',
-    'module',
-    'exports'
-  ],
-  function(
-    $log,
-    $logreaper,
-    slog,
-    $a64,
-    $date,
-    $syncbase,
-    $router,
-    $maildb,
-    $cronsync,
-    $acctcommon,
-    $allback,
-    $module,
-    exports
-  ) {
+define(function(require, $module, exports) {
 
-/**
- * How many operations per account should we track to allow for undo operations?
- * The B2G email app only demands a history of 1 high-level op for undoing, but
- * we are supporting somewhat more for unit tests, potential fancier UIs, and
- * because high-level ops may end up decomposing into multiple lower-level ops
- * someday.
- *
- * This limit obviously is not used to discard operations not yet performed!
- */
-var MAX_MUTATIONS_FOR_UNDO = 10;
+let logic = require('./logic');
+let slog = require('./slog');
+let $a64 = require('./a64');
+let $date = require('./date');
+let $syncbase = require('./syncbase');
+let $router = require('./worker-router');
+let $maildb = require('./maildb');
+let $acctcommon = require('./accountcommon');
+let $allback = require('./allback');
 
 /**
  * When debug logging is enabled, how many second's worth of samples should
@@ -52,252 +21,14 @@ var MAX_MUTATIONS_FOR_UNDO = 10;
 var MAX_LOG_BACKLOG = 30;
 
 /**
- * Creates a method to add to MailUniverse that calls a method
- * on all bridges.
- * @param  {String} bridgeMethod name of bridge method to call
- * @return {Function} function to attach to MailUniverse. Assumes
- * "this" is the MailUniverse instance, and that up to three args
- * are passed to the method.
- */
-function makeBridgeFn(bridgeMethod) {
-  return function(a1, a2, a3) {
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge[bridgeMethod](a1, a2, a3);
-    }
-  };
-}
-
-/**
  * The MailUniverse is the keeper of the database, the root logging instance,
  * and the mail accounts.  It loads the accounts from the database on startup
  * asynchronously, so whoever creates it needs to pass a callback for it to
  * invoke on successful startup.
- *
- * Our concept of mail accounts bundles together both retrieval (IMAP,
- * activesync) and sending (SMTP, activesync) since they really aren't
- * separable and in some cases are basically the same (activesync) or coupled
- * (BURL SMTP pulling from IMAP, which we don't currently do but aspire to).
- *
- * @typedef[ConnInfo @dict[
- *   @key[hostname]
- *   @key[port]
- *   @key[crypto @oneof[
- *     @case[false]{
- *       No encryption; plaintext.
- *     }
- *     @case['starttls']{
- *       Upgrade to TLS after establishing a plaintext connection.  Abort if
- *       the server seems incapable of performing the upgrade.
- *     }
- *     @case[true]{
- *       Establish a TLS connection from the get-go; never use plaintext at all.
- *       By convention this may be referred to as an SSL or SSL/TLS connection.
- *     }
- * ]]
- * @typedef[AccountCredentials @dict[
- *   @key[username String]{
- *     The name we use to identify ourselves to the server.  This will
- *     frequently be the whole e-mail address.  Ex: "joe@example.com" rather
- *     than just "joe".
- *   }
- *   @key[password String]{
- *     The password.  Ideally we would have a keychain mechanism so we wouldn't
- *     need to store it like this.
- *   }
- * ]]
- * @typedef[IdentityDef @dict[
- *   @key[id String]{
- *     Unique identifier resembling folder id's;
- *     "{account id}-{unique value for this account}" is what it looks like.
- *   }
- *   @key[name String]{
- *     Display name, ex: "Joe User".
- *   }
- *   @key[address String]{
- *     E-mail address, ex: "joe@example.com".
- *   }
- *   @key[replyTo @oneof[null String]]{
- *     The e-mail address to put in the "reply-to" header for recipients
- *     to address their replies to.  If null, the header will be omitted.
- *   }
- *   @key[signature @oneof[null String]]{
- *     An optional signature block.  If present, we ensure the body text ends
- *     with a newline by adding one if necessary, append "-- \n", then append
- *     the contents of the signature.  Once we start supporting HTML, we will
- *     need to indicate whether the signature is plaintext or HTML.  For now
- *     it must be plaintext.
- *   }
- * ]]
- * @typedef[UniverseConfig @dict[
- *   @key[nextAccountNum Number]
- *   @key[nextIdentityNum Number]
- *   @key[debugLogging Boolean]{
- *     Has logging been turned on for debug purposes?
- *   }
- * ]]{
- *   The configuration fields stored in the database.
- * }
- * @typedef[AccountDef @dict[
- *   @key[id AccountId]
- *   @key[name String]{
- *     The display name for the account.
- *   }
- *   @key[identities @listof[IdentityDef]]
- *
- *   @key[type @oneof['pop3+smtp' 'imap+smtp' 'activesync']]
- *   @key[receiveType @oneof['pop3' 'imap' 'activesync']]
- *   @key[sendType @oneof['smtp' 'activesync']]
- *   @key[receiveConnInfo ConnInfo]
- *   @key[sendConnInfo ConnInfo]
- * ]]
- * @typedef[MessageNamer @dict[
- *   @key[date DateMS]
- *   @key[suid SUID]
- * ]]{
- *   The information we need to locate a message within our storage.  When the
- *   MailAPI tells the back-end things, it uses this representation.
- * }
- * @typedef[SerializedMutation @dict[
- *   @key[type @oneof[
- *     @case['modtags']{
- *       Modify tags by adding and/or removing them.  Idempotent and atomic
- *       under all implementations; no explicit account saving required.
- *     }
- *     @case['delete']{
- *       Delete a message under the "move to trash" model.  For IMAP, this is
- *       the same as a move operation.
- *     }
- *     @case['move']{
- *       Move message(s) within the same account.  For IMAP, this is neither
- *       atomic or idempotent and requires account state to be checkpointed as
- *       running the operation prior to running it.  Dunno for ActiveSync, but
- *       probably atomic and idempotent.
- *     }
- *     @case['copy']{
- *       NOT YET IMPLEMENTED (no gaia UI requirement).  But will be:
- *       Copy message(s) within the same account.  For IMAP, atomic and
- *       idempotent.
- *     }
- *   ]]{
- *     The implementation opcode used to determine what functions to call.
- *   }
- *   @key[longtermId]{
- *     Unique-ish identifier for the mutation.  Just needs to be unique enough
- *     to not refer to any pending or still undoable-operation.
- *   }
- *   @key[lifecyle @oneof[
- *     @case['do']{
- *       The initial state of an operation; indicates we want to execute the
- *       operation to completion.
- *     }
- *     @case['done']{
- *       The operation completed, it's done!
- *     }
- *     @case['undo']{
- *       We want to undo the operation.
- *     }
- *     @case['undone']{
- *     }
- *     @case['moot']{
- *       Either the local or server operation failed and mooted the operation.
- *     }
- *   ]]{
- *     Tracks the overall desired state and completion state of the operation.
- *     Operations currently cannot be redone after they are undone.  This field
- *     differs from the `localStatus` and `serverStatus` in that they track
- *     what we have done to the local database and the server rather than our
- *     goals.  It is very possible for an operation to have a lifecycle of
- *     'undone' without ever having manipulated the local database or told the
- *     server anything.
- *   }
- *   @key[localStatus @oneof[
- *     @case[null]{
- *       Nothing has happened; no changes have been made to the local database.
- *     }
- *     @case['doing']{
- *       'local_do' is running.  An attempt to undo the operation while in this
- *       state will not interrupt 'local_do', but will enqueue the operation
- *       to run 'local_undo' subsequently.
- *     }
- *     @case['done']{
- *       'local_do' has successfully run to completion.
- *     }
- *     @case['undoing']{
- *       'local_undo' is running.
- *     }
- *     @case['undone']{
- *       'local_undo' has successfully run to completion or we canceled the
- *       operation
- *     }
- *     @case['unknown']{
- *       We're not sure what actually got persisted to disk.  If we start
- *       generating more transactions once we're sure the I/O won't be harmful,
- *       we can remove this state.
- *     }
- *   ]]{
- *     The state of the local mutation effects of this operation.  This used
- *     to be conflated together with `serverStatus` in a single status variable,
- *     but the multiple potential undo transitions once local_do became async
- *     made this infeasible.
- *   }
- *   @key[serverStatus @oneof[
- *     @case[null]{
- *       Nothing has happened; no attempt has been made to talk to the server.
- *     }
- *     @case['check']{
- *       We don't know what has or hasn't happened on the server so we need to
- *       run a check operation before doing anything.
- *     }
- *     @case['checking']{
- *       A check operation is currently being run.
- *     }
- *     @case['doing']{
- *       'do' is currently running.  Invoking `undoMutation` will not attempt to
- *       stop 'do', but will enqueue the operation with a desire of 'undo' to be
- *       run later.
- *     }
- *     @case['done']{
- *       'do' successfully ran to completion.
- *     }
- *     @case['undoing']{
- *       'undo' is currently running.  Invoking `undoMutation` will not attempt
- *       to stop this but will enqueut the operation with a desire of 'do' to be
- *       run later.
- *     }
- *     @case['undone']{
- *       The operation was 'done' and has now been 'undone'.
- *     }
- *     @case['moot']{
- *       The job is no longer relevant; the messages it operates on don't exist,
- *       the target folder doesn't exist, or we failed so many times that we
- *       assume something is fundamentally wrong and the request simply cannot
- *       be executed.
- *     }
- *     @case['n/a']{
- *       The op does not need to be run online.
- *     }
- *   ]]{
- *     The state of the operation on the server.  This is tracked separately
- *     from the `localStatus` to reduce the number of possible states.
- *   }
- *   @key[tryCount Number]{
- *     How many times have we attempted to run this operation.  If we retry an
- *     operation too many times, we eventually will discard it with the
- *     assumption that it's never going to succeed.
- *   }
- *   @key[humanOp String]{
- *     The user friendly opcode where flag manipulations like starring have
- *     their own opcode.
- *   }
- *   @key[messages @listof[MessageNamer]]
- *
- *   @key[folderId #:optional FolderId]{
- *     If this is a move/copy, the target folder
- *   }
- * ]]
  */
 function MailUniverse(callAfterBigBang, online, testOptions) {
+  logic.defineScope(this, 'Universe');
+
   /** @listof[Account] */
   this.accounts = [];
   this._accountsById = {};
@@ -306,43 +37,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this.identities = [];
   this._identitiesById = {};
 
-  /**
-   * @dictof[
-   *   @key[AccountID]
-   *   @value[@dict[
-   *     @key[active Boolean]{
-   *       Is there an active operation right now?
-   *     }
-   *     @key[local @listof[SerializedMutation]]{
-   *       Operations to be run for local changes.  This queue is drained with
-   *       preference to the `server` queue.  Operations on this list will also
-   *       be added to the `server` list.
-   *     }
-   *     @key[server @listof[SerializedMutation]]{
-   *       Operations to be run against the server.
-   *     }
-   *     @key[deferred @listof[SerializedMutation]]{
-   *       Operations that were taken out of either of the above queues because
-   *       of a failure where we need to wait some amount of time before
-   *       retrying.
-   *     }
-   *   ]]
-   * ]{
-   *   Per-account lists of operations to run for local changes (first priority)
-   *   and against the server (second priority).  This does not contain
-   *   completed operations; those are stored on `MailAccount.mutations` (along
-   *   with uncompleted operations!)
-   * }
-   */
-  this._opsByAccount = {};
-  // populated by waitForAccountOps, invoked when all ops complete
-  this._opCompletionListenersByAccount = {};
-  // maps longtermId to a callback that cares. non-persisted.
-  this._opCallbacks = {};
-
   this._bridges = [];
 
-  this._testModeDisablingLocalOps = false;
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
                                 null;
@@ -362,45 +58,19 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   // 'interactive', it cannot switch back to 'cron'.
   this._mode = 'cron';
 
-  /**
-   * A setTimeout handle for when we next dump deferred operations back onto
-   * their operation queues.
-   */
-  this._deferredOpTimeout = null;
-  this._boundQueueDeferredOps = this._queueDeferredOps.bind(this);
-
   this.config = null;
   this._logReaper = null;
   this._logBacklog = null;
 
   this._LOG = null;
   this._db = new $maildb.MailDB(testOptions);
-  this._cronSync = null;
+  //this._cronSync = null;
   var self = this;
   this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
     function setupLogging(config) {
-       if (self.config.debugLogging) {
-        if (self.config.debugLogging === 'realtime-dangerous') {
-          console.warn('!!!');
-          console.warn('!!! REALTIME USER-DATA ENTRAINING LOGGING ENABLED !!!');
-          console.warn('!!!');
-          console.warn('You are about to see a lot of logs, as they happen!');
-          console.warn('They will also be circularly buffered for saving.');
-          console.warn('');
-          console.warn('These logs will contain SENSITIVE DATA.  The CONTENTS');
-          console.warn('OF EMAILS, maybe some PASSWORDS.  This was turned on');
-          console.warn('via the secret debug mode UI.  Use it to turn us off:');
-          console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
-          $log.DEBUG_realtimeLogEverything(dump);
-          slog.setSensitiveDataLoggingEnabled(true);
-        }
-        else if (self.config.debugLogging !== 'dangerous') {
-          console.warn('GENERAL LOGGING ENABLED!');
-          console.warn('(CIRCULAR EVENT LOGGING WITH NON-SENSITIVE DATA)');
-          $log.enableGeneralLogging();
-          slog.setSensitiveDataLoggingEnabled(false);
-        }
-        else {
+      if (self.config.debugLogging) {
+        if (self.config.debugLogging === 'realtime-dangerous' ||
+            self.config.debugLogging === 'dangerous') {
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
           console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
@@ -411,7 +81,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
           console.warn('If you forget how to turn us off, see:');
           console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
           console.warn('...................................................');
-          $log.DEBUG_markAllFabsUnderTest();
+          logic.realtimeLogEverything();
           slog.setSensitiveDataLoggingEnabled(true);
         }
       }
@@ -423,11 +93,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
     if (configObj) {
       self.config = configObj;
       setupLogging();
-      self._LOG = LOGFAB.MailUniverse(self, null, null);
-      if (self.config.debugLogging)
-        self._enableCircularLogging();
 
-      self._LOG.configLoaded(self.config, accountInfos);
+      logic(this, 'configLoaded', { config: configObj });
 
       function done() {
         doneCount += 1;
@@ -459,9 +126,6 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
       };
       setupLogging();
-      self._LOG = LOGFAB.MailUniverse(self, null, null);
-      if (self.config.debugLogging)
-        self._enableCircularLogging();
       self._db.saveConfig(self.config);
 
       // - Try to re-create any accounts using old account infos.
@@ -493,7 +157,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         return;
       }
       else {
-        self._LOG.configCreated(self.config);
+        logic(self, 'configCreated', { config: config });
       }
     }
     self._initFromConfig();
@@ -503,65 +167,14 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
-  // Logging
-  _enableCircularLogging: function() {
-    this._logReaper = new $logreaper.LogReaper(this._LOG);
-    this._logBacklog = [];
-    window.setInterval(
-      function() {
-        var logTimeSlice = this._logReaper.reapHierLogTimeSlice();
-        // if nothing interesting happened, this could be empty, yos.
-        if (logTimeSlice.logFrag) {
-          this._logBacklog.push(logTimeSlice);
-          // throw something away if we've got too much stuff already
-          if (this._logBacklog.length > MAX_LOG_BACKLOG)
-            this._logBacklog.shift();
-        }
-      }.bind(this),
-      1000);
-  },
-
-  createLogBacklogRep: function(id) {
-    return {
-      type: 'backlog',
-      id: id,
-      schema: $log.provideSchemaForAllKnownFabs(),
-      backlog: this._logBacklog,
-    };
-  },
-
-  dumpLogToDeviceStorage: function() {
-    // This reuses the existing registration if one exists.
-    var sendMessage = $router.registerCallbackType('devicestorage');
-    try {
-      var blob = new Blob([JSON.stringify(this.createLogBacklogRep())],
-                          {
-                            type: 'application/json',
-                            endings: 'transparent'
-                          });
-      var filename = 'gem-log-' + Date.now() + '.json';
-      sendMessage('save', ['sdcard', blob, filename], function(success, err, savedFile) {
-        if (success)
-          console.log('saved log to "sdcard" devicestorage:', savedFile);
-        else
-          console.error('failed to save log to', filename);
-
-      });
-    }
-    catch(ex) {
-      console.error('Problem dumping log to device storage:', ex,
-                    '\n', ex.stack);
-    }
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
   // Config / Settings
 
   /**
    * Perform initial initialization based on our configuration.
    */
   _initFromConfig: function() {
-    this._cronSync = new $cronsync.CronSync(this, this._LOG);
+    // XXX disabled cronsync because of massive rearchitecture
+    //this._cronSync = new $cronsync.CronSync(this, this._LOG);
   },
 
   /**
@@ -813,9 +426,11 @@ MailUniverse.prototype = {
 
     // Make sure syncs are still accurate, since syncInterval
     // could have changed.
+    /*
     if (this._cronSync) {
       this._cronSync.ensureSync();
     }
+    */
 
     // If account exists, notify of modification. However on first
     // save, the account does not exist yet.
@@ -839,13 +454,6 @@ MailUniverse.prototype = {
 
       this.accounts.push(account);
       this._accountsById[account.id] = account;
-      this._opsByAccount[account.id] = {
-        active: false,
-        local: [],
-        server: [],
-        deferred: []
-      };
-      this._opCompletionListenersByAccount[account.id] = null;
 
       for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
         var identity = accountDef.identities[iIdent];
@@ -853,33 +461,13 @@ MailUniverse.prototype = {
         this._identitiesById[identity.id] = identity;
       }
 
-      this.__notifyAddedAccount(account);
+      this.emit('accountLoaded', account);
 
       // - issue a (non-persisted) syncFolderList if needed
       var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
       if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS)
         this.syncFolderList(account);
 
-      // - check for mutations that still need to be processed
-      // This will take care of deferred mutations too because they are still
-      // maintained in this list.
-      for (var i = 0; i < account.mutations.length; i++) {
-        var op = account.mutations[i];
-        if (op.lifecycle !== 'done' && op.lifecycle !== 'undone' &&
-            op.lifecycle !== 'moot') {
-          // For localStatus, we currently expect it to be consistent with the
-          // state of the folder's database.  We expect this to be true going
-          // forward and as we make changes because when we save the account's
-          // operation status, we should also be saving the folder changes at the
-          // same time.
-          //
-          // The same cannot be said for serverStatus, so we need to check.  See
-          // comments about operations elsewhere (currently in imap/jobs.js).
-          op.serverStatus = 'check';
-          this._queueAccountOp(account, op);
-        }
-      }
-      account.upgradeFolderStoragesIfNeeded();
       callback(account);
     }.bind(this));
   },
@@ -972,10 +560,10 @@ MailUniverse.prototype = {
   // cronsync Stuff
 
   // expects (accountIds)
-  __notifyStartedCronSync: makeBridgeFn('notifyCronSyncStart'),
+  //__notifyStartedCronSync: makeBridgeFn('notifyCronSyncStart'),
 
   // expects (accountsResults)
-  __notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
+  //__notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
 
   // __notifyBackgroundSendStatus expects {
   //   suid: messageSuid,
@@ -986,7 +574,7 @@ MailUniverse.prototype = {
   //   err: (if applicable),
   //   badAddresses: (if applicable)
   // }
-  __notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
+  //__notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
 
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
@@ -1128,539 +716,6 @@ MailUniverse.prototype = {
     }
 
     return results;
-  },
-
-  /**
-   * Put an operation in the deferred mutations queue and ensure the deferred
-   * operation timer is active.  The deferred queue is persisted to disk too
-   * and transferred across to the non-deferred queue at account-load time.
-   */
-  _deferOp: function(account, op) {
-    this._opsByAccount[account.id].deferred.push(op.longtermId);
-    if (this._deferredOpTimeout !== null)
-      this._deferredOpTimeout = window.setTimeout(
-        this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
-  },
-
-  /**
-   * Enqueue all deferred ops; invoked by the setTimeout scheduled by
-   * `_deferOp`.  We use a single timeout across all accounts, so the duration
-   * of the defer delay can vary a bit, but our goal is just to avoid deferrals
-   * turning into a tight loop that pounds the server, nothing fancier.
-   */
-  _queueDeferredOps: function() {
-    this._deferredOpTimeout = null;
-
-    // If not in 'interactive' mode, then this is just a short
-    // 'cron' existence that needs to shut down soon. Wait one
-    // more cycle in case the app switches over to 'interactive'
-    // in the meantime.
-    if (this._mode !== 'interactive') {
-      console.log('delaying deferred op since mode is ' + this._mode);
-      this._deferredOpTimeout = window.setTimeout(
-        this._boundQueueDeferredOps, $syncbase.DEFERRED_OP_DELAY_MS);
-      return;
-    }
-
-    for (var iAccount = 0; iAccount < this.accounts.length; iAccount++) {
-      var account = this.accounts[iAccount],
-          queues = this._opsByAccount[account.id];
-      // we need to mutate in-place, so concat is not an option
-      while (queues.deferred.length) {
-        var op = queues.deferred.shift();
-        // There is no need to enqueue the operation if:
-        // - It's already enqueued because someone called undo
-        // - Undo got called and that ran to completion
-        if (queues.server.indexOf(op) === -1 &&
-            op.lifecycle !== 'undo')
-          this._queueAccountOp(account, op);
-      }
-    }
-  },
-
-  /**
-   * A local op finished; figure out what the error means, perform any requested
-   * saves, and *only after the saves complete*, issue any appropriate callback
-   * and only then start the next op.
-   */
-  _localOpCompleted: function(account, op, err, resultIfAny,
-                              accountSaveSuggested) {
-
-    var queues = this._opsByAccount[account.id],
-        serverQueue = queues.server,
-        localQueue = queues.local;
-
-    var removeFromServerQueue = false,
-        completeOp = false,
-        wasMode = 'local_' + op.localStatus.slice(0, -3);
-    if (err) {
-      switch (err) {
-        // Only defer is currently supported as a recoverable local failure
-        // type.
-        case 'defer':
-          if (++op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
-            this._LOG.opDeferred(op.type, op.longtermId);
-            this._deferOp(account, op);
-            removeFromServerQueue = true;
-            break;
-          }
-          // fall-through to an error
-        default:
-          this._LOG.opGaveUp(op.type, op.longtermId);
-          op.lifecycle = 'moot';
-          op.localStatus = 'unknown';
-          op.serverStatus = 'moot';
-          removeFromServerQueue = true;
-          completeOp = true;
-          break;
-      }
-
-      // Do not save if this was an error.
-      accountSaveSuggested = false;
-    }
-    else {
-      switch (op.localStatus) {
-        case 'doing':
-          op.localStatus = 'done';
-          // We have introduced the ability for a local op to decide that it
-          // no longer wants a server operation to happen.  It accomplishes this
-          // by marking the serverStatus as skip, which we then process and
-          // convert to 'n/a'.  This is intended to be done by the local job
-          // right before returning so the value doesn't get surfaced elsewhere.
-          // Some might ask why this isn't some type of explicit return value.
-          // To those people I say, "Good point, shut up."  I might then go on
-          // to say that the v3 refactor will likely deal with this and that's
-          // real soon.
-          if (op.serverStatus === 'skip') {
-            removeFromServerQueue = true;
-            op.serverStatus = 'n/a';
-            accountSaveSuggested = true; // this op change needs a save!
-          }
-          if (op.serverStatus === 'n/a') {
-            op.lifecycle = 'done';
-            completeOp = true;
-          }
-          break;
-        case 'undoing':
-          op.localStatus = 'undone';
-          if (op.serverStatus === 'skip') {
-            removeFromServerQueue = true;
-            op.serverStatus = 'n/a';
-            accountSaveSuggested = true; // this op change needs a save!
-          }
-          if (op.serverStatus === 'n/a') {
-            op.lifecycle = 'undone';
-            completeOp = true;
-          }
-          break;
-      }
-    }
-
-    if (removeFromServerQueue) {
-      var idx = serverQueue.indexOf(op);
-      if (idx !== -1)
-        serverQueue.splice(idx, 1);
-    }
-    localQueue.shift();
-
-    console.log('runOp_end(' + wasMode + ': ' +
-                JSON.stringify(op).substring(0, 160) + ')\n');
-    account._LOG.runOp_end(wasMode, op.type, err, op);
-
-    var callback;
-    if (completeOp) {
-      if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
-        callback = this._opCallbacks[op.longtermId];
-        delete this._opCallbacks[op.longtermId];
-      }
-    }
-
-    if (accountSaveSuggested) {
-      account.saveAccountState(
-        null,
-        this._startNextOp.bind(this, account, callback, op, err, resultIfAny),
-        'localOp:' + op.type);
-      return;
-    }
-
-    this._startNextOp(account, callback, op, err, resultIfAny);
-  },
-
-  /**
-   * A server op finished; figure out what the error means, perform any
-   * requested saves, and *only after the saves complete*, issue any appropriate
-   * callback and only then start the next op.
-   *
-   * @args[
-   *   @param[account[
-   *   @param[op]{
-   *     The operation.
-   *   }
-   *   @param[err @oneof[
-   *     @case[null]{
-   *       Success!
-   *     }
-   *     @case['defer']{
-   *       The resource was unavailable, but might be available again in the
-   *       future.  Defer the operation to be run in the future by putting it on
-   *       a deferred list that will get re-added after an arbitrary timeout.
-   *       This does not imply that a check operation needs to be run.  This
-   *       reordering violates our general ordering guarantee; we could be
-   *       better if we made sure to defer all other operations that can touch
-   *       the same resource, but that's pretty complex.
-   *
-   *       Deferrals do boost the tryCount; our goal with implementing this is
-   *       to support very limited
-   *     }
-   *     @case['aborted-retry']{
-   *       The operation was started, but we lost the connection before we
-   *       managed to accomplish our goal.  Run a check operation then run the
-   *       operation again depending on what 'check' says.
-   *
-   *       'defer' should be used instead if it's known that no mutations could
-   *       have been perceived by the server, etc.
-   *     }
-   *     @case['failure-give-up']{
-   *       Something is broken in a way we don't really understand and it's
-   *       unlikely that retrying is actually going to accomplish anything.
-   *       Although we mark the status 'moot', this is a more sinister failure
-   *       that should generate debugging/support data when appropriate.
-   *     }
-   *     @case['moot']{
-   *       The operation no longer makes any sense.
-   *     }
-   *     @default{
-   *       Some other type of error occurred.  This gets treated the same as
-   *       aborted-retry
-   *     }
-   *   ]]
-   *   @param[resultIfAny]{
-   *     A result to be relayed to the listening callback for the operation, if
-   *     there is one.  This is intended to be used for things like triggering
-   *     attachment downloads where it would be silly to make the callback
-   *     re-get the changed data itself.
-   *   }
-   *   @param[accountSaveSuggested #:optional Boolean]{
-   *     Used to indicate that this has changed the state of the system and a
-   *     save should be performed at some point in the future.
-   *   }
-   * ]
-   */
-  _serverOpCompleted: function(account, op, err, resultIfAny,
-                               accountSaveSuggested) {
-    var queues = this._opsByAccount[account.id],
-        serverQueue = queues.server,
-        localQueue = queues.local;
-
-    if (serverQueue[0] !== op)
-      this._LOG.opInvariantFailure();
-
-    // Should we attempt to retry (but fail if tryCount is reached)?
-    var maybeRetry = false;
-    // Pop the event off the queue? (avoid bugs versus multiple calls)
-    var consumeOp = true;
-    // Generate completion notifications for the op?
-    var completeOp = true;
-    var wasMode = op.serverStatus.slice(0, -3);
-    if (err) {
-      switch (err) {
-        case 'defer':
-          if (++op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
-            // Defer the operation if we still want to do the thing, but skip
-            // deferring if we are now trying to undo the thing.
-            if (op.serverStatus === 'doing' && op.lifecycle === 'do') {
-              this._LOG.opDeferred(op.type, op.longtermId);
-              this._deferOp(account, op);
-            }
-            // remove the op from the queue, but don't mark it completed
-            completeOp = false;
-          }
-          else {
-            op.lifecycle = 'moot';
-            op.serverStatus = 'moot';
-          }
-          break;
-        case 'aborted-retry':
-          op.tryCount++;
-          maybeRetry = true;
-          break;
-        default: // (unknown case)
-          op.tryCount += $syncbase.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT;
-          maybeRetry = true;
-          break;
-        case 'failure-give-up':
-          this._LOG.opGaveUp(op.type, op.longtermId);
-          // we complete the op, but the error flag is propagated
-          op.lifecycle = 'moot';
-          op.serverStatus = 'moot';
-          break;
-        case 'moot':
-          this._LOG.opMooted(op.type, op.longtermId);
-          // we complete the op, but the error flag is propagated
-          op.lifecycle = 'moot';
-          op.serverStatus = 'moot';
-          break;
-      }
-    }
-    else {
-      switch (op.serverStatus) {
-        case 'checking':
-          // Update the status, and figure out if there is any work to do based
-          // on our desire.
-          switch (resultIfAny) {
-            case 'checked-notyet':
-            case 'coherent-notyet':
-              op.serverStatus = null;
-              break;
-            case 'idempotent':
-              if (op.lifecycle === 'do' || op.lifecycle === 'done')
-                op.serverStatus = null;
-              else
-                op.serverStatus = 'done';
-              break;
-            case 'happened':
-              op.serverStatus = 'done';
-              break;
-            case 'moot':
-              op.lifecycle = 'moot';
-              op.serverStatus = 'moot';
-              break;
-            // this is the same thing as defer.
-            case 'bailed':
-              this._LOG.opDeferred(op.type, op.longtermId);
-              this._deferOp(account, op);
-              completeOp = false;
-              break;
-          }
-          break;
-        case 'doing':
-          op.serverStatus = 'done';
-          // lifecycle may have changed to 'undo'; don't mutate if so
-          if (op.lifecycle === 'do')
-            op.lifecycle = 'done';
-          break;
-        case 'undoing':
-          op.serverStatus = 'undone';
-          // this will always be true until we gain 'redo' functionality
-          if (op.lifecycle === 'undo')
-            op.lifecycle = 'undone';
-          break;
-      }
-      // If we still want to do something, then don't consume the op.
-      if (op.lifecycle === 'do' || op.lifecycle === 'undo')
-        consumeOp = false;
-    }
-
-    if (maybeRetry) {
-      if (op.tryCount < $syncbase.MAX_OP_TRY_COUNT) {
-        // We're still good to try again, but we will need to check the status
-        // first.
-        op.serverStatus = 'check';
-        consumeOp = false;
-      }
-      else {
-        this._LOG.opTryLimitReached(op.type, op.longtermId);
-        // we complete the op, but the error flag is propagated
-        op.lifecycle = 'moot';
-        op.serverStatus = 'moot';
-      }
-    }
-
-    if (consumeOp)
-      serverQueue.shift();
-
-    console.log('runOp_end(' + wasMode + ': ' +
-                JSON.stringify(op).substring(0, 160) + ')\n');
-    account._LOG.runOp_end(wasMode, op.type, err, op);
-
-
-    // Some completeOp callbacks want to wait for account
-    // save but they are triggered before save is attempted,
-    // for the account to properly trigger runAfterSaves
-    // callbacks, so set a flag indicating save state here.
-    if (accountSaveSuggested)
-      account._saveAccountIsImminent = true;
-
-    var callback;
-    if (completeOp) {
-      if (this._opCallbacks.hasOwnProperty(op.longtermId)) {
-        callback = this._opCallbacks[op.longtermId];
-        delete this._opCallbacks[op.longtermId];
-      }
-
-      // This is a suggestion; in the event of high-throughput on operations,
-      // we probably don't want to save the account every tick, etc.
-      if (accountSaveSuggested) {
-        account._saveAccountIsImminent = false;
-        account.saveAccountState(
-          null,
-          this._startNextOp.bind(this, account, callback, op, err, resultIfAny),
-          'serverOp:' + op.type);
-        return;
-      }
-    }
-
-    this._startNextOp(account, callback, op, err, resultIfAny);
-  },
-
-  /**
-   * Shared code for _localOpCompleted and _serverOpCompleted to figure out what
-   * to do next *after* any account save has completed, including invoking
-   * callbacks.  See bug https://bugzil.la/1039007 for rationale as to why we
-   * think it makes sense to defer the callbacks or to provide new reasons why
-   * we should change this behaviour.
-   *
-   * It used to be that we would trigger saves without waiting for them to
-   * complete with the theory that this would allow us to generally be more
-   * efficient without losing correctness since the IndexedDB transaction model
-   * is strong and takes care of data dependency issues for us.  However, for
-   * both testing purposes and with some new concerns over correctness issues,
-   * it's now making sense to wait on the transaction to commit.  There are
-   * potentially some memory-use wins from waiting for the transaction to
-   * complete, especially if we imagine some particularly pathological
-   * situations.
-   *
-   * @param account
-   * @param {Function} [callback]
-   *   The callback associated with the last operation.  May be omitted.  If
-   *    provided then all of the following arguments must also be provided.
-   * @param [lastOp]
-   * @param [err]
-   * @param [result]
-   */
-  _startNextOp: function(account, callback, lastOp, err, result) {
-    var queues = this._opsByAccount[account.id],
-        serverQueue = queues.server,
-        localQueue = queues.local;
-    var op;
-
-    if (callback) {
-      try {
-        callback(err, result, account, lastOp);
-      }
-      catch(ex) {
-        console.log(ex.message, ex.stack);
-        this._LOG.opCallbackErr(lastOp.type);
-      }
-    }
-
-    // We must hold off on freeing up queue.active until after we have
-    // completed processing and called the callback, just as we do in
-    // _localOpCompleted. This allows `callback` to safely schedule
-    // new jobs without interfering with the scheduling we're going to
-    // do immediately below.
-    queues.active = false;
-
-    if (localQueue.length) {
-      op = localQueue[0];
-      this._dispatchLocalOpForAccount(account, op);
-    }
-    else if (serverQueue.length && this.online && account.enabled) {
-      op = serverQueue[0];
-      this._dispatchServerOpForAccount(account, op);
-    }
-    // We finished all the operations!  Woo!
-    else {
-      // Notify listeners
-      if (this._opCompletionListenersByAccount[account.id]) {
-        this._opCompletionListenersByAccount[account.id](account);
-        this._opCompletionListenersByAccount[account.id] = null;
-      }
-      slog.log('allOpsCompleted', { account: account.id });
-
-      // - Tell the account so it can clean-up its connections, etc.
-      // (We do this after notifying listeners for the connection cleanup case
-      // so that if the listener wants to schedule new activity, it can do so
-      // without having to wastefully establish a new connection.)
-      account.allOperationsCompleted();
-    }
-  },
-
-  /**
-   * Enqueue an operation for processing.  The local mutation is enqueued if it
-   * has not yet been run.  The server piece is always enqueued.
-   *
-   * @args[
-   *   @param[account]
-   *   @param[op SerializedMutation]{
-   *     Note that a `null` longtermId should be passed in if the operation
-   *     should be persisted, and a 'session' string if the operation should
-   *     not be persisted.  In both cases, a longtermId will be allocated,
-   *   }
-   *   @param[optionalCallback #:optional Function]{
-   *     A callback to invoke when the operation completes.  Callbacks are
-   *     obviously not capable of being persisted and are merely best effort.
-   *   }
-   * ]
-   */
-  _queueAccountOp: function(account, op, optionalCallback) {
-    var queues = this._opsByAccount[account.id];
-    // Log the op for debugging assistance
-    // TODO: Create a real logger event; this will require updating existing
-    // tests and so is not sufficiently trivial to do at this time.
-    console.log('queueOp', account.id, op.type, 'pre-queues:',
-                'local:', queues.local.length, 'server:', queues.server.length);
-    // - Name the op, register callbacks
-    if (op.longtermId === null) {
-      // mutation job must be persisted until completed otherwise bad thing
-      // will happen.
-      op.longtermId = account.id + '.' +
-                        $a64.encodeInt(account.meta.nextMutationNum++);
-      account.mutations.push(op);
-      // Clear out any completed/dead operations that put us over the undo
-      // threshold.
-      while (account.mutations.length > MAX_MUTATIONS_FOR_UNDO &&
-             (account.mutations[0].lifecycle === 'done') ||
-             (account.mutations[0].lifecycle === 'undone') ||
-             (account.mutations[0].lifecycle === 'moot')) {
-        account.mutations.shift();
-      }
-    }
-    else if (op.longtermId === 'session') {
-      op.longtermId = account.id + '.' +
-                        $a64.encodeInt(account.meta.nextMutationNum++);
-    }
-
-    if (optionalCallback)
-      this._opCallbacks[op.longtermId] = optionalCallback;
-
-
-
-    // - Enqueue
-    // Local processing needs to happen if we're not in the right local state.
-    if (!this._testModeDisablingLocalOps &&
-        ((op.lifecycle === 'do' && op.localStatus === null) ||
-         (op.lifecycle === 'undo' && op.localStatus !== 'undone' &&
-          op.localStatus !== 'unknown')))
-      queues.local.push(op);
-    if (op.serverStatus !== 'n/a' && op.serverStatus !== 'moot')
-      queues.server.push(op);
-
-    // If there is already something active, don't do anything!
-    if (queues.active) {
-    }
-    else if (queues.local.length) {
-      // Only actually dispatch if there is only the op we just (maybe).
-      if (queues.local.length === 1 && queues.local[0] === op)
-        this._dispatchLocalOpForAccount(account, op);
-      // else: we grabbed control flow to avoid the server queue running
-    }
-    else if (queues.server.length === 1 && queues.server[0] === op &&
-             this.online && account.enabled) {
-      this._dispatchServerOpForAccount(account, op);
-    }
-
-    return op.longtermId;
-  },
-
-  waitForAccountOps: function(account, callback) {
-    var queues = this._opsByAccount[account.id];
-    if (!queues.active &&
-        queues.local.length === 0 &&
-        (queues.server.length === 0 || !this.online || !account.enabled))
-      callback();
-    else
-      this._opCompletionListenersByAccount[account.id] = callback;
   },
 
   syncFolderList: function(account, callback) {
@@ -2252,106 +1307,7 @@ MailUniverse.prototype = {
     return [longtermId];
   },
 
-  /**
-   * Idempotently trigger the undo logic for the performed operation.  Calling
-   * undo on an operation that is already undone/slated for undo has no effect.
-   */
-  undoMutation: function(longtermIds) {
-    for (var i = 0; i < longtermIds.length; i++) {
-      var longtermId = longtermIds[i],
-          account = this.getAccountForFolderId(longtermId), // (it's fine)
-          queues = this._opsByAccount[account.id];
-
-      for (var iOp = 0; iOp < account.mutations.length; iOp++) {
-        var op = account.mutations[iOp];
-        if (op.longtermId === longtermId) {
-          // There is nothing to do if we have already processed the request or
-          // or the op has already been fully undone.
-          if (op.lifecycle === 'undo' || op.lifecycle === 'undone') {
-            continue;
-          }
-
-          // Queue an undo operation if we're already done.
-          if (op.lifecycle === 'done') {
-            op.lifecycle = 'undo';
-            this._queueAccountOp(account, op);
-            continue;
-          }
-          // else op.lifecycle === 'do'
-
-          // If we have not yet started processing the operation, we can
-          // simply remove the operation from the local queue.
-          var idx = queues.local.indexOf(op);
-          if (idx !== -1) {
-              op.lifecycle = 'undone';
-              queues.local.splice(idx, 1);
-              continue;
-          }
-          // (the operation must have already been run locally, which means
-          // that at the very least we need to local_undo, so queue it.)
-
-          op.lifecycle = 'undo';
-          this._queueAccountOp(account, op);
-        }
-      }
-    }
-  },
-
-  /**
-   * Trigger the necessary folder upgrade logic
-   */
-  performFolderUpgrade: function(folderId, callback) {
-    var account = this.getAccountForFolderId(folderId);
-    this._queueAccountOp(
-      account,
-      {
-        type: 'upgradeDB',
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a',
-        tryCount: 0,
-        humanOp: 'append',
-        folderId: folderId
-      },
-      callback
-    );
-  }
-
   //////////////////////////////////////////////////////////////////////////////
 };
-
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  MailUniverse: {
-    type: $log.ACCOUNT,
-    events: {
-      configCreated: {},
-      configLoaded: {},
-      createAccount: { type: true, id: false },
-      reportProblem: { type: true, suppressed: true, id: false },
-      clearAccountProblems: { id: false },
-      opDeferred: { type: true, id: false },
-      opTryLimitReached: { type: true, id: false },
-      opGaveUp: { type: true, id: false },
-      opMooted: { type: true, id: false },
-    },
-    TEST_ONLY_events: {
-      configCreated: { config: false },
-      configMigrating: { lazyCarryover: false },
-      configLoaded: { config: false, accounts: false },
-      createAccount: { name: false },
-    },
-    asyncJobs: {
-      configMigrating: {},
-      recreateAccount: { type: true, id: false, err: false },
-      saveUniverseState: {}
-    },
-    errors: {
-      badAccountType: { type: true },
-      opCallbackErr: { type: false },
-      opInvariantFailure: {},
-    },
-  },
-});
 
 }); // end define

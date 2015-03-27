@@ -71,7 +71,7 @@ var TBL_FOLDER_SYNC = 'folderSync';
 /**
  * Conversation summaries.
  *
- * key: [`AccountId`, `ConversationId`]
+ * key: `ConversationId` (these also have the account id baked in)
  */
 var TBL_CONV_INFO = 'convInfo';
 
@@ -159,10 +159,24 @@ function analyzeAndRejectErrorEvent(rejectFunc, event) {
 }
 
 function computeSetDelta(before, after) {
-  let added = new Set([x for (x of after) if (!before.has(x))]);
-  let removed = new Set([x for (x of before) if (!after.has(x))]);
+  let added = new Set();
+  let kept = new Set();
+  let removed = new Set();
 
-  return { added: added, removed: removed };
+  for (let key of before) {
+    if (after.has(key)) {
+      kept.add(key);
+    } else {
+      removed.add(key);
+    }
+  }
+  for (let key of after) {
+    if (!before.has(key)) {
+      added.add(key);
+    }
+  }
+
+  return { added: added, kept: kept, removed: removed };
 }
 
 function wrapReq(idbRequest) {
@@ -207,9 +221,9 @@ function MailDB(testOptions) {
   evt.Emitter.call(this);
   this._db = null;
 
-  this._activeMutations = [];
-
   this._lazyConfigCarryover = null;
+
+  this.convCache = new Map();
 
   var dbVersion = CUR_VERSION;
   if (testOptions && testOptions.dbDelta)
@@ -481,23 +495,67 @@ MailDB.prototype = evt.mix({
     });
   },
 
-  /**
-   * Process changes to the
-   */
-  _processConvMutations: function(preStates, convs, trans) {
+  _processConvAdditions: function(trans, convs) {
     let convStore = trans.objectStore(TBL_CONV_INFO);
-    let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER)
+    let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
     for (let convInfo of convs) {
-      let preInfo = preStates[convInfo.id];
-      this.emit('conv!' + convInfo.id + '!change', convInfo);
-      this.emit('fldr!' + folderId + '!convs!tocChange',
-                { id: convInfo.id,
+      convStore.add(convInfo, convInfo.id);
+
+      for (let folderId of convInfo.folderIds) {
+        this.emit('fldr!' + folderId + '!convs!tocChange',
+                  {
+                    id: convInfo.id,
+                    removeDate: null,
+                    addDate: convInfo.date
+                  },
+                  convInfo);
+
+        let key = [folderId, convInfo.date, convInfo.id];
+        // the key is also the value because we need to use mozGetAll
+        convIdsStore.add(key, key);
+      }
+    }
+  },
+
+  /**
+   * Process changes to conversations.  This does not cover additions, but it
+   * does cover deletion.
+   */
+  _processConvMutations: function(trans, preStates, convs) {
+    let convStore = trans.objectStore(TBL_CONV_INFO);
+    let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
+    for (let [convId, convInfo] of convs) {
+      let preInfo = preStates[convId];
+
+      // Deletion
+      if (convInfo === null) {
+        convStore.delete(convId);
+      } else { // Modification
+        convStore.put(convInfo, convId);
+      }
+
+      // Notify specific listeners, and yeah, deletion is just telling a null
+      // value.
+      this.emit('conv!' + convInfo.id + '!change', convId, convInfo);
+
+
+      let tocChangeEventId = 'fldr!' + folderId + '!convs!tocChange';
+      let { added, kept, removed } = computeSetDelta(preInfo.folderIds,
+                                                     convInfo.folderIds);
+      // Notify the TOC
+      this.emit(
+                {
+                  id: convId, conv: convInfo,
                   removeDate: preInfo.date,
-                  addDate: null })
+                  addDate: null
+                },
+                convInfo);
 
       // If the most recent message date changed, we need to blow away all
       // the existing mappings and all the mappings are new anyways.
       if (preInfo.date !== convInfo.date) {
+
+
         for (let folderId of preInfo.folderIds) {
           convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
         }
@@ -509,8 +567,7 @@ MailDB.prototype = evt.mix({
       }
       // Otherwise we need to cleverly compute the delta
       else {
-        let { added, removed } = computeSetDelta(preInfo.folderIds,
-                                                 convInfo.folderIds);
+
         for (let folderId of removed) {
           convIdsStore.delete([folderId, convInfo.date, convInfo.id]);
         }
@@ -522,7 +579,7 @@ MailDB.prototype = evt.mix({
       }
     }
 
-  }
+  },
 
   finishMutate: function(ctx, data) {
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
@@ -531,7 +588,7 @@ MailDB.prototype = evt.mix({
     if (mutations) {
       if (mutations.conv) {
         this._processConvMutations(
-          ctx._preMutateStates.conv, mutations.conv, trans);
+          trans, ctx._preMutateStates.conv, mutations.conv);
       }
     }
 

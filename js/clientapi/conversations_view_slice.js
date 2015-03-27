@@ -1,10 +1,11 @@
 define(function(require) {
 'use strict';
 
-var WindowedListView = require('./windowed_list_view');
+let WindowedListView = require('./windowed_list_view');
+let MailConversation = require('./mail_conversation');
 
-function ConversationsViewSlice(api, handle, ns) {
-  WindowedListView.call(this, api, ns || 'conversations', handle);
+function ConversationsViewSlice(api, handle) {
+  WindowedListView.call(this, api, MailConversation, handle);
 }
 ConversationsViewSlice.prototype = Object.create(WindowedListView.prototype);
 

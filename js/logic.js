@@ -156,7 +156,7 @@
  */
 define(function(require) {
   var evt = require('evt');
-  var equal = require('equal');
+  var equal = require('./ext/equal');
 
   // All events are logged with one emitter.
   var emitter = new evt.Emitter();

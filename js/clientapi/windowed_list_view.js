@@ -13,7 +13,9 @@ var evt = require('evt');
  *   need to adjust the scroll height of your container.
  * @property {Boolean} itemSet
  *   Were items added/removed/reordered from the items list?  If false, then
- *   for all x, `preItems[x] === postItems[x]`.
+ *   for all x, `preItems[x] === postItems[x]`.  Items that were not yet loaded
+ *   from the database and therefore null count as a change now that they
+ *   properly get an object instance.
  * @property {Boolean} itemContents
  *   Did the contents of some of the items change?  If you care about checking
  *   whether an item's contents changed, you can compare its `serial` with the
@@ -32,11 +34,11 @@ var evt = require('evt');
  *   delicious.
  *
  */
-function WindowedListView(api, ns, handle) {
+function WindowedListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
-  this._ns = ns;
   this._handle = handle;
+  this._itemConstructor = itemConstructor;
 
   this.serial = 0;
 
@@ -49,7 +51,20 @@ function WindowedListView(api, ns, handle) {
    *
    */
   this.totalCount = 0;
+  /**
+   * @type {Array<ItemInstance|null>}
+   *
+   * The list of items
+   */
   this.items = [];
+  /**
+   * @type {Map<Id, ItemInstance>}
+   *
+   * Maps id's to non-null object instances.  If we don't have the data yet,
+   * then there is no entry in the map.  (This is somewhat arbitrary for
+   * control-flow purposes below; feel free to change if you update the control
+   * flow.)
+   */
   this._itemsById = new Map();
 
   /**
@@ -61,7 +76,8 @@ function WindowedListView(api, ns, handle) {
 }
 WindowedListView.prototype = evt.mix({
   toString: function() {
-    return '[WindowedListView: ' + this._ns + ' ' + this._handle + ']';
+    return '[WindowedListView: ' + this._itemConstructor.name + ' ' +
+           this._handle + ']';
   },
   toJSON: function() {
     return {
@@ -69,6 +85,71 @@ WindowedListView.prototype = evt.mix({
       namespace: this._ns,
       handle: this._handle
     };
+  },
+
+  __processUpdate: function(details) {
+    let newSerial = ++this.serial;
+
+    let existingSet = this._itemsById;
+    let newSet = new Map();
+
+
+    let newIds = details.ids;
+    let newStates = details.values;
+    let newItems = [];
+
+    // Detect a reduction in set size by a change in length; all other changes
+    // will be caught by noticing new objects.
+    let itemSetChanged = newIds.length !== this.items.length;
+    let contentsChanged = false;
+
+    // - Process our contents
+    for (let i = 0; i < newIds.length; i++) {
+      let id = newIds[i];
+      let obj;
+      // Object already known, update.
+      if (existingSet.has(id)) {
+        obj = existingSet.get(id);
+        // Update the object if we have new state
+        if (newStates.has(id)) {
+          contentsChanged = true;
+          existingObj.serial = newSerial;
+          existingObj.__update(newStates.get(id));
+        }
+        // Remove it from the existingSet so we can infer objects no longer in
+        // the set.
+        existingSet.delete(id);
+        newSet.set(id, obj);
+      } else if (newStates.has(id)) {
+        itemSetChanged = true;
+        obj = new this._itemConstructor(this, newStates.get(id));
+        obj.serial = newSerial;
+        newSet.set(id, obj);
+      } else {
+        // No state available yet, push null as a placeholder.
+        obj = null;
+      }
+      newItems.push(obj);
+    }
+
+    // - If anything remained, kill it off
+    for (let deadObj of existingSet.values()) {
+      itemSetChanged = true;
+      deadObj.__die();
+    }
+
+    let whatChanged = {
+      offset: details.offset !== this.offset,
+      totalCount: details.totalCount !== this.totalCount,
+      itemSet: itemsChanged,
+      itemContents: contentsChanged
+    };
+    this.offset = details.offset;
+    this.totalCount = details.totalCount;
+    this.items = newItems;
+    this._itemsById = newSet;
+
+    this.emit('seeked', whatChanged)
   },
 
   // TODO: determine whether these are useful at all; seems like the virtual

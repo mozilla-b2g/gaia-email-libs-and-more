@@ -3,8 +3,7 @@ The great and powerful MailDB database!
 ## Responsibilities ##
 
 Responsible for:
-- Caching (someday).  We don't cache now.  Consumer code should *not* grow
-  caching logic.
+- Caching. Consumer code should *not* grow caching logic.
 - Events.  All database manipulations result in synchronous notifications
   immediately following the completion of the actual IndexedDB request
   dispatching.
@@ -41,6 +40,16 @@ inference when you complete the write process.
 If the task is aborted, all resources associated with the task are released
 without changes.
 
+## Caching ##
+
+Reads and writes populate the caches.  The caches can and will be discarded, but
+we will fire an event before we do this.  This gives logic dealing in batched /
+coalesced changes (ex: windows list views) the opportunity to be lazy about
+processing changed state until either they want to flush or we're going to
+discard data they might need.
+
+Cache Maps are directly exposed on the database.  Callers are allowed to do
+read-only stuff with them.
 
 ## Events ##
 
@@ -91,6 +100,12 @@ tasks, so that's what the TOC implementation would hang off of.
 - `body!MsgSuid!change`
 - `tach!MsgSuid!AttId!change`
 
+### Cache events ###
+
+- `cacheDrop`: We are about to discard some stuff from our cache.  If you care,
+  you should do all the synchronous-cache-consuming stuff you need to do RIGHT
+  NOW during this event.  After this event, you will very possibly be looking at
+  having to issue database loads.
 
 ### Event Ordering and Commits ###
 

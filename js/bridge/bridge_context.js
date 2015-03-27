@@ -1,5 +1,7 @@
 define(function(require) {
 
+let logic = require('../logic');
+
 /**
  * Manages/tracks resources owned by a MailBridge on behalf of a MailAPI
  * instance on the other side of some connection.  Analogous to `TaskContext`
@@ -9,14 +11,32 @@ define(function(require) {
  *
  * Things we manage / own:
  * - Track `RefedResource`s.
- * - Handle "releasing" EntireListProxy/WindowedListProxy batch updates.
- *   Previously SliceBridgeProxy instances did their own
  */
 function BridgeContext() {
+  logic.defineScope(this, 'BridgeContext');
 
+  this._stuffToRelease = [];
 }
 BridgeContext.prototype = {
+  /**
+   * Asynchronously acquire a resource and track that we are using it so that
+   * when the task completes or is terminated we can automatically release all
+   * acquired resources.
+   */
+  acquire: function(acquireable) {
+    this._stuffToRelease.push(acquireable);
+    return acquireable.__acquire(this);
+  },
 
+  _releaseEverything: function() {
+    for (let acquireable of this._stuffToRelease) {
+      try {
+        acquireable.__release(this);
+      } catch (ex) {
+        logic(this, 'problem releasing', { what: acquireable, ex: ex });
+      }
+    }
+  },
 };
 
 return BridgeContext;

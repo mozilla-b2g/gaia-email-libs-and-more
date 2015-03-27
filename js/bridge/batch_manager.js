@@ -39,10 +39,18 @@ BatchManager.prototype = {
     this._pendingProxies.clear();
   },
 
-  heyMoreChangesTellMeWhenToFlush: function(proxy) {
+  /**
+   * Register a dirty view, potentially triggering an immediate flush.
+   *
+   * You would want an immediate flush when servicing a request from the
+   * front-end and therefore where latency is likely of the essence.
+   */
+  registerDirtyView: function(proxy, immediateFlush) {
     this._pendingProxies.add(proxy);
 
-    if (!this._timer) {
+    if (immediateFlush) {
+      this._flushPending(false);
+    } else if (!this._timer) {
       this._timer = window.setTimeout(this._bound_timerFired,
                                       this.flushDelayMillis);
     }
