@@ -99,6 +99,8 @@ define(function(require) {
      * Returns a Promise.
      */
     run: function(options) {
+      dump('===============================================================\n');
+      dump('  RUNNING TEST ' + this.name + '\n\n')
       for (var key in options) {
         this.options[key] = options[key];
       }
@@ -113,11 +115,11 @@ define(function(require) {
 
       return Promise.resolve()
         .then(() => {
-          this._shimConsole();
 
           // Initialize the MailAPI if necessary.
           if (!this.options.legacy) {
             if (!existingMailAPI) {
+              this._shimConsole();
               this.group('Initialize MailAPI');
               return contexts.init(this.options);
             } else {
@@ -140,7 +142,7 @@ define(function(require) {
             new Promise((resolve, reject) => {
               setTimeout(() => {
                 reject(new Error('GelamTest Timeout'));
-              }, 10000);
+              }, 15000);
             })
           ])
         })
