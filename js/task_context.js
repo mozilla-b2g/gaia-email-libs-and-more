@@ -12,6 +12,7 @@ function TaskContext(id, args) {
   this._db = args.db;
 
   this._stuffToRelease = [];
+  this._preMutateStates = null;
 
   /**
    * @type {'prep'|'mutate'|'finishing'}
@@ -28,7 +29,7 @@ TaskContext.prototype = {
     this._stuffToRelease.push(acquireable);
     return acquireable.__acquire(this);
   },
-
+  
   _releaseEverything: function() {
     for (let acquireable of this._stuffToRelease) {
       try {

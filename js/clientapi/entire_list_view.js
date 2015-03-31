@@ -19,15 +19,17 @@ var evt = require('evt');
  *    initialized, or use `on` if you're using something like react.js to do
  *    just conceptually rebuild your UI every time anything changes.
  */
-function EntireListView(api, ns, handle) {
+function EntireListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
-  this._ns = ns;
+  this._itemConstructor = itemConstructor;
   this._handle = handle;
 
   this.serial = 0;
 
   this.items = [];
+  this.itemsById = new Map();
+
   /**
    * Has this slice been completely initially populated?  If you want to wait
    * for this, use once('complete').
@@ -45,6 +47,31 @@ EntireListView.prototype = evt.mix({
       handle: this._handle
     };
   },
+
+  __processUpdate: function(details) {
+    let newSerial = ++this.serial;
+
+    for (let change of details.changes) {
+      if (change.type === 'add') {
+        let obj = new this._itemConstructor(this, change.state);
+        obj.serial = newSerial;
+        this.items.splice(change.index, 0, obj);
+        this.emit('add', obj, change.index);
+      } else if (change.type === 'change') {
+        let obj = this.items[change.index];
+        obj.serial = newSerial;
+        obj.__update(change.state);
+        this.emit('change', obj, change.index);
+      } else if (change.type === 'remove') {
+        let obj = this.items[change.index];
+        this.items.splice(change.index, 1);
+      }
+    }
+
+    this.complete = true;
+    this.emit('complete', this);
+  },
+
 
   die: function() {
     this._api.__bridgeSend({

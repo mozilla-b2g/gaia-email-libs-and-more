@@ -11,6 +11,7 @@ var ContactCache = require('./contact_cache');
  * this is not something that updates.  The conversation updates and these will
  * be completely replaced.  Do not keep references, etc.
  *
+ * @property {Date} date
  * @property {Boolean} isRead
  * @property {Boolean} isStarred
  * @property {Boolean} hasAttachments
@@ -90,6 +91,7 @@ MailHeader.prototype = evt.mix({
     this.authors = ContactCache.resolvePeeps(wireRep.authors);
     this.messageTidbits = wireRep.tidbits.map((tidbit) => {
       return {
+        date: new Date(tidbit.date),
         isRead: tidbit.isRead,
         isStarred: tidbit.isStarred,
         hasAttachments: tidbit.hasAttachments,

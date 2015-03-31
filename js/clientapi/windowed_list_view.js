@@ -168,9 +168,10 @@ WindowedListView.prototype = evt.mix({
    */
   seekToTop: function(numDesired) {
     this._api.__bridgeSend({
-      type: 'seekSlice',
+      type: 'seekProxy',
       mode: 'top',
-      count: numDesired
+      above: 0,
+      below: numDesired
     });
   },
 
@@ -189,11 +190,9 @@ WindowedListView.prototype = evt.mix({
       throw new Error('item is not in list')
     }
     this._api.__bridgeSend({
-      type: 'seekSlice',
-      mode: 'focusItem',
-      serial: this.serial,
-      itemId: item.id,
-      itemIndex: idx,
+      type: 'seekProxy',
+      mode: 'focus',
+      focusKey: this._makeOrderingKeyFromItem(item),
       above: numAbove,
       below: numBelow
     });
@@ -205,15 +204,14 @@ WindowedListView.prototype = evt.mix({
    * the index correspond to the first visible message in your list or the
    * central one.
    */
-  seekFocusedOnIndex: function(index, numAbove, numBelow) {
+  seekFocusedOnAbsoluteIndex: function(index, numAbove, numBelow) {
     this._api.__bridgeSend({
-      type: 'seekSlice',
+      type: 'seekProxy',
       mode: 'focusIndex',
       index: index,
       above: numAbove,
       below: numBelow
     });
-
   },
 
   /**
@@ -222,24 +220,25 @@ WindowedListView.prototype = evt.mix({
    */
   seekToBottom: function(numDesired) {
     this._api.__bridgeSend({
-      type: 'seekSlice',
+      type: 'seekProxy',
       mode: 'bottom',
-      count: numDesired
+      above: numDesired,
+      below: 0
     });
   },
 
-  die: function() {
+  release: function() {
     // XXX we used to null out our event handlers here; it may be appropriate to
     // do something to ensure that after die() is called no more events are
     // heard from us.  Like re-initing our Emitter or synchronously notifying
     // the API to forget about us or setting some flag, etc.
     this._api.__bridgeSend({
-        type: 'killSlice',
+        type: 'cleanupContext',
         handle: this._handle
       });
 
-    for (var i = 0; i < this.items.length; i++) {
-      var item = this.items[i];
+    for (let i = 0; i < this.items.length; i++) {
+      let item = this.items[i];
       item.__die();
     }
   },

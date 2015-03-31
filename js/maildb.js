@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let evt = require('evt');
+let logic = require('./logic');
 
 var IndexedDB;
 if (("indexedDB" in window) && window.indexedDB) {
@@ -37,6 +38,8 @@ var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 5;
  * The configuration table contains configuration data that should persist
  * despite implementation changes. Global configuration data, and account login
  * info.  Things that would be annoying for us to have to re-type.
+ *
+ * Managed by: MailUniverse
  */
 var TBL_CONFIG = 'config',
       CONFIG_KEY_ROOT = 'config',
@@ -55,23 +58,20 @@ var TBL_RAW_TASKS = 'rawTasks';
 
 /**
  * The folder-info table stores meta-data about the known folders for each
- * account.  Per-folder sync-info is stored in the 'folderSync' table.
+ * account in a single big value.
  *
  * key: `AccountId`
+ *
+ * Managed by: MailUniverse/MailAccount
  */
 var TBL_FOLDER_INFO = 'folderInfo';
-
-/**
- * Stores the per-folder sync information.
- *
- * key: `FolderId` (these have the account id baked in)
- */
-var TBL_FOLDER_SYNC = 'folderSync';
 
 /**
  * Conversation summaries.
  *
  * key: `ConversationId` (these also have the account id baked in)
+ *
+ * Managed by: MailDB
  */
 var TBL_CONV_INFO = 'convInfo';
 
@@ -90,7 +90,7 @@ var TBL_CONV_INFO = 'convInfo';
  *
  * key: [`FolderId`, `DateTS`, `ConversationId`]
  *
- * Note that we might eventually want
+ * Managed by: MailDB
  */
 var TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
 
@@ -98,6 +98,8 @@ var TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
  * Message headers.
  *
  * key: [`AccountId`, `ConversationId`, `MessageId`]
+ *
+ * Managed by: MailDB
  */
 var TBL_HEADERS = 'headers';
 
@@ -105,6 +107,8 @@ var TBL_HEADERS = 'headers';
  * Message bodies
  *
  * key: [`AccountId`, `ConversationId`, `MessageId`]
+ *
+ * Managed by: MailDB
  */
 var TBL_BODIES = 'bodies';
 
@@ -116,7 +120,7 @@ var TBL_BODIES = 'bodies';
  */
 let TASK_MUTATION_STORES = [
   TBL_CONFIG,
-  TBL_RAW_TASKS, TBL_FOLDER_SYNC, TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
+  TBL_RAW_TASKS, TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
   TBL_HEADERS, TBL_BODIES
 ];
 
@@ -179,6 +183,8 @@ function computeSetDelta(before, after) {
   return { added: added, kept: kept, removed: removed };
 }
 
+let eventForFolderId = folderId => 'fldr!' + folderId + '!convs!tocChange';
+
 function wrapReq(idbRequest) {
   return new Promise(function(resolve, reject) {
     idbRequest.onsuccess = function(event) {
@@ -224,6 +230,8 @@ function MailDB(testOptions) {
   this._lazyConfigCarryover = null;
 
   this.convCache = new Map();
+  this.headerCache = new Map();
+  this.bodyCache = new Map();
 
   var dbVersion = CUR_VERSION;
   if (testOptions && testOptions.dbDelta)
@@ -281,7 +289,6 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_RAW_TASKS, { autoIncrement: true })
     db.createObjectStore(TBL_FOLDER_INFO);
-    db.createObjectStore(TBL_FOLDER_SYNC);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
     db.createObjectStore(TBL_HEADERS);
@@ -383,29 +390,32 @@ MailDB.prototype = evt.mix({
     }
   },
 
-  loadFolderSyncData: function(folderId) {
-    return new Promise(function(resolve, reject) {
-      var req = this._db.transaction(TBL_FOLDER_SYNC, 'readonly')
-                         .objectStore(TBL_FOLDER_SYNC)
-                         .get(folderId);
-      req.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
-      req.onsuccess = function() {
-        resolve(req.result);
-      };
-    }.bind(this));
+  /**
+   * Placeholder mechanism for things to tell us it might be a good time to do
+   * something cache-related.
+   *
+   * Current callers:
+   * - 'read': A database read batch completed and so there may now be a bunch
+   *   more stuff in the cache.
+   *
+   * @param {String} why
+   *   What happened, ex: 'read'.
+   * @param {Object} ctx
+   *   The TaskContext/BridgeContext/whatever caused us to do this.  Because
+   *   things that read data are likely to hold it as long as they need it,
+   *   there probably isn't much value in tracking 'live consumers'; the benefit
+   *   of the cache would primarily be in the locality benefits where the next
+   *   context that cares isn't going to be the one that read it from disk.  So
+   *   this would be for debugging, and maybe should just be removed.
+   */
+  _considerCachePressure: function(why, ctx) {
+
   },
 
-  saveFolderSyncData: function(folderId, data) {
-    return new Promise(function(resolve, reject) {
-      var req = this._db.transaction(TBL_FOLDER_SYNC, 'readwrite')
-                         .objectStore(TBL_FOLDER_SYNC)
-                         .put(folderId, data);
-      req.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
-      req.onsuccess = function() {
-        resolve(req.result);
-      };
-    }.bind(this));
+  emptyCache: function() {
+    this.emit('cacheDrop');
 
+    this.convCache.clear();
   },
 
   /**
@@ -452,12 +462,138 @@ MailDB.prototype = evt.mix({
   /**
    * Issue read-only batch requests.
    */
-  read: function() {
+  read: function(ctx, requests) {
+    return new Promise((resolve, reject) => {
+      let trans = this._db.transaction(TASK_MUTATION_STORES, 'readonly');
 
+      let dbReqCount = 0;
+
+      if (requests.conv) {
+        let convStore = trans.objectStore(TBL_CONV_INFO);
+        let convRequestsMap = requests.conv;
+        for (let convId of convRequestsMap.keys()) {
+          // fill from cache if available
+          if (this.convCache.has(convId)) {
+            convRequestsMap.set(convId, this.convCache.get(convId));
+            continue;
+          }
+
+          // otherwise we need to ask the database
+          dbReqCount++;
+          let req = convStore.get(convId);
+          let handler = (event) => {
+            let value;
+            if (req.error) {
+              value = null;
+              analyzeAndLogErrorEvent(event);
+            } else {
+              value = req.result;
+            }
+            this.convCache.set(convId, value);
+            convRequestsMap.set(convId, value);
+          };
+        }
+      }
+      if (requests.header) {
+        let headerStore = trans.objectStore(TBL_HEADERS);
+        let headerRequestsMap = requests.header;
+        for (let headerId of headerRequestsMap.keys()) {
+          // fill from cache if available
+          if (this.headerCache.has(headerId)) {
+            headerRequestsMap.set(headerId, this.headerCache.get(headerId));
+            continue;
+          }
+
+          // otherwise we need to ask the database
+          dbReqCount++;
+          let req = headerStore.get(headerId);
+          let handler = (event) => {
+            let value;
+            if (req.error) {
+              value = null;
+              analyzeAndLogErrorEvent(event);
+            } else {
+              value = req.result;
+            }
+            this.headerCache.set(headerId, value);
+            headerRequestsMap.set(headerId, value);
+          };
+        }
+      }
+      if (requests.body) {
+        let bodyStore = trans.objectStore(TBL_BODIES);
+        let bodyRequestsMap = requests.body;
+        for (let bodyId of bodyRequestsMap.keys()) {
+          // fill from cache if available
+          if (this.bodyCache.has(bodyId)) {
+            bodyRequestsMap.set(bodyId, this.bodyCache.get(bodyId));
+            continue;
+          }
+
+          // otherwise we need to ask the database
+          dbReqCount++;
+          let req = bodyStore.get(bodyId);
+          let handler = (event) => {
+            let value;
+            if (req.error) {
+              value = null;
+              analyzeAndLogErrorEvent(event);
+            } else {
+              value = req.result;
+            }
+            this.bodyCache.set(bodyId, value);
+            bodyRequestsMap.set(bodyId, value);
+          };
+        }
+      }
+
+      if (!dbReqCount) {
+        resolve();
+        // it would be nice if we could have avoided creating the transaction...
+      } else {
+        trans.oncomplete = () => {
+          resolve();
+          this._considerCachePressure('read', ctx);
+        };
+      }
+    });
   },
 
-  beginMutate: function(ctx, mutateSet) {
+  /**
+   * Acquire mutation rights for the given set of records.
+   *
+   * Currently this just means:
+   * - Do the read
+   * - Save the state off from the reads to that in finishMutate we can do any
+   *   delta work required.
+   *
+   * In the TODO future this will also mean:
+   * - Track active mutations so we can detect collisions and serialize
+   *   mutations.  See maildb.md for more.
+   */
+  beginMutate: function(ctx, mutateRequests) {
+    if (ctx._preMutateStates) {
+      throw new Error('Context already has mutation states tracked?!');
+    }
 
+    return this.read(ctx, mutateRequests).then(() => {
+      let preMutateStates = ctx._preMutateStates = {};
+
+      // Right now we only care about conversations because all other data types
+      // have no complicated indices to maintain.
+      if (mutateRequests.conv) {
+        let preConv = preMutateStates.conv = new Map();
+        for (let conv of mutateRequests.conv.values()) {
+          if (!conv) {
+            // It's conceivable for the read to fail, and it will already have
+            // logged.  So just skip any explosions here.
+            continue;
+          }
+
+          preConv.set(conv.id, { date: conv.date, folderIds: conv.folderIds });
+        }
+      }
+    });
   },
 
   /**
@@ -502,13 +638,13 @@ MailDB.prototype = evt.mix({
       convStore.add(convInfo, convInfo.id);
 
       for (let folderId of convInfo.folderIds) {
-        this.emit('fldr!' + folderId + '!convs!tocChange',
+        this.emit(eventForFolderId,
                   {
                     id: convInfo.id,
+                    item: convInfo
                     removeDate: null,
                     addDate: convInfo.date
-                  },
-                  convInfo);
+                  });
 
         let key = [folderId, convInfo.date, convInfo.id];
         // the key is also the value because we need to use mozGetAll
@@ -539,23 +675,43 @@ MailDB.prototype = evt.mix({
       this.emit('conv!' + convInfo.id + '!change', convId, convInfo);
 
 
-      let tocChangeEventId = 'fldr!' + folderId + '!convs!tocChange';
       let { added, kept, removed } = computeSetDelta(preInfo.folderIds,
                                                      convInfo.folderIds);
-      // Notify the TOC
-      this.emit(
-                {
-                  id: convId, conv: convInfo,
-                  removeDate: preInfo.date,
-                  addDate: null
-                },
-                convInfo);
+
+      // Notify the TOCs
+      for (let folderId of added) {
+        this.emit(eventForFolderId(folderId),
+                  {
+                    id: convId,
+                    item: convInfo,
+                    removeDate: null,
+                    addDate: convInfo.date
+                  });
+      }
+      // (We still want to generate an event even if there is no date change
+      // since otherwise the TOC won't know something has changed.)
+      for (let folderId of kept) {
+        this.emit(eventForFolderId(folderId),
+                  {
+                    id: convId,
+                    item: convInfo,
+                    removeDate: preInfo.date,
+                    addDate: convInfo.date
+                  });
+      }
+      for (let folderId of removed) {
+        this.emit(eventForFolderId(folderId),
+                  {
+                    id: convId,
+                    item: convInfo,
+                    removeDate: preInfo.date,
+                    addDate: null
+                  });
+      }
 
       // If the most recent message date changed, we need to blow away all
       // the existing mappings and all the mappings are new anyways.
       if (preInfo.date !== convInfo.date) {
-
-
         for (let folderId of preInfo.folderIds) {
           convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
         }
@@ -595,12 +751,9 @@ MailDB.prototype = evt.mix({
     let newData = data.newData;
     if (newData) {
       if (newData.conv) {
-        let convStore = trans.objectStore(TBL_CONV_INFO);
-        for (let convInfo of conv) {
-
-        }
+        this._processConvAdditions(trans, newData.conv);
       }
-      if (newData.msg) {
+      if (newData.header) {
 
       }
       if (newData.body) {

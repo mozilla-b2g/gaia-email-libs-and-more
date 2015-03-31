@@ -1,6 +1,8 @@
 define(function(require) {
 
-var FOLDER_TYPE_TO_SORT_PRIORITY = {
+let evt = require('evt');
+
+let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
   inbox: 'c',
   starred: 'e',
@@ -39,12 +41,18 @@ function makeFolderSortString(account, folder) {
 }
 
 
-function FoldersTOC() {
+/**
+ * Each FoldersTOC is strongly owned by its account and has the same-life-cycle
+ * of the account.  So don't go calling acquire/release on it.
+ */
+function FoldersTOC(account) {
+  evt.Emitter.call(this);
 
+  this.account = account;
 }
-FoldersTOC.prototype = {
+FoldersTOC.prototype = evt.mix({
 
-};
+});
 
 return FoldersTOC;
 });

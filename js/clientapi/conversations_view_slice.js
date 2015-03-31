@@ -9,6 +9,13 @@ function ConversationsViewSlice(api, handle) {
 }
 ConversationsViewSlice.prototype = Object.create(WindowedListView.prototype);
 
+ConversationsViewSlice.prototype._makeOrderingKeyFromItem = function(item) {
+  return {
+    date: item.mostRecentMessageDate.valueOf(),
+    id: item.id
+  };
+};
+
 /**
  * Request a re-sync of the time interval covering the effective time
  * range.  If the most recently displayed message is the most recent message

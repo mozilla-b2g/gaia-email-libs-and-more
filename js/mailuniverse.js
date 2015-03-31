@@ -14,6 +14,8 @@ let $maildb = require('./maildb');
 let $acctcommon = require('./accountcommon');
 let $allback = require('./allback');
 
+let FolderConversationsTOC = require('./db/folder_convs_toc');
+
 /**
  * When debug logging is enabled, how many second's worth of samples should
  * we keep?
@@ -31,13 +33,15 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   /** @listof[Account] */
   this.accounts = [];
-  this._accountsById = {};
+  this._accountsById = new Map();
 
   /** @listof[IdentityDef] */
   this.identities = [];
   this._identitiesById = {};
 
   this._bridges = [];
+
+  this._folderConvsTOCs = new Map();
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -249,97 +253,10 @@ MailUniverse.prototype = {
      */
     this.networkCostsMoney = true;
 
+    // - Transition to online
     if (!wasOnline && this.online) {
-      // - check if we have any pending actions to run and run them if so.
-      for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
-        this._resumeOpProcessingForAccount(this.accounts[iAcct]);
-      }
+      // XXX put stuff back in here
     }
-  },
-
-  /**
-   * Helper function to wrap calls to account.runOp for local operations; done
-   * only for consistency with `_dispatchServerOpForAccount`.
-   */
-  _dispatchLocalOpForAccount: function(account, op) {
-    var queues = this._opsByAccount[account.id];
-    queues.active = true;
-
-    var mode;
-    switch (op.lifecycle) {
-      case 'do':
-        mode = 'local_do';
-        op.localStatus = 'doing';
-        break;
-      case 'undo':
-        mode = 'local_undo';
-        op.localStatus = 'undoing';
-        break;
-      default:
-        throw new Error('Illegal lifecycle state for local op');
-    }
-
-    account.runOp(
-      op, mode,
-      this._localOpCompleted.bind(this, account, op));
-  },
-
-  /**
-   * Helper function to wrap calls to account.runOp for server operations since
-   * it now gets more complex with 'check' mode.
-   */
-  _dispatchServerOpForAccount: function(account, op) {
-    var queues = this._opsByAccount[account.id];
-    queues.active = true;
-
-    var mode = op.lifecycle;
-    if (op.serverStatus === 'check')
-      mode = 'check';
-    op.serverStatus = mode + 'ing';
-
-    account.runOp(
-      op, mode,
-      this._serverOpCompleted.bind(this, account, op));
-  },
-
-  /**
-   * Start processing ops for an account if it's able and has ops to run.
-   */
-  _resumeOpProcessingForAccount: function(account) {
-    var queues = this._opsByAccount[account.id];
-    if (!account.enabled)
-      return;
-    // Nothing to do if there's a local op running
-    if (!queues.local.length &&
-        queues.server.length &&
-        // (it's possible there is still an active job right now)
-        (queues.server[0].serverStatus !== 'doing' &&
-         queues.server[0].serverStatus !== 'undoing')) {
-      var op = queues.server[0];
-      this._dispatchServerOpForAccount(account, op);
-    }
-  },
-
-  /**
-   * Return true if there are server jobs that are currently running or will run
-   * imminently.
-   *
-   * It's possible for this method to be called during the cleanup stage of the
-   * last job in the queue.  It was intentionally decided to not try and be
-   * clever in that case because the job could want to be immediately
-   * rescheduled.  Also, propagating the data to do that turned out to involve a
-   * lot of sketchy manual propagation.
-   *
-   * If you have some logic you want to trigger when the server jobs have
-   * all been sufficiently used up, you can use `waitForAccountOps`  or add
-   * logic to the account's `allOperationsCompleted` method.
-   */
-  areServerJobsWaiting: function(account) {
-    var queues = this._opsByAccount[account.id];
-    if (!account.enabled) {
-      return false;
-    }
-    return !!queues.server.length;
   },
 
   registerBridge: function(mailBridge) {
@@ -351,6 +268,33 @@ MailUniverse.prototype = {
     if (idx !== -1)
       this._bridges.splice(idx, 1);
   },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Resource Acquisition stuff
+
+  /**
+   * Acquire an account.  Right now this is synchronous, but in the future
+   * accounts could be entirely lazy-loaded.
+   */
+  acquireAccount: function(ctx, accountId) {
+    let account = this._accountsById.get(accountId);
+    return ctx.acquire(account);
+  },
+
+  acquireFolderConversationsTOC: function(ctx, folderId) {
+    let toc;
+    if (this._folderConvsTOCs.has(folderId)) {
+      toc = this._folderConvsTOCs.get(folderId);
+    } else {
+      toc = new FolderConversationsTOC(this._db, folderId);
+      this._folderConvsTOCs.set(folderId, toc);
+      // TODO: have some means of the TOC to tell us to forget about it when
+      // it gets released.
+    }
+    return ctx.acquire(toc);
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
 
   learnAboutAccount: function(details) {
     var configurator = new $acctcommon.Autoconfigurator(this._LOG);
@@ -453,12 +397,12 @@ MailUniverse.prototype = {
                                     receiveProtoConn, this._LOG);
 
       this.accounts.push(account);
-      this._accountsById[account.id] = account;
+      this._accountsById.set(account.id, account);
 
       for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
         var identity = accountDef.identities[iIdent];
         this.identities.push(identity);
-        this._identitiesById[identity.id] = identity;
+        this._identitiesById.set(identity.id, identity);
       }
 
       this.emit('accountLoaded', account);
@@ -633,89 +577,6 @@ MailUniverse.prototype = {
 
     if (!this.accounts.length)
       callback();
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Lookups: Account, Folder, Identity
-
-  getAccountForAccountId: function mu_getAccountForAccountId(accountId) {
-    return this._accountsById[accountId];
-  },
-
-  /**
-   * Given a folder-id, get the owning account.
-   */
-  getAccountForFolderId: function mu_getAccountForFolderId(folderId) {
-    var accountId = folderId.substring(0, folderId.indexOf('.')),
-        account = this._accountsById[accountId];
-    return account;
-  },
-
-  /**
-   * Given a message's sufficiently unique identifier, get the owning account.
-   */
-  getAccountForMessageSuid: function mu_getAccountForMessageSuid(messageSuid) {
-    var accountId = messageSuid.substring(0, messageSuid.indexOf('.')),
-        account = this._accountsById[accountId];
-    return account;
-  },
-
-  getFolderStorageForFolderId: function mu_getFolderStorageForFolderId(
-                                 folderId) {
-    var account = this.getAccountForFolderId(folderId);
-    return account.getFolderStorageForFolderId(folderId);
-  },
-
-  getFolderStorageForMessageSuid: function mu_getFolderStorageForFolderId(
-                                    messageSuid) {
-    var folderId = messageSuid.substring(0, messageSuid.lastIndexOf('.')),
-        account = this.getAccountForFolderId(folderId);
-    return account.getFolderStorageForFolderId(folderId);
-  },
-
-  getAccountForSenderIdentityId: function mu_getAccountForSenderIdentityId(
-                                   identityId) {
-    var accountId = identityId.substring(0, identityId.indexOf('.')),
-        account = this._accountsById[accountId];
-    return account;
-  },
-
-  getIdentityForSenderIdentityId: function mu_getIdentityForSenderIdentityId(
-                                    identityId) {
-    return this._identitiesById[identityId];
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
-  // Message Mutation and Undoing
-
-  /**
-   * Partitions messages by account.  Accounts may want to partition things
-   * further, such as by folder, but we leave that up to them since not all
-   * may require it.  (Ex: activesync and gmail may be able to do things
-   * that way.)
-   */
-  _partitionMessagesByAccount: function(messageNamers, targetAccountId) {
-    var results = [], acctToMsgs = {};
-
-    for (var i = 0; i < messageNamers.length; i++) {
-      var messageNamer = messageNamers[i],
-          messageSuid = messageNamer.suid,
-          accountId = messageSuid.substring(0, messageSuid.indexOf('.'));
-      if (!acctToMsgs.hasOwnProperty(accountId)) {
-        var messages = [messageNamer];
-        results.push({
-          account: this._accountsById[accountId],
-          messages: messages,
-          crossAccount: (targetAccountId && targetAccountId !== accountId),
-        });
-        acctToMsgs[accountId] = messages;
-      }
-      else {
-        acctToMsgs[accountId].push(messageNamer);
-      }
-    }
-
-    return results;
   },
 
   syncFolderList: function(account, callback) {

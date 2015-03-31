@@ -56,43 +56,44 @@ define(function(require) {
  *
  * At all times we know:
  * - viewSet: The id's that the view has valid state for (based on what we told
- *   it.)
- *
- * From the first instant our state is dirtied and until we are flushed, we
- * track/retain:
- * - liveMap: The current set of ids that fall in our window and their state, if
- *   we have it because it was recently updated.  If we don't have a more
- *   up-to-date state but it is in `viewSet`, the value is true.  If we don't
- *   have the state and the view doesn't know and we probably need to load it,
- *   we put null in.
- *
- * The failure mode for all of this is the case of something like the list of
- * conversation info data where the sync process could potentially cause a
- * sustained interval of shuffling where items may come into our
- * (non-top-anchored window) then jump out then shift back down into our window
- * but now the data is gone.  We could maintain a `spillMap` or something, but
- * then we need to bound it or whatever and it's at least way too complicating
- * to implement now.  If it becomes an issue, having the database centrally
- * handle caching and having us able to synchronously consult the cache during
- * our flush is probably the best architectural choice.
+ *   it.)  As we hear about changes that are in our viewSet, we remove them so
+ *   that when we flush we pull the value from the database cache.
  */
 function WindowedListProxy(toc, batchManager) {
   this.toc = toc;
   this.batchManager = batchManager;
 
   this.viewSet = new Set();
-  this.liveMap = new Map();
+
+  this._bound_onChange = this.onChange.bind(this);
 }
 WindowedListProxy.prototype = {
+  __acquire: function() {
+    this.toc.on('change', this._bound_onChange);
+  },
+
+  __release: function() {
+    this.toc.removeListener('change', this._bound_onChange);
+  },
+
   seek: function(req) {
-    if (req.mode === 'top')
+    this.numAbove = req.above;
+    this.numBelow = req.below;
 
-    this.focusType = focusType;
-    this.focusOn = focusOn;
-    this.numAbove = numAbove;
-    this.numBelow = numBelow;
-    this.dirty = false;
+    if (req.mode === 'top' || req.mode === 'bottom') {
+      this.mode = req.mode;
+      this.focusKey = null;
+    } else if (req.mode === 'focus') {
+      this.mode = req.mode;
+      this.focusKey = req.focusKey;
+    } else if (req.mode === 'focusIndex') {
+      this.mode = 'focus';
+      this.focusKey = this.toc.getOrderingKeyForIndex(req.index);
+    } else {
+      throw new Error('bogus seek mode: ' + req.mode)
+    }
 
+    this.dirty = true;
     this.batchManager.registerDirtyView(this, /* immediate */ true);
   },
 
@@ -101,6 +102,8 @@ WindowedListProxy.prototype = {
    * item change for something that's inside our window.
    */
   onChange: function(changeRec) {
+    this.viewSet.delete(changeRec.id);
+
     if (this.dirty) {
       return;
     }
@@ -109,20 +112,32 @@ WindowedListProxy.prototype = {
   },
 
   /**
-   * Generate
+   * Generate a seek update
    */
   flush: function() {
+    let beginInclusive, endExclusive;
     if (this.mode === 'top') {
-      
+      beginInclusive = 0;
+      endExclusive = Math.min(this.toc.length, this.numBelow + 1);
     } else if (this.mode === 'bottom') {
-
+      endExclusive = this.toc.length;
+      beginInclusive = Math.max(0, endExclusive - this.numAbove);
+    } else if (this.mode === 'focus') {
+      let focusIndex = this.toc.findIndexForOrderingKey(this.focusKey);
+      beginInclusive = Math.max(0, focusIndex - this.numAbove);
+      endExclusive = Math.min(this.toc.length, focusIndex + this.numBelow + 1);
     }
 
+    this.dirty = false;
 
+    let { ids, state, pendingReads, readPromise } =
+      this.toc.getDataforSliceRange(beginInclusive, endExclusive, this.viewSet);
+
+    
 
     return {
-      offset: 0,
-      totalCount: 0,
+      offset: beginInclusive,
+      totalCount: this.toc.length,
       ids: [],
       values: set
     };

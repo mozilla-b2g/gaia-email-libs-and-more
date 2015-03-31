@@ -9,6 +9,8 @@ let bsearchForInsert = utils.bsearchForInsert;
 let RefedResource = require('../refed_resource');
 let cmpUI64 = a64.cmpUI64;
 
+let evt = require('evt');
+
 function folderConversationComparator(a, b) {
   let dateDelta = b.date - a.date;
   if (dateDelta) {
@@ -49,15 +51,16 @@ function folderConversationComparator(a, b) {
  */
 function FolderConversationsTOC(db, folderId) {
   RefedResource.call(this);
+  evt.Emitter.call(this);
   this._db = db;
   this.folderId = folderId;
   this._eventId = '';
 
-  this._bound_onChange = this.onChange.bind(this);
+  this._bound_onTOCChange = this.onTOCChange.bind(this);
 
   this.__deactivate();
 }
-FolderConversationsTOC.prototype = RefedResource.mix({
+FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   __activate: function*() {
     let { idsWithDates, drainEvents, eventId } =
       yield this._db.loadFolderConversationIdsAndListen(this.folderId);
@@ -65,7 +68,7 @@ FolderConversationsTOC.prototype = RefedResource.mix({
     this.idsWithDates = idsWithDates;
     this._eventId = eventId;
     drainEvents(this._bound_onChange);
-    this._db.on(eventId, this._bound_onChange);
+    this._db.on(eventId, this._bound_onTOCChange);
   },
 
   __deactivate: function() {
@@ -73,11 +76,53 @@ FolderConversationsTOC.prototype = RefedResource.mix({
     this._db.removeListener(this._eventId, this._bound_onChange);
   },
 
+  get length() {
+    return this.idsWithDates.length;
+  },
+
   /**
    * Handle a change from the database.
+   *
+   * @param {Object} change
+   * @param {ConvId} id
+   * @param {ConvInfo} item
+   * @param {DateTS} removeDate
+   * @param {DateTS} addDate
    */
-  onChange: function(change) {
+  onTOCChange: function(change) {
+    let metadataOnly = change.removeDate === change.addDate;
 
+    if (!metadataOnly) {
+      let oldIndex = -1;
+      if (change.removeDate) {
+        let oldKey = { date: change.removeDate, id: change.id };
+        oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
+                                      folderConversationComparator);
+        // NB: if we computed the newIndex before splicing out, we could avoid
+        // potentially redundant operations, but it's not worth the complexity
+        // at this point.
+        this.idsWithDates.splice(oldIndex, 1);
+      }
+      let newIndex = -1;
+      if (change.addDate) {
+        let newKey = { date: change.addDate, id: change.id };
+        newIndex = bsearchForInsert(this.idsWithDates, newKey,
+                                    folderConversationComparator);
+        this.idsWithDates.splice(newIndex, 0, newKey);
+      }
+
+      // If we did end up keeping the conversation in place, then it was just
+      // a metadata change as far as our consumers know/care.
+      if (oldIndex === newIndex) {
+        metadataOnly = true;
+      }
+    }
+
+    // We could expose more data, but WindowedListProxy doesn't need it, so
+    // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
+    // debug visualization?), it could make sense to expose the indices being
+    // impacted.
+    this.emit('change', id, metadataOnly);
   },
 
   /**
@@ -92,10 +137,62 @@ FolderConversationsTOC.prototype = RefedResource.mix({
     return ids;
   },
 
-  getDataForId: function(id) {
+  getOrderingKeyForIndex: function(index) {
+    return this.idsWithDates[index];
+  },
 
+  findIndexForOrderingKey: function(key) {
+    let index = bsearchForInsert(this.idsWithDates, key,
+                                 folderConversationComparator);
+    return index;
+  },
+
+  getDataForSliceRange: function(beginInclusive, endExclusive, alreadyKnown) {
+    // Things we were able to directly extract from the cache
+    let haveData = new Map();
+    // Things we need to request from the database.  (Although MailDB.read will
+    // immediately populate the things we need, WindowedListProxy's current
+    // wire protocol calls for omitting things we don't have the state for yet.
+    // And it's arguably nice to avoid involving going async here with flushes
+    // and all that if we can avoid it.
+    let needData = new Map();
+    // The new known set which is the stuff from alreadyKnown we reused plus the
+    //
+    let newKnownSet = new Set();
+
+    let idsWithDates = this.idsWithDates;
+    let convCache = this._db.convCache;
+    let ids = [];
+    for (let i = beginInclusive; i < endExclusive; i++) {
+      let id = idsWithDates[i].id;
+      ids.push(id);
+      if (alreadyKnown) {
+        continue;
+      }
+      if (convCache.has(id)) {
+        haveData.set(id, convCache.get(id));
+      } else {
+        needData.set(id, null);
+      }
+    }
+
+    let readPromise = null;
+    if (needData.size) {
+      readPromise = this._db.read({
+        conv: needData
+      })
+    } else {
+      needData = null;
+    }
+
+    return {
+      ids: ids,
+      state: haveData,
+      pendingReads: needData,
+      readPromise: readPromise
+    };
   }
-});
+}));
 
 return FolderConversationsTOC;
 });

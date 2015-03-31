@@ -18,20 +18,28 @@ define(function(require) {
  * probably want to put things in a "flush immediately" mode or "flush
  * explicitly when I say/after some other stuff has happened".
  */
-function BatchManager() {
+function BatchManager(db) {
+  this._db = db;
   this._pendingProxies = new Set();
   this._timer = null;
 
   this._bound_timerFired = this._flushPending.bind(this, true);
+  this._bound_dbFlush = this._flushPending.bind(this, false);
 
   this.flushDelayMillis = 100;
+
+  this._db.on('cacheDrop', this._bound_dbFlush);
 }
 BatchManager.prototype = {
+  __cleanup: function() {
+    this._db.removeListener('cacheDrop', this._bound_dbFlush);
+  },
+
   _flushPending: function(timerFired) {
     if (!timerFired) {
       window.clearTimeout(this._timer);
-      this._timer = null;
     }
+    this._timer = null;
 
     for (let proxy of this._pendingProxies) {
       proxy.flush();

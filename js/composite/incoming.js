@@ -7,6 +7,7 @@ let $mailslice = require('../mailslice');
 let $searchfitler = require('../searchfilter');
 let $util = require('../util');
 let $folder_info = require('../db/folder_info_rep');
+let FoldersTOC = require('../folders_toc');
 
 let bsearchForInsert = $util.bsearchForInsert;
 
@@ -44,13 +45,11 @@ function CompositeIncomingAccount(
   this._db = dbConn;
 
   /**
-   * @type {Map<FolderId, FolderSyncDB>}
-   */
-  this.folderSyncDbById = new Map();
-  /**
    * @type {Array<FolderInfo>}
    */
   this.folders = [];
+
+  this.foldersTOC = new FoldersTOC(this, this.folders);
 
   /**
    * The canonical folderInfo object we persist to the database.
@@ -99,7 +98,6 @@ function CompositeIncomingAccount(
       continue;
     var folderInfo = folderInfos[folderId];
 
-    this.folderSyncDbById.set(folderId, new FolderSyncDB(this._db, folderId));
     this.folders.push(folderInfo.$meta);
   }
   this.folders.sort(function(a, b) {
@@ -135,8 +133,7 @@ CompositeIncomingAccount.prototype = {
    *   adding new call-sites that use this, especially if it's not used for
    *   offline-only folders at account creation/app startup.
    */
-  _learnAboutFolder: function(name, path, parentId, type, delim, depth,
-                              suppressNotification) {
+  _learnAboutFolder: function(name, path, parentId, type, delim, depth) {
     var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
     var folderInfo = this._folderInfos[folderId] = {
       $meta: $folder_info.makeFolderMeta({
@@ -152,35 +149,27 @@ CompositeIncomingAccount.prototype = {
       }),
       serverIdHeaderBlockMapping: null, // IMAP/POP3 does not need the mapping
     };
-    this.folderSyncDbById.set(folderId, new FolderSyncDB(this._db, folderId));
 
     var folderMeta = folderInfo.$meta;
     var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);
     this.folders.splice(idx, 0, folderMeta);
+    this.foldersTOC.emit('add', folderMeta, idx)
 
-    if (!suppressNotification)
-      this.universe.__notifyAddedFolder(this, folderMeta);
     return folderMeta;
   },
 
-  _forgetFolder: function(folderId, suppressNotification) {
+  _forgetFolder: function(folderId) {
     var folderInfo = this._folderInfos[folderId],
         folderMeta = folderInfo.$meta;
     delete this._folderInfos[folderId];
 
-    // XXX TODO this needs to be a task that cleans up the database state and
-    // was added as part of the completion of the syncFolderList task.
-    let folderSyncDb = this.folderSyncDbById.get(folderId);
-    if (folderSyncDb) {
-      folderSyncDb.youAreDeadCleanupAfterYourself();
-    }
-    this.folderSyncDbById.delete(folderId);
+    // XXX the database need to purge the indices here, probably.  It's not
+    // clear how this works with the gmail CONDSTORE implementation.  Do all
+    // the messages get change events?
 
     var idx = this.folders.indexOf(folderMeta);
     this.folders.splice(idx, 1);
-
-    if (!suppressNotification)
-      this.universe.__notifyRemovedFolder(this, folderMeta);
+    this.foldersTOC.emit('remove', folderId, idx);
   },
 
   /**
@@ -285,35 +274,6 @@ CompositeIncomingAccount.prototype = {
     if (this._folderInfos.hasOwnProperty(folderId))
       return this._folderInfos[folderId].$meta;
     return null;
-  },
-
-  sliceFolderMessages: function(folderId, bridgeHandle) {
-    var storage = this._folderStorages[folderId],
-        slice = new $mailslice.MailSlice(bridgeHandle, storage, this._LOG);
-
-    storage.sliceOpenMostRecent(slice);
-  },
-
-  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
-    var storage = this._folderStorages[folderId],
-        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
-                                              whatToSearch, this._LOG);
-    storage.sliceOpenSearch(slice);
-    return slice;
-  },
-
-  shutdownFolders: function() {
-    // - kill all folder storages (for their loggers)
-    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
-      var folderPub = this.folders[iFolder],
-          folderStorage = this._folderStorages[folderPub.id];
-      folderStorage.shutdown();
-    }
-  },
-
-  scheduleMessagePurge: function(folderId, callback) {
-    this.universe.purgeExcessMessages(this.compositeAccount, folderId,
-                                      callback);
   },
 
   /**

@@ -44,56 +44,28 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  * `same-frame-setup.js` is the only place that hooks them up together right
  * now.
  */
-function MailBridge(universe, name) {
+function MailBridge(universe, db, name) {
   logic.defineScope(this, 'MailBridge', { name: name });
   this.universe = universe;
   this.universe.registerBridge(this);
 
   this.bridgeContext = new BridgeContext();
-  this.batchManager = new BatchManager();
+  this.batchManager = new BatchManager(db);
 
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
-
-
-  /** @dictof[@key[handle] @value[BridgedViewSlice]]{ live slices } */
-  this._slices = {};
-  /** @dictof[@key[namespace] @value[@listof[BridgedViewSlice]]] */
-  this._slicesByType = {
-    accounts: [],
-    identities: [],
-    folders: [],
-    conversations: [],
-    headers: [],
-    matchedHeaders: [],
-  };
 
   this._trackedItemsByType = {
     accounts: new Map(),
     identities: new Map(),
     folders: new Map(),
-    conversations: new Map(),
-    headers: new Map(),
-    matchedHeaders: new Map()
+    conv: new Map(),
+    header: new Map(),
+    body: new Map()
   };
   /**
    * @type {Map<Handle, {type, id}>}
    */
   this._trackedItemHandles = new Map();
-
-  /**
-   * Observed bodies in the format of:
-   *
-   * @dictof[
-   *   @key[suid]
-   *   @value[@dictof[
-   *     @key[handleId]
-   *     @value[@oneof[Function null]]
-   *   ]]
-   * ]
-   *
-   * Similar in concept to folder slices but specific to bodies.
-   */
-  this._observedBodies = {};
 
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
@@ -134,7 +106,7 @@ MailBridge.prototype = {
    *
    */
   bodyHasObservers: function(suid) {
-    return !!this._observedBodies[suid];
+    return this._trackedItemsByType.body.has(suid);
   },
 
   notifyConfig: function(config) {
@@ -610,51 +582,15 @@ MailBridge.prototype = {
   },
 
   _cmd_viewFolders: function*(msg) {
-    let toc =
+    let ctx = this.bridgeContext.namedContext(msg.handle);
 
-    var proxy = this._slices[msg.handle] =
-          new EntireListProxy()
-          new SliceBridgeProxy(this, 'folders', msg.handle);
-    this._slicesByType['folders'].push(proxy);
-    proxy.mode = msg.mode;
-    proxy.argument = msg.argument;
-    var markers = proxy.markers = [];
+    // Acquire the account in order to use its folderTOC.
+    let account = this.universe.acquireAccount(ctx, msg.accountId);
+    let toc = account.foldersTOC;
 
-    var wireReps = [];
-
-    function pushAccountFolders(acct) {
-      for (var iFolder = 0; iFolder < acct.folders.length; iFolder++) {
-        var folder = acct.folders[iFolder];
-        var newMarker = makeFolderSortString(acct, folder);
-        var idx = bsearchForInsert(markers, newMarker, strcmp);
-        wireReps.splice(idx, 0, folder);
-        markers.splice(idx, 0, newMarker);
-      }
-    }
-
-    if (msg.mode === 'account') {
-      pushAccountFolders(
-        this.universe.getAccountForAccountId(msg.argument));
-    }
-    else {
-      var accounts = this.universe.accounts.concat();
-
-      // sort accounts by their id's
-      accounts.sort(function (a, b) {
-        return a.id.localeCompare(b.id);
-      });
-
-      for (var iAcct = 0; iAcct < accounts.length; iAcct++) {
-        var acct = accounts[iAcct], acctBridgeRep = acct.toBridgeFolder(),
-            acctMarker = makeFolderSortString(acct, acctBridgeRep),
-            idxAcct = bsearchForInsert(markers, acctMarker, strcmp);
-
-        wireReps.splice(idxAcct, 0, acctBridgeRep);
-        markers.splice(idxAcct, 0, acctMarker);
-        pushAccountFolders(acct);
-      }
-    }
-    proxy.sendSplice(0, 0, wireReps, true, false);
+    let proxy = new EntireListProxy(toc, this.batchManager);
+    ctx.acquire(proxy);
+    proxy.populateFromList();
   },
 
   _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {
@@ -667,72 +603,25 @@ MailBridge.prototype = {
   },
 
   _cmd_viewFolderConversations: function(msg) {
-    var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, 'conversations', msg.handle);
-    this._slicesByType['conversations'].push(proxy);
+    let ctx = this.bridgeContext.namedContext(msg.handle);
 
-    var account = this.universe.getAccountForFolderId(msg.folderId);
-    account.sliceFolderConversations(msg.folderId, proxy);
+    let toc = yield this.universe.acquireFolderConversationsTOC(msg.folderId);
+    let proxy = new WindowedListProxy(toc, this.batchManager);
+    ctx.acquire(proxy);
+    ctx.proxy = proxy;
   },
 
-  _cmd_searchFolderMessages: function mb__cmd_searchFolderMessages(msg) {
-    var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, 'matchedHeaders', msg.handle);
-    this._slicesByType['matchedHeaders'].push(proxy);
-    var account = this.universe.getAccountForFolderId(msg.folderId);
-    account.searchFolderMessages(
-      msg.folderId, proxy, msg.phrase, msg.whatToSearch);
+  _cmd_seekProxy: function(msg) {
+    let ctx = this.bridgeContext.namedContextOrThrow(msg.handle);
+    ctx.proxy.seek(msg);
   },
 
-  _cmd_refreshHeaders: function mb__cmd_refreshHeaders(msg) {
-    var proxy = this._slices[msg.handle];
-    if (!proxy) {
-      this._LOG.badSliceHandle(msg.handle);
-      return;
-    }
-
-    if (proxy.__listener)
-      proxy.__listener.refresh();
-  },
-
-  _cmd_growSlice: function mb__cmd_growSlice(msg) {
-    var proxy = this._slices[msg.handle];
-    if (!proxy) {
-      this._LOG.badSliceHandle(msg.handle);
-      return;
-    }
-
-    if (proxy.__listener)
-      proxy.__listener.reqGrow(msg.dirMagnitude, msg.userRequestsGrowth);
-  },
-
-  _cmd_shrinkSlice: function mb__cmd_shrinkSlice(msg) {
-    var proxy = this._slices[msg.handle];
-    if (!proxy) {
-      this._LOG.badSliceHandle(msg.handle);
-      return;
-    }
-
-    if (proxy.__listener)
-      proxy.__listener.reqNoteRanges(
-        msg.firstIndex, msg.firstSuid, msg.lastIndex, msg.lastSuid);
-  },
-
-  _cmd_killSlice: function mb__cmd_killSlice(msg) {
-    var proxy = this._slices[msg.handle];
-    if (!proxy) {
-      this._LOG.badSliceHandle(msg.handle);
-      return;
-    }
-
-    delete this._slices[msg.handle];
-    var proxies = this._slicesByType[proxy._ns],
-        idx = proxies.indexOf(proxy);
-    proxies.splice(idx, 1);
-    proxy.die();
+  _cmd_cleanupContext: function(msg) {
+    this.bridgeContext.cleanupNamedContext(msg.handle);
+    let ctx = this.bridgeContext.namedContextOrThrow(msg.handle);
 
     this.__sendMessage({
-      type: 'sliceDead',
+      type: 'contextDead',
       handle: msg.handle,
     });
   },

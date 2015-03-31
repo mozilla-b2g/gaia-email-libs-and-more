@@ -161,6 +161,10 @@ CompositeAccount.prototype = {
     this._enabled = this._receivePiece.enabled = val;
   },
 
+  get foldersTOC() {
+    return this._receivePiece.foldersTOC;
+  },
+
   saveAccountState: function(reuseTrans, callback, reason) {
     return this._receivePiece.saveAccountState(reuseTrans, callback, reason);
   },
