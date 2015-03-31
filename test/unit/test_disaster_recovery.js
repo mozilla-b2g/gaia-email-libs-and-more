@@ -1,162 +1,107 @@
-define(['rdcommon/testcontext', './resources/th_main', 'slog', 'exports'],
-       function($tc, $th_imap, slog, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_disaster_recovery' }, null, [$th_imap.TESTHELPER], ['app']);
+var GelamTest = require('./resources/gelamtest');
+var AccountHelpers = require('./resources/account_helpers');
+var { backend } = require('./resources/contexts');
+var logic = require('logic');
 
-TD.commonCase('Releases mutex during botched sync', function(T, RT) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse }),
-      eSync = T.lazyLogger('check');
+// XXX: Helpers are gross; see thoughts in account_helpers.js.
+var help;
 
-  var folder = testAccount.do_createTestFolder(
-    'test_disaster_recovery',
-    { count: 5, age: { days: 0 }, age_incr: { days: 1 } });
+return [
+  new GelamTest('Releases mutex during botched sync', function*(MailAPI) {
+    this.group('setup');
 
-  T.action('Tell socket.ondata to do horrible things', eSync, function(T) {
+    help = new AccountHelpers(MailAPI);
+    var account = yield help.createAccount(this.options);
 
-    var acct = testUniverse.universe.accounts[0]._receivePiece;
-    var conn = acct._ownedConns[0].conn;
-    conn.client.socket.ondata = function() {
-      throw new Error('wtf');
-    };
+    var folder = yield help.createFolder(
+      'disaster_recovery',
+      { count: 5, age: { days: 0 }, age_incr: { days: 1 } });
 
-  });
+    yield backend('Tell socket.ondata to do horrible things', ($) => {
+      var acct = $.universe.accounts[0]._receivePiece;
+      var conn = acct._ownedConns[0].conn;
+      conn.client.socket.ondata = function() {
+        throw new Error('wtf');
+      };
+    });
 
-  testAccount.do_viewFolder(
-    'syncs', folder,
-    null, null,
-    { failure: true,
-      nosave: true,
-      noexpectations: true,
-    expectFunc: function() {
-      RT.reportActiveActorThisStep(testAccount.eImapAccount);
-      testAccount.eImapAccount.expect_reuseConnection();
-      // When the error is thrown, we'll kill the connection:
-      testAccount.eImapAccount.expect_deadConnection();
+    this.group('view folder and botch the sync');
 
-      var log = new slog.LogChecker(T, RT, 'disaster');
+    yield Promise.all([
+      help.viewFolder(folder),
+      logic
+        .match('DisasterRecovery', 'exception', (d) => {
+          return d.accountId === '0' && d.errorMessage === 'wtf';
+        })
+        .match('FolderStorage', 'mailslice:mutex-released')
+        .failIfMatched('DisasterRecovery', 'finished-job')
+    ]);
+  }),
 
+  new GelamTest('Releases both mutexes and job op during move', function*(MailAPI) {
+    this.group('setup');
+
+    var sourceFolder = yield help.createFolder(
+      'test_move_source',
+      { count: 5, age: { days: 1 }, age_incr: { days: 1 } });
+
+    var targetFolder = yield help.createFolder('test_move_target');
+
+    var sourceSlice = yield help.viewFolder(sourceFolder);
+    var targetSlice = yield help.viewFolder(targetFolder);
+
+    yield backend('Tell socket.ondata to do horrible things', ($) => {
+      var acct = $.universe.accounts[0]._receivePiece;
+      var conn = acct._ownedConns[0].conn;
+      conn.client.socket.ondata = function() {
+        throw new Error('wtf');
+      };
+    });
+
+    this.group('try the move job op');
+
+    var headers = sourceSlice.items;
+    var headerToMove = headers[1];
+
+    yield Promise.all([
+      logic.async(this, 'move messages', (resolve, reject) => {
+        MailAPI.moveMessages([headerToMove], targetFolder, resolve);
+      }),
+
+      logic
+      // The local job will succeed and it will release its mutexes
+      // without having experienced any errors.
+        .match('FolderStorage', 'mailslice:mutex-released',
+               { folderId: sourceFolder.id, err: null })
+        .match('FolderStorage', 'mailslice:mutex-released',
+               { folderId: targetFolder.id, err: null })
+      // Then the jobDoneCallback gets invoked.  It will release the mutexes.
+        .match('FolderStorage', 'mailslice:mutex-released',
+               { folderId: sourceFolder.id, err: 'disastrous-error' })
+        .match('FolderStorage', 'mailslice:mutex-released',
+               { folderId: targetFolder.id, err: 'disastrous-error' }),
+
+      logic
+      // the local part will succeed
+        .match('Account', 'runOp', { mode: 'local_do', type: 'move' })
+      // the server part will fail
+        .match('Account', 'runOp', { mode: 'do', type: 'move',
+                                     error: 'disastrous-error' })
+      // we'll run "check"
+        .match('Account', 'runOp', { mode: 'check', type: 'move' }),
+
+      logic
       // Make sure we capture an error with the proper details.
-      log.mustLog('disaster-recovery:exception', function(details) {
-        return (details.accountId === '0' &&
-                details.error.message === 'wtf');
-      });
+        .match('DisasterRecovery', 'exception', (d) => {
+          return d.accountId === '0' && d.errorMessage === 'wtf';
+        })
+      // And we mark when the jobDoneCallback finishes running.
+        .match('DisasterRecovery', 'finished-job'),
+    ]);
+  })
 
-      // There should not be a job running now.
-      log.mustNotLog('disaster-recovery:finished-job');
-
-      // We _did_ have the mutex; ensure it is released.
-      // Note that this release will occur as a result of the connection loss,
-      // not as a result of any additional bookkeeping on our part.
-      log.mustLog('mailslice:mutex-released',
-                  { folderId: folder.id, err: 'aborted' });
-    }});
-});
-
-TD.commonCase('Releases both mutexes and job op during move', function(T, RT) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('check');
-
-  var sourceFolder = testAccount.do_createTestFolder(
-    'test_move_source',
-    { count: 5, age: { days: 1 }, age_incr: { days: 1 } });
-
-  var targetFolder = testAccount.do_createTestFolder(
-    'test_move_target',
-    { count: 0 });
-
-  var sourceView = testAccount.do_openFolderView(
-    'sourceView', sourceFolder,
-    { count: 5, full: 5, flags: 0, changed: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false },
-    { syncedToDawnOfTime: true });
-
-  var targetView = testAccount.do_openFolderView(
-    'targetView', targetFolder,
-    { count: 0, full: 0, flags: 0, changed: 0, deleted: 0},
-    { top: true, bottom: true, grow: false },
-    { syncedToDawnOfTime: true });
-
-
-  T.action('Tell socket.ondata to do horrible things', eSync, function(T) {
-
-    var acct = testUniverse.universe.accounts[0]._receivePiece;
-    var conn = acct._ownedConns[0].conn;
-    conn.client.socket.ondata = function() {
-      throw new Error('wtf');
-    };
-
-  });
-
-  T.action('try the move job op', testAccount, function() {
-    var headers = sourceView.slice.items,
-        toMove = headers[1];
-
-    // The deadConnection notification is inherently going to race the end of
-    // the job-op in multiprocess because the close is generated locally but
-    // then goes up to the parent process and the parent then has to generate
-    // the close event notification.  That will be wiggly.
-    testAccount.expectUseSetMatching();
-    // the local part will run okay
-    testAccount.expect_runOp(
-      'move',
-      { local: true, server: false, save: false });
-    // the server part will fail
-    testAccount.expect_runOp(
-      'move',
-      { local: false, server: true, save: true,
-        error: 'disastrous-error',
-        // The connect-closing will occur
-        release: 'deadconn' });
-
-    var log = new slog.LogChecker(T, RT, 'disaster');
-    // The local job will succeed and it will release its mutexes without having
-    // experienced any errors.
-    log.mustLog('mailslice:mutex-released',
-                { folderId: sourceFolder.id, err: null });
-    log.mustLog('mailslice:mutex-released',
-                { folderId: targetFolder.id, err: null });
-
-    testAccount.expect_runOp(
-      'move',
-      { mode: 'check' });
-
-    // Force the socket to act horribly.
-    var acct = testUniverse.universe.accounts[0]._receivePiece;
-    var conn = acct._ownedConns[0].conn;
-    conn.client.socket.ondata = function() {
-      throw new Error('wtf');
-    };
-
-    // Make sure we capture an error with the proper details.
-    log.mustLog('disaster-recovery:exception', function(details) {
-      return (details.accountId === '0' &&
-              details.error.message === 'wtf');
-    });
-
-    // Then the jobDoneCallback gets invoked.  It will release the mutexes.
-    log.mustLog('mailslice:mutex-released',
-                { folderId: sourceFolder.id, err: 'disastrous-error' });
-    log.mustLog('mailslice:mutex-released',
-                { folderId: targetFolder.id, err: 'disastrous-error' });
-
-    // And we mark when the jobDoneCallback finishes running.
-    log.mustLog('disaster-recovery:finished-job', function(details) {
-      return details.error.message === 'wtf';
-    });
-
-
-    testUniverse.MailAPI.moveMessages(
-      [toMove], targetFolder.mailFolder);
-  });
-
-});
-
+];
 
 }); // end define

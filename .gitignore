@@ -12,3 +12,7 @@
 /generic-profile
 *~
 .tern-port
+.DS_Store
+logic-inspector/logic-inspector.min.js
+logic-inspector/test-logs
+logic-inspector/node_modules

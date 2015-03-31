@@ -4,37 +4,34 @@
  * coming soon!
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+define(function(require) {
+
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $wbxml = require('wbxml');
+var $ascp = require('activesync/codepages');
 
 // This is the number of messages after which the sync logic will
 // declare victory and stop filling.
 const INITIAL_FILL_SIZE = 15;
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_nonimap_sync_general' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('folder sync', function(T, RT) {
+return new LegacyGelamTest('folder sync', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
   const FilterType = $ascp.AirSync.Enums.FilterType;
   var type = RT.envOptions.type;
 
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   T.action(eSync, 'check initial folder list', testAccount, function() {
-    eSync.expect_namedValue('inbox', {
+    eSync.expect('inbox', {
       syncKey: (type === 'activesync' ? '0' : null),
       hasServerId:  (type === 'activesync' ? true : false),
     });
     var folder = testAccount.account.getFirstFolderWithType('inbox');
-    eSync.namedValue('inbox', {
+    eSync.log('inbox', {
       syncKey: (type === 'activesync' ? folder.syncKey : null),
       hasServerId: folder.serverId !== null
     });
@@ -144,7 +141,7 @@ TD.commonCase('folder sync', function(T, RT) {
   testAccount.do_viewFolder(
     'syncs', partialSyncFolder,
     { count: INITIAL_FILL_SIZE, full: 31, flags: 0, changed: 0, deleted: 0,
-      filterType: FilterType.TwoWeeksBack },
+      filterType: FilterType.OneMonthBack },
     { top: true, bottom: false, grow: false });
   testUniverse.do_pretendToBeOffline(true);
   testAccount.do_viewFolder(

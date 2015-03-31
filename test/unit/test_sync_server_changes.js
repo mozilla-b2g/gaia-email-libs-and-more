@@ -6,17 +6,14 @@
  * This file is not run for POP3 which of course lacks such niceties.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_main, $msggen, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_sync_server_changes' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('detect server changes', function(T) {
+return new LegacyGelamTest('detect server changes', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   var testFolder = testAccount.do_createTestFolder(
@@ -98,11 +95,11 @@ TD.commonCase('detect server changes', function(T) {
     // 10 - 2 - 1 = 7.
     testAccount.expect_unread('Unread After Server Changes', testFolder,
                               eSync, 7);
-    eSync.expect_namedValue('bodyInfo', null);
-    testFolder.storageActor.expect_bodyNotFound();
+    eSync.expect('bodyInfo',  null);
+    testFolder.storageActor.expect('bodyNotFound');
     var deletedHeader = expectedRefreshChanges.deletions[0];
     deletedHeader.getBody(function(bodyInfo) {
-      eSync.namedValue('bodyInfo', bodyInfo);
+      eSync.log('bodyInfo', bodyInfo);
       // it's null so we don't call bodyInfo.die(), but if it wasn't...!
     });
   });

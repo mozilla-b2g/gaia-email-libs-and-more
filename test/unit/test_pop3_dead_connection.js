@@ -16,26 +16,18 @@
  * the request out to invoke its callback.
  **/
 
-define(function(require, exports) {
+define(function(require) {
 
-var $tc = require('rdcommon/testcontext');
-var $th_main = require('./resources/th_main');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $fawlty = require('./resources/fault_injecting_socket');
-var slog = require('slog');
-
 var $pop3 = require('pop3/pop3');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_pop3_dead_connection' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('various dead connections', function(T, RT) {
+return new LegacyGelamTest('various dead connections', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
   var eSync = T.lazyLogger('sync');
-  var logchecker = new slog.LogChecker(T, RT, 'disaster');
 
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
 
@@ -107,7 +99,7 @@ TD.commonCase('various dead connections', function(T, RT) {
       failure: 'deadconn', batches: 0,
       expectFunc: function() {
         // Make sure disaster recover is getting its chance to shine
-        logchecker.mustLog('disaster-recovery:exception', function(details) {
+        T.actor('DisasterRecovery').expect('exception', function(details) {
           return (details.errorMessage === 'ARTIFICE');
         });
 

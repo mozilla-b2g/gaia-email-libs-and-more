@@ -2,16 +2,12 @@
  * Test ContactsCache logic.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_contacts',
-        'activesync/codepages/AirSync',
-        'mailapi', 'exports'],
-       function($tc, $th_main, $th_contacts, $airsync, $mailapi, exports) {
-const FilterType = $airsync.Enums.FilterType;
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mailapi_contacts' }, null,
-  [$th_main.TESTHELPER, $th_contacts.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $airsync = require('activesync/codepages/AirSync');
+var $mailapi = require('mailapi');
+const FilterType = $airsync.Enums.FilterType;
 
 function countKeysInObj(obj) {
   var count = 0;
@@ -23,6 +19,12 @@ function countKeysInObj(obj) {
 
 function clone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
 }
 
 /**
@@ -40,10 +42,10 @@ function clone(obj) {
  *    causes the peep to be covered by a contact.  Both create and update
  *    use the same code as far as subscripting goes.
  */
-TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
+commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testContacts = T.actor('testContacts', 'contacts'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
@@ -56,21 +58,21 @@ TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
 
   T.group('cache miss, lookup hit');
   T.action(eCheck, 'bob asynchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
-    eCheck.expect_namedValue('name', bobsName);
+    eCheck.expect('isContact',  true);
+    eCheck.expect('name',  bobsName);
     testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
     });
   });
 
   T.group('cache hit');
   T.action(eCheck, 'bob synchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
-    eCheck.expect_namedValue('name', bobsName);
+    eCheck.expect('isContact',  true);
+    eCheck.expect('name',  bobsName);
     testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
     });
   });
 
@@ -78,26 +80,26 @@ TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
   var samsName = 'Sam Sammington',
       samsEmail = 'sam@sam.nul';
   T.action(eCheck, 'sam and fail to resolve', function() {
-    eCheck.expect_namedValue('isContact', false);
+    eCheck.expect('isContact',  false);
     // The name gets coerced to '' so it remains falsey but string coercion
     // rules avoid us ever having someone named "null"
-    eCheck.expect_namedValue('name', '');
+    eCheck.expect('name',  '');
     testUniverse.MailAPI.resolveEmailAddressToPeep(samsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
 
       // Set this up for the next step.
       peep.onchange = function() {
-        eCheck.event('onchange');
-        eCheck.namedValue('isContact', peep.isContact);
-        eCheck.namedValue('name', peep.name);
+        eCheck.log('onchange');
+        eCheck.log('isContact', peep.isContact);
+        eCheck.log('name', peep.name);
       };
     });
   });
   T.action('create contact,', eCheck, 'sam', function() {
-    eCheck.expect_event('onchange');
-    eCheck.expect_namedValue('isContact', true);
-    eCheck.expect_namedValue('name', samsName);
+    eCheck.expect('onchange');
+    eCheck.expect('isContact',  true);
+    eCheck.expect('name',  samsName);
     // this will fire the onchange event we set up in the previous step
     testContacts.createContact(samsName, [samsEmail]);
   });
@@ -111,10 +113,10 @@ TD.commonCase('get DOMStrings not DOMStringLists', function(T, RT) {
  *
  * This test is a modified version of the DOMString/DOMStringList one.
  */
-TD.commonCase('do not die on empty names', function(T, RT) {
+commonCase('do not die on empty names', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
-      testContacts = T.actor('testContacts', 'contacts'),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
@@ -126,49 +128,49 @@ TD.commonCase('do not die on empty names', function(T, RT) {
 
   T.group('cache miss, lookup hit');
   T.action(eCheck, 'bob asynchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect('isContact',  true);
     // ContactCache coerces to '' for type reasons
-    eCheck.expect_namedValue('name', '');
+    eCheck.expect('name',  '');
     testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
     });
   });
 
   T.group('cache hit');
   T.action(eCheck, 'bob synchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect('isContact',  true);
     // (null coerced to '')
-    eCheck.expect_namedValue('name', '');
+    eCheck.expect('name',  '');
     testUniverse.MailAPI.resolveEmailAddressToPeep(bobsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
     });
   });
 
   T.group('cache miss, lookup miss, event-driven hit');
   var samsEmail = 'sam@sam.nul';
   T.action(eCheck, 'sam and fail to resolve', function() {
-    eCheck.expect_namedValue('isContact', false);
+    eCheck.expect('isContact',  false);
     // The name gets coerced to '' so it remains falsey but string coercion
     // rules avoid us ever having someone named "null"
-    eCheck.expect_namedValue('name', '');
+    eCheck.expect('name',  '');
     testUniverse.MailAPI.resolveEmailAddressToPeep(samsEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('name', peep.name);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('name', peep.name);
 
       // Set this up for the next step.
       peep.onchange = function() {
-        eCheck.event('onchange');
-        eCheck.namedValue('isContact', peep.isContact);
-        eCheck.namedValue('name', peep.name);
+        eCheck.log('onchange');
+        eCheck.log('isContact', peep.isContact);
+        eCheck.log('name', peep.name);
       };
     });
   });
   T.action('create contact,', eCheck, 'sam', function() {
-    eCheck.expect_event('onchange');
-    eCheck.expect_namedValue('isContact', true);
-    eCheck.expect_namedValue('name', '');
+    eCheck.expect('onchange');
+    eCheck.expect('isContact', true);
+    eCheck.expect('name', '');
     // this will fire the onchange event we set up in the previous step
     testContacts.createContact(null, [samsEmail]);
   });
@@ -180,10 +182,10 @@ TD.commonCase('do not die on empty names', function(T, RT) {
 /**
  * Handle mixed-case email addresses when searching.
  */
-TD.commonCase('mixed case emails are found', function(T, RT) {
+commonCase('mixed case emails are found', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
-      testContacts = T.actor('testContacts', 'contacts'),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
@@ -195,22 +197,22 @@ TD.commonCase('mixed case emails are found', function(T, RT) {
 
   T.group('cache miss, lookup hit');
   T.action(eCheck, 'etienne asynchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
+    eCheck.expect('isContact',  true);
     // The email address should still have its uppercase stuff!
-    eCheck.expect_namedValue('address', etiennesEmail);
+    eCheck.expect('address',  etiennesEmail);
     testUniverse.MailAPI.resolveEmailAddressToPeep(etiennesEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('address', peep.address);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('address', peep.address);
     });
   });
 
   T.group('cache hit');
   T.action(eCheck, 'etienne synchronously hits', function() {
-    eCheck.expect_namedValue('isContact', true);
-    eCheck.expect_namedValue('address', etiennesEmail);
+    eCheck.expect('isContact',  true);
+    eCheck.expect('address',  etiennesEmail);
     testUniverse.MailAPI.resolveEmailAddressToPeep(etiennesEmail, function(peep) {
-      eCheck.namedValue('isContact', peep.isContact);
-      eCheck.namedValue('address', peep.address);
+      eCheck.log('isContact', peep.isContact);
+      eCheck.log('address', peep.address);
     });
   });
 
@@ -226,26 +228,26 @@ TD.commonCase('mixed case emails are found', function(T, RT) {
  *
  * We do test the operation of the cache as a byproduct of these checks.
  */
-TD.commonCase('bounded cache size', function(T, RT) {
+commonCase('bounded cache size', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
-      testContacts = T.actor('testContacts', 'contacts'),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
   // -- max out empties
   T.group('max out empties');
   T.action('add real hit, real empty', eCheck, function() {
-    eCheck.expect_namedValue('pending lookups', 2);
-    eCheck.expect_namedValue('pre-lookup hit name', 'Foo');
-    eCheck.expect_namedValueD('expected hit isContact', true);
-    eCheck.expect_namedValue('expected hit name', 'Mr. Foo');
-    eCheck.expect_namedValueD('expected empty isContact', false);
+    eCheck.expect('pending lookups',  2);
+    eCheck.expect('pre-lookup hit name',  'Foo');
+    eCheck.expect('expected hit isContact',  true);
+    eCheck.expect('expected hit name',  'Mr. Foo');
+    eCheck.expect('expected empty isContact',  false);
 
-    eCheck.expect_namedValue('post-lookup hit count', 1);
-    eCheck.expect_namedValue('post-lookup empty count', 1);
-    eCheck.expect_namedValue('post-lookup cache entry count', 2);
+    eCheck.expect('post-lookup hit count',  1);
+    eCheck.expect('post-lookup empty count',  1);
+    eCheck.expect('post-lookup cache entry count',  2);
 
     testContacts.createContact('Mr. Foo', ['foo@bar']);
 
@@ -254,47 +256,47 @@ TD.commonCase('bounded cache size', function(T, RT) {
     var shouldEmpty = ContactCache.resolvePeep(
                         { name: 'Baz', address: 'baz@bar' });
 
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
-    eCheck.namedValue('pre-lookup hit name', shouldHit.name);
+    eCheck.log('pre-lookup hit name', shouldHit.name);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValueD('expected hit isContact', shouldHit.isContact,
+      eCheck.log('expected hit isContact', shouldHit.isContact,
                          shouldHit);
-      eCheck.namedValue('expected hit name', shouldHit.name);
-      eCheck.namedValueD('expected empty isContact', shouldEmpty.isContact,
+      eCheck.log('expected hit name', shouldHit.name);
+      eCheck.log('expected empty isContact', shouldEmpty.isContact,
                          shouldEmpty);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
   T.action('max empties, trigger additional empty, observe clear', eCheck,
            function() {
-    eCheck.expect_namedValue('pending lookups', 1);
-    eCheck.expect_namedValue('expected empty isContact', false);
-    eCheck.expect_namedValue('post-lookup hit count', 0);
-    eCheck.expect_namedValue('post-lookup empty count', 0);
-    eCheck.expect_namedValue('post-lookup cache entry count', 0);
+    eCheck.expect('pending lookups',  1);
+    eCheck.expect('expected empty isContact',  false);
+    eCheck.expect('post-lookup hit count',  0);
+    eCheck.expect('post-lookup empty count',  0);
+    eCheck.expect('post-lookup cache entry count',  0);
 
     // the comparison for reset is '>' which matches with our name here.
     ContactCache._cacheEmptyEntries = ContactCache.MAX_CACHE_EMPTY;
 
     var shouldEmpty = ContactCache.resolvePeep(
                         { name: 'Zorro', address: 'zor@o' });
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValue('expected empty isContact', shouldEmpty.isContact);
+      eCheck.log('expected empty isContact', shouldEmpty.isContact);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
@@ -302,25 +304,25 @@ TD.commonCase('bounded cache size', function(T, RT) {
   // trying to do.
   T.action('looking up our clearing empty is a miss the next time', eCheck,
            function() {
-    eCheck.expect_namedValue('pending lookups', 1);
-    eCheck.expect_namedValue('expected empty isContact', false);
+    eCheck.expect('pending lookups',  1);
+    eCheck.expect('expected empty isContact',  false);
 
-    eCheck.expect_namedValue('post-lookup hit count', 0);
-    eCheck.expect_namedValue('post-lookup empty count', 1);
-    eCheck.expect_namedValue('post-lookup cache entry count', 1);
+    eCheck.expect('post-lookup hit count',  0);
+    eCheck.expect('post-lookup empty count',  1);
+    eCheck.expect('post-lookup cache entry count',  1);
 
     var shouldEmpty = ContactCache.resolvePeep(
                         { name: 'Zorro', address: 'zor@o' });
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValue('expected empty isContact', shouldEmpty.isContact);
+      eCheck.log('expected empty isContact', shouldEmpty.isContact);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
@@ -329,36 +331,36 @@ TD.commonCase('bounded cache size', function(T, RT) {
   // -- max out hits
   T.group('max out hits');
   T.action('add real hit, still have real empty', eCheck, function() {
-    eCheck.expect_namedValue('pending lookups', 1);
-    eCheck.expect_namedValue('expected hit isContact', true);
+    eCheck.expect('pending lookups',  1);
+    eCheck.expect('expected hit isContact',  true);
 
-    eCheck.expect_namedValue('post-lookup hit count', 1);
-    eCheck.expect_namedValue('post-lookup empty count', 1);
-    eCheck.expect_namedValue('post-lookup cache entry count', 2);
+    eCheck.expect('post-lookup hit count',  1);
+    eCheck.expect('post-lookup empty count',  1);
+    eCheck.expect('post-lookup cache entry count',  2);
 
     var shouldHit = ContactCache.resolvePeep(
                       { name: 'Foo', address: 'foo@bar' });
 
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValue('expected hit isContact', shouldHit.isContact);
+      eCheck.log('expected hit isContact', shouldHit.isContact);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
   T.action('max hits, trigger additional hit, observe clear', eCheck,
            function() {
-    eCheck.expect_namedValue('pending lookups', 1);
-    eCheck.expect_namedValueD('expected hit isContact', true);
-    eCheck.expect_namedValue('post-lookup hit count', 0);
-    eCheck.expect_namedValue('post-lookup empty count', 0);
-    eCheck.expect_namedValue('post-lookup cache entry count', 0);
+    eCheck.expect('pending lookups',  1);
+    eCheck.expect('expected hit isContact',  true);
+    eCheck.expect('post-lookup hit count',  0);
+    eCheck.expect('post-lookup empty count',  0);
+    eCheck.expect('post-lookup cache entry count',  0);
 
     testContacts.createContact('El Kabong', ['ka@bong']);
 
@@ -367,17 +369,17 @@ TD.commonCase('bounded cache size', function(T, RT) {
 
     var shouldHit = ContactCache.resolvePeep(
                         { name: 'Kabong', address: 'ka@bong' });
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValueD('expected hit isContact', shouldHit.isContact,
+      eCheck.log('expected hit isContact', shouldHit.isContact,
                          shouldHit);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
@@ -385,26 +387,26 @@ TD.commonCase('bounded cache size', function(T, RT) {
   // trying to do.
   T.action('looking up our clearing hit is a miss the next time', eCheck,
            function() {
-    eCheck.expect_namedValue('pending lookups', 1);
-    eCheck.expect_namedValueD('expected hit isContact', true);
+    eCheck.expect('pending lookups',  1);
+    eCheck.expect('expected hit isContact',  true);
 
-    eCheck.expect_namedValue('post-lookup hit count', 1);
-    eCheck.expect_namedValue('post-lookup empty count', 0);
-    eCheck.expect_namedValue('post-lookup cache entry count', 1);
+    eCheck.expect('post-lookup hit count',  1);
+    eCheck.expect('post-lookup empty count',  0);
+    eCheck.expect('post-lookup cache entry count',  1);
 
     var shouldHit = ContactCache.resolvePeep(
                         { name: 'Kabong', address: 'ka@bong' });
-    eCheck.namedValue('pending lookups',
+    eCheck.log('pending lookups',
                       ContactCache.pendingLookupCount);
     ContactCache.callbacks.push(function() {
-      eCheck.namedValueD('expected hit isContact', shouldHit.isContact,
+      eCheck.log('expected hit isContact', shouldHit.isContact,
                          shouldHit);
 
-      eCheck.namedValue('post-lookup hit count',
+      eCheck.log('post-lookup hit count',
                         ContactCache._cacheHitEntries);
-      eCheck.namedValue('post-lookup empty count',
+      eCheck.log('post-lookup empty count',
                         ContactCache._cacheEmptyEntries);
-      eCheck.namedValue('post-lookup cache entry count',
+      eCheck.log('post-lookup cache entry count',
                         countKeysInObj(ContactCache._contactCache));
     });
   });
@@ -423,11 +425,11 @@ TD.commonCase('bounded cache size', function(T, RT) {
  * - Two contact hits, clear contacts DB, both become misses, cache cleared
  *   out.
  */
-TD.commonCase('oncontactchange processing', function(T, RT) {
+commonCase('oncontactchange processing', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
-      testContacts = T.actor('testContacts', 'contacts'),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
@@ -483,10 +485,10 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
       mailPeeps = args.resolve.map(function(addresspair, idx) {
         var mailPeep = ContactCache.resolvePeep(addresspair);
         mailPeep.onchange = function() {
-          eCheck.event('MailPeep ' + idx + ' onchange');
-          eCheck.namedValue('MailPeep ' + idx + ' isContact',
+          eCheck.log('MailPeep ' + idx + ' onchange');
+          eCheck.log('MailPeep ' + idx + ' isContact',
                             mailPeep.isContact);
-          eCheck.namedValue('MailPeep ' + idx + ' name',
+          eCheck.log('MailPeep ' + idx + ' name',
                             mailPeep.name);
           // the e-mail address is what we are keying off of, so it can't change
           // in this test.
@@ -495,19 +497,19 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
       });
 
       function expectLookups() {
-        eCheck.expect_eventD('resolved');
+        eCheck.expect('resolved');
         args.preChange.forEach(function(def, idx) {
-          eCheck.expect_namedValue('MailPeep ' + idx + ' isContact', def.isContact);
-          eCheck.expect_namedValue('MailPeep ' + idx + ' name', def.name);
+          eCheck.expect('MailPeep ' + idx + ' isContact',  def.isContact);
+          eCheck.expect('MailPeep ' + idx + ' name',  def.name);
         });
       }
       function lookupsCompleted() {
-        eCheck.eventD('resolved',
-                      { liveById: clone(ContactCache._livePeepsById),
-                        liveByEmail: clone(ContactCache._livePeepsByEmail) });
+        eCheck.log('resolved',
+                   { liveById: clone(ContactCache._livePeepsById),
+                     liveByEmail: clone(ContactCache._livePeepsByEmail) });
         mailPeeps.forEach(function(peep, idx) {
-          eCheck.namedValue('MailPeep ' + idx + ' isContact', peep.isContact);
-          eCheck.namedValue('MailPeep ' + idx + ' name', peep.name);
+          eCheck.log('MailPeep ' + idx + ' isContact', peep.isContact);
+          eCheck.log('MailPeep ' + idx + ' name', peep.name);
         });
 
         // - generate changes only after lookups are complete!
@@ -542,19 +544,19 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
       }
 
       args.postChange.forEach(function(expChange, idx) {
-        eCheck.expect_event('MailPeep ' + idx + ' onchange');
-        eCheck.expect_namedValue('MailPeep ' + idx + ' isContact',
-                                 expChange.isContact);
-        eCheck.expect_namedValue('MailPeep ' + idx + ' name',
-                                 expChange.name);
+        eCheck.expect('MailPeep ' + idx + ' onchange');
+        eCheck.expect('MailPeep ' + idx + ' isContact',
+                      expChange.isContact);
+        eCheck.expect('MailPeep ' + idx + ' name',
+                      expChange.name);
       });
     });
     T.cleanup(eCheck, 'kill MailPeeps', function() {
-      eCheck.expect_namedValue('live peeps by id', Object.create(null));
-      eCheck.expect_namedValue('live peeps by email', Object.create(null));
+      eCheck.expect('live peeps by id',  Object.create(null));
+      eCheck.expect('live peeps by email',  Object.create(null));
       ContactCache.forgetPeepInstances(mailPeeps);
-      eCheck.namedValue('live peeps by id', ContactCache._livePeepsById);
-      eCheck.namedValue('live peeps by email', ContactCache._livePeepsByEmail);
+      eCheck.log('live peeps by id', ContactCache._livePeepsById);
+      eCheck.log('live peeps by email', ContactCache._livePeepsByEmail);
     });
   }
 
@@ -649,13 +651,13 @@ TD.commonCase('oncontactchange processing', function(T, RT) {
  * - If a slice is killed, the count of live MailPeeps is appropriately
  *   reduced (to zero, in this case.)
  */
-TD.commonCase('live peep tracking', function(T, RT) {
+commonCase('live peep tracking', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
-      testContacts = T.actor('testContacts', 'contacts'),
+      testContacts = T.actor('TestContacts', 'contacts'),
       eCheck = T.lazyLogger('check');
   var ContactCache = $mailapi.ContactCache;
 
@@ -672,8 +674,8 @@ TD.commonCase('live peep tracking', function(T, RT) {
 
   function expectAndCheckLiveCounts(expected) {
     T.check(eCheck, 'live counts', function() {
-      eCheck.expect_namedValueD('live', expected);
-      eCheck.namedValueD('live', countLiveThings(),
+      eCheck.expect('live',  expected);
+      eCheck.log('live', countLiveThings(),
                          { liveById: clone(ContactCache._livePeepsById),
                            liveByEmail: clone(ContactCache._livePeepsByEmail) });
     });
@@ -721,5 +723,7 @@ TD.commonCase('live peep tracking', function(T, RT) {
 
   T.group('cleanup');
 });
+
+return allTests;
 
 }); // end define

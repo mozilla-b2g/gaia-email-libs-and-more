@@ -9,27 +9,24 @@
 
 define(function(require, exports) {
 
-var $tc = require('rdcommon/testcontext');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var logic = require('logic');
 var $th_imap = require('./resources/th_main');
 var $fawlty = require('./resources/fault_injecting_socket');
 var $smtpprobe = require('smtp/probe');
 var $smtpclient = require('smtp/client');
 var syncbase = require('syncbase');
-var slog = require('slog');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_smtp_prober' }, null, [$th_imap.TESTHELPER], ['app']);
 
 function thunkSmtpTimeouts(lazyLogger) {
   var timeouts = [];
   $smtpclient.setTimeoutFunctions(
     function thunkedSetTimeout(func, delay) {
-      lazyLogger.namedValue('smtp:setTimeout', delay);
+      lazyLogger.log('smtp:setTimeout', delay);
       return timeouts.push(func);
     },
     function thunkedClearTimeout() {
-      lazyLogger.event('smtp:clearTimeout');
+      lazyLogger.log('smtp:clearTimeout');
     });
   return function fireThunkedTimeout(index) {
     timeouts[index]();
@@ -55,7 +52,14 @@ function makeCredsAndConnInfo() {
   };
 }
 
-TD.commonCase('timeout failure', function(T, RT) {
+
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
+commonCase('timeout failure', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
   var fireTimeout = thunkSmtpTimeouts(eCheck);
@@ -63,19 +67,19 @@ TD.commonCase('timeout failure', function(T, RT) {
 
   T.action(eCheck, 'create prober', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'unresponsive-server');
-    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    eCheck.expect('smtp:setTimeout',  syncbase.CONNECT_TIMEOUT_MS);
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
   });
   T.action(eCheck, 'trigger timeout', function() {
-    eCheck.expect_event('smtp:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'unresponsive-server');
+    eCheck.expect('smtp:clearTimeout');
+    eCheck.expect('probe result',  'unresponsive-server');
     fireTimeout(0);
   });
 });
 
-TD.commonCase('SSL failure', function(T, RT) {
+commonCase('SSL failure', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
@@ -84,19 +88,19 @@ TD.commonCase('SSL failure', function(T, RT) {
 
   T.action(eCheck, 'create prober, see SSL error', function() {
     FawltySocketFactory.precommand(HOST, PORT, 'bad-security');
-    eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+    eCheck.expect('smtp:setTimeout',  syncbase.CONNECT_TIMEOUT_MS);
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
-    eCheck.expect_event('smtp:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
+    eCheck.expect('smtp:clearTimeout');
+    eCheck.expect('probe result',  'bad-security');
   });
 });
 
 var SMTP_GREETING = '220 localhost ESMTP Fake\r\n';
 var SMTP_EHLO_RESPONSE = '250 AUTH PLAIN\r\n';
 
-TD.commonCase('STARTTLS unsupported', function(T, RT) {
+commonCase('STARTTLS unsupported', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
@@ -133,12 +137,12 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
           ],
         },
       ]);
-      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+      eCheck.expect('smtp:setTimeout',  syncbase.CONNECT_TIMEOUT_MS);
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
-    eCheck.expect_event('smtp:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
+    eCheck.expect('smtp:clearTimeout');
+    eCheck.expect('probe result',  'bad-security');
   });
 });
 
@@ -146,7 +150,7 @@ TD.commonCase('STARTTLS unsupported', function(T, RT) {
  * Make sure that we fail if a server only supports HELO in a context where we
  * want to perform a startTLS upgrade.
  */
-TD.commonCase('EHLO unsupported does not bypass startTLS', function(T, RT) {
+commonCase('EHLO unsupported does not bypass startTLS', function(T, RT) {
   $th_imap.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
@@ -174,12 +178,12 @@ TD.commonCase('EHLO unsupported does not bypass startTLS', function(T, RT) {
           ],
         },
       ]);
-      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
+      eCheck.expect('smtp:setTimeout',  syncbase.CONNECT_TIMEOUT_MS);
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo).catch(function(err) {
-      eCheck.namedValue('probe result', err);
+      eCheck.log('probe result', err);
     });
-    eCheck.expect_event('smtp:clearTimeout');
-    eCheck.expect_namedValue('probe result', 'bad-security');
+    eCheck.expect('smtp:clearTimeout');
+    eCheck.expect('probe result',  'bad-security');
   });
 });
 
@@ -200,10 +204,10 @@ function cannedLoginTest(T, RT, opts) {
       opts.expectFunc();
     }
     if (!opts.willNotMakeConnection) {
-      eCheck.expect_namedValue('smtp:setTimeout', syncbase.CONNECT_TIMEOUT_MS);
-      eCheck.expect_event('smtp:clearTimeout');
+      eCheck.expect('smtp:setTimeout',  syncbase.CONNECT_TIMEOUT_MS);
+      eCheck.expect('smtp:clearTimeout');
     }
-    eCheck.expect_namedValue('probe result', opts.expectResult);
+    eCheck.expect('probe result',  opts.expectResult);
     var precommands = [
       {
         match: true,
@@ -237,14 +241,14 @@ function cannedLoginTest(T, RT, opts) {
     }
     $smtpprobe.probeAccount(cci.credentials, cci.connInfo)
       .then(function(result) {
-        eCheck.namedValue('probe result', null);
+        eCheck.log('probe result', null);
       }).catch(function(err) {
-        eCheck.namedValue('probe result', err);
+        eCheck.log('probe result', err);
       });
   });
 };
 
-TD.commonCase('bad username or password', function(T, RT) {
+commonCase('bad username or password', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '535 Authentication DENIED\r\n',
     expectResult: 'bad-user-or-pass',
@@ -257,14 +261,14 @@ TD.commonCase('bad username or password', function(T, RT) {
  * that we at least return "bad-user-or-pass" based on the status code.
  * (As opposed to our previous regexp.)
  */
-TD.commonCase('gmail application-specific password', function(T, RT) {
+commonCase('gmail application-specific password', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '534 5.7.9 Application-specific password needed!\r\n',
     expectResult: 'bad-user-or-pass',
   });
 });
 
-TD.commonCase('angry server', function(T, RT) {
+commonCase('angry server', function(T, RT) {
   cannedLoginTest(T, RT, {
     ehloResponse: '500 go away!\r\n',
     // it will then say HELO, which we also hate, because we are angry.
@@ -277,7 +281,7 @@ TD.commonCase('angry server', function(T, RT) {
  * When our access token expires, we must make a [successful] request
  * to the Gmail OAUTH server, and update the credentials.
  */
-TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT) {
+commonCase('oauth, access token is expired, refresh succeeds', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     mutateConnInfo: function(cci) {
@@ -293,9 +297,7 @@ TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT
       };
     },
     expectFunc: function() {
-      var lc = new slog.LogChecker(T, RT, 'logs');
-
-      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+      logic.interceptOnce('oauth:renew-xhr', function(xhr) {
         var xhr = {
           open: function() { },
           setRequestHeader: function() { },
@@ -314,12 +316,13 @@ TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT
         return xhr;
       });
 
+      var eOauth = T.actor('Oauth');
       // We should properly update our credentials:
-      lc.mustLog('oauth:got-access-token', {
+      eOauth.expect('got-access-token', {
         _accessToken: 'valid access token'
       });
-      lc.mustLog('oauth:credentials-changed');
-      lc.mustLog('probe:smtp:credentials-updated');
+      eOauth.expect('credentials-changed');
+      T.actor('SmtpProber').expect('credentials-updated');
     },
     precommands: [
       {
@@ -358,7 +361,7 @@ TD.commonCase('oauth, access token is expired, refresh succeeds', function(T, RT
  * Assume that everything works fine; we shouldn't log any updates to
  * credentials, as the access token remains unchanged.
  */
-TD.commonCase('oauth, access token is fine', function(T, RT) {
+commonCase('oauth, access token is fine', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     mutateConnInfo: function(cci) {
@@ -374,8 +377,7 @@ TD.commonCase('oauth, access token is fine', function(T, RT) {
       };
     },
     expectFunc: function() {
-      var lc = new slog.LogChecker(T, RT, 'logs');
-      lc.mustNotLog('oauth:credentials-changed');
+      T.actor('Oauth').expectNot('credentials-changed');
     },
     precommands: [
       {
@@ -415,7 +417,7 @@ TD.commonCase('oauth, access token is fine', function(T, RT) {
  * still rejects us, likely because the user revoked the key. They
  * must go through the OAUTH setup process again.
  */
-TD.commonCase('oauth, access token is fine but server still hates us', function(T, RT) {
+commonCase('oauth, access token is fine but server still hates us', function(T, RT) {
   cannedLoginTest(T, RT, {
     // The first part of the SASL response is a base64-encoded
     // challenge response that we don't care about; the SMTP server
@@ -446,7 +448,7 @@ TD.commonCase('oauth, access token is fine but server still hates us', function(
  * (though the server remains reachable, so it's not a connectivity
  * problem), kick the user back through the OAUTH flow.
  */
-TD.commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
+commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
   cannedLoginTest(T, RT, {
     willNotMakeConnection: true,
     mutateConnInfo: function(cci) {
@@ -462,9 +464,7 @@ TD.commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
       };
     },
     expectFunc: function() {
-      var lc = new slog.LogChecker(T, RT, 'logs');
-
-      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+      logic.interceptOnce('oauth:renew-xhr', function(xhr) {
         var xhr = {
           open: function() { },
           setRequestHeader: function() { },
@@ -488,7 +488,7 @@ TD.commonCase('oauth, access token is expired, refresh fails', function(T, RT) {
  * connection comes back online. Bail with "unresponsive-server",
  * rather than needs-oauth-reauth.
  */
-TD.commonCase('oauth, access token is expired, refresh unreachable', function(T, RT) {
+commonCase('oauth, access token is expired, refresh unreachable', function(T, RT) {
   cannedLoginTest(T, RT, {
     willNotMakeConnection: true,
     mutateConnInfo: function(cci) {
@@ -504,9 +504,7 @@ TD.commonCase('oauth, access token is expired, refresh unreachable', function(T,
       };
     },
     expectFunc: function() {
-      var lc = new slog.LogChecker(T, RT, 'logs');
-
-      lc.interceptOnce('oauth:renew-xhr', function(xhr) {
+      logic.interceptOnce('oauth:renew-xhr', function(xhr) {
         xhr = {
           open: function() { },
           setRequestHeader: function() { },
@@ -525,7 +523,7 @@ TD.commonCase('oauth, access token is expired, refresh unreachable', function(T,
 });
 
 
-TD.commonCase('bad address', function(T, RT) {
+commonCase('bad address', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     precommands: [
@@ -552,7 +550,7 @@ TD.commonCase('bad address', function(T, RT) {
   });
 });
 
-TD.commonCase('good address', function(T, RT) {
+commonCase('good address', function(T, RT) {
   cannedLoginTest(T, RT, {
     loginErrorString: '200 Keep up the good work\r\n',
     precommands: [
@@ -588,5 +586,6 @@ TD.commonCase('good address', function(T, RT) {
   });
 });
 
+return allTests;
 
 }); // end define

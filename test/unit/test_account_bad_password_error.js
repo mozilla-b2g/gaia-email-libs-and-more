@@ -8,25 +8,21 @@
  * are already connected.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'exports'],
-       function($tc, $th_main, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_bad_password_error' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('reports bad password', function(T, RT) {
+return new LegacyGelamTest('reports bad password', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('check');
 
   T.action('set up MailAPI.onbadlogin', function() {
     testUniverse.MailAPI.onbadlogin = function(acct) {
-      eCheck.event('badlogin');
+      eCheck.log('badlogin');
     };
   });
 
@@ -148,7 +144,7 @@ TD.commonCase('reports bad password', function(T, RT) {
     T.action('Expect incoming ' + incoming + ', outgoing ' + outgoing,
              eCheck, outgoing, testAccount.eBackoff, function() {
       if (eitherWrong) {
-        eCheck.expect_event('badlogin');
+        eCheck.expect('badlogin');
       }
       var expectedProblems = [];
       if (eitherWrong) {
@@ -158,23 +154,23 @@ TD.commonCase('reports bad password', function(T, RT) {
         expectedProblems.push('connection');
       }
 
-      eCheck.expect_namedValue('account:problems', expectedProblems);
-      eCheck.expect_namedValue('account:enabled', !eitherWrong);
+      eCheck.expect('account:problems', expectedProblems);
+      eCheck.expect('account:enabled', !eitherWrong);
 
       if (incoming === WRONG && testAccount.type !== 'activesync') {
         // Only IMAP and POP3 accounts have eBackoff.
-        testAccount.eBackoff.expect_connectFailure(true);
-        testAccount.eBackoff.expect_state('broken');
+        testAccount.eBackoff.expect('connectFailure', { reachable: true });
+        testAccount.eBackoff.expect('state', { state: 'broken' });
       } else if (testAccount.type === 'imap' && previousIncoming === WRONG) {
         // If IMAP was broken before, eBackoff should heal itself.
-        testAccount.eBackoff.expect_state('healthy');
+        testAccount.eBackoff.expect('state', { state: 'healthy' });
       }
 
       testUniverse.allAccountsSlice.items[0].clearProblems(function() {
-        eCheck.namedValue('account:problems',
+        eCheck.log('account:problems',
                           (testAccount.compositeAccount ||
                            testAccount.folderAccount).problems);
-        eCheck.namedValue('account:enabled',
+        eCheck.log('account:enabled',
                           testAccount.folderAccount.enabled);
       });
 
@@ -217,7 +213,7 @@ TD.commonCase('reports bad password', function(T, RT) {
         failure: true,
         expectFunc: function() {
           RT.reportActiveActorThisStep(eCheck);
-          eCheck.expect_event('badlogin');
+          eCheck.expect('badlogin');
         }
       });
   }

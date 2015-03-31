@@ -6,20 +6,14 @@
 
 define(function(require, exports) {
 
-var $tc = require('rdcommon/testcontext');
-var $th_main = require('./resources/th_main');
-var slog = require('slog');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_internaldate_no_tz' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('basic sync succeeds', function(T, RT) {
+return new LegacyGelamTest('basic sync succeeds', function(T, RT) {
   T.group('setup');
 
-  var testUniverse = T.actor('testUniverse', 'U');
+  var testUniverse = T.actor('TestUniverse', 'U');
   var testAccount = T.actor(
-    'testAccount', 'A',
+    'TestAccount', 'A',
     {
       universe: testUniverse,
       imapExtensions: ['NO_INTERNALDATE_TZ']

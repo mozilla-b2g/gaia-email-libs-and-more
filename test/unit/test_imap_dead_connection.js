@@ -1,19 +1,19 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'errbackoff', 'exports'],
-       function($tc, $th_imap, $fawlty, $errbackoff, exports) {
+define(function(require) {
+
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $fawlty = require('./resources/fault_injecting_socket');
+var $errbackoff = require('errbackoff');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_dead_connection' }, null, [$th_imap.TESTHELPER], ['app']);
-
-TD.commonCase('timelySyncSearch retries given a dead conn', function(T, RT) {
+return new LegacyGelamTest('timelySyncSearch retries given a dead conn',
+                           function(T, RT) {
   T.group('setup');
   T.check('reset', function() {
     FawltySocketFactory.reset();
   });
 
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eCheck = T.lazyLogger('check');
 
@@ -37,9 +37,9 @@ TD.commonCase('timelySyncSearch retries given a dead conn', function(T, RT) {
     { failure: false,
       expectFunc: function() {
         RT.reportActiveActorThisStep(testAccount.eImapAccount);
-        testAccount.eImapAccount.expect_deadConnection();
-        testAccount.eImapAccount.expect_createConnection();
-        testAccount.eImapAccount.expect_reuseConnection();
+        testAccount.eImapAccount.expect('deadConnection');
+        testAccount.eImapAccount.expect('createConnection');
+        testAccount.eImapAccount.expect('reuseConnection');
 
         // Have the socket close on us when we go to say more stuff to the
         // server.  The sync process should be active at this point.
@@ -57,10 +57,10 @@ TD.commonCase('timelySyncSearch retries given a dead conn', function(T, RT) {
     { failure: 'deadconn',
       expectFunc: function() {
         RT.reportActiveActorThisStep(testAccount.eImapAccount);
-        testAccount.eImapAccount.expect_deadConnection();
-        testAccount.eImapAccount.expect_createConnection();
-        testAccount.eImapAccount.expect_reuseConnection();
-        testAccount.eImapAccount.expect_deadConnection();
+        testAccount.eImapAccount.expect('deadConnection');
+        testAccount.eImapAccount.expect('createConnection');
+        testAccount.eImapAccount.expect('reuseConnection');
+        testAccount.eImapAccount.expect('deadConnection');
 
         // Close the second connection attempt (the retry).
         FawltySocketFactory.precommand(

@@ -1,0 +1,68 @@
+/**
+ * Styles for "test-logs/index.html", organized hierarchically.
+ */
+
+.TestRunSummary {
+  margin: 1em;
+  padding: 1em;
+}
+
+.SuiteSummary.pass {
+  border-left: 4px solid rgba(0, 200, 0, 0.5);
+  padding-left: 1px;
+}
+.SuiteSummary.fail {
+  border-left: 4px solid #c00;
+  padding-left: 1px;
+}
+
+.TestRunSummary .timestamp {
+  font-size: smaller;
+  opacity: 0.5;
+  margin-bottom: 0.5em;
+}
+
+.SuiteSummary {
+  cursor: pointer;
+  display: block;
+  line-height: 1.5;
+  text-decoration: none;
+  color: inherit;
+}
+
+.SuiteSummary:hover {
+  background: white;
+}
+
+
+.TestSummary .result {
+  background: #0a0;
+  color: white;
+  font-size: smaller;
+  font-weight: bold;
+  display: inline-block;
+  padding: 0.2em;
+  width: 3em;
+  text-align: center;
+  margin-right: 1em;
+}
+.TestSummary.fail .result {
+  text-transform: uppercase;
+  background: #a00;
+}
+
+.TestSummary .filename {
+  margin-right: 1em;
+  font-weight: bold;
+}
+
+.TestSummary .variant {
+  font-size: smaller;
+  display: inline-block;
+  padding: 0.2em;
+  margin-right: 1em;
+  font-style: italic;
+  opacity: 0.7;
+  min-width: 3em;
+  text-align: center;
+}

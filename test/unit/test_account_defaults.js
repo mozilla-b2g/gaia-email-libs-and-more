@@ -1,23 +1,20 @@
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_defaults' }, null,
-  [$th_imap.TESTHELPER], ['app']);
-
-TD.commonCase('last created account is default by default', function(T, RT) {
+return new LegacyGelamTest('last created account is default by default',
+                           function(T, RT) {
   T.group('setup');
   var initialNonDefaultAccount,
-      testUniverse = T.actor('testUniverse', 'UDefaults'),
+      testUniverse = T.actor('TestUniverse', 'UDefaults'),
       timeValue = Date.now(),
       eLazy = T.lazyLogger('defaultsCreated'),
-      testAccount1 = T.actor('testAccount', 'ADefaults1', {
+      testAccount1 = T.actor('TestAccount', 'ADefaults1', {
                        universe: testUniverse,
                        timeWarp: timeValue
                      });
 
-  var testAccount2 = T.actor('testAccount', 'ADefaults2', {
+  var testAccount2 = T.actor('TestAccount', 'ADefaults2', {
                        universe: testUniverse,
                        timeWarp: timeValue + 1000,
                        forceCreate: true
@@ -30,13 +27,12 @@ TD.commonCase('last created account is default by default', function(T, RT) {
         acctsSlice = testUniverse.allAccountsSlice,
         defaultId = acctsSlice.defaultAccount.id;
 
-    eLazy.expect_namedValue('default account id', defaultId);
-    eLazy.expect_namedValue('default account id is not the first account',
-                             true);
+    eLazy.expect('default account id', defaultId);
+    eLazy.expect('default account id is not the first account', true);
 
-    eLazy.namedValue('default account id', testAccount2.account.id,
+    eLazy.log('default account id', testAccount2.account.id,
                       testAccount2.account.id);
-    eLazy.namedValue('default account id is not the first account',
+    eLazy.log('default account id is not the first account',
                       testAccount1.account.id !== defaultId);
 
     // Find the non-default account and set it to the default. Cycle through
@@ -48,8 +44,8 @@ TD.commonCase('last created account is default by default', function(T, RT) {
       }
     }
 
-    eLazy.expect_namedValue('has a non-default account', true);
-    eLazy.namedValue('has a non-default account', !!initialNonDefaultAccount);
+    eLazy.expect('has a non-default account',  true);
+    eLazy.log('has a non-default account', !!initialNonDefaultAccount);
   });
 
   T.action('change default account', eLazy, function () {
@@ -57,20 +53,19 @@ TD.commonCase('last created account is default by default', function(T, RT) {
     // cleared when default account is changed
     testUniverse.MailAPI._recvCache.__testAccountDefaults = true;
 
-    eLazy.expect_event('modifyAccount done');
-    eLazy.expect_namedValueD('Default is now first account',
-                            initialNonDefaultAccount.id);
-    eLazy.expect_namedValue('Cache is cleared after account modified', true);
+    eLazy.expect('modifyAccount done');
+    eLazy.expect('Default is now first account', initialNonDefaultAccount.id);
+    eLazy.expect('Cache is cleared after account modified',  true);
 
     initialNonDefaultAccount.modifyAccount({ setAsDefault: true }, function() {
-      eLazy.event('modifyAccount done');
+      eLazy.log('modifyAccount done');
 
       var defaultAccount = testUniverse.allAccountsSlice.defaultAccount;
-      eLazy.namedValueD('Default is now first account',
+      eLazy.log('Default is now first account',
                         defaultAccount.id,
                         defaultAccount.id);
 
-      eLazy.namedValue('Cache is cleared after account modified',
+      eLazy.log('Cache is cleared after account modified',
                       !testUniverse.MailAPI._recvCache
                       .hasOwnProperty('__testAccountDefaults'));
     });
@@ -81,14 +76,14 @@ TD.commonCase('last created account is default by default', function(T, RT) {
   testUniverse.do_shutdown();
 
   T.group('restore');
-  var TU2 = T.actor('testUniverse', 'TU2', {
+  var TU2 = T.actor('TestUniverse', 'TU2', {
                         old: testUniverse
                      }),
-      TA1 = T.actor('testAccount', 'ADefaults1', {
+      TA1 = T.actor('TestAccount', 'ADefaults1', {
                        universe: TU2,
                        restored: true
                      }),
-      TA2 = T.actor('testAccount', 'ADefaults2', {
+      TA2 = T.actor('TestAccount', 'ADefaults2', {
                        universe: TU2,
                        restored: true
                      }),
@@ -97,15 +92,13 @@ TD.commonCase('last created account is default by default', function(T, RT) {
   T.action('first account should be default', eLazy2, function() {
     var defaultId = TU2.allAccountsSlice.defaultAccount.id;
 
-    eLazy2.expect_namedValueD('default account id is first account',
-                      defaultId);
-    eLazy2.expect_namedValue('default account id is not the second account',
-                      true);
+    eLazy2.expect('default account id is first account', defaultId);
+    eLazy2.expect('default account id is not the second account', true);
 
-    eLazy2.namedValueD('default account id is first account',
+    eLazy2.log('default account id is first account',
                       TA1.account.id,
                       TA1.account.id);
-    eLazy2.namedValue('default account id is not the second account',
+    eLazy2.log('default account id is not the second account',
                       TA2.account.id !== defaultId);
   });
 

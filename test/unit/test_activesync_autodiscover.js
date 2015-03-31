@@ -13,15 +13,11 @@
  *
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+define(function(require, exports) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_activesync_autodiscover' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
+  var LegacyGelamTest = require('./resources/legacy_gelamtest');
+  var $wbxml = require('wbxml');
+  var $ascp = require('activesync/codepages');
 
 /**
  * Create an ActiveSync account using the result that our autoconfig returns
@@ -33,12 +29,13 @@ var TD = exports.TD = $tc.defineTestsFor(
  * of XHR calls and that's annoying and doesn't get us anything except us
  * potentially breaking the non-mock uses of XHR we do want to work.
  */
-TD.commonCase('create ActiveSync account from fake autoconfig result',
-              function(T, RT) {
+return new LegacyGelamTest(
+  'create ActiveSync account from fake autoconfig result',
+  function(T, RT) {
 
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
       testAccount = T.actor(
-        'testAccount', 'A',
+        'TestAccount', 'A',
         { universe: testUniverse, createVia: 'autodiscover' });
 
   // So, there isn't actually anything to do in here.

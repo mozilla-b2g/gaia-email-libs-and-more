@@ -5,13 +5,13 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     'worker-router',
     'module',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $router,
     $module,
     exports
@@ -27,6 +27,8 @@ var TestDeviceStorageMixins = {
       throw new Error('You must specify the storage to use; ex: "sdcard"');
 
     self.storage = null;
+
+    logic.defineScope(self, 'TestDeviceStorage');
     self._nextReqId = 0;
     self._callbacks = {};
 
@@ -37,26 +39,26 @@ var TestDeviceStorageMixins = {
       function(msg) {
         var cmd = msg.cmd, data = msg.args;
         if (cmd === 'attached') {
-          self._logger.attached();
+          logic(self, 'attached');
         }
         else if (cmd === 'nuked') {
-          self._logger.nuked(data.path);
+          logic(self, 'nuked', { path: data.path });
         }
         else if (cmd === 'detached') {
-          self._logger.detached();
+          logic(self, 'detached');
         }
         if (cmd === 'change') {
           var event = data;
           switch (event.reason) {
             case 'created':
-              self._logger.created(event.path);
+              logic(self, 'created', { path: event.path });
               cleanupList.push(event.path);
               break;
             case 'modified':
-              self._logger.modified(event.path);
+              logic(self, 'modified', { path: event.path });
               break;
             case 'deleted':
-              self._logger.deleted(event.path);
+              logic(self, 'deleted', { path: event.path });
               var idx = cleanupList.indexOf(event.path);
               if (idx !== -1)
                 cleanupList.splice(idx, 1);
@@ -76,8 +78,7 @@ var TestDeviceStorageMixins = {
       });
 
     self.T.convenienceSetup(self, 'attaches', function() {
-      self.__attachToLogger(LOGFAB.testDeviceStorage(self, null, self.__name));
-      self.expect_attached();
+      self.expect('attached');
       sendMessage('attach', 'sdcard');
     });
 
@@ -90,7 +91,7 @@ var TestDeviceStorageMixins = {
         self.expect_deleted(path);
       });
       */
-      self.expect_detached();
+      self.expect('detached');
       sendMessage('detach', { nuke: [] });
     });
   },
@@ -108,25 +109,9 @@ var TestDeviceStorageMixins = {
   },
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testDeviceStorage: {
-    events: {
-      attached: {},
-      detached: {},
-
-      created: { path: true },
-      modified: { path: true },
-      deleted: { path: true },
-    }
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB
-  ],
   actorMixins: {
-    testDeviceStorage: TestDeviceStorageMixins
+    TestDeviceStorage: TestDeviceStorageMixins
   }
 };
 

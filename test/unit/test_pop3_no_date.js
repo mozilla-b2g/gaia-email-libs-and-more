@@ -7,18 +7,14 @@
 
 define(function(require, exports) {
 
-var $tc = require('rdcommon/testcontext');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $th_main = require('./resources/th_main');
 var $date = require('date');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_pop3_no_date' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('do not die on messages with no date', function(T, RT) {
+return new LegacyGelamTest('do not die on messages with no date', (T, RT) => {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
   var eSync = T.lazyLogger('sync');
 
   var inboxFolder = testAccount.do_useExistingFolderWithType('inbox', '');
@@ -38,8 +34,8 @@ TD.commonCase('do not die on messages with no date', function(T, RT) {
   T.check(eSync, 'date should be now', function() {
     var datelessMessage = inboxView.slice.items[0];
     // note that by default all tests use a latched 'NOW'
-    eSync.expect_namedValue('message date', $date.NOW());
-    eSync.namedValue('message date', datelessMessage.date.valueOf());
+    eSync.expect('message date',  $date.NOW());
+    eSync.log('message date', datelessMessage.date.valueOf());
   });
 
   T.group('cleanup');

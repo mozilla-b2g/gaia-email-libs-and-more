@@ -1,15 +1,10 @@
-/**
- *
- **/
 define(
   [
     'gelam/worker-router',
-    'rdcommon/testdriver',
     'require'
   ],
   function(
     $router,
-    $td,
     require
   ) {
 
@@ -75,6 +70,7 @@ window.ErrorTrapper = ErrorTrapper;
 requirejs.onError = ErrorTrapper.yoAnError.bind(ErrorTrapper);
 
 
+
 var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
   var cmd = msg.cmd, args = msg.args, superDebug = null;
   console._enabled = args.testParams.testLogEnable;
@@ -86,17 +82,50 @@ var sendMessage = $router.registerSimple('loggest-runner', function(msg) {
       superDebug = SUPER_DEBUG;
     }
 
-    $td.runTestsFromModule(
-      args.testModuleName,
-      {
-        exposeToTest: msg.args.testParams,
-        resultsReporter: function(jsonnableObj) {
-          sendMessage('done', JSON.stringify(jsonnableObj));
-          //self.close();
-        }
-      },
-      ErrorTrapper,
-      superDebug);
+    var currentGelamTest;
+    var testLogs = [];
+    // Error Handling
+
+    function handleUncaught(ex) {
+      console.error('Uncaught Exception:', ex);
+    }
+    function handleEarlyExit() {
+      console.error('EVENT LOOP TERMINATING IMPLYING BAD TEST!');
+      if (currentGelamTest) {
+        testLogs.push(currentGelamTest.gatherLogs('early exit'));
+        sendMessage('done', JSON.stringify(testLogs));
+      }
+    }
+
+    ErrorTrapper.on('uncaughtException', handleUncaught);
+    ErrorTrapper.once('exit', handleEarlyExit);
+    ErrorTrapper.callbackOnError((err, moduleName) => {
+      console.error('RequireJS Error', err, moduleName);
+    });
+
+    var removeErrorTraps = function() {
+      ErrorTrapper.removeListener('uncaughtException', handleUncaught);
+      ErrorTrapper.removeListener('exit', handleEarlyExit);
+    };
+
+    require([args.testModuleName], function(testArray) {
+      if (!Array.isArray(testArray)) {
+        testArray = [testArray];
+      }
+
+      var promise = Promise.resolve();
+      testArray.forEach((gelamTest) => {
+        promise = promise.then(() => {
+          return gelamTest.run(msg.args.testParams);
+        }).then((resultsJson) => {
+          testLogs.push(resultsJson);
+        });
+      });
+      promise = promise.then(() => {
+        removeErrorTraps();
+        sendMessage('done', JSON.stringify(testLogs));
+      });
+    });
   }
   else if (cmd === 'error') {
     ErrorTrapper.yoAnError(args);

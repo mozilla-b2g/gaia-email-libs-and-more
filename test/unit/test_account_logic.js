@@ -2,14 +2,10 @@
  * Account logic that currently needs to be its own file because IndexedDB
  * db reuse makes this test unhappy.
  **/
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'activesync/codepages', 'exports'],
-       function($tc, $th_main, $ascp, exports) {
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_logic' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var $ascp = require('activesync/codepages');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * Test that we can add and remove accounts and that the view-slices properly
@@ -23,12 +19,14 @@ var TD = exports.TD = $tc.defineTestsFor(
  * - ActiveSync: Make sure each account uses a different device id.
  * - ActiveSync: Make sure we're using those device id's to talk to the server.
  */
-TD.commonCase('account creation/deletion', function(T, RT) {
+return [
+
+new LegacyGelamTest('account creation/deletion', function(T, RT) {
   T.group('create universe, first account');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U',
+  var testUniverse = T.actor('TestUniverse', 'U',
                              { name: 'A' }),
-      testAccountA = T.actor('testAccount', 'A',
+      testAccountA = T.actor('TestAccount', 'A',
                              { universe: testUniverse }),
       eSliceCheck = T.lazyLogger('sliceCheck'),
       eLazyCheck = T.lazyLogger('check');
@@ -40,8 +38,8 @@ TD.commonCase('account creation/deletion', function(T, RT) {
   if (TEST_PARAMS.type === 'activesync') {
     T.check(eLazyCheck, 'uses device id with server', function() {
       var idA = testAccountA.account.accountDef.connInfo.deviceId;
-      eLazyCheck.expect_namedValue('server observed device ids', [idA]);
-      eLazyCheck.namedValue(
+      eLazyCheck.expect('server observed device ids',  [idA]);
+      eLazyCheck.log(
         'server observed device ids',
         testAccountA.testServer.getObservedDeviceIds({ clear: true }));
     });
@@ -49,18 +47,18 @@ TD.commonCase('account creation/deletion', function(T, RT) {
 
 
   T.group('create second account');
-  var testAccountB = T.actor('testAccount', 'B',
+  var testAccountB = T.actor('TestAccount', 'B',
                              { universe: testUniverse, name: 'B',
                                forceCreate: true });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
-    eSliceCheck.expect_namedValue('accounts[1].id', testAccountB.accountId);
-    eSliceCheck.namedValue('accounts[1].id', gAllAccountsSlice.items[1].id);
+    eSliceCheck.expect('accounts[1].id',  testAccountB.accountId);
+    eSliceCheck.log('accounts[1].id', gAllAccountsSlice.items[1].id);
 
     // There should be some folders (don't know how many; it's probably a
     // realish account), located after all previously known folders.
 
-    eSliceCheck.expect_event('folders present');
+    eSliceCheck.expect('folders present');
     folderPointBC = gAllFoldersSlice.items.length;
     var bFoldersObserved = 0;
     if (gAllFoldersSlice.items[folderPointAB].type !== 'account')
@@ -77,44 +75,44 @@ TD.commonCase('account creation/deletion', function(T, RT) {
       throw new Error("Invariant problemo; did not scan all folders; " +
                       bFoldersObserved + ' observed, ' +
                       (folderPointBC - folderPointAB) + ' expected');
-    eSliceCheck.event('folders present');
+    eSliceCheck.log('folders present');
   });
 
   if (TEST_PARAMS.type === 'activesync') {
     T.check(eLazyCheck, 'uses device id with server', function() {
       var idB = testAccountB.account.accountDef.connInfo.deviceId;
-      eLazyCheck.expect_namedValue('server observed device ids', [idB]);
-      eLazyCheck.namedValue(
+      eLazyCheck.expect('server observed device ids',  [idB]);
+      eLazyCheck.log(
         'server observed device ids',
         testAccountB.testServer.getObservedDeviceIds({ clear: true }));
     });
 
     T.check(eLazyCheck, 'different device ids', function() {
-      eLazyCheck.expect_namedValueD('device ids', 'different');
+      eLazyCheck.expect('device ids',  'different');
       var idA = testAccountA.account.accountDef.connInfo.deviceId;
       var idB = testAccountB.account.accountDef.connInfo.deviceId;
-      eLazyCheck.namedValueD(
+      eLazyCheck.log(
         'device ids', (idA === idB) ? 'same' : 'different',
         { idA: idA, idB: idB });
     });
   }
 
   T.group('create third account');
-  var testAccountC = T.actor('testAccount', 'C',
+  var testAccountC = T.actor('TestAccount', 'C',
                              { universe: testUniverse, forceCreate: true });
   T.check(eSliceCheck, 'account and folders listed', function() {
     // the account should be after the known account
-    eSliceCheck.expect_namedValue('accounts[1].id', testAccountB.accountId);
-    eSliceCheck.namedValue('accounts[1].id', gAllAccountsSlice.items[1].id);
+    eSliceCheck.expect('accounts[1].id',  testAccountB.accountId);
+    eSliceCheck.log('accounts[1].id', gAllAccountsSlice.items[1].id);
 
     // There should be some folders (don't know how many; it's probably a
     // realish account), located after all previously known folders.
 
-    eSliceCheck.expect_namedValueD('folder type at insertion', 'account');
-    eSliceCheck.expect_event('folders present');
+    eSliceCheck.expect('folder type at insertion',  'account');
+    eSliceCheck.expect('folders present');
     folderPointC = gAllFoldersSlice.items.length;
     var cFoldersObserved = 0;
-    eSliceCheck.namedValueD('folder type at insertion', 'account',
+    eSliceCheck.log('folder type at insertion', 'account',
                             gAllFoldersSlice.items.concat());
     for (var i = folderPointBC; i < gAllFoldersSlice.items.length; i++) {
       var folder = gAllFoldersSlice.items[i];
@@ -127,7 +125,7 @@ TD.commonCase('account creation/deletion', function(T, RT) {
       throw new Error("Invariant problemo; did not scan all folders; " +
                       cFoldersObserved + ' observed, ' +
                       (folderPointC - folderPointBC) + ' expected');
-    eSliceCheck.event('folders present');
+    eSliceCheck.log('folders present');
   });
 
   T.group('delete second (middle) account');
@@ -137,21 +135,20 @@ TD.commonCase('account creation/deletion', function(T, RT) {
     // EventEmitter.removeAllListeners was broken, so we still got close events
     // after we no longer wanted them.
 
-    eSliceCheck.expect_namedValue('remaining account', testAccountA.accountId);
-    eSliceCheck.expect_namedValue('remaining account', testAccountC.accountId);
+    eSliceCheck.expect('remaining account',  testAccountA.accountId);
+    eSliceCheck.expect('remaining account',  testAccountC.accountId);
 
     var expectedFolders = folderPointC - (folderPointBC - folderPointAB);
-    eSliceCheck.expect_namedValue('num folders', expectedFolders);
-    eSliceCheck.expect_namedValue('folder[AB-1].account',
-                                  testAccountA.accountId);
-    eSliceCheck.expect_namedValue('folder[AB].account',
-                                  testAccountC.accountId);
+    eSliceCheck.expect('num folders',  expectedFolders);
+    eSliceCheck.expect('folder[AB-1].account', testAccountA.accountId);
+    eSliceCheck.expect('folder[AB].account', testAccountC.accountId);
 
     // IMAP accounts still have one connection open.
     if (TEST_PARAMS.type === 'imap') {
-      testAccountB.eOpAccount.expect_deadConnection();
+      testAccountB.eOpAccount.expect('deadConnection');
     }
-    testAccountB.eOpAccount.expect_accountDeleted('saveAccountState');
+    testAccountB.eOpAccount.expect('accountDeleted',
+                                   { reason: 'saveAccountState' });
 
     // this does not have a callback, so use a ping to wait...
     // ... but the ping fires too early, so wait for onremove,
@@ -163,15 +160,15 @@ TD.commonCase('account creation/deletion', function(T, RT) {
         gAllAccountsSlice.onremove = null;
         var i;
         for (i = 0; i < gAllAccountsSlice.items.length; i++) {
-          eSliceCheck.namedValue('remaining account',
+          eSliceCheck.log('remaining account',
                                  gAllAccountsSlice.items[i].id);
         }
 
-        eSliceCheck.namedValue('num folders', gAllFoldersSlice.items.length);
-        eSliceCheck.namedValue(
+        eSliceCheck.log('num folders', gAllFoldersSlice.items.length);
+        eSliceCheck.log(
           'folder[AB-1].account',
           gAllFoldersSlice.items[folderPointAB-1].id[0]);
-        eSliceCheck.namedValue(
+        eSliceCheck.log(
           'folder[AB].account',
           gAllFoldersSlice.items[folderPointAB].id[0]);
 
@@ -190,33 +187,33 @@ TD.commonCase('account creation/deletion', function(T, RT) {
   });
 
   T.group('cleanup');
-});
+}),
 
-TD.commonCase('create a second (unique) account', function(T, RT) {
+new LegacyGelamTest('create a second (unique) account', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
       // at this point 2 duplicate accounts exist...
-      testAccountA = T.actor('testAccount', 'A',
+      testAccountA = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
-      testAccountB = T.actor('testAccount', 'B',
+      testAccountB = T.actor('TestAccount', 'B',
                             { universe: testUniverse, restored: true }),
       // because of server reuse and wanting this to be a new account,
       // it needs to be a letter other than 'C'
       testAccountC = T.actor(
-        'testAccount', 'D',
+        'TestAccount', 'D',
         {
           universe: testUniverse,
           emailAddress: 'test2@' + TEST_PARAMS.emailDomain
         }),
       eSync = T.lazyLogger('sync');
-});
+}),
 
-TD.commonCase('try to create a duplicate account', function(T, RT) {
+new LegacyGelamTest('try to create a duplicate account', function(T, RT) {
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
       eSync = T.lazyLogger('sync');
   T.action('create account', testUniverse, eSync, function(T) {
-    eSync.expect_namedValue('account-creation-error', 'user-account-exists');
+    eSync.expect('account-creation-error',  'user-account-exists');
     testUniverse.MailAPI.tryToCreateAccount(
       {
         displayName: TEST_PARAMS.name,
@@ -226,11 +223,13 @@ TD.commonCase('try to create a duplicate account', function(T, RT) {
       },
       null,
       function accountMaybeCreated(error) {
-        eSync.namedValue('account-creation-error', error);
+        eSync.log('account-creation-error', error);
       }
     );
   });
-});
+})
+
+];
 
 
 }); // end define

@@ -15,21 +15,21 @@
  *   messages.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_imap, $msggen, exports) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_general' }, null, [$th_imap.TESTHELPER], ['app']);
+define(function(require) {
+
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
+
 const INITIAL_SYNC_DAYS = 5,
       // This is the number of messages after which the sync logic will
       // declare victory and stop filling.
       INITIAL_FILL_SIZE = 12;
 
-TD.commonCase('folder sync', function(T) {
+return new LegacyGelamTest('folder sync', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   testUniverse.do_adjustSyncValues({

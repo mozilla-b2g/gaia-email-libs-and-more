@@ -5,21 +5,16 @@
  * This can only be done on a fake server.
  **/
 
-define(function(require, exports) {
+define(function(require) {
 
-var $tc = require('rdcommon/testcontext');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $th_main = require('./resources/th_main');
-var slog = require('slog');
 var deriveFolderPath = require('imap/jobs').deriveFolderPath;
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_create_folders' }, null,
-  [$th_main.TESTHELPER], ['app']);
 
 /**
  * Test the folder
  */
-TD.commonCase('folder path logic', function(T, RT) {
+return new LegacyGelamTest('folder path logic', function(T, RT) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
@@ -164,11 +159,11 @@ TD.commonCase('folder path logic', function(T, RT) {
   ];
   checks.forEach(function(check) {
     T.action(eCheck, check.label, function() {
-      eCheck.expect_namedValueD('result', check.expect);
+      eCheck.expect('result',  check.expect);
       var result = deriveFolderPath(
         check.name, check.containOtherFolders, check.parentFolderInfo,
         check.namespace);
-      eCheck.namedValueD('result', result, check);
+      eCheck.log('result', result, check);
     });
   });
 });
@@ -176,11 +171,11 @@ TD.commonCase('folder path logic', function(T, RT) {
 TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
   T.group('setup');
 
-  var testUniverse = T.actor('testUniverse', 'U');
+  var testUniverse = T.actor('TestUniverse', 'U');
 
   T.group('create account and see folders created');
   var testAccount = T.actor(
-    'testAccount', 'A',
+    'TestAccount', 'A',
     {
       universe: testUniverse,
       // start out with only the Inbox
@@ -203,29 +198,29 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
           'createFolder',
           { local: false, server: true, conn: true });
 
-        lc.mustLog('imap:createdFolder',
-                   { _path: 'Trash', alreadyExists: false });
-        lc.mustLog('imap:createdFolder',
-                   { _path: 'Sent', alreadyExists: false });
+        eJobs.expect('createdFolder',
+                     { _path: 'Trash', alreadyExists: false });
+        eJobs.expect('createdFolder',
+                     { _path: 'Sent', alreadyExists: false });
       }
     });
   var eCheck = T.lazyLogger('check');
-  var lc = new slog.LogChecker(T, RT, 'disaster');
+  var eJobs = new T.actor('ImapJobDriver');
 
   // hold onto this between steps so we can test object identity
   var backendSent;
   T.check(eCheck, 'we know about the folders', function() {
-    eCheck.expect_namedValueD('backend has trash', true);
-    eCheck.expect_namedValueD('backend has sent', true);
-    eCheck.expect_namedValueD('frontend slice has trash', true);
-    eCheck.expect_namedValueD('frontend slice has sent', true);
+    eCheck.expect('backend has trash',  true);
+    eCheck.expect('backend has sent',  true);
+    eCheck.expect('frontend slice has trash',  true);
+    eCheck.expect('frontend slice has sent',  true);
 
     // The backend state should already know about the folders.
     var backendTrash = testAccount.imapAccount.getFolderByPath('Trash');
     // hold onto this at test scope
     backendSent = testAccount.imapAccount.getFolderByPath('Sent');
-    eCheck.namedValueD('backend has trash', !!backendTrash, backendTrash);
-    eCheck.namedValueD('backend has sent', !!backendSent, backendSent);
+    eCheck.log('backend has trash', !!backendTrash, backendTrash);
+    eCheck.log('backend has sent', !!backendSent, backendSent);
 
     // The account creation only ensured that the job ran to completion.  It
     // does not enforce that the slice updates have made their way to a
@@ -236,9 +231,9 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
       var sentFolder =
         testAccount.foldersSlice.getFirstFolderWithName('Sent');
 
-      eCheck.namedValueD('frontend slice has trash', !!trashFolder,
+      eCheck.log('frontend slice has trash', !!trashFolder,
                          trashFolder);
-      eCheck.namedValueD('frontend slice has sent', !!sentFolder, sentFolder);
+      eCheck.log('frontend slice has sent', !!sentFolder, sentFolder);
     });
   });
 
@@ -253,11 +248,11 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
       'createFolder',
       { local: false, server: true, conn: false });
 
-    eCheck.expect_namedValueD('same folderMeta', true);
+    eCheck.expect('same folderMeta',  true);
     testAccount.universe.createFolder(
       testAccount.accountId, null, 'Sent', 'sent', false,
       function(err, folderMeta) {
-        eCheck.namedValueD('same folderMeta', folderMeta === backendSent,
+        eCheck.log('same folderMeta', folderMeta === backendSent,
                            folderMeta);
       });
   });
@@ -276,15 +271,15 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
       'createFolder',
       { local: false, server: true, conn: true });
 
-    lc.mustLog('imap:createdFolder', { _path: 'Sent', alreadyExists: true });
+    eJobs.expect('createdFolder', { _path: 'Sent', alreadyExists: true });
 
     // Eh, make sure we don't somehow end up with the same meta structure, that
     // would be weird.
-    eCheck.expect_namedValueD('different folderMeta', true);
+    eCheck.expect('different folderMeta',  true);
     testAccount.universe.createFolder(
       testAccount.accountId, null, 'Sent', 'sent', false,
       function(folderMeta) {
-        eCheck.namedValueD('different folderMeta', folderMeta !== backendSent,
+        eCheck.log('different folderMeta', folderMeta !== backendSent,
                            folderMeta);
       });
   });

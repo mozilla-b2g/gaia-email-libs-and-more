@@ -9,17 +9,13 @@
 
 define(function(require, exports) {
 
-var $tc = require('rdcommon/testcontext');
-var $th_main = require('./resources/th_main');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_account_updates' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('modifyAccount updates should be reflected', function(T, RT) {
+return new LegacyGelamTest('modifyAccount updates should be reflected',
+                           function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: false }),
       eLazy = T.lazyLogger('account');
 
@@ -65,8 +61,8 @@ TD.commonCase('modifyAccount updates should be reflected', function(T, RT) {
       modifyKeys.forEach(function(key) {
         var current = mailAccount[key];
         var modifyTo = modifyValues[key];
-        eLazy.expect_namedValue(key, modifyTo);
-        eLazy.namedValue(key, current);
+        eLazy.expect(key, modifyTo);
+        eLazy.log(key, current);
       });
     });
   });

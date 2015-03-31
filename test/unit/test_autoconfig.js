@@ -3,13 +3,12 @@
  * permutations and a few failures.
  */
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fake_xhr', 'accountcommon',
-        'exports'],
-       function($tc, $th_main, $fakexhr, $accountcommon, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_autoconfig' }, null, [$th_main.TESTHELPER], ['app']);
+var $fakexhr = require('./resources/fake_xhr');
+var $accountcommon = require('accountcommon');
+var $th_main = require('./resources/th_main');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 var LOCAL_AUTOCONFIG_URL = '/autoconfig/xampl.tld';
 
@@ -352,7 +351,7 @@ var gibberishXML = '<xml>I NOT GOOD XML</xml>';
 function expectXHRs(lazy, xhrs) {
   var iServiced = 0;
   window.gFakeXHRListener = function(req, args) {
-    lazy.namedValue('xhr', args);
+    lazy.log('xhr', args);
     if (iServiced >= xhrs.length)
       return;
     var def = xhrs[iServiced++];
@@ -377,9 +376,8 @@ function expectXHRs(lazy, xhrs) {
   for (var i = 0; i < xhrs.length; i++) {
     var def = xhrs[i];
 
-    lazy.expect_namedValue(
-      'xhr',
-      {
+    lazy.expect(
+      'xhr', {
         method: def.method || 'GET',
         url: def.url,
         async: true,
@@ -397,14 +395,14 @@ function cannedTest(T, RT, xhrs, results) {
     var userDetails = {
       emailAddress: 'user@xampl.tld',
     };
-    eCheck.expect_namedValue('result', results.result);
-    eCheck.expect_namedValue('source', results.source);
-    eCheck.expect_namedValue('configInfo', results.configInfo);
+    eCheck.expect('result',  results.result);
+    eCheck.expect('source',  results.source);
+    eCheck.expect('configInfo',  results.configInfo);
     configurator.learnAboutAccount(userDetails)
       .then(function(actualResults) {
-        eCheck.namedValue('result', actualResults.result);
-        eCheck.namedValue('source', actualResults.source);
-        eCheck.namedValue('configInfo', actualResults.configInfo);
+        eCheck.log('result', actualResults.result);
+        eCheck.log('source', actualResults.source);
+        eCheck.log('configInfo', actualResults.configInfo);
       })
       .catch(function(err) {
         eCheck.error('err', err);
@@ -412,10 +410,12 @@ function cannedTest(T, RT, xhrs, results) {
   });
 };
 
+var allTests = [];
+
 /**
  * local XML config file tells us activesync.
  */
-TD.commonCase('successful local activesync', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local activesync', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodActivesyncXML },
@@ -425,12 +425,12 @@ TD.commonCase('successful local activesync', function(T, RT) {
       source: 'local',
       configInfo: goodActivesyncConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP using password.
  */
-TD.commonCase('successful local IMAP w/password', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodImapPasswordXML },
@@ -440,12 +440,12 @@ TD.commonCase('successful local IMAP w/password', function(T, RT) {
       source: 'local',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP using xoauth2.
  */
-TD.commonCase('successful local IMAP w/xoauth2', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local IMAP w/xoauth2', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodImapOauthXML },
@@ -455,14 +455,14 @@ TD.commonCase('successful local IMAP w/xoauth2', function(T, RT) {
       source: 'local',
       configInfo: goodImapOauthConfig,
     });
-});
+}));
 
 
 /**
  * local XML config file tells us IMAP AND POP3 and for the love of
  * god we choose IMAP.
  */
-TD.commonCase('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodImapAndPop3XML },
@@ -472,12 +472,12 @@ TD.commonCase('successful local IMAP+POP3 chooses IMAP', function(T, RT) {
       source: 'local',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us POP3.
  */
-TD.commonCase('successful local POP3', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local POP3', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodPop3XML },
@@ -487,12 +487,12 @@ TD.commonCase('successful local POP3', function(T, RT) {
       source: 'local',
       configInfo: goodPop3Config,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP with STARTTLS.
  */
-TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful local IMAP with STARTTLS', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodImapStarttlsXML },
@@ -502,12 +502,12 @@ TD.commonCase('successful local IMAP with STARTTLS', function(T, RT) {
       source: 'local',
       configInfo: goodImapStarttlsConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP with STARTTLS and SMTP with SSL.
  */
-TD.commonCase('successful IMAP with STARTTLS, SMTP with SSL', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful IMAP with STARTTLS, SMTP with SSL', function(T, RT) {
   cannedTest(T, RT,
     [
       { url: LOCAL_AUTOCONFIG_URL, data: goodImapMixedXML },
@@ -517,14 +517,14 @@ TD.commonCase('successful IMAP with STARTTLS, SMTP with SSL', function(T, RT) {
       source: 'local',
       configInfo: goodImapMixedConfig,
     });
-});
+}));
 
 
 /**
  * The domain self-hosts an XML config at autoconfig.domain and we use that in
  * the absence of ISPDB and we don't care about the MX lookup.
  */
-TD.commonCase('successful IMAP autoconfig.domain', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful IMAP autoconfig.domain', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -541,13 +541,13 @@ TD.commonCase('successful IMAP autoconfig.domain', function(T, RT) {
       source: 'autoconfig-subdomain',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * The domain self-hosts an XML config at domain/.well-known/ and we use that
  * in the absence of ISPDB and we don't care about the MX lookup.
  */
-TD.commonCase('successful IMAP domain/.well-known/', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful IMAP domain/.well-known/', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -564,13 +564,13 @@ TD.commonCase('successful IMAP domain/.well-known/', function(T, RT) {
       source: 'autoconfig-wellknown',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * The domain self-hosts an XML config at autoconfig.domain and we use that in
  * preference over the ISPDB entry.
  */
-TD.commonCase('successful IMAP autoconfig.domain ignoring ISPDB',
+allTests.push(new LegacyGelamTest('successful IMAP autoconfig.domain ignoring ISPDB',
               function(T, RT) {
   cannedTest(T, RT,
     [
@@ -588,13 +588,13 @@ TD.commonCase('successful IMAP autoconfig.domain ignoring ISPDB',
       source: 'autoconfig-subdomain',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * The domain self-hosts an XML config at domain/.well-known/ and we use that
  * in preference over the ISPDB entry.
  */
-TD.commonCase('successful IMAP domain/.well-known/ ignoring ISPDB',
+allTests.push(new LegacyGelamTest('successful IMAP domain/.well-known/ ignoring ISPDB',
               function(T, RT) {
   cannedTest(T, RT,
     [
@@ -612,12 +612,12 @@ TD.commonCase('successful IMAP domain/.well-known/ ignoring ISPDB',
       source: 'autoconfig-wellknown',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * ISPDB lookup found the domain and told us IMAP w/Password.
  */
-TD.commonCase('successful ISPDB IMAP w/Password', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful ISPDB IMAP w/Password', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -633,14 +633,14 @@ TD.commonCase('successful ISPDB IMAP w/Password', function(T, RT) {
       source: 'ispdb',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * ISPDB lookup found the domain and told us IMAP w/xoauth2.  We currently don't
  * expect or really support this mode of operation (everything should be local
  * autoconfig), but it's good to make sure it's an option open to us.
  */
-TD.commonCase('successful ISPDB IMAP w/xoauth2', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful ISPDB IMAP w/xoauth2', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -656,12 +656,12 @@ TD.commonCase('successful ISPDB IMAP w/xoauth2', function(T, RT) {
       source: 'ispdb',
       configInfo: goodImapOauthConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP w/password after checking MX.
  */
-TD.commonCase('successful MX local IMAP w/password', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful MX local IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -679,12 +679,12 @@ TD.commonCase('successful MX local IMAP w/password', function(T, RT) {
       source: 'mx local',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us IMAP w/password after checking MX.
  */
-TD.commonCase('successful MX local IMAP w/oauth2', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful MX local IMAP w/oauth2', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -702,12 +702,12 @@ TD.commonCase('successful MX local IMAP w/oauth2', function(T, RT) {
       source: 'mx local',
       configInfo: goodImapOauthConfig,
     });
-});
+}));
 
 /**
  * local XML config file tells us activesync after checking MX.
  */
-TD.commonCase('successful MX local activesync', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful MX local activesync', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -725,9 +725,9 @@ TD.commonCase('successful MX local activesync', function(T, RT) {
       source: 'mx local',
       configInfo: goodActivesyncConfig,
     });
-});
+}));
 
-TD.commonCase('successful MX ISPDB IMAP w/password', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful MX ISPDB IMAP w/password', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -746,9 +746,9 @@ TD.commonCase('successful MX ISPDB IMAP w/password', function(T, RT) {
       source: 'mx ispdb',
       configInfo: goodImapPasswordConfig,
     });
-});
+}));
 
-TD.commonCase('successful MX ISPDB IMAP w/oauth2', function(T, RT) {
+allTests.push(new LegacyGelamTest('successful MX ISPDB IMAP w/oauth2', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -767,9 +767,9 @@ TD.commonCase('successful MX ISPDB IMAP w/oauth2', function(T, RT) {
       source: 'mx ispdb',
       configInfo: goodImapOauthConfig,
     });
-});
+}));
 
-TD.commonCase('everything fails, get no-config-info', function(T, RT) {
+allTests.push(new LegacyGelamTest('everything fails, get no-config-info', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -791,13 +791,13 @@ TD.commonCase('everything fails, get no-config-info', function(T, RT) {
       source: null,
       configInfo: null,
     });
-});
+}));
 
 /**
  * If the MX lookup told us the same domain we already knew, we skip the group 3
  * local autoconfig and ISPDB re-lookups.
  */
-TD.commonCase('everything fails, same MX, get no-config-info', function(T, RT) {
+allTests.push(new LegacyGelamTest('everything fails, same MX, get no-config-info', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -817,7 +817,7 @@ TD.commonCase('everything fails, same MX, get no-config-info', function(T, RT) {
       source: null,
       configInfo: null,
     });
-});
+}));
 
 /**
  * If the ISPDB tells us something but it's unsafe, ignore it like it's not a
@@ -825,7 +825,7 @@ TD.commonCase('everything fails, same MX, get no-config-info', function(T, RT) {
  * to be able to authoritatively state that this means there is no secure way to
  * contact the server, so all we can say is no-config-info.
  */
-TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
+allTests.push(new LegacyGelamTest('non-SSL ISPDB turns into no-config-info', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -845,12 +845,12 @@ TD.commonCase('non-SSL ISPDB turns into no-config-info', function(T, RT) {
       source: null,
       configInfo: null
     });
-});
+}));
 
 /**
  * Unsafe case same as before but with the MX ISPDB lookup happening too
  */
-TD.commonCase('non-SSL ISPDB w/MX turns into no-config-info', function(T, RT) {
+allTests.push(new LegacyGelamTest('non-SSL ISPDB w/MX turns into no-config-info', function(T, RT) {
   cannedTest(T, RT,
     [
       // group 1:
@@ -872,12 +872,12 @@ TD.commonCase('non-SSL ISPDB w/MX turns into no-config-info', function(T, RT) {
       source: null,
       configInfo: null
     });
-});
+}));
 
 /**
  * We end up probing for autodiscover and finding the subdir point.
  */
-TD.commonCase('successful activesync domain/autodiscover/ autodiscovery',
+allTests.push(new LegacyGelamTest('successful activesync domain/autodiscover/ autodiscovery',
               function(T, RT) {
   cannedTest(T, RT,
     [
@@ -901,12 +901,12 @@ TD.commonCase('successful activesync domain/autodiscover/ autodiscovery',
       source: 'autodiscover',
       configInfo: goodActivesyncAutodiscoverSubdirConfig
     });
-});
+}));
 
 /**
  * We end up probing for autodiscover and finding the autodiscover domain point.
  */
-TD.commonCase('successful activesync autodiscover.domain autodiscovery',
+allTests.push(new LegacyGelamTest('successful activesync autodiscover.domain autodiscovery',
               function(T, RT) {
   cannedTest(T, RT,
     [
@@ -930,6 +930,8 @@ TD.commonCase('successful activesync autodiscover.domain autodiscovery',
       source: 'autodiscover',
       configInfo: goodActivesyncAutodiscoverDomainConfig
     });
-});
+}));
+
+return allTests;
 
 }); // end define

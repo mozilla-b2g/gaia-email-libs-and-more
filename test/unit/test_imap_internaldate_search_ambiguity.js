@@ -1,13 +1,7 @@
-define(function(require, exports) {
+define(function(require) {
 
-var $tc = require('rdcommon/testcontext');
-var $th_main = require('./resources/th_main');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $date = require('date');
-var slog = require('slog');
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_internaldate_search_ambiguity' }, null,
-  [$th_main.TESTHELPER], ['app']);
 
 /**
  * Test ambiguity logic.  Core cases we want to check:
@@ -42,11 +36,13 @@ var TD = exports.TD = $tc.defineTestsFor(
  * test like the date-ranges that are not actually checked.  We don't expect
  * them to regress, but feel free to suspect them if this stuff breaks.
  */
-TD.commonCase('no ambiguity with message deletion', function(T, RT) {
+return new LegacyGelamTest('no ambiguity with message deletion',
+                           function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
-  var lc = new slog.LogChecker(T, RT, 'logs');
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
+
+  var eFolderConn = T.actor('ImapFolderConn');
 
   var staticNow = Date.UTC(2015, 0, 28, 12, 0, 0);
   testUniverse.do_timewarpNow(staticNow, 'Jan 28th 12:00 UTC');
@@ -95,11 +91,11 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
                               'advance a day for refresh thresholds');
 
   function logUid(name, uid) {
-    lc.mustLog(name, function(x) { return x.uid === uid; } );
+    eFolderConn.expect(name, function(x) { return x.uid === uid; } );
   }
   function growSliceAndWait(growNumber) {
-    lc.mustLog('done-complete');
-    checkView.slice.oncomplete = function() { slog.log('done-complete'); };
+    eFolderConn.expect('done-complete');
+    checkView.slice.oncomplete = () => eFolderConn.log('done-complete');
     checkView.slice.requestGrowth(growNumber, true);
   }
 
@@ -123,11 +119,11 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
       // DB Lookup:   [1 2 3 4 5]
       // DB After:    [1 2   4 5]
       expectFunc: function() {
-        logUid('imap:updated-uid', 1);
-        logUid('imap:updated-uid', 2);
-        logUid('imap:unambiguously-deleted-uid', 3);
-        logUid('imap:ambiguously-missing-uid', 4);
-        logUid('imap:ambiguously-missing-uid', 5);
+        logUid('updated-uid', 1);
+        logUid('updated-uid', 2);
+        logUid('unambiguously-deleted-uid', 3);
+        logUid('ambiguously-missing-uid', 4);
+        logUid('ambiguously-missing-uid', 5);
       }
     });
 
@@ -144,9 +140,9 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
   // DB Lookup:         [4 5 6]
   // DB After:          [  5 6]
   T.action('sync/grow #2', folder, function() {
-    logUid('imap:unambiguously-deleted-uid', 4);
-    logUid('imap:updated-uid', 5);
-    logUid('imap:ambiguously-missing-uid', 6);
+    logUid('unambiguously-deleted-uid', 4);
+    logUid('updated-uid', 5);
+    logUid('ambiguously-missing-uid', 6);
     growSliceAndWait(1);
   });
 
@@ -155,9 +151,9 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
   // DB Lookup:           [5 6 7]
   // DB After:            [5 6 7]
   T.action('sync/grow #3', folder, function() {
-    logUid('imap:ambiguously-missing-uid', 5);
-    logUid('imap:ambiguously-missing-uid', 6);
-    logUid('imap:ambiguously-missing-uid', 7);
+    logUid('ambiguously-missing-uid', 5);
+    logUid('ambiguously-missing-uid', 6);
+    logUid('ambiguously-missing-uid', 7);
     growSliceAndWait(1);
   });
 
@@ -166,8 +162,8 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
   // DB Lookup:             [6 7]
   // DB After:              [  7]
   T.action('sync/grow #4', folder, function() {
-    logUid('imap:unambiguously-deleted-uid', 6);
-    logUid('imap:updated-uid', 7);
+    logUid('unambiguously-deleted-uid', 6);
+    logUid('updated-uid', 7);
     growSliceAndWait(1);
   });
 
@@ -177,7 +173,7 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
   // DB After:                [7]
   //
   T.action('sync/grow #5', folder, function() {
-    logUid('imap:ambiguously-missing-uid', 7);
+    logUid('ambiguously-missing-uid', 7);
     growSliceAndWait(1);
   });
 
@@ -221,10 +217,10 @@ TD.commonCase('no ambiguity with message deletion', function(T, RT) {
     {
       syncedToDawnOfTime: true,
       expectFunc: function() {
-        logUid('imap:updated-uid', 1);
-        logUid('imap:updated-uid', 2);
-        logUid('imap:updated-uid', 5);
-        logUid('imap:ambiguously-missing-uid', 7);
+        logUid('updated-uid', 1);
+        logUid('updated-uid', 2);
+        logUid('updated-uid', 5);
+        logUid('ambiguously-missing-uid', 7);
       }
     });
 

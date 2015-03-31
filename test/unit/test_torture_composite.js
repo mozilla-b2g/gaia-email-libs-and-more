@@ -3,16 +3,14 @@
  * our default constants.
  */
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_main, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_torture_composite' }, null, [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-TD.commonCase('obliterate', function(T) {
+return new LegacyGelamTest('obliterate', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', { stockDefaults: true }),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U', { stockDefaults: true }),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   var N = 1;
@@ -38,8 +36,10 @@ TD.commonCase('obliterate', function(T) {
         // job will be scheduled and run after the sync.
         testAccount.expect_runOp('purgeExcessMessages',
                                  { local: true, server: false, save: false });
-        testFolder.storageActor.expect_mutexedCall_begin('purgeExcessMessages');
-        testFolder.storageActor.expect_mutexedCall_end('purgeExcessMessages');
+        testFolder.storageActor.expect('mutexedCall_begin',
+                                       { name: 'purgeExcessMessages' });
+        testFolder.storageActor.expect('mutexedCall_end',
+                                       { name: 'purgeExcessMessages' });
       }
     }).timeoutMS = 5 * 1000;
 });

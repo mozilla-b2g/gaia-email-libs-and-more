@@ -1,4 +1,4 @@
-/**
+~/**
  * Test IMAP common/high-level error-handling logic and error cases that aren't
  * tested by more specific tests.
  *
@@ -32,13 +32,12 @@
  *    state and re-establishes.)
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/fault_injecting_socket', 'errbackoff', 'exports'],
-       function($tc, $th_imap, $fawlty, $errbackoff, exports) {
-var FawltySocketFactory = $fawlty.FawltySocketFactory;
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_errors' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $fawlty = require('./resources/fault_injecting_socket');
+var $errbackoff = require('errbackoff');
+var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 
 function doNotThunkErrbackoffTimer() {
@@ -49,7 +48,7 @@ function thunkErrbackoffTimer(lazyLogger) {
   var backlog = [];
   $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     backlog.push(func);
-    lazyLogger.namedValue('errbackoff:schedule', delay);
+    lazyLogger.log('errbackoff:schedule', delay);
   });
   return function releaser() {
     for (var i = 0; i < backlog.length; i++) {
@@ -62,9 +61,14 @@ function thunkErrbackoffTimer(lazyLogger) {
 function zeroTimeoutErrbackoffTimer(lazyLogger) {
   $errbackoff.TEST_useTimeoutFunc(function(func, delay) {
     if (lazyLogger)
-      lazyLogger.namedValue('errbackoff:schedule', delay);
+      lazyLogger.log('errbackoff:schedule', delay);
     window.setZeroTimeout(func);
   });
+}
+
+var allTests = [];
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
 }
 
 /**
@@ -78,10 +82,10 @@ function zeroTimeoutErrbackoffTimer(lazyLogger) {
  * all connections, and try to connect again with errors, making sure we do
  * the retry connects again since we had returned to a healthy state.
  */
-TD.commonCase('general reconnect logic', function(T) {
+commonCase('general reconnect logic', function(T) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: false }),
       eCheck = T.lazyLogger('check');
 
@@ -94,7 +98,7 @@ TD.commonCase('general reconnect logic', function(T) {
            function() {
     FawltySocketFactory.getMostRecentLiveSocket().doNow('instant-close');
     testAccount._unusedConnections = 0;
-    testAccount.eImapAccount.expect_deadConnection();
+    testAccount.eImapAccount.expect('deadConnection');
   });
 
   T.group('retries, give-up');
@@ -114,14 +118,14 @@ TD.commonCase('general reconnect logic', function(T) {
     FawltySocketFactory.precommand(
       testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
 
-    testAccount.eBackoff.expect_connectFailure(false);
-    eCheck.expect_namedValue('accountCheck:err', true);
-    eCheck.expect_namedValue('errbackoff:schedule', 0);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    eCheck.expect('accountCheck:err',  true);
+    eCheck.expect('errbackoff:schedule',  0);
     // Use checkAccount to trigger the connection creation, which helps verify
     // that checkConnection provides immediate feedback rather than getting
     // confused and trying to wait for error handling to kick in.
     testAccount.imapAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
+      eCheck.log('accountCheck:err', !!err);
     });
 
     // let's also demand the connection so we can verify that this does not
@@ -130,43 +134,43 @@ TD.commonCase('general reconnect logic', function(T) {
 
     testAccount.imapAccount.__folderDemandsConnection(null, 'test',
       function(conn) {
-        eCheck.event('connection demand fulfilled');
+        eCheck.log('connection demand fulfilled');
         testAccount.imapAccount.__folderDoneWithConnection(conn, false, false);
       },
       function() {
-        eCheck.event('conn deathback!');
+        eCheck.log('conn deathback!');
       });
 
   });
   T.action('pretend timeout fired #1', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
-    testAccount.eBackoff.expect_state('unreachable');
-    eCheck.expect_namedValue('errbackoff:schedule', 800);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    testAccount.eBackoff.expect('state', { state: 'unreachable' });
+    eCheck.expect('errbackoff:schedule',  800);
     errbackReleaser();
   });
   T.action('pretend timeout fired #2', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
-    eCheck.expect_namedValue('errbackoff:schedule', 4500);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    eCheck.expect('errbackoff:schedule',  4500);
     errbackReleaser();
   });
   T.action('pretend timeout fired #3', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
     errbackReleaser();
   });
 
   T.group('next retry only tries once');
   T.action('initiate connection, fail, no retry', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
-    eCheck.expect_namedValue('accountCheck:err', true);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    eCheck.expect('accountCheck:err',  true);
     // Use checkAccount to trigger the connection creation, which helps verify
     // that checkConnection provides immediate feedback rather than getting
     // confused and trying to wait for error handling to kick in.
     testAccount.imapAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
+      eCheck.log('accountCheck:err', !!err);
     });
   });
   T.check('no precommands left', function() {
@@ -179,21 +183,21 @@ TD.commonCase('general reconnect logic', function(T) {
            function() {
     // the connection demand we placed above will now reuse and release the
     // conn.
-    eCheck.expect_event('connection demand fulfilled');
-    eCheck.expect_namedValue('accountCheck:err', false);
-    testAccount.eBackoff.expect_state('healthy');
-    testAccount.eImapAccount.expect_checkAccount_begin(null);
-    testAccount.eImapAccount.expect_createConnection();
-    testAccount.eImapAccount.expect_reuseConnection();
-    testAccount.eImapAccount.expect_releaseConnection();
-    testAccount.eImapAccount.expect_checkAccount_end(null);
+    eCheck.expect('connection demand fulfilled');
+    eCheck.expect('accountCheck:err',  false);
+    testAccount.eBackoff.expect('state', { state: 'healthy' });
+    testAccount.eImapAccount.expect('checkAccount_begin');
+    testAccount.eImapAccount.expect('createConnection');
+    testAccount.eImapAccount.expect('reuseConnection');
+    testAccount.eImapAccount.expect('releaseConnection');
+    testAccount.eImapAccount.expect('checkAccount_end');
     testAccount.imapAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
+      eCheck.log('accountCheck:err', !!err);
     });
   });
   T.action('close unused connections of', testAccount.eImapAccount,
            function() {
-    testAccount.eImapAccount.expect_deadConnection();
+    testAccount.eImapAccount.expect('deadConnection');
     testAccount.imapAccount.closeUnusedConnections();
   });
 
@@ -211,29 +215,29 @@ TD.commonCase('general reconnect logic', function(T) {
     FawltySocketFactory.precommand(
       testAccount.imapHost, testAccount.imapPort, 'port-not-listening');
 
-    testAccount.eBackoff.expect_connectFailure(false);
-    eCheck.expect_namedValue('accountCheck:err', true);
-    eCheck.expect_namedValue('errbackoff:schedule', 0);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    eCheck.expect('accountCheck:err',  true);
+    eCheck.expect('errbackoff:schedule',  0);
     testAccount.imapAccount.checkAccount(function(err) {
-      eCheck.namedValue('accountCheck:err', !!err);
+      eCheck.log('accountCheck:err', !!err);
     });
   });
   T.action('pretend timeout fired #1', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
-    testAccount.eBackoff.expect_state('unreachable');
-    eCheck.expect_namedValue('errbackoff:schedule', 800);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    testAccount.eBackoff.expect('state', { state: 'unreachable' });
+    eCheck.expect('errbackoff:schedule',  800);
     errbackReleaser();
   });
   T.action('pretend timeout fired #2', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
-    eCheck.expect_namedValue('errbackoff:schedule', 4500);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
+    eCheck.expect('errbackoff:schedule',  4500);
     errbackReleaser();
   });
   T.action('pretend timeout fired #3', eCheck, testAccount.eBackoff,
            function() {
-    testAccount.eBackoff.expect_connectFailure(false);
+    testAccount.eBackoff.expect('connectFailure', { reachable: false });
     errbackReleaser();
   });
 
@@ -244,21 +248,6 @@ TD.commonCase('general reconnect logic', function(T) {
 });
 
 /**
- * Sometimes a server doesn't want to let us into a folder.  For example,
- * Yahoo will do this.
- *
- * THIS TEST IS NOT COMPLETE
- */
-TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
-  T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
-                            { universe: testUniverse, restored: true }),
-      eSync = T.lazyLogger('sync');
-
-});
-
-/**
  * Verify that we handle connection loss during sync by generating a syncfailed
  * notification.  Ideally we would retry opening the folder at least once, but
  * right now this just codifies our current behaviour to avoid regressions.
@@ -266,11 +255,11 @@ TD.DISABLED_commonCase('IMAP server forbids SELECT', function(T) {
  * XXX Expand this test to cover our existing-header update FETCH.  Right now
  * this only checks the new-header update FETCH.
  */
-TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
+commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
               function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eSync = T.lazyLogger('sync');
 
@@ -323,9 +312,9 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
     { failure: false,
       expectFunc: function() {
         RT.reportActiveActorThisStep(testAccount.eImapAccount);
-        testAccount.eImapAccount.expect_deadConnection();
-        testAccount.eImapAccount.expect_createConnection();
-        testAccount.eImapAccount.expect_reuseConnection();
+        testAccount.eImapAccount.expect('deadConnection');
+        testAccount.eImapAccount.expect('createConnection');
+        testAccount.eImapAccount.expect('reuseConnection');
       }
     });
 
@@ -348,10 +337,10 @@ TD.commonCase('sync generates syncfailed on SELECT/SEARCH/FETCH failures',
  * experience an aborted-retry error, then get retried and the bodies should
  * still show up.
  */
-TD.commonCase('Connection loss during bulk body fetches', function(T, RT) {
+commonCase('Connection loss during bulk body fetches', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
@@ -398,7 +387,7 @@ TD.commonCase('Connection loss during bulk body fetches', function(T, RT) {
   });
   // If we have snippets now, then the above must have happened!
   T.check(eCheck, 'check download success via the existence of snippets', function() {
-    eCheck.expect_namedValue('snippets present', folderView.slice.items.length);
+    eCheck.expect('snippets present',  folderView.slice.items.length);
     testUniverse.MailAPI.ping(function() {
       var snippetsPresent = 0;
       for (var i = 0; i < folderView.slice.items.length; i++) {
@@ -408,7 +397,7 @@ TD.commonCase('Connection loss during bulk body fetches', function(T, RT) {
         if (header.snippet)
           snippetsPresent++;
       }
-      eCheck.namedValue('snippets present', snippetsPresent);
+      eCheck.log('snippets present', snippetsPresent);
     });
   });
 
@@ -421,10 +410,10 @@ TD.commonCase('Connection loss during bulk body fetches', function(T, RT) {
  * experience an aborted-retry error, then get retried and the body should still
  * show up.
  */
-TD.commonCase('Connection loss during single body fetch', function(T, RT) {
+commonCase('Connection loss during single body fetch', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true }),
       eCheck = T.lazyLogger('check');
 
@@ -467,7 +456,7 @@ TD.commonCase('Connection loss during single body fetch', function(T, RT) {
     ]);
 
     // expect the body to be present
-    eCheck.expect_namedValueD('body downloaded', true);
+    eCheck.expect('body downloaded',  true);
 
     // trigger the download
     var header = folderView.slice.items[0], body;
@@ -477,7 +466,7 @@ TD.commonCase('Connection loss during single body fetch', function(T, RT) {
       // the body gets returned immediately and the body fetch happens
       // asynchronously after that.
       body.onchange = function() {
-        eCheck.namedValueD('body downloaded',
+        eCheck.log('body downloaded',
                           body.bodyReps[0].isDownloaded,
                           body);
       };
@@ -485,5 +474,7 @@ TD.commonCase('Connection loss during single body fetch', function(T, RT) {
   });
   T.group('cleanup');
 });
+
+return allTests;
 
 }); // end define

@@ -4,16 +4,12 @@
  * - messages with externally referenced images
  * - messages with external links
  **/
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', 'exports'],
-       function($tc, $th_imap, $msggen, exports) {
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mail_html' }, null, [$th_imap.TESTHELPER], ['app']);
-
-
-TD.commonCase('embedded and remote images', function(T) {
+return new LegacyGelamTest('embedded and remote images', function(T) {
   // -- pieces
   var
   // - multipart/related text/html with embedded images, remote images, links
@@ -67,8 +63,8 @@ TD.commonCase('embedded and remote images', function(T) {
     },
   ];
   T.group('setup');
-  var TU1 = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var TU1 = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: TU1 }),
       eCheck = T.lazyLogger('messageCheck');
 
@@ -107,25 +103,25 @@ TD.commonCase('embedded and remote images', function(T) {
         { local: false, server: true, save: 'server' });
     }
 
-    eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
-    eCheck.expect_namedValue('bodyReps[0].type', 'html');
-    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
-    eCheck.expect_namedValue('embeddedImageCount', 2);
-    eCheck.expect_namedValue('embeddedImagesDownloaded',
-                             testAccount.type === 'pop3' ? true : false);
-    eCheck.expect_namedValue('checkForExternalImages', true);
+    eCheck.expect('got body');
+    eCheck.expect('bodyReps.length',  (hasFakePart ? 2 : 1));
+    eCheck.expect('bodyReps[0].type',  'html');
+    eCheck.expect('bodyReps[0].content',  bstrSanitizedFancyHtml);
+    eCheck.expect('embeddedImageCount',  2);
+    eCheck.expect('embeddedImagesDownloaded',
+                  testAccount.type === 'pop3' ? true : false);
+    eCheck.expect('checkForExternalImages',  true);
     fancyHeader = folderView.slice.items[idxFancy];
 
     testAccount.getMessageBodyOnMainThread(fancyHeader, function (body) {
         fancyBody = body;
-        eCheck.event('got body');
-        eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-        eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
-        eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
-        eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
-        eCheck.namedValue('embeddedImagesDownloaded',
-                          fancyBody.embeddedImagesDownloaded);
+        eCheck.log('got body');
+        eCheck.log('bodyReps.length', fancyBody.bodyReps.length);
+        eCheck.log('bodyReps[0].type', fancyBody.bodyReps[0].type);
+        eCheck.log('bodyReps[0].content', fancyBody.bodyReps[0].content);
+        eCheck.log('embeddedImageCount', fancyBody.embeddedImageCount);
+        eCheck.log('embeddedImagesDownloaded',
+                   fancyBody.embeddedImagesDownloaded);
       },
       null,
       function mainThreadFunc(arg, fancyBody, sendResults) {
@@ -138,7 +134,7 @@ TD.commonCase('embedded and remote images', function(T) {
         sendResults(fancyBody.checkForExternalImages(displayElem));
       },
       function withMainThreadResults(results) {
-        eCheck.namedValue('checkForExternalImages', results);
+        eCheck.log('checkForExternalImages', results);
       });
   });
 
@@ -146,19 +142,19 @@ TD.commonCase('embedded and remote images', function(T) {
     // (We could verify the HTML rep prior to any transforms, but we already
     // verified the string rep of the HTML.)
     T.action(eCheck, 'download embedded images', function() {
-      eCheck.expect_event('downloaded');
-      eCheck.expect_namedValue('non-null relpart 0', true);
-      eCheck.expect_namedValue('non-null relpart 1', true);
+      eCheck.expect('downloaded');
+      eCheck.expect('non-null relpart 0',  true);
+      eCheck.expect('non-null relpart 1',  true);
 
       testAccount.expect_runOp(
         'download',
         { local: true, server: true, save: 'server', flushBodyServerSaves: 1 });
 
       fancyBody.downloadEmbeddedImages(function() {
-        eCheck.event('downloaded');
-        eCheck.namedValue('non-null relpart 0',
+        eCheck.log('downloaded');
+        eCheck.log('non-null relpart 0',
                           !!fancyBody._relatedParts[0].file);
-        eCheck.namedValue('non-null relpart 1',
+        eCheck.log('non-null relpart 1',
                           !!fancyBody._relatedParts[1].file);
         fancyBody.die();
         fancyBody = null;
@@ -169,14 +165,14 @@ TD.commonCase('embedded and remote images', function(T) {
     // XXX We used to generate fake URLs ourselves; we would ideally use an XHR
     // to just fetch from the URL to load its content to make sure it's doing
     // the right thing.
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
+    eCheck.expect('image 0 has src',  true);
+    eCheck.expect('image 1 has src',  true);
     // the transform should not affect the external image
-    eCheck.expect_namedValue('image 2 has src', null);
+    eCheck.expect('image 2 has src',  null);
 
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
-    eCheck.expect_namedValue('image 2 has src', 'http://example.com/foo.png');
+    eCheck.expect('image 0 has src',  true);
+    eCheck.expect('image 1 has src',  true);
+    eCheck.expect('image 2 has src',  'http://example.com/foo.png');
 
     testAccount.getMessageBodyOnMainThread(
       fancyHeader,
@@ -215,39 +211,39 @@ TD.commonCase('embedded and remote images', function(T) {
         sendResults(results);
       },
       function withMainThreadResults(results) {
-        eCheck.namedValue('image 0 has src', !!results.afterEmbedded[0]);
-        eCheck.namedValue('image 1 has src', !!results.afterEmbedded[1]);
-        eCheck.namedValue('image 2 has src', results.afterEmbedded[2]);
+        eCheck.log('image 0 has src', !!results.afterEmbedded[0]);
+        eCheck.log('image 1 has src', !!results.afterEmbedded[1]);
+        eCheck.log('image 2 has src', results.afterEmbedded[2]);
 
-        eCheck.namedValue('image 0 has src', !!results.afterExternal[0]);
-        eCheck.namedValue('image 1 has src', !!results.afterExternal[1]);
-        eCheck.namedValue('image 2 has src', results.afterExternal[2]);
+        eCheck.log('image 0 has src', !!results.afterExternal[0]);
+        eCheck.log('image 1 has src', !!results.afterExternal[1]);
+        eCheck.log('image 2 has src', results.afterExternal[2]);
       });
   });
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
-    eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
-    eCheck.expect_namedValue('bodyReps[0].type', 'html');
-    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
-    eCheck.expect_namedValue('embeddedImageCount', 2);
-    eCheck.expect_namedValue('embeddedImagesDownloaded', true);
-    eCheck.expect_namedValue('checkForExternalImages', true);
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
+    eCheck.expect('got body');
+    eCheck.expect('bodyReps.length',  (hasFakePart ? 2 : 1));
+    eCheck.expect('bodyReps[0].type',  'html');
+    eCheck.expect('bodyReps[0].content',  bstrSanitizedFancyHtml);
+    eCheck.expect('embeddedImageCount',  2);
+    eCheck.expect('embeddedImagesDownloaded',  true);
+    eCheck.expect('checkForExternalImages',  true);
+    eCheck.expect('image 0 has src',  true);
+    eCheck.expect('image 1 has src',  true);
     // the transform should not affect the external image
-    eCheck.expect_namedValue('image 2 has src', null);
+    eCheck.expect('image 2 has src',  null);
 
     testAccount.getMessageBodyOnMainThread(
       fancyHeader,
       function(body) {
         fancyBody = body;
-        eCheck.event('got body');
-        eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-        eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
-        eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
-        eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
-        eCheck.namedValue('embeddedImagesDownloaded',
+        eCheck.log('got body');
+        eCheck.log('bodyReps.length', fancyBody.bodyReps.length);
+        eCheck.log('bodyReps[0].type', fancyBody.bodyReps[0].type);
+        eCheck.log('bodyReps[0].content', fancyBody.bodyReps[0].content);
+        eCheck.log('embeddedImageCount', fancyBody.embeddedImageCount);
+        eCheck.log('embeddedImagesDownloaded',
                           fancyBody.embeddedImagesDownloaded);
         body.die();
       },
@@ -272,10 +268,10 @@ TD.commonCase('embedded and remote images', function(T) {
         });
       },
       function withMainThreadResults(results) {
-        eCheck.namedValue('checkForExternalImages', results.externalImages);
-        eCheck.namedValue('image 0 has src', !!results.imageSources[0]);
-        eCheck.namedValue('image 1 has src', !!results.imageSources[1]);
-        eCheck.namedValue('image 2 has src', results.imageSources[2]);
+        eCheck.log('checkForExternalImages', results.externalImages);
+        eCheck.log('image 0 has src', !!results.imageSources[0]);
+        eCheck.log('image 1 has src', !!results.imageSources[1]);
+        eCheck.log('image 2 has src', results.imageSources[2]);
       });
   });
 
@@ -283,8 +279,8 @@ TD.commonCase('embedded and remote images', function(T) {
   TU1.do_shutdown();
 
   T.group('reload universe');
-  var TU2 = T.actor('testUniverse', 'U2', { old: TU1 });
-  var TA2 = T.actor('testAccount', 'A2',
+  var TU2 = T.actor('TestUniverse', 'U2', { old: TU1 });
+  var TA2 = T.actor('TestAccount', 'A2',
                     { universe: TU2, restored: true });
 
   T.group('verify images persisted');
@@ -300,29 +296,29 @@ TD.commonCase('embedded and remote images', function(T) {
   // THIS IS COPY AND PASTE FROM ABOVE EXCEPT FOR fancyHeader reestablishment
   T.check(eCheck, 're-get body, verify embedded images are still there',
           function() {
-    eCheck.expect_event('got body');
-    eCheck.expect_namedValue('bodyReps.length', (hasFakePart ? 2 : 1));
-    eCheck.expect_namedValue('bodyReps[0].type', 'html');
-    eCheck.expect_namedValue('bodyReps[0].content', bstrSanitizedFancyHtml);
-    eCheck.expect_namedValue('embeddedImageCount', 2);
-    eCheck.expect_namedValue('embeddedImagesDownloaded', true);
-    eCheck.expect_namedValue('checkForExternalImages', true);
-    eCheck.expect_namedValue('image 0 has src', true);
-    eCheck.expect_namedValue('image 1 has src', true);
+    eCheck.expect('got body');
+    eCheck.expect('bodyReps.length',  (hasFakePart ? 2 : 1));
+    eCheck.expect('bodyReps[0].type',  'html');
+    eCheck.expect('bodyReps[0].content',  bstrSanitizedFancyHtml);
+    eCheck.expect('embeddedImageCount',  2);
+    eCheck.expect('embeddedImagesDownloaded',  true);
+    eCheck.expect('checkForExternalImages',  true);
+    eCheck.expect('image 0 has src',  true);
+    eCheck.expect('image 1 has src',  true);
     // the transform should not affect the external image
-    eCheck.expect_namedValue('image 2 has src', null);
+    eCheck.expect('image 2 has src',  null);
 
     fancyHeader = folderView2.slice.items[idxFancy];
     TA2.getMessageBodyOnMainThread(
       fancyHeader,
       function(body) {
         fancyBody = body;
-        eCheck.event('got body');
-        eCheck.namedValue('bodyReps.length', fancyBody.bodyReps.length);
-        eCheck.namedValue('bodyReps[0].type', fancyBody.bodyReps[0].type);
-        eCheck.namedValue('bodyReps[0].content', fancyBody.bodyReps[0].content);
-        eCheck.namedValue('embeddedImageCount', fancyBody.embeddedImageCount);
-        eCheck.namedValue('embeddedImagesDownloaded',
+        eCheck.log('got body');
+        eCheck.log('bodyReps.length', fancyBody.bodyReps.length);
+        eCheck.log('bodyReps[0].type', fancyBody.bodyReps[0].type);
+        eCheck.log('bodyReps[0].content', fancyBody.bodyReps[0].content);
+        eCheck.log('embeddedImageCount', fancyBody.embeddedImageCount);
+        eCheck.log('embeddedImagesDownloaded',
                           fancyBody.embeddedImagesDownloaded);
         body.die();
       },
@@ -347,10 +343,10 @@ TD.commonCase('embedded and remote images', function(T) {
         });
       },
       function withMainThreadResults(results) {
-        eCheck.namedValue('checkForExternalImages', results.externalImages);
-        eCheck.namedValue('image 0 has src', !!results.imageSources[0]);
-        eCheck.namedValue('image 1 has src', !!results.imageSources[1]);
-        eCheck.namedValue('image 2 has src', results.imageSources[2]);
+        eCheck.log('checkForExternalImages', results.externalImages);
+        eCheck.log('image 0 has src', !!results.imageSources[0]);
+        eCheck.log('image 1 has src', !!results.imageSources[1]);
+        eCheck.log('image 2 has src', results.imageSources[2]);
       });
   });
 

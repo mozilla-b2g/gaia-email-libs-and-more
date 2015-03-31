@@ -5,15 +5,9 @@
  * `test_compose.js`) for message-specific edge cases like attachments,
  * MIME parsing, and other such stuff.
  */
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_devicestorage', './resources/messageGenerator',
-        'util', 'accountcommon', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, $accountcommon, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_outbox_stuck_retry' }, null,
-  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 // We cannot use a static subject in case we run this test on a real
 // server, which may have messages in folders already.
@@ -28,11 +22,12 @@ function makeRandomSubject() {
 // and send stuff. Say we're done editing the outbox. Tell the fake
 // server to let the message get sent. Trigger sending from outbox,
 // watch the two messages get sent.
-TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
+return new LegacyGelamTest('send message, fail, gets stuck in outbox',
+                           function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true });
-  var testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true });
+  var testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse });
   var eLazy = T.lazyLogger('misc');
 
@@ -73,9 +68,9 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
 
     // Ensure there are no drafts (they should be in the outbox now)
     T.check('draft messages deleted', eLazy, function() {
-      eLazy.expect_namedValue('draft count', 0);
+      eLazy.expect('draft count',  0);
       testAccount.MailAPI.ping(function() {
-        eLazy.namedValue('draft count', views.localdrafts.slice.items.length);
+        eLazy.log('draft count', views.localdrafts.slice.items.length);
       });
     });
 
@@ -83,10 +78,10 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
     testAccount.do_waitForMessage(views.outbox, subject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_namedValue('subject', subject);
+        eLazy.expect('subject',  subject);
       },
       withMessage: function(header) {
-        eLazy.namedValue('subject', header.subject);
+        eLazy.log('subject', header.subject);
       }
     }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   });
@@ -102,17 +97,17 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
   T.check('Try to send while disabled', eLazy, function() {
     testUniverse.universe.sendOutboxMessages(testUniverse.universe.accounts[0]);
 
-    eLazy.expect_event('ops-done');
+    eLazy.expect('ops-done');
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
-        eLazy.event('ops-done');
+        eLazy.log('ops-done');
       });
   });
 
   T.check('Expect the messages to still be in the outbox', eLazy, function() {
-    eLazy.expect_namedValue('outbox count', subjects.length);
-    eLazy.namedValue('outbox count', views.outbox.slice.items.length);
+    eLazy.expect('outbox count',  subjects.length);
+    eLazy.log('outbox count', views.outbox.slice.items.length);
   });
 
   T.group('Reenable outbox sync');
@@ -121,9 +116,9 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
   T.check('Try to send again, should succeed', eLazy, function() {
     if (TEST_PARAMS.type === 'imap') {
       RT.reportActiveActorThisStep(testAccount.eFolderAccount);
-      testAccount.eFolderAccount.ignore_createConnection();
-      testAccount.eFolderAccount.ignore_reuseConnection();
-      testAccount.eFolderAccount.ignore_releaseConnection();
+       // testAccount.eFolderAccount.ignore_createConnection();
+       // testAccount.eFolderAccount.ignore_reuseConnection();
+       // testAccount.eFolderAccount.ignore_releaseConnection();
     }
 
     // Both messages should send successfully.
@@ -134,17 +129,17 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
 
     testUniverse.universe.sendOutboxMessages(testUniverse.universe.accounts[0]);
 
-    eLazy.expect_event('ops-done');
+    eLazy.expect('ops-done');
     testUniverse.universe.waitForAccountOps(
       testUniverse.universe.accounts[0],
       function() {
-        eLazy.event('ops-done');
+        eLazy.log('ops-done');
       });
   });
 
   T.check('Expect the messages to be gone from the outbox', eLazy, function() {
-    eLazy.expect_namedValue('outbox count', 0);
-    eLazy.namedValue('outbox count', views.outbox.slice.items.length);
+    eLazy.expect('outbox count',  0);
+    eLazy.log('outbox count', views.outbox.slice.items.length);
   });
 
   folders.sent = testAccount.do_useExistingFolderWithType('sent', '');
@@ -159,10 +154,10 @@ TD.commonCase('send message, fail, gets stuck in outbox', function(T, RT) {
     testAccount.do_waitForMessage(views.sent, subject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_namedValue('subject', subject);
+        eLazy.expect('subject',  subject);
       },
       withMessage: function(header) {
-        eLazy.namedValue('subject', header.subject);
+        eLazy.log('subject', header.subject);
       }
     }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   });

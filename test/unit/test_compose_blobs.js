@@ -4,15 +4,11 @@
  * so we keep our tests fast.)
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_devicestorage', './resources/messageGenerator',
-        'util', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_compose_blobs' }, null,
-  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
+var $msggen = require('./resources/messageGenerator');
+var $util = require('util');
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * Create a nondeterministic subject (in contrast to what TB's messageGenerator
@@ -43,13 +39,13 @@ function makeRandomSubject() {
  *   will want to test on its own (someday) since there are many things the
  *   front-end could do to screw up the high level goal.
  */
-TD.commonCase('large attachments', function(T, RT) {
+return new LegacyGelamTest('large attachments', function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
-      testStorage = T.actor('testDeviceStorage', 'sdcard',
+      testStorage = T.actor('TestDeviceStorage', 'sdcard',
                             { storage: 'sdcard' }),
       eLazy = T.lazyLogger('check');
 
@@ -92,7 +88,7 @@ TD.commonCase('large attachments', function(T, RT) {
     var composer;
     // Create the draft,
     T.action(eLazy, 'create draft, draft not saved', function() {
-      eLazy.expect_event('compose setup completed');
+      eLazy.expect('compose setup completed');
 
       composer = testUniverse.MailAPI.beginMessageComposition(
         null, inboxFolder, null,
@@ -101,7 +97,7 @@ TD.commonCase('large attachments', function(T, RT) {
             { name: 'Myself', address: TEST_PARAMS.emailAddress });
           composer.subject = uniqueSubject;
           composer.body.text = 'I like to type!';
-          eLazy.event('compose setup completed');
+          eLazy.log('compose setup completed');
         });
     });
 
@@ -112,7 +108,7 @@ TD.commonCase('large attachments', function(T, RT) {
         var attachmentType = 'application/bytes' + numBytes +
               'x' + numBlobs + '-' + i;
         // Check that the generated attachment def matches what we expect
-        eLazy.expect_namedValue('fake attachment', {
+        eLazy.expect('fake attachment', {
           name: attachmentName,
           blob: {
             size: numBytes,
@@ -130,8 +126,8 @@ TD.commonCase('large attachments', function(T, RT) {
         testAccount.expect_runOp(
           'attachBlobToDraft',
           { local: true, server: false, flushBodyLocalSaves: numBlobs });
-        eLazy.expect_namedValue('attach result', null);
-        eLazy.expect_namedValue('composer passed in', composer);
+        eLazy.expect('attach result', null);
+        eLazy.expect('composer passed in', composer);
 
         var fakeDef = composer.addAttachment(
           {
@@ -139,11 +135,11 @@ TD.commonCase('large attachments', function(T, RT) {
             blob: makeBlobOfSize(numBytes, attachmentType)
           },
           function(err, _composer) {
-            eLazy.namedValue('attach result', err);
-            eLazy.namedValue('composer passed in', _composer);
+            eLazy.log('attach result', err);
+            eLazy.log('composer passed in', _composer);
           }
         );
-        eLazy.namedValue('fake attachment', fakeDef);
+        eLazy.log('fake attachment', fakeDef);
 
       }.bind(null, i));
     }
@@ -156,14 +152,14 @@ TD.commonCase('large attachments', function(T, RT) {
                            Math.ceil((numBytes - (i * 57 * 2)) / 57) * 2;
         expectedBlobSizes.push(Math.min(BLOB_TARGET_SIZE, encodedCount));
       }
-      eLazy.expect_namedValue('blob sizes', expectedBlobSizes);
+      eLazy.expect('blob sizes',  expectedBlobSizes);
 
       var draftHeader = localDraftsView.slice.items[0];
       draftHeader.getBody(function(body) {
         var blobSizes = body.attachments[0]._file.map(function(blob) {
           return blob.size;
         });
-        eLazy.namedValue('blob sizes', blobSizes);
+        eLazy.log('blob sizes', blobSizes);
         body.die();
       });
     });
@@ -173,12 +169,12 @@ TD.commonCase('large attachments', function(T, RT) {
         { local: true, server: false, save: 'local' });
       testAccount.expect_sendMessageWithOutbox('success', 'conn');
 
-      eLazy.expect_event('sent');
+      eLazy.expect('sent');
 
       composer.finishCompositionSendMessage();
       testUniverse.MailAPI.onbackgroundsendstatus = function(data) {
         if (data.state === 'success') {
-          eLazy.event('sent');
+          eLazy.log('sent');
         }
       };
     });
@@ -186,22 +182,22 @@ TD.commonCase('large attachments', function(T, RT) {
     testAccount.do_waitForMessage(inboxView, uniqueSubject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_event('got body');
+        eLazy.expect('got body');
       },
       withMessage: function(_header) {
         header = _header;
         header.getBody(function(_body) {
           body = _body;
-          eLazy.event('got body');
+          eLazy.log('got body');
         });
       }
     });
     T.action(eLazy, 'download attachment', function() {
       var attachments = [];
       body.attachments.forEach(function(att, iAtt) {
-        eLazy.expect_namedValue(
+        eLazy.expect(
           'attachment[' + iAtt + '].size', numBytes);
-        eLazy.expect_namedValue(
+        eLazy.expect(
           'attachment[' + iAtt + '].data', makeArrOfSize(numBytes));
 
         att.download(function() {
@@ -217,9 +213,9 @@ TD.commonCase('large attachments', function(T, RT) {
                 var data = new Uint8Array(reader.readAsArrayBuffer(blob));
                 console.log('got', data.length, 'bytes, readyState',
                             reader.readyState);
-                eLazy.namedValue('attachment[' + iAtt + '].size',
+                eLazy.log('attachment[' + iAtt + '].size',
                                  body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.namedValue('attachment[' + iAtt + '].data', data);
+                eLazy.log('attachment[' + iAtt + '].data', data);
               }
               catch(ex) {
                 console.error('reader error', ex);
