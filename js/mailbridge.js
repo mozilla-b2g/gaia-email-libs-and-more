@@ -49,7 +49,7 @@ function MailBridge(universe, db, name) {
   this.universe = universe;
   this.universe.registerBridge(this);
 
-  this.bridgeContext = new BridgeContext();
+  this.bridgeContext = new BridgeContext(name);
   this.batchManager = new BatchManager(db);
 
   this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
@@ -386,17 +386,6 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
-    var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, 'accounts', msg.handle);
-    proxy.markers = this.universe.accounts.map(function(x) { return x.id; });
-
-    this._slicesByType['accounts'].push(proxy);
-    var wireReps = this.universe.accounts.map(toBridgeWireOn);
-    // send all the accounts in one go.
-    proxy.sendSplice(0, 0, wireReps, true, false);
-  },
-
   notifyAccountAdded: function mb_notifyAccountAdded(account) {
     var accountWireRep = account.toBridgeWire();
     var i, proxy, slices, wireSplice = null, markersSplice = null;
@@ -581,34 +570,31 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_viewFolders: function*(msg) {
-    let ctx = this.bridgeContext.namedContext(msg.handle);
+  _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
+    let ctx = this.bridgeContext.createNamedContext(msg.handle, 'AccountsView');
 
-    // Acquire the account in order to use its folderTOC.
-    let account = this.universe.acquireAccount(ctx, msg.accountId);
-    let toc = account.foldersTOC;
-
-    let proxy = new EntireListProxy(toc, this.batchManager);
+    ctx.proxy = new EntireListProxy(this.universe.accountsTOC,
+                                    this.batchManager);
     ctx.acquire(proxy);
-    proxy.populateFromList();
+    ctx.proxy.populateFromList();
   },
 
-  _cmd_viewFolderMessages: function mb__cmd_viewFolderMessages(msg) {
-    var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, 'headers', msg.handle);
-    this._slicesByType['headers'].push(proxy);
+  _cmd_viewFolders: function*(msg) {
+    let ctx = this.bridgeContext.createNamedContext(msg.handle, 'FoldersView');
 
-    var account = this.universe.getAccountForFolderId(msg.folderId);
-    account.sliceFolderMessages(msg.folderId, proxy);
+    let toc = this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
+
+    ctx.proxy = new EntireListProxy(toc, this.batchManager);
+    ctx.acquire(proxy);
+    ctx.proxy.populateFromList();
   },
 
   _cmd_viewFolderConversations: function(msg) {
     let ctx = this.bridgeContext.namedContext(msg.handle);
 
     let toc = yield this.universe.acquireFolderConversationsTOC(msg.folderId);
-    let proxy = new WindowedListProxy(toc, this.batchManager);
+    ctx.proxy = new WindowedListProxy(toc, this.batchManager);
     ctx.acquire(proxy);
-    ctx.proxy = proxy;
   },
 
   _cmd_seekProxy: function(msg) {
@@ -618,7 +604,6 @@ MailBridge.prototype = {
 
   _cmd_cleanupContext: function(msg) {
     this.bridgeContext.cleanupNamedContext(msg.handle);
-    let ctx = this.bridgeContext.namedContextOrThrow(msg.handle);
 
     this.__sendMessage({
       type: 'contextDead',

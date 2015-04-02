@@ -362,7 +362,7 @@ var properties = {
             // just save the account information.
             this.universe.saveAccountDef(
               this.compositeAccount.accountDef,
-              /* folderInfo: */ null,
+              /* folderDbState: */ null,
               /* callback: */ resolve);
           }.bind(this));
         }.bind(this)

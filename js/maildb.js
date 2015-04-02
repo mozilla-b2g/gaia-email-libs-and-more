@@ -32,7 +32,7 @@ var CUR_VERSION = 22;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 5;
+var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 22;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -61,6 +61,8 @@ var TBL_RAW_TASKS = 'rawTasks';
  * account in a single big value.
  *
  * key: `AccountId`
+ *
+ * value: { meta: Object, folders: Map }
  *
  * Managed by: MailUniverse/MailAccount
  */
@@ -185,16 +187,34 @@ function computeSetDelta(before, after) {
 
 let eventForFolderId = folderId => 'fldr!' + folderId + '!convs!tocChange';
 
+/**
+ * Wrap a (read) request into a
+ */
 function wrapReq(idbRequest) {
   return new Promise(function(resolve, reject) {
     idbRequest.onsuccess = function(event) {
       resolve(event.target.result);
     };
     idbRequest.onerror = function(event) {
-      reject(analyzeAndRejectErrorEvent));
+      reject(analyzeAndLogErrorEvent(event));
     };
   });
 }
+
+/**
+ * Wrap a (presumably write) transaction
+ */
+function wrapTrans(idbTransaction) {
+  return new Promise(function(resolve, reject) {
+    idbTransaction.onsuccess = function(event) {
+      resolve();
+    };
+    idbTransaction.onerror = function(event) {
+      reject(analyzeAndLogErrorEvent(event));
+    };
+  });
+}
+
 
 /**
  * v3 prototype database.  Intended for use on the worker directly.  For
@@ -272,7 +292,7 @@ function MailDB(testOptions) {
         }, trans);
       }
     };
-    openRequest.onerror = this._fatalError;
+    openRequest.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
   }.bind(this));
 }
 
@@ -319,9 +339,9 @@ MailDB.prototype = evt.mix({
     var configReq = configStore.mozGetAll(),
         folderInfoReq = folderInfoStore.mozGetAll();
 
-    configReq.onerror = this._fatalError;
+    configReq.onerror = analyzeAndLogErrorEvent;
     // no need to track success, we can read it off folderInfoReq
-    folderInfoReq.onerror = this._fatalError;
+    folderInfoReq.onerror = analyzeAndLogErrorEvent;
     var self = this;
     folderInfoReq.onsuccess = function(event) {
       var configObj = null, accounts = [], i, obj;
@@ -362,7 +382,7 @@ MailDB.prototype = evt.mix({
     var req = this._db.transaction(TBL_CONFIG, 'readwrite')
                         .objectStore(TBL_CONFIG)
                         .put(config, 'config');
-    req.onerror = this._fatalError;
+    req.onerror = analyzeAndLogErrorEvent;
   },
 
   /**
@@ -382,7 +402,7 @@ MailDB.prototype = evt.mix({
       trans.objectStore(TBL_FOLDER_INFO)
            .put(folderInfo, accountDef.id);
     }
-    trans.onerror = this._fatalError;
+    trans.onerror = analyzeAndLogErrorEvent;
     if (callback) {
       trans.oncomplete = function() {
         callback();
@@ -742,6 +762,12 @@ MailDB.prototype = evt.mix({
 
     let mutations = data.mutations;
     if (mutations) {
+      if (mutations.folder) {
+        for (let [accountId, foldersDbState] of mutations.folder) {
+          trans.objectStore(TBL_FOLDER_INFO).put(folderDbState, accountId);
+        }
+      }
+
       if (mutations.conv) {
         this._processConvMutations(
           trans, ctx._preMutateStates.conv, mutations.conv);
@@ -761,129 +787,19 @@ MailDB.prototype = evt.mix({
       }
     }
 
-
-  },
-
-  /**
-   * Coherently update the state of the folderInfo for an account plus all dirty
-   * blocks at once in a single (IndexedDB and SQLite) commit. If we broke
-   * folderInfo out into separate keys, we could do this on a per-folder basis
-   * instead of per-account.  Revisit if performance data shows stupidity.
-   *
-   * @args[
-   *   @param[accountId]
-   *   @param[folderInfo]
-   *   @param[perFolderStuff @listof[@dict[
-   *     @key[id FolderId]
-   *     @key[headerBlocks @dictof[@key[BlockId] @value[HeaderBlock]]]
-   *     @key[bodyBlocks @dictof[@key[BlockID] @value[BodyBlock]]]
-   *   ]]]
-   * ]
-   */
-  saveAccountFolderStates: function(accountId, folderInfo, perFolderStuff,
-                                    deletedFolderIds, callback) {
-    var trans = this._db.transaction([TBL_FOLDER_INFO, TBL_HEADER_BLOCKS,
-                                      TBL_BODY_BLOCKS], 'readwrite');
-    trans.onerror = this._fatalError;
-    trans.objectStore(TBL_FOLDER_INFO).put(folderInfo, accountId);
-
-    var headerStore = trans.objectStore(TBL_HEADER_BLOCKS),
-        bodyStore = trans.objectStore(TBL_BODY_BLOCKS),
-        i;
-
-    /**
-     * Calling put/delete on operations can be fairly expensive for these blocks
-     * (4-10ms+) which can cause major jerk while scrolling to we send block
-     * operations individually (but inside of a single block) to improve
-     * responsiveness at the cost of throughput.
-     */
-    var operationQueue = [];
-
-    function addToQueue() {
-      var args = Array.slice(arguments);
-      var store = args.shift();
-      var type = args.shift();
-
-      operationQueue.push({
-        store: store,
-        type: type,
-        args: args
-      });
-    }
-
-    function workQueue() {
-      var pendingRequest = operationQueue.shift();
-
-      // no more the transition complete handles the callback
-      if (!pendingRequest)
-        return;
-
-      var store = pendingRequest.store;
-      var type = pendingRequest.type;
-
-      var request = store[type].apply(store, pendingRequest.args);
-
-      request.onsuccess = request.onerror = workQueue;
-    }
-
-    for (i = 0; i < perFolderStuff.length; i++) {
-      var pfs = perFolderStuff[i], block;
-
-      for (var headerBlockId in pfs.headerBlocks) {
-        block = pfs.headerBlocks[headerBlockId];
-        if (block)
-          addToQueue(headerStore, 'put', block, pfs.id + ':' + headerBlockId);
-        else
-          addToQueue(headerStore, 'delete', pfs.id + ':' + headerBlockId);
-      }
-
-      for (var bodyBlockId in pfs.bodyBlocks) {
-        block = pfs.bodyBlocks[bodyBlockId];
-        if (block)
-          addToQueue(bodyStore, 'put', block, pfs.id + ':' + bodyBlockId);
-        else
-          addToQueue(bodyStore, 'delete', pfs.id + ':' + bodyBlockId);
-      }
-    }
-
-    if (deletedFolderIds) {
-      for (i = 0; i < deletedFolderIds.length; i++) {
-        var folderId = deletedFolderIds[i],
-            range = IDBKeyRange.bound(folderId + ':',
-                                      folderId + ':\ufff0',
-                                      false, false);
-        addToQueue(headerStore, 'delete', range);
-        addToQueue(bodyStore, 'delete', range);
-      }
-    }
-
-    if (callback) {
-      trans.addEventListener('complete', function() {
-        callback();
-      });
-    }
-
-    workQueue();
-
-    return trans;
+    return wrapTrans(trans);
   },
 
   /**
    * Delete all traces of an account from the database.
    */
   deleteAccount: function(accountId) {
-    var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO,
-                                      TBL_HEADER_BLOCKS, TBL_BODY_BLOCKS],
+    var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
                                       'readwrite');
-    trans.onerror = this._fatalError;
+    trans.onerror = analyzeAndLogErrorEvent;
 
     trans.objectStore(TBL_CONFIG).delete('accountDef:' + accountId);
     trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
-    var range = IDBKeyRange.bound(accountId + '.',
-                                  accountId + '.\ufff0',
-                                  false, false);
-    trans.objectStore(TBL_HEADER_BLOCKS).delete(range);
-    trans.objectStore(TBL_BODY_BLOCKS).delete(range);
   },
 });
 

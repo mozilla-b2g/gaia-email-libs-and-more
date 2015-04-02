@@ -61,7 +61,7 @@ let GmailStoreTaskMixin = {
   },
 
   deriveMemoryStateFromPersistentState: function(account, persistentState) {
-    for (var )
+    
   },
 
   hasWork: function(account, persistentState) {

@@ -14,6 +14,7 @@ let $maildb = require('./maildb');
 let $acctcommon = require('./accountcommon');
 let $allback = require('./allback');
 
+let AccountsTOC = require('./db/accounts_toc');
 let FolderConversationsTOC = require('./db/folder_convs_toc');
 
 /**
@@ -31,13 +32,16 @@ var MAX_LOG_BACKLOG = 30;
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
 
-  /** @listof[Account] */
-  this.accounts = [];
-  this._accountsById = new Map();
+  this.accountsTOC = new AccountsTOC();
+  this._residentAccountsById = new Map();
+  this._loadingAccountsById = new Map();
+
+  /** @type{Map<AccountId, FoldersTOC>} */
+  this.accountFolderTOCs = new Map();
 
   /** @listof[IdentityDef] */
   this.identities = [];
-  this._identitiesById = {};
+  this._identitiesById = new Map();
 
   this._bridges = [];
 
@@ -69,12 +73,11 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this._LOG = null;
   this._db = new $maildb.MailDB(testOptions);
   //this._cronSync = null;
-  var self = this;
-  this._db.getConfig(function(configObj, accountInfos, lazyCarryover) {
-    function setupLogging(config) {
-      if (self.config.debugLogging) {
-        if (self.config.debugLogging === 'realtime-dangerous' ||
-            self.config.debugLogging === 'dangerous') {
+  this._db.getConfig((configObj, accountInfos, lazyCarryover) => {
+    let setupLogging = (config) => {
+      if (this.config.debugLogging) {
+        if (this.config.debugLogging === 'realtime-dangerous' ||
+            this.config.debugLogging === 'dangerous') {
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
           console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
@@ -89,39 +92,27 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
           slog.setSensitiveDataLoggingEnabled(true);
         }
       }
-    }
+    };
 
-    var accountInfo, i;
-    var doneCount = 0;
-    var accountCount = accountInfos.length;
+    let accountCount = accountInfos.length;
     if (configObj) {
-      self.config = configObj;
+      this.config = configObj;
       setupLogging();
 
       logic(this, 'configLoaded', { config: configObj });
 
-      function done() {
-        doneCount += 1;
-        if (doneCount === accountCount) {
-          self._initFromConfig();
-          callAfterBigBang();
-        }
-      }
-
       if (accountCount) {
-        for (i = 0; i < accountCount; i++) {
-          accountInfo = accountInfos[i];
-          self._loadAccount(accountInfo.def, accountInfo.folderInfo,
-                            null, done);
+        for (let i = 0; i < accountCount; i++) {
+          let accountInfo = accountInfos[i];
+          this._accountExists(accountInfo.def, accountInfo.folderInfo);
         }
 
-        // return since _loadAccount needs to finish before completing
-        // the flow in done().
-        return;
+        this._initFromConfig();
+        callAfterBigBang();
       }
     }
     else {
-      self.config = {
+      this.config = {
         // We need to put the id in here because our startup query can't
         // efficiently get both the key name and the value, just the values.
         id: 'config',
@@ -130,7 +121,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
       };
       setupLogging();
-      self._db.saveConfig(self.config);
+      this._db.saveConfig(this.config);
 
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover) {
@@ -150,23 +141,23 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         };
 
         for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
-          var accountInfo = lazyCarryover.accountInfos[i];
+          let accountInfo = lazyCarryover.accountInfos[i];
           this._LOG.recreateAccount_begin(accountInfo.type, accountInfo.id,
                                           null);
           $acctcommon.recreateAccount(
-            self, oldVersion, accountInfo,
+            this, oldVersion, accountInfo,
             accountRecreated.bind(this, accountInfo));
         }
         // Do not let callAfterBigBang get called.
         return;
       }
       else {
-        logic(self, 'configCreated', { config: config });
+        logic(this, 'configCreated', { config: config });
       }
     }
-    self._initFromConfig();
+    this._initFromConfig();
     callAfterBigBang();
-  }.bind(this));
+  };
 }
 exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
@@ -277,6 +268,25 @@ MailUniverse.prototype = {
    * accounts could be entirely lazy-loaded.
    */
   acquireAccount: function(ctx, accountId) {
+    let promise;
+    if (this._residentAccountsById.has(accountId)) {
+      let account = this._residentAccountsById.get(acccountId);
+      return ctx.acquire(account);
+    } else if (this._loadingAccountsById.has(accountId)) {
+      promise = this._loadingAccountsById.get(accountId);
+    } else {
+      let accountDef = this.accountsTOC.accountDefsById.get(accountId);
+      let folderTOC = this.accountFolderTOCs.get(accountId);
+      promise = this._loadAccount(accountDef, folderTOC, null);
+    }
+
+
+
+    let account = this._accountsById.get(accountId);
+    return ctx.acquire(account);
+  },
+
+  acquireAccountFoldersTOC: function(ctx, accountId) {
     let account = this._accountsById.get(accountId);
     return ctx.acquire(account);
   },
@@ -344,76 +354,75 @@ MailUniverse.prototype = {
     }
     this._db.deleteAccount(accountId);
 
-    delete this._accountsById[accountId];
-    var idx = this.accounts.indexOf(account);
-    this.accounts.splice(idx, 1);
+    this.accountsTOC.removeAccountById(accountId);
+    this.accountFolderTOCs.delete(accountId);
 
     for (var i = 0; i < account.identities.length; i++) {
       var identity = account.identities[i];
       idx = this.identities.indexOf(identity);
       this.identities.splice(idx, 1);
-      delete this._identitiesById[identity.id];
+      this._identitiesById.delete(identity.id);
     }
-
-    delete this._opsByAccount[accountId];
-    delete this._opCompletionListenersByAccount[accountId];
-
-    this.__notifyRemovedAccount(accountId);
 
     if (savedEx)
       throw savedEx;
   },
 
-  saveAccountDef: function(accountDef, folderInfo, callback) {
-    this._db.saveAccountDef(this.config, accountDef, folderInfo, callback);
-    var account = this.getAccountForAccountId(accountDef.id);
+  saveAccountDef: function(accountDef, folderDbState, callback) {
+    this._db.saveAccountDef(this.config, accountDef, folderDbState, callback);
 
-    // Make sure syncs are still accurate, since syncInterval
-    // could have changed.
-    /*
-    if (this._cronSync) {
-      this._cronSync.ensureSync();
+    if (this.accountsTOC.isKnownAccount(accountDef.id)) {
+      this.accountsTOC.accountModified(account);
+    } else {
+      // (this happens during intial account (re-)creation)
+      this._accountExists(accountDef, folderDbState);
     }
-    */
+  },
 
-    // If account exists, notify of modification. However on first
-    // save, the account does not exist yet.
-    if (account)
-      this.__notifyModifiedAccount(account);
+  /**
+   * Call this to tell the TOCs about the existence of an account.  This does
+   * not load the account.
+   */
+  _accountExists: function(accountDef, folderInfo) {
+    let folderTOC = new FolderTOC(folderInfo);
+    this.accountFolderTOCs.set(accountDef.id, folderTOC);
+    this.accountsTOC.add(accountDef);
+
+    // TODO: actually clean-up identity ownership/life-cycle
+    for (let iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
+      var identity = accountDef.identities[iIdent];
+      this.identities.push(identity);
+      this._identitiesById.set(identity.id, identity);
+    }
   },
 
   /**
    * Instantiate an account from the persisted representation.
    * Asynchronous. Calls callback with the account object.
    */
-  _loadAccount: function mu__loadAccount(accountDef, folderInfo,
-                                         receiveProtoConn, callback) {
-    $acctcommon.accountTypeToClass(accountDef.type, function (constructor) {
-      if (!constructor) {
-        this._LOG.badAccountType(accountDef.type);
-        return;
-      }
-      var account = new constructor(this, accountDef, folderInfo, this._db,
-                                    receiveProtoConn, this._LOG);
+  _loadAccount: function (accountDef, folderInfo, receiveProtoConn) {
+    let promise = new Promise((resolve, reject) => {
+      $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
+        if (!constructor) {
+          this._LOG.badAccountType(accountDef.type);
+          return;
+        }
+        var account = new constructor(this, accountDef, folderInfo, this._db,
+                                      receiveProtoConn, this._LOG);
 
-      this.accounts.push(account);
-      this._accountsById.set(account.id, account);
+        // - issue a (non-persisted) syncFolderList if needed
+        var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
+        if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
+          this.syncFolderList(account);
+        }
 
-      for (var iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
-        var identity = accountDef.identities[iIdent];
-        this.identities.push(identity);
-        this._identitiesById.set(identity.id, identity);
-      }
-
-      this.emit('accountLoaded', account);
-
-      // - issue a (non-persisted) syncFolderList if needed
-      var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
-      if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS)
-        this.syncFolderList(account);
-
-      callback(account);
-    }.bind(this));
+        this._loadingAccountsById.delete(accountDef.id);
+        this._residentAccountsById.set(accountDef.id, account);
+        resolve(account);
+      }.bind(this));
+    });
+    this._loadingAccountsById.set(accountDef.id, promise);
+    return promise;
   },
 
   /**
@@ -428,6 +437,9 @@ MailUniverse.prototype = {
    * @param {'incoming'|'outgoing'} whichSide
    */
   __reportAccountProblem: function(account, problem, whichSide) {
+    // XXX make work again via overlays or something
+    return;
+
     var suppress = false;
     // nothing to do if the problem is already known
     if (account.problems.indexOf(problem) !== -1) {
@@ -454,6 +466,8 @@ MailUniverse.prototype = {
   },
 
   __removeAccountProblem: function(account, problem) {
+    // XXX make work again
+    return;
     var idx = account.problems.indexOf(problem);
     if (idx === -1)
       return;
@@ -467,6 +481,8 @@ MailUniverse.prototype = {
   },
 
   clearAccountProblems: function(account) {
+    // XXX make work again
+    return;
     this._LOG.clearAccountProblems(account.id);
     // TODO: this would be a great time to have any slices that had stalled
     // syncs do whatever it takes to make them happen again.
@@ -477,24 +493,6 @@ MailUniverse.prototype = {
 
   // expects (account, problem, whichSide)
   __notifyBadLogin: makeBridgeFn('notifyBadLogin'),
-
-  // expects (account)
-  __notifyAddedAccount: makeBridgeFn('notifyAccountAdded'),
-
-  // expects (account)
-  __notifyModifiedAccount: makeBridgeFn('notifyAccountModified'),
-
-  // expects (accountId)
-  __notifyRemovedAccount: makeBridgeFn('notifyAccountRemoved'),
-
-  // expects (account, folderMeta)
-  __notifyAddedFolder: makeBridgeFn('notifyFolderAdded'),
-
-  // expects (account, folderMeta)
-  __notifyModifiedFolder: makeBridgeFn('notifyFolderModified'),
-
-  // expects (account, folderMeta)
-  __notifyRemovedFolder: makeBridgeFn('notifyFolderRemoved'),
 
   // expects (suid, detail, body)
   __notifyModifiedBody: makeBridgeFn('notifyBodyModified'),

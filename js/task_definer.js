@@ -1,5 +1,9 @@
 define(function(require) {
 
+let SimpleTaskBase = {
+  
+};
+
 function TaskDefiner() {
 
 }

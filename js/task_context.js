@@ -29,7 +29,7 @@ TaskContext.prototype = {
     this._stuffToRelease.push(acquireable);
     return acquireable.__acquire(this);
   },
-  
+
   _releaseEverything: function() {
     for (let acquireable of this._stuffToRelease) {
       try {
@@ -66,17 +66,9 @@ TaskContext.prototype = {
    */
   finishTask: function(finishData) {
     this.state = 'finishing';
-  },
 
-  // XXX do auto-fancy log thing
-  log: function(type, data) {
-    if (data) {
-      data.taskId = this.id;
-    } else {
-      data = { taskId: this.id };
-    }
-    slog.log(type, data);
-  }
+    return this._db.finishMutate(finishData);
+  },
 };
 return TaskContext;
 });

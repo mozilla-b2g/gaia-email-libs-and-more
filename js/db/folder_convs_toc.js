@@ -157,7 +157,8 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     // and all that if we can avoid it.
     let needData = new Map();
     // The new known set which is the stuff from alreadyKnown we reused plus the
-    //
+    // data we were able to provide synchronously.  (And the stuff we have to
+    // read from the DB does NOT go in here.)
     let newKnownSet = new Set();
 
     let idsWithDates = this.idsWithDates;
@@ -167,9 +168,11 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       let id = idsWithDates[i].id;
       ids.push(id);
       if (alreadyKnown) {
+        newKnownSet.add(id);
         continue;
       }
       if (convCache.has(id)) {
+        newKnownSet.add(id);
         haveData.set(id, convCache.get(id));
       } else {
         needData.set(id, null);
@@ -189,7 +192,8 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       ids: ids,
       state: haveData,
       pendingReads: needData,
-      readPromise: readPromise
+      readPromise: readPromise,
+      newKnownSet: newKnownSet
     };
   }
 }));

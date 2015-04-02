@@ -32,7 +32,7 @@ function cmpFolderPubPath(a, b) {
 function CompositeIncomingAccount(
       FolderSyncer,
       universe, compositeAccount, accountId, credentials,
-      connInfo, folderInfos, dbConn, _parentLog, existingProtoConn) {
+      connInfo, foldersTOC, dbConn, _parentLog, existingProtoConn) {
 
   this.universe = universe;
   this.compositeAccount = compositeAccount;
@@ -44,17 +44,10 @@ function CompositeIncomingAccount(
   this._connInfo = connInfo;
   this._db = dbConn;
 
-  /**
-   * @type {Array<FolderInfo>}
-   */
-  this.folders = [];
+  this.foldersTOC = foldersTOC;
+  // this is owned by the TOC.  Do not mutate!
+  this.folders = this.foldersTOC.items;
 
-  this.foldersTOC = new FoldersTOC(this, this.folders);
-
-  /**
-   * The canonical folderInfo object we persist to the database.
-   */
-  this._folderInfos = folderInfos;
   /**
    * @dict[
    *   @param[nextFolderNum Number]{
@@ -90,19 +83,7 @@ function CompositeIncomingAccount(
    *   This information gets flushed on database upgrades.
    * }
    */
-  this.meta = this._folderInfos.$meta;
-
-  for (let folderId in folderInfos) {
-    // ignore the $meta structure and now-moot $-prefixed hacks
-    if (folderId[0] === '$')
-      continue;
-    var folderInfo = folderInfos[folderId];
-
-    this.folders.push(folderInfo.$meta);
-  }
-  this.folders.sort(function(a, b) {
-    return a.path.localeCompare(b.path);
-  });
+  this.meta = foldersTOC.meta;
 
   // Ensure we have an inbox.  This is a folder that must exist with a standard
   // name, so we can create it without talking to the server.
@@ -134,9 +115,9 @@ CompositeIncomingAccount.prototype = {
    *   offline-only folders at account creation/app startup.
    */
   _learnAboutFolder: function(name, path, parentId, type, delim, depth) {
-    var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
-    var folderInfo = this._folderInfos[folderId] = {
-      $meta: $folder_info.makeFolderMeta({
+    let folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
+    let folderInfo = this._folderInfos[folderId] =
+      $folder_info.makeFolderMeta({
         id: folderId,
         name: name,
         type: type,
@@ -146,21 +127,17 @@ CompositeIncomingAccount.prototype = {
         depth: depth,
         lastSyncedAt: 0,
         version: $mailslice.FOLDER_DB_VERSION
-      }),
-      serverIdHeaderBlockMapping: null, // IMAP/POP3 does not need the mapping
-    };
+      });
 
-    var folderMeta = folderInfo.$meta;
-    var idx = bsearchForInsert(this.folders, folderMeta, cmpFolderPubPath);
-    this.folders.splice(idx, 0, folderMeta);
-    this.foldersTOC.emit('add', folderMeta, idx)
+    this.foldersTOC.add(folderInfo);
 
-    return folderMeta;
+    return folderInfo;
   },
 
   _forgetFolder: function(folderId) {
-    var folderInfo = this._folderInfos[folderId],
-        folderMeta = folderInfo.$meta;
+    this.foldersTOC.removeFolderById(folderId);
+
+    var folderInfo = this._folderInfos[folderId];
     delete this._folderInfos[folderId];
 
     // XXX the database need to purge the indices here, probably.  It's not

@@ -314,25 +314,23 @@ exports.configurator = {
     var folderInfo;
     if (accountDef.receiveType === 'imap') {
       folderInfo = {
-        $meta: {
+        meta: {
           nextFolderNum: 0,
           nextMutationNum: 0,
           lastFolderSyncAt: 0,
           capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
             protoConn.capability
         },
-        $mutations: [],
-        $mutationState: {},
+        folders: new Map()
       };
     } else { // POP3
       folderInfo = {
-        $meta: {
+        meta: {
           nextFolderNum: 0,
           nextMutationNum: 0,
           lastFolderSyncAt: 0,
         },
-        $mutations: [],
-        $mutationState: {},
+        folders: new Map()
       };
     }
     universe.saveAccountDef(accountDef, folderInfo);

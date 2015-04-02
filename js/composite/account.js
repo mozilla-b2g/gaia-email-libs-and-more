@@ -38,7 +38,7 @@ var PIECE_ACCOUNT_TYPE_TO_CLASS = {
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(universe, accountDef, folderInfo, dbConn,
+function CompositeAccount(universe, accountDef, folderTOC, dbConn,
                           receiveProtoConn,
                           _LOG) {
   this.universe = universe;
@@ -73,7 +73,7 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
       universe, this,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderInfo, dbConn, _LOG, receiveProtoConn);
+      folderTOC, dbConn, _LOG, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
       universe, this,
@@ -90,7 +90,6 @@ function CompositeAccount(universe, accountDef, folderInfo, dbConn,
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
   this.meta = this._receivePiece.meta;
-  this.mutations = this._receivePiece.mutations;
 
   // Mix in any fields common to all accounts.
   $acctmixins.accountConstructorMixin.call(
@@ -104,46 +103,6 @@ CompositeAccount.prototype = {
   },
   get supportsServerFolders() {
     return this._receivePiece.supportsServerFolders;
-  },
-  toBridgeWire: function() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      type: this.accountDef.type,
-
-      defaultPriority: this.accountDef.defaultPriority,
-
-      enabled: this.enabled,
-      problems: this.problems,
-
-      syncRange: this.accountDef.syncRange,
-      syncInterval: this.accountDef.syncInterval,
-      notifyOnNew: this.accountDef.notifyOnNew,
-      playSoundOnSend: this.accountDef.playSoundOnSend,
-
-      identities: this.identities,
-
-      credentials: {
-        username: this.accountDef.credentials.username,
-        outgoingUsername: this.accountDef.credentials.outgoingUsername,
-        // no need to send the password to the UI.
-        // send all the oauth2 stuff we've got, though.
-        oauth2: this.accountDef.credentials.oauth2
-      },
-
-      servers: [
-        {
-          type: this.accountDef.receiveType,
-          connInfo: this.accountDef.receiveConnInfo,
-          activeConns: this._receivePiece.numActiveConns || 0,
-        },
-        {
-          type: this.accountDef.sendType,
-          connInfo: this.accountDef.sendConnInfo,
-          activeConns: this._sendPiece.numActiveConns || 0,
-        }
-      ],
-    };
   },
   toBridgeFolder: function() {
     return {

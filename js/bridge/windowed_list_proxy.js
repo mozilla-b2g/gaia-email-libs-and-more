@@ -20,30 +20,27 @@ define(function(require) {
  *   only care about this if the thing that changed was in our list.
  *
  * Our responsibilities are pretty simple:
- * - We convert the front-end's seek request into a stable form
- * - We track the window of interest that is a subset of the TOC and the focused
- *   item.  We update these things so that they don't go out of the date.
- * - We accumulate changes for this window as we hear about them, telling our
- *   `BatchManager` that our state has gotten dirty.  But the BatchManager
- *   decides when we should flush.  The goal is that if the back-end is
- *   particularly busy churning for a bit, we insulate the UI and main thread
- *   and its responsiveness from the turnover.
- * - We produce the payload to send over the bridge when `flush` is called.  We
- *   don't actually know who the bridge is or how to talk to them.
- * - We service the seek requests from WindowedListView, updating our state.
- *   (The bridge does know who we are.)
- * - We propagate priority information based on what the user can currently see.
- *   SOME DAY SOON.
+ * - We convert the front-end's seek request into a stable form.  Right now this
+ *   is top, bottom, or focused on a specific point in the ordering key-space.
+ *   TODO: In the future the specific point may be adjusted to keep the point
+ *   referencing some underlying real item.  That's been the `BrowserContext`
+ *   plan but we might as well wait until we implement `BrowserContext` to do
+ *   that.
+ * - We track what the corresponding view knows about so we can know when it
+ *   becomes outdated and to avoid sending redundant information to the view.
+ * - We figure out when we are "dirty" in that we need to send some data to the
+ *   front-end.  We tell the BatchManager this.
+ * - We produce the payload to send over the bridge when `flush` is called by
+ *   the BatchManager.  We don't actually know who the bridge is or how to talk
+ *   to them.
+ * - TODO: Propagate priority information based on what the user can currently
+ *   see.  SOME DAY SOON.
  *
  * Key / notable decisions:
  * - It is possible for us to know the id and position of something in the list
- *   and to not have the data immediately available.  We provide null payload
- *   values for things that we're still loading.  We will eventually fill them
- *   in with data or the items will be removed.  The alternative would be for
- *   us to refuse to flush when are missing some data, but that can lead to
- *   the potential for pathological starvation especially if anything ever
- *   glitches.  So we just provide nulls and it's up to the consumer to
- *   competently use placeholder items, etc.
+ *   and to not have the data immediately available.  We do not wait for the
+ *   data to load; we just send what we have now and the view fills in nulls
+ *   until we are able to provide it with the data.
  * - Coordination is greatly simplified by us owning the window state.  The
  *   WindowedListView asks for us to seek, but it does not modify its state
  *   AT ALL until we process the request and eventually flush, providing it with
@@ -100,6 +97,8 @@ WindowedListProxy.prototype = {
   /**
    * Dirty ourselves if anything happened to the list ordering or if this is an
    * item change for something that's inside our window.
+   *
+   * NOTE: If/when we implement key stability stuff, it goes here.
    */
   onChange: function(changeRec) {
     this.viewSet.delete(changeRec.id);
@@ -112,7 +111,11 @@ WindowedListProxy.prototype = {
   },
 
   /**
-   * Generate a seek update
+   * Synchronously provide the update to be provided to our matching
+   * WindowedListView.  If all of the data isn't available synchronously, we
+   * will be provided with a Promise for when the data is available, and we'll
+   * dirty ourselves again when that promise resolves.  Happily, if things have
+   * changed by the time the promise is resolved, it's fine
    */
   flush: function() {
     let beginInclusive, endExclusive;
@@ -130,16 +133,23 @@ WindowedListProxy.prototype = {
 
     this.dirty = false;
 
-    let { ids, state, pendingReads, readPromise } =
+    let { ids, state, pendingReads, readPromise, newKnownSet } =
       this.toc.getDataforSliceRange(beginInclusive, endExclusive, this.viewSet);
 
-    
+    this.viewSet = newKnownSet;
+
+    if (readPromise) {
+      readPromise.then(() => {
+        // Trigger an immediate dirtying/flush.
+        this.batchManager.registerDirtyView(this, /* immediate */ true);
+      });
+    }
 
     return {
       offset: beginInclusive,
       totalCount: this.toc.length,
-      ids: [],
-      values: set
+      ids: ids,
+      values: state
     };
   }
 };

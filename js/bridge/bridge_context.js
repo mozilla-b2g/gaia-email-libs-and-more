@@ -2,7 +2,8 @@ define(function(require) {
 
 let logic = require('../logic');
 
-function NamedContext(name) {
+function NamedContext(name, type, bridgeName) {
+  logic.defineScope(this, type, { name: name, bridge: bridgeName });
   this.name = name;
   this._active = true;
 
@@ -46,23 +47,20 @@ NamedContext.prototype = {
  * - View proxies (EntireListProxy, WindowedListProxy)
  * - maybe: Composition instances
  */
-function BridgeContext() {
-  logic.defineScope(this, 'BridgeContext');
+function BridgeContext(name) {
+  this.bridgeName = name;
+  logic.defineScope(this, 'BridgeContext', { name: name });
 
   this._namedContexts = new Map();
 }
 BridgeContext.prototype = {
-  namedContext: function(name) {
-    if (this._namedContexts.has(name)) {
-      return this._namedContexts.get(name);
-    }
-
-    let ctx = new NamedContext(name);
+  createNamedContext: function(name, type) {
+    let ctx = new NamedContext(name, type, this.bridgeName);
     this._namedContexts.set(name, ctx);
     return ctx;
   },
 
-  namedContextOrThrow: function(name) {
+  getNamedContextOrThrow: function(name) {
     if (this._namedContexts.has(name)) {
       return this._namedContexts.get(name);
     }

@@ -16,9 +16,12 @@ function TaskManager(db) {
 
   /**
    * @type{Array<RawTask>}
-   * The tasks that we still need to plan.
+   * The tasks that we still need to plan (but have scheduled/durably persisted
+   * to disk.)
    */
   this._tasksToPlan = [];
+
+  this._prioritizedTasks = foo;
 }
 TaskManager.prototype = {
   /**
@@ -35,17 +38,25 @@ TaskManager.prototype = {
    */
   scheduleTask: function(rawTask) {
 
-    return new Promise((resolve, reject) => {
-      this._tasksToSchedule
+    let promise = new Promise((resolve, reject) => {
+      this._tasksToSchedule.push()
     });
   },
 
   /**
    * Conceptually, calls scheduleTask a bunch for you and wraps them up in a
-   * Promise.all.  (scheduleTask is actually implemented in terms of this one.)
+   * Promise.all.
    */
   scheduleTasks: function(rawTasks) {
     return Promise.all(rawTasks.map(x => this.scheduleTask(x)));
+  }
+
+  _planNextTask: function() {
+
+  },
+
+  _executeNextTask: function() {
+
   }
 };
 

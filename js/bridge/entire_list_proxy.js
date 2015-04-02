@@ -31,7 +31,7 @@ EntireListProxy.prototype = {
    * slightly less magic and give the caller some additional control.
    */
   populateFromList: function() {
-    let items = this.toc.items;
+    let items = this.getAllItems();
     for (let i = 0; i < items.length; i++) {
       this.onAdd(items[i], i);
     }
