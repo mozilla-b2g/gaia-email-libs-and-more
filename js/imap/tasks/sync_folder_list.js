@@ -22,9 +22,10 @@ return TaskDefiner.defineSimpleTask([
     plan: null,
 
     execute: function*(ctx, req) {
+      let account = ctx.universe.acquireAccount(req.accountId);
 
-      let boxesRoot = yield ctx.pimap.listBoxes();
-      let namespaces = yield ctx.pimap.listNamespaces();
+      let boxesRoot = yield account.pimap.listBoxes();
+      let namespaces = yield account.pimap.listNamespaces();
 
 
       yield ctx.finishTask({

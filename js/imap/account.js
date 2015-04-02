@@ -14,6 +14,7 @@ define(
     './folder',
     './jobs',
     './client',
+    './protocol/parallel_imap',
     '../errorutils',
     '../disaster-recovery',
     'module',
@@ -35,6 +36,7 @@ define(
     $imapfolder,
     $imapjobs,
     $imapclient,
+    ParallelImap,
     errorutils,
     DisasterRecovery,
     $module,
@@ -102,6 +104,8 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
   this._demandedConns = [];
   this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
                                                      this._LOG);
+
+  this.pimap = new ParallelImap(this);
 
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);

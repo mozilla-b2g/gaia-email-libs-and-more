@@ -5,11 +5,12 @@ let logic = require('./logic');
 /**
  * Provides helpers and standard arguments/context for tasks.
  */
-function TaskContext(id, args) {
-  logic.defineScope(this, 'TaskContext', { id: id, accountId: args.accountId });
-  this.id = id;
-  this.account = args.account;
+function TaskContext(wrappedTask, universe) {
+  logic.defineScope(this, 'TaskContext', { id: wrappedTask.id });
+  this.id = wrappedTask.id;
+  this._wrappedTask = wrappedTask;
   this._db = args.db;
+  this.universe = args.universe;
 
   this._stuffToRelease = [];
   this._preMutateStates = null;

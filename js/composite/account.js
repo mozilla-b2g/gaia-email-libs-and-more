@@ -124,6 +124,10 @@ CompositeAccount.prototype = {
     return this._receivePiece.foldersTOC;
   },
 
+  get pimap() {
+    return this._receivePiece.pimap;
+  },
+
   saveAccountState: function(reuseTrans, callback, reason) {
     return this._receivePiece.saveAccountState(reuseTrans, callback, reason);
   },

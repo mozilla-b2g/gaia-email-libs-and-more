@@ -17,6 +17,11 @@ let $allback = require('./allback');
 let AccountsTOC = require('./db/accounts_toc');
 let FolderConversationsTOC = require('./db/folder_convs_toc');
 
+let TaskManager = require('./task_manager');
+
+// require lazy_tasks for the side-effect of defining the tasks we implement.
+require('./lazy_tasks');
+
 /**
  * When debug logging is enabled, how many second's worth of samples should
  * we keep?
@@ -32,6 +37,8 @@ var MAX_LOG_BACKLOG = 30;
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
 
+  this._db = new $maildb.MailDB(testOptions);
+
   this.accountsTOC = new AccountsTOC();
   this._residentAccountsById = new Map();
   this._loadingAccountsById = new Map();
@@ -46,6 +53,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this._bridges = [];
 
   this._folderConvsTOCs = new Map();
+
+  this.taskManager = new TaskManager(this, this._db);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -71,7 +80,6 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this._logBacklog = null;
 
   this._LOG = null;
-  this._db = new $maildb.MailDB(testOptions);
   //this._cronSync = null;
   this._db.getConfig((configObj, accountInfos, lazyCarryover) => {
     let setupLogging = (config) => {
@@ -168,6 +176,8 @@ MailUniverse.prototype = {
    * Perform initial initialization based on our configuration.
    */
   _initFromConfig: function() {
+    this.taskManager.__restoreFromDB();
+
     // XXX disabled cronsync because of massive rearchitecture
     //this._cronSync = new $cronsync.CronSync(this, this._LOG);
   },
@@ -577,19 +587,13 @@ MailUniverse.prototype = {
       callback();
   },
 
-  syncFolderList: function(account, callback) {
-    this._queueAccountOp(
-      account,
+  syncFolderList: function(account) {
+    this.taskManager.scheduleTasks([
       {
-        type: 'syncFolderList',
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: 'done',
-        serverStatus: null,
-        tryCount: 0,
-        humanOp: 'syncFolderList'
-      },
-      callback);
+        type: 'sync_folder_list',
+        accountId: account.id
+      }
+    ]);
   },
 
   /**
