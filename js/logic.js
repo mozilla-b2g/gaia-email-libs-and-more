@@ -156,10 +156,7 @@
  */
 define(function(require) {
   var evt = require('evt');
-  var equal = require('./ext/equal');
-
-  // All events are logged with one emitter.
-  var emitter = new evt.Emitter();
+  var equal = require('equal');
 
   /**
    * The `logic` module is callable, as a shorthand for `logic.event()`.
@@ -167,6 +164,8 @@ define(function(require) {
   function logic() {
     return logic.event.apply(logic, arguments);
   }
+
+  evt.mix(logic);
 
   /**
    * Create a new Scope with the given namespace and default details.
@@ -226,8 +225,8 @@ define(function(require) {
    */
   logic.subscope = function(scope, defaultDetails) {
     scope = toScope(scope);
-    return new Scope(scope.namespace, into(clone(scope.defaultDetails),
-                                           clone(defaultDetails)));
+    return new Scope(scope.namespace, into(shallowClone(scope.defaultDetails),
+                                           shallowClone(defaultDetails)));
   };
 
   /**
@@ -246,6 +245,27 @@ define(function(require) {
   logic.event = function(scope, type, details) {
     scope = toScope(scope);
 
+    // Give others a chance to intercept this event before we do lots of hard
+    // JSON object work.
+    var isDefaultPrevented = false;
+    var preprocessEvent = {
+      scope: scope,
+      namespace: scope.namespace,
+      type: type,
+      details: details,
+      preventDefault: function() {
+        isDefaultPrevented = true;
+      }
+    };
+    logic.emit('preprocessEvent', preprocessEvent);
+
+    if (isDefaultPrevented) {
+      return { id: 0 }; // async/await require a return object regardless.
+    }
+
+    type = preprocessEvent.type;
+    details = preprocessEvent.details;
+
     if (typeof type !== 'string') {
       throw new Error('Invalid "type" passed to logic.event(); ' +
                       'expected a string, got "' + type + '"');
@@ -253,65 +273,56 @@ define(function(require) {
 
     if (scope.defaultDetails) {
       if(isPlainObject(details)) {
-        details = into(clone(scope.defaultDetails), clone(details));
+        details = into(shallowClone(scope.defaultDetails),
+                       shallowClone(details));
       } else {
-        details = clone(scope.defaultDetails);
+        details = shallowClone(scope.defaultDetails);
       }
     } else {
-      details = clone(details);
+      details = shallowClone(details);
     }
 
     var event = new LogicEvent(scope, type, details);
+    logic.emit('censorEvent', event);
+    logic.emit('event', event);
 
-    emitter.emit(event.type, event);
-    emitter.emit('*', event);
-
-    if (realtimeLogEverything) {
+    if (logic.realtimeLogEverything) {
       dump('logic: ' + event.toString() + '\n');
     }
 
     return event;
   };
 
+
+  // True when being run within a test.
+  logic.underTest = false;
+
+  /**
+   * Immediately fail the current test with the given exception. If no test is
+   * in progress, an error is logged, but no exception is thrown. In other
+   * words, logic.fail() will NOT throw on you.
+   *
+   * @param {object} ex
+   *   Exception object, as with Promise.reject()
+   */
+  logic.fail = function(ex) {
+    console.error('Not in a test, cannot logic.fail(' + ex + ')');
+  };
+
+
   var nextId = 1;
 
   /**
-   * Return a sequential unique-for-this-process identifier.
+   * Return a sequential unique identifier, unique for users of this module
+   * instance.
    */
   logic.uniqueId = function() {
     return nextId++;
   };
 
-  var eventCensorFn = null;
-  var realtimeLogEverything = false;
-
-  logic.isCensored = function() {
-    return !!eventCensorFn;
-  };
-
-  logic.realtimeLogEverything = function() {
-    realtimeLogEverything = true;
-  };
-
-  /**
-   * Set a function that will be called to mutate each event logged,
-   * to prevent sensitive data from being stored.
-   */
-  logic.setEventCensor = function(mapFn) {
-    eventCensorFn = mapFn;
-  };
-
-  /**
-   * Subscribe to events. Use '*' to subscribe to all events.
-   */
-  logic.on = function(type, fn) {
-    emitter.on(type, fn);
-  };
-
-  logic.removeListener = function(type, fn) {
-    emitter.removeListener(type, fn);
-  };
-
+  // Hacky way to pass around a global config:
+  logic.isCensored = false;
+  logic.realtimeLogEverything = false;
 
   var interceptions = {};
 
@@ -392,6 +403,14 @@ define(function(require) {
     this.not = opts.not;
     this.timeoutMS = 2000;
     this.resolved = false;
+    this.anotherMatcherNeedsMyLogs = false;
+
+    if (opts.prevMatcher) {
+      // Tell the previous matcher to not remove its event listener until we've
+      // had a chance to pull out any logs which occured between its resolution
+      // and our start.
+      opts.prevMatcher.anotherMatcherNeedsMyLogs = true;
+    }
 
     logic.defineScope(this, 'LogicMatcher');
 
@@ -410,8 +429,7 @@ define(function(require) {
       this.promise = new Promise((resolve, reject) => {
         // Once any previous match has been resolved,
         // subscribe to a following match.
-        prevPromise.then(() => {
-
+        var subscribeToNextMatch = () => {
           var timeoutId = setTimeout(() => {
             reject(new Error('LogicMatcherTimeout: ' + this));
           }, this.timeoutMS);
@@ -425,12 +443,12 @@ define(function(require) {
           // up a new listener for each LogicMatcher. Instead, since
           // every matcher has a pointer to its prevMatcher, we can
           // just grab the missing logs from there.
-          var removeMatchListener = (event) => {
+          var resolveThisMatcher = (event) => {
             this.resolved = true;
             this.capturedLogs = []; // Extra events will go here.
-            setTimeout(function() {
-              emitter.removeListener('*', matchFn);
-            }, 0);
+            if (!this.anotherMatcherNeedsMyLogs) {
+              this.removeMatchListener();
+            }
           };
 
           var matchFn = (event) => {
@@ -444,7 +462,7 @@ define(function(require) {
               return false; // did not match
             }
             if (event.matches(this.type, this.detailPredicate)) {
-              removeMatchListener(event);
+              resolveThisMatcher(event);
               this.matchedLogs.push(event);
               clearTimeout(timeoutId);
               logic(this, 'match', { ns: this.ns,
@@ -454,7 +472,7 @@ define(function(require) {
               return true;
             } else {
               if (this.failOnMismatchedDetails) {
-                removeMatchListener(event);
+                resolveThisMatcher(event);
                 reject(new MismatchError(this, event));
                 return true; // matched
               } else {
@@ -464,18 +482,36 @@ define(function(require) {
             return false; // not done yet, didn't find a match
           };
 
-          emitter.on('*', matchFn);
+          this.removeMatchListener = () => {
+            logic.removeListener('event', matchFn);
+          };
+
+          logic.on('event', matchFn);
 
           if (opts.prevMatcher) {
-            // Run the match function on missed logs, until one of
-            // them returns true (indicating we matched and are done).
-            opts.prevMatcher.capturedLogs.some(matchFn);
+            var prevLogs = opts.prevMatcher.capturedLogs;
+            // Run matchFn on prevLogs until one of them matches.
+            var matchIndex = prevLogs.findIndex(matchFn);
+            // Then, we get to start by capturing all logs that have occured in
+            // the intervening time:
+            if (matchIndex !== -1) {
+              this.capturedLogs = prevLogs.slice(matchIndex + 1);
+            }
+            // Now that we're done with the previous matcher, it doesn't need to
+            // listen to events any more.
+            opts.prevMatcher.removeMatchListener();
           }
+        }
 
-        }, (error) => {
-          // Pass along any existing errors.
-          reject(error);
-        });
+        if (prevPromise) {
+          prevPromise.then(subscribeToNextMatch, (e) => reject(e) );
+        } else {
+          try {
+            subscribeToNextMatch();
+          } catch(e) {
+            reject(e);
+          }
+        }
       });
     } else {
       // This is the '.then()' case; we still want to return a
@@ -630,6 +666,13 @@ define(function(require) {
     this.details = details;
     this.time = Date.now();
     this.id = logic.uniqueId();
+    this.jsonRepresentation = {
+      namespace: this.scope.namespace,
+      type: this.type,
+      details: new ObjectSimplifier().simplify(this.details),
+      time: this.time,
+      id: this.id
+    };
   }
 
   LogicEvent.fromJSON = function(data) {
@@ -647,22 +690,12 @@ define(function(require) {
     },
 
     toJSON: function() {
-      var event = {
-        namespace: this.scope.namespace,
-        type: this.type,
-        details: new ObjectSimplifier().simplify(this.details),
-        time: this.time,
-        id: this.id
-      };
-      if (eventCensorFn) {
-        eventCensorFn(event);
-      }
-      return event;
+      return this.jsonRepresentation;
     },
 
     toString: function() {
       return '<LogicEvent ' + this.namespace + '/' + this.type + ' ' +
-        JSON.stringify(new ObjectSimplifier().simplify(this.details)) + '>';
+        JSON.stringify(this.jsonRepresentation.details) + '>';
     },
 
     /**
@@ -680,9 +713,6 @@ define(function(require) {
       if (typeof detailPredicate === 'function') {
         return !!detailPredicate(this.details);
       } else if (isPlainObject(detailPredicate)) {
-        // Clone transforms event details, so we expect the predicate to be
-        // transformed similarly.
-        detailPredicate = clone(detailPredicate);
         for (var key in detailPredicate) {
           var expected = detailPredicate && detailPredicate[key];
           var actual = this.details && this.details[key];
@@ -699,7 +729,6 @@ define(function(require) {
         }
         return true;
       } else if (detailPredicate != null) {
-        detailPredicate = clone(detailPredicate);
         return equal(this.details, detailPredicate);
       } else {
         return true;
@@ -722,6 +751,8 @@ define(function(require) {
     }
     return true;
   }
+
+  logic.isPlainObject = isPlainObject;
 
   //----------------------------------------------------------------
   // Promises
@@ -834,14 +865,16 @@ define(function(require) {
     });
   };
 
-  var cloneSimplifier = new ObjectSimplifier({
-    maxArrayLength: 10000,
-    maxObjectLength: 10000,
-    maxStringLength: 100000,
-    maxDepth: 20
-  });
-  function clone(obj) {
-    return cloneSimplifier.simplify(obj);
+  function shallowClone(x) {
+    if (isPlainObject(x)) {
+      var ret = {};
+      for (var key in x) {
+        ret[key] = x[key];
+      }
+      return ret;
+    } else {
+      return x;
+    }
   }
 
   /**
