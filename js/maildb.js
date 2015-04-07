@@ -1,6 +1,7 @@
 define(function(require) {
 'use strict';
 
+let co = require('co');
 let evt = require('evt');
 let logic = require('./logic');
 
@@ -22,7 +23,7 @@ if (("indexedDB" in window) && window.indexedDB) {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-var CUR_VERSION = 22;
+var CUR_VERSION = 23;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -32,7 +33,7 @@ var CUR_VERSION = 22;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 22;
+var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 23;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -240,6 +241,8 @@ function wrapTrans(idbTransaction) {
  */
 function MailDB(testOptions) {
   evt.Emitter.call(this);
+  logic.defineScope(this, 'MailDB');
+
   this._db = null;
 
   this._lazyConfigCarryover = null;
@@ -483,9 +486,9 @@ MailDB.prototype = evt.mix({
 
       let dbReqCount = 0;
 
-      if (requests.conv) {
+      if (requests.conversations) {
         let convStore = trans.objectStore(TBL_CONV_INFO);
-        let convRequestsMap = requests.conv;
+        let convRequestsMap = requests.conversations;
         for (let convId of convRequestsMap.keys()) {
           // fill from cache if available
           if (this.convCache.has(convId)) {
@@ -509,9 +512,9 @@ MailDB.prototype = evt.mix({
           };
         }
       }
-      if (requests.header) {
+      if (requests.headers) {
         let headerStore = trans.objectStore(TBL_HEADERS);
-        let headerRequestsMap = requests.header;
+        let headerRequestsMap = requests.headers;
         for (let headerId of headerRequestsMap.keys()) {
           // fill from cache if available
           if (this.headerCache.has(headerId)) {
@@ -535,9 +538,9 @@ MailDB.prototype = evt.mix({
           };
         }
       }
-      if (requests.body) {
+      if (requests.bodies) {
         let bodyStore = trans.objectStore(TBL_BODIES);
-        let bodyRequestsMap = requests.body;
+        let bodyRequestsMap = requests.bodies;
         for (let bodyId of bodyRequestsMap.keys()) {
           // fill from cache if available
           if (this.bodyCache.has(bodyId)) {
@@ -594,11 +597,13 @@ MailDB.prototype = evt.mix({
     return this.read(ctx, mutateRequests).then(() => {
       let preMutateStates = ctx._preMutateStates = {};
 
+      // (nothing to do for "folders")
+
       // Right now we only care about conversations because all other data types
       // have no complicated indices to maintain.
-      if (mutateRequests.conv) {
-        let preConv = preMutateStates.conv = new Map();
-        for (let conv of mutateRequests.conv.values()) {
+      if (mutateRequests.conversations) {
+        let preConv = preMutateStates.conversations = new Map();
+        for (let conv of mutateRequests.conversations.values()) {
           if (!conv) {
             // It's conceivable for the read to fail, and it will already have
             // logged.  So just skip any explosions here.
@@ -608,6 +613,10 @@ MailDB.prototype = evt.mix({
           preConv.set(conv.id, { date: conv.date, folderIds: conv.folderIds });
         }
       }
+
+      // (nothing to do for "headers")
+
+      // (nothing to do for "bodies")
     });
   },
 
@@ -664,7 +673,7 @@ MailDB.prototype = evt.mix({
         this.emit(eventForFolderId,
                   {
                     id: convInfo.id,
-                    item: convInfo
+                    item: convInfo,
                     removeDate: null,
                     addDate: convInfo.date
                   });
@@ -787,15 +796,23 @@ MailDB.prototype = evt.mix({
 
     let mutations = data.mutations;
     if (mutations) {
-      if (mutations.folder) {
+      if (mutations.folders) {
         for (let [accountId, foldersDbState] of mutations.folder) {
           trans.objectStore(TBL_FOLDER_INFO).put(folderDbState, accountId);
         }
       }
 
-      if (mutations.conv) {
+      if (mutations.conversations) {
         this._processConvMutations(
-          trans, ctx._preMutateStates.conv, mutations.conv);
+          trans, ctx._preMutateStates.conversations, mutations.conversations);
+      }
+
+      if (mutations.headers) {
+
+      }
+
+      if (mutations.bodies) {
+
       }
     }
 
@@ -804,16 +821,16 @@ MailDB.prototype = evt.mix({
       if (newData.conv) {
         this._processConvAdditions(trans, newData.conv);
       }
-      if (newData.header) {
+      if (newData.headers) {
 
       }
-      if (newData.body) {
+      if (newData.bodies) {
 
       }
     }
 
     if (revisedTask) {
-      if (revisedTask)
+
     }
 
     return wrapTrans(trans);
@@ -832,8 +849,5 @@ MailDB.prototype = evt.mix({
   },
 });
 
-// XXX REFACTOR just start returning this directly
-return {
-  MailDB: MailDB
-};
+return MailDB;
 });

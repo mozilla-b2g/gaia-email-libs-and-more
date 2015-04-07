@@ -2,7 +2,7 @@
  *
  **/
 /*global define, console, window, Blob */
-define(function(require, $module, exports) {
+define(function(require) {
 
 let logic = require('./logic');
 let slog = require('./slog');
@@ -10,12 +10,13 @@ let $a64 = require('./a64');
 let $date = require('./date');
 let $syncbase = require('./syncbase');
 let $router = require('./worker-router');
-let $maildb = require('./maildb');
+let MailDB = require('./maildb');
 let $acctcommon = require('./accountcommon');
 let $allback = require('./allback');
 
 let AccountsTOC = require('./db/accounts_toc');
 let FolderConversationsTOC = require('./db/folder_convs_toc');
+let FoldersTOC = require('./db/folders_toc');
 
 let TaskManager = require('./task_manager');
 
@@ -36,15 +37,16 @@ var MAX_LOG_BACKLOG = 30;
  */
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
+  logic.realtimeLogEverything = true;
 
-  this._db = new $maildb.MailDB(testOptions);
+  this.db = new MailDB(testOptions);
 
   this.accountsTOC = new AccountsTOC();
   this._residentAccountsById = new Map();
   this._loadingAccountsById = new Map();
 
   /** @type{Map<AccountId, FoldersTOC>} */
-  this.accountFolderTOCs = new Map();
+  this.accountFoldersTOCs = new Map();
 
   /** @listof[IdentityDef] */
   this.identities = [];
@@ -54,7 +56,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._folderConvsTOCs = new Map();
 
-  this.taskManager = new TaskManager(this, this._db);
+  this.taskManager = new TaskManager(this, this.db);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -81,7 +83,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._LOG = null;
   //this._cronSync = null;
-  this._db.getConfig((configObj, accountInfos, lazyCarryover) => {
+  this.db.getConfig((configObj, accountInfos, lazyCarryover) => {
     let setupLogging = (config) => {
       if (this.config.debugLogging) {
         if (this.config.debugLogging === 'realtime-dangerous' ||
@@ -116,7 +118,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         }
 
         this._initFromConfig();
-        callAfterBigBang();
+        callAfterBigBang(this);
+        return;
       }
     }
     else {
@@ -129,7 +132,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
       };
       setupLogging();
-      this._db.saveConfig(this.config);
+      this.db.saveConfig(this.config);
 
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover) {
@@ -164,10 +167,10 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
       }
     }
     this._initFromConfig();
-    callAfterBigBang();
-  };
+    callAfterBigBang(this);
+    return;
+  });
 }
-exports.MailUniverse = MailUniverse;
 MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Config / Settings
@@ -203,7 +206,7 @@ MailUniverse.prototype = {
       }
       this.config[key] = val;
     }
-    this._db.saveConfig(this.config);
+    this.db.saveConfig(this.config);
     this.__notifyConfig();
   },
 
@@ -286,8 +289,8 @@ MailUniverse.prototype = {
       promise = this._loadingAccountsById.get(accountId);
     } else {
       let accountDef = this.accountsTOC.accountDefsById.get(accountId);
-      let folderTOC = this.accountFolderTOCs.get(accountId);
-      promise = this._loadAccount(accountDef, folderTOC, null);
+      let foldersTOC = this.accountFoldersTOCs.get(accountId);
+      promise = this._loadAccount(accountDef, foldersTOC, null);
     }
 
 
@@ -306,7 +309,7 @@ MailUniverse.prototype = {
     if (this._folderConvsTOCs.has(folderId)) {
       toc = this._folderConvsTOCs.get(folderId);
     } else {
-      toc = new FolderConversationsTOC(this._db, folderId);
+      toc = new FolderConversationsTOC(this.db, folderId);
       this._folderConvsTOCs.set(folderId, toc);
       // TODO: have some means of the TOC to tell us to forget about it when
       // it gets released.
@@ -327,15 +330,7 @@ MailUniverse.prototype = {
       callback('offline');
       return;
     }
-    if (!userDetails.forceCreate) {
-      for (var i = 0; i < this.accounts.length; i++) {
-        if (userDetails.emailAddress ===
-            this.accounts[i].identities[0].address) {
-          callback('user-account-exists');
-          return;
-        }
-      }
-    }
+    // TODO: put back in detecting and refusing to create duplicate accounts.
 
     if (domainInfo) {
       $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
@@ -362,10 +357,10 @@ MailUniverse.prototype = {
       // save the failure until after we have done other cleanup.
       savedEx = ex;
     }
-    this._db.deleteAccount(accountId);
+    this.db.deleteAccount(accountId);
 
     this.accountsTOC.removeAccountById(accountId);
-    this.accountFolderTOCs.delete(accountId);
+    this.accountFoldersTOCs.delete(accountId);
 
     for (var i = 0; i < account.identities.length; i++) {
       var identity = account.identities[i];
@@ -379,7 +374,7 @@ MailUniverse.prototype = {
   },
 
   saveAccountDef: function(accountDef, folderDbState, callback) {
-    this._db.saveAccountDef(this.config, accountDef, folderDbState, callback);
+    this.db.saveAccountDef(this.config, accountDef, folderDbState, callback);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
       this.accountsTOC.accountModified(account);
@@ -394,9 +389,10 @@ MailUniverse.prototype = {
    * not load the account.
    */
   _accountExists: function(accountDef, folderInfo) {
-    let folderTOC = new FolderTOC(folderInfo);
-    this.accountFolderTOCs.set(accountDef.id, folderTOC);
-    this.accountsTOC.add(accountDef);
+    logic(this, 'accountExists', { accountId: accountDef.id });
+    let foldersTOC = new FoldersTOC(folderInfo);
+    this.accountFoldersTOCs.set(accountDef.id, foldersTOC);
+    this.accountsTOC.addAccount(accountDef);
 
     // TODO: actually clean-up identity ownership/life-cycle
     for (let iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
@@ -417,7 +413,7 @@ MailUniverse.prototype = {
           this._LOG.badAccountType(accountDef.type);
           return;
         }
-        var account = new constructor(this, accountDef, folderInfo, this._db,
+        var account = new constructor(this, accountDef, folderInfo, this.db,
                                       receiveProtoConn, this._LOG);
 
         // - issue a (non-persisted) syncFolderList if needed
@@ -429,7 +425,7 @@ MailUniverse.prototype = {
         this._loadingAccountsById.delete(accountDef.id);
         this._residentAccountsById.set(accountDef.id, account);
         resolve(account);
-      }.bind(this));
+      });
     });
     this._loadingAccountsById.set(accountDef.id, promise);
     return promise;
@@ -501,56 +497,8 @@ MailUniverse.prototype = {
     this._resumeOpProcessingForAccount(account);
   },
 
-  // expects (account, problem, whichSide)
-  __notifyBadLogin: makeBridgeFn('notifyBadLogin'),
-
-  // expects (suid, detail, body)
-  __notifyModifiedBody: makeBridgeFn('notifyBodyModified'),
-
-
-  //////////////////////////////////////////////////////////////////////////////
-  // cronsync Stuff
-
-  // expects (accountIds)
-  //__notifyStartedCronSync: makeBridgeFn('notifyCronSyncStart'),
-
-  // expects (accountsResults)
-  //__notifyStoppedCronSync: makeBridgeFn('notifyCronSyncStop'),
-
-  // __notifyBackgroundSendStatus expects {
-  //   suid: messageSuid,
-  //   accountId: accountId,
-  //   sendFailures: (integer),
-  //   state: 'pending', 'sending', 'error', 'success', or 'syncDone'
-  //   emitNotifications: Boolean,
-  //   err: (if applicable),
-  //   badAddresses: (if applicable)
-  // }
-  //__notifyBackgroundSendStatus: makeBridgeFn('notifyBackgroundSendStatus'),
-
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
-
-  /**
-   * Write the current state of the universe to the database.
-   */
-  saveUniverseState: function(callback) {
-    var curTrans = null;
-    var latch = $allback.latch();
-
-    this._LOG.saveUniverseState_begin();
-    for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
-      var account = this.accounts[iAcct];
-      curTrans = account.saveAccountState(curTrans, latch.defer(account.id),
-                                          'saveUniverse');
-    }
-    latch.then(function() {
-      this._LOG.saveUniverseState_end();
-      if (callback) {
-        callback();
-      };
-    }.bind(this));
-  },
 
   /**
    * Shutdown all accounts; this is currently for the benefit of unit testing.
@@ -579,7 +527,7 @@ MailUniverse.prototype = {
     if (this._cronSync) {
       this._cronSync.shutdown();
     }
-    this._db.close();
+    this.db.close();
     if (this._LOG)
       this._LOG.__die();
 
@@ -594,28 +542,6 @@ MailUniverse.prototype = {
         accountId: account.id
       }
     ]);
-  },
-
-  /**
-   * Schedule a purge of the excess messages from the given folder.  This
-   * currently only makes sense for IMAP accounts and will automatically be
-   * called by the FolderStorage and its owning account when a sufficient
-   * number of blocks have been allocated by the storage.
-   */
-  purgeExcessMessages: function(account, folderId, callback) {
-    this._queueAccountOp(
-      account,
-      {
-        type: 'purgeExcessMessages',
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a',
-        tryCount: 0,
-        humanOp: 'purgeExcessMessages',
-        folderId: folderId
-      },
-      callback);
   },
 
   /**
@@ -1173,4 +1099,5 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
 };
 
+return MailUniverse;
 }); // end define

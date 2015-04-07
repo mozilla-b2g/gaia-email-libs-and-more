@@ -80,6 +80,10 @@ function CompositeAccount(universe, accountDef, folderTOC, dbConn,
       accountDef.id, accountDef.credentials,
       accountDef.sendConnInfo, dbConn, _LOG);
 
+  // XXX this hiding and all that just ended up confusing.  FIX IT.
+  this.imapAccount = this._receivePiece;
+  this.smtpAccount = this._sendPiece;
+
   // We used to hold onto the Universe's logger, but that wasn't right.  The
   // receiving account piece is usually what we want.  In this case we're doing
   // this so that MailUniverse can report the runOp_end for improved

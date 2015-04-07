@@ -2,6 +2,10 @@ define(function(require) {
 
 let evt = require('evt');
 
+let util = require('../util');
+let bsearchMaybeExists = util.bsearchMaybeExists;
+let bsearchForInsert = util.bsearchForInsert;
+
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
   inbox: 'c',
@@ -42,12 +46,11 @@ function makeFolderSortString(account, folder) {
   if (!folder)
     return account.id;
 
-  var parentFolder = account.getFolderMetaForFolderId(folder.parentId);
+  var parentFolder = account.getfolderInfoForFolderId(folder.parentId);
   return makeFolderSortString(account, parentFolder) + '!' +
          FOLDER_TYPE_TO_SORT_PRIORITY[folder.type] + '!' +
          folder.name.toLocaleLowerCase();
 }
-
 
 /**
  * Self-managed Folder TOC that owns the canonical list of folders for an
@@ -59,12 +62,12 @@ function makeFolderSortString(account, folder) {
  * ordered things by our crazy sort priority.  Now we use the sort priority here
  * in the back-end and expose that to the front-end too.
  */
-function FoldersTOC(folderDbState) {
+function FoldersTOC(foldersDbState) {
   evt.Emitter.call(this);
 
-  this._folderDbState = folderDbState;
+  this._foldersDbState = foldersDbState;
 
-  this.meta = folderDbState.meta;
+  this.meta = foldersDbState.meta;
 
   /**
    * Canonical folder state representation.  This is what goes in the database.
@@ -76,7 +79,7 @@ function FoldersTOC(folderDbState) {
    */
   this.items = [];
   /**
-   * Parallel ordering array to items; the contens are the folder sort strings
+   * Parallel ordering array to items; the contents are the folder sort strings
    * corresponding to the folder at the same index.
    *
    * While we could stick the sort string in the FolderInfo, the strings can
@@ -87,32 +90,36 @@ function FoldersTOC(folderDbState) {
   this.folderSortStrings = [];
 
 
-  for (let folderId in folder) {
-    // ignore the $meta structure and now-moot $-prefixed hacks
-    if (folderId[0] === '$')
-      continue;
-    let folderInfo = folderInfos[folderId];
-
-    this.folders.push(folderInfo.$meta);
+  for (let folderInfo of this.foldersById.values()) {
+    this.addFolder(folderInfo);
   }
 }
 FoldersTOC.prototype = evt.mix({
-  addFolder: function(folderMeta) {
-    let sortString = this.makeFolderSortString(folderMeta);
-    let idx = bsearchForInsert(this.items, folderMeta, cmpFolderPubPath);
-    this.items.splice(idx, 0, folderMeta);
-    this.foldersTOC.emit('add', folderMeta, idx)
+  addFolder: function(folderInfo) {
+    let sortString = this.makeFolderSortString(folderInfo);
+    let idx = bsearchForInsert(this.folderSortaString, sortString, strcmp);
+    this.items.splice(idx, 0, folderInfo);
+    this.folderSortStrings.splice(idx, 0, sortString);
+    this.foldersById.set(folderInfo.id, folderInfo);
 
+    this.foldersTOC.emit('add', folderInfo, idx);
   },
 
   removeFolderById: function(id) {
-
+    let folderInfo = this.foldersById.get(id);
+    let idx = this.items.indexOf(folderInfo);
+    if (!folderInfo || idx === -1) {
+      throw new Error('the folder did not exist?');
+    }
+    this.foldersById.delete(id);
+    this.items.splice(idx, 1);
+    this.folderSortStrings.splice(idx, 1);
+    this.foldersTOC.emit('remove', id, idx);
   },
 
   generatePersistenceInfo: function() {
-
+    return this._foldersDbState;
   },
-
 });
 
 return FoldersTOC;

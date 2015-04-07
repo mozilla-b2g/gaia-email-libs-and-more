@@ -6,7 +6,7 @@ define(
     '../accountmixins',
     '../allback',
     '../errbackoff',
-    '../mailslice',
+    '../db/folder_info_rep',
     '../searchfilter',
     '../syncbase',
     '../util',
@@ -28,7 +28,7 @@ define(
     $acctmixins,
     $allback,
     $errbackoff,
-    $mailslice,
+    folderInfoRep,
     $searchfilter,
     $syncbase,
     $util,
@@ -496,16 +496,6 @@ var properties = {
   //////////////////////////////////////////////////////////////////////////////
   // Folder synchronization
 
-  /**
-   * Helper in conjunction with `_syncFolderComputeDeltas` for use by the
-   * syncFolderList operation/job.  The op is on the hook for the connection's
-   * lifecycle.
-   */
-  _syncFolderList: function(conn, callback) {
-    conn.listMailboxes(
-      this._syncFolderComputeDeltas.bind(this, conn, callback));
-  },
-
   _determineFolderType: function(box, path) {
     var attribs = (box.flags || []).map(function(flag) {
       return flag.substr(1).toUpperCase(); // Map "\\Noselect" => "NOSELECT"
@@ -631,31 +621,16 @@ var properties = {
     provisional: true
   },
 
-  _syncFolderComputeDeltas: function(conn, callback, err, boxesRoot) {
-    var self = this;
-    if (err) {
-      callback(err);
-      return;
+  /**
+   * TODO: migrate this and its friends out of here to just be part of the task,
+   * a combination of task and functional helper module(s), cleaning it up as we
+   * go.
+   */
+  processFolderListUpdates: function(boxesRoot, namespaces) {
+    if (namespaces) {
+      this._namespaces = namespaces;
     }
-
-    // Before we walk the boxes, get namespace information.
-    // In the failure case, assume no relevant namespaces.
-    if (self._namespaces.provisional) {
-      conn.listNamespaces(function(err, namespaces) {
-        if (!err && namespaces) {
-          self._namespaces = namespaces;
-        }
-
-        self._namespaces.provisional = false;
-
-        slog.log('imap:list-namespaces', {
-          namespaces: namespaces
-        });
-
-        self._syncFolderComputeDeltas(conn, callback, err, boxesRoot);
-      });
-      return;
-    }
+    this._namespaces.provisional = false;
 
     // - build a map of known existing folders
     var folderPubsByPath = {};
@@ -666,7 +641,7 @@ var properties = {
     }
 
     // - walk the boxes
-    function walkBoxes(boxLevel, pathDepth, parentId) {
+    let walkBoxes = (boxLevel, pathDepth, parentId) => {
       boxLevel.forEach(function(box) {
         var boxName = box.name, meta,
             folderId;
@@ -680,7 +655,7 @@ var properties = {
         var path = box.path;
 
         // - normalize jerk-moves
-        var type = self._determineFolderType(box, path);
+        var type = this._determineFolderType(box, path);
 
         // gmail finds it amusing to give us the localized name/path of its
         // inbox, but still expects us to ask for it as INBOX.
@@ -713,14 +688,14 @@ var properties = {
             path: path,
             delim: delim
           });
-          meta = self._learnAboutFolder(box.name, path, parentId, type,
+          meta = this._learnAboutFolder(box.name, path, parentId, type,
                                         delim, pathDepth);
         }
 
         if (box.children)
           walkBoxes(box.children, pathDepth + 1, meta.id);
       });
-    }
+    };
 
     walkBoxes(boxesRoot.children, '', 0, null);
 
@@ -733,7 +708,7 @@ var properties = {
       if (folderPub === true)
         continue;
       // Never delete our localdrafts or outbox folder.
-      if ($mailslice.FolderStorage.isTypeLocalOnly(folderPub.type))
+      if (folderInfoRep.isTypeLocalOnly(folderPub.type))
         continue;
       slog.log('imap:delete-dead-folder', {
         type: folderPub.type,
@@ -748,10 +723,9 @@ var properties = {
     // completes, we'll check to make sure our offline-only folders
     // (localdrafts, outbox) are in the right place according to where
     // this server stores other built-in folders.
+    // XXX this stuff should be triggered by the task logic.
     this.ensureEssentialOnlineFolders();
     this.normalizeFolderHierarchy();
-
-    callback(null);
   },
 
   /**

@@ -7,7 +7,6 @@ let $mailslice = require('../mailslice');
 let $searchfitler = require('../searchfilter');
 let $util = require('../util');
 let $folder_info = require('../db/folder_info_rep');
-let FoldersTOC = require('../folders_toc');
 
 let bsearchForInsert = $util.bsearchForInsert;
 
@@ -136,121 +135,6 @@ CompositeIncomingAccount.prototype = {
 
   _forgetFolder: function(folderId) {
     this.foldersTOC.removeFolderById(folderId);
-
-    var folderInfo = this._folderInfos[folderId];
-    delete this._folderInfos[folderId];
-
-    // XXX the database need to purge the indices here, probably.  It's not
-    // clear how this works with the gmail CONDSTORE implementation.  Do all
-    // the messages get change events?
-
-    var idx = this.folders.indexOf(folderMeta);
-    this.folders.splice(idx, 1);
-    this.foldersTOC.emit('remove', folderId, idx);
-  },
-
-  /**
-   * Completely reset the state of a folder.  For use by unit tests and in the
-   * case of UID validity rolls.  No notification is generated, although slices
-   * are repopulated.
-   *
-   * FYI: There is a nearly identical method in ActiveSync's account
-   * implementation.
-   */
-  _recreateFolder: function(folderId, callback) {
-    this._LOG.recreateFolder(folderId);
-    var folderInfo = this._folderInfos[folderId];
-    folderInfo.$impl = {
-      nextId: 0,
-      nextHeaderBlock: 0,
-      nextBodyBlock: 0,
-    };
-    folderInfo.accuracy = [];
-    folderInfo.headerBlocks = [];
-    folderInfo.bodyBlocks = [];
-
-    if (this._deadFolderIds === null)
-      this._deadFolderIds = [];
-    this._deadFolderIds.push(folderId);
-
-    var self = this;
-    this.saveAccountState(null, function() {
-      var newStorage =
-        new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
-                                     self.FolderSyncer,
-                                     self._LOG);
-      for (var iter in Iterator(self._folderStorages[folderId]._slices)) {
-        var slice = iter[1];
-        slice._storage = newStorage;
-        slice.reset();
-        newStorage.sliceOpenMostRecent(slice);
-      }
-      self._folderStorages[folderId]._slices = [];
-      self._folderStorages[folderId] = newStorage;
-
-      callback(newStorage);
-    }, 'recreateFolder');
-  },
-
-  /**
-   * We are being told that a synchronization pass completed, and that we may
-   * want to consider persisting our state.
-   */
-  __checkpointSyncCompleted: function(callback, betterReason) {
-    this.saveAccountState(null, callback, betterReason || 'checkpointSync');
-  },
-
-  /**
-   * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT. Current
-   * UX does not desire this, but the unit tests do.
-   *
-   * XXX: This is not quite right for POP3; address when we expose
-   * deleting folders to the UI when we need to create jobs too.
-   *
-   * Callback is like the createFolder one, why not.
-   */
-  deleteFolder: function(folderId, callback) {
-    if (!this._folderInfos.hasOwnProperty(folderId))
-      throw new Error("No such folder: " + folderId);
-
-    if (!this.universe.online) {
-      if (callback)
-        callback('offline');
-      return;
-    }
-
-    var folderMeta = this._folderInfos[folderId].$meta;
-
-    var rawConn = null, self = this;
-    function gotConn(conn) {
-      rawConn = conn;
-      rawConn.delBox(folderMeta.path, deletionCallback);
-    }
-    function deletionCallback(err) {
-      if (err)
-        done('unknown');
-      else
-        done(null);
-    }
-    function done(errString) {
-      if (rawConn) {
-        self.__folderDoneWithConnection(rawConn, false, false);
-        rawConn = null;
-      }
-      if (!errString) {
-        self._LOG.deleteFolder(folderMeta.path);
-        self._forgetFolder(folderId);
-      }
-      if (callback)
-        callback(errString, folderMeta);
-    }
-    this.__folderDemandsConnection(null, 'deleteFolder', gotConn);
-  },
-
-  getFolderMetaForFolderId: function(folderId) {
-    if (this._folderInfos.hasOwnProperty(folderId))
-      return this._folderInfos[folderId].$meta;
-    return null;
   },
 
   /**

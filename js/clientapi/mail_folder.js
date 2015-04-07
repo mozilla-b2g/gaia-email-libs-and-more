@@ -3,7 +3,7 @@ define(function(require) {
 
 var evt = require('evt');
 
-function MailFolder(api, wireRep) {
+function MailFolder(api, wireRep, slice) {
   evt.Emitter.call(this);
   this._api = api;
 

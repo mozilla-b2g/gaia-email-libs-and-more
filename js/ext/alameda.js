@@ -852,7 +852,13 @@ var requirejs, require, define;
                     //Ask for the deferred so loading is triggered.
                     //Do this before loading, since loading is sync.
                     getDefer(map.id);
-                    importScripts(url);
+                    try {
+                      importScripts(url);
+                    }
+                    catch (ex) {
+                      console.error('Problem loading', url, 'ex:', ex);
+                      throw ex;
+                    }
                     takeQueue(map.id);
                 } :
                 function (map) {

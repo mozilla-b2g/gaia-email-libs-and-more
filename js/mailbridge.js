@@ -1,12 +1,8 @@
-define(function(require, $module, exports) {
+define(function(require) {
 
 let logic = require('./logic');
-let $log = require('rdcommon/log');
 let $mailchewStrings = require('./mailchew-strings');
 let $date = require('./date');
-
-let $sliceBridgeProxy = require('./slice_bridge_proxy');
-let SliceBridgeProxy = $sliceBridgeProxy.SliceBridgeProxy;
 
 let $imaputil = require('./util');
 let bsearchForInsert = $imaputil.bsearchForInsert;
@@ -14,6 +10,9 @@ let bsearchMaybeExists = $imaputil.bsearchMaybeExists;
 
 let BridgeContext = require('./bridge/bridge_context');
 let BatchManager = require('./bridge/batch_manager');
+
+let EntireListProxy = require('./bridge/entire_list_proxy');
+let WindowedListProxy = require('./bridge/windowed_list_proxy');
 
 function toBridgeWireOn(x) {
   return x.toBridgeWire();
@@ -46,13 +45,12 @@ function checkIfAddressListContainsAddress(list, addrPair) {
  */
 function MailBridge(universe, db, name) {
   logic.defineScope(this, 'MailBridge', { name: name });
+  this.name = name;
   this.universe = universe;
   this.universe.registerBridge(this);
 
-  this.bridgeContext = new BridgeContext(name);
   this.batchManager = new BatchManager(db);
-
-  this._LOG = LOGFAB.MailBridge(this, universe._LOG, name);
+  this.bridgeContext = new BridgeContext(this, this.batchManager);
 
   this._trackedItemsByType = {
     accounts: new Map(),
@@ -72,7 +70,6 @@ function MailBridge(universe, db, name) {
   //
   this._lastUndoableOpPair = null;
 }
-exports.MailBridge = MailBridge;
 MailBridge.prototype = {
   __sendMessage: function(msg) {
     throw new Error('This is supposed to get hidden by an instance var.');
@@ -81,10 +78,20 @@ MailBridge.prototype = {
   __receiveMessage: function mb___receiveMessage(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
-      this._LOG.badMessageType(msg.type);
+      logic(this, 'badMessageType', { type: msg.type });
       return;
     }
-    var rval = this._LOG.cmd(msg.type, this, this[implCmdName], msg);
+    logic(this, 'cmd', {
+      type: msg.type,
+      msg: msg
+    });
+    try {
+      this[implCmdName](msg);
+    } catch(ex) {
+      console.error('problem processing', implCmdName, ex, ex.stack);
+      logic.fail(ex);
+      return; // note that we did not throw
+    }
   },
 
   _cmd_ping: function mb__cmd_ping(msg) {
@@ -570,22 +577,21 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_viewAccounts: function mb__cmd_viewAccounts(msg) {
+  _cmd_viewAccounts: function(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'AccountsView');
 
-    ctx.proxy = new EntireListProxy(this.universe.accountsTOC,
-                                    this.batchManager);
-    ctx.acquire(proxy);
+    ctx.proxy = new EntireListProxy(this.universe.accountsTOC, ctx);
+    ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
   },
 
-  _cmd_viewFolders: function*(msg) {
+  _cmd_viewFolders: function(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'FoldersView');
 
     let toc = this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
 
-    ctx.proxy = new EntireListProxy(toc, this.batchManager);
-    ctx.acquire(proxy);
+    ctx.proxy = new EntireListProxy(toc, ctx);
+    ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
   },
 
@@ -593,8 +599,8 @@ MailBridge.prototype = {
     let ctx = this.bridgeContext.namedContext(msg.handle);
 
     let toc = yield this.universe.acquireFolderConversationsTOC(msg.folderId);
-    ctx.proxy = new WindowedListProxy(toc, this.batchManager);
-    ctx.acquire(proxy);
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    ctx.acquire(ctx.proxy);
   },
 
   _cmd_seekProxy: function(msg) {
@@ -1218,26 +1224,5 @@ MailBridge.prototype = {
 
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  MailBridge: {
-    type: $log.DAEMON,
-    events: {
-      // NB: under unit test, this is not used and bridgeSnoop is used instead.
-      send: { type: true },
-    },
-    TEST_ONLY_events: {
-      send: { msg: false },
-    },
-    errors: {
-      badMessageType: { type: true },
-      badSliceHandle: { handle: true },
-    },
-    calls: {
-      cmd: { command: true },
-    },
-    TEST_ONLY_calls: {
-    },
-  },
-});
-
+return MailBridge;
 }); // end define

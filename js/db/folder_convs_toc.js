@@ -2,9 +2,9 @@ define(function(require) {
 
 let a64 = require('../a64');
 
-let utils = require('../utils');
-let bsearchMaybeExists = utils.bsearchMaybeExists;
-let bsearchForInsert = utils.bsearchForInsert;
+let util = require('../util');
+let bsearchMaybeExists = util.bsearchMaybeExists;
+let bsearchForInsert = util.bsearchForInsert;
 
 let RefedResource = require('../refed_resource');
 let cmpUI64 = a64.cmpUI64;

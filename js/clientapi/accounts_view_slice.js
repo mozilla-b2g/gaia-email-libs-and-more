@@ -1,10 +1,11 @@
 define(function(require) {
 'use strict';
 
-var EntireListView = require('./entire_list_view');
+let EntireListView = require('./entire_list_view');
+let MailAccount = require('./mail_account');
 
 function AccountsViewSlice(api, handle, opts) {
-  EntireListView.call(this, api, 'accounts', handle);
+  EntireListView.call(this, api, MailAccount, handle);
 
   this._autoViewFolders = opts && opts.autoViewFolders || false;
 }

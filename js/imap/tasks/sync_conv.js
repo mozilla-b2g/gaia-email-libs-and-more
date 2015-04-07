@@ -25,7 +25,7 @@ let INITIAL_FETCH_PARAMS = [
   'x-gm-msgid',
   'bodystructure',
   'flags',
-  'x-gm-labels'
+  'x-gm-labels',
   'BODY.PEEK[HEADER.FIELDS (FROM TO CC BCC SUBJECT REPLY-TO MESSAGE-ID REFERENCES)]'
 ];
 
@@ -42,7 +42,7 @@ let INITIAL_FETCH_PARAMS = [
      name: 'sync_conv',
      namingArgs: ['convId'],
      // In the case
-     unifyingArgs: ['uids']
+     unifyingArgs: ['uids'],
 
      priorityTags: [
        (args) => `view:conv:${args.convId}`
@@ -79,7 +79,7 @@ let INITIAL_FETCH_PARAMS = [
        }
 
        // -- Fetch the envelopes
-       let rawMessages = yield.ctx.pimap.listMessages(
+       let rawMessages = yield ctx.pimap.listMessages(
          req.folderId,
          uids,
          INITIAL_FETCH_PARAMS,
@@ -114,6 +114,5 @@ let INITIAL_FETCH_PARAMS = [
      }
    }
  ]);
- });
 
 });

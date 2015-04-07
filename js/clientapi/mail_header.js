@@ -42,8 +42,9 @@ function serializeMessageName(x) {
  * is removed.  The `BridgedViewSlice` instance is how the system keeps track
  * of what messages are being displayed/still alive to need updates.
  */
-function MailHeader(slice, wireRep) {
+function MailHeader(api, wireRep, slice) {
   evt.Emitter.call(this);
+  this._api = api;
   this._slice = slice;
 
   // Store the wireRep so it can be used for caching.
@@ -95,7 +96,7 @@ MailHeader.prototype = evt.mix({
    * closures and being careful about removing event handlers.
    */
   makeCopy: function() {
-    return new MailHeader(this._slice, this._wireRep);
+    return new MailHeader(this._api, this._wireRep, this._slice);
   },
 
   __update: function(wireRep) {

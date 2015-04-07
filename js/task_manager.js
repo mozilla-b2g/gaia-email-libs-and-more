@@ -38,7 +38,7 @@ function TaskManager(universe, db) {
 }
 TaskManager.prototype = {
   __restoreFromDB: co.wrap(function*() {
-    let wrappedTasks = this._db.loadTasks();
+    let wrappedTasks = yield this._db.loadTasks();
     for (let wrappedTask of wrappedTasks) {
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
@@ -74,7 +74,7 @@ TaskManager.prototype = {
     });
 
     return Promise.all(rawTasks.map(x => this.scheduleTask(x)));
-  }
+  },
 
   _maybeDoStuff: function() {
     if (this._activePromise) {

@@ -2,9 +2,9 @@ define(function(require) {
 
 let evt = require('evt');
 
-let utils = require('../utils');
-let bsearchMaybeExists = utils.bsearchMaybeExists;
-let bsearchForInsert = utils.bsearchForInsert;
+let util = require('../util');
+let bsearchMaybeExists = util.bsearchMaybeExists;
+let bsearchForInsert = util.bsearchForInsert;
 
 /**
  * Ordering accounts by their name, why not.  (It used to just be creation / id

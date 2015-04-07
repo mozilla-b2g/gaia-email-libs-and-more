@@ -2,14 +2,20 @@ define(function(require) {
 
 let logic = require('../logic');
 
-function NamedContext(name, type, bridgeName) {
-  logic.defineScope(this, type, { name: name, bridge: bridgeName });
+function NamedContext(name, type, bridgeContext) {
+  logic.defineScope(this, type,
+                    { name: name, bridge: bridgeContext.bridge.name });
   this.name = name;
+  this._bridgeContext = bridgeContext;
   this._active = true;
 
   this._stuffToRelease = [];
 }
 NamedContext.prototype = {
+  get batchManager() {
+    return this._bridgeContext.batchManager;
+  },
+
   /**
    * Asynchronously acquire a resource and track that we are using it so that
    * when the task completes or is terminated we can automatically release all
@@ -22,6 +28,14 @@ NamedContext.prototype = {
 
     this._stuffToRelease.push(acquireable);
     return acquireable.__acquire(this);
+  },
+
+  sendMessage: function(type, data) {
+    this._bridgeContext.bridge.__sendMessage({
+      type: type,
+      handles: [this.name],
+      data: data
+    });
   },
 
   cleanup: function() {
@@ -47,15 +61,16 @@ NamedContext.prototype = {
  * - View proxies (EntireListProxy, WindowedListProxy)
  * - maybe: Composition instances
  */
-function BridgeContext(name) {
-  this.bridgeName = name;
-  logic.defineScope(this, 'BridgeContext', { name: name });
+function BridgeContext(bridge, batchManager) {
+  logic.defineScope(this, 'BridgeContext', { name: bridge.name });
+  this.bridge = bridge;
+  this.batchManager = batchManager;
 
   this._namedContexts = new Map();
 }
 BridgeContext.prototype = {
   createNamedContext: function(name, type) {
-    let ctx = new NamedContext(name, type, this.bridgeName);
+    let ctx = new NamedContext(name, type, this);
     this._namedContexts.set(name, ctx);
     return ctx;
   },

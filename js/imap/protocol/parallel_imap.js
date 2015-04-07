@@ -8,8 +8,8 @@ function simpleWithConn(methodName) {
   return function() {
     let calledArgs = arguments;
     return this._gimmeConnection.then((conn) => {
-    });
       return conn[methodName].apply(conn, calledArgs);
+    });
   }
 }
 
@@ -23,7 +23,14 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
     let calledArgs = arguments;
     return this._gimmeConnection.then((conn) => {
       let opts = calledArgs[optsArgIndexPerCaller];
-
+      if (!opts) {
+        throw new Error('provide the options dictionary so we can mutate it.');
+      }
+      opts.precheck = function(ctx, next) {
+        this.selectMailbox(folderInfo.path, { ctx: ctx}, next);
+      }
+      return conn[methodName].apply(
+        conn, Array.prototype.slice.call(calledArgs, 1));
     });
   }
 }

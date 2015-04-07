@@ -1,6 +1,6 @@
 define(function(require) {
 
-var TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_definer');
 
 /**
  * Expand the date-range of known messages for the given folder/label.
@@ -33,7 +33,7 @@ return TaskDefiner.defineSimpleTask([
       let uids = yield ctx.pimap.search(
         req.folderId, searchSpec, { byUid: true });
 
-      let messages = yield.ctx.pimap.listMessages(
+      let messages = yield ctx.pimap.listMessages(
         req.folderId,
         uids,
         [
@@ -50,14 +50,14 @@ return TaskDefiner.defineSimpleTask([
         tasks.push({
           name: 'sync_conv',
           args: {
-            convId:
+
           }
         });
       }
 
       yield ctx.finishTask({
 
-      })
+      });
     }
   }
 ]);

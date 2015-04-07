@@ -15,10 +15,8 @@ var MailHeader = require('./clientapi/mail_header');
 var MailMatchedHeader = require('./clientapi/mail_matched_header');
 var MailConversation = require('./clientapi/mail_conversation');
 
-var BridgedViewSlice = require('./clientapi/bridged_view_slice');
 var AccountsViewSlice = require('./clientapi/accounts_view_slice');
 var FoldersViewSlice = require('./clientapi/folders_view_slice');
-var HeadersViewSlice = require('./clientapi/headers_view_slice');
 var ConversationsViewSlice = require('./clientapi/conversations_view_slice');
 
 var MessageComposition = require('./clientapi/message_composition');
@@ -74,7 +72,6 @@ function MailAPI() {
   evt.Emitter.call(this);
   this._nextHandle = 1;
 
-  this._slices = {};
   /**
    * @type {Map<Handle, UpdateableObject>}
    *
@@ -268,7 +265,7 @@ MailAPI.prototype = evt.mix({
     });
   },
 
-  _recv_itemUpdated: function(msg) {
+  _recv_update: function(msg) {
     for (let handle of msg.handles) {
       let updateableObject = this._trackedItemHandles.get(handle);
       if (updateableObject) {
@@ -278,10 +275,11 @@ MailAPI.prototype = evt.mix({
   },
 
   _recv_contextDead: function(msg) {
-    var slice = this._slices[msg.handle];
-    delete this._slices[msg.handle];
-
-    return true;
+    let thing = this._trackedItemHandles.get(msg.handle);
+    if (thing && thing.__dead) {
+      thing.__dead();
+    }
+    this._trackedItemHandles.delete(msg.handle);
   },
 
   _getBodyForMessage: function(header, options, callback) {
@@ -763,26 +761,10 @@ MailAPI.prototype = evt.mix({
   viewAccounts: function ma_viewAccounts(opts) {
     var handle = this._nextHandle++,
         slice = new AccountsViewSlice(this, handle, opts);
-    this._slices[handle] = slice;
+    this._trackedItemHandles.set(handle, slice);
 
     this.__bridgeSend({
       type: 'viewAccounts',
-      handle: handle,
-    });
-    return slice;
-  },
-
-  /**
-   * Get the list of sender identities.  The identities can also be found on
-   * their owning accounts via `viewAccounts`.
-   */
-  viewSenderIdentities: function ma_viewSenderIdentities() {
-    var handle = this._nextHandle++,
-        slice = new BridgedViewSlice(this, 'identities', handle);
-    this._slices[handle] = slice;
-
-    this.__bridgeSend({
-      type: 'viewSenderIdentities',
       handle: handle,
     });
     return slice;
@@ -811,7 +793,7 @@ MailAPI.prototype = evt.mix({
     var handle = this._nextHandle++,
         slice = new FoldersViewSlice(this, handle);
 
-    this._slices[handle] = slice;
+    this._trackedItemHandles.set(handle, slice);
 
     this.__bridgeSend({
       type: 'viewFolders',
@@ -830,34 +812,10 @@ MailAPI.prototype = evt.mix({
     var handle = this._nextHandle++,
         slice = new ConversationsViewSlice(this, handle);
     slice.folderId = folder.id;
-    // the initial population counts as a request.
-    slice.pendingRequestCount++;
-    this._slices[handle] = slice;
+    this._trackedItemHandles.set(handle, slice);
 
     this.__bridgeSend({
       type: 'viewFolderConversations',
-      folderId: folder.id,
-      handle: handle,
-    });
-
-    return slice;
-  },
-
-
-  /**
-   * Retrieve a slice of the contents of a folder, starting from the most recent
-   * messages.
-   */
-  viewFolderMessages: function ma_viewFolderMessages(folder) {
-    var handle = this._nextHandle++,
-        slice = new HeadersViewSlice(this, handle);
-    slice.folderId = folder.id;
-    // the initial population counts as a request.
-    slice.pendingRequestCount++;
-    this._slices[handle] = slice;
-
-    this.__bridgeSend({
-      type: 'viewFolderMessages',
       folderId: folder.id,
       handle: handle,
     });

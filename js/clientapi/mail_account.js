@@ -67,7 +67,7 @@ function MailAccount(api, wireRep, acctsSlice) {
   this.authMechanism = wireRep.credentials.oauth2 ? 'oauth2' : 'password';
 
   this.folders = null;
-  if (acctsSlice._autoViewFolders) {
+  if (acctsSlice && acctsSlice._autoViewFolders) {
     this.folders = api.viewFolders('account', this)
   }
 }

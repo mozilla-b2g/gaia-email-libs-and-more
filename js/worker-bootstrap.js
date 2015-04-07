@@ -1,5 +1,8 @@
 var window = self;
 
+// NOTE: developing in Firefox now with devtools, so clobbering the console
+// object is not what we want.
+/*
 function consoleHelper() {
   var msg = arguments[0] + ':';
   for (var i = 1; i < arguments.length; i++) {
@@ -14,6 +17,7 @@ window.console = {
   info: consoleHelper.bind(null, '\x1b[36mWINF'),
   warn: consoleHelper.bind(null, '\x1b[33mWWAR')
 };
+*/
 
 // These pragmas are for r.js and tell it to remove this code section. It will
 // be replaced with inline content after a build.

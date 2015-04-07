@@ -5,6 +5,7 @@
 
   requirejs.config({
     baseUrl: '.',
+    scriptType: 'application/javascript;version=1.7',
     packages: [{
       name: 'wo-imap-handler',
       location: 'ext/imap-handler/src',
@@ -49,6 +50,8 @@
       'bleach.js': 'ext/bleach.js',
       'browserbox': 'ext/browserbox',
       'browserbox-imap': 'ext/browserbox-imap',
+      'co': 'ext/co',
+      'equal': 'ext/equal',
       'evt': 'ext/evt',
       'imap-handler': 'ext/imap-handler',
       'mailbuild': 'ext/mailbuild',

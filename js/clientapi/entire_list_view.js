@@ -48,12 +48,12 @@ EntireListView.prototype = evt.mix({
     };
   },
 
-  __processUpdate: function(details) {
+  __update: function(details) {
     let newSerial = ++this.serial;
 
     for (let change of details.changes) {
       if (change.type === 'add') {
-        let obj = new this._itemConstructor(this, change.state);
+        let obj = new this._itemConstructor(this._api, change.state, this);
         obj.serial = newSerial;
         this.items.splice(change.index, 0, obj);
         this.emit('add', obj, change.index);

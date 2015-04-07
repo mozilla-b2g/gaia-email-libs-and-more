@@ -1,7 +1,5 @@
 define(function(require) {
 
-let TaskDefiner = require('../../task_definer');
-
 /**
  * @typedef {Map<FlagStoreAggrString, FlagChangeAggr>} MixStorePersistentState
  *
@@ -61,7 +59,7 @@ let GmailStoreTaskMixin = {
   },
 
   deriveMemoryStateFromPersistentState: function(account, persistentState) {
-    
+
   },
 
   hasWork: function(account, persistentState) {

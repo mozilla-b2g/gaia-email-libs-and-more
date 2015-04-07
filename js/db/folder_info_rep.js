@@ -57,8 +57,23 @@ function makeFolderMeta(raw) {
   }
 };
 
+/**
+ * Return true if the given folder type is local-only (i.e. we will
+ * not try to sync this folder with the server).
+ *
+ * @param {String} type
+ *   The type of the folderStorage, e.g. 'inbox' or 'localdrafts'.
+ */
+function isTypeLocalOnly(type) {
+  if (typeof type !== 'string') {
+    throw new Error('isTypeLocalOnly() expects a string, not ' + type);
+  }
+  return (type === 'outbox' || type === 'localdrafts');
+}
+
 return {
-	makeFolderMeta: makeFolderMeta
+	makeFolderMeta: makeFolderMeta,
+  isTypeLocalOnly: isTypeLocalOnly
 }
 
 }); // end define

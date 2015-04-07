@@ -1,6 +1,6 @@
 define(function(require) {
 
-var TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_definer');
 
 /**
  * Sync the folder list for a GMail account.  This has
@@ -23,14 +23,18 @@ return TaskDefiner.defineSimpleTask([
 
     execute: function*(ctx, req) {
       let account = ctx.universe.acquireAccount(req.accountId);
+      let imapAccount = account.imapAccount;
 
       let boxesRoot = yield account.pimap.listBoxes();
       let namespaces = yield account.pimap.listNamespaces();
 
+      imapAccount.processFolderListUpdates(boxesRoot, namespaces);
 
       yield ctx.finishTask({
-
-      })
+        mutations: {
+          [account.id]: imapAccount.folderTOC.generatePersistenceInfo()
+        }
+      });
     }
   }
 ]);

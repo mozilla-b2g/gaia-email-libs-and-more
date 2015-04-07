@@ -87,7 +87,7 @@ WindowedListView.prototype = evt.mix({
     };
   },
 
-  __processUpdate: function(details) {
+  __update: function(details) {
     let newSerial = ++this.serial;
 
     let existingSet = this._itemsById;
@@ -122,7 +122,7 @@ WindowedListView.prototype = evt.mix({
         newSet.set(id, obj);
       } else if (newStates.has(id)) {
         itemSetChanged = true;
-        obj = new this._itemConstructor(this, newStates.get(id));
+        obj = new this._itemConstructor(this._api, newStates.get(id), this);
         obj.serial = newSerial;
         newSet.set(id, obj);
       } else {

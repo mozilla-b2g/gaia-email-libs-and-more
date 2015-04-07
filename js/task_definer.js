@@ -1,6 +1,6 @@
 define(function(require) {
 
-let mix = require('../ext/mix');
+let mix = require('mix');
 
 let SimpleTaskBase = {
   plan: null,

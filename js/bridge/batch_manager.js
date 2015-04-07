@@ -1,5 +1,7 @@
 define(function(require) {
 
+let logic = require('logic');
+
 /**
  * As EntireListProxy and WindowedListProxy have things to tell their MailAPI
  * counterpart they tell the BatchManager and it controls when they actually
@@ -19,6 +21,8 @@ define(function(require) {
  * explicitly when I say/after some other stuff has happened".
  */
 function BatchManager(db) {
+  logic.defineScope(this, 'BatchManager');
+
   this._db = db;
   this._pendingProxies = new Set();
   this._timer = null;
@@ -41,8 +45,12 @@ BatchManager.prototype = {
     }
     this._timer = null;
 
+    logic(this, 'flushing', { proxyCount: this._pendingProxies.size });
     for (let proxy of this._pendingProxies) {
-      proxy.flush();
+      let payload = proxy.flush();
+      if (payload) {
+        proxy.ctx.sendMessage('update', payload);
+      }
     }
     this._pendingProxies.clear();
   },

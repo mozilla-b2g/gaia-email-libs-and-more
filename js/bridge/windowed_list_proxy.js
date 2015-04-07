@@ -56,9 +56,10 @@ define(function(require) {
  *   it.)  As we hear about changes that are in our viewSet, we remove them so
  *   that when we flush we pull the value from the database cache.
  */
-function WindowedListProxy(toc, batchManager) {
+function WindowedListProxy(toc, ctx) {
   this.toc = toc;
-  this.batchManager = batchManager;
+  this.ctx = ctx;
+  this.batchManager = ctx.batchManager;
 
   this.viewSet = new Set();
 

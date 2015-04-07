@@ -1,10 +1,11 @@
 define(function(require) {
 'use strict';
 
-var EntireListView = require('./entire_list_view');
+let EntireListView = require('./entire_list_view');
+let MailFolder = require('./mail_folder');
 
 function FoldersViewSlice(api, handle) {
-  EntireListView.call(this, api, 'folders', handle);
+  EntireListView.call(this, api, MailFolder, handle);
 
   // enable use of latestOnce('inbox').  Note that this implementation assumes
   // the inbox is eternal.  This is generally a safe assumption, but since this

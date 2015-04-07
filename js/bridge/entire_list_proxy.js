@@ -10,9 +10,10 @@ define(function(require) {
  * @param {BatchManager} batchManager
  *   The batch manager that manages our flushing (once we tell it we are dirty).
  */
-function EntireListProxy(toc, batchManager) {
+function EntireListProxy(toc, ctx) {
   this.toc = toc;
-  this.batchManager = batchManager;
+  this.ctx = ctx;
+  this.batchManager = ctx.batchManager;
 
   this._bound_onAdd = this.onAdd.bind(this);
   this._bound_onChange = this.onChange.bind(this);
@@ -31,7 +32,7 @@ EntireListProxy.prototype = {
    * slightly less magic and give the caller some additional control.
    */
   populateFromList: function() {
-    let items = this.getAllItems();
+    let items = this.toc.getAllItems();
     for (let i = 0; i < items.length; i++) {
       this.onAdd(items[i], i);
     }
@@ -116,6 +117,7 @@ EntireListProxy.prototype = {
     this.dirty = false;
 
     return {
+      type: '',
       changes: changes
     };
   }

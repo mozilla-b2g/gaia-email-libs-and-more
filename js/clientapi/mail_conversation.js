@@ -1,8 +1,10 @@
 define(function(require) {
 'use strict';
 
-var evt = require('evt');
-var ContactCache = require('./contact_cache');
+let evt = require('evt');
+let ContactCache = require('./contact_cache');
+
+let MailHeader = require('./mail_header');
 
 /**
  * @typedef {Object} ConvMsgTidbit
@@ -53,7 +55,7 @@ var ContactCache = require('./contact_cache');
  * @property {Boolean} hasDraft
  * @property {Boolean} hasAttachment
  */
-function MailConversation(slice, wireRep) {
+function MailConversation(api, wireRep, slice) {
   evt.Emitter.call(this);
   this._slice = slice;
 

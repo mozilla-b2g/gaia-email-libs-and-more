@@ -1,5 +1,7 @@
 define(function(require) {
 
+let TaskDefiner = require('../../task_definer');
+
 /**
  * This is the steady-state sync task that drives all of our gmail sync.
  */
@@ -24,7 +26,7 @@ return TaskDefiner.defineSimpleTask([
       let uids = yield ctx.pimap.search(
         req.folderId, searchSpec, { byUid: true });
 
-      let messages = yield.ctx.pimap.listMessages(
+      let messages = yield ctx.pimap.listMessages(
         req.folderId,
         uids,
         [

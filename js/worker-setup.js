@@ -1,32 +1,26 @@
-define(
-  [
-    './worker-router',
-    './mailbridge',
-    './mailuniverse',
-    'exports'
-  ],
-  function(
-    $router,
-    $mailbridge,
-    $mailuniverse,
-    exports
-  ) {
+define(function(require) {
 'use strict';
 
-var routerBridgeMaker = $router.registerInstanceType('bridge');
+let logic = require('logic');
 
-var bridgeUniqueIdentifier = 0;
+let $router = require('./worker-router');
+let MailBridge = require('./mailbridge');
+let MailUniverse = require('./mailuniverse');
+
+let routerBridgeMaker = $router.registerInstanceType('bridge');
+
+let bridgeUniqueIdentifier = 0;
 function createBridgePair(universe) {
   var uid = bridgeUniqueIdentifier++;
 
-  var TMB = new $mailbridge.MailBridge(universe);
+  var TMB = new MailBridge(universe, universe.db, uid);
   var routerInfo = routerBridgeMaker.register(function(data) {
     TMB.__receiveMessage(data.msg);
   });
   var sendMessage = routerInfo.sendMessage;
 
   TMB.__sendMessage = function(msg) {
-    TMB._LOG.send(msg.type, msg);
+    logic(TMB, 'send', { type: msg.type, msg: msg });
     sendMessage(null, msg);
   };
 
@@ -38,7 +32,7 @@ function createBridgePair(universe) {
   });
 }
 
-var universe = null;
+let universe = null;
 
 function onUniverse() {
   createBridgePair(universe);
@@ -49,7 +43,7 @@ var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
-      universe = new $mailuniverse.MailUniverse(onUniverse, args[0]);
+      universe = new MailUniverse(onUniverse, args[0]);
       break;
 
     case 'online':
@@ -61,5 +55,4 @@ var sendControl = $router.registerSimple('control', function(data) {
 sendControl('hello');
 
 ////////////////////////////////////////////////////////////////////////////////
-
 });
