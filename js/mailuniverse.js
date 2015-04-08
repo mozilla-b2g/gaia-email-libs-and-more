@@ -37,6 +37,7 @@ var MAX_LOG_BACKLOG = 30;
  */
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
+  dump('=====================\n');
   logic.realtimeLogEverything = true;
 
   this.db = new MailDB(testOptions);
@@ -85,9 +86,12 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   //this._cronSync = null;
   this.db.getConfig((configObj, accountInfos, lazyCarryover) => {
     let setupLogging = (config) => {
-      if (this.config.debugLogging) {
-        if (this.config.debugLogging === 'realtime-dangerous' ||
-            this.config.debugLogging === 'dangerous') {
+      if (!config) {
+        return;
+      }
+      if (config.debugLogging) {
+        if (config.debugLogging === 'realtime-dangerous' ||
+            config.debugLogging === 'dangerous') {
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
           console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
           console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
@@ -107,7 +111,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
     let accountCount = accountInfos.length;
     if (configObj) {
       this.config = configObj;
-      setupLogging();
+      setupLogging(this.config);
 
       logic(this, 'configLoaded', { config: configObj });
 
@@ -131,7 +135,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         nextIdentityNum: 0,
         debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
       };
-      setupLogging();
+      setupLogging(this.config);
       this.db.saveConfig(this.config);
 
       // - Try to re-create any accounts using old account infos.
@@ -151,7 +155,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
           }
         };
 
-        for (i = 0; i < lazyCarryover.accountInfos.length; i++) {
+        for (let i = 0; i < lazyCarryover.accountInfos.length; i++) {
           let accountInfo = lazyCarryover.accountInfos[i];
           this._LOG.recreateAccount_begin(accountInfo.type, accountInfo.id,
                                           null);
@@ -163,7 +167,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
         return;
       }
       else {
-        logic(this, 'configCreated', { config: config });
+        logic(this, 'configCreated', { config: this.config });
       }
     }
     this._initFromConfig();
@@ -289,19 +293,23 @@ MailUniverse.prototype = {
       promise = this._loadingAccountsById.get(accountId);
     } else {
       let accountDef = this.accountsTOC.accountDefsById.get(accountId);
+      if (!accountDef) {
+        throw new Error('No accountDef with id: ' + accountId);
+      }
       let foldersTOC = this.accountFoldersTOCs.get(accountId);
       promise = this._loadAccount(accountDef, foldersTOC, null);
+      // (_loadAccount puts the promise in _loadingAccountsByID and clears it
+      // when it finishes)
     }
-
-
-
-    let account = this._accountsById.get(accountId);
-    return ctx.acquire(account);
+    return promise;
   },
 
   acquireAccountFoldersTOC: function(ctx, accountId) {
-    let account = this._accountsById.get(accountId);
-    return ctx.acquire(account);
+    let foldersTOC = this.accountFoldersTOCs.get(accountId);
+    if (!foldersTOC) {
+      throw new Error('Account ' + accountId + ' lacks a foldersTOC!');
+    }
+    return foldersTOC;
   },
 
   acquireFolderConversationsTOC: function(ctx, folderId) {
@@ -419,7 +427,7 @@ MailUniverse.prototype = {
         // - issue a (non-persisted) syncFolderList if needed
         var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
         if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
-          this.syncFolderList(account);
+          this.syncFolderList(accountDef.id);
         }
 
         this._loadingAccountsById.delete(accountDef.id);
@@ -535,11 +543,11 @@ MailUniverse.prototype = {
       callback();
   },
 
-  syncFolderList: function(account) {
+  syncFolderList: function(accountId) {
     this.taskManager.scheduleTasks([
       {
         type: 'sync_folder_list',
-        accountId: account.id
+        accountId: accountId
       }
     ]);
   },

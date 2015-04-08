@@ -1,9 +1,18 @@
 define(function(require) {
 
+let co = require('co');
 let mix = require('mix');
 
 let SimpleTaskBase = {
-  plan: null,
+  /**
+   * No-op planning phase that just handles prioritization.
+   */
+  plan: co.wrap(function*(ctx, rawTask) {
+    yield ctx.finishTask({
+      // Just pass the raw task state through, as-is
+      taskState: rawTask
+    });
+  }),
   execute: null,
 };
 
@@ -15,22 +24,20 @@ TaskDefiner.prototype = {
     let rawTask = wrappedTask.rawTask;
     let taskImpl = this._registry.get(rawTask.type);
 
-    if (!taskImpl.plan) {
-      return Promise.resolve();
-    }
-
+    // All tasks have a plan stage.  Even if it's only the default one that
+    // just chucks it in the priority bucket.
     return taskImpl.plan(ctx, rawTask);
   },
 
   __executeTask: function(ctx, wrappedTask) {
-    let rawTask = wrappedTask.rawTask;
-    let taskImpl = this._registry.get(rawTask.type);
+    let plannedTask = wrappedTask.plannedTask;
+    let taskImpl = this._registry.get(plannedTask.type);
 
     if (!taskImpl.execute) {
       return Promise.resolve();
     }
 
-    return taskImpl.execute(ctx, rawTask);
+    return taskImpl.execute(ctx, plannedTask);
   },
 
 

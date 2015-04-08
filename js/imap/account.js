@@ -60,7 +60,7 @@ function cmpFolderPubPath(a, b) {
  *
  */
 function ImapAccount(universe, compositeAccount, accountId, credentials,
-                     connInfo, folderInfos,
+                     connInfo, foldersTOC,
                      dbConn,
                      _parentLog, existingProtoConn) {
   this._LOG = LOGFAB.ImapAccount(this, _parentLog, accountId);
@@ -109,9 +109,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
 
   if (existingProtoConn)
     this._reuseConnection(existingProtoConn);
-
-  this._jobDriver = new $imapjobs.ImapJobDriver(
-                          this, this._folderInfos.$mutationState, this._LOG);
 
   /**
    * Flag to allow us to avoid calling closeBox to close a folder.  This avoids
@@ -642,7 +639,7 @@ var properties = {
 
     // - walk the boxes
     let walkBoxes = (boxLevel, pathDepth, parentId) => {
-      boxLevel.forEach(function(box) {
+      boxLevel.forEach((box) => {
         var boxName = box.name, meta,
             folderId;
 
@@ -724,8 +721,9 @@ var properties = {
     // (localdrafts, outbox) are in the right place according to where
     // this server stores other built-in folders.
     // XXX this stuff should be triggered by the task logic.
-    this.ensureEssentialOnlineFolders();
-    this.normalizeFolderHierarchy();
+    // XXX this stuff should also not be 100% disabled.
+    //this.ensureEssentialOnlineFolders();
+    //this.normalizeFolderHierarchy();
   },
 
   /**

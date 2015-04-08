@@ -49,6 +49,7 @@ EntireListProxy.prototype = {
    * this call populateFromList, but for now we don't for clarity.
    */
   __acquire: function() {
+    return this;
   },
 
   __release: function() {

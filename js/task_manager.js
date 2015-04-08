@@ -1,13 +1,17 @@
 define(function(require) {
 
 let co = require('co');
+let logic = require('logic');
 
 let TaskDefiner = require('./task_definer');
 let TaskContext = require('./task_context');
 
 let FibonacciHeap = require('./ext/fibonacci-heap');
 
+let DEFAULT_PRIORITY = 100;
+
 function TaskManager(universe, db) {
+  logic.defineScope(this, 'TaskManager');
   this._universe = universe;
   this._db = db;
   this._registry = TaskDefiner;
@@ -39,13 +43,15 @@ function TaskManager(universe, db) {
 TaskManager.prototype = {
   __restoreFromDB: co.wrap(function*() {
     let wrappedTasks = yield this._db.loadTasks();
+    logic(this, 'restoreFromDB', { count: wrappedTasks.length });
     for (let wrappedTask of wrappedTasks) {
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
       } else {
-        this._prioritizedTask.insert(wrappedTask.priority, wrappedTask)
+        this.__prioritizeTask(wrappedTask);
       }
     }
+    this._maybeDoStuff();
   }),
 
   /**
@@ -69,22 +75,31 @@ TaskManager.prototype = {
       };
     });
 
+    logic(this, 'scheduling', { tasks: wrappedTasks });
+
     return this._db.addTasks(wrappedTasks).then(() => {
       this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
+      this._maybeDoStuff();
     });
-
-    return Promise.all(rawTasks.map(x => this.scheduleTask(x)));
   },
 
+  /**
+   * If we have any task planning or task executing to do.
+   *
+   * XXX as a baby-steps simplification, right now we only do one of these at a
+   * time.  We *absolutely* do not want to be doing this forever.
+   */
   _maybeDoStuff: function() {
     if (this._activePromise) {
       return;
     }
 
     if (this._tasksToPlan.length) {
-      this._activePromise = task._planNextTask();
+      this._activePromise = this._planNextTask();
     } else if (!this._prioritizedTasks.isEmpty()) {
-      this._activePromise = task._executeNextTask();
+      this._activePromise = this._executeNextTask();
+    } else {
+      logic(this, 'nothingToDo');
     }
 
     if (!this._activePromise) {
@@ -93,20 +108,51 @@ TaskManager.prototype = {
 
     this._activePromise.then(() => {
       this._activePromise = null;
+      logic(this, 'completed');
       this._maybeDoStuff();
     });
   },
 
+  /**
+   * Plan the next task.  This task will advance to 'planned' atomically as part
+   * of the completion of planning.  In the case of simple tasks, this will
+   * happen via a call to `__prioritizeTask`, but for complex tasks other stuff
+   * may happen.
+   */
   _planNextTask: function() {
     let wrappedTask = this._tasksToPlan.shift();
+    logic(this, 'planning', { task: wrappedTask });
     let ctx = new TaskContext(wrappedTask, this._universe);
     return this._registry.__planTask(ctx, wrappedTask);
   },
 
-  _executeNextTask: function() {
-    let wrappedTask = this._prioritizedTasks.extractMinimum();
-    let ctx = new TaskContext(wrappedTask, this._universe);
+  __prioritizeTask: function(wrappedTask) {
+    logic(this, 'prioritizing', { task: wrappedTask });
+    if (!wrappedTask.priority) {
+      wrappedTask.priority = DEFAULT_PRIORITY;
+    }
+    this._prioritizedTasks.insert(wrappedTask.priority,
+                                  wrappedTask);
+    // If nothing is happening, then we might need/want to call _maybeDoStuff
+    // soon, but not until whatever's calling us has had a chance to finish.
+    // And if something is happening, well, we already know we will call
+    // _maybeDoStuff when that happens.  (Note that we must not call
+    // _maybeDoStuff synchronously because _maybeDoStuff may already be on the
+    // stack, waiting for a promise to be returned to it.)
+    // XXX Audit this more and potentially ensure there's only one of these
+    // nextTick-style hacks.  But right now this should be harmless but
+    // wasteful.
+    if (!this._activePromise) {
+      Promise.resolve().then(() => {
+        this._maybeDoStuff();
+      });
+    }
+  },
 
+  _executeNextTask: function() {
+    let wrappedTask = this._prioritizedTasks.extractMinimum().value;
+    logic(this, 'executing', { task: wrappedTask });
+    let ctx = new TaskContext(wrappedTask, this._universe);
     return this._registry.__executeTask(ctx, wrappedTask);
   }
 };

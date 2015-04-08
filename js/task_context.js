@@ -9,8 +9,7 @@ function TaskContext(wrappedTask, universe) {
   logic.defineScope(this, 'TaskContext', { id: wrappedTask.id });
   this.id = wrappedTask.id;
   this._wrappedTask = wrappedTask;
-  this._db = args.db;
-  this.universe = args.universe;
+  this.universe = universe;
 
   this._stuffToRelease = [];
   this._preMutateStates = null;
@@ -21,6 +20,14 @@ function TaskContext(wrappedTask, universe) {
    this.state = 'prep';
 }
 TaskContext.prototype = {
+  get taskMode() {
+    if (this._wrappedTask.state === null) {
+      return 'planning';
+    } else {
+      return 'executing';
+    }
+  },
+
   /**
    * Asynchronously acquire a resource and track that we are using it so that
    * when the task completes or is terminated we can automatically release all
@@ -42,7 +49,7 @@ TaskContext.prototype = {
   },
 
   read: function(what) {
-    return this._db.read(this, what);
+    return this.universe.db.read(this, what);
   },
 
   beginMutate: function(what) {
@@ -51,7 +58,7 @@ TaskContext.prototype = {
         'Cannot switch to mutate state from state: ' + this.state);
     }
     this.state = 'mutate';
-    return this._db.beginMutate(this, what);
+    return this.universe.db.beginMutate(this, what);
   },
 
   /**
@@ -64,11 +71,35 @@ TaskContext.prototype = {
    * @param {Array<RawTask>} finishData.newTasks
    *   The new tasks that should be atomically, persistently tracked as a
    *   deterministic result of this task.
+   * @param {Object} [finishData.taskState]
+   *   The new state for the task.  Until complex tasks are implemented, this
+   *   should always be a real object.  But omit/just pass null if you want
+   *   your task no longer tracked because you turn out to be moot, etc.  This
+   *   is ignored if the task is in the execute state because the task is
+   *   considered concluded for now.  XXX in the future, we will let tasks
+   *   re-queue themselves, etc. as part of the error handling logic.
    */
   finishTask: function(finishData) {
     this.state = 'finishing';
 
-    return this._db.finishMutate(finishData);
+    let revisedTaskInfo;
+    // If we're planning,
+    if (this._wrappedTask.state === null && finishData.taskState) {
+      if (!finishData.taskState) {
+        throw new Error('at the current time, taskState must be provided');
+      }
+      this._wrappedTask.state = 'planned';
+      this._wrappedTask.plannedTask = finishData.taskState;
+      revisedTaskInfo = {
+        id: this.id,
+        value: this._wrappedTask
+      };
+      this.universe.taskManager.__prioritizeTask(this._wrappedTask);
+    } else {
+      revisedTaskInfo = null;
+    }
+
+    return this.universe.db.finishMutate(this, finishData, revisedTaskInfo);
   },
 };
 return TaskContext;

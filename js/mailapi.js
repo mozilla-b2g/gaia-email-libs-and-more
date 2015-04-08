@@ -789,7 +789,7 @@ MailAPI.prototype = evt.mix({
    *   }
    * ]
    */
-  viewFolders: function ma_viewFolders(mode, argument) {
+  viewFolders: function ma_viewFolders(mode, accountId) {
     var handle = this._nextHandle++,
         slice = new FoldersViewSlice(this, handle);
 
@@ -799,7 +799,7 @@ MailAPI.prototype = evt.mix({
       type: 'viewFolders',
       mode: mode,
       handle: handle,
-      argument: argument ? argument.id : null,
+      accountId, accountId
     });
 
     return slice;

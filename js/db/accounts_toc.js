@@ -1,6 +1,7 @@
 define(function(require) {
 
 let evt = require('evt');
+let logic = require('logic');
 
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
@@ -25,6 +26,7 @@ function accountDefComparator(a, b) {
  */
 function AccountsTOC() {
   evt.Emitter.call(this);
+  logic.defineScope(this, 'AccountsTOC');
 
   this.accountDefs = [];
   this.accountDefsById = new Map();
@@ -43,6 +45,7 @@ AccountsTOC.prototype = evt.mix({
                                accountDefComparator);
     this.accountDefs.splice(idx, 0, accountDef);
     this.accountDefsById.set(accountDef.id, accountDef);
+    logic(this, 'addAccount', { accountId: accountDef.id, index: idx });
 
     this.emit('add', this.accountDefToWireRep(accountDef), idx);
   },
@@ -60,6 +63,7 @@ AccountsTOC.prototype = evt.mix({
   removeAccountById: function(accountId) {
     let accountDef = this.accountDefsById.get(accountId);
     let idx = this.accountDefs.indexOf(accountDef);
+    logic(this, 'removeAccountbyId', { accountId: accountId, index: idx });
 
     this.accountDefsById.delete(accountId);
     this.accountDefs.splice(idx, 1);

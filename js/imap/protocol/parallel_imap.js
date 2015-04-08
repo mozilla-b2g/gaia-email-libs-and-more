@@ -1,5 +1,7 @@
 define(function(require) {
 
+let logic = require('logic');
+
 /**
  * Helper that just ensures we have a connection and then calls the underlying
  * connection method.
@@ -7,8 +9,12 @@ define(function(require) {
 function simpleWithConn(methodName) {
   return function() {
     let calledArgs = arguments;
-    return this._gimmeConnection.then((conn) => {
-      return conn[methodName].apply(conn, calledArgs);
+    return this._gimmeConnection().then((conn) => {
+      logic(this, methodName + ':begin', {});
+      return conn[methodName].apply(conn, calledArgs).then((value) => {
+        logic(this, methodName + ':end', { _result: value });
+        return value;
+      });
     });
   }
 }
@@ -21,16 +27,20 @@ function simpleWithConn(methodName) {
 function inFolderWithConn(methodName, optsArgIndexPerCaller) {
   return function(folderInfo) {
     let calledArgs = arguments;
-    return this._gimmeConnection.then((conn) => {
+    return this._gimmeConnection().then((conn) => {
       let opts = calledArgs[optsArgIndexPerCaller];
       if (!opts) {
         throw new Error('provide the options dictionary so we can mutate it.');
       }
       opts.precheck = function(ctx, next) {
-        this.selectMailbox(folderInfo.path, { ctx: ctx}, next);
+        this.selectMailbox(folderInfo.path, { ctx: ctx }, next);
       }
+      logic(this, methodName + ':begin', { folderId: folderInfo.id });
       return conn[methodName].apply(
-        conn, Array.prototype.slice.call(calledArgs, 1));
+        conn, Array.prototype.slice.call(calledArgs, 1)).then((value) => {
+          logic(this, methodName + ':end', { _result: value });
+          return value;
+        });
     });
   }
 }
@@ -67,6 +77,7 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
  * probably want to see how this turns out first, though.
  */
 function ParallelIMAP(imapAccount) {
+  logic.defineScope(this, 'ParallelIMAP', { accountId: imapAccount.id });
   this._imapAccount = imapAccount;
 
   this._conn = null;
@@ -84,16 +95,19 @@ ParallelIMAP.prototype = {
       return this._connPromise;
     }
 
+    logic(this, 'demandConnection');
     this._connPromise = new Promise((resolve, reject) => {
       this._imapAccount.__folderDemandsConnection(
         null,
         'pimap',
         (conn) => {
+          logic(this, 'gotConnection');
           this._conn = conn;
           this._connPromise = null;
           resolve(conn);
         },
         () => {
+          logic(this, 'deadConnection');
           this._conn = null;
           this._connPromise = null;
           reject();

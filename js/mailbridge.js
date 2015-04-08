@@ -197,6 +197,10 @@ MailBridge.prototype = {
       });
   },
 
+  _cmd_syncFolderList: function(msg) {
+    this.universe.syncFolderList(msg.accountId);
+  },
+
   _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;

@@ -115,7 +115,7 @@ CompositeIncomingAccount.prototype = {
    */
   _learnAboutFolder: function(name, path, parentId, type, delim, depth) {
     let folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
-    let folderInfo = this._folderInfos[folderId] =
+    let folderInfo =
       $folder_info.makeFolderMeta({
         id: folderId,
         name: name,
@@ -128,7 +128,7 @@ CompositeIncomingAccount.prototype = {
         version: $mailslice.FOLDER_DB_VERSION
       });
 
-    this.foldersTOC.add(folderInfo);
+    this.foldersTOC.addFolder(folderInfo);
 
     return folderInfo;
   },

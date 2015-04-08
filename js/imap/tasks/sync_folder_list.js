@@ -1,5 +1,7 @@
 define(function(require) {
 
+let co = require('co');
+let logic = require('logic');
 let TaskDefiner = require('../../task_definer');
 
 /**
@@ -18,24 +20,24 @@ return TaskDefiner.defineSimpleTask([
     priorityTags: [
     ],
 
-    // There is nothing for us to plan
-    plan: null,
-
-    execute: function*(ctx, req) {
-      let account = ctx.universe.acquireAccount(req.accountId);
+    execute: co.wrap(function*(ctx, planned) {
+      logic(ctx, 'execute', { planned: planned });
+      let account = yield ctx.universe.acquireAccount(ctx, planned.accountId);
       let imapAccount = account.imapAccount;
 
-      let boxesRoot = yield account.pimap.listBoxes();
+      let boxesRoot = yield account.pimap.listMailboxes();
       let namespaces = yield account.pimap.listNamespaces();
 
       imapAccount.processFolderListUpdates(boxesRoot, namespaces);
 
       yield ctx.finishTask({
         mutations: {
-          [account.id]: imapAccount.folderTOC.generatePersistenceInfo()
-        }
+          [account.id]: imapAccount.foldersTOC.generatePersistenceInfo()
+        },
+        // all done!
+        taskState: null
       });
-    }
+    })
   }
 ]);
 });

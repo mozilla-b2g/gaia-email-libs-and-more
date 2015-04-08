@@ -23,7 +23,7 @@ if (("indexedDB" in window) && window.indexedDB) {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-var CUR_VERSION = 23;
+var CUR_VERSION = 28;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -48,7 +48,9 @@ var TBL_CONFIG = 'config',
       CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
 
 /**
- * (Wrapped) tasks.  Id's are autoincremented values issued by IndexedDB.
+ * (Wrapped) tasks.  We issue id's for now, although in an ideal world we could
+ * use auto-incremented id's.  But we can't since all we have is mozGetAll.  See
+ * commentary elsewhere.
  */
 var TBL_TASKS = 'tasks';
 
@@ -202,7 +204,7 @@ function wrapReq(idbRequest) {
  */
 function wrapTrans(idbTransaction) {
   return new Promise(function(resolve, reject) {
-    idbTransaction.onsuccess = function(event) {
+    idbTransaction.oncomplete = function(event) {
       resolve();
     };
     idbTransaction.onerror = function(event) {
@@ -251,26 +253,27 @@ function MailDB(testOptions) {
   this.headerCache = new Map();
   this.bodyCache = new Map();
 
-  var dbVersion = CUR_VERSION;
+  let dbVersion = CUR_VERSION;
   if (testOptions && testOptions.dbDelta)
     dbVersion += testOptions.dbDelta;
   if (testOptions && testOptions.dbVersion)
     dbVersion = testOptions.dbVersion;
-  this._dbPromise = new Promise(function(resolve, reject) {
-    var openRequest = IndexedDB.open('b2g-email', dbVersion), self = this;
-    openRequest.onsuccess = function(event) {
-      self._db = openRequest.result;
+  this._dbPromise = new Promise((resolve, reject) => {
+    let openRequest = IndexedDB.open('b2g-email', dbVersion);
+    openRequest.onsuccess = (event) => {
+      this._db = openRequest.result;
 
       resolve();
     };
-    openRequest.onupgradeneeded = function(event) {
+    openRequest.onupgradeneeded = (event) => {
       console.log('MailDB in onupgradeneeded');
-      var db = openRequest.result;
+      logic(this, 'upgradeNeeded', { oldVersion: event.oldVersion })
+      let db = openRequest.result;
 
       // - reset to clean slate
       if ((event.oldVersion < FRIENDLY_LAZY_DB_UPGRADE_VERSION) ||
           (testOptions && testOptions.nukeDb)) {
-        self._nukeDB(db);
+        this._nukeDB(db);
       }
       // - friendly, lazy upgrade
       else {
@@ -279,19 +282,19 @@ function MailDB(testOptions) {
         // like usual.  This is obviously a potentially data-lossy approach to
         // things; but this is a 'lazy' / best-effort approach to make us more
         // willing to bump revs during development, not the holy grail.
-        self.getConfig(function(configObj, accountInfos) {
+        this.getConfig((configObj, accountInfos) => {
           if (configObj)
-            self._lazyConfigCarryover = {
+            this._lazyConfigCarryover = {
               oldVersion: event.oldVersion,
               config: configObj,
               accountInfos: accountInfos
             };
-          self._nukeDB(db);
+          this._nukeDB(db);
         }, trans);
       }
     };
     openRequest.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
-  }.bind(this));
+  });
 }
 
 MailDB.prototype = evt.mix({
@@ -299,13 +302,13 @@ MailDB.prototype = evt.mix({
    * Reset the contents of the database.
    */
   _nukeDB: function(db) {
-    var existingNames = db.objectStoreNames;
-    for (var i = 0; i < existingNames.length; i++) {
+    let existingNames = db.objectStoreNames;
+    for (let i = 0; i < existingNames.length; i++) {
       db.deleteObjectStore(existingNames[i]);
     }
 
     db.createObjectStore(TBL_CONFIG);
-    db.createObjectStore(TBL_TASKS, { autoIncrement: true })
+    db.createObjectStore(TBL_TASKS);
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
@@ -321,9 +324,9 @@ MailDB.prototype = evt.mix({
   },
 
   getConfig: function(callback, trans) {
-    this._dbPromise.then(function() {
+    this._dbPromise.then(() => {
       this._getConfig(callback, trans);
-    }.bind(this));
+    });
   },
 
   _getConfig: function(callback, trans) {
@@ -340,17 +343,16 @@ MailDB.prototype = evt.mix({
     configReq.onerror = analyzeAndLogErrorEvent;
     // no need to track success, we can read it off folderInfoReq
     folderInfoReq.onerror = analyzeAndLogErrorEvent;
-    var self = this;
-    folderInfoReq.onsuccess = function(event) {
+    folderInfoReq.onsuccess = (event) => {
       var configObj = null, accounts = [], i, obj;
 
       // - Check for lazy carryover.
       // IndexedDB provides us with a strong ordering guarantee that this is
       // happening after any upgrade check.  Doing it outside this closure would
       // be race-prone/reliably fail.
-      if (self._lazyConfigCarryover) {
-        var lazyCarryover = self._lazyConfigCarryover;
-        self._lazyConfigCarryover = null;
+      if (this._lazyConfigCarryover) {
+        var lazyCarryover = this._lazyConfigCarryover;
+        this._lazyConfigCarryover = null;
         callback(configObj, accounts, lazyCarryover);
         return;
       }
@@ -769,13 +771,29 @@ MailDB.prototype = evt.mix({
 
   },
 
+  _processHeaderAdditions: function(trans, headers) {
+    let store = trans.objectStore(TBL_HEADERS);
+    for (let header of headers.values()) {
+      store.add(header, header.id);
+    }
+  },
+
+  _processHeaderMutations: function(trans, preStates, headers) {
+
+  },
+
+  _processBodyAdditions: function(trans, bodies) {
+
+  },
+
+  _processBodyMutations: function(trans, preStates, bodies) {
+
+  },
+
   _addRawTasks: function(trans, wrappedTasks) {
     let store = trans.objectStore(TBL_TASKS);
     wrappedTasks.forEach((wrappedTask) => {
-      let req = store.add(wrappedTask.rawTask);
-      req.onsuccess = function(event) {
-        wrappedTask.id = event.target.result;
-      }
+      let req = store.add(wrappedTask, wrappedTask.id);
     });
   },
 
@@ -791,7 +809,8 @@ MailDB.prototype = evt.mix({
     return wrapTrans(trans);
   },
 
-  finishMutate: function(ctx, data, revisedTask) {
+  finishMutate: function(ctx, data, revisedTaskInfo) {
+    logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
     let mutations = data.mutations;
@@ -808,11 +827,13 @@ MailDB.prototype = evt.mix({
       }
 
       if (mutations.headers) {
-
+        this._processHeaderMutations(
+          trans, ctx._preMutateStates.headers, mutations.headers);
       }
 
       if (mutations.bodies) {
-
+        this._processBodyMutations(
+          trans, ctx._preMutateStates.bodies, mutations.bodies);
       }
     }
 
@@ -822,18 +843,25 @@ MailDB.prototype = evt.mix({
         this._processConvAdditions(trans, newData.conv);
       }
       if (newData.headers) {
-
+        this._processHeaderAdditions(trans, newData.headers);
       }
       if (newData.bodies) {
-
+        this._processBodyAdditions(trans, newData.bodies);
       }
     }
 
-    if (revisedTask) {
-
+    // Update the task's state in the database.
+    if (revisedTaskInfo) {
+      if (revisedTaskInfo.state) {
+        trans.objectStore(TBL_TASKS).put(revisedTask.state, revisedTask.id);
+      } else {
+        trans.objectStore(TBL_TASKS).delete(revisedTaskInfo.id);
+      }
     }
 
-    return wrapTrans(trans);
+    return wrapTrans(trans).then(() => {
+      logic(this, 'finishMutate:end');
+    });
   },
 
   /**

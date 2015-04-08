@@ -68,7 +68,7 @@ function MailAccount(api, wireRep, acctsSlice) {
 
   this.folders = null;
   if (acctsSlice && acctsSlice._autoViewFolders) {
-    this.folders = api.viewFolders('account', this)
+    this.folders = api.viewFolders('account', this.id)
   }
 }
 MailAccount.prototype = {
@@ -165,6 +165,13 @@ MailAccount.prototype = {
    */
   deleteAccount: function() {
     this._api._deleteAccount(this);
+  },
+
+  syncFolderList: function() {
+    this._api.__bridgeSend({
+      type: 'syncFolderList',
+      accountId: this.id
+    });
   },
 
   /**

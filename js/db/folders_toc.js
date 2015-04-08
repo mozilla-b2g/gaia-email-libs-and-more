@@ -1,6 +1,7 @@
 define(function(require) {
 
 let evt = require('evt');
+let logic = require('logic');
 
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
@@ -34,25 +35,6 @@ function strcmp(a, b) {
 }
 
 /**
- * Make a folder sorting function that groups folders by account, puts the
- * account header first in that group, maps priorities using
- * FOLDER_TYPE_TO_SORT_PRIORITY, then sorts by path within that.
- *
- * This is largely necessitated by localeCompare being at the mercy of glibc's
- * locale database and failure to fallback to unicode code points for
- * comparison purposes.
- */
-function makeFolderSortString(account, folder) {
-  if (!folder)
-    return account.id;
-
-  var parentFolder = account.getfolderInfoForFolderId(folder.parentId);
-  return makeFolderSortString(account, parentFolder) + '!' +
-         FOLDER_TYPE_TO_SORT_PRIORITY[folder.type] + '!' +
-         folder.name.toLocaleLowerCase();
-}
-
-/**
  * Self-managed Folder TOC that owns the canonical list of folders for an
  * account.
  *
@@ -64,6 +46,7 @@ function makeFolderSortString(account, folder) {
  */
 function FoldersTOC(foldersDbState) {
   evt.Emitter.call(this);
+  logic.defineScope(this, 'FoldersTOC');
 
   this._foldersDbState = foldersDbState;
 
@@ -95,26 +78,62 @@ function FoldersTOC(foldersDbState) {
   }
 }
 FoldersTOC.prototype = evt.mix({
+  // We don't care about who references us because we have the lifetime of the
+  // universe.  (At least, unless our owning account gets deleted.)
+  __acquire: function() {
+    return this;
+  },
+
+  __release: function() {
+
+  },
+
+  getAllItems: function() {
+    return this.items;
+  },
+
+  /**
+   * Make a folder sorting function that groups folders by account, puts the
+   * account header first in that group, maps priorities using
+   * FOLDER_TYPE_TO_SORT_PRIORITY, then sorts by path within that.
+   *
+   * This is largely necessitated by localeCompare being at the mercy of glibc's
+   * locale database and failure to fallback to unicode code points for
+   * comparison purposes.
+   */
+  _makeFolderSortString: function(folderInfo) {
+    if (!folderInfo)
+      return '';
+
+    var parentFolderInfo = this.foldersById.get(folderInfo.parentId);
+    return this._makeFolderSortString(parentFolderInfo) + '!' +
+           FOLDER_TYPE_TO_SORT_PRIORITY[folderInfo.type] + '!' +
+           folderInfo.name.toLocaleLowerCase();
+  },
+
   addFolder: function(folderInfo) {
-    let sortString = this.makeFolderSortString(folderInfo);
-    let idx = bsearchForInsert(this.folderSortaString, sortString, strcmp);
+    let sortString = this._makeFolderSortString(folderInfo);
+    let idx = bsearchForInsert(this.folderSortStrings, sortString, strcmp);
     this.items.splice(idx, 0, folderInfo);
+    logic(this, 'addFolder',
+          { id: folderInfo.id, index: idx, _folderInfo: folderInfo });
     this.folderSortStrings.splice(idx, 0, sortString);
     this.foldersById.set(folderInfo.id, folderInfo);
 
-    this.foldersTOC.emit('add', folderInfo, idx);
+    this.emit('add', folderInfo, idx);
   },
 
   removeFolderById: function(id) {
     let folderInfo = this.foldersById.get(id);
     let idx = this.items.indexOf(folderInfo);
+    logic(this, 'removeFolderById', { id: id, index: idx });
     if (!folderInfo || idx === -1) {
       throw new Error('the folder did not exist?');
     }
     this.foldersById.delete(id);
     this.items.splice(idx, 1);
     this.folderSortStrings.splice(idx, 1);
-    this.foldersTOC.emit('remove', id, idx);
+    this.emit('remove', id, idx);
   },
 
   generatePersistenceInfo: function() {

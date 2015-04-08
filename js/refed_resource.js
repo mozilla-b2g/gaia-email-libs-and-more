@@ -32,6 +32,7 @@ RefedResource.prototype = {
     } else if (this._activatePromise) {
       yield this._activatePromise;
     }
+    return this;
   }),
 
   __release: co.wrap(function*(ctx) {
