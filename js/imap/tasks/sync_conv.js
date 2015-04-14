@@ -2,7 +2,10 @@ define(function(require) {
 
 let TaskDefiner = require('../../task_definer');
 let a64 = require('../../a64');
+
 let imapchew = require('../imapchew');
+let parseImapDateTime = imapchew.parseImapDateTime;
+
 let churnConversation = require('../../churns/conv_churn');
 
 let parseGmailMsgId = a64.parseUI64;
@@ -17,7 +20,6 @@ function convIdToGmailThreadId(convId) {
   return expandGmailConvId(a64Part);
 }
 
-let parseImapDateTime = imapchew.parseImapDateTime;
 
 let INITIAL_FETCH_PARAMS = [
   'uid',
@@ -30,19 +32,38 @@ let INITIAL_FETCH_PARAMS = [
 ];
 
 /**
- * Fetches the envelopes for new messages in a conversation.
+ * Fetches the envelopes for new messages in a conversation and also applies
+ * flag/label changes discovered by sync_refresh (during planning).
  *
- * Given a conversation-id (X-GM-THRID), synchronize its state by going in the
- * all mail folder, issuing a SEARCH on the conversation, finding all the
- * messages,
+ * XXX do the planning stuff in separate tasks.  just have the churner handle
+ * things.
+ *
+ * For a non-new conversation where we are told revisedUidState, in the planning
+ * phase, apply the revised flags/labels.  (We handle this rather than
+ * sync_refresh because this inherently necessitates a recomputation of the
+ * conversation summary which quickly gets to be more work than sync_refresh
+ * wants to do in its step.)
+ *
+ * For a non-new conversation where we are told removedUids, in the planning
+ * phase, remove the messages from the database and recompute the conversation
+ * summary.
+ *
+ * For a new conversation, in the execution phase, do a SEARCH to find all the
+ * headers, FETCH all their envelopes, and add the headers/bodies to the
+ * database.  This requires loading and mutating the syncState.
+ *
+ * For a non-new conversation where we are told newUids, in the execution
+ * phase, FETCH their envelopes and add the headers/bodies to the database.
+ * This does not require loading or mutating the syncState; sync_refresh already
+ * updated itself.
  *
  */
  return TaskDefiner.defineSimpleTask([
    {
      name: 'sync_conv',
      namingArgs: ['convId'],
-     // In the case
-     unifyingArgs: ['uids'],
+     unifyingArgs: ['newConv', 'removedConv', 'newUids', 'removedUids',
+                    'revisedUidState'],
 
      priorityTags: [
        (args) => `view:conv:${args.convId}`

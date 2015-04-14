@@ -171,7 +171,9 @@ changedCareMsgs = intersectKeepingData(changedMsgs, knownCareMsgs)
 scheduleForAll(changedCarMsgs, update_metadata)
 ```
 
-Sorta notable things
+### Growing and CONDSTORE ###
+
+
 
 ## Optimizing Time-to-Conversation-List ##
 

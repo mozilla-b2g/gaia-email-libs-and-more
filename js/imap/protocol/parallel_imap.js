@@ -39,7 +39,10 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
       return conn[methodName].apply(
         conn, Array.prototype.slice.call(calledArgs, 1)).then((value) => {
           logic(this, methodName + ':end', { _result: value });
-          return value;
+          return {
+            mailboxInfo: conn.selectedMailboxInfo,
+            result: value
+          };
         });
     });
   }

@@ -90,6 +90,13 @@ define(function(require, exports) {
           // XXX: if error is just expired access token, try to refresh one time
           reject(err);
         };
+        // Save the mailboxInfo off so we can use the precheck idiom.
+        conn.onselectmailbox = function(path, mailboxInfo) {
+          this.selectedMailboxInfo = mailboxInfo;
+        };
+        conn.onclosemailbox = function() {
+          this.selectedMailboxInfo = null;
+        };
 
         conn.connect();
       });

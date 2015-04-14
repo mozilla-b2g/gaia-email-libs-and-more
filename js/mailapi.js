@@ -1,6 +1,11 @@
 define(function(require, exports, module) {
 'use strict';
 
+var logic = require('./logic');
+// XXX proper logging configuration for the front-end too once things start
+// working happily.
+logic.realtimeLogEverything = true;
+
 // Use a relative link so that consumers do not need to create
 // special config to use main-frame-setup.
 var addressparser = require('./ext/addressparser');
@@ -58,6 +63,7 @@ function reportError() {
     else
       msg = "" + arguments[i];
   }
+  logic.fail(msg);
   throw new Error(msg);
 }
 var unexpectedBridgeDataError = reportError,
@@ -70,6 +76,7 @@ var unexpectedBridgeDataError = reportError,
  */
 function MailAPI() {
   evt.Emitter.call(this);
+  logic.defineScope(this, 'MailAPI', {});
   this._nextHandle = 1;
 
   /**
@@ -82,12 +89,6 @@ function MailAPI() {
   this._trackedItemHandles = new Map();
   this._pendingRequests = {};
   this._liveBodies = {};
-  /**
-   * Functions to invoke to actually process/fire splices.  Exists to support
-   * the fallout of waiting for contact resolution now that slice changes are
-   * batched.
-   */
-  this._spliceFireFuncs = [];
 
   // Store bridgeSend messages received before back end spawns.
   this._storedSends = [];
@@ -180,12 +181,14 @@ MailAPI.prototype = evt.mix({
   /**
    * Process a message received from the bridge.
    */
-  __bridgeReceive: function ma___bridgeReceive(msg) {
+  __bridgeReceive: function(msg) {
     // Pong messages are used for tests
     if (this._processingMessage && msg.type !== 'pong') {
+      logic(this, 'deferMessage', { type: msg.type });
       this._deferredMessages.push(msg);
     }
     else {
+      logic(this, 'immediateProcess', { type: msg.type });
       this._processMessage(msg);
     }
   },
@@ -197,9 +200,11 @@ MailAPI.prototype = evt.mix({
       return;
     }
     try {
-      var done = this[methodName](msg);
-      if (!done) {
-        this._processingMessage = msg;
+      logic(this, 'processMessage', { type: msg.type });
+      var promise = this[methodName](msg);
+      if (promise && promise.then) {
+        this._processingMessage = promise;
+        promise.then(this._doneProcessingMessage.bind(this, msg));
       }
     }
     catch (ex) {
@@ -224,7 +229,6 @@ MailAPI.prototype = evt.mix({
               new MailAccount(this, msg.account, null),
               msg.problem,
               msg.whichSide);
-    return true;
   },
 
 
@@ -312,7 +316,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
@@ -325,8 +329,6 @@ MailAPI.prototype = evt.mix({
     }
 
     req.callback.call(null, body, req.suid);
-
-    return true;
   },
 
   _recv_requestBodiesComplete: function(msg) {
@@ -334,8 +336,6 @@ MailAPI.prototype = evt.mix({
     // The slice may be dead now!
     if (slice)
       slice._notifyRequestBodiesComplete(msg.requestId);
-
-    return true;
   },
 
   _recv_bodyModified: function(msg) {
@@ -345,7 +345,7 @@ MailAPI.prototype = evt.mix({
       unexpectedBridgeDataError('body modified for dead handle', msg.handle);
       // possible but very unlikely race condition where body is modified while
       // we are removing the reference to the observer...
-      return true;
+      return;
     }
 
     var wireRep = msg.bodyInfo;
@@ -356,8 +356,6 @@ MailAPI.prototype = evt.mix({
     body.__update(wireRep, msg.detail);
 
     body.emit('change', msg.detail, body);
-
-    return true;
   },
 
   _recv_bodyDead: function(msg) {
@@ -368,7 +366,6 @@ MailAPI.prototype = evt.mix({
     }
 
     delete this._liveBodies[msg.handle];
-    return true;
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,
@@ -398,7 +395,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
@@ -408,7 +405,6 @@ MailAPI.prototype = evt.mix({
 
     if (req.callback)
       req.callback.call(null, req.body);
-    return true;
   },
 
   /**
@@ -481,12 +477,11 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle:', msg.handle);
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
     req.callback.call(null, msg.data);
-    return true;
   },
 
 
@@ -656,7 +651,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for create account:', msg.handle);
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
@@ -676,7 +671,6 @@ MailAPI.prototype = evt.mix({
     }
 
     req.callback.call(null, msg.error, msg.errorDetails, account);
-    return true;
   },
 
   _clearAccountProblems: function ma__clearAccountProblems(account, callback) {
@@ -696,7 +690,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
-    return true;
   },
 
   _modifyAccount: function ma__modifyAccount(account, mods, callback) {
@@ -717,7 +710,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
-    return true;
   },
 
   _deleteAccount: function ma__deleteAccount(account) {
@@ -745,7 +737,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
-    return true;
   },
 
   /**
@@ -1000,7 +991,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
-    return true;
   },
 
   /**
@@ -1029,7 +1019,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
-    return true;
   },
 
   /**
@@ -1056,7 +1045,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for mutation:', msg.handle);
-      return true;
+      return;
     }
 
     req.undoableOp._tempHandle = null;
@@ -1067,8 +1056,6 @@ MailAPI.prototype = evt.mix({
     if (req.callback) {
       req.callback(msg.result);
     }
-
-    return true;
   },
 
   __undo: function undo(undoableOp) {
@@ -1220,7 +1207,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for compose begun:', msg.handle);
-      return true;
+      return;
     }
 
     req.composer.senderIdentity = new MailSenderIdentity(this, msg.identity);
@@ -1238,7 +1225,6 @@ MailAPI.prototype = evt.mix({
       req.callback = null;
       callback.call(null, req.composer);
     }
-    return true;
   },
 
   _composeAttach: function(draftHandle, attachmentDef, callback) {
@@ -1266,14 +1252,13 @@ MailAPI.prototype = evt.mix({
     var callbackReq = this._pendingRequests[msg.handle];
     var draftReq = this._pendingRequests[msg.draftHandle];
     if (!callbackReq) {
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
     if (callbackReq.callback && draftReq && draftReq.composer) {
       callbackReq.callback(msg.err, draftReq.composer);
     }
-    return true;
   },
 
   _composeDetach: function(draftHandle, attachmentIndex, callback) {
@@ -1301,14 +1286,13 @@ MailAPI.prototype = evt.mix({
     var callbackReq = this._pendingRequests[msg.handle];
     var draftReq = this._pendingRequests[msg.draftHandle];
     if (!callbackReq) {
-      return true;
+      return;
     }
     delete this._pendingRequests[msg.handle];
 
     if (callbackReq.callback && draftReq && draftReq.composer) {
       callbackReq.callback(msg.err, draftReq.composer);
     }
-    return true;
   },
 
   _composeDone: function(handle, command, state, callback) {
@@ -1333,7 +1317,7 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     if (!req) {
       unexpectedBridgeDataError('Bad handle for doneCompose:', msg.handle);
-      return true;
+      return;
     }
     req.active = null;
     // Do not cleanup on saves. Do cleanup on successful send, delete, die.
@@ -1347,7 +1331,6 @@ MailAPI.prototype = evt.mix({
       });
       req.callback = null;
     }
-    return true;
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1368,17 +1351,14 @@ MailAPI.prototype = evt.mix({
    */
   _recv_cronSyncStart: function ma__recv_cronSyncStart(msg) {
     this.emit('cronsyncstart', msg.accountIds)
-    return true;
   },
 
   _recv_cronSyncStop: function ma__recv_cronSyncStop(msg) {
     this.emit('cronsyncstop', msg.accountsResults);
-    return true;
   },
 
   _recv_backgroundSendStatus: function(msg) {
     this.emit('backgroundsendstatus', msg.data);
-    return true;
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1452,7 +1432,6 @@ MailAPI.prototype = evt.mix({
 
   _recv_config: function(msg) {
     this.config = msg.config;
-    return true;
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1493,7 +1472,6 @@ MailAPI.prototype = evt.mix({
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback();
-    return true;
   },
 
   debugSupport: function(command, argument) {

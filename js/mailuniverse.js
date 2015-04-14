@@ -38,6 +38,7 @@ var MAX_LOG_BACKLOG = 30;
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
   dump('=====================\n');
+  // XXX proper logging configuration again once things start working
   logic.realtimeLogEverything = true;
 
   this.db = new MailDB(testOptions);
@@ -281,35 +282,48 @@ MailUniverse.prototype = {
   // Resource Acquisition stuff
 
   /**
-   * Acquire an account.  Right now this is synchronous, but in the future
-   * accounts could be entirely lazy-loaded.
+   * Acquire an account.
    */
   acquireAccount: function(ctx, accountId) {
     let promise;
+
     if (this._residentAccountsById.has(accountId)) {
-      let account = this._residentAccountsById.get(acccountId);
+      // If the account is already loaded, acquire it immediately.
+      let account = this._residentAccountsById.get(accountId);
       return ctx.acquire(account);
     } else if (this._loadingAccountsById.has(accountId)) {
-      promise = this._loadingAccountsById.get(accountId);
+      // It's loading; wait on the promise and acquire it when the promise is
+      // resolved.
+      return this._loadingAccountsById.get(accountId).then((account) => {
+        return ctx.acquire(account);
+      });
     } else {
+      // We need to trigger loading it ourselves and then help
       let accountDef = this.accountsTOC.accountDefsById.get(accountId);
       if (!accountDef) {
         throw new Error('No accountDef with id: ' + accountId);
       }
       let foldersTOC = this.accountFoldersTOCs.get(accountId);
-      promise = this._loadAccount(accountDef, foldersTOC, null);
+      return this._loadAccount(accountDef, foldersTOC, null).then((account) => {
+        return ctx.acquire(account);
+      });
       // (_loadAccount puts the promise in _loadingAccountsByID and clears it
       // when it finishes)
     }
-    return promise;
   },
 
+  /**
+   * Acquire an account's folders TOC.
+   *
+   * Note that folderTOC's are eternal and so don't actually need reference
+   * counting, etc.  However, we conform to the idiom.
+   */
   acquireAccountFoldersTOC: function(ctx, accountId) {
     let foldersTOC = this.accountFoldersTOCs.get(accountId);
     if (!foldersTOC) {
       throw new Error('Account ' + accountId + ' lacks a foldersTOC!');
     }
-    return foldersTOC;
+    return Promise.resolve(foldersTOC);
   },
 
   acquireFolderConversationsTOC: function(ctx, folderId) {
@@ -421,17 +435,19 @@ MailUniverse.prototype = {
           this._LOG.badAccountType(accountDef.type);
           return;
         }
-        var account = new constructor(this, accountDef, folderInfo, this.db,
+        let account = new constructor(this, accountDef, folderInfo, this.db,
                                       receiveProtoConn, this._LOG);
-
-        // - issue a (non-persisted) syncFolderList if needed
-        var timeSinceLastFolderSync = Date.now() - account.meta.lastFolderSyncAt;
-        if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
-          this.syncFolderList(accountDef.id);
-        }
 
         this._loadingAccountsById.delete(accountDef.id);
         this._residentAccountsById.set(accountDef.id, account);
+
+        // - issue a (non-persisted) syncFolderList if needed
+        let timeSinceLastFolderSync =
+          Date.now() - account.meta.lastFolderSyncAt;
+        if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
+          this.syncFolderList(accountDef.id, 'loadAccount');
+        }
+
         resolve(account);
       });
     });
@@ -543,13 +559,13 @@ MailUniverse.prototype = {
       callback();
   },
 
-  syncFolderList: function(accountId) {
+  syncFolderList: function(accountId, why) {
     this.taskManager.scheduleTasks([
       {
         type: 'sync_folder_list',
         accountId: accountId
       }
-    ]);
+    ], why);
   },
 
   /**

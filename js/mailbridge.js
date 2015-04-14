@@ -198,7 +198,7 @@ MailBridge.prototype = {
   },
 
   _cmd_syncFolderList: function(msg) {
-    this.universe.syncFolderList(msg.accountId);
+    this.universe.syncFolderList(msg.accountId, 'bridge');
   },
 
   _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
@@ -599,13 +599,13 @@ MailBridge.prototype = {
     ctx.proxy.populateFromList();
   },
 
-  _cmd_viewFolderConversations: function(msg) {
+  _cmd_viewFolderConversations: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.namedContext(msg.handle);
 
     let toc = yield this.universe.acquireFolderConversationsTOC(msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     ctx.acquire(ctx.proxy);
-  },
+  }),
 
   _cmd_seekProxy: function(msg) {
     let ctx = this.bridgeContext.namedContextOrThrow(msg.handle);

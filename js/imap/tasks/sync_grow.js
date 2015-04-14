@@ -8,7 +8,7 @@ let TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineSimpleTask([
   {
     name: 'sync_grow',
-    args: ['accountId', 'folderId'],
+    args: ['accountId', 'folderId', 'minDays'],
 
     exclusiveResources: [
       // Only one of us/sync_refresh is allowed to be active at a time.
@@ -23,7 +23,21 @@ return TaskDefiner.defineSimpleTask([
     plan: null,
 
     execute: function*(ctx, req) {
-      // Get our current folder state.
+      // -- Exclusively acquire the sync state for the account
+      // XXX this is ugly; a convenience method for single-shot access seems in
+      // order.  Or other helpers.
+      let syncReqMap = new Map();
+      syncReqMap.set(req.accountId, null);
+      yield ctx.beginMutate({
+        syncStates: syncReqMap
+      });
+      let syncState = syncReqMap.get(req.accountId);
+
+      
+
+      // -- Figure
+
+
       let folderSyncDb = ctx.account.folderSyncDbById.get(req.folderId);
       yield folderSyncDb.acquire(ctx.ctxId);
 

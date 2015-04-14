@@ -83,11 +83,9 @@ TaskContext.prototype = {
     this.state = 'finishing';
 
     let revisedTaskInfo;
-    // If we're planning,
-    if (this._wrappedTask.state === null && finishData.taskState) {
-      if (!finishData.taskState) {
-        throw new Error('at the current time, taskState must be provided');
-      }
+    if (finishData.taskState) {
+      // (Either this was the planning stage or an execution stage that didn't
+      // actually complete; we're still planned either way.)
       this._wrappedTask.state = 'planned';
       this._wrappedTask.plannedTask = finishData.taskState;
       revisedTaskInfo = {
@@ -96,10 +94,32 @@ TaskContext.prototype = {
       };
       this.universe.taskManager.__prioritizeTask(this._wrappedTask);
     } else {
-      revisedTaskInfo = null;
+      revisedTaskInfo = {
+        id: this.id,
+        value: null
+      };
     }
 
-    return this.universe.db.finishMutate(this, finishData, revisedTaskInfo);
+    // Normalize any tasks that should be byproducts of this task.
+    let wrappedTasks = null;
+    if (finishData.newData && finishData.newData.tasks) {
+      wrappedTasks =
+        this.universe.taskManager.__wrapTasks(finishData.newData.tasks);
+    }
+
+    return this.universe.db.finishMutate(
+      this,
+      finishData,
+      {
+        revisedTaskInfo: revisedTaskInfo,
+        wrappedTasks: wrappedTasks
+      })
+    .then(() => {
+      if (wrappedTasks) {
+        this.universe.taskManager.__enqueuePersistedTasksForPlanning(
+          wrappedTasks);
+      }
+    });
   },
 };
 return TaskContext;

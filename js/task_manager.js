@@ -65,23 +65,43 @@ TaskManager.prototype = {
    * This method should only be called by things that are not part of the task
    * system, like user-triggered actions.  Tasks should list the tasks they
    * define during their call to finishTask.
+   *
+   * @param {String} why
+   *   Human readable but terse label to explain the causality/rationale of this
+   *   task being scheduled.
    */
-  scheduleTasks: function(rawTasks) {
-    let wrappedTasks = rawTasks.map((rawTask) => {
+  scheduleTasks: function(rawTasks, why) {
+    let wrappedTasks = this._wrapTasks(rawTasks);
+
+    logic(this, 'scheduling', { why: why, tasks: wrappedTasks });
+
+    return this._db.addTasks(wrappedTasks).then(() => {
+      this.__enqueuePersistedTasksForPlanning(wrappedTasks);
+    });
+  },
+
+  /**
+   * Wrap raw tasks and issue them an id, suitable for persisting to the
+   * database.
+   */
+  __wrapTasks: function(rawTasks) {
+    return rawTasks.map((rawTask) => {
       return {
         id: this._nextId++,
         rawTask: rawTask,
         state: null // => planned => (deleted)
       };
     });
-
-    logic(this, 'scheduling', { tasks: wrappedTasks });
-
-    return this._db.addTasks(wrappedTasks).then(() => {
-      this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
-      this._maybeDoStuff();
-    });
   },
+
+  /**
+   * Enqueue the given tasks for planning now that they have been persisted to
+   * disk.
+   */
+  __enqueuePersistedTasksForPlanning: function(wrappedTasks) {
+    this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
+    this._maybeDoStuff();
+  }
 
   /**
    * If we have any task planning or task executing to do.
@@ -109,6 +129,10 @@ TaskManager.prototype = {
     this._activePromise.then(() => {
       this._activePromise = null;
       logic(this, 'completed');
+      this._maybeDoStuff();
+    }, (err) => {
+      this._activePromise = null;
+      logic(this, 'taskFailure', { err: err, stack: err.stack });
       this._maybeDoStuff();
     });
   },

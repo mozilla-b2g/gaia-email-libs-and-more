@@ -23,7 +23,7 @@ if (("indexedDB" in window) && window.indexedDB) {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-var CUR_VERSION = 28;
+var CUR_VERSION = 30;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -46,6 +46,23 @@ var TBL_CONFIG = 'config',
       CONFIG_KEY_ROOT = 'config',
       // key: accountDef:`AccountId`
       CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
+
+/**
+ * Synchronization states.  What this means is account-dependent.
+ *
+ * For Gmail IMAP, this currently means a single record keyed by the accountId.
+ *
+ * For other IMAP (in the future), this will likely be a per-folder record
+ * keyed by the FolderId.
+ *
+ * For POP3 (in the future), this will likely be the existing single giant
+ * sync state blob we use.  (Which is mainly overflow UIDLs and deleted UIDLs.)
+ *
+ * ActiveSync isn't totally clear; it depends a lot on how much server support
+ * we reliably get for conversations giving our targeted legacy support goal.
+ * But most likely is per-folder record keeyed by FolderId.
+ */
+var TBL_SYNC_STATES = 'syncStates';
 
 /**
  * (Wrapped) tasks.  We issue id's for now, although in an ideal world we could
@@ -120,7 +137,10 @@ var TBL_BODIES = 'bodies';
  */
 let TASK_MUTATION_STORES = [
   TBL_CONFIG,
-  TBL_TASKS, TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
+  TBL_SYNC_STATES,
+  TBL_TASKS,
+  TBL_FOLDER_INFO,
+  TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
   TBL_HEADERS, TBL_BODIES
 ];
 
@@ -308,6 +328,7 @@ MailDB.prototype = evt.mix({
     }
 
     db.createObjectStore(TBL_CONFIG);
+    db.createObjectStore(TBL_SYNC_STATES);
     db.createObjectStore(TBL_TASKS);
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
@@ -488,6 +509,25 @@ MailDB.prototype = evt.mix({
 
       let dbReqCount = 0;
 
+      if (requests.syncStates) {
+        let syncStore = trans.objectStore(TBL_SYNC_STATES);
+        let syncStatesRequestsMap = requests.syncStates;
+        for (let key of syncStatesRequestsMap.keys()) {
+          dbReqCount++;
+          let req = syncStore.get(key);
+          let handler = (event) => {
+            let value;
+            if (req.error) {
+              value = null;
+              analyzeAndLogErrorEvent(event);
+            } else {
+              value = req.result;
+            }
+            syncStatesRequestMap.set(key, value);
+          };
+        }
+      }
+
       if (requests.conversations) {
         let convStore = trans.objectStore(TBL_CONV_INFO);
         let convRequestsMap = requests.conversations;
@@ -598,6 +638,8 @@ MailDB.prototype = evt.mix({
 
     return this.read(ctx, mutateRequests).then(() => {
       let preMutateStates = ctx._preMutateStates = {};
+
+      // (nothing to do for "syncStates")
 
       // (nothing to do for "folders")
 
@@ -809,15 +851,15 @@ MailDB.prototype = evt.mix({
     return wrapTrans(trans);
   },
 
-  finishMutate: function(ctx, data, revisedTaskInfo) {
+  finishMutate: function(ctx, data, taskData) {
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
     let mutations = data.mutations;
     if (mutations) {
       if (mutations.folders) {
-        for (let [accountId, foldersDbState] of mutations.folder) {
-          trans.objectStore(TBL_FOLDER_INFO).put(folderDbState, accountId);
+        for (let [accountId, foldersDbState] of mutations.folders) {
+          trans.objectStore(TBL_FOLDER_INFO).put(foldersDbState, accountId);
         }
       }
 
@@ -848,14 +890,24 @@ MailDB.prototype = evt.mix({
       if (newData.bodies) {
         this._processBodyAdditions(trans, newData.bodies);
       }
+      // newData.tasks is transformed by the TaskContext into
+      // taskData.wrappedTasks
     }
 
     // Update the task's state in the database.
-    if (revisedTaskInfo) {
+    if (taskData.revisedTaskInfo) {
       if (revisedTaskInfo.state) {
         trans.objectStore(TBL_TASKS).put(revisedTask.state, revisedTask.id);
       } else {
         trans.objectStore(TBL_TASKS).delete(revisedTaskInfo.id);
+      }
+    }
+
+    // New tasks
+    if (taskData.wrappedTasks) {
+      let taskStore = trans.objectStore(TBL_TASKS);
+      for (let wrappedTask of taskData.wrappedTasks) {
+        taskStore.put(wrappedTask, wrappedTask.id);
       }
     }
 

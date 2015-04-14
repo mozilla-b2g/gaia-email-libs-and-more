@@ -117,6 +117,16 @@ CompositeAccount.prototype = {
     };
   },
 
+  // TODO: evaluate whether the account actually wants to be a RefedResource
+  // with some kind of reaping if all references die and no one re-acquires it
+  // within some timeout horizon.
+  __acquire: function() {
+    return Promise.resolve(this);
+  },
+  __release: function() {
+
+  },
+
   get enabled() {
     return this._enabled;
   },

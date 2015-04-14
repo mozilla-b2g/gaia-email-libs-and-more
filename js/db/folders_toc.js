@@ -81,11 +81,11 @@ FoldersTOC.prototype = evt.mix({
   // We don't care about who references us because we have the lifetime of the
   // universe.  (At least, unless our owning account gets deleted.)
   __acquire: function() {
-    return this;
+    return Promise.resolve(this);
   },
 
   __release: function() {
-
+    // nothing to do
   },
 
   getAllItems: function() {

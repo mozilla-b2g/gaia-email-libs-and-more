@@ -32,7 +32,9 @@ return TaskDefiner.defineSimpleTask([
 
       yield ctx.finishTask({
         mutations: {
-          [account.id]: imapAccount.foldersTOC.generatePersistenceInfo()
+          folders: new Map([
+            [account.id, imapAccount.foldersTOC.generatePersistenceInfo()]
+          ]),
         },
         // all done!
         taskState: null

@@ -68,7 +68,7 @@ function WindowedListProxy(toc, ctx) {
 WindowedListProxy.prototype = {
   __acquire: function() {
     this.toc.on('change', this._bound_onChange);
-    return this;
+    return Promise.resolve(this);
   },
 
   __release: function() {
