@@ -836,7 +836,7 @@ define(function(require) {
       details = null;
     }
 
-    scope = logic.subscope(scope, details).subscope(scope);
+    scope = logic.subscope(scope, details);
 
     var startEvent = promiseToStartEventMap.get(promise);
     var awaitEvent = logic.event(scope, 'await ' + type, {

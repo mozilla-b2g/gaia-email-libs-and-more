@@ -7,7 +7,7 @@ trash or spam are in there.  This makes it the best (only?) way to find all the
 messages that are in a conversation.  It also means that the UIDs in the all
 mail folder are eternal (for all intents and purposes).
 
-Because this is super-handy, we bake a message's all mail UID into the SUID.
+Because this is arguably handy, we bake a message's all mail UID into the SUID.
 
 ### Folders are just pre-filtered views of "All Mail", so forget folders ###
 
@@ -92,6 +92,8 @@ things to us.  Note that we're ignoring mootMessages for this analysis.
       transition we still need to perform a set check (or depend on some other,
       potentially more expensive suppression mechanism like tasks).
 
+For deletion inference,
+
 ### CONDSTORE new versus changed ###
 
 If we crunch all the bullet points from the steady-state case analysis we can
@@ -145,7 +147,7 @@ bounded.
 current UIDNEXT.)
 ```
 newMsgs = UID FETCH nextyuid:* (UID INTERNALDATE X-GM-LABELS X-GMTHRID)
-changedMsgs = UID FETCH 1:nextyuid-1 (UID INTERNALDATE X-GM-LABELS X-GMTHRID)
+changedMsgs = UID FETCH 1:nextyuid-1 (UID INTERNALDATE X-GM-LABELS X-GMTHRID FLAGS)
 
 newYayMsgs, newNonYayMsgs = yayFilterMessages(newMsgs)
 changedYayMsgs, ignoredNonYayMsgs = yayFilterMessages(changedMsgs)
@@ -155,11 +157,15 @@ newMehMsgs, ignoredNonMehMsgs = filterMessagesOnYayConversations(newNonYayMsgs)
 yayConvsWithDates = uniqueifyConvsTrackingHighDate(newYayMsgs, changedYayMsgs)
 newYayConvsWithDates, ignoredExistingYayConvs = yayConvsWithDates - knownConvs
 
-// conversations that are entirely new get synchronized
+// Conversations that are entirely new get synchronized.  (And there is no point
+// in scoping the conversation to specific UIDs since we may not know all the
+// UIDs of messages in the conversation.)
 scheduleForAll(newYayConvsWithDates, sync_conv)
 
-// new messages for existing conversations just get synced independently
-scheduleForAll(sync_msg)
+// New messages for existing conversations use sync_conv too, but as an
+// optimization we can tell sync_conv what their UIDs are.  (Inductively, we
+// must already know all there is to know apart from these new changes.)
+scheduleForAll(newYayMsgsInKnownConvs, sync_conv)
 
 // XXX messages that are no longer yay.  see above
 
@@ -171,9 +177,25 @@ changedCareMsgs = intersectKeepingData(changedMsgs, knownCareMsgs)
 scheduleForAll(changedCarMsgs, update_metadata)
 ```
 
-### Growing and CONDSTORE ###
+### The ordering of "grow" and "refresh" as it relates to MODSEQs ###
 
+The primary risk with MODSEQs is that we switch to a more recent MODSEQ without
+having processed all of the state for the older MODSEQ and then miss out on data
+and potentially never re-synchronize.
 
+This is not a problem for us because we know that only the "refresh" operation
+meaningfully consumes these changes, so "grow" cannot and should not impact the
+MODSEQ of "refresh".  This means that we can perform a "grow" whenever we want.
+The primary efficiency risk is that "grow" performed before "refresh" may result
+in the "refresh" redundantly updating flags/labels.  This is acceptable.  (And
+could be mitigated by storing the MODSEQ in sync state, but that's a lot of
+overhead and we know from the IMAP list that right now Gmail has bugs with
+MODSEQ where this optimization might result in us not actually having the
+up-to-date state due to MODSEQs not actually being distinct.)
+
+The one important exception is that in the initial "grow" case, we can and
+should use the MODSEQ from our initial query as the MODSEQ that "refresh" should
+use for the first refresh.
 
 ## Optimizing Time-to-Conversation-List ##
 
@@ -199,6 +221,17 @@ a whole rather than based on specific conversation id's being part of the focal
 area of the view slice.
 
 ## Implementation Details ##
+
+### Sync State ###
+
+The object has the following fields:
+- modseq: The modseq the next "refresh" should start from
+- labelSinceDates: A map:
+  - keys: FolderId's for the folder that corresponds to the label in question.
+  - values: The UTC Date we used as a SINCE to get the data we have now.  If you
+    want to synchronize new data, you want to use "BEFORE" with this date and
+    then "SINCE" on some date at least one date prior to this one.
+-
 
 ### SUIDs ###
 

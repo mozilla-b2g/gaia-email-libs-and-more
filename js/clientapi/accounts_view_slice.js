@@ -24,7 +24,7 @@ AccountsViewSlice.prototype.getAccountById = function(id) {
 };
 
 AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
-  return new Promise(function(resolve, reject) {
+  return new Promise((resolve, reject) => {
     var account = this.getAccountById(id);
     if (account) {
       resolve(account);
@@ -38,21 +38,22 @@ AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
 
     // Otherwise we're still loading and we'll either find victory in an add or
     // inferred defeat when we get the completion notificaiton.
-    var addListener = function(account) {
+    let completeListener;
+    let addListener = (account) => {
       if (account.id === id) {
         this.removeListener('add', addListener);
         this.removeListener('complete', completeListener);
         resolve(account);
       }
-    }.bind(this);
-    var completeListener = function() {
+    };
+    completeListener = () => {
       this.removeListener('add', addListener);
       this.removeListener('complete', completeListener);
       reject();
-    }
+    };
     this.on('add', addListener);
     this.on('complete', completeListener);
-  }.bind(this));
+  });
 };
 
 Object.defineProperty(AccountsViewSlice.prototype, 'defaultAccount', {
@@ -62,8 +63,9 @@ Object.defineProperty(AccountsViewSlice.prototype, 'defaultAccount', {
       // For UI upgrades, the defaultPriority may not be set, so default to
       // zero for comparisons
       if ((this.items[i]._wireRep.defaultPriority || 0) >
-          (defaultAccount._wireRep.defaultPriority || 0))
+          (defaultAccount._wireRep.defaultPriority || 0)) {
         defaultAccount = this.items[i];
+      }
     }
 
     return defaultAccount;

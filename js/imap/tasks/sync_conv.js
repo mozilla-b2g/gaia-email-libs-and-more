@@ -1,16 +1,19 @@
 define(function(require) {
+'use strict';
+
+let co = require('co');
 
 let TaskDefiner = require('../../task_definer');
 let a64 = require('../../a64');
+let parseGmailMsgId = a64.parseUI64;
+let parseGmailConvId = a64.parseUI64;
+let expandGmailConvId = a64.decodeUI64;
 
 let imapchew = require('../imapchew');
 let parseImapDateTime = imapchew.parseImapDateTime;
 
 let churnConversation = require('../../churns/conv_churn');
 
-let parseGmailMsgId = a64.parseUI64;
-let parseGmailConvId = a64.parseUI64;
-let expandGmailConvId = a64.decodeUI64;
 
 /**
  * Lose the account id prefix from a convId and convert the a64 rep into base 10
@@ -62,7 +65,7 @@ let INITIAL_FETCH_PARAMS = [
    {
      name: 'sync_conv',
      namingArgs: ['convId'],
-     unifyingArgs: ['newConv', 'removedConv', 'newUids', 'removedUids',
+     unifyingArgs: ['newConv', 'removeConv', 'newUids', 'removedUids',
                     'revisedUidState'],
 
      priorityTags: [
@@ -71,7 +74,7 @@ let INITIAL_FETCH_PARAMS = [
 
      plan: null,
 
-     execute: function*(ctx, args) {
+     execute: co.wrap(function*(ctx, args) {
        let uids;
        let convLoadPromise, convMutateMap;
 
@@ -132,7 +135,7 @@ let INITIAL_FETCH_PARAMS = [
        yield ctx.finishTask({
 
        })
-     }
+     })
    }
  ]);
 

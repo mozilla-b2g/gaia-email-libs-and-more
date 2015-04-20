@@ -1,21 +1,15 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let evt = require('evt');
-let logic = require('./logic');
+const co = require('co');
+const evt = require('evt');
+const logic = require('./logic');
 
-var IndexedDB;
-if (("indexedDB" in window) && window.indexedDB) {
-  IndexedDB = window.indexedDB;
-} else if (("mozIndexedDB" in window) && window.mozIndexedDB) {
-  IndexedDB = window.mozIndexedDB;
-} else if (("webkitIndexedDB" in window) && window.webkitIndexedDB) {
-  IndexedDB = window.webkitIndexedDB;
-} else {
-  console.error("No IndexedDB!");
-  throw new Error("I need IndexedDB; load me in a content page universe!");
-}
+const {
+  indexedDB, IDBObjectStore, IDBIndex, IDBCursor, IDBTransaction, IDBRequest,
+  IDBKeyRange
+} = window;
+
 
 /**
  * The current database version.
@@ -23,7 +17,7 @@ if (("indexedDB" in window) && window.indexedDB) {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-var CUR_VERSION = 30;
+const CUR_VERSION = 33;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -33,7 +27,7 @@ var CUR_VERSION = 30;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 23;
+const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 23;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -42,8 +36,7 @@ var FRIENDLY_LAZY_DB_UPGRADE_VERSION = 23;
  *
  * Managed by: MailUniverse
  */
-var TBL_CONFIG = 'config',
-      CONFIG_KEY_ROOT = 'config',
+const TBL_CONFIG = 'config',
       // key: accountDef:`AccountId`
       CONFIG_KEYPREFIX_ACCOUNT_DEF = 'accountDef:';
 
@@ -62,14 +55,14 @@ var TBL_CONFIG = 'config',
  * we reliably get for conversations giving our targeted legacy support goal.
  * But most likely is per-folder record keeyed by FolderId.
  */
-var TBL_SYNC_STATES = 'syncStates';
+const TBL_SYNC_STATES = 'syncStates';
 
 /**
  * (Wrapped) tasks.  We issue id's for now, although in an ideal world we could
  * use auto-incremented id's.  But we can't since all we have is mozGetAll.  See
  * commentary elsewhere.
  */
-var TBL_TASKS = 'tasks';
+const TBL_TASKS = 'tasks';
 
 /**
  * The folder-info table stores meta-data about the known folders for each
@@ -81,7 +74,7 @@ var TBL_TASKS = 'tasks';
  *
  * Managed by: MailUniverse/MailAccount
  */
-var TBL_FOLDER_INFO = 'folderInfo';
+const TBL_FOLDER_INFO = 'folderInfo';
 
 /**
  * Conversation summaries.
@@ -90,7 +83,7 @@ var TBL_FOLDER_INFO = 'folderInfo';
  *
  * Managed by: MailDB
  */
-var TBL_CONV_INFO = 'convInfo';
+const TBL_CONV_INFO = 'convInfo';
 
 /**
  * The ordered list of conversations in a folder used by the Folder TOC's to
@@ -109,7 +102,7 @@ var TBL_CONV_INFO = 'convInfo';
  *
  * Managed by: MailDB
  */
-var TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
+const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
 
 /**
  * Message headers.
@@ -118,7 +111,7 @@ var TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
  *
  * Managed by: MailDB
  */
-var TBL_HEADERS = 'headers';
+const TBL_HEADERS = 'headers';
 
 /**
  * Message bodies
@@ -127,7 +120,7 @@ var TBL_HEADERS = 'headers';
  *
  * Managed by: MailDB
  */
-var TBL_BODIES = 'bodies';
+const TBL_BODIES = 'bodies';
 
 
 /**
@@ -135,7 +128,7 @@ var TBL_BODIES = 'bodies';
  * It's not worth it for us to actually figure the subset of these that's the
  * truth.
  */
-let TASK_MUTATION_STORES = [
+const TASK_MUTATION_STORES = [
   TBL_CONFIG,
   TBL_SYNC_STATES,
   TBL_TASKS,
@@ -150,15 +143,19 @@ let TASK_MUTATION_STORES = [
  */
 function analyzeAndLogErrorEvent(event) {
   function explainSource(source) {
-    if (!source)
+    if (!source) {
       return 'unknown source';
-    if (source instanceof IDBObjectStore)
+    }
+    if (source instanceof IDBObjectStore) {
       return 'object store "' + source.name + '"';
-    if (source instanceof IDBIndex)
+    }
+    if (source instanceof IDBIndex) {
       return 'index "' + source.name + '" on object store "' +
         source.objectStore.name + '"';
-    if (source instanceof IDBCursor)
+    }
+    if (source instanceof IDBCursor) {
       return 'cursor on ' + explainSource(source.source);
+    }
     return 'unexpected source';
   }
   var explainedSource, target = event.target;
@@ -176,7 +173,7 @@ function analyzeAndLogErrorEvent(event) {
   var str = 'indexedDB error:' + target.error.name + 'from' + explainedSource;
   console.error(str);
   return str;
-};
+}
 
 function analyzeAndRejectErrorEvent(rejectFunc, event) {
   rejectFunc(analyzeAndRejectErrorEvent(event));
@@ -274,12 +271,14 @@ function MailDB(testOptions) {
   this.bodyCache = new Map();
 
   let dbVersion = CUR_VERSION;
-  if (testOptions && testOptions.dbDelta)
+  if (testOptions && testOptions.dbDelta) {
     dbVersion += testOptions.dbDelta;
-  if (testOptions && testOptions.dbVersion)
+  }
+  if (testOptions && testOptions.dbVersion) {
     dbVersion = testOptions.dbVersion;
+  }
   this._dbPromise = new Promise((resolve, reject) => {
-    let openRequest = IndexedDB.open('b2g-email', dbVersion);
+    let openRequest = indexedDB.open('b2g-email', dbVersion);
     openRequest.onsuccess = (event) => {
       this._db = openRequest.result;
 
@@ -287,7 +286,8 @@ function MailDB(testOptions) {
     };
     openRequest.onupgradeneeded = (event) => {
       console.log('MailDB in onupgradeneeded');
-      logic(this, 'upgradeNeeded', { oldVersion: event.oldVersion })
+      logic(this, 'upgradeNeeded', { oldVersion: event.oldVersion,
+                                     curVersion: dbVersion });
       let db = openRequest.result;
 
       // - reset to clean slate
@@ -298,17 +298,18 @@ function MailDB(testOptions) {
       // - friendly, lazy upgrade
       else {
         var trans = openRequest.transaction;
-        // Load the current config, save it off so getConfig can use it, then nuke
-        // like usual.  This is obviously a potentially data-lossy approach to
-        // things; but this is a 'lazy' / best-effort approach to make us more
-        // willing to bump revs during development, not the holy grail.
-        this.getConfig((configObj, accountInfos) => {
-          if (configObj)
+        // Load the current config, save it off so getConfig can use it, then
+        // nuke like usual.  This is obviously a potentially data-lossy approach
+        // to things; but this is a 'lazy' / best-effort approach to make us
+        // more willing to bump revs during development, not the holy grail.
+        this._getConfig((configObj, accountInfos) => {
+          if (configObj) {
             this._lazyConfigCarryover = {
               oldVersion: event.oldVersion,
               config: configObj,
               accountInfos: accountInfos
             };
+          }
           this._nukeDB(db);
         }, trans);
       }
@@ -322,6 +323,7 @@ MailDB.prototype = evt.mix({
    * Reset the contents of the database.
    */
   _nukeDB: function(db) {
+    logic(this, 'nukeDB', {});
     let existingNames = db.objectStoreNames;
     for (let i = 0; i < existingNames.length; i++) {
       db.deleteObjectStore(existingNames[i]);
@@ -345,12 +347,16 @@ MailDB.prototype = evt.mix({
   },
 
   getConfig: function(callback, trans) {
+    if (trans) {
+      throw new Error('use _getConfig if you have a transaction');
+    }
     this._dbPromise.then(() => {
       this._getConfig(callback, trans);
     });
   },
 
   _getConfig: function(callback, trans) {
+    logic(this, '_getConfig', { trans: !!trans });
     var transaction = trans ||
                       this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
                                            'readonly');
@@ -381,10 +387,11 @@ MailDB.prototype = evt.mix({
       // - Process the results
       for (i = 0; i < configReq.result.length; i++) {
         obj = configReq.result[i];
-        if (obj.id === 'config')
+        if (obj.id === 'config') {
           configObj = obj;
-        else
+        } else {
           accounts.push({def: obj, folderInfo: null});
+        }
       }
       for (i = 0; i < folderInfoReq.result.length; i++) {
         accounts[i].folderInfo = folderInfoReq.result[i];
@@ -523,8 +530,10 @@ MailDB.prototype = evt.mix({
             } else {
               value = req.result;
             }
-            syncStatesRequestMap.set(key, value);
+            syncStatesRequestsMap.set(key, value);
           };
+          req.onsuccess = handler;
+          req.onerror = handler;
         }
       }
 
@@ -552,6 +561,8 @@ MailDB.prototype = evt.mix({
             this.convCache.set(convId, value);
             convRequestsMap.set(convId, value);
           };
+          req.onsuccess = handler;
+          req.onerror = handler;
         }
       }
       if (requests.headers) {
@@ -578,6 +589,8 @@ MailDB.prototype = evt.mix({
             this.headerCache.set(headerId, value);
             headerRequestsMap.set(headerId, value);
           };
+          req.onsuccess = handler;
+          req.onerror = handler;
         }
       }
       if (requests.bodies) {
@@ -604,6 +617,8 @@ MailDB.prototype = evt.mix({
             this.bodyCache.set(bodyId, value);
             bodyRequestsMap.set(bodyId, value);
           };
+          req.onsuccess = handler;
+          req.onerror = handler;
         }
       }
 
@@ -703,7 +718,9 @@ MailDB.prototype = evt.mix({
                                         true, true);
     let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
 
-    retval.idsWithDates = idsWithDates;
+    retval.idsWithDates = tuples.map(function(x) {
+      return { date: x[1], id: x[2]};
+    });
     return retval;
   }),
 
@@ -835,7 +852,7 @@ MailDB.prototype = evt.mix({
   _addRawTasks: function(trans, wrappedTasks) {
     let store = trans.objectStore(TBL_TASKS);
     wrappedTasks.forEach((wrappedTask) => {
-      let req = store.add(wrappedTask, wrappedTask.id);
+      store.add(wrappedTask, wrappedTask.id);
     });
   },
 
@@ -857,6 +874,12 @@ MailDB.prototype = evt.mix({
 
     let mutations = data.mutations;
     if (mutations) {
+      if (mutations.syncStates) {
+        for (let [key, syncState] of mutations.syncStates) {
+          trans.objectStore(TBL_SYNC_STATES).put(syncState, key);
+        }
+      }
+
       if (mutations.folders) {
         for (let [accountId, foldersDbState] of mutations.folders) {
           trans.objectStore(TBL_FOLDER_INFO).put(foldersDbState, accountId);
@@ -896,8 +919,10 @@ MailDB.prototype = evt.mix({
 
     // Update the task's state in the database.
     if (taskData.revisedTaskInfo) {
+      let revisedTaskInfo = taskData.revisedTaskInfo;
       if (revisedTaskInfo.state) {
-        trans.objectStore(TBL_TASKS).put(revisedTask.state, revisedTask.id);
+        trans.objectStore(TBL_TASKS).put(revisedTaskInfo.state,
+                                         revisedTaskInfo.id);
       } else {
         trans.objectStore(TBL_TASKS).delete(revisedTaskInfo.id);
       }

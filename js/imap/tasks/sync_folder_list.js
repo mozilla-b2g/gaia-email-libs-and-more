@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let co = require('co');
 let logic = require('logic');

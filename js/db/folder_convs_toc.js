@@ -1,13 +1,14 @@
 define(function(require) {
+'use strict';
 
 let a64 = require('../a64');
+let cmpUI64 = a64.cmpUI64;
 
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
 let bsearchForInsert = util.bsearchForInsert;
 
 let RefedResource = require('../refed_resource');
-let cmpUI64 = a64.cmpUI64;
 
 let evt = require('evt');
 

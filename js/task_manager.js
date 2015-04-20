@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let co = require('co');
 let logic = require('logic');
@@ -25,7 +26,7 @@ function TaskManager(universe, db) {
   // tasks per millisecond (on average).
   let idBase = (Date.now() - 1400000000000);
   if (idBase < 0) {
-    throw new Error('clock is bad, correctness compromised, giving up.')
+    throw new Error('clock is bad, correctness compromised, giving up.');
   }
   this._nextId = idBase * 100;
 
@@ -71,7 +72,7 @@ TaskManager.prototype = {
    *   task being scheduled.
    */
   scheduleTasks: function(rawTasks, why) {
-    let wrappedTasks = this._wrapTasks(rawTasks);
+    let wrappedTasks = this.__wrapTasks(rawTasks);
 
     logic(this, 'scheduling', { why: why, tasks: wrappedTasks });
 
@@ -101,7 +102,7 @@ TaskManager.prototype = {
   __enqueuePersistedTasksForPlanning: function(wrappedTasks) {
     this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
     this._maybeDoStuff();
-  }
+  },
 
   /**
    * If we have any task planning or task executing to do.

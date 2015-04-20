@@ -1,8 +1,5 @@
-/**
- *
- **/
-/*global define, console, window, Blob */
 define(function(require) {
+'use strict';
 
 let logic = require('./logic');
 let slog = require('./slog');
@@ -141,16 +138,19 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
       // - Try to re-create any accounts using old account infos.
       if (lazyCarryover) {
-        this._LOG.configMigrating_begin(lazyCarryover);
+        logic(this, 'migratingConfig:begin', { _lazyCarryOver: lazyCarryover });
         var waitingCount = lazyCarryover.accountInfos.length;
         var oldVersion = lazyCarryover.oldVersion;
 
         var accountRecreated = function(accountInfo, err) {
-          this._LOG.recreateAccount_end(accountInfo.type, accountInfo.id, err);
+          logic(this, 'recreateAccount:end',
+                { type: accountInfo.type,
+                  id: accountInfo.id,
+                  error: err });
           // We don't care how they turn out, just that they get a chance
           // to run to completion before we call our bootstrap complete.
           if (--waitingCount === 0) {
-            this._LOG.configMigrating_end(null);
+            logic(this, 'migratingConfig:end', {});
             this._initFromConfig();
             callAfterBigBang();
           }
@@ -158,8 +158,10 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
         for (let i = 0; i < lazyCarryover.accountInfos.length; i++) {
           let accountInfo = lazyCarryover.accountInfos[i];
-          this._LOG.recreateAccount_begin(accountInfo.type, accountInfo.id,
-                                          null);
+          logic(this, 'recreateAccount:begin',
+                { type: accountInfo.type,
+                  id: accountInfo.id,
+                  error: null });
           $acctcommon.recreateAccount(
             this, oldVersion, accountInfo,
             accountRecreated.bind(this, accountInfo));
@@ -342,7 +344,7 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
 
   learnAboutAccount: function(details) {
-    var configurator = new $acctcommon.Autoconfigurator(this._LOG);
+    var configurator = new $acctcommon.Autoconfigurator();
     return configurator.learnAboutAccount(details);
   },
 
@@ -356,12 +358,12 @@ MailUniverse.prototype = {
 
     if (domainInfo) {
       $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
-                                             callback, this._LOG);
+                                             callback);
     }
     else {
       // XXX: store configurator on this object so we can abort the connections
       // if necessary.
-      var configurator = new $acctcommon.Autoconfigurator(this._LOG);
+      var configurator = new $acctcommon.Autoconfigurator();
       configurator.tryToCreateAccount(this, userDetails, callback);
     }
   },
@@ -386,20 +388,21 @@ MailUniverse.prototype = {
 
     for (var i = 0; i < account.identities.length; i++) {
       var identity = account.identities[i];
-      idx = this.identities.indexOf(identity);
+      let idx = this.identities.indexOf(identity);
       this.identities.splice(idx, 1);
       this._identitiesById.delete(identity.id);
     }
 
-    if (savedEx)
+    if (savedEx) {
       throw savedEx;
+    }
   },
 
   saveAccountDef: function(accountDef, folderDbState, callback) {
     this.db.saveAccountDef(this.config, accountDef, folderDbState, callback);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
-      this.accountsTOC.accountModified(account);
+      this.accountsTOC.accountModified(accountDef);
     } else {
       // (this happens during intial account (re-)creation)
       this._accountExists(accountDef, folderDbState);
@@ -432,11 +435,11 @@ MailUniverse.prototype = {
     let promise = new Promise((resolve, reject) => {
       $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
         if (!constructor) {
-          this._LOG.badAccountType(accountDef.type);
+          logic(this, 'badAccountType', { type: accountDef.type });
           return;
         }
         let account = new constructor(this, accountDef, folderInfo, this.db,
-                                      receiveProtoConn, this._LOG);
+                                      receiveProtoConn);
 
         this._loadingAccountsById.delete(accountDef.id);
         this._residentAccountsById.set(accountDef.id, account);
@@ -475,7 +478,8 @@ MailUniverse.prototype = {
     if (account.problems.indexOf(problem) !== -1) {
       suppress = true;
     }
-    this._LOG.reportProblem(problem, suppress, account.id);
+    logic(this, 'reportProblem',
+          { problem: problem, suppress: suppress, accountId: account.id });
     if (suppress) {
       return;
     }
@@ -513,7 +517,7 @@ MailUniverse.prototype = {
   clearAccountProblems: function(account) {
     // XXX make work again
     return;
-    this._LOG.clearAccountProblems(account.id);
+    logic(this, 'clearAccountProblems', { accountId: account.id });
     // TODO: this would be a great time to have any slices that had stalled
     // syncs do whatever it takes to make them happen again.
     account.enabled = true;
@@ -552,8 +556,6 @@ MailUniverse.prototype = {
       this._cronSync.shutdown();
     }
     this.db.close();
-    if (this._LOG)
-      this._LOG.__die();
 
     if (!this.accounts.length)
       callback();
@@ -564,6 +566,28 @@ MailUniverse.prototype = {
       {
         type: 'sync_folder_list',
         accountId: accountId
+      }
+    ], why);
+  },
+
+  syncGrowFolder: function(folderId, why) {
+    let accountId = folderId.split(/\./g)[0];
+    this.taskManager.scheduleTasks([
+      {
+        type: 'sync_grow',
+        accountId: accountId,
+        folderId: folderId
+      }
+    ], why);
+  },
+
+  syncRefreshFolder: function(folderId, why) {
+    let accountId = folderId.split(/\./g)[0];
+    this.taskManager.scheduleTasks([
+      {
+        type: 'sync_refresh',
+        accountId: accountId,
+        folderId: folderId
       }
     ], why);
   },
@@ -702,8 +726,9 @@ MailUniverse.prototype = {
     this._partitionMessagesByAccount(messageSuids, null).forEach(function(x,i) {
       // TODO: implement cross-account moves and then remove this constraint
       // and instead schedule the cross-account move.
-      if (x.account !== targetFolderAccount)
+      if (x.account !== targetFolderAccount) {
         throw new Error('cross-account moves not currently supported!');
+      }
 
       // If the move is entirely local-only (i.e. folders that will
       // never be synced to the server), we don't need to run the

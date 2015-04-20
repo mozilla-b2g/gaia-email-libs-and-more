@@ -68,7 +68,7 @@ TaskContext.prototype = {
    *   `beginMutate`.
    * @param {Object} finishData.newData
    *   New records being added to the database.
-   * @param {Array<RawTask>} finishData.newTasks
+   * @param {Array<RawTask>} finishData.newData.tasks
    *   The new tasks that should be atomically, persistently tracked as a
    *   deterministic result of this task.
    * @param {Object} [finishData.taskState]

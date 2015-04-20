@@ -1,4 +1,7 @@
 define(function(require) {
+'use strict';
+
+let co = require('co');
 
 let logic = require('./logic');
 let $mailchewStrings = require('./mailchew-strings');
@@ -14,26 +17,24 @@ let BatchManager = require('./bridge/batch_manager');
 let EntireListProxy = require('./bridge/entire_list_proxy');
 let WindowedListProxy = require('./bridge/windowed_list_proxy');
 
-function toBridgeWireOn(x) {
-  return x.toBridgeWire();
-}
-
-
 function strcmp(a, b) {
-  if (a < b)
+  if (a < b) {
     return -1;
-  else if (a > b)
+  } else if (a > b) {
     return 1;
+  }
   return 0;
 }
 
 function checkIfAddressListContainsAddress(list, addrPair) {
-  if (!list)
+  if (!list) {
     return false;
-  var checkAddress = addrPair.address;
+  }
+  let checkAddress = addrPair.address;
   for (var i = 0; i < list.length; i++) {
-    if (list[i].address === checkAddress)
+    if (list[i].address === checkAddress) {
       return true;
+    }
   }
   return false;
 }
@@ -86,7 +87,10 @@ MailBridge.prototype = {
       msg: msg
     });
     try {
-      this[implCmdName](msg);
+      let result = this[implCmdName](msg);
+      if (result && result.then) {
+        logic.await(this, 'asyncCommand', { type: msg.type }, result);
+      }
     } catch(ex) {
       console.error('problem processing', implCmdName, ex, ex.stack);
       logic.fail(ex);
@@ -207,7 +211,7 @@ MailBridge.prototype = {
     account.checkAccount(function(incomingErr, outgoingErr) {
       // Note that ActiveSync accounts won't have an outgoingError,
       // but that's fine. It just means that outgoing never errors!
-      function canIgnoreError(err) {
+      let canIgnoreError = function(err) {
         // If we succeeded or the problem was not an authentication,
         // assume everything went fine. This includes the case we're
         // offline.
@@ -318,8 +322,9 @@ MailBridge.prototype = {
           // Weird things can happen if the device's clock goes back in time,
           // but this way, at least the user can change their default if they
           // cycle through their accounts.
-          if (val)
+          if (val) {
             accountDef.defaultPriority = $date.NOW();
+          }
           break;
 
         default:
@@ -589,22 +594,25 @@ MailBridge.prototype = {
     ctx.proxy.populateFromList();
   },
 
-  _cmd_viewFolders: function(msg) {
+  _cmd_viewFolders: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'FoldersView');
 
-    let toc = this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
+    let toc = yield this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
 
     ctx.proxy = new EntireListProxy(toc, ctx);
     ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
-  },
+  }),
 
   _cmd_viewFolderConversations: co.wrap(function*(msg) {
-    let ctx = this.bridgeContext.namedContext(msg.handle);
+    let ctx = this.bridgeContext.createNamedContext(msg.handle,
+                                                    'FolderConversationsView');
 
-    let toc = yield this.universe.acquireFolderConversationsTOC(msg.folderId);
+    let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
+                                                                msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     ctx.acquire(ctx.proxy);
+    this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
   _cmd_seekProxy: function(msg) {
@@ -631,7 +639,7 @@ MailBridge.prototype = {
     // so we buffer them here with a temporary handler.
     var pendingUpdates = [];
 
-    var catchPending = function catchPending(msg) {
+    var catchPending = function(msg) {
       pendingUpdates.push(msg);
     };
 
@@ -873,10 +881,11 @@ MailBridge.prototype = {
               }
               // add the author as the first 'to' person
               else {
-                if (header.to && header.to.length)
+                if (header.to && header.to.length) {
                   rTo = [effectiveAuthor].concat(header.to);
-                else
+                } else {
                   rTo = [effectiveAuthor];
+                }
               }
 
               // For reply-all, don't reply to your own address.
@@ -1110,7 +1119,7 @@ MailBridge.prototype = {
       }
       var account;
       if (msg.command === 'delete') {
-        function sendDeleted() {
+        let sendDeleted = function() {
           self.__sendMessage({
             type: 'doneCompose',
             handle: msg.handle

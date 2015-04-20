@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 /**
  * @typedef {Map<FlagStoreAggrString, FlagChangeAggr>} MixStorePersistentState
@@ -105,7 +106,7 @@ let GmailStoreTaskMixin = {
     return goMoot(memstate.flags) ||
            goMoot(memstate.labels);
   }
-});
+};
 
 return GmailStoreTaskMixin;
 });

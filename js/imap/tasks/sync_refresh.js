@@ -1,4 +1,7 @@
 define(function(require) {
+'use strict';
+
+let co = require('co');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -8,6 +11,8 @@ let SyncStateHelper = require('../sync_state_helper');
 let imapchew = require('../imapchew');
 let parseImapDateTime = imapchew.parseImapDateTime;
 
+let a64 = require('../../a64');
+let parseGmailConvId = a64.parseUI64;
 
 
 /**
@@ -26,7 +31,7 @@ return TaskDefiner.defineSimpleTask([
       (args) => `sync:${args.accountId}`,
     ],
 
-    execute: function*(ctx, req) {
+    execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the account
       // XXX duplicated boilerplate from sync_grow; prettify/normalize
       let syncReqMap = new Map();
@@ -55,18 +60,17 @@ return TaskDefiner.defineSimpleTask([
         });
         return;
       }
+      let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,
+                                          'refresh');
 
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
-      let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId);
-
-// UID INTERNALDATE X-GM-LABELS X-GMTHRID FLAGS
 
       let { mailboxInfo, messages } = yield ctx.pimap.listMessages(
         req.folderId,
-        uids,
+        '1:*',
         [
           'UID',
           'INTERNALDATE',
@@ -83,6 +87,7 @@ return TaskDefiner.defineSimpleTask([
         }
       );
 
+
       for (let msg of messages) {
         let uid = msg.uid; // already parsed into a number by browserbox
         let dateTS = parseImapDateTime(msg.internaldate);
@@ -90,33 +95,67 @@ return TaskDefiner.defineSimpleTask([
         let labelFolderIds = labelMapper.labelsToFolderIds(msg['x-gm-labels']);
 
         // Is this a new message?
-        if (uid > lastHighUid) {
+        if (uid > syncState.lastHighUid) {
           // Does this message meet our sync criteria on its own?
-          if (syncState.messageMeetsSyncCriteria(date, labelFolderIds)) {
+          if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
             // (Yes, it's a yay message.)
             // Is this a conversation we already know about?
             if (syncState.isKnownConversation(rawConvId)) {
-              syncState.trackNewYayMessageInExistingConv(
+              syncState.newYayMessageInExistingConv(
                 uid, rawConvId, dateTS);
             } else { // no, it's a new conversation to us!
-              syncState.trackNewYayMessageInNewConv(uid, rawConvId, dateTS);
+              syncState.newYayMessageInNewConv(uid, rawConvId, dateTS);
             }
+          // Okay, it didn't meet it on its own, but does it belong to a
+          // conversation we care about?
+          } else if (syncState.isKnownRawConvId(rawConvId)) {
+            syncState.newMehMessageInExistingConv(uid, rawConvId, dateTS);
+          } else { // We don't care.
+            syncState.newMootMessage(uid);
           }
         } else { // It's an existing message
+          if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
+            // it's currently a yay message, but was it always a yay message?
+            if (syncState.yayUids.has(uid)) {
+              // yes, forever awesome.
+              syncState.existingMessageUpdated(uid, rawConvId, dateTS);
+            } else if (syncState.mehUids.has(uid)) {
+              // no, it was meh, but is now suddenly fabulous
+              syncState.existingMehMessageIsNowYay(uid, rawConvId, dateTS);
+            } else {
+              // Not aware of the message, so inductively this conversation is
+              // new to us.
+              syncState.existingIgnoredMessageIsNowYayInNewConv(
+                uid, rawConvId, dateTS);
+            }
+          // Okay, so not currently a yay message, but was it before?
+          } else if (syncState.yayUids.has(uid)) {
+            // it was yay, is now meh, this potentially even means we no longer
+            // care about the conversation at all
+            syncState.existingYayMessageIsNowMeh(uid, rawConvId, dateTS);
+          } else if (syncState.mehUids.has(uid)) {
+            // it was meh, it's still meh, it's just an update
+            syncState.existingMessageUpdated(uid, rawConvId, dateTS);
+          } else {
+            syncState.existingMootMessage(uid);
 
+          }
         }
-
-
-
-        tasks.push({
-          name: 'sync_conv',
-        });
       }
 
-      yield ctx.finishTask({
+      syncState.lastHighUid = mailboxInfo.uidNext - 1;
+      syncState.modseq = mailboxInfo.highestModeq;
+      syncState.finalizePendingRemovals();
 
+      yield ctx.finishTask({
+        mutations: {
+          syncStates: syncReqMap,
+        },
+        newData: {
+          tasks: syncState.rawSyncState
+        }
       })
-    }
+    })
   }
 ]);
 });

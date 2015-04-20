@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let logic = require('../logic');
 
@@ -88,9 +89,13 @@ GmailLabelMapper.prototype = {
     return folderIds;
   },
 
+  folderIdToLabel: function(folderId) {
+    return this._folderIdToLabel.get(folderId);
+  },
+
   folderIdsToLabels: function(folderIds) {
     return folderIds.map((folderId) => {
-      return this._folderIdtoLabel.get(folderId);
+      return this._folderIdToLabel.get(folderId);
     });
   }
 };
