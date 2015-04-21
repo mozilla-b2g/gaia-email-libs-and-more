@@ -1,4 +1,5 @@
 define(function(require, exports, module) {
+'use strict';
 
 let log = require('rdcommon/log');
 let $a64 = require('../a64');
@@ -29,9 +30,9 @@ function cmpFolderPubPath(a, b) {
  * ImapAccount.
  */
 function CompositeIncomingAccount(
-      FolderSyncer,
       universe, compositeAccount, accountId, credentials,
-      connInfo, foldersTOC, dbConn, _parentLog, existingProtoConn) {
+      connInfo, foldersTOC, dbConn, existingProtoConn) {
+  // our logic scope is defined by our subclass
 
   this.universe = universe;
   this.compositeAccount = compositeAccount;

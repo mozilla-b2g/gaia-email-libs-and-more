@@ -1,5 +1,6 @@
 define(
   [
+    'logic',
     'rdcommon/log',
     'slog',
     '../a64',
@@ -22,6 +23,7 @@ define(
     'exports'
   ],
   function(
+    logic,
     $log,
     slog,
     $a64,
@@ -43,13 +45,9 @@ define(
     require,
     exports
   ) {
-var bsearchForInsert = $util.bsearchForInsert;
-var allbackMaker = $allback.allbackMaker;
-var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
+'use strict';
 
-function cmpFolderPubPath(a, b) {
-  return a.path.localeCompare(b.path);
-}
+var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
 
 /**
  * Account object, root of all interaction with servers.
@@ -61,11 +59,9 @@ function cmpFolderPubPath(a, b) {
  */
 function ImapAccount(universe, compositeAccount, accountId, credentials,
                      connInfo, foldersTOC,
-                     dbConn,
-                     _parentLog, existingProtoConn) {
-  this._LOG = LOGFAB.ImapAccount(this, _parentLog, accountId);
-  CompositeIncomingAccount.apply(
-      this, [$imapfolder.ImapFolderSyncer].concat(Array.slice(arguments)));
+                     dbConn, existingProtoConn) {
+  logic.defineScope(this, 'ImapAccount');
+  CompositeIncomingAccount.apply(this, arguments);
 
   /**
    * The maximum number of connections we are allowed to have alive at once.  We
@@ -102,13 +98,13 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * }
    */
   this._demandedConns = [];
-  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this,
-                                                     this._LOG);
+  this._backoffEndpoint = $errbackoff.createEndpoint('imap:' + this.id, this);
 
   this.pimap = new ParallelImap(this);
 
-  if (existingProtoConn)
+  if (existingProtoConn) {
     this._reuseConnection(existingProtoConn);
+  }
 
   /**
    * Flag to allow us to avoid calling closeBox to close a folder.  This avoids
@@ -230,12 +226,14 @@ var properties = {
     this._demandedConns.push(demand);
 
     // No line-cutting; bail if there was someone ahead of us.
-    if (this._demandedConns.length > 1)
+    if (this._demandedConns.length > 1) {
       return;
+    }
 
     // - try and reuse an existing connection
-    if (this._allocateExistingConnection())
+    if (this._allocateExistingConnection()) {
       return;
+    }
 
     // - we need to wait for a new conn or one to free up
     this._makeConnectionIfPossible();
@@ -266,23 +264,26 @@ var properties = {
    * }
    */
   _allocateExistingConnection: function() {
-    if (!this._demandedConns.length)
+    if (!this._demandedConns.length) {
       return false;
+    }
     var demandInfo = this._demandedConns[0];
 
-    var reusableConnInfo = null;
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       // It's concerning if the folder already has a connection...
-      if (demandInfo.folderId && connInfo.folderId === demandInfo.folderId)
-        this._LOG.folderAlreadyHasConn(demandInfo.folderId);
+      if (demandInfo.folderId && connInfo.folderId === demandInfo.folderId) {
+        logic(this, 'folderAlreadyHasConn', { folderId: demandInfo.folderId });
+      }
 
-      if (connInfo.inUseBy)
+      if (connInfo.inUseBy) {
         continue;
+      }
 
       connInfo.inUseBy = demandInfo;
       this._demandedConns.shift();
-      this._LOG.reuseConnection(demandInfo.folderId, demandInfo.label);
+      logic(this, 'reuseConnection',
+            { folderId: demandInfo.folderId, label: demandInfo.label });
       demandInfo.callback(connInfo.conn);
       return true;
     }
@@ -321,19 +322,20 @@ var properties = {
   closeUnusedConnections: function() {
     for (var i = this._ownedConns.length - 1; i >= 0; i--) {
       var connInfo = this._ownedConns[i];
-      if (connInfo.inUseBy)
+      if (connInfo.inUseBy) {
         continue;
+      }
       console.log('Killing unused IMAP connection.');
       // this eats all future notifications, so we need to splice...
       this._ownedConns.splice(i, 1);
       connInfo.conn.client.close();
-      this._LOG.deadConnection('unused', null);
+      logic(this, 'deadConnection', { reason: 'unused' });
     }
   },
 
   _makeConnectionIfPossible: function() {
     if (this._ownedConns.length >= this._maxConnsAllowed) {
-      this._LOG.maximumConnsNoNew();
+      logic(this, 'maximumConnsNoNew');
       return;
     }
     if (this._pendingConn) {
@@ -351,7 +353,10 @@ var properties = {
     this._pendingConn = true;
     // Dynamically load the probe/imap code to speed up startup.
     require(['./client'], function ($imapclient) {
-      this._LOG.createConnection(whyFolderId, whyLabel);
+      logic(this, 'createConnection', {
+        folderId: whyFolderId,
+        label: whyLabel
+      });
 
       $imapclient.createImapConnection(
         this._credentials,
@@ -387,7 +392,10 @@ var properties = {
           callback && callback(null);
         }.bind(this))
       .catch(function(err) {
-          this._LOG.deadConnection('connect-error', whyFolderId);
+          logic(this, 'deadConnection', {
+            reason: 'connect-error',
+            folderId: whyFolderId
+          });
 
           if (errorutils.shouldReportProblem(err)) {
             this.universe.__reportAccountProblem(
@@ -449,11 +457,14 @@ var properties = {
        for (var i = 0; i < this._ownedConns.length; i++) {
         var connInfo = this._ownedConns[i];
         if (connInfo.conn === conn) {
-          this._LOG.deadConnection('closed',
-                                   connInfo.inUseBy &&
-                                   connInfo.inUseBy.folderId);
-          if (connInfo.inUseBy && connInfo.inUseBy.deathback)
+          logic(this, 'deadConnection', {
+            reason: 'closed',
+            folderId: connInfo.inUseBy &&
+              connInfo.inUseBy.folderId
+          });
+          if (connInfo.inUseBy && connInfo.inUseBy.deathback) {
             connInfo.inUseBy.deathback(conn);
+          }
           connInfo.inUseBy = null;
           this._ownedConns.splice(i, 1);
           return;
@@ -463,7 +474,7 @@ var properties = {
 
     conn.onerror = function(err) {
       err = $imapclient.normalizeImapError(conn, err);
-      this._LOG.connectionError(err);
+      logic(this, 'connectionError', { error: err });
       console.error('imap:onerror', JSON.stringify({
         error: err,
         host: this._connInfo.hostname,
@@ -476,10 +487,13 @@ var properties = {
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
       if (connInfo.conn === conn) {
-        if (resourceProblem)
+        if (resourceProblem) {
           this._backoffEndpoint(connInfo.inUseBy.folderId);
-        this._LOG.releaseConnection(connInfo.inUseBy.folderId,
-                                    connInfo.inUseBy.label);
+        }
+        logic(this, 'releaseConnection', {
+          folderId: connInfo.inUseBy.folderId,
+          label: connInfo.inUseBy.label
+        });
         connInfo.inUseBy = null;
 
          // We just freed up a connection, it may be appropriate to close it.
@@ -487,7 +501,7 @@ var properties = {
         return;
       }
     }
-    this._LOG.connectionMismatch();
+    logic(this, 'connectionMismatch');
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -514,9 +528,10 @@ var properties = {
       // Process the attribs for goodness.
       for (var i = 0; i < attribs.length; i++) {
         switch (attribs[i]) {
-          // TODO: split the 'all' cases into their own type!
           case 'ALL': // special-use
           case 'ALLMAIL': // xlist
+            type = 'all';
+            break;
           case 'ARCHIVE': // special-use
             type = 'archive';
             break;
@@ -558,6 +573,7 @@ var properties = {
           case 'NOINFERIORS': // 3501
             // XXX use noinferiors to prohibit folder creation under it.
           // NOSELECT
+            break;
 
           default:
         }
@@ -579,8 +595,9 @@ var properties = {
               break;
             case 'INBOX':
               // Inbox is special; the path needs to case-insensitively match.
-              if (path.toUpperCase() === 'INBOX')
+              if (path.toUpperCase() === 'INBOX') {
                 type = 'inbox';
+              }
               break;
             // Yahoo provides "Bulk Mail" for yahoo.fr.
             case 'BULK MAIL':
@@ -603,8 +620,9 @@ var properties = {
         }
       }
 
-      if (!type)
+      if (!type) {
         type = 'normal';
+      }
     }
     return type;
   },
@@ -640,8 +658,7 @@ var properties = {
     // - walk the boxes
     let walkBoxes = (boxLevel, pathDepth, parentId) => {
       boxLevel.forEach((box) => {
-        var boxName = box.name, meta,
-            folderId;
+        var meta;
 
         var delim = box.delimiter || '/';
 
@@ -656,8 +673,9 @@ var properties = {
 
         // gmail finds it amusing to give us the localized name/path of its
         // inbox, but still expects us to ask for it as INBOX.
-        if (type === 'inbox')
+        if (type === 'inbox') {
           path = 'INBOX';
+        }
 
         // - already known folder
         if (folderPubsByPath.hasOwnProperty(path)) {
@@ -689,8 +707,9 @@ var properties = {
                                         delim, pathDepth);
         }
 
-        if (box.children)
+        if (box.children) {
           walkBoxes(box.children, pathDepth + 1, meta.id);
+        }
       });
     };
 
@@ -698,15 +717,16 @@ var properties = {
 
     // - detect deleted folders
     // track dead folder id's so we can issue a
-    var deadFolderIds = [];
     for (var folderPath in folderPubsByPath) {
       folderPub = folderPubsByPath[folderPath];
       // (skip those we found above)
-      if (folderPub === true)
+      if (folderPub === true) {
         continue;
+      }
       // Never delete our localdrafts or outbox folder.
-      if (folderInfoRep.isTypeLocalOnly(folderPub.type))
+      if (folderInfoRep.isTypeLocalOnly(folderPub.type)) {
         continue;
+      }
       slog.log('imap:delete-dead-folder', {
         type: folderPub.type,
         id: folderPub.id
@@ -838,8 +858,9 @@ var properties = {
     // - close all connections
     var liveConns = this._ownedConns.length;
     function connDead() {
-      if (--liveConns === 0)
+      if (--liveConns === 0) {
         callback();
+      }
     }
     for (var i = 0; i < this._ownedConns.length; i++) {
       var connInfo = this._ownedConns[i];
@@ -857,15 +878,15 @@ var properties = {
       }
     }
 
-    this._LOG.__die();
-    if (!liveConns && callback)
+    if (!liveConns && callback) {
       callback();
+    }
   },
 
   checkAccount: function(listener) {
-    this._LOG.checkAccount_begin(null);
+    logic(this, 'checkAccount_begin');
     this._makeConnection(function(err) {
-      this._LOG.checkAccount_end(err);
+      logic(this, 'checkAccount_end', { error: err });
       listener(err);
     }.bind(this), null, 'check');
   },

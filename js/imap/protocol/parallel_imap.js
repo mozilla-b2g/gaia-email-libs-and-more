@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let logic = require('logic');
 
@@ -16,13 +17,13 @@ function simpleWithConn(methodName) {
         return value;
       });
     });
-  }
+  };
 }
 
 /**
- * Helper where the first argument is the folder we need to be in when we make
- * the actual wrapped call.  This is accomplished via a browserbox precheck
- * operation so it should be reasonably efficient.
+ * Helper where the first argument is the folderInfo of the folder we need to be
+ * in when we make the actual wrapped call.  This is accomplished via a
+ * browserbox precheck operation so it should be reasonably efficient.
  */
 function inFolderWithConn(methodName, optsArgIndexPerCaller) {
   return function(folderInfo) {
@@ -33,8 +34,13 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
         throw new Error('provide the options dictionary so we can mutate it.');
       }
       opts.precheck = function(ctx, next) {
-        this.selectMailbox(folderInfo.path, { ctx: ctx }, next);
-      }
+        // XXX selectMailbox does not fast-path out if we're already in the
+        // folder.  Although this may be desirable for semantics in certain
+        // cases, we likely want to let callers explicitly indicate they want
+        // a re-select in those cases and support fast-pathing to avoid a
+        // gratuitous (and expensive) SELECT.
+        conn.selectMailbox(folderInfo.path, { ctx: ctx }, next);
+      };
       logic(this, methodName + ':begin', { folderId: folderInfo.id });
       return conn[methodName].apply(
         conn, Array.prototype.slice.call(calledArgs, 1)).then((value) => {
@@ -45,7 +51,7 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
           };
         });
     });
-  }
+  };
 }
 
 /**
@@ -114,15 +120,15 @@ ParallelIMAP.prototype = {
           this._conn = null;
           this._connPromise = null;
           reject();
-        })
+        });
     });
     return this._connPromise;
   },
 
   listMailboxes: simpleWithConn('listMailboxes'),
-  listMessages: simpleWithConn('listMessages'),
+  listMessages: inFolderWithConn('listMessages', 3),
   listNamespaces: simpleWithConn('listNamespaces'),
-  search: simpleWithConn('search'),
+  search: inFolderWithConn('search', 2),
 
 };
 

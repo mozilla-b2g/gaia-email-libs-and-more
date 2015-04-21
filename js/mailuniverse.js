@@ -36,7 +36,9 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
   dump('=====================\n');
   // XXX proper logging configuration again once things start working
+  // XXX XXX XXX XXX XXX XXX XXX
   logic.realtimeLogEverything = true;
+  slog.setSensitiveDataLoggingEnabled(true);
 
   this.db = new MailDB(testOptions);
 
@@ -276,8 +278,9 @@ MailUniverse.prototype = {
 
   unregisterBridge: function(mailBridge) {
     var idx = this._bridges.indexOf(mailBridge);
-    if (idx !== -1)
+    if (idx !== -1) {
       this._bridges.splice(idx, 1);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -287,8 +290,6 @@ MailUniverse.prototype = {
    * Acquire an account.
    */
   acquireAccount: function(ctx, accountId) {
-    let promise;
-
     if (this._residentAccountsById.has(accountId)) {
       // If the account is already loaded, acquire it immediately.
       let account = this._residentAccountsById.get(accountId);
@@ -431,14 +432,14 @@ MailUniverse.prototype = {
    * Instantiate an account from the persisted representation.
    * Asynchronous. Calls callback with the account object.
    */
-  _loadAccount: function (accountDef, folderInfo, receiveProtoConn) {
+  _loadAccount: function (accountDef, foldersTOC, receiveProtoConn) {
     let promise = new Promise((resolve, reject) => {
       $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
         if (!constructor) {
           logic(this, 'badAccountType', { type: accountDef.type });
           return;
         }
-        let account = new constructor(this, accountDef, folderInfo, this.db,
+        let account = new constructor(this, accountDef, foldersTOC, this.db,
                                       receiveProtoConn);
 
         this._loadingAccountsById.delete(accountDef.id);

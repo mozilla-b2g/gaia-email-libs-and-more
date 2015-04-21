@@ -123,7 +123,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
     // debug visualization?), it could make sense to expose the indices being
     // impacted.
-    this.emit('change', id, metadataOnly);
+    this.emit('change', change.id, metadataOnly);
   },
 
   /**

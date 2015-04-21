@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let logic = require('logic');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -57,7 +58,7 @@ return TaskDefiner.defineSimpleTask([
                                           'grow');
 
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(req.accountId);
+        yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
 
@@ -70,22 +71,26 @@ return TaskDefiner.defineSimpleTask([
       let existingSinceDate = syncState.getFolderIdSinceDate(req.folderId);
       let newSinceDate;
       if (existingSinceDate) {
-        searchSpec.before = existingSinceDate;
+        searchSpec.before = new Date(quantizeDate(existingSinceDate));
         newSinceDate = makeDaysBefore(existingSinceDate,
                                       syncbase.INITIAL_SYNC_GROW_DAYS);
-        searchSpec.since = newSinceDate;
+        searchSpec.since = new Date(newSinceDate);
       } else {
         newSinceDate = makeDaysAgo(syncbase.INITIAL_SYNC_DAYS);
-        searchSpec.since = newSinceDate;
+        searchSpec.since = new Date(newSinceDate);
       }
 
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+
+      logic(ctx, 'searching', { searchSpec: searchSpec });
+      let allMailFolderInfo = account.getFirstFolderWithType('all');
       // Find out new UIDs covering the range in question.
-      let { mailboxInfo, uids } = yield ctx.pimap.search(
-        req.folderId, searchSpec, { byUid: true });
+      let { mailboxInfo, result: uids } = yield account.pimap.search(
+        allMailFolderInfo, searchSpec, { byUid: true });
 
       if (uids.length) {
-        let { messages } = yield ctx.pimap.listMessages(
-          req.folderId,
+        let { result: messages } = yield account.pimap.listMessages(
+          allMailFolderInfo,
           uids,
           [
             'UID',
@@ -99,7 +104,6 @@ return TaskDefiner.defineSimpleTask([
           let uid = msg.uid; // already parsed into a number by browserbox
           let dateTS = parseImapDateTime(msg.internaldate);
           let rawConvId = parseGmailConvId(msg['x-gm-thrid']);
-          let labelFolderIds = labelMapper.labelsToFolderIds(msg['x-gm-labels']);
 
           if (syncState.yayUids.has(uid)) {
             // Nothing to do if the message already met our criteria.  (And we
@@ -117,7 +121,7 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      syncState.setFolderIdLastSinceDate(req.folderId, newSinceDate);
+      syncState.setFolderIdSinceDate(req.folderId, newSinceDate.valueOf());
       if (!syncState.modseq) {
         syncState.modseq = mailboxInfo.highestModeq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
@@ -128,7 +132,7 @@ return TaskDefiner.defineSimpleTask([
           syncStates: syncReqMap,
         },
         newData: {
-          tasks: syncState.rawSyncState
+          tasks: syncState.tasksToSchedule
         }
       });
     })

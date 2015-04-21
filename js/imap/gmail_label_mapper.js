@@ -41,6 +41,7 @@ GmailLabelMapper.prototype = {
         case 'drafts':
           label = '\\Drafts';
           break;
+        case 'all':
         case 'archive':
           label = '\\All';
           break;
@@ -66,6 +67,7 @@ GmailLabelMapper.prototype = {
 
       this._labelToFolderId.set(label, folderInfo.id);
       this._folderIdToLabel.set(folderInfo.id, label);
+      logic(this, 'mapping', { id: folderInfo.id, label: label });
     }
   },
 

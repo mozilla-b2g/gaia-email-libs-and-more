@@ -23,8 +23,7 @@ define(
     require,
     exports
   ) {
-
-var allbackMaker = $allback.allbackMaker;
+'use strict';
 
 exports.account = $account;
 exports.configurator = {
@@ -318,7 +317,7 @@ exports.configurator = {
           nextFolderNum: 0,
           nextMutationNum: 0,
           lastFolderSyncAt: 0,
-          capability: (oldFolderInfo && oldFolderInfo.$meta.capability) ||
+          capability: (oldFolderInfo && oldFolderInfo.meta.capability) ||
             protoConn.capability
         },
         folders: new Map()

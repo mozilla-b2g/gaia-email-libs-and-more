@@ -876,6 +876,7 @@
         options = options || {};
 
         var command = this._buildSEARCHCommand(query, options);
+        console.log('search command', command);
         this.exec(command, 'SEARCH', {
             precheck: options.precheck,
             ctx: options.ctx

@@ -64,11 +64,12 @@ return TaskDefiner.defineSimpleTask([
                                           'refresh');
 
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(req.accountId);
+        yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
 
-      let { mailboxInfo, messages } = yield ctx.pimap.listMessages(
+      let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
         req.folderId,
         '1:*',
         [

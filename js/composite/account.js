@@ -4,6 +4,7 @@
 
 define(
   [
+    'logic',
     'rdcommon/log',
     '../accountcommon',
     '../a64',
@@ -15,6 +16,7 @@ define(
     'exports'
   ],
   function(
+    logic,
     $log,
     $accountcommon,
     $a64,
@@ -25,6 +27,7 @@ define(
     allback,
     exports
   ) {
+'use strict';
 
 var PIECE_ACCOUNT_TYPE_TO_CLASS = {
   'imap': $imapacct.ImapAccount,
@@ -39,8 +42,7 @@ var PIECE_ACCOUNT_TYPE_TO_CLASS = {
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
 function CompositeAccount(universe, accountDef, folderTOC, dbConn,
-                          receiveProtoConn,
-                          _LOG) {
+                          receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
@@ -63,33 +65,26 @@ function CompositeAccount(universe, accountDef, folderTOC, dbConn,
   this.identities = accountDef.identities;
 
   if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.receiveType)) {
-    _LOG.badAccountType(accountDef.receiveType);
+    logic(this, 'badAccountType', { type: accountDef.receiveType });
   }
   if (!PIECE_ACCOUNT_TYPE_TO_CLASS.hasOwnProperty(accountDef.sendType)) {
-    _LOG.badAccountType(accountDef.sendType);
+    logic(this, 'badAccountType', { type: accountDef.sendType });
   }
 
   this._receivePiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
       universe, this,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderTOC, dbConn, _LOG, receiveProtoConn);
+      folderTOC, dbConn, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
       universe, this,
       accountDef.id, accountDef.credentials,
-      accountDef.sendConnInfo, dbConn, _LOG);
+      accountDef.sendConnInfo, dbConn);
 
   // XXX this hiding and all that just ended up confusing.  FIX IT.
   this.imapAccount = this._receivePiece;
   this.smtpAccount = this._sendPiece;
-
-  // We used to hold onto the Universe's logger, but that wasn't right.  The
-  // receiving account piece is usually what we want.  In this case we're doing
-  // this so that MailUniverse can report the runOp_end for improved
-  // correctness. In the "slog" future we'll just use a common log object for
-  // this CompositeAccount and all the pieces, which will make this non-sketchy.
-  this._LOG = this._receivePiece._LOG;
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
