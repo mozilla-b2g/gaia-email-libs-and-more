@@ -5,6 +5,9 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('./logic');
 
+const { accountIdFromConvId, convIdFromMessageId,
+        encodedGmailMessageIdFromMessageId } = require('./id_conversions');
+
 const {
   indexedDB, IDBObjectStore, IDBIndex, IDBCursor, IDBTransaction, IDBRequest,
   IDBKeyRange
@@ -102,12 +105,20 @@ const TBL_CONV_INFO = 'convInfo';
  *
  * Managed by: MailDB
  */
-const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder'
+const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder';
 
 /**
  * Message headers.
  *
- * key: [`AccountId`, `ConversationId`, `MessageId`]
+ * key: [`ConversationId`, `DateTS`, `GmailMessageId`]
+ *
+ * Ranges:
+ * - [convId] lower-bounds all [convId, ...] keys because a shorter array
+ *   is by definition less than a longer array that is equal up to their
+ *   shared length.
+ * - [convId, []] upper-bounds all [convId, ...] because arrays are always
+ *   greater than strings/dates/numbers.
+ *
  *
  * Managed by: MailDB
  */
@@ -116,7 +127,14 @@ const TBL_HEADERS = 'headers';
 /**
  * Message bodies
  *
- * key: [`AccountId`, `ConversationId`, `MessageId`]
+ * key: [`ConversationId`, `DateTS`, `GmailMessageId`]
+ *
+ * Ranges:
+ * - [convId] lower-bounds all [convId, ...] keys because a shorter array
+ *   is by definition less than a longer array that is equal up to their
+ *   shared length.
+ * - [convId, []] upper-bounds all [convId, ...] because arrays are always
+ *   greater than strings/dates/numbers.
  *
  * Managed by: MailDB
  */
@@ -464,6 +482,8 @@ MailDB.prototype = evt.mix({
     this.emit('cacheDrop');
 
     this.convCache.clear();
+    this.headerCache.clear();
+    this.bodyCache.clear();
   },
 
   /**
@@ -729,6 +749,7 @@ MailDB.prototype = evt.mix({
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
     for (let convInfo of convs) {
       convStore.add(convInfo, convInfo.id);
+      this.convCache.set(convInfo.id, convInfo);
 
       for (let folderId of convInfo.folderIds) {
         this.emit(eventForFolderId,
@@ -756,11 +777,25 @@ MailDB.prototype = evt.mix({
     for (let [convId, convInfo] of convs) {
       let preInfo = preStates[convId];
 
-      // Deletion
+      // -- Deletion
       if (convInfo === null) {
+        // - Delete the conversation summary
         convStore.delete(convId);
+        // - Delete all affiliated headers/bodies
+        let accountId = accountIdFromConvId(convId);
+        let headerRange = IDBKeyRange.bound([convId],
+                                            [convId, []],
+                                            true, true);
+
+        trans.objectStore(TBL_HEADERS).delete(headerRange);
+        // bodies currently use the same key representation.
+        let bodyRange = IDBKeyRange.bound([convId],
+                                          [convId, []],
+                                          true, true);
+        trans.objectStore(TBL_BODIES).delete(bodyRange);
       } else { // Modification
         convStore.put(convInfo, convId);
+        this.convCache.set(convInfo.id, convInfo);
       }
 
       // Notify specific listeners, and yeah, deletion is just telling a null
@@ -827,22 +862,63 @@ MailDB.prototype = evt.mix({
         }
       }
     }
-
   },
+
+  loadConversationMessageIdsAndListen: co.wrap(function*(convId) {
+    let eventId = 'conv!' + convId + '!messages!tocChange';
+    let retval = this._bufferChangeEventsIdiom(eventId);
+
+    let trans = this._db.transaction(TBL_HEADERS, 'readonly');
+    let convIdsStore = trans.objectStore(TBL_HEADERS);
+    let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
+                                        true, true);
+    let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
+
+    retval.idsWithDates = tuples.map(function(x) {
+      return { date: x[1], id: x[2]};
+    });
+    return retval;
+  }),
+
+
 
   _processHeaderAdditions: function(trans, headers) {
     let store = trans.objectStore(TBL_HEADERS);
     for (let header of headers.values()) {
-      store.add(header, header.id);
+      let convId = convIdFromMessageId(header.id);
+      let key = [
+        convId,
+        header.date,
+        encodedGmailMessageIdFromMessageId(header.id)
+      ];
+      let eventId = 'conv!' + convId + '!messages!tocChange';
+      this.emit(eventId, header.id, header);
+      store.add(header, key);
     }
   },
 
   _processHeaderMutations: function(trans, preStates, headers) {
-
+    for (let [headerId, header] of headers) {
+      let key = [
+        convIdFromMessageId(headerId),
+        header.date,
+        encodedGmailMessageIdFromMessageId(headerId)
+      ];
+      store.put(header, key);
+    }
   },
 
-  _processBodyAdditions: function(trans, bodies) {
 
+  _processBodyAdditions: function(trans, bodies) {
+    let store = trans.objectStore(TBL_BODIES);
+    for (let body of bodies.values()) {
+      let key = [
+        convIdFromMessageId(body.id),
+        body.date,
+        encodedGmailMessageIdFromMessageId(body.id)
+      ];
+      store.add(body, key);
+    }
   },
 
   _processBodyMutations: function(trans, preStates, bodies) {
@@ -872,6 +948,7 @@ MailDB.prototype = evt.mix({
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
+    // -- Mutations (begun via beginMutate)
     let mutations = data.mutations;
     if (mutations) {
       if (mutations.syncStates) {
@@ -902,10 +979,11 @@ MailDB.prototype = evt.mix({
       }
     }
 
+    // -- New / Added data
     let newData = data.newData;
     if (newData) {
-      if (newData.conv) {
-        this._processConvAdditions(trans, newData.conv);
+      if (newData.conversations) {
+        this._processConvAdditions(trans, newData.conversations);
       }
       if (newData.headers) {
         this._processHeaderAdditions(trans, newData.headers);
@@ -917,6 +995,7 @@ MailDB.prototype = evt.mix({
       // taskData.wrappedTasks
     }
 
+    // -- Tasks
     // Update the task's state in the database.
     if (taskData.revisedTaskInfo) {
       let revisedTaskInfo = taskData.revisedTaskInfo;
@@ -939,18 +1018,6 @@ MailDB.prototype = evt.mix({
     return wrapTrans(trans).then(() => {
       logic(this, 'finishMutate:end');
     });
-  },
-
-  /**
-   * Delete all traces of an account from the database.
-   */
-  deleteAccount: function(accountId) {
-    var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
-                                      'readwrite');
-    trans.onerror = analyzeAndLogErrorEvent;
-
-    trans.objectStore(TBL_CONFIG).delete('accountDef:' + accountId);
-    trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
   },
 });
 

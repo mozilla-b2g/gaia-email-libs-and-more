@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 /**
  * Works with specific *TOC implementations to provide the smarts to the
@@ -89,7 +90,7 @@ WindowedListProxy.prototype = {
       this.mode = 'focus';
       this.focusKey = this.toc.getOrderingKeyForIndex(req.index);
     } else {
-      throw new Error('bogus seek mode: ' + req.mode)
+      throw new Error('bogus seek mode: ' + req.mode);
     }
 
     this.dirty = true;
@@ -101,9 +102,19 @@ WindowedListProxy.prototype = {
    * item change for something that's inside our window.
    *
    * NOTE: If/when we implement key stability stuff, it goes here.
+   *
+   * @param {Object} [changeRec]
+   *   An optional change record so that an identifier can be provided to dirty
+   *   a specific record.  If omitted, the assumption is that something
+   *   drastic happened like the containing object no longer exists.
+   * @param {String} changeRec.id
+   *   The identifier of the thing that changed that needs to be dirtied so that
+   *   it can be removed from the viewSet.
    */
   onChange: function(changeRec) {
-    this.viewSet.delete(changeRec.id);
+    if (changeRec) {
+      this.viewSet.delete(changeRec.id);
+    }
 
     if (this.dirty) {
       return;
@@ -135,7 +146,7 @@ WindowedListProxy.prototype = {
 
     this.dirty = false;
 
-    let { ids, state, pendingReads, readPromise, newKnownSet } =
+    let { ids, state, readPromise, newKnownSet } =
       this.toc.getDataforSliceRange(beginInclusive, endExclusive, this.viewSet);
 
     this.viewSet = newKnownSet;

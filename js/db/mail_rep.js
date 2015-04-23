@@ -16,80 +16,71 @@
  **/
 
 define(function() {
+'use strict';
 
-/*
- * @typedef[HeaderInfo @dict[
- *   @key[id]{
- *     An id allocated by the back-end that names the message within the folder.
- *     We use this instead of the server-issued UID because if we used the UID
- *     for this purpose then we would still need to issue our own temporary
- *     speculative id's for offline operations and would need to implement
- *     renaming and it all gets complicated.
- *   }
- *   @key[srvid]{
- *     The server-issued UID for the folder, or 0 if the folder is an offline
- *     header.
- *   }
- *   @key[suid]{
- *     Basically "account id/folder id/message id", although technically the
- *     folder id includes the account id.
- *   }
- *   @key[guid String]{
- *     This is the message-id header value of the message.
- *   }
- *   @key[author NameAddressPair]
- *   @key[to #:optional @listof[NameAddressPair]]
- *   @key[cc #:optional @listof[NameAddressPair]]
- *   @key[bcc #:optional @listof[NameAddressPair]]
- *   @key[replyTo #:optional String]{
- *     The contents of the reply-to header.
- *   }
- *   @key[date DateMS]
- *   @key[flags @listof[String]]
- *   @key[hasAttachments Boolean]
- *   @key[subject @oneof [String null]]
- *   @key[snippet @oneof[
- *     @case[null]{
- *       We haven't tried to generate a snippet yet.
- *     }
- *     @case['']{
- *       We tried to generate a snippet, but got nothing useful.  Note that we
- *       may try and generate a snippet from a partial body fetch; this does not
- *       indicate that we should avoid computing a better snippet.  Whenever the
- *       snippet is falsey and we have retrieved more body data, we should
- *       always try and derive a snippet.
- *     }
- *     @case[String]{
- *       A non-empty string means we managed to produce some snippet data.  It
- *        is still appropriate to regenerate the snippet if more body data is
- *        fetched since our snippet may be a fallback where we chose quoted text
- *        instead of authored text, etc.
- *     }
- *   ]]
- * ]]
+/**
+ * @typedef {Object} HeaderInfo
+ * @property {MessageId} id
+ *   The canonical message identifier.  This is conceptually four components:
+ *   "account.gmail conversation id.gmail message id.all mail folder uid".
+ *   Since convId's are themselves "account.gmail conversation id", this can
+ *   also be thought of as "convId.gmail message id.all mail folder uid".  If
+ *   the message is not in the all mail folder because it is spam or in the
+ *   trash some type of sentinel value is used.
+ * @property {String} [guid]
+ *   The contents of the message-id header for the message, if available.  (Not
+ *   available for ActiveSync.)
+ * @property {DateMS} date
+ *   The INTERNALDATE corresponding to the message.  This is held immutable.  If
+ *   it changes you need to delete the record and re-add it.
+ * @property {NameAddressPair} author
+ * @property {NameAddressPair[]} to
+ * @property {NameAddressPair[]} cc
+ * @property {NameAddressPair[]} bcc
+ * @property {NameAddressPair[]} replyTo
+ * @property {String[]} flags
+ * @property {String[]} [labels]
+ *   Gmail labels applied to the message.  These may or may not be the same as
+ *   what is applied to the rest of the conversation.  Gmail tracks labels on a
+ *   per-message basis, at least for IMAP purposes.
+ * @property {Boolean} hasAttachments
+ * @property {String} [subject]
+ * @property {String} [snippet]
+ *   If null, we haven't tried to generate a snippet yet.
+ *
+ *   If an empty string, we tried to generate a snippet but got nothing useful.
+ *   Note that we may try and generate a snippet from a partial body fetch; this
+ *   does not indicate that we should avoid computing a better snippet.
+ *   Whenever the snippet is falsey and we have retrieved more body data, we
+ *   should always try and derive a snippet.
+ *
+ *   A non-empty string means we managed to produce some snippet data.  It is
+ *   still appropriate to regenerate the snippet if more body data is fetched
+ *   since our snippet may be a fallback where we chose quoted text instead of
+ *   text authored by the author of the message, etc.
  */
 function makeHeaderInfo(raw) {
   // All messages absolutely need the following; the caller needs to make up
   // values if they're missing.
-  if (!raw.author)
+  if (!raw.author) {
     throw new Error('No author?!');
-  if (!raw.date)
+  }
+  if (!raw.date) {
     throw new Error('No date?!');
+  }
   // We also want/require a valid id, but we check that at persistence time
   // since POP3 assigns the id/suid slightly later on.  We check the suid at
   // that point too.  (Checked in FolderStorage.addMessageHeader.)
 
   return {
     id: raw.id,
-    srvid: raw.srvid || null,
-    suid: raw.suid || null,
+    date: raw.date,
     guid: raw.guid || null,
     author: raw.author,
     to: raw.to || null,
     cc: raw.cc || null,
     bcc: raw.bcc || null,
     replyTo: raw.replyTo || null,
-    date: raw.date,
     flags: raw.flags || [],
     hasAttachments: raw.hasAttachments || false,
     // These can be empty strings which are falsey, so no ||
@@ -99,44 +90,41 @@ function makeHeaderInfo(raw) {
   };
 }
 
-/*
- * @typedef[BodyInfo @dict[
- *   @key[date DateMS]{
- *     Redundantly stored date info for block splitting purposes.  We pretty
- *     much need this no matter what because our ordering is on the tuples of
- *     dates and UIDs, so we could have trouble efficiently locating our header
- *     from the body without this.
- *   }
- *   @key[size Number]
- *   @key[attaching #:optional AttachmentInfo]{
- *     Because of memory limitations, we need to encode and attach attachments
- *     in small pieces.  An attachment in the process of being attached is
- *     stored here until fully processed.  Its 'file' field contains a list of
- *     Blobs.
- *   }
- *   @key[attachments @listof[AttachmentInfo]]{
- *     Proper attachments for explicit downloading.
- *   }
- *   @key[relatedParts @oneof[null @listof[AttachmentInfo]]]{
- *     Attachments for inline display in the contents of the (hopefully)
- *     multipart/related message.
- *   }
- *   @key[references @oneof[null @listof[String]]]{
- *     The contents of the references header as a list of de-quoted ('<' and
- *     '>' removed) message-id's.  If there was no header, this is null.
- *   }
- *   @key[bodyReps @listof[BodyPartInfo]]
- * ]]{
+/**
+ * @typedef {Object} BodyInfo
+ * @property {MessageId} id
+ *   The canonical message identifier, duplicates the HeaderInfo's id for
+ *   self-identification purposes.
+ * @property {DateMS} date
+ *   The date of the message.  Redundantly stored for self-identification in
+ *   conjunction with the id given that the HeaderInfo already includes this.
+ * @property {Number} size
+ *   An estimate of the size of the message; sortof legacy in nature.  This may
+ *   go away if we don't end up using it for cache eviction logic.
+ * @property {AttachmentInfo} [attaching]
+ *   Because of memory limitations, we need to encode and attach attachments
+ *   in small pieces.  An attachment in the process of being attached is
+ *   stored here until fully processed.  Its 'file' field contains a list of
+ * @property {AttachmentInfo[]} attachments
+ *   Explicit attachments.
+ * @property {AttachmentInfo[]} [relatedParts]
+ *   Attachments for inline display in the contents of the (hopefully)
+ *   multipart/related message.
+ * @property {String[]} [references]
+ *   The contents of the references header as a list of de-quoted ('<' and
+ *   '>' removed) message-id's.  If there was no header, this is null.
+ * @property {BodyPartInfo[]} bodyReps
  *   Information on the message body that is only for full message display.
  *   The to/cc/bcc information may get moved up to the header in the future,
  *   but our driving UI doesn't need it right now.
- * }
  */
 function makeBodyInfo(raw) {
-  if (!raw.date)
+  if (!raw.date) {
     throw new Error('No date?!');
-  if (!raw.attachments || !raw.bodyReps)
+  }
+  if (!raw.attachments || !raw.bodyReps) {
     throw new Error('No attachments / bodyReps?!');
+  }
 
   return {
     date: raw.date,
@@ -176,11 +164,13 @@ function makeBodyInfo(raw) {
 function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
   if (raw.type !== 'plain' &&
-      raw.type !== 'html')
+      raw.type !== 'html') {
     throw new Error('Bad body type: ' + raw.type);
+  }
   // 0 is an okay body size, but not giving us a guess is not!
-  if (raw.sizeEstimate === undefined)
+  if (raw.sizeEstimate === undefined) {
     throw new Error('Need size estimate!');
+  }
 
   return {
     type: raw.type,
@@ -254,8 +244,9 @@ function makeBodyPart(raw) {
  */
 function makeAttachmentPart(raw) {
   // Something is very wrong if there is no size estimate.
-  if (raw.sizeEstimate === undefined)
+  if (raw.sizeEstimate === undefined) {
     throw new Error('Need size estimate!');
+  }
 
   return {
     // XXX ActiveSync may leave this null, although it's conceivable the

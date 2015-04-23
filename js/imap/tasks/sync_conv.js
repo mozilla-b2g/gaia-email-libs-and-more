@@ -31,7 +31,8 @@ let INITIAL_FETCH_PARAMS = [
   'bodystructure',
   'flags',
   'x-gm-labels',
-  'BODY.PEEK[HEADER.FIELDS (FROM TO CC BCC SUBJECT REPLY-TO MESSAGE-ID REFERENCES)]'
+  'BODY.PEEK[' +
+    'HEADER.FIELDS (FROM TO CC BCC SUBJECT REPLY-TO MESSAGE-ID REFERENCES)]'
 ];
 
 /**
@@ -64,25 +65,39 @@ let INITIAL_FETCH_PARAMS = [
  return TaskDefiner.defineSimpleTask([
    {
      name: 'sync_conv',
-     namingArgs: ['convId'],
+     namingArgs: ['accountId', 'convId'],
      unifyingArgs: ['newConv', 'removeConv', 'newUids', 'removedUids',
                     'revisedUidState'],
 
-     priorityTags: [
-       (args) => `view:conv:${args.convId}`
-     ],
+     priorityTags: function(args) {
+       return [
+         `view:conv:${args.convId}`
+       ];
+     },
 
-     plan: null,
-
-     execute: co.wrap(function*(ctx, args) {
-       let uids;
+     execute: co.wrap(function*(ctx, req) {
+       /** UIDs to fetch, we may not need to fetch any and this may stay null */
+       let uids = null;
        let convLoadPromise, convMutateMap;
 
-       // -- Figure out UIDS
-       // - Existing conversation
-       // If we were explicitly told the UIDs of the new messages in the
-       // conversation, just use those.
-       if (args.uids && args.uids.size) {
+       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+
+       if (req.newConv) {
+         // -- New conversation
+         // Search for all the messages in the conversation
+         let searchSpec = {
+           'x-gm-thrid': convIdToGmailThreadId(args.convId)
+         };
+         let uids = yield account.pimap.search(
+           req.folderId, searchSpec, { byUid: true });
+         ctx.log('search found uids', { uids: uids });
+       } else if (req.delConv) {
+         // -- Delete conversation
+         yield ctx.finishTask({
+           
+         });
+       } else {
+          // -- Existing conversation
           let uids = Array.from(args.uids);
           ctx.log('using provided uids', { uids: uids });
 
@@ -91,36 +106,27 @@ let INITIAL_FETCH_PARAMS = [
           convMutateMap.set(args.convId, null);
           convLoadPromise = task.beginMutate({ conv: mutateMap });
        }
-       // - New conversation
-       else {
-         // Search for all the messages in the conversation
-         let searchSpec = {
-           'x-gm-thrid': convIdToGmailThreadId(args.convId)
-         }
-         let uids = yield ctx.pimap.search(
-           req.folderId, searchSpec, { byUid: true });
-         ctx.log('search found uids', { uids: uids });
-       }
 
-       // -- Fetch the envelopes
-       let rawMessages = yield ctx.pimap.listMessages(
-         req.folderId,
-         uids,
-         INITIAL_FETCH_PARAMS,
-         { byUid: true }
-       );
+       // -- Have (new to us) message envelopes to fetch
+       if (uids) {
+         let rawMessages = yield account.pimap.listMessages(
+           req.folderId,
+           uids,
+           INITIAL_FETCH_PARAMS,
+           { byUid: true }
+         );
 
-       // --
-       let normalizedMessages = messages.map((msg) => {
-         return {
-           uid: msg.uid, // already parsed into a number by browserbox
-           date: parseImapDateTime(msg.internaldate),
-           msgId: parseGmailMsgId(msg['x-gm-msgid']),
-           convId: parseGmailConvId(msg['x-gm-thrid'])
-         };
-       });
+         // --
+         let normalizedMessages = messages.map((msg) => {
+           return {
+             uid: msg.uid, // already parsed into a number by browserbox
+             date: parseImapDateTime(msg.internaldate),
+             msgId: parseGmailMsgId(msg['x-gm-msgid']),
+             convId: parseGmailConvId(msg['x-gm-thrid'])
+           };
+         });
 
-       normalizedMessages.sort(folderSyncDb.messageOrderingComparator);
+         normalizedMessages.sort(folderSyncDb.messageOrderingComparator);
 
        // -- Wait for the conversation to have loaded if we have one
        let convInfo;
@@ -133,7 +139,12 @@ let INITIAL_FETCH_PARAMS = [
 
        let tasks = [];
        yield ctx.finishTask({
+         mutations: {
 
+         },
+         newData: {
+
+         }
        })
      })
    }

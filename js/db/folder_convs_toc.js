@@ -1,8 +1,7 @@
 define(function(require) {
 'use strict';
 
-let a64 = require('../a64');
-let cmpUI64 = a64.cmpUI64;
+let co = require('co');
 
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
@@ -15,7 +14,7 @@ let evt = require('evt');
 function folderConversationComparator(a, b) {
   let dateDelta = b.date - a.date;
   if (dateDelta) {
-    return dateDelta
+    return dateDelta;
   }
   // So for the id's, we just want consistent.  We don't actually care about the
   // strict numerical ordering of the underlying conversation identifier (sans
@@ -62,7 +61,7 @@ function FolderConversationsTOC(db, folderId) {
   this.__deactivate();
 }
 FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
-  __activate: function*() {
+  __activate: co.wrap(function*() {
     let { idsWithDates, drainEvents, eventId } =
       yield this._db.loadFolderConversationIdsAndListen(this.folderId);
 
@@ -70,11 +69,11 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     this._eventId = eventId;
     drainEvents(this._bound_onChange);
     this._db.on(eventId, this._bound_onTOCChange);
-  },
+  }),
 
   __deactivate: function() {
     this.idsWithDates = [];
-    this._db.removeListener(this._eventId, this._bound_onChange);
+    this._db.removeListener(this._eventId, this._bound_onTOCChange);
   },
 
   get length() {
@@ -130,7 +129,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
    * Return an array of the conversation id's occupying the given indices.
    */
   sliceIds: function(begin, end) {
-    let ids = new Array();
+    let ids = [];
     let idsWithDates = this.idsWithDates;
     for (let i = begin; i < end; i++) {
       ids.push(idsWithDates[i].id);
@@ -184,7 +183,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     if (needData.size) {
       readPromise = this._db.read({
         conv: needData
-      })
+      });
     } else {
       needData = null;
     }
