@@ -188,8 +188,7 @@ clean:
 
 b2g: node_modules
 	./node_modules/.bin/mozilla-download \
-		--product b2g \
-		--channel prerelease \
+		--product b2g-desktop \
 		--branch mozilla-central \
-		$@
-	ln -sf ./b2g b2g-bindir-symlink
+		./
+	ln -nsf ./b2g b2g-bindir-symlink
