@@ -172,8 +172,78 @@ AccountHelpers.prototype = {
         resolve(slice);
       };
     });
-  }
+  },
 
+  /**
+   * Create a nondeterministic subject (in contrast to what TB's messageGenerator
+   * does because unit tests usually like determinism.)  This is required because
+   * we potentially use a real Inbox which may have test detritus from previous
+   * runs.  In that case, we don't want to be tricked by a previous test run's
+   * values.
+   */
+  makeRandomSubject() {
+    return 'Composition: ' + Date.now() + ' ' +
+      Math.floor(Math.random() * 100000);
+  },
+
+  /**
+   * Wait for a message with the given subject to show up in the folder.  This
+   * clobbers the onadd/oncomplete listeners as part of its operation.
+   */
+  waitForMessage(slice, expectSubject) {
+    var activeTimeout;
+    return new Promise((resolve, reject) => {
+      var checkHeader = function(header) {
+        if (header.subject !== expectSubject) {
+          return false;
+        }
+        satisfied = true;
+        resolve(header);
+        return true;
+      }
+
+      // Check if the message is already in the slice:
+      if (!slice.items.some(checkHeader)) {
+        slice.onadd = checkHeader;
+
+        // Nope, we have to listen for changes and continually trigger
+        // refreshes until we achieve happiness.
+        var completeFunc = () => {
+          // trigger a refresh after giving the fake-servers a chance to catch up
+          activeTimeout = window.setTimeout(
+            () => {
+              // the slice clears oncomplete each time it fires, so we need to
+              // re-bind ourselves
+              slice.oncomplete = completeFunc;
+              slice.refresh();
+            },
+            20);
+        };
+        slice.oncomplete = completeFunc;
+        // Trigger a refresh if something isn't still ongoing.  (When the ongoing
+        // thing completes, it will trigger our completeFunc.)
+        if (slice.status !== 'new' && slice.status !== 'synchronizing') {
+          slice.refresh();
+        }
+      }
+    }).then((header) => {
+      window.clearTimeout(activeTimeout);
+      slice.onadd = null;
+      slice.oncomplete = null;
+      return header;
+    });
+  },
+
+  /**
+   * Transition helper, this just wraps MailHeader.getBody in a Promise.  (I'm
+   * creating this to minimize uplift contamination right now and since the
+   * Promises refactoring stuff is largely in the conversations branch.)
+   */
+  getBody(header, opts) {
+    return new Promise((resolve) => {
+      header.getBody(opts, resolve);
+    });
+  }
 };
 
 

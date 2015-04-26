@@ -220,6 +220,10 @@
       "variants": ["imap:fake", "activesync:fake"]
     },
 
+    "test_compose_roundtripping.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
+    },
+
     "test_storage_upgrade.js": {
       "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
