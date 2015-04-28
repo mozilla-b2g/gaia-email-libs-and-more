@@ -686,6 +686,40 @@ SyntheticMessage.prototype = Object_extend(SyntheticPart.prototype, {
     },
   },
 
+  replyTo: {
+    /**
+     * @returns The comma-ized list of name-and-address tuples used to set the
+     *   replyTo header.
+     */
+    get: function() { return this._replyTo; },
+    /**
+     * Sets the replyTo header using a list of tuples containing [a display name,
+     *  an e-mail address].
+     *
+     * @param aNameAndAddress
+     *
+     *   A list of name-and-address tuples. Each tuple is a list with two
+     *   elements. The first should be the display name (sans wrapping quotes).
+     *   The second element should be the e-mail address (sans wrapping
+     *   greater-than/less-than). Can also be a string, should then be a valid
+     *   raw replyTo: header value.
+     */
+    set: function(aNameAndAddresses) {
+      if (typeof aNameAndAddresses === "string") {
+        this._replyTo = [];
+        var people = aNameAndAddresses.split(",");
+        for (var i = 0; i < people.length; i++) {
+          this._replyTo.push(this._parseMailbox(people[i]));
+        }
+        this.headers["Reply-To"] = aNameAndAddresses;
+        return;
+      }
+      this._replyTo = aNameAndAddresses;
+      this.headers["Reply-To"] =
+        this._formatMailListFromNamesAndAddresses(aNameAndAddresses);
+    },
+  },
+
   bodyPart: {
     get: function() {
       return this._bodyPart;
@@ -952,6 +986,10 @@ MessageGenerator.prototype = {
         msg.cc = aArgs.cc;
     }
 
+    if (aArgs.replyTo) {
+      msg.replyTo = aArgs.replyTo;
+    }
+
     msg.children = [];
     msg.messageId = this.makeMessageId(msg);
     if (aArgs.age) {
@@ -990,6 +1028,8 @@ MessageGenerator.prototype = {
           msg._to = [{name: "", address: ""}];
         if (key === "Cc")
           msg._cc = [{name: "", address: ""}];
+        if (key === "Reply-To")
+          msg._replyTo = [{name: "", address: ""}];
         if (key === "Date")
           msg._date = value;
       }
@@ -1054,7 +1094,7 @@ MessageGenerator.prototype = {
   },
   MAKE_MESSAGES_PROPAGATE: ['attachments', 'body', 'cc', 'from', 'inReplyTo',
                             'subject', 'to', 'clobberHeaders', 'junk', 'read',
-                            'deleted'],
+                            'deleted', 'replyTo'],
   /**
    * Given a set definition, produce a list of synthetic messages.
    *
