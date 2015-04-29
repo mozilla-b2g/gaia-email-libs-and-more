@@ -22,16 +22,16 @@
     'use strict';
 
     if (typeof define === 'function' && define.amd) {
-        define(['browserbox-imap', 'utf7', 'imap-handler', 'mimefuncs', 'axe'], function(ImapClient, utf7, imapHandler, mimefuncs, axe) {
-            return factory(ImapClient, utf7, imapHandler, mimefuncs, axe);
+        define(['browserbox-imap', 'utf7', 'imap-handler', 'mimefuncs', 'addressparser', 'axe'], function(ImapClient, utf7, imapHandler, mimefuncs, addressparser, axe) {
+            return factory(ImapClient, utf7, imapHandler, mimefuncs, addressparser, axe);
         });
     } else if (typeof exports === 'object') {
 
-        module.exports = factory(require('./browserbox-imap'), require('wo-utf7'), require('wo-imap-handler'), require('mimefuncs'), require('axe-logger'));
+        module.exports = factory(require('./browserbox-imap'), require('wo-utf7'), require('wo-imap-handler'), require('mimefuncs'), require('wo-addressparser'), require('axe-logger'));
     } else {
-        root.BrowserBox = factory(root.BrowserboxImapClient, root.utf7, root.imapHandler, root.mimefuncs, root.axe);
+        root.BrowserBox = factory(root.BrowserboxImapClient, root.utf7, root.imapHandler, root.mimefuncs, root.addressparser, root.axe);
     }
-}(this, function(ImapClient, utf7, imapHandler, mimefuncs, axe) {
+}(this, function(ImapClient, utf7, imapHandler, mimefuncs, addressparser, axe) {
     'use strict';
 
     var DEBUG_TAG = 'browserbox';
@@ -215,6 +215,7 @@
                     return;
                 }
                 this.updateId(this.options.id, function() {
+                    // ignore errors for exchanging ID values
                     this.login(this.options.auth, function(err) {
                         if (err) {
                             // emit an error
@@ -222,8 +223,12 @@
                             this.close();
                             return;
                         }
-                        // emit
-                        this.onauth();
+                        // can't setup compression before authnetication
+                        this.compressConnection(function() {
+                            // ignore errors for setting up compression
+                            // emit
+                            this.onauth();
+                        }.bind(this));
                     }.bind(this));
                 }.bind(this));
             }.bind(this));
@@ -489,6 +494,51 @@
                 callback(err);
             } else {
                 callback(null, this._parseNAMESPACE(response));
+            }
+            next();
+        }.bind(this));
+
+        return promise;
+    };
+
+    /**
+     * Runs COMPRESS command
+     *
+     * COMPRESS details:
+     *   https://tools.ietf.org/html/rfc4978
+     *
+     * @param {Function} callback Callback function with the namespace information
+     */
+    BrowserBox.prototype.compressConnection = function(callback) {
+        var promise;
+
+        if (!callback) {
+            promise = new Promise(function(resolve, reject) {
+                callback = callbackPromise(resolve, reject);
+            });
+        }
+
+        if (!this.options.enableCompression || this.capability.indexOf('COMPRESS=DEFLATE') < 0 || this.client.compressed) {
+            setTimeout(function() {
+                callback(null, false);
+            }, 0);
+
+            return promise;
+        }
+
+        this.exec({
+            command: 'COMPRESS',
+            attributes: [{
+                type: 'ATOM',
+                value: 'DEFLATE'
+            }]
+        }, function(err, response, next) {
+            if (err) {
+                callback(err);
+            } else {
+                axe.debug(DEBUG_TAG, this.options.sessionId + ' compression enabled, all data sent and received is deflated');
+                this.client.enableCompression();
+                callback(null, true);
             }
             next();
         }.bind(this));
@@ -876,7 +926,6 @@
         options = options || {};
 
         var command = this._buildSEARCHCommand(query, options);
-        console.log('search command', command);
         this.exec(command, 'SEARCH', {
             precheck: options.precheck,
             ctx: options.ctx
@@ -1370,6 +1419,9 @@
                 case 'HIGHESTMODSEQ':
                     mailbox.highestModseq = ok.highestmodseq || '0'; // keep 64bit uint as a string
                     break;
+                case 'NOMODSEQ':
+                    mailbox.noModseq = true;
+                    break;
             }
         });
 
@@ -1479,20 +1531,27 @@
      * @return {Object} Message object
      */
     BrowserBox.prototype._parseFETCH = function(response) {
-        var list;
-
         if (!response || !response.payload || !response.payload.FETCH || !response.payload.FETCH.length) {
             return [];
         }
 
-        list = [].concat(response.payload.FETCH || []).map(function(item) {
-            var
-            // ensure the first value is an array
-                params = [].concat([].concat(item.attributes || [])[0] || []),
-                message = {
+        var list = [];
+        var messages = {};
+
+        [].concat(response.payload.FETCH || []).forEach(function(item) {
+            var params = [].concat([].concat(item.attributes || [])[0] || []); // ensure the first value is an array
+            var message;
+            var i, len, key;
+
+            if (messages[item.nr]) {
+                // same sequence number is already used, so merge values instead of creating a new message object
+                message = messages[item.nr];
+            } else {
+                messages[item.nr] = message = {
                     '#': item.nr
-                },
-                i, len, key;
+                };
+                list.push(message);
+            }
 
             for (i = 0, len = params.length; i < len; i++) {
                 if (i % 2 === 0) {
@@ -1503,8 +1562,6 @@
                 }
                 message[key] = this._parseFetchValue(key, params[i]);
             }
-
-            return message;
         }.bind(this));
 
         return list;
@@ -1564,10 +1621,28 @@
     BrowserBox.prototype._parseENVELOPE = function(value) {
         var processAddresses = function(list) {
                 return [].concat(list || []).map(function(addr) {
-                    return {
-                        name: mimefuncs.mimeWordsDecode(addr[0] && addr[0].value || ''),
-                        address: (addr[2] && addr[2].value || '') + '@' + (addr[3] && addr[3].value || '')
-                    };
+
+                    // ENVELOPE lists addresses as [name-part, source-route, username, hostname]
+                    // where source-route is not used anymore and can be ignored.
+                    // To get comparable results with other parts of the email.js stack
+                    // browserbox feeds the parsed address values from ENVELOPE
+                    // to addressparser and uses resulting values instead of the
+                    // pre-parsed addresses
+
+                    var name = (addr[0] && addr[0].value || '').trim();
+                    var address = (addr[2] && addr[2].value || '') + '@' + (addr[3] && addr[3].value || '');
+                    var formatted;
+
+                    if (!name) {
+                        formatted = address;
+                    } else {
+                        formatted = encodeAddressName(name) + ' <' + address + '>';
+                    }
+
+                    var parsed = addressparser.parse(formatted).shift(); // there should bu just a single address
+                    parsed.name = mimefuncs.mimeWordsDecode(parsed.name);
+                    return parsed;
+
                 });
             },
             envelope = {};
@@ -1884,6 +1959,17 @@
                                 value: param
                             };
                             break;
+                        // The Gmail extension values of X-GM-THRID and
+                        // X-GM-MSGID are defined to be unsigned 64-bit integers
+                        // and they must not be quoted strings or the server
+                        // will report a parse error.
+                        case 'x-gm-thrid':
+                        case 'x-gm-msgid':
+                            param = {
+                                type: "number",
+                                value: param
+                            };
+                            break;
                         default:
                             param = escapeParam(param);
                     }
@@ -2112,6 +2198,23 @@
         ];
         return mimefuncs.base64.encode(authData.join('\x01'));
     };
+
+    /**
+     * If needed, encloses with quotes or mime encodes the name part of an e-mail address
+     *
+     * @param {String} name Name part of an address
+     * @returns {String} Mime word encoded or quoted string
+     */
+    function encodeAddressName(name) {
+        if (!/^[\w ']*$/.test(name)) {
+            if (/^[\x20-\x7e]*$/.test(name)) {
+                return JSON.stringify(name);
+            } else {
+                return mimefuncs.mimeWordEncode(name, 'Q', 52);
+            }
+        }
+        return name;
+    }
 
     /**
      * Wrapper for creating promise aware callback functions

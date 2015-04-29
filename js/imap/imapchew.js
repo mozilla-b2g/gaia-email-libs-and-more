@@ -1,4 +1,5 @@
 define(function(require, exports, module) {
+'use strict';
 
 let a64 = require('../a64');
 let mimefuncs = require('mimefuncs');
@@ -215,7 +216,7 @@ function chewStructure(msg) {
         // https://bugzil.la/1024685
       } else if (parentMultipartSubtype === 'related' && partInfo.id &&
                  type === 'image') {
-        disposition = "inline";
+        disposition = 'inline';
       } else if (filename || type !== 'text') {
         disposition = 'attachment';
       } else {
@@ -246,7 +247,7 @@ function chewStructure(msg) {
           sizeEstimate: estimatePartSizeInBytes(partInfo),
           file: null
         });
-      }
+      };
 
       var makeTextPart = function(partInfo) {
         return mailRep.makeBodyPart({
@@ -272,7 +273,7 @@ function chewStructure(msg) {
           } : null,
           content: ''
         });
-      }
+      };
 
       if (disposition === 'attachment') {
         attachments.push(makePart(partInfo, filename));
@@ -285,7 +286,6 @@ function chewStructure(msg) {
       case 'image':
         relatedParts.push(makePart(partInfo, filename));
         return true;
-        break;
         // - content
       case 'text':
         if (subtype === 'plain' || subtype === 'html') {
@@ -305,7 +305,7 @@ function chewStructure(msg) {
     attachments: attachments,
     relatedParts: relatedParts
   };
-};
+}
 
 /**
  * Transform a browserbox representation of an item that has a value
@@ -337,7 +337,7 @@ function valuesOnly(item) {
   }
 }
 
-exports.chewHeaderAndBodyStructure = function(msg, accountId, convId) {
+exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
   // begin by splitting up the raw imap message
   let parts = chewStructure(msg);
 
@@ -365,20 +365,17 @@ exports.chewHeaderAndBodyStructure = function(msg, accountId, convId) {
   let references = valuesOnly(firstHeader(msg, 'references'));
 
   let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
+  let messageId = convId + '.' + gmailMsgId + '.' + msg.uid;
+
+  let labels = labelMapper.labelsToFolderId(msg['x-gm-labels']);
 
   return {
-    header: mailRep.makeHeaderInfo({
-      // the FolderStorage issued id for this message (which differs from the
-      // IMAP-server-issued UID so we can do speculative offline operations like
-      // moves).
-      id: newMsgId,
-      srvid: msg.uid,
-      // The sufficiently unique id is a concatenation of the UID onto the
-      // folder id.
-      suid: folderId + '.' + newMsgId,
+    headerInfo: mailRep.makeHeaderInfo({
+      id: messageId,
       // The message-id header value; as GUID as get for now; on gmail we can
       // use their unique value, or if we could convince dovecot to tell us.
       guid: stripArrows(valuesOnly(firstHeader(msg, 'message-id'))),
+      date: msg.date,
       // mimeparser models from as an array; we do not.
       author: fromArray && fromArray[0] ||
         // we require a sender e-mail; let's choose an illegal default as
@@ -388,8 +385,8 @@ exports.chewHeaderAndBodyStructure = function(msg, accountId, convId) {
       cc: valuesOnly(firstHeader(msg, 'cc')),
       bcc: valuesOnly(firstHeader(msg, 'bcc')),
       replyTo: valuesOnly(firstHeader(msg, 'reply-to')),
-      date: msg.date,
       flags: msg.flags || [],
+      labels: labels,
       hasAttachments: parts.attachments.length > 0,
       subject: valuesOnly(firstHeader(msg, 'subject')),
 
@@ -397,6 +394,7 @@ exports.chewHeaderAndBodyStructure = function(msg, accountId, convId) {
       snippet: null
     }),
     bodyInfo: mailRep.makeBodyInfo({
+      id: messageId,
       date: msg.date,
       size: 0,
       attachments: parts.attachments,

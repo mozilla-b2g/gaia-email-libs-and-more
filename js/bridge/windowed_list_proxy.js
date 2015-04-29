@@ -103,17 +103,22 @@ WindowedListProxy.prototype = {
    *
    * NOTE: If/when we implement key stability stuff, it goes here.
    *
-   * @param {Object} [changeRec]
-   *   An optional change record so that an identifier can be provided to dirty
-   *   a specific record.  If omitted, the assumption is that something
-   *   drastic happened like the containing object no longer exists.
-   * @param {String} changeRec.id
-   *   The identifier of the thing that changed that needs to be dirtied so that
-   *   it can be removed from the viewSet.
+   * @param {String} [changeId=null]
+   *   For the case where a specific record is now out-of-date and new state for
+   *   it needs to be pushed, provide the id.  Note that if the record is not
+   *   currently something we have reported, this method call becomes a no-op.
+   *   Pass null if an ordering change has occurred.  If both things have
+   *   occurred, call us twice!
    */
-  onChange: function(changeRec) {
-    if (changeRec) {
-      this.viewSet.delete(changeRec.id);
+  onChange: function(id) {
+    if (id !== null) {
+      // If we haven't told the view about the data, there's no need for us to
+      // do anything.  Note that this also covers the case where we have an
+      // async read in flight.
+      if (!this.viewSet.has(id)) {
+        return;
+      }
+      this.viewSet.delete(id);
     }
 
     if (this.dirty) {

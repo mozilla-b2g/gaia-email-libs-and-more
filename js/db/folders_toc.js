@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let evt = require('evt');
 let logic = require('logic');
@@ -27,11 +28,13 @@ let FOLDER_TYPE_TO_SORT_PRIORITY = {
 };
 
 function strcmp(a, b) {
-  if (a < b)
+  if (a < b) {
     return -1;
-  else if (a > b)
+  } else if (a > b) {
     return 1;
-  return 0;
+  } else {
+    return 0;
+  }
 }
 
 /**
@@ -102,8 +105,9 @@ FoldersTOC.prototype = evt.mix({
    * comparison purposes.
    */
   _makeFolderSortString: function(folderInfo) {
-    if (!folderInfo)
+    if (!folderInfo) {
       return '';
+    }
 
     var parentFolderInfo = this.foldersById.get(folderInfo.parentId);
     return this._makeFolderSortString(parentFolderInfo) + '!' +

@@ -104,7 +104,7 @@ MailHeader.prototype = evt.mix({
 
     // Are there any unread messages in this
     this.hasUnread = wireRep.hasUnread;
-    this.hasFlagged = wireRep.hasStarred;
+    this.hasStarred = wireRep.hasStarred;
     this.hasDraft = wireRep.hasDraft;
     this.hasAttachments = wireRep.hasAttachments;
   },

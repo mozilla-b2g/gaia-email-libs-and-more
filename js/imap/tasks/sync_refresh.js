@@ -13,6 +13,7 @@ let parseImapDateTime = imapchew.parseImapDateTime;
 
 let a64 = require('../../a64');
 let parseGmailConvId = a64.parseUI64;
+let parseGmailMsgId = a64.parseUI64;
 
 
 /**
@@ -33,13 +34,10 @@ return TaskDefiner.defineSimpleTask([
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the account
-      // XXX duplicated boilerplate from sync_grow; prettify/normalize
-      let syncReqMap = new Map();
-      syncReqMap.set(req.accountId, null);
-      yield ctx.beginMutate({
-        syncStates: syncReqMap
+      let fromDb = yield ctx.beginMutate({
+        syncStates: new Map([[req.accountId, null]])
       });
-      let rawSyncState = syncReqMap.get(req.accountId);
+      let rawSyncState = fromDb.syncStates.get(req.accountId);
 
       // -- Check to see if we need to spin-off a sync_grow instead
       if (!rawSyncState) {
@@ -80,7 +78,11 @@ return TaskDefiner.defineSimpleTask([
           // We don't need/want FLAGS for new messsages (ones with a higher UID
           // than we've seen before), but it's potentially kinder to gmail to
           // ask for everything in a single go.
-          'FLAGS'
+          'FLAGS',
+          // Same deal for the X-GM-MSGID.  We are able to do a more efficient
+          // db access pattern if we have it, but it's not really useful in the
+          // new conversation/new message case.
+          'X-GM-MSGID'
         ],
         {
           byUid: true,
@@ -115,14 +117,21 @@ return TaskDefiner.defineSimpleTask([
             syncState.newMootMessage(uid);
           }
         } else { // It's an existing message
+          let newState = {
+            rawMsgId: parseGmailMsgId(msg['x-gm-msgid']),
+            flags: msg.flags,
+            labels: labelFolderIds
+          };
           if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
             // it's currently a yay message, but was it always a yay message?
             if (syncState.yayUids.has(uid)) {
               // yes, forever awesome.
-              syncState.existingMessageUpdated(uid, rawConvId, dateTS);
+              syncState.existingMessageUpdated(
+                uid, rawConvId, dateTS, newState);
             } else if (syncState.mehUids.has(uid)) {
               // no, it was meh, but is now suddenly fabulous
-              syncState.existingMehMessageIsNowYay(uid, rawConvId, dateTS);
+              syncState.existingMehMessageIsNowYay(
+                uid, rawConvId, dateTS, newState);
             } else {
               // Not aware of the message, so inductively this conversation is
               // new to us.
@@ -133,10 +142,12 @@ return TaskDefiner.defineSimpleTask([
           } else if (syncState.yayUids.has(uid)) {
             // it was yay, is now meh, this potentially even means we no longer
             // care about the conversation at all
-            syncState.existingYayMessageIsNowMeh(uid, rawConvId, dateTS);
+            syncState.existingYayMessageIsNowMeh(
+              uid, rawConvId, dateTS);
           } else if (syncState.mehUids.has(uid)) {
             // it was meh, it's still meh, it's just an update
-            syncState.existingMessageUpdated(uid, rawConvId, dateTS);
+            syncState.existingMessageUpdated(
+              uid, rawConvId, dateTS, newState);
           } else {
             syncState.existingMootMessage(uid);
 
@@ -150,12 +161,12 @@ return TaskDefiner.defineSimpleTask([
 
       yield ctx.finishTask({
         mutations: {
-          syncStates: syncReqMap,
+          syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
         },
         newData: {
-          tasks: syncState.rawSyncState
+          tasks: syncState.tasksToSchedule
         }
-      })
+      });
     })
   }
 ]);

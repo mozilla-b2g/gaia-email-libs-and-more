@@ -101,6 +101,9 @@ SyncStateHelper.prototype = {
         stash.yayUids.push(mehUid);
       }
     }
+    logic(this._ctx, 'derivedData',
+          { numYay: this.yayUids.size, numMeh: this.mehUids.size,
+            numConvs: rawConvIdToConvStash.size });
   },
 
   getFolderIdSinceDate: function(folderId) {
@@ -140,8 +143,8 @@ SyncStateHelper.prototype = {
       convId: convId,
       newConv: false,
       removeConv: false,
-      newUids: null,
-      modifiedUids: null,
+      newUids: null, // set
+      modifiedUids: null, // map ( uid => newStateObj )
       removedUids: null,
       mostRecent: 0
     };
@@ -248,7 +251,11 @@ SyncStateHelper.prototype = {
     this.mehUids.set(uid, rawConvId);
     let stash = this.rawConvIdToConvStash.get(rawConvId);
     stash.mehUids.push(uid);
-    this._updateTaskWithNewUid(stash, uid, rawConvId, dateTS);
+    // In the sync_conv case we won't have a dateTS nor will we care about
+    // tasks.
+    if (dateTS) {
+      this._updateTaskWithNewUid(stash, uid, rawConvId, dateTS);
+    }
   },
 
   newMootMessage: function(uid) {

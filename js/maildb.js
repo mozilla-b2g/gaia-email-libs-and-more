@@ -529,6 +529,32 @@ MailDB.prototype = evt.mix({
 
   /**
    * Issue read-only batch requests.
+   *
+   * @param ctx
+   * @param {Object} requests
+   *   A dictionary object of Maps whose keys are record identifiers and values
+   *   are initially null but will be filled in by us (if we can find the
+   *   record).  See the specific
+   * @param {Map<ConversationId, ConversationInfo>} requests.conversations
+   *   Load the given ConversationInfo structure.
+   * @param {Map<ConversationId, HeaderInfo[]>} requests.headersByConversation
+   *   Load all of the known headers for the given conversation, returning an
+   *   array ordered by the database storage order which is ascending by DateMS
+   *   and the encoded gmail message id.  Note that this mechanism currently
+   *   cannot take advantage of the `headerCache`.  (There are some easy-ish
+   *   things we could do to accomplish this, but it's not believed to be a
+   *   major concern at this time.)
+   * @param {Map<[MessageId, DateMS], HeaderInfo} requests.headers
+   *   Load specific headers.  Note that we need the canonical MessageId plus
+   *   the DateMS associated with the header to find the record if it's not in
+   *   cache.  This is a little weird but it's assumed you have previously
+   *   loaded the (now potentially stale) HeaderInfo and so have the information
+   *   at hand.
+   * @param {Map<[MessageId, DateMS], BodyInfo} requests.bodies
+   *   Load specific bodies using the same idiom as `requests.headers` which
+   *   you should read.  Note that there is no "bodiesByConversation" matching
+   *   `requests.headersByConversation` because you should not want to do that
+   *   as a responsible user of memory.
    */
   read: function(ctx, requests) {
     return new Promise((resolve, reject) => {
@@ -571,43 +597,79 @@ MailDB.prototype = evt.mix({
           dbReqCount++;
           let req = convStore.get(convId);
           let handler = (event) => {
-            let value;
             if (req.error) {
-              value = null;
               analyzeAndLogErrorEvent(event);
             } else {
-              value = req.result;
+              let value = req.result;
+              this.convCache.set(convId, value);
+              convRequestsMap.set(convId, value);
             }
-            this.convCache.set(convId, value);
-            convRequestsMap.set(convId, value);
           };
           req.onsuccess = handler;
           req.onerror = handler;
         }
       }
+      if (requests.headersByConversation) {
+        let headerStore = trans.objectStore(TBL_HEADERS);
+        let headerCache = this.headerCache;
+        let requestsMap = requests.headersByConversation;
+
+        for (let convId of requestsMap.keys()) {
+          let headerRange = IDBKeyRange.bound([convId],
+                                              [convId, []],
+                                              true, true);
+          let req = headerStore.mozGetAll(headerRange);
+          let handler = (event) => {
+            if (req.error) {
+              analyzeAndLogErrorEvent(event);
+            } else {
+              let headers = req.result;
+              for (let header of headers) {
+                // Put it in the cache unless it's already there (reads must
+                // not clobber writes/mutations!)
+                if (!headerCache.has(header.id)) {
+                  headerCache.set(header.id, header);
+                }
+              }
+              requestsMap.set(convId, headers);
+            }
+          };
+          req.onsuccess = handler;
+          req.onerror = handler;
+        }
+
+      }
       if (requests.headers) {
         let headerStore = trans.objectStore(TBL_HEADERS);
+        let headerCache = this.headerCache;
         let headerRequestsMap = requests.headers;
-        for (let headerId of headerRequestsMap.keys()) {
+        for (let [messageId, date] of headerRequestsMap.keys()) {
           // fill from cache if available
-          if (this.headerCache.has(headerId)) {
-            headerRequestsMap.set(headerId, this.headerCache.get(headerId));
+          if (headerCache.has(messageId)) {
+            headerRequestsMap.set(messageId, headerCache.get(messageId));
             continue;
           }
 
           // otherwise we need to ask the database
           dbReqCount++;
-          let req = headerStore.get(headerId);
+          let key = [
+            convIdFromMessageId(messageId),
+            date,
+            encodedGmailMessageIdFromMessageId(messageId)
+          ];
+          let req = headerStore.get(key);
           let handler = (event) => {
-            let value;
             if (req.error) {
-              value = null;
               analyzeAndLogErrorEvent(event);
             } else {
-              value = req.result;
+              let header = req.result;
+              // Put it in the cache unless it's already there (reads must
+              // not clobber writes/mutations!)
+              if (!headerCache.has(messageId)) {
+                headerCache.set(messageId, header);
+              }
+              headerRequestsMap.set(messageId, header);
             }
-            this.headerCache.set(headerId, value);
-            headerRequestsMap.set(headerId, value);
           };
           req.onsuccess = handler;
           req.onerror = handler;
@@ -615,27 +677,35 @@ MailDB.prototype = evt.mix({
       }
       if (requests.bodies) {
         let bodyStore = trans.objectStore(TBL_BODIES);
+        let bodyCache = this.bodyCache;
         let bodyRequestsMap = requests.bodies;
-        for (let bodyId of bodyRequestsMap.keys()) {
+        for (let [messageId, date] of bodyRequestsMap.keys()) {
           // fill from cache if available
-          if (this.bodyCache.has(bodyId)) {
-            bodyRequestsMap.set(bodyId, this.bodyCache.get(bodyId));
+          if (bodyCache.has(messageId)) {
+            bodyRequestsMap.set(messageId, bodyCache.get(messageId));
             continue;
           }
 
           // otherwise we need to ask the database
           dbReqCount++;
-          let req = bodyStore.get(bodyId);
+          let key = [
+            convIdFromMessageId(messageId),
+            date,
+            encodedGmailMessageIdFromMessageId(messageId)
+          ];
+          let req = bodyStore.get(key);
           let handler = (event) => {
-            let value;
             if (req.error) {
-              value = null;
               analyzeAndLogErrorEvent(event);
             } else {
-              value = req.result;
+              let value = req.result;
+              // Put it in the cache unless it's already there (reads must
+              // not clobber writes/mutations!)
+              if (!bodyCache.has(messageId)) {
+                bodyCache.set(messageId, value);
+              }
+              bodyRequestsMap.set(messageId, value);
             }
-            this.bodyCache.set(bodyId, value);
-            bodyRequestsMap.set(bodyId, value);
           };
           req.onsuccess = handler;
           req.onerror = handler;
@@ -643,11 +713,11 @@ MailDB.prototype = evt.mix({
       }
 
       if (!dbReqCount) {
-        resolve();
+        resolve(requests);
         // it would be nice if we could have avoided creating the transaction...
       } else {
         trans.oncomplete = () => {
-          resolve();
+          resolve(requests);
           this._considerCachePressure('read', ctx);
         };
       }
@@ -696,6 +766,8 @@ MailDB.prototype = evt.mix({
       // (nothing to do for "headers")
 
       // (nothing to do for "bodies")
+
+      return mutateRequests;
     });
   },
 
@@ -747,7 +819,7 @@ MailDB.prototype = evt.mix({
   _processConvAdditions: function(trans, convs) {
     let convStore = trans.objectStore(TBL_CONV_INFO);
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
-    for (let convInfo of convs) {
+    for (let convInfo of convs.values()) {
       convStore.add(convInfo, convInfo.id);
       this.convCache.set(convInfo.id, convInfo);
 
@@ -782,7 +854,6 @@ MailDB.prototype = evt.mix({
         // - Delete the conversation summary
         convStore.delete(convId);
         // - Delete all affiliated headers/bodies
-        let accountId = accountIdFromConvId(convId);
         let headerRange = IDBKeyRange.bound([convId],
                                             [convId, []],
                                             true, true);
@@ -869,13 +940,19 @@ MailDB.prototype = evt.mix({
     let retval = this._bufferChangeEventsIdiom(eventId);
 
     let trans = this._db.transaction(TBL_HEADERS, 'readonly');
-    let convIdsStore = trans.objectStore(TBL_HEADERS);
-    let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
+    let headerStore = trans.objectStore(TBL_HEADERS);
+    let headerRange = IDBKeyRange.bound([convId], [convId, []],
                                         true, true);
-    let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
+    let headers = yield wrapReq(headerStore.mozGetAll(headerRange));
 
-    retval.idsWithDates = tuples.map(function(x) {
-      return { date: x[1], id: x[2]};
+    let headerCache = this.headerCache;
+    retval.idsWithDates = headers.map(function(header) {
+      // Put it in the cache unless it's already there (reads must
+      // not clobber writes/mutations!)
+      if (!headerCache.has(header.id)) {
+        headerCache.set(header.id, header);
+      }
+      return { date: header.date, id: header.id};
     });
     return retval;
   }),
@@ -891,20 +968,37 @@ MailDB.prototype = evt.mix({
         header.date,
         encodedGmailMessageIdFromMessageId(header.id)
       ];
+      store.add(header, key);
+
       let eventId = 'conv!' + convId + '!messages!tocChange';
       this.emit(eventId, header.id, header);
-      store.add(header, key);
     }
   },
 
+  /**
+   * Process header modification and removal.
+   */
   _processHeaderMutations: function(trans, preStates, headers) {
-    for (let [headerId, header] of headers) {
+    let store = trans.objectStore(TBL_HEADERS);
+    for (let [messageId, header] of headers) {
+      let convId = convIdFromMessageId(messageId);
+      let date = preStates.get(messageId);
       let key = [
-        convIdFromMessageId(headerId),
-        header.date,
-        encodedGmailMessageIdFromMessageId(headerId)
+        convId,
+        date,
+        encodedGmailMessageIdFromMessageId(messageId)
       ];
-      store.put(header, key);
+
+      if (header === null) {
+        // -- Deletion
+        store.delete(key);
+      } else {
+        // -- Modification
+        store.put(header, key);
+      }
+
+      let eventId = 'conv!' + convId + '!messages!tocChange';
+      this.emit(eventId, messageId, date, header);
     }
   },
 
@@ -918,11 +1012,33 @@ MailDB.prototype = evt.mix({
         encodedGmailMessageIdFromMessageId(body.id)
       ];
       store.add(body, key);
+      // body addition does not generate an event since you technically can't
+      // know about them until after they're added.
     }
   },
 
   _processBodyMutations: function(trans, preStates, bodies) {
+    let store = trans.objectStore(TBL_HEADERS);
+    for (let [messageId, body] of bodies) {
+      let convId = convIdFromMessageId(messageId);
+      let date = preStates.get(messageId);
+      let key = [
+        convId,
+        date,
+        encodedGmailMessageIdFromMessageId(messageId)
+      ];
 
+      if (body === null) {
+        // -- Deletion
+        store.delete(key);
+      } else {
+        // -- Modification
+        store.put(body, key);
+      }
+
+      let eventId = 'body!' + body.id + '!change';
+      this.emit(eventId, body);
+    }
   },
 
   _addRawTasks: function(trans, wrappedTasks) {

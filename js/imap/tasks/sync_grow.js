@@ -32,8 +32,6 @@ return TaskDefiner.defineSimpleTask([
       return [
         // Only one of us/sync_refresh is allowed to be active at a time.
         `sync:${args.accountId}`,
-        // We mess with the folder meta-data
-        `folder:${args.folderId}`
       ];
     },
 
@@ -45,17 +43,12 @@ return TaskDefiner.defineSimpleTask([
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the account
-      // XXX this is ugly; a convenience method for single-shot access seems in
-      // order.  Or other helpers.
-      let syncReqMap = new Map();
-      syncReqMap.set(req.accountId, null);
-      yield ctx.beginMutate({
-        syncStates: syncReqMap
+      let fromDb = yield ctx.beginMutate({
+        syncStates: new Map([[req.accountId, null]])
       });
-      let rawSyncState = syncReqMap.get(req.accountId);
 
-      let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,
-                                          'grow');
+      let syncState = new SyncStateHelper(
+        ctx, fromDb.syncStates.get(req.accountId), req.accountId, 'grow');
 
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
@@ -126,10 +119,11 @@ return TaskDefiner.defineSimpleTask([
         syncState.modseq = mailboxInfo.highestModeq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
       }
+      syncState.finalizePendingRemovals();
 
       yield ctx.finishTask({
         mutations: {
-          syncStates: syncReqMap,
+          syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
         },
         newData: {
           tasks: syncState.tasksToSchedule

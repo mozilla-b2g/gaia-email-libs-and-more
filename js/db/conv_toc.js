@@ -14,31 +14,7 @@ let RefedResource = require('../refed_resource');
 
 let evt = require('evt');
 
-/**
- * Produce an ordering from oldest message to newest message, breaking ties
- * based on the id in an arbitrary but consistent fashion.
- */
-function conversationMessageComparator(a, b) {
-  let dateDelta = a.date - b.date;
-  if (dateDelta) {
-    return dateDelta;
-  }
-  // So for the id's, we just want consistent.  We don't actually care about the
-  // strict numerical ordering of the underlying identifier, although the
-  // differences will only start at the (encoded) raw message id.  Which is
-  // arbitrary because it's something gmail assigns with no defined behaviour.
-  let aId = a.id;
-  let bId = b.id;
-  if (aId > bId) {
-    return 1;
-  } else if (bId > aId) {
-    return -1;
-  } else {
-    return 0;
-  }
-}
-
-
+let { conversationMessageComparator } = require('./comparators');
 
 /**
  * The Conversation Table-of-Contents is in charge of backing view slices
@@ -100,15 +76,15 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   /**
-   * Handle a change from the database.
+   * Handle the addition or removal of a message from the TOC.
    *
-   * @param {Object} change
-   * @param {ConvId} id
-   * @param {ConvInfo} item
-   * @param {DateTS} removeDate
-   * @param {DateTS} addDate
+   * @param {MessageId} messageId
+   * @param {DateTS} date
+   * @param {HeaderInfo} headerInfo
    */
-  onTOCChange: function(change) {
+  onTOCChange: function(messageId, date, headerInfo) {
+
+
     let metadataOnly = change.removeDate === change.addDate;
 
     if (!metadataOnly) {
@@ -116,7 +92,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
       if (change.removeDate) {
         let oldKey = { date: change.removeDate, id: change.id };
         oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
-                                      folderConversationComparator);
+                                      conversationMessageComparator);
         // NB: if we computed the newIndex before splicing out, we could avoid
         // potentially redundant operations, but it's not worth the complexity
         // at this point.
@@ -126,7 +102,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
       if (change.addDate) {
         let newKey = { date: change.addDate, id: change.id };
         newIndex = bsearchForInsert(this.idsWithDates, newKey,
-                                    folderConversationComparator);
+                                    conversationMessageComparator);
         this.idsWithDates.splice(newIndex, 0, newKey);
       }
 
@@ -141,9 +117,13 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
     // debug visualization?), it could make sense to expose the indices being
     // impacted.
-    this.emit('change', change.id, metadataOnly);
+    this.emit('change', );
   },
 
+  /**
+   * Listener for changes on the conversation to detect when it's deleted so we
+   * can clean ourselves out.  No TOC events are generated in this case.
+   */
   onConvChange: function(convId, convInfo) {
     if (convInfo === null) {
       // Our conversation was deleted and no longer exists.  Clean everything
@@ -171,7 +151,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
 
   findIndexForOrderingKey: function(key) {
     let index = bsearchForInsert(this.idsWithDates, key,
-                                 folderConversationComparator);
+                                 conversationMessageComparator);
     return index;
   },
 
@@ -190,7 +170,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     let newKnownSet = new Set();
 
     let idsWithDates = this.idsWithDates;
-    let convCache = this._db.convCache;
+    let headerCache = this._db.headerCache;
     let ids = [];
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
@@ -199,18 +179,19 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
         newKnownSet.add(id);
         continue;
       }
-      if (convCache.has(id)) {
+      if (headerCache.has(id)) {
         newKnownSet.add(id);
-        haveData.set(id, convCache.get(id));
+        haveData.set(id, headerCache.get(id));
       } else {
-        needData.set(id, null);
+        let date = idsWithDates[i].id;
+        needData.set([id, date], null);
       }
     }
 
     let readPromise = null;
     if (needData.size) {
       readPromise = this._db.read({
-        conv: needData
+        headers: needData
       });
     } else {
       needData = null;

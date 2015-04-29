@@ -7,6 +7,7 @@ define(
     $date,
     exports
   ) {
+'use strict';
 
 ////////////////////////////////////////////////////////////////////////////////
 // IMAP time constants
@@ -160,9 +161,11 @@ exports.INITIAL_FILL_SIZE = 15;
 /**
  * How many days in the past should we first look for messages.
  *
+ * XXX temporarily lowered to 1 for debugging simplicity.
+ *
  * IMAP only.
  */
-exports.INITIAL_SYNC_DAYS = 3;
+exports.INITIAL_SYNC_DAYS = 1;
 
 /**
  * When growing our synchronization range, what should be the initial number of
@@ -460,15 +463,17 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
     growRefreshThresh: 'GROW_REFRESH_THRESH_MS',
   };
 
-  for (var key in syncValues) if (syncValues.hasOwnProperty(key)) {
-    var outKey = legacyKeys[key] || key;
-    if (exports.hasOwnProperty(outKey)) {
-      exports[outKey] = syncValues[key];
-    } else {
-      // In the future (after we have a chance to review all calls to
-      // this function), we could make this throw an exception
-      // instead.
-      console.warn('Invalid key for TEST_adjustSyncValues: ' + key);
+  for (var key in syncValues) {
+    if (syncValues.hasOwnProperty(key)) {
+      var outKey = legacyKeys[key] || key;
+      if (exports.hasOwnProperty(outKey)) {
+        exports[outKey] = syncValues[key];
+      } else {
+        // In the future (after we have a chance to review all calls to
+        // this function), we could make this throw an exception
+        // instead.
+        console.warn('Invalid key for TEST_adjustSyncValues: ' + key);
+      }
     }
   }
 };

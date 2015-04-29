@@ -11,24 +11,7 @@ let RefedResource = require('../refed_resource');
 
 let evt = require('evt');
 
-function folderConversationComparator(a, b) {
-  let dateDelta = b.date - a.date;
-  if (dateDelta) {
-    return dateDelta;
-  }
-  // So for the id's, we just want consistent.  We don't actually care about the
-  // strict numerical ordering of the underlying conversation identifier (sans
-  // account id), so we can just do lexical string ordering for this.
-  let aId = a.id;
-  let bId = b.id;
-  if (bId > aId) {
-    return 1;
-  } else if (aId > bId) {
-    return -1;
-  } else {
-    return 0;
-  }
-}
+let { folderConversationComparator } = require('./comparators');
 
 /**
  * Backs view-slices listing the conversations in a folder.
@@ -182,7 +165,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     let readPromise = null;
     if (needData.size) {
       readPromise = this._db.read({
-        conv: needData
+        conversations: needData
       });
     } else {
       needData = null;
