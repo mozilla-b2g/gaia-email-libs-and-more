@@ -66,6 +66,14 @@ return new LegacyGelamTest('with version 0, upgrade is triggered', function(T) {
                      storage.folderMeta.version);
   });
 
+  T.action('(wait for ping roundtrip to ensure front-end is up-to-date',
+           eSync, ')', function() {
+    eSync.expect('ping');
+    testAccount.MailAPI.ping(function() {
+      eSync.log('ping');
+    });
+  });
+
   T.check('unread counts', eSync, function() {
     testAccount.expect_unread('After upgrade', testFolder, eSync, 7);
   });

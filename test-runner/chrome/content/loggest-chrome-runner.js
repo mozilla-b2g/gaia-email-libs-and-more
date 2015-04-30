@@ -1240,7 +1240,6 @@ function DOMLoaded() {
         dump('           (Run "make clean" to delete old test logs.)           \n\n\n');
 
         var testResult = getTestResult(summaries);
-        var jsonString = JSON.stringify({ result: testResult });
 
         var INDEX_FILENAME = 'index.json';
 
@@ -1257,6 +1256,9 @@ function DOMLoaded() {
             });
             return writeFile('test-logs', INDEX_FILENAME,
                              JSON.stringify(jsonIndex));
+          }).then(() => {
+            return writeFile('test-logs', 'last-run.summary',
+                             JSON.stringify({ result: testResult }));
           }).then(() => {
             quitApp();
           });

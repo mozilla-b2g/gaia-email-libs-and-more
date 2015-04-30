@@ -19,9 +19,7 @@ make b2g
 section_echo 'make all-tests'
 make all-tests
 
-TEST_RESULT=`cat ./test-logs/test-run.summary`
-
-if [ `echo $TEST_RESULT | grep -c "success" ` -gt 0 ]
+if [ `grep -c "success" ./test-logs/last-run.summary` -gt 0 ]
 then
   exit 0;
 else
