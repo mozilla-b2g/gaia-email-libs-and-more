@@ -3,12 +3,33 @@ define(function(require) {
 var GelamTest = require('./resources/gelamtest');
 var AccountHelpers = require('./resources/account_helpers');
 var { backend } = require('./resources/contexts');
+var assert = require('./resources/assert');
 var logic = require('logic');
 
 // XXX: Helpers are gross; see thoughts in account_helpers.js.
 var help;
 
 return [
+  new GelamTest('reportError fails test, does nothing in real life',
+      function*(MailAPI) {
+
+    assert(logic._currentTestRejectFunction, 'reject must be set');
+    var rejected = false;
+    logic._currentTestRejectFunction = function() {
+      rejected = true;
+    }
+
+    // Running in test mode, we should see a rejection.
+    MailAPI._processMessage({ type: 'fakeMessage' });
+    assert(rejected === true, 'should have rejected during test');
+
+    // Running in real life, we should not.
+    rejected = false;
+    logic.underTest = false;
+    MailAPI._processMessage({ type: 'fakeMessage' });
+    assert(rejected === false, 'should not have rejected when not underTest');
+  }),
+
   new GelamTest('Releases mutex during botched sync', function*(MailAPI) {
     this.group('setup');
 

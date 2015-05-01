@@ -132,13 +132,10 @@ define(function(require) {
 
           // Run or timeout, which one will win?
           return Promise.race([
-            Promise.resolve(this.fn.call(this, MailAPI)),
             new Promise((resolve, reject) => {
-              logic.fail = (ex) => {
-                dump('*** Logic Fail:\n');
-                reject(ex);
-              };
+              logic._currentTestRejectFunction = reject;
             }),
+            Promise.resolve(this.fn.call(this, MailAPI)),
             new Promise((resolve, reject) => {
               setTimeout(() => {
                 reject(new Error('GelamTest Timeout'));
@@ -152,9 +149,7 @@ define(function(require) {
             this._currentGroupAsyncCallbacks.resolve();
           }
           logic.removeListener('event', handleEvent);
-          logic.fail = function(e) {
-            console.error('Test has ended!', e);
-          };
+          logic._currentTestRejectFunction = null;
           return this.gatherLogs(/* no error! */);
         }).catch((ex) => {
           // Close out the group, noting why it failed.
