@@ -948,6 +948,7 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
       var summary = {
         filename: testFileName,
         timestamp: testRunTimestampMS,
+        variant: variant,
         href: 'test-logs/' + basename + '-' + time + '.json',
         tests: testLogs.map((resultData) => {
           return { name: resultData.name,
@@ -962,6 +963,7 @@ function _runTestFile(runner, testFileName, variant, baseUrl, manifestUrl,
       var logResults = {
         type: 'suite-results',
         filename: summary.filename,
+        variant: variant,
         href: summary.href,
         timestamp: time,
         result: summary.result,
