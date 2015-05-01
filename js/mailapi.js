@@ -5,14 +5,12 @@
 define(
   [
     'exports',
-    './logic',
     // Use a relative link so that consumers do not need to create
     // special config to use main-frame-setup.
     './ext/addressparser'
   ],
   function(
     exports,
-    logic,
     addressparser
   ) {
 
@@ -2064,6 +2062,7 @@ var LEGAL_CONFIG_KEYS = [];
  * help reduce inadvertent breakage later on.
  */
 function reportError() {
+  console.error.apply(console, arguments);
   var msg = null;
   for (var i = 0; i < arguments.length; i++) {
     if (msg)
@@ -2071,8 +2070,7 @@ function reportError() {
     else
       msg = "" + arguments[i];
   }
-  // When in tests, this will fail the test; when not in tests, we just log.
-  logic.fail(new Error(msg));
+  throw new Error(msg);
 }
 var unexpectedBridgeDataError = reportError,
     internalError = reportError,
