@@ -49,7 +49,6 @@ install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
 	                    --exclude='.gitignore' \
 	                    --exclude='.gitmodules' \
 	                    --exclude='.jshintrc' \
-	                    --exclude='.travis.yml' \
 	                    --exclude='Gruntfile.js' \
 	                    --exclude='LICENSE' \
 	                    --exclude='Makefile' \
