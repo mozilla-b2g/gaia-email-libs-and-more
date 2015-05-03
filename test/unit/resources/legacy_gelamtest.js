@@ -59,7 +59,7 @@
 define(function(require) {
 
   var logic = require('logic');
-  var equal = require('equal');
+  var equal = require('gelam/ext/equal');
   var GelamTest = require('./gelamtest');
 
   var $th_main = require('./th_main'),
