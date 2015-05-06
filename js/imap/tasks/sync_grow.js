@@ -115,8 +115,10 @@ return TaskDefiner.defineSimpleTask([
       }
 
       syncState.setFolderIdSinceDate(req.folderId, newSinceDate.valueOf());
+      logic(ctx, 'mailboxInfo', { existingModseq: syncState.modseq,
+        newModseq: mailboxInfo.highestModseq, mailboxInfo: mailboxInfo })
       if (!syncState.modseq) {
-        syncState.modseq = mailboxInfo.highestModeq;
+        syncState.modseq = mailboxInfo.highestModseq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
       }
       syncState.finalizePendingRemovals();

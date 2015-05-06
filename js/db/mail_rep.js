@@ -39,7 +39,7 @@ define(function() {
  * @property {NameAddressPair[]} bcc
  * @property {NameAddressPair[]} replyTo
  * @property {String[]} flags
- * @property {String[]} labels
+ * @property {String[]} folderIds
  *   Gmail labels applied to the message.  These may or may not be the same as
  *   what is applied to the rest of the conversation.  Gmail tracks labels on a
  *   per-message basis, at least for IMAP purposes.
@@ -82,7 +82,7 @@ function makeHeaderInfo(raw) {
     bcc: raw.bcc || null,
     replyTo: raw.replyTo || null,
     flags: raw.flags || [],
-    labels: raw.labels || [],
+    folderIds: raw.folderIds || [],
     hasAttachments: raw.hasAttachments || false,
     // These can be empty strings which are falsey, so no ||
     subject: (raw.subject != null) ? raw.subject : null,

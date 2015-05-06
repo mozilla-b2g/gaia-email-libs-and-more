@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let evt = require('evt');
 let logic = require('logic');
@@ -40,6 +41,11 @@ AccountsTOC.prototype = evt.mix({
     return this.accountDefs.map(this.accountDefToWireRep);
   },
 
+  /**
+   * Add the account with the given accountDef to be tracked by the TOC,
+   * returning the wireRep for the account for any legacy needs.  (We otherwise
+   * have no useful return value, so why not do something ugly?)
+   */
   addAccount: function(accountDef) {
     let idx = bsearchForInsert(this.accountDefs, accountDef,
                                accountDefComparator);
@@ -47,7 +53,10 @@ AccountsTOC.prototype = evt.mix({
     this.accountDefsById.set(accountDef.id, accountDef);
     logic(this, 'addAccount', { accountId: accountDef.id, index: idx });
 
-    this.emit('add', this.accountDefToWireRep(accountDef), idx);
+    let wireRep = this.accountDefToWireRep(accountDef);
+    this.emit('add', wireRep, idx);
+
+    return wireRep;
   },
 
   accountModified: function(accountDef) {

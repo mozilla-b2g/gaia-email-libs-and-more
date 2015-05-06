@@ -367,7 +367,11 @@ exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
   let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
   let messageId = convId + '.' + gmailMsgId + '.' + msg.uid;
 
-  let labels = labelMapper.labelsToFolderId(msg['x-gm-labels']);
+  // Convert the imap-parser tagged { type: STRING, value } for to just values.
+  // (Note this is a different set of types from the header parser, and
+  // different from flags which are automatically normalized.)
+  let rawGmailLabels = valuesOnly(msg['x-gm-labels']);
+  let folderIds = labelMapper.labelsToFolderIds(rawGmailLabels);
 
   return {
     headerInfo: mailRep.makeHeaderInfo({
@@ -386,7 +390,7 @@ exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
       bcc: valuesOnly(firstHeader(msg, 'bcc')),
       replyTo: valuesOnly(firstHeader(msg, 'reply-to')),
       flags: msg.flags || [],
-      labels: labels,
+      folderIds: folderIds,
       hasAttachments: parts.attachments.length > 0,
       subject: valuesOnly(firstHeader(msg, 'subject')),
 

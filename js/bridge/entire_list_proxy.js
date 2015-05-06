@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 /**
  * Backs an `EntireListView`, see its docs for more context.
@@ -78,8 +79,9 @@ EntireListProxy.prototype = {
     this._idToChangeIndex.set(item.id, this._pendingChanges.length);
     this._pendingChanges.push({
       type: 'add',
+      index: index,
       state: item
-    })
+    });
   },
 
   onChange: function(item, index) {
@@ -87,8 +89,8 @@ EntireListProxy.prototype = {
     // adding a change that clobbers the previous state
     if (this._idToChangeIndex.has(item.id)) {
       // (we're already dirty)
-      let index = this._idToChangeIndex.get(item.id);
-      this._pendingChanges[index].state = item;
+      let changeIndex = this._idToChangeIndex.get(item.id);
+      this._pendingChanges[changeIndex].state = item;
       return;
     }
 

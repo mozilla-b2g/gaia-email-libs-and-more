@@ -218,6 +218,20 @@ function computeSetDelta(before, after) {
   return { added: added, kept: kept, removed: removed };
 }
 
+/**
+ * Deal with the lack of Array.prototype.values() existing in SpiderMonkey which
+ * would let us treat Maps and Arrays identically for the addition case by
+ * manually specializing.  We can just use values() once
+ * https://bugzilla.mozilla.org/show_bug.cgi?id=875433 is fixed.
+ */
+function valueIterator(arrayOrMap) {
+  if (Array.isArray(arrayOrMap)) {
+    return arrayOrMap;
+  } else {
+    return arrayOrMap.values();
+  }
+}
+
 let eventForFolderId = folderId => 'fldr!' + folderId + '!convs!tocChange';
 
 /**
@@ -565,7 +579,8 @@ MailDB.prototype = evt.mix({
       if (requests.syncStates) {
         let syncStore = trans.objectStore(TBL_SYNC_STATES);
         let syncStatesRequestsMap = requests.syncStates;
-        for (let key of syncStatesRequestsMap.keys()) {
+        for (let unlatchedKey of syncStatesRequestsMap.keys()) {
+          let key = unlatchedKey;
           dbReqCount++;
           let req = syncStore.get(key);
           let handler = (event) => {
@@ -586,7 +601,8 @@ MailDB.prototype = evt.mix({
       if (requests.conversations) {
         let convStore = trans.objectStore(TBL_CONV_INFO);
         let convRequestsMap = requests.conversations;
-        for (let convId of convRequestsMap.keys()) {
+        for (let unlatchedConvId of convRequestsMap.keys()) {
+          let convId = unlatchedConvId;
           // fill from cache if available
           if (this.convCache.has(convId)) {
             convRequestsMap.set(convId, this.convCache.get(convId));
@@ -614,7 +630,8 @@ MailDB.prototype = evt.mix({
         let headerCache = this.headerCache;
         let requestsMap = requests.headersByConversation;
 
-        for (let convId of requestsMap.keys()) {
+        for (let unlatchedConvId of requestsMap.keys()) {
+          let convId = unlatchedConvId;
           let headerRange = IDBKeyRange.bound([convId],
                                               [convId, []],
                                               true, true);
@@ -643,7 +660,8 @@ MailDB.prototype = evt.mix({
         let headerStore = trans.objectStore(TBL_HEADERS);
         let headerCache = this.headerCache;
         let headerRequestsMap = requests.headers;
-        for (let [messageId, date] of headerRequestsMap.keys()) {
+        for (let [unlatchedMessageId, date] of headerRequestsMap.keys()) {
+          let messageId = unlatchedMessageId;
           // fill from cache if available
           if (headerCache.has(messageId)) {
             headerRequestsMap.set(messageId, headerCache.get(messageId));
@@ -679,7 +697,8 @@ MailDB.prototype = evt.mix({
         let bodyStore = trans.objectStore(TBL_BODIES);
         let bodyCache = this.bodyCache;
         let bodyRequestsMap = requests.bodies;
-        for (let [messageId, date] of bodyRequestsMap.keys()) {
+        for (let [unlatchedMessageId, date] of bodyRequestsMap.keys()) {
+          let messageId = unlatchedMessageId;
           // fill from cache if available
           if (bodyCache.has(messageId)) {
             bodyRequestsMap.set(messageId, bodyCache.get(messageId));
@@ -763,9 +782,36 @@ MailDB.prototype = evt.mix({
         }
       }
 
-      // (nothing to do for "headers")
+      // - headers
+      // we need the date for all headers, whether directly loaded or loaded via
+      // headersByConversation
+      if (mutateRequests.headersByConversation ||
+          mutateRequests.headers) {
+        let preHeaders = preMutateStates.headers = new Map();
 
-      // (nothing to do for "bodies")
+        if (mutateRequests.headersByConversation) {
+          for (let convHeaders of
+               mutateRequests.headersByConversation.values()) {
+            for (let header of convHeaders) {
+              preHeaders.set(header.id, header.date);
+            }
+          }
+        }
+        if (mutateRequests.headers) {
+          for (let header of mutateRequests.headers.values()) {
+            preHeaders.set(header.id, header.date);
+          }
+        }
+      }
+
+      // - bodies
+      // same deal as headers; we need the date
+      if (mutateRequests.bodies) {
+        let preBodies = preMutateStates.bodies = new Map();
+        for (let body of mutateRequests.bodies.values()) {
+          preBodies.set(body.id, body.date);
+        }
+      }
 
       return mutateRequests;
     });
@@ -819,7 +865,7 @@ MailDB.prototype = evt.mix({
   _processConvAdditions: function(trans, convs) {
     let convStore = trans.objectStore(TBL_CONV_INFO);
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
-    for (let convInfo of convs.values()) {
+    for (let convInfo of valueIterator(convs)) {
       convStore.add(convInfo, convInfo.id);
       this.convCache.set(convInfo.id, convInfo);
 
@@ -961,7 +1007,7 @@ MailDB.prototype = evt.mix({
 
   _processHeaderAdditions: function(trans, headers) {
     let store = trans.objectStore(TBL_HEADERS);
-    for (let header of headers.values()) {
+    for (let header of valueIterator(headers)) {
       let convId = convIdFromMessageId(header.id);
       let key = [
         convId,
@@ -1005,7 +1051,7 @@ MailDB.prototype = evt.mix({
 
   _processBodyAdditions: function(trans, bodies) {
     let store = trans.objectStore(TBL_BODIES);
-    for (let body of bodies.values()) {
+    for (let body of valueIterator(bodies)) {
       let key = [
         convIdFromMessageId(body.id),
         body.date,
@@ -1064,6 +1110,22 @@ MailDB.prototype = evt.mix({
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
+    // -- New / Added data
+    let newData = data.newData;
+    if (newData) {
+      if (newData.conversations) {
+        this._processConvAdditions(trans, newData.conversations);
+      }
+      if (newData.headers) {
+        this._processHeaderAdditions(trans, newData.headers);
+      }
+      if (newData.bodies) {
+        this._processBodyAdditions(trans, newData.bodies);
+      }
+      // newData.tasks is transformed by the TaskContext into
+      // taskData.wrappedTasks
+    }
+
     // -- Mutations (begun via beginMutate)
     let mutations = data.mutations;
     if (mutations) {
@@ -1093,22 +1155,59 @@ MailDB.prototype = evt.mix({
         this._processBodyMutations(
           trans, ctx._preMutateStates.bodies, mutations.bodies);
       }
-    }
 
-    // -- New / Added data
-    let newData = data.newData;
-    if (newData) {
-      if (newData.conversations) {
-        this._processConvAdditions(trans, newData.conversations);
+      if (mutations.accounts) {
+        // (This intentionally comes after all other mutation types and newData
+        // so that our deletions should clobber new introductions of data,
+        // although arguably no such writes should be occurring.)
+        for (let [accountId, accountDef] of mutations.accounts) {
+          if (accountDef) {
+            // - Update
+            trans.objectStore(TBL_CONFIG)
+              .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
+          } else {
+            // - Account Deletion!
+            // We handle the syncStates, folders, conversations, headers, and
+            // bodies ranges here.
+            // Task fallout needs to be explicitly managed by the task in
+            // coordination with the TaskManager.
+            trans.objectStore(TBL_CONFIG)
+              .delete(CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
+
+            // Sync state: just delete by accountId.
+            trans.objectStore(TBL_SYNC_STATES).delete(accountId);
+            // FUTURE: also do a range for per-folder stuff.
+
+            // Folders: Just delete by accountId
+            trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
+
+            // Build a range that covers our family of keys where we use an
+            // array whose first item is a string id that is a concatenation of
+            // `AccountId`, the string ".", and then some more array parts.  Our
+            // prefix string provides a lower bound, and the prefix with the
+            // highest possible unicode character thing should be strictly
+            // greater than any legal suffix (\ufff0 not being a legal suffix
+            // in our key-space.)
+            let accountArrayItemPrefix = IDBKeyRange.bound(
+              [accountId + '.'],
+              [accountId + '.\ufff0'],
+              true, true);
+
+            // Conversation: string ordering unicode tricks
+            trans.objectStore(TBL_CONV_INFO).delete(accountArrayItemPrefix);
+            trans.objectStore(TBL_CONV_IDS_BY_FOLDER).delete(
+              accountArrayItemPrefix);
+
+            // Headers: string ordering unicode tricks
+            trans.objectStore(TBL_HEADERS).delete(accountArrayItemPrefix);
+
+            // Bodies: string ordering unicode tricks
+            trans.objectStore(TBL_BODIES).delete(accountArrayItemPrefix);
+          }
+
+          this.emit('accounts!tocChange', accountId, null);
+        }
       }
-      if (newData.headers) {
-        this._processHeaderAdditions(trans, newData.headers);
-      }
-      if (newData.bodies) {
-        this._processBodyAdditions(trans, newData.bodies);
-      }
-      // newData.tasks is transformed by the TaskContext into
-      // taskData.wrappedTasks
     }
 
     // -- Tasks

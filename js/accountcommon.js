@@ -19,6 +19,7 @@ define(
     $module,
     exports
   ) {
+'use strict';
 
 var latchedWithRejections = allback.latchedWithRejections;
 
@@ -309,8 +310,7 @@ exports.fillConfigPlaceholders = fillConfigPlaceholders;
  *   },
  * }
  */
-function Autoconfigurator(_LOG) {
-  this._LOG = _LOG;
+function Autoconfigurator() {
   this.timeout = AUTOCONFIG_TIMEOUT_MS;
 }
 exports.Autoconfigurator = Autoconfigurator;
@@ -382,7 +382,7 @@ Autoconfigurator.prototype = {
           }
           self.removeEventListener(evt.type, onworkerresponse);
           var args = data.args;
-          var config = args[0], status = args[1];
+          var config = args[0];
           resolve(config);
         });
       };
@@ -543,16 +543,16 @@ Autoconfigurator.prototype = {
       xhr.timeout = this.timeout;
 
       xhr.onload = function() {
-        var reportDomain = null;
+        var reportDomain = null, normStr, mxDomain;
         if (xhr.status === 200) {
-          var normStr = xhr.responseText.split('\n')[0];
+          normStr = xhr.responseText.split('\n')[0];
           if (normStr) {
             normStr = normStr.toLowerCase();
             // XXX: We need to normalize the domain here to get the base domain,
             // but that's complicated because people like putting dots in
             // TLDs. For now, let's just pretend no one would do such a horrible
             // thing.
-            var mxDomain = normStr.split('.').slice(-2).join('.');
+            mxDomain = normStr.split('.').slice(-2).join('.');
             if (mxDomain !== domain) {
               reportDomain = mxDomain;
             }
@@ -635,13 +635,15 @@ Autoconfigurator.prototype = {
   _getConfigFromMX: function getConfigFromMX(domain, callback) {
     var self = this;
     this._getMX(domain, function(error, mxDomain, errorDetails) {
-      if (error)
+      if (error) {
         return callback(error, null, errorDetails);
+      }
 
       console.log('  Found MX for', mxDomain);
 
-      if (domain === mxDomain)
+      if (domain === mxDomain) {
         return callback('no-config-info', null, { status: 'mxsame' });
+      }
 
       // If we found a different domain after MX lookup, we should look in our
       // local file store (mostly to support Google Apps domains) and, if that
@@ -681,7 +683,7 @@ Autoconfigurator.prototype = {
     return new Promise(function(resolve, reject) {
       var emailAddress = details.emailAddress;
       var emailParts = emailAddress.split('@');
-      var emailLocalPart = emailParts[0], emailDomainPart = emailParts[1];
+      var emailDomainPart = emailParts[1];
       var domain = emailDomainPart.toLowerCase();
       slog.log('autoconfig:begin', { domain: domain });
 
@@ -825,28 +827,27 @@ Autoconfigurator.prototype = {
    * @param callback a callback taking an error string (if any) and the config
    *        info, formatted as JSON
    */
-  tryToCreateAccount: function(universe, userDetails, callback) {
-    this.learnAboutAccount(userDetails).then(
+  tryToCreateAccount: function(universe, userDetails) {
+    return this.learnAboutAccount(userDetails).then(
       function success(results) {
         // If we found a config and we just need a password, then we're good
         // to go.
         if (results.result === 'need-password') {
           var config = results.configInfo;
-          requireConfigurator(config.type, function (mod) {
-            mod.configurator.tryToCreateAccount(universe, userDetails, config,
-                                                callback, this._LOG);
+          return new Promise((resolve, reject) => {
+            requireConfigurator(config.type, function (mod) {
+              resolve(
+                mod.configurator.tryToCreateAccount(
+                  universe, userDetails, config));
+            });
           });
-          return;
         }
 
         slog.warn('autoconfig.legacyCreateFail', { result: results.result });
         // need-oauth2 is not supported via this code-path; coerce to a config
         // failure...
-        callback('no-config-info');
-      }.bind(this),
-      function failure(err) {
-        callback(err, null, null);
-      }.bind(this));
+        return({ error: 'no-config-info' });
+      });
   },
 };
 
@@ -859,19 +860,24 @@ Autoconfigurator.prototype = {
  * @param callback a callback to fire when we've completed recreating the
  *        account
  */
-function recreateAccount(universe, oldVersion, accountInfo, callback) {
-  requireConfigurator(accountInfo.def.type, function (mod) {
-    mod.configurator.recreateAccount(universe, oldVersion,
-                                     accountInfo, callback);
+function recreateAccount(universe, oldVersion, accountInfo) {
+  return new Promise((resolve, reject) => {
+    requireConfigurator(accountInfo.def.type, function (mod) {
+      // resolve the promise with the promise returned by the configurator
+      resolve(mod.configurator.recreateAccount(universe, oldVersion,
+                                               accountInfo));
+    });
   });
 }
 exports.recreateAccount = recreateAccount;
 
-function tryToManuallyCreateAccount(universe, userDetails, domainInfo, callback,
-                                    _LOG) {
-  requireConfigurator(domainInfo.type, function (mod) {
-    mod.configurator.tryToCreateAccount(universe, userDetails, domainInfo,
-                                        callback, _LOG);
+function tryToManuallyCreateAccount(universe, userDetails, domainInfo) {
+  return new Promise((resolve, reject) => {
+    requireConfigurator(domainInfo.type, function (mod) {
+      // resolve the promise with the promise returned by the configurator
+      resolve(
+        mod.configurator.tryToCreateAccount(universe, userDetails, domainInfo));
+    });
   });
 }
 exports.tryToManuallyCreateAccount = tryToManuallyCreateAccount;

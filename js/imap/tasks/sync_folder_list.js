@@ -6,20 +6,24 @@ let logic = require('logic');
 let TaskDefiner = require('../../task_definer');
 
 /**
- * Sync the folder list for a GMail account.  This has
+ * Sync the folder list for a GMail account.
  */
 return TaskDefiner.defineSimpleTask([
   {
     name: 'sync_folder_list',
     args: ['accountId'],
 
-    exclusiveResources: [
-      // Nothing else that touches folder info is allowed in here.
-      (args) => `folderInfo:${args.accountId}`,
-    ],
+    exclusiveResources: function() {
+      return [
+        // Nothing else that touches folder info is allowed in here.
+        (args) => `folderInfo:${args.accountId}`,
+      ];
+    },
 
-    priorityTags: [
-    ],
+    priorityTags: function() {
+      return [
+      ];
+    },
 
     execute: co.wrap(function*(ctx, planned) {
       logic(ctx, 'execute', { planned: planned });

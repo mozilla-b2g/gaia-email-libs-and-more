@@ -87,6 +87,7 @@ SyncStateHelper.prototype = {
           mostRecent: 0,
           task: null
         };
+        rawConvIdToConvStash.set(rawConvId, stash);
       } else {
         stash.yayUids.push(yayUid);
       }

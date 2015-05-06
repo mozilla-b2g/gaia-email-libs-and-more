@@ -68,7 +68,7 @@ function MailAccount(api, wireRep, acctsSlice) {
 
   this.folders = null;
   if (acctsSlice && acctsSlice._autoViewFolders) {
-    this.folders = api.viewFolders('account', this.id)
+    this.folders = api.viewFolders('account', this.id);
   }
 }
 MailAccount.prototype = {

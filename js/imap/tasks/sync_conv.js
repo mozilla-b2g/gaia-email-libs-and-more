@@ -165,7 +165,7 @@ return TaskDefiner.defineSimpleTask([
         yield* this._fetchAndChewUids(
           ctx, account, allMailFolderInfo, req.convId, uids);
 
-      let convInfo = churnConversation(null, headers);
+      let convInfo = churnConversation(req.convId, null, headers);
 
       yield ctx.finishTask({
         mutations: {

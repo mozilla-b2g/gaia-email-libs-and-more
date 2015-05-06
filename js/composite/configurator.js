@@ -119,7 +119,7 @@ exports.configurator = {
     // the first error that returns, it actually works well for our
     // semantics, as we only notify the user about one side's problems
     // at a time.
-    Promise.all([incomingPromise, outgoingPromise])
+    return Promise.all([incomingPromise, outgoingPromise])
       .then(function(results) {
         var incomingConn = results[0].conn;
         var defineAccount;
@@ -130,10 +130,9 @@ exports.configurator = {
           incomingInfo.preferredAuthMethod = incomingConn.authMethod;
           defineAccount = this._definePop3Account;
         }
-        defineAccount.call(this,
-                           universe, userDetails, credentials,
-                           incomingInfo, smtpConnInfo, incomingConn,
-                           callback);
+        return defineAccount.call(this,
+                                  universe, userDetails, credentials,
+                                  incomingInfo, smtpConnInfo, incomingConn);
       }.bind(this))
       .catch(function(ambiguousErr) {
         // One of the account sides failed. Normally we leave the
@@ -141,14 +140,18 @@ exports.configurator = {
         // configuration falied we must close the incoming connection.
         // (If the incoming side failed as well, we won't receive the
         // `.then` callback.)
-        incomingPromise.then(function incomingOkButOutgoingFailed(result) {
+        return incomingPromise.then(function incomingOkOutgoingFailed(result) {
           result.conn.close();
           // the error is no longer ambiguous; it was SMTP
-          callback(ambiguousErr, /* conn: */ null,
-                   { server: smtpConnInfo.hostname });
+          return {
+            error: ambiguousErr,
+            errorDetails: { server: smtpConnInfo.hostname }
+          };
         }).catch(function incomingFailed(incomingErr) {
-          callback(incomingErr, /* conn: */ null,
-                   { server: incomingInfo.hostname });
+          return {
+            error: incomingErr,
+            errorDetails: { server: incomingInfo.hostname }
+          };
         });
      });
  },
@@ -200,10 +203,8 @@ exports.configurator = {
                                      oldAccountDef.identities)
     };
 
-    this._loadAccount(universe, accountDef,
-                      oldAccountInfo.folderInfo, null, function(account) {
-      callback(null, account, null);
-    });
+    return this._saveAccount(
+      universe, accountDef, oldAccountInfo.folderInfo, null);
   },
 
   /**
@@ -249,10 +250,7 @@ exports.configurator = {
       ]
     };
 
-    this._loadAccount(universe, accountDef, null,
-                      imapProtoConn, function(account) {
-      callback(null, account, null);
-    });
+    return this._saveAccount(universe, accountDef, null, imapProtoConn);
   },
 
   /**
@@ -298,18 +296,14 @@ exports.configurator = {
       ],
     };
 
-    this._loadAccount(universe, accountDef, null,
-                      pop3ProtoConn, function(account) {
-      callback(null, account, null);
-    });
+    return this._saveAccount(universe, accountDef, null, pop3ProtoConn);
   },
 
   /**
    * Save the account def and folder info for our new (or recreated) account and
    * then load it.
    */
-  _loadAccount: function(universe, accountDef, oldFolderInfo, protoConn,
-                         callback) {
+  _saveAccount: function(universe, accountDef, oldFolderInfo, protoConn) {
     var folderInfo;
     if (accountDef.receiveType === 'imap') {
       folderInfo = {
@@ -332,8 +326,7 @@ exports.configurator = {
         folders: new Map()
       };
     }
-    universe.saveAccountDef(accountDef, folderInfo);
-    universe._loadAccount(accountDef, folderInfo, protoConn, callback);
+    return universe.saveAccountDef(accountDef, folderInfo, protoConn);
   },
 };
 

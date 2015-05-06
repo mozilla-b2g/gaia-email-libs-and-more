@@ -4,6 +4,7 @@
  * imap/probe.js.
  */
 define(function(require, exports) {
+  'use strict';
 
   var BrowserBox = require('browserbox');
   var ImapClient = require('browserbox-imap');
@@ -60,7 +61,7 @@ define(function(require, exports) {
             id: {
               vendor: 'Mozilla',
               name: 'GaiaMail',
-              version: '0.2',
+              version: '1.0alpha',
               'support-url': 'http://mzl.la/file-gaia-email-bug'
             },
             useSecureTransport: (connInfo.crypto === 'ssl' ||

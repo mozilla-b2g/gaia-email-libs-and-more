@@ -5,15 +5,8 @@ let log = require('rdcommon/log');
 let $a64 = require('../a64');
 let $acctmixins = require('../accountmixins');
 let $mailslice = require('../mailslice');
-let $searchfitler = require('../searchfilter');
-let $util = require('../util');
 let $folder_info = require('../db/folder_info_rep');
 
-let bsearchForInsert = $util.bsearchForInsert;
-
-function cmpFolderPubPath(a, b) {
-  return a.path.localeCompare(b.path);
-}
 
 /**
  * A base class for IMAP and POP accounts.

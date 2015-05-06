@@ -16,6 +16,7 @@ function churnConversation(convId, oldConvInfo, headers) {
   let convHasUnread = false;
   let convHasStarred = false;
   let convHasAttachments = false;
+  let convFolderIds = new Set();
   for (let header of headers) {
     let isRead = header.flags.indexOf('\\Seen') !== -1;
     let isStarred = header.flags.indexOf('\\Flagged') !== -1;
@@ -34,6 +35,11 @@ function churnConversation(convId, oldConvInfo, headers) {
       authorsByEmail.set(header.author.address, header.author);
     }
 
+    // union this header's folderId's into the conversation's.
+    for (let folderId of header.folderIds) {
+      convFolderIds.add(folderId);
+    }
+
     // Add up to MAX_TIDBITS tidbits for unread messages
     if (tidbits.length < MAX_TIDBITS && !isRead) {
       tidbits.push({
@@ -50,6 +56,7 @@ function churnConversation(convId, oldConvInfo, headers) {
   return {
     id: convId,
     date: headers[headers.length - 1].date,
+    folderIds: convFolderIds,
     subject: headers[0].subject,
     authors: Array.from(authorsByEmail.values()),
     tidbits: tidbits,

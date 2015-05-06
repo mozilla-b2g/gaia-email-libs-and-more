@@ -49,10 +49,6 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   /** @type{Map<AccountId, FoldersTOC>} */
   this.accountFoldersTOCs = new Map();
 
-  /** @listof[IdentityDef] */
-  this.identities = [];
-  this._identitiesById = new Map();
-
   this._bridges = [];
 
   this._folderConvsTOCs = new Map();
@@ -179,6 +175,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
     callAfterBigBang(this);
     return;
   });
+
+  this.db.on('accounts!tocChange', this._onAccountRemoved.bind(this));
 }
 MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
@@ -349,83 +347,119 @@ MailUniverse.prototype = {
     return configurator.learnAboutAccount(details);
   },
 
+  /**
+   * Return a Promise that gets resolved with { error, errorDetails, accountId,
+   * account}. "error" will be null if there's no problem and everything else
+   * may potentially be undefined.
+   *
+   * TODO: Currently on success this bottoms out in a call to saveAccountDef
+   * and we return the value it formulates.  While the promise-ification of
+   * accountcommon and the configurators has cleaned things up slightly, it's
+   * still pretty convoluted overall.  Probably good to task-ify the
+   * configurator logic.
+   */
   tryToCreateAccount: function mu_tryToCreateAccount(userDetails, domainInfo,
                                                      callback) {
     if (!this.online) {
-      callback('offline');
-      return;
+      return Promise.resolve({ error: 'offline' });
     }
     // TODO: put back in detecting and refusing to create duplicate accounts.
 
     if (domainInfo) {
-      $acctcommon.tryToManuallyCreateAccount(this, userDetails, domainInfo,
-                                             callback);
+      return $acctcommon.tryToManuallyCreateAccount(
+        this, userDetails, domainInfo);
     }
     else {
       // XXX: store configurator on this object so we can abort the connections
       // if necessary.
       var configurator = new $acctcommon.Autoconfigurator();
-      configurator.tryToCreateAccount(this, userDetails, callback);
+      return configurator.tryToCreateAccount(this, userDetails, callback);
     }
   },
 
   /**
    * Shutdown the account, forget about it, nuke associated database entries.
    */
-  deleteAccount: function(accountId) {
-    var savedEx = null;
-    var account = this._accountsById[accountId];
-    try {
-      account.accountDeleted();
-    }
-    catch (ex) {
-      // save the failure until after we have done other cleanup.
-      savedEx = ex;
-    }
-    this.db.deleteAccount(accountId);
-
-    this.accountsTOC.removeAccountById(accountId);
-    this.accountFoldersTOCs.delete(accountId);
-
-    for (var i = 0; i < account.identities.length; i++) {
-      var identity = account.identities[i];
-      let idx = this.identities.indexOf(identity);
-      this.identities.splice(idx, 1);
-      this._identitiesById.delete(identity.id);
-    }
-
-    if (savedEx) {
-      throw savedEx;
-    }
+  deleteAccount: function(accountId, why) {
+    this.taskManager.scheduleTasks([
+      {
+        type: 'delete_account',
+        accountId: accountId
+      }
+    ], why);
   },
 
-  saveAccountDef: function(accountDef, folderDbState, callback) {
+  saveAccountDef: function(accountDef, folderDbState, protoConn, callback) {
     this.db.saveAccountDef(this.config, accountDef, folderDbState, callback);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
+      // XXX actually this should exclusively go through the database emitter
+      // stuff.
       this.accountsTOC.accountModified(accountDef);
     } else {
       // (this happens during intial account (re-)creation)
-      this._accountExists(accountDef, folderDbState);
+      let accountWireRep = this._accountExists(accountDef, folderDbState);
+      // If we were given a connection, instantiate the account so it can use
+      // it.  Note that there's no potential for races at this point since no
+      // one knows about this account until we return.
+      if (protoConn) {
+        return this._loadAccount(
+          accountDef,
+          this.accountFoldersTOCs.get(accountDef.id),
+          protoConn)
+        .then((account) => {
+          return {
+            error: null,
+            errorDetails: null,
+            accountId: accountDef.id,
+            accountWireRep: accountWireRep
+          };
+        });
+      }
     }
   },
 
   /**
-   * Call this to tell the TOCs about the existence of an account.  This does
-   * not load the account.
+   * Call this to tell the AccountsTOC about the existence of an account and
+   * create/remember the corresponding FoldersTOC.  This does not load the
+   * account.
+   *
+   * Returns the wireRep for the added account for the horrible benefit of
+   * saveAccountDef and the legacy MailAPI tryTocreateAccount signature.
    */
   _accountExists: function(accountDef, folderInfo) {
     logic(this, 'accountExists', { accountId: accountDef.id });
     let foldersTOC = new FoldersTOC(folderInfo);
     this.accountFoldersTOCs.set(accountDef.id, foldersTOC);
-    this.accountsTOC.addAccount(accountDef);
+    return this.accountsTOC.addAccount(accountDef);
+  },
 
-    // TODO: actually clean-up identity ownership/life-cycle
-    for (let iIdent = 0; iIdent < accountDef.identities.length; iIdent++) {
-      var identity = accountDef.identities[iIdent];
-      this.identities.push(identity);
-      this._identitiesById.set(identity.id, identity);
+  /**
+   * Translate a notification from MailDB that an account has been removed to
+   * a call to the AccountsTOC to notify it and clean-up the associated
+   * FoldersTOC instance.
+   */
+  _onAccountRemoved: function(accountId, accountDef) {
+    // We're actually subscribed to a TOC change; bail if the account isn't
+    // actually being removed.
+    if (accountDef) {
+      return;
     }
+
+    let cleanupLiveAccount = (account) => {
+      this._residentAccountsById.delete(accountId);
+      account.shutdown();
+    };
+
+    if (this._residentAccountsById.has(accountId)) {
+      let account = this._residentAccountsById.get(accountId);
+      cleanupLiveAccount(account);
+    } else if (this._loadingAccountsById.has(accountId)) {
+      this._loadAccountsById.get(accountId).then(cleanupLiveAccount);
+    }
+
+    this.accountsTOC.removeAccountById(accountId);
+    this.accountFoldersTOCs.delete(accountId);
   },
 
   /**

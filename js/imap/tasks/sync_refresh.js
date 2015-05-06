@@ -61,14 +61,22 @@ return TaskDefiner.defineSimpleTask([
       let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,
                                           'refresh');
 
+      if (!syncState.modseq) {
+        // This is inductively possible, and it's a ridiculously serious problem
+        // for us if we issue a FETCH 1:* against the entirety of the All Mail
+        // folder.
+        throw new Error('missing modseq');
+      }
+
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let allMailFolderInfo = account.getFirstFolderWithType('all');
 
       let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
-        req.folderId,
+        allMailFolderInfo,
         '1:*',
         [
           'UID',
@@ -95,7 +103,11 @@ return TaskDefiner.defineSimpleTask([
         let uid = msg.uid; // already parsed into a number by browserbox
         let dateTS = parseImapDateTime(msg.internaldate);
         let rawConvId = parseGmailConvId(msg['x-gm-thrid']);
-        let labelFolderIds = labelMapper.labelsToFolderIds(msg['x-gm-labels']);
+        // Unwrap the imap-parser tagged { type, value } objects.  (If this
+        // were a singular value that wasn't a list it would automatically be
+        // unwrapped.)
+        let rawLabels = msg['x-gm-labels'].map(x => x.value);
+        let labelFolderIds = labelMapper.labelsToFolderIds(rawLabels);
 
         // Is this a new message?
         if (uid > syncState.lastHighUid) {

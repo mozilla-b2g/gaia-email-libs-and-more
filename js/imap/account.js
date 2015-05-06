@@ -1,7 +1,6 @@
 define(
   [
     'logic',
-    'rdcommon/log',
     'slog',
     '../a64',
     '../accountmixins',
@@ -24,7 +23,6 @@ define(
   ],
   function(
     logic,
-    $log,
     slog,
     $a64,
     $acctmixins,
@@ -851,8 +849,6 @@ var properties = {
   },
 
   shutdown: function(callback) {
-    CompositeIncomingAccount.prototype.shutdownFolders.call(this);
-
     this._backoffEndpoint.shutdown();
 
     // - close all connections
@@ -891,12 +887,6 @@ var properties = {
     }.bind(this), null, 'check');
   },
 
-  accountDeleted: function() {
-    this._alive = false;
-    this.shutdown();
-  },
-
-
   //////////////////////////////////////////////////////////////////////////////
 
 };
@@ -906,11 +896,5 @@ for (var k in properties) {
   Object.defineProperty(ImapAccount.prototype, k,
                         Object.getOwnPropertyDescriptor(properties, k));
 }
-
-// Share the log configuration with composite, since we desire general
-// parity between IMAP and POP3 for simplicity when possible.
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ImapAccount: incoming.LOGFAB_DEFINITION.CompositeIncomingAccount
-});
 
 }); // end define

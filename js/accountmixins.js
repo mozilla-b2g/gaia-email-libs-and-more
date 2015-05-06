@@ -1,4 +1,5 @@
 define(function(require, exports) {
+'use strict';
 
 var DisasterRecovery = require('./disaster-recovery');
 
@@ -125,6 +126,15 @@ exports.runOp = function runOp(op, mode, callback) {
  */
 exports.getFirstFolderWithType = function(type) {
   var folders = this.folders;
+  if (!folders) {
+    try {
+      throw new Error();
+    }
+    catch (ex) {
+      console.log('getFirstFolderWithType explosion!', ex.stack);
+      dump('EXPLOSION folders:\n' + ex.stack + '\n');
+    }
+  }
   for (var iFolder = 0; iFolder < folders.length; iFolder++) {
     if (folders[iFolder].type === type)
       return folders[iFolder];

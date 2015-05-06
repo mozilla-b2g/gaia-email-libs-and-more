@@ -3,21 +3,24 @@
  * that can be cranked up.
  */
 define(function() {
-  var slog = require('slog');
-  var slogTag = 'smtpclient';
+'use strict';
 
-  return {
-    debug: function(ignoredTag, msg) {
-      slog.debug(slogTag, { msg: msg });
-    },
-    log: function(ignoredTag, msg) {
-      slog.log(slogTag, { msg: msg });
-    },
-    warn: function(ignoredTag, msg) {
-      slog.warn(slogTag, { msg: msg });
-    },
-    error: function(ignoredTag, msg) {
-      slog.error(slogTag, { msg: msg });
-    }
-  };
+let logic = require('logic');
+let scope = {};
+logic.defineScope(scope, 'smtpclient', {});
+
+return {
+  debug: function(ignoredTag, msg) {
+    logic(scope, 'debug', { msg: msg });
+  },
+  log: function(ignoredTag, msg) {
+    logic(scope, 'log', { msg: msg });
+  },
+  warn: function(ignoredTag, msg) {
+    logic(scope, 'warn', { msg: msg });
+  },
+  error: function(ignoredTag, msg) {
+    logic(scope, 'error', { msg: msg });
+  }
+};
 });

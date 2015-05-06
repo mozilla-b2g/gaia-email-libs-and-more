@@ -111,6 +111,7 @@ MailHeader.prototype = evt.mix({
     this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
     this.tags = filterOutBuiltinFlags(wireRep.flags);
+    // XXX we're not exposing folderIds/labels right now, and we should be.
 
     // Messages in the outbox will have `sendStatus` populated like so:
     // {

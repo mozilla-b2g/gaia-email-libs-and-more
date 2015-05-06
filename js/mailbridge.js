@@ -188,16 +188,15 @@ MailBridge.prototype = {
   },
 
   _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
-    var self = this;
-    this.universe.tryToCreateAccount(msg.details, msg.domainInfo,
-                                     function(error, account, errorDetails) {
-        self.__sendMessage({
-            type: 'tryToCreateAccountResults',
-            handle: msg.handle,
-            account: account ? account.toBridgeWire() : null,
-            error: error,
-            errorDetails: errorDetails,
-          });
+    this.universe.tryToCreateAccount(msg.details, msg.domainInfo)
+      .then((result) => {
+        this.__sendMessage({
+          type: 'tryToCreateAccountResults',
+          handle: msg.handle,
+          account: result.accountWireRep || null,
+          error: result.error,
+          errorDetails: result.errorDetails,
+        });
       });
   },
 
@@ -340,7 +339,7 @@ MailBridge.prototype = {
   },
 
   _cmd_deleteAccount: function mb__cmd_deleteAccount(msg) {
-    this.universe.deleteAccount(msg.accountId);
+    this.universe.deleteAccount(msg.accountId, 'bridge');
   },
 
   _cmd_modifyIdentity: function mb__cmd_modifyIdentity(msg) {
