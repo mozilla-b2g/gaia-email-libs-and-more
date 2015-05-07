@@ -161,7 +161,7 @@ exports.INITIAL_FILL_SIZE = 15;
 /**
  * How many days in the past should we first look for messages.
  *
- * XXX temporarily lowered to 1 for debugging simplicity.
+ * XXX temporarily lowered to 1 from 3 for debugging simplicity.
  *
  * IMAP only.
  */
@@ -170,8 +170,10 @@ exports.INITIAL_SYNC_DAYS = 1;
 /**
  * When growing our synchronization range, what should be the initial number of
  * days we should scan?
+ *
+ * XXX temporarily lowered to 1 from 3 for debugging simplicity.
  */
-exports.INITIAL_SYNC_GROWTH_DAYS = 3;
+exports.INITIAL_SYNC_GROWTH_DAYS = 1;
 
 /**
  * What should be multiple the current number of sync days by when we perform

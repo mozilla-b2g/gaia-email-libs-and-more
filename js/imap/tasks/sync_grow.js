@@ -66,7 +66,7 @@ return TaskDefiner.defineSimpleTask([
       if (existingSinceDate) {
         searchSpec.before = new Date(quantizeDate(existingSinceDate));
         newSinceDate = makeDaysBefore(existingSinceDate,
-                                      syncbase.INITIAL_SYNC_GROW_DAYS);
+                                      syncbase.INITIAL_SYNC_GROWTH_DAYS);
         searchSpec.since = new Date(newSinceDate);
       } else {
         newSinceDate = makeDaysAgo(syncbase.INITIAL_SYNC_DAYS);
@@ -120,6 +120,8 @@ return TaskDefiner.defineSimpleTask([
       if (!syncState.modseq) {
         syncState.modseq = mailboxInfo.highestModseq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
+        logic(ctx, 'updatingModSeq', { modseqNow: syncState.modseq,
+         from: mailboxInfo.highestModseq});
       }
       syncState.finalizePendingRemovals();
 

@@ -208,7 +208,7 @@ return TaskDefiner.defineSimpleTask([
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
-      let fromDb = ctx.beginMutate({
+      let fromDb = yield ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
         headersByConversation: new Map([[req.convId, null]])
       });
@@ -238,7 +238,8 @@ return TaskDefiner.defineSimpleTask([
       // Fetch the envelopes from the server and create headers/bodies
       let { headers: newHeaders, bodies: newBodies } =
         yield* this._fetchAndChewUids(
-          ctx, account, allMailFolderInfo, req.convId, Array.from(req.newUids));
+          ctx, account, allMailFolderInfo, req.convId,
+          req.newUids && Array.from(req.newUids));
 
       // Ensure the headers are ordered correctly
       let allHeaders = keptHeaders.concat(newHeaders);

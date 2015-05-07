@@ -81,6 +81,8 @@ function FoldersTOC(foldersDbState) {
   }
 }
 FoldersTOC.prototype = evt.mix({
+  type: 'FoldersTOC',
+
   // We don't care about who references us because we have the lifetime of the
   // universe.  (At least, unless our owning account gets deleted.)
   __acquire: function() {

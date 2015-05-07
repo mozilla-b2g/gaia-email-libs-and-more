@@ -65,6 +65,7 @@ EntireListView.prototype = evt.mix({
       } else if (change.type === 'remove') {
         let obj = this.items[change.index];
         this.items.splice(change.index, 1);
+        this.emit('remove', obj, change.index);
       }
     }
 

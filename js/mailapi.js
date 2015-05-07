@@ -649,7 +649,6 @@ MailAPI.prototype = evt.mix({
     }
     delete this._pendingRequests[msg.handle];
 
-    var account;
     // (On failure, there is no account.)
     if (msg.account) {
       // Pull the account out of our automatically created accounts slice.  We
@@ -661,7 +660,7 @@ MailAPI.prototype = evt.mix({
         req.callback.call(null, msg.error, msg.errorDetails, account);
       });
     } else {
-      req.callback.call(null, msg.error, msg.errorDetails, account);
+      req.callback.call(null, msg.error, msg.errorDetails, null);
     }
   },
 

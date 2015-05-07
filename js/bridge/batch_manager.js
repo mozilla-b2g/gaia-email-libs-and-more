@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let logic = require('logic');
 
@@ -45,7 +46,15 @@ BatchManager.prototype = {
     }
     this._timer = null;
 
-    logic(this, 'flushing', { proxyCount: this._pendingProxies.size });
+    logic(
+      this, 'flushing',
+      {
+        proxyCount: this._pendingProxies.size,
+        // TODO: this is arguably expensive; investigate logic on-demand funcs
+        tocTypes: Array.from(this._pendingProxies).map((proxy) => {
+          return proxy.toc.type;
+        })
+      });
     for (let proxy of this._pendingProxies) {
       let payload = proxy.flush();
       if (payload) {
@@ -62,6 +71,14 @@ BatchManager.prototype = {
    * front-end and therefore where latency is likely of the essence.
    */
   registerDirtyView: function(proxy, immediateFlush) {
+    logic(
+      this, 'dirtying',
+      {
+        tocType: proxy.toc.type,
+        immediateFlush: immediateFlush,
+        alreadyDirty: this._pendingProxies.has(proxy)
+      });
+
     this._pendingProxies.add(proxy);
 
     if (immediateFlush) {

@@ -16,7 +16,7 @@ AccountsViewSlice.prototype = Object.create(EntireListView.prototype);
  */
 AccountsViewSlice.prototype.getAccountById = function(id) {
   for (var i = 0; i < this.items.length; i++) {
-    if (this.items[i]._wireRep.id === id) {
+    if (this.items[i].id === id) {
       return this.items[i];
     }
   }
@@ -28,11 +28,6 @@ AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
     var account = this.getAccountById(id);
     if (account) {
       resolve(account);
-      return;
-    }
-    // If already completed, immediately reject.
-    if (this.complete) {
-      reject();
       return;
     }
 

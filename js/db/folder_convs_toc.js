@@ -36,7 +36,7 @@ let { folderConversationComparator } = require('./comparators');
 function FolderConversationsTOC(db, folderId) {
   RefedResource.call(this);
   evt.Emitter.call(this);
-  
+
   logic.defineScope(this, 'FolderConversationsTOC');
 
   this._db = db;
@@ -48,6 +48,8 @@ function FolderConversationsTOC(db, folderId) {
   this.__deactivate();
 }
 FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
+  type: 'FolderConversationsTOC',
+
   __activate: co.wrap(function*() {
     let { idsWithDates, drainEvents, eventId } =
       yield this._db.loadFolderConversationIdsAndListen(this.folderId);

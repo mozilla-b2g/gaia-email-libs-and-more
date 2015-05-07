@@ -110,12 +110,12 @@ WindowedListProxy.prototype = {
    *   Pass null if an ordering change has occurred.  If both things have
    *   occurred, call us twice!
    */
-  onChange: function(id) {
+  onChange: function(id, metadataOnly) {
     if (id !== null) {
       // If we haven't told the view about the data, there's no need for us to
       // do anything.  Note that this also covers the case where we have an
       // async read in flight.
-      if (!this.viewSet.has(id)) {
+      if (!this.viewSet.has(id) && metadataOnly) {
         return;
       }
       this.viewSet.delete(id);

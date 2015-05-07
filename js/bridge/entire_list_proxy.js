@@ -120,7 +120,6 @@ EntireListProxy.prototype = {
     this.dirty = false;
 
     return {
-      type: '',
       changes: changes
     };
   }

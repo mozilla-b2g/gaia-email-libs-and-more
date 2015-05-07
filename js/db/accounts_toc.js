@@ -33,6 +33,7 @@ function AccountsTOC() {
   this.accountDefsById = new Map();
 }
 AccountsTOC.prototype = evt.mix({
+  type: 'AccountsTOC',
   isKnownAccount: function(accountId) {
     return this.accountDefsById.has(accountId);
   },

@@ -1,6 +1,10 @@
 define(function(require) {
 'use strict';
 
+/**
+ * Produce an ordering from newest conversation to oldest conversation, breaking
+ * ties based on the conversation id in an arbitrary but consistent fashion.
+ */
 function folderConversationComparator(a, b) {
   let dateDelta = b.date - a.date;
   if (dateDelta) {

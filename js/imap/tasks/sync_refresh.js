@@ -115,7 +115,7 @@ return TaskDefiner.defineSimpleTask([
           if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
             // (Yes, it's a yay message.)
             // Is this a conversation we already know about?
-            if (syncState.isKnownConversation(rawConvId)) {
+            if (syncState.isKnownRawConvId(rawConvId)) {
               syncState.newYayMessageInExistingConv(
                 uid, rawConvId, dateTS);
             } else { // no, it's a new conversation to us!
@@ -168,7 +168,7 @@ return TaskDefiner.defineSimpleTask([
       }
 
       syncState.lastHighUid = mailboxInfo.uidNext - 1;
-      syncState.modseq = mailboxInfo.highestModeq;
+      syncState.modseq = mailboxInfo.highestModseq;
       syncState.finalizePendingRemovals();
 
       yield ctx.finishTask({

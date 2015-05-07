@@ -635,6 +635,7 @@ MailDB.prototype = evt.mix({
           let headerRange = IDBKeyRange.bound([convId],
                                               [convId, []],
                                               true, true);
+          dbReqCount++;
           let req = headerStore.mozGetAll(headerRange);
           let handler = (event) => {
             if (req.error) {
@@ -644,6 +645,10 @@ MailDB.prototype = evt.mix({
               for (let header of headers) {
                 // Put it in the cache unless it's already there (reads must
                 // not clobber writes/mutations!)
+                // NB: This does mean that there's potential inconsistency
+                // problems for this reader in the event the cache does know the
+                // header and the values are not the same.
+                // TODO: lock that down with checks or some fancy thinkin'
                 if (!headerCache.has(header.id)) {
                   headerCache.set(header.id, header);
                 }
@@ -669,12 +674,12 @@ MailDB.prototype = evt.mix({
           }
 
           // otherwise we need to ask the database
-          dbReqCount++;
           let key = [
             convIdFromMessageId(messageId),
             date,
             encodedGmailMessageIdFromMessageId(messageId)
           ];
+          dbReqCount++;
           let req = headerStore.get(key);
           let handler = (event) => {
             if (req.error) {
@@ -732,7 +737,8 @@ MailDB.prototype = evt.mix({
       }
 
       if (!dbReqCount) {
-        resolve(requests);
+        throw new Error('IndexeDB does *NOT* like empty transactions');
+        //resolve(requests);
         // it would be nice if we could have avoided creating the transaction...
       } else {
         trans.oncomplete = () => {
@@ -1190,13 +1196,17 @@ MailDB.prototype = evt.mix({
             // highest possible unicode character thing should be strictly
             // greater than any legal suffix (\ufff0 not being a legal suffix
             // in our key-space.)
+            let accountStringPrefix = IDBKeyRange.bound(
+              accountId + '.',
+              accountId + '.\ufff0',
+              true, true);
             let accountArrayItemPrefix = IDBKeyRange.bound(
               [accountId + '.'],
               [accountId + '.\ufff0'],
               true, true);
 
             // Conversation: string ordering unicode tricks
-            trans.objectStore(TBL_CONV_INFO).delete(accountArrayItemPrefix);
+            trans.objectStore(TBL_CONV_INFO).delete(accountStringPrefix);
             trans.objectStore(TBL_CONV_IDS_BY_FOLDER).delete(
               accountArrayItemPrefix);
 
@@ -1237,6 +1247,13 @@ MailDB.prototype = evt.mix({
     });
   },
 });
+// XXX hopefully temporary debugging hack to be able to see when we're properly
+// emitting events.
+MailDB.prototype._emit = MailDB.prototype.emit;
+MailDB.prototype.emit = function(eventName) {
+  logic(this, 'emit', { name: eventName });
+  this._emit.apply(this, arguments);
+};
 
 return MailDB;
 });

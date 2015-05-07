@@ -54,6 +54,8 @@ function ConversationTOC(db, convId) {
   this.__deactivate();
 }
 ConversationTOC.prototype = evt.mix(RefedResource.mix({
+  type: 'ConversationTOC',
+
   __activate: co.wrap(function*() {
     // NB: Although our signature is for this to just provide us with the id's,
     // this actually has the byproduct of loading the header records and placing
