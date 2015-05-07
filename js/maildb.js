@@ -188,7 +188,7 @@ function analyzeAndLogErrorEvent(event) {
   else { // dunno, ask it to stringify itself.
     explainedSource = target.toString();
   }
-  var str = 'indexedDB error:' + target.error.name + 'from' + explainedSource;
+  var str = 'indexedDB error:' + target.error.name + ' from ' + explainedSource;
   console.error(str);
   return str;
 }
@@ -855,6 +855,8 @@ MailDB.prototype = evt.mix({
     let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
                                         true, true);
     let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
+    logic(this, 'loadFolderConversationIdsAndListen',
+          { convCount: tuples.length, eventId: retval.eventId });
 
     retval.idsWithDates = tuples.map(function(x) {
       return { date: x[1], id: x[2]};
@@ -870,7 +872,7 @@ MailDB.prototype = evt.mix({
       this.convCache.set(convInfo.id, convInfo);
 
       for (let folderId of convInfo.folderIds) {
-        this.emit(eventForFolderId,
+        this.emit(eventForFolderId(folderId),
                   {
                     id: convInfo.id,
                     item: convInfo,

@@ -36,15 +36,8 @@ function objCopy(obj) {
   return copy;
 }
 
-/**
- * The number of header wire messages to cache in the recvCache
- */
-var HEADER_CACHE_LIMIT = 8;
-
 // For testing
 exports._MailFolder = MailFolder;
-
-
 
 var LEGAL_CONFIG_KEYS = [];
 
@@ -58,10 +51,11 @@ function reportError() {
   console.error.apply(console, arguments);
   var msg = null;
   for (var i = 0; i < arguments.length; i++) {
-    if (msg)
-      msg += " " + arguments[i];
-    else
-      msg = "" + arguments[i];
+    if (msg) {
+      msg += ' ' + arguments[i];
+    } else {
+      msg = '' + arguments[i];
+    }
   }
   logic.fail(msg);
   throw new Error(msg);
@@ -258,7 +252,7 @@ MailAPI.prototype = evt.mix({
       type: 'updateTrackedItemPriorityTags',
       handle: handle,
       priorityTags: priorityTags
-    })
+    });
   },
 
   _stopTrackingItemUpdates: function(handle) {
@@ -663,14 +657,12 @@ MailAPI.prototype = evt.mix({
       // this notification so we can just pull it out of the slice.
       // XXX THE ABOVE IS LIES!  THIS IS NOT CURRENTLY GUARANTEED!  I NEED TO
       // FIX THIS!
-      account = this.accounts.getAccountById(msg.account.id);
-      if (!account) {
-        throw new Error('invariant violation: account is unknown: ' +
-                        msg.account.id);
-      }
+      this.accounts.eventuallyGetAccountById(msg.account.id).then((account) => {
+        req.callback.call(null, msg.error, msg.errorDetails, account);
+      });
+    } else {
+      req.callback.call(null, msg.error, msg.errorDetails, account);
     }
-
-    req.callback.call(null, msg.error, msg.errorDetails, account);
   },
 
   _clearAccountProblems: function ma__clearAccountProblems(account, callback) {
@@ -790,7 +782,7 @@ MailAPI.prototype = evt.mix({
       type: 'viewFolders',
       mode: mode,
       handle: handle,
-      accountId, accountId
+      accountId: accountId
     });
 
     return slice;

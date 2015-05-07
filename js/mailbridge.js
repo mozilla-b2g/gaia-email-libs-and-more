@@ -76,6 +76,15 @@ MailBridge.prototype = {
     throw new Error('This is supposed to get hidden by an instance var.');
   },
 
+  /**
+   * Synchronously process incoming messages; the processing may be async.
+   *
+   * TODO: be clever about serializing commands on a per-handle basis so that
+   * we can maintain a logical ordering of data-dependent commands but not have
+   * long-running commands interfering with orthogonal things.  For instance,
+   * we should not process seek() commands for a list view until the command
+   * creating the list view has been fully processed.
+   */
   __receiveMessage: function mb___receiveMessage(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
@@ -585,13 +594,13 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_viewAccounts: function(msg) {
+  _cmd_viewAccounts: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'AccountsView');
 
     ctx.proxy = new EntireListProxy(this.universe.accountsTOC, ctx);
-    ctx.acquire(ctx.proxy);
+    yield ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
-  },
+  }),
 
   _cmd_viewFolders: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'FoldersView');
@@ -599,23 +608,41 @@ MailBridge.prototype = {
     let toc = yield this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
 
     ctx.proxy = new EntireListProxy(toc, ctx);
-    ctx.acquire(ctx.proxy);
+    yield ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
   }),
 
   _cmd_viewFolderConversations: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'FolderConversationsView');
-
+    ctx.viewing = { folderId: msg.folderId };
     let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
                                                                 msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    ctx.acquire(ctx.proxy);
+    yield ctx.acquire(ctx.proxy);
+    // XXX once _cmd_'s are serialized on a per-handle basis, stop automatically
+    // seeking and instead force the caller to issue a seek call subsequent to
+    // creating the view.
+    // XXX and be sure to remove the console.warn below in _cmd_seekProxy
+    ctx.proxy.seek({ mode: 'top', above: 0, below: 15 });
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
+  _cmd_refreshView: function(msg) {
+    let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
+    this.universe.syncRefreshFolder(ctx.viewing.folderId, 'refreshView');
+  },
+
+  _cmd_growView: function(msg) {
+    let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
+    this.universe.syncGrowFolder(ctx.viewing.folderId, 'growView');
+  },
+
   _cmd_seekProxy: function(msg) {
-    let ctx = this.bridgeContext.namedContextOrThrow(msg.handle);
+    let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
+    if (!ctx.proxy) {
+      console.warn('you lost the ordering war!  ignored seek!');
+    }
     ctx.proxy.seek(msg);
   },
 

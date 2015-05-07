@@ -1,4 +1,5 @@
 define(function(require) {
+'use strict';
 
 let logic = require('../logic');
 

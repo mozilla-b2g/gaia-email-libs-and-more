@@ -97,7 +97,7 @@ SyncStateHelper.prototype = {
       if (!stash) {
         // This should not be happening...
         logic(this._ctx, 'mehWithoutYay',
-              { mehUid: mehUid, rawConId: rawConvId });
+              { mehUid: mehUid, rawConvId: rawConvId });
       } else {
         stash.yayUids.push(mehUid);
       }
@@ -263,8 +263,12 @@ SyncStateHelper.prototype = {
     this.metricWaste++;
   },
 
-  existingIgnoredMessageIsNowYayInNewConv: function(uid, rawConvId, dateTS) {
-    this.newYayMessageInNewConv(uid, rawConvId, dateTS);
+  existingIgnoredMessageIsNowYay: function(uid, rawConvId, dateTS) {
+    if (this.isKnownRawConvId(rawConvId)) {
+      this.newYayMessageInExistingConv(uid, rawConvId, dateTS);
+    } else {
+      this.newYayMessageInNewConv(uid, rawConvId, dateTS);
+    }
   },
 
   /**

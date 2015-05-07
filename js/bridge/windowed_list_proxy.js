@@ -152,7 +152,7 @@ WindowedListProxy.prototype = {
     this.dirty = false;
 
     let { ids, state, readPromise, newKnownSet } =
-      this.toc.getDataforSliceRange(beginInclusive, endExclusive, this.viewSet);
+      this.toc.getDataForSliceRange(beginInclusive, endExclusive, this.viewSet);
 
     this.viewSet = newKnownSet;
 

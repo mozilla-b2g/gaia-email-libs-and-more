@@ -113,8 +113,8 @@ WindowedListView.prototype = evt.mix({
         // Update the object if we have new state
         if (newStates.has(id)) {
           contentsChanged = true;
-          existingObj.serial = newSerial;
-          existingObj.__update(newStates.get(id));
+          obj.serial = newSerial;
+          obj.__update(newStates.get(id));
         }
         // Remove it from the existingSet so we can infer objects no longer in
         // the set.
@@ -141,7 +141,7 @@ WindowedListView.prototype = evt.mix({
     let whatChanged = {
       offset: details.offset !== this.offset,
       totalCount: details.totalCount !== this.totalCount,
-      itemSet: itemsChanged,
+      itemSet: itemSetChanged,
       itemContents: contentsChanged
     };
     this.offset = details.offset;
@@ -149,7 +149,7 @@ WindowedListView.prototype = evt.mix({
     this.items = newItems;
     this._itemsById = newSet;
 
-    this.emit('seeked', whatChanged)
+    this.emit('seeked', whatChanged);
   },
 
   // TODO: determine whether these are useful at all; seems like the virtual

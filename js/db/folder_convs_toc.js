@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let logic = require('logic');
 
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
@@ -35,6 +36,9 @@ let { folderConversationComparator } = require('./comparators');
 function FolderConversationsTOC(db, folderId) {
   RefedResource.call(this);
   evt.Emitter.call(this);
+  
+  logic.defineScope(this, 'FolderConversationsTOC');
+
   this._db = db;
   this.folderId = folderId;
   this._eventId = '';
@@ -150,7 +154,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
       ids.push(id);
-      if (alreadyKnown) {
+      if (alreadyKnown.has(id)) {
         newKnownSet.add(id);
         continue;
       }
@@ -164,7 +168,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
 
     let readPromise = null;
     if (needData.size) {
-      readPromise = this._db.read({
+      readPromise = this._db.read(this, {
         conversations: needData
       });
     } else {

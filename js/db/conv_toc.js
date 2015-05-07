@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let logic = require('logic');
 
 let a64 = require('../a64');
 let compareMsgIds = a64.cmpUI64;
@@ -36,6 +37,8 @@ let { conversationMessageComparator } = require('./comparators');
 function ConversationTOC(db, convId) {
   RefedResource.call(this);
   evt.Emitter.call(this);
+
+  logic.defineScope(this, 'ConversationTOC');
 
   this._db = db;
   this.convId = convId;
@@ -117,7 +120,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
     // debug visualization?), it could make sense to expose the indices being
     // impacted.
-    this.emit('change', );
+    this.emit('change');
   },
 
   /**
@@ -175,7 +178,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
       ids.push(id);
-      if (alreadyKnown) {
+      if (alreadyKnown.has(id)) {
         newKnownSet.add(id);
         continue;
       }
@@ -190,7 +193,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
 
     let readPromise = null;
     if (needData.size) {
-      readPromise = this._db.read({
+      readPromise = this._db.read(this, {
         headers: needData
       });
     } else {

@@ -63,9 +63,9 @@ function MailConversation(api, wireRep, slice) {
   this._wireRep = wireRep;
 
   this.id = wireRep.suid;
-  this.__update(wireRep);
+  this.__update(wireRep, true);
 }
-MailHeader.prototype = evt.mix({
+MailConversation.prototype = evt.mix({
   toString: function() {
     return '[MailConversation: ' + this.id + ']';
   },
@@ -81,12 +81,14 @@ MailHeader.prototype = evt.mix({
     ContactCache.forgetPeepInstances(this.authors, tidbitPeeps);
   },
 
-  __update: function(wireRep) {
+  __update: function(wireRep, firstTime) {
     this._wireRep = wireRep;
 
     // Delta-computing peeps is hard, forget them all then re-resolve them all.
     // We have a cache.  It's fine.
-    this._forgetPeeps();
+    if (!firstTime) {
+      this._forgetPeeps();
+    }
 
     this.mostRecentMessageDate = new Date(wireRep.date);
     this.firstSubject = wireRep.subject;

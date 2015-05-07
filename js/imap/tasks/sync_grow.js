@@ -106,9 +106,9 @@ return TaskDefiner.defineSimpleTask([
             // The message is now a yay message, hooray!
             syncState.existingMehMessageIsNowYay(uid, rawConvId, dateTS);
           } else {
-            // Inductively, this is a newly yay conversation (otherwise we'd
-            // know about it.)
-            syncState.existingIgnoredMessageIsNowYayInNewConv(
+            // Inductively, this is a newly yay message and potentially the
+            // start of a new yay conversation.
+            syncState.existingIgnoredMessageIsNowYay(
               uid, rawConvId, dateTS);
           }
         }
@@ -116,7 +116,7 @@ return TaskDefiner.defineSimpleTask([
 
       syncState.setFolderIdSinceDate(req.folderId, newSinceDate.valueOf());
       logic(ctx, 'mailboxInfo', { existingModseq: syncState.modseq,
-        newModseq: mailboxInfo.highestModseq, mailboxInfo: mailboxInfo })
+        newModseq: mailboxInfo.highestModseq, mailboxInfo: mailboxInfo });
       if (!syncState.modseq) {
         syncState.modseq = mailboxInfo.highestModseq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
