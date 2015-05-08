@@ -1006,7 +1006,7 @@ MailDB.prototype = evt.mix({
       if (!headerCache.has(header.id)) {
         headerCache.set(header.id, header);
       }
-      return { date: header.date, id: header.id};
+      return { date: header.date, id: header.id };
     });
     return retval;
   }),
@@ -1025,7 +1025,7 @@ MailDB.prototype = evt.mix({
       store.add(header, key);
 
       let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, header.id, header);
+      this.emit(eventId, header.id, header.date, header, true);
     }
   },
 
@@ -1052,7 +1052,7 @@ MailDB.prototype = evt.mix({
       }
 
       let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, messageId, date, header);
+      this.emit(eventId, messageId, date, header, false);
     }
   },
 

@@ -61,7 +61,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     // this actually has the byproduct of loading the header records and placing
     // them in the cache because we can't currently just get the keys.
     let { idsWithDates, drainEvents, tocEventId, convEventId } =
-      yield this._db.loadConversationMessageIdsAndListen(this.folderId);
+      yield this._db.loadConversationMessageIdsAndListen(this.convId);
 
     this.idsWithDates = idsWithDates;
     this._tocEventId = tocEventId;
@@ -86,43 +86,26 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
    * @param {MessageId} messageId
    * @param {DateTS} date
    * @param {HeaderInfo} headerInfo
+   * @param {Boolean} freshlyAdded
    */
-  onTOCChange: function(messageId, date, headerInfo) {
+  onTOCChange: function(messageId, date, headerInfo, freshlyAdded) {
+    let metadataOnly = headerInfo && !freshlyAdded;
 
-
-    let metadataOnly = change.removeDate === change.addDate;
-
-    if (!metadataOnly) {
-      let oldIndex = -1;
-      if (change.removeDate) {
-        let oldKey = { date: change.removeDate, id: change.id };
-        oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
+    if (freshlyAdded) {
+      // - Added!
+      let newKey = { date: date, id: messageId };
+      let newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                       conversationMessageComparator);
-        // NB: if we computed the newIndex before splicing out, we could avoid
-        // potentially redundant operations, but it's not worth the complexity
-        // at this point.
-        this.idsWithDates.splice(oldIndex, 1);
-      }
-      let newIndex = -1;
-      if (change.addDate) {
-        let newKey = { date: change.addDate, id: change.id };
-        newIndex = bsearchForInsert(this.idsWithDates, newKey,
-                                    conversationMessageComparator);
-        this.idsWithDates.splice(newIndex, 0, newKey);
-      }
-
-      // If we did end up keeping the conversation in place, then it was just
-      // a metadata change as far as our consumers know/care.
-      if (oldIndex === newIndex) {
-        metadataOnly = true;
-      }
+      this.idsWithDates.splice(newIndex, 0, newKey);
+    } else if (!headerInfo) {
+      // - Deleted!
+      let oldKey = { date: date, id: messageId };
+      let oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
+                                        conversationMessageComparator);
+      this.idsWithDates.splice(oldIndex, 1);
     }
 
-    // We could expose more data, but WindowedListProxy doesn't need it, so
-    // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
-    // debug visualization?), it could make sense to expose the indices being
-    // impacted.
-    this.emit('change');
+    this.emit('change', messageId, metadataOnly);
   },
 
   /**
@@ -188,7 +171,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
         newKnownSet.add(id);
         haveData.set(id, headerCache.get(id));
       } else {
-        let date = idsWithDates[i].id;
+        let date = idsWithDates[i].date;
         needData.set([id, date], null);
       }
     }

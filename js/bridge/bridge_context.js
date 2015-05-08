@@ -90,7 +90,7 @@ BridgeContext.prototype = {
     }
 
     let ctx = this._namedContexts.get(name);
-    this._namedContexts.remove(name);
+    this._namedContexts.delete(name);
     ctx.cleanup();
   },
 

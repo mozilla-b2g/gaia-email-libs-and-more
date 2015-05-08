@@ -23,6 +23,7 @@ var MailConversation = require('./clientapi/mail_conversation');
 var AccountsViewSlice = require('./clientapi/accounts_view_slice');
 var FoldersViewSlice = require('./clientapi/folders_view_slice');
 var ConversationsViewSlice = require('./clientapi/conversations_view_slice');
+var HeadersViewSlice = require('./clientapi/headers_view_slice');
 
 var MessageComposition = require('./clientapi/message_composition');
 
@@ -799,6 +800,22 @@ MailAPI.prototype = evt.mix({
     this.__bridgeSend({
       type: 'viewFolderConversations',
       folderId: folder.id,
+      handle: handle,
+    });
+
+    return slice;
+  },
+
+  viewConversationHeaders: function(convOrId) {
+    var handle = this._nextHandle++,
+        slice = new HeadersViewSlice(this, handle);
+    slice.conversationId = (typeof(convOrId) === 'string' ? convOrId :
+                              convOrId.id);
+    this._trackedItemHandles.set(handle, slice);
+
+    this.__bridgeSend({
+      type: 'viewConversationHeaders',
+      conversationId: slice.conversationId,
       handle: handle,
     });
 

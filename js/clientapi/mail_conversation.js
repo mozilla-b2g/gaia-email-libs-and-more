@@ -4,8 +4,6 @@ define(function(require) {
 let evt = require('evt');
 let ContactCache = require('./contact_cache');
 
-let MailHeader = require('./mail_header');
-
 /**
  * @typedef {Object} ConvMsgTidbit
  *
@@ -62,7 +60,7 @@ function MailConversation(api, wireRep, slice) {
   // Store the wireRep so it can be used for caching.
   this._wireRep = wireRep;
 
-  this.id = wireRep.suid;
+  this.id = wireRep.id;
   this.__update(wireRep, true);
 }
 MailConversation.prototype = evt.mix({
@@ -74,6 +72,10 @@ MailConversation.prototype = evt.mix({
       type: 'MailConversation',
       id: this.id
     };
+  },
+
+  viewHeaders: function() {
+    return this.api.viewConversationHeaders(this);
   },
 
   _forgetPeeps: function() {

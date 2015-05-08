@@ -615,7 +615,10 @@ MailBridge.prototype = {
   _cmd_viewFolderConversations: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'FolderConversationsView');
-    ctx.viewing = { folderId: msg.folderId };
+    ctx.viewing = {
+      type: 'folder',
+      folderId: msg.folderId
+    };
     let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
                                                                 msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
@@ -628,14 +631,44 @@ MailBridge.prototype = {
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
+  _cmd_viewConversationHeaders: co.wrap(function*(msg) {
+    let ctx = this.bridgeContext.createNamedContext(msg.handle,
+                                                    'ConversationHeadersView');
+    ctx.viewing = {
+      type: 'conversation',
+      conversationId: msg.conversationId
+    };
+    let toc = yield this.universe.acquireConversationTOC(ctx,
+                                                         msg.conversationId);
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    yield ctx.acquire(ctx.proxy);
+    // XXX the same seek stuff from viewFolderConversations
+    ctx.proxy.seek({ mode: 'top', above: 0, below: 15 });
+  }),
+
   _cmd_refreshView: function(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
-    this.universe.syncRefreshFolder(ctx.viewing.folderId, 'refreshView');
+    if (ctx.viewing.type === 'folder') {
+      this.universe.syncRefreshFolder(ctx.viewing.folderId, 'refreshView');
+    } else {
+      // TODO: only for gmail is generic refreshing sufficient to refresh a
+      // conversation in its entirety.  (Noting that this is tricky conceptually
+      // anyways; probably what the user wants is to find some other message in
+      // the conversation, which means trawling for new messages and triggering
+      // backfilling, which is also trawling for new messages if we managed
+      // to comprehensively backfill.)
+      this.universe.syncRefreshFolder(null, 'refreshView');
+    }
   },
 
   _cmd_growView: function(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
-    this.universe.syncGrowFolder(ctx.viewing.folderId, 'growView');
+    if (ctx.viewing.type === 'folder') {
+      this.universe.syncGrowFolder(ctx.viewing.folderId, 'growView');
+    } else {
+      // TODO: growing for conversations is nonsensical under gmail, but has
+      // clear backfilling ramifications for other account types
+    }
   },
 
   _cmd_seekProxy: function(msg) {

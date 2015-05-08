@@ -14,6 +14,7 @@ let $allback = require('./allback');
 let AccountsTOC = require('./db/accounts_toc');
 let FolderConversationsTOC = require('./db/folder_convs_toc');
 let FoldersTOC = require('./db/folders_toc');
+let ConversationTOC = require('./db/conv_toc');
 
 let TaskManager = require('./task_manager');
 
@@ -51,7 +52,11 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._bridges = [];
 
+  /** @type{Map<FolderId, FolderConversationsTOC>} */
   this._folderConvsTOCs = new Map();
+
+  /** @type{Map<ConverastionId, ConversationTOC>} */
+  this._conversationTOCs = new Map();
 
   this.taskManager = new TaskManager(this, this.db);
 
@@ -334,6 +339,19 @@ MailUniverse.prototype = {
     } else {
       toc = new FolderConversationsTOC(this.db, folderId);
       this._folderConvsTOCs.set(folderId, toc);
+      // TODO: have some means of the TOC to tell us to forget about it when
+      // it gets released.
+    }
+    return ctx.acquire(toc);
+  },
+
+  acquireConversationTOC: function(ctx, conversationId) {
+    let toc;
+    if (this._conversationTOCs.has(conversationId)) {
+      toc = this._conversationTOCs.get(conversationId);
+    } else {
+      toc = new ConversationTOC(this.db, conversationId);
+      this._conversationTOCs.set(conversationId, toc);
       // TODO: have some means of the TOC to tell us to forget about it when
       // it gets released.
     }
