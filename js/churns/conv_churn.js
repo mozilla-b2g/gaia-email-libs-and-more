@@ -53,11 +53,16 @@ function churnConversation(convId, oldConvInfo, headers) {
     }
   }
 
+  // Display height in quantized units.
+  let height = Math.max(2, tidbits.length + 1);
+
   return {
     id: convId,
     date: headers[headers.length - 1].date,
     folderIds: convFolderIds,
+    height: height,
     subject: headers[0].subject,
+    headerCount: headers.length,
     authors: Array.from(authorsByEmail.values()),
     tidbits: tidbits,
     hasUnread: convHasUnread,

@@ -55,6 +55,7 @@ let ContactCache = require('./contact_cache');
  */
 function MailConversation(api, wireRep, slice) {
   evt.Emitter.call(this);
+  this._api = api;
   this._slice = slice;
 
   // Store the wireRep so it can be used for caching.
@@ -75,7 +76,7 @@ MailConversation.prototype = evt.mix({
   },
 
   viewHeaders: function() {
-    return this.api.viewConversationHeaders(this);
+    return this._api.viewConversationHeaders(this);
   },
 
   _forgetPeeps: function() {
@@ -94,6 +95,7 @@ MailConversation.prototype = evt.mix({
 
     this.mostRecentMessageDate = new Date(wireRep.date);
     this.firstSubject = wireRep.subject;
+    this.headerCount = wireRep.headerCount;
     this.authors = ContactCache.resolvePeeps(wireRep.authors);
     this.messageTidbits = wireRep.tidbits.map((tidbit) => {
       return {

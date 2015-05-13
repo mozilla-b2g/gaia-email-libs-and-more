@@ -101,7 +101,21 @@ const TBL_CONV_INFO = 'convInfo';
  * single row in existence here, using the `mostRecentMessageDate` of the
  * convInfo structure as the `DateTS`.
  *
+ * Originally the idea was that this would be an index where the key itself
+ * included all the required information.  We've now changed this so that the
+ * value also includes the "quantized height" of the conversation for display
+ * purposes.
+ *
+ * Because the date portion of they key is already mutable and needs to be
+ * known to delete the record, we could indeed store everything in the key.
+ * The fact that the value exists at all is due to mozGetAll being the only
+ * batch API available to us.  So what goes in the key is a question of what is
+ * needed for uniqueness and ordering.  Since the height is not needed for that
+ * and we have to use mozGetAll and values to actually read, the height only
+ * goes in the value.
+ *
  * key: [`FolderId`, `DateTS`, `ConversationId`]
+ * value: [`FolderId`, `DateTS`, `ConversationId`, `QuantizedHeight`]
  *
  * Managed by: MailDB
  */
@@ -784,7 +798,13 @@ MailDB.prototype = evt.mix({
             continue;
           }
 
-          preConv.set(conv.id, { date: conv.date, folderIds: conv.folderIds });
+          preConv.set(
+            conv.id,
+            {
+              date: conv.date,
+              folderIds: conv.folderIds,
+              height: conv.height
+            });
         }
       }
 
@@ -865,7 +885,7 @@ MailDB.prototype = evt.mix({
           { convCount: tuples.length, eventId: retval.eventId });
 
     retval.idsWithDates = tuples.map(function(x) {
-      return { date: x[1], id: x[2]};
+      return { date: x[1], id: x[2], height: x[3] };
     });
     return retval;
   }),
@@ -886,9 +906,9 @@ MailDB.prototype = evt.mix({
                     addDate: convInfo.date
                   });
 
-        let key = [folderId, convInfo.date, convInfo.id];
-        // the key is also the value because we need to use mozGetAll
-        convIdsStore.add(key, key);
+        convIdsStore.add(
+          [folderId, convInfo.date, convInfo.id],
+          [folderId, convInfo.date, convInfo.id, convInfo.height]);
       }
     }
   },
@@ -962,28 +982,29 @@ MailDB.prototype = evt.mix({
                   });
       }
 
-      // If the most recent message date changed, we need to blow away all
-      // the existing mappings and all the mappings are new anyways.
-      if (preInfo.date !== convInfo.date) {
+      // If the most recent message date changed or the height changed, we need
+      // to blow away all the existing mappings and all the mappings are new
+      // anyways.
+      if (preInfo.date !== convInfo.date ||
+          preInfo.height !== convInfo.height) {
         for (let folderId of preInfo.folderIds) {
           convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
         }
         for (let folderId of convInfo.folderIds) {
-          let key = [folderId, convInfo.date, convInfo.id];
-          // the key is also the value because we need to use mozGetAll
-          convIdsStore.add(key, key);
+          convIdsStore.add(
+            [folderId, convInfo.date, convInfo.id],
+            [folderId, convInfo.date, convInfo.id, convInfo.height]);
         }
       }
       // Otherwise we need to cleverly compute the delta
       else {
-
         for (let folderId of removed) {
           convIdsStore.delete([folderId, convInfo.date, convInfo.id]);
         }
         for (let folderId of added) {
-          let key = [folderId, convInfo.date, convInfo.id];
-          // the key is also the value because we need to use mozGetAll
-          convIdsStore.add(key, key);
+          convIdsStore.add(
+            [folderId, convInfo.date, convInfo.id],
+            [folderId, convInfo.date, convInfo.id, convInfo.height]);
         }
       }
     }

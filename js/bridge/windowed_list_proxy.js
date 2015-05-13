@@ -77,19 +77,36 @@ WindowedListProxy.prototype = {
   },
 
   seek: function(req) {
-    this.numAbove = req.above;
-    this.numBelow = req.below;
-
+    // -- Index-based modes
     if (req.mode === 'top' || req.mode === 'bottom') {
       this.mode = req.mode;
       this.focusKey = null;
-    } else if (req.mode === 'focus') {
+      this.numAbove = req.above;
+      this.numBelow = req.below;
+    }
+    else if (req.mode === 'focus') {
       this.mode = req.mode;
       this.focusKey = req.focusKey;
-    } else if (req.mode === 'focusIndex') {
+      this.numAbove = req.above;
+      this.numBelow = req.below;
+    }
+    else if (req.mode === 'focusIndex') {
       this.mode = 'focus';
       this.focusKey = this.toc.getOrderingKeyForIndex(req.index);
-    } else {
+      this.numAbove = req.above;
+      this.numBelow = req.below;
+    }
+    // -- Height-aware modes
+    else if (req.mode === 'coordinates') {
+      this.mode = req.mode;
+      // In this case we want to anchor on the first visible item, so we take
+      // the offset and add the si
+      let focalOffset = req.offset + req.singleBufferSize;
+      let { orderingKey, offset, cumulativeHeight } =
+        this.toc.getOrderingKeyForOffset(req.offset);
+
+    }
+    else {
       throw new Error('bogus seek mode: ' + req.mode);
     }
 
@@ -140,13 +157,18 @@ WindowedListProxy.prototype = {
     if (this.mode === 'top') {
       beginInclusive = 0;
       endExclusive = Math.min(this.toc.length, this.numBelow + 1);
-    } else if (this.mode === 'bottom') {
+    }
+    else if (this.mode === 'bottom') {
       endExclusive = this.toc.length;
       beginInclusive = Math.max(0, endExclusive - this.numAbove);
-    } else if (this.mode === 'focus') {
+    }
+    else if (this.mode === 'focus') {
       let focusIndex = this.toc.findIndexForOrderingKey(this.focusKey);
       beginInclusive = Math.max(0, focusIndex - this.numAbove);
       endExclusive = Math.min(this.toc.length, focusIndex + this.numBelow + 1);
+    }
+    else if (this.mode === 'coordinates') {
+
     }
 
     this.dirty = false;

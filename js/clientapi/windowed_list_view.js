@@ -163,6 +163,24 @@ WindowedListView.prototype = evt.mix({
   },
 
   /**
+   * Return the item by absolute index, returning null if it's outside the
+   * currently seeked range.
+   *
+   * This method does not infer seeks that should happen as a byproduct of gets
+   * outside the seeked range.  Your code needs to issue the seek calls itself
+   * based on an understanding of the visible item range and the buffering you
+   * want.
+   */
+  getItemByAbsoluteIndex: function(absIndex) {
+    let relIndex = absIndex - this.offset;
+    if (relIndex < 0 ||
+        relIndex >= this.items.length) {
+      return null;
+    }
+    return this.items[relIndex];
+  },
+
+  /**
    * Seek to the top of the list and latch there so that our slice will always
    * include the first `numDesired` items in the list.
    */
@@ -187,7 +205,7 @@ WindowedListView.prototype = evt.mix({
   seekFocusedOnItem: function(item, numAbove, numBelow) {
     let idx = this.items.indexOf(item);
     if (idx === -1) {
-      throw new Error('item is not in list')
+      throw new Error('item is not in list');
     }
     this._api.__bridgeSend({
       type: 'seekProxy',
@@ -224,6 +242,24 @@ WindowedListView.prototype = evt.mix({
       mode: 'bottom',
       above: numDesired,
       below: 0
+    });
+  },
+
+  /**
+   * Given a quantized-height-supporting back-end where every item has an
+   * integer height associated with it that creates an arbitrary coordinate
+   * space, seek using that coordinate space.
+   *
+   * This mode of seeking assumes a virtual list widget with some concept of
+   * the visible region and a buffer before it and after it.
+   */
+  seekInCoordinateSpace: function(offset, height, singleBufferSize) {
+    this._api.__bridgeSend({
+      type: 'seekProxy',
+      mode: 'coordinates',
+      offset: offset,
+      height: height,
+      singleBufferSize: singleBufferSize
     });
   },
 

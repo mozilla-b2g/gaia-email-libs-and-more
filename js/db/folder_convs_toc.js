@@ -136,6 +136,40 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     return index;
   },
 
+
+  /**
+   * Given a quantized height offset, find the item at that offset and return it
+   * and related information.
+   *
+   * NOTE! This is currently implemented as an iterative brute-force from the
+   * front.  This is dumb, but probably good enough.  Since this ordering is
+   * immutable most of the time, a primitive skip-list is probably even
+   * overkill.  Just caching the last offset or two and their indices is
+   * probably sufficient.  But even that's for the future.
+   */
+  getInfoForOffset: function(desiredOffset) {
+    // NB: because this is brute-force, we are falling back to var since we know
+    // that let is bad news in SpiderMonkey at the current tim.
+    var actualOffset = 0;
+
+    var idsWithDates = this.idsWithDates;
+    var len = idsWithDates.length;
+    var meta;
+    for (var i = 0; i < len; i++) {
+      meta = idsWithDates[i];
+      if (desiredOffset >= actualOffset) {
+        break;
+      }
+      actualOffset += meta.height;
+    }
+
+    return {
+      orderingKey: meta,
+      offset: actualOffset,
+      cumulativeHeight: actualOffset + meta.height
+    };
+  },
+
   getDataForSliceRange: function(beginInclusive, endExclusive, alreadyKnown) {
     // Things we were able to directly extract from the cache
     let haveData = new Map();
