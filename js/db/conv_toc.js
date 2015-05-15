@@ -138,7 +138,26 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     return ids;
   },
 
+  /**
+   * Generate an ordering key that is from the distant future, effectively
+   * latching us to the top.  We use this for the coordinate-space case where
+   * there is nothing loaded yet.
+   */
+  getTopOrderingKey: function() {
+    return {
+      date: new Date(2200, 0),
+      id: ''
+    };
+  },
+
   getOrderingKeyForIndex: function(index) {
+    if (this.idsWithDates.length === 0) {
+      return this.getTopOrderingKey();
+    } else if (index < 0) {
+      index = 0;
+    } else if (index >= this.idsWithDates.length) {
+      index = this.idsWithDates.length - 1;
+    }
     return this.idsWithDates[index];
   },
 

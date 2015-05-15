@@ -11,6 +11,16 @@ function NamedContext(name, type, bridgeContext) {
   this._active = true;
 
   this._stuffToRelease = [];
+
+  /**
+   * If the bridge is currently processing an async command for this context,
+   * this is the promise.
+   */
+  this.pendingCommand = null;
+  /**
+   * Any commands not yet processed because we're waiting on a pendingCommand.
+   */
+  this.commandQueue = [];
 }
 NamedContext.prototype = {
   get batchManager() {
@@ -82,6 +92,10 @@ BridgeContext.prototype = {
     }
 
     throw new Error('no such namedContext');
+  },
+
+  maybeGetNamedContext: function(name) {
+    return this._namedContexts.get(name);
   },
 
   cleanupNamedContext: function(name) {

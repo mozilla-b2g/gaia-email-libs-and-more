@@ -52,6 +52,7 @@ function MailBridge(universe, db, name) {
 
   this.batchManager = new BatchManager(db);
   this.bridgeContext = new BridgeContext(this, this.batchManager);
+  this._pendingMessagesByHandle
 
   this._trackedItemsByType = {
     accounts: new Map(),
@@ -91,6 +92,74 @@ MailBridge.prototype = {
       logic(this, 'badMessageType', { type: msg.type });
       return;
     }
+    let namedContext = msg.handle &&
+                       this.bridgeContext.maybeGetNamedContext(msg.handle);
+    if (namedContext) {
+      if (namedContext.pendingCommand) {
+        console.warn('deferring', msg);
+        namedContext.commandQueue.push(msg);
+      } else {
+        let promise = namedContext.pendingCommand =
+          this._processCommand(msg, implCmdName);
+        if (promise) {
+          this._trackCommandForNamedContext(namedContext, promise);
+        }
+      }
+    } else {
+      let promise = this._processCommand(msg, implCmdName);
+      // If the command went async, then it's also possible that the command
+      // grew a namedContext and that we therefore need to get it and set up the
+      // bookkeeping so that if any other commands come in on this handle before
+      // the promise is resolved that we can properly queue them.
+      if (promise && msg.handle) {
+        namedContext = this.bridgeContext.maybeGetNamedContext(msg.handle);
+        if (namedContext) {
+          namedContext.pendingCommand = promise;
+          this._trackCommandForNamedContext(namedContext, promise);
+        }
+      }
+    }
+  },
+
+  _trackCommandForNamedContext: function(namedContext, promise) {
+    let runNext = () => {
+      this._commandCompletedProcessNextCommandInQueue(namedContext);
+    };
+    promise.then(runNext, runNext);
+  },
+
+  /**
+   * Whenever
+   */
+  _commandCompletedProcessNextCommandInQueue: function(namedContext) {
+    if (namedContext.commandQueue.length) {
+      console.warn('processing deferred command');
+      let promise = namedContext.pendingCommand =
+        this._processCommand(namedContext.commandQueue.shift());
+      if (promise) {
+        let runNext = () => {
+          this._commandCompletedProcessNextCommandInQueue(namedContext);
+        };
+        promise.then(runNext, runNext);
+      }
+    } else {
+      namedContext.pendingCommand = null;
+    }
+  },
+
+  /**
+   *
+   * @param {Object} msg
+   * @param {String} [implCmdName]
+   *   The command name optionally already derived from the message.  Optional
+   *   because in some cases the string may already have been created for
+   *   fast-fail purposes and still available.  In async cases we may not have
+   *   it anymore because it's not worth the hassle to cart it around.
+   */
+  _processCommand: function(msg, implCmdName) {
+    if (!implCmdName) {
+      implCmdName = '_cmd_' + msg.type;
+    }
     logic(this, 'cmd', {
       type: msg.type,
       msg: msg
@@ -99,12 +168,14 @@ MailBridge.prototype = {
       let result = this[implCmdName](msg);
       if (result && result.then) {
         logic.await(this, 'asyncCommand', { type: msg.type }, result);
+        return result;
       }
     } catch(ex) {
       console.error('problem processing', implCmdName, ex, ex.stack);
       logic.fail(ex);
-      return; // note that we did not throw
+      return null; // note that we did not throw
     }
+    return null;
   },
 
   _cmd_ping: function mb__cmd_ping(msg) {
@@ -623,11 +694,6 @@ MailBridge.prototype = {
                                                                 msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
-    // XXX once _cmd_'s are serialized on a per-handle basis, stop automatically
-    // seeking and instead force the caller to issue a seek call subsequent to
-    // creating the view.
-    // XXX and be sure to remove the console.warn below in _cmd_seekProxy
-    ctx.proxy.seek({ mode: 'top', above: 0, below: 15 });
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
@@ -642,8 +708,6 @@ MailBridge.prototype = {
                                                          msg.conversationId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
-    // XXX the same seek stuff from viewFolderConversations
-    ctx.proxy.seek({ mode: 'top', above: 0, below: 15 });
   }),
 
   _cmd_refreshView: function(msg) {
@@ -674,7 +738,8 @@ MailBridge.prototype = {
   _cmd_seekProxy: function(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
     if (!ctx.proxy) {
-      console.warn('you lost the ordering war!  ignored seek!');
+      console.error('you lost the ordering war!  eating seek!');
+      return;
     }
     ctx.proxy.seek(msg);
   },

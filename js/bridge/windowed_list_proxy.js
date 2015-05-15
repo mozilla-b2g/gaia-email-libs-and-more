@@ -114,22 +114,27 @@ WindowedListProxy.prototype = {
     else if (req.mode === 'coordinates') {
       if (this.toc.heightAware) {
         this.mode = req.mode;
+        // In this case we want to anchor on the first visible item, so we take
+        // the offset and add the si
+        let focalOffset = req.offset + req.before;
+        let { orderingKey, offset } = this.toc.getInfoForOffset(focalOffset);
+        this.focusKey = orderingKey;
+        let focusUnitsNotVisible = Math.max(0, focalOffset - offset);
+        this.bufferAbove = req.before - focusUnitsNotVisible;
+        this.visibleAbove = 0;
+        this.visibleBelow = req.visible - (offset - focalOffset);
+        this.bufferBelow = req.after;
       }
       // if the TOC isn't height-aware we can just convert to focus mode with
       // an assumption of uniform height.
       else {
         this.mode = 'focus';
+        this.focusKey = this.toc.getOrderingKeyForIndex(req.offset);
+        this.bufferAbove = req.before;
+        this.visibleAbove = 0;
+        this.visibleBelow = req.visible;
+        this.bufferBelow = req.after;
       }
-      // In this case we want to anchor on the first visible item, so we take
-      // the offset and add the si
-      let focalOffset = req.offset + req.before;
-      let { orderingKey, offset } = this.toc.getInfoForOffset(focalOffset);
-      this.focusKey = orderingKey;
-      let focusUnitsNotVisible = Math.max(0, focalOffset - offset);
-      this.bufferAbove = req.before - focusUnitsNotVisible;
-      this.visibleAbove = 0;
-      this.visibleBelow = req.visible - (offset - focalOffset);
-      this.bufferBelow = req.after;
     }
     else {
       throw new Error('bogus seek mode: ' + req.mode);

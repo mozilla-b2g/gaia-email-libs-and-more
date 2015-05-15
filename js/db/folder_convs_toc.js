@@ -157,7 +157,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   getTopOrderingKey: function() {
     return {
       date: new Date(2200, 0),
-      convId: '',
+      id: '',
       height: 0
     };
   },
@@ -200,7 +200,6 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     var meta;
     for (var i = 0; i < len; i++) {
       meta = idsWithDates[i];
-console.log('desiring', desiredOffset, 'at', i, 'cur actual', actualOffset, 'meta.height', meta.height);
       // if this would put us over the limit, we've found it!
       if (desiredOffset < actualOffset + meta.height) {
         break;

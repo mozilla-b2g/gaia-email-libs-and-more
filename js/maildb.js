@@ -1025,7 +1025,6 @@ MailDB.prototype = evt.mix({
     let headerRange = IDBKeyRange.bound([convId], [convId, []],
                                         true, true);
     let headers = yield wrapReq(headerStore.mozGetAll(headerRange));
-
     let headerCache = this.headerCache;
     retval.idsWithDates = headers.map(function(header) {
       // Put it in the cache unless it's already there (reads must
