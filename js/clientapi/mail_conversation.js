@@ -93,6 +93,7 @@ MailConversation.prototype = evt.mix({
       this._forgetPeeps();
     }
 
+    this.height = wireRep.height;
     this.mostRecentMessageDate = new Date(wireRep.date);
     this.firstSubject = wireRep.subject;
     this.headerCount = wireRep.headerCount;

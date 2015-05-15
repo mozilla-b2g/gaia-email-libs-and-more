@@ -55,6 +55,7 @@ function ConversationTOC(db, convId) {
 }
 ConversationTOC.prototype = evt.mix(RefedResource.mix({
   type: 'ConversationTOC',
+  heightAware: false,
 
   __activate: co.wrap(function*() {
     // NB: Although our signature is for this to just provide us with the id's,
@@ -77,6 +78,10 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   get length() {
+    return this.idsWithDates.length;
+  },
+
+  get totalHeight() {
     return this.idsWithDates.length;
   },
 

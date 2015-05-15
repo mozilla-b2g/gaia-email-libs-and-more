@@ -246,7 +246,7 @@ return TaskDefiner.defineSimpleTask([
       allHeaders.sort(conversationMessageComparator);
 
       let oldConvInfo = fromDb.conversations.get(req.convId);
-      let convInfo = churnConversation(oldConvInfo, allHeaders);
+      let convInfo = churnConversation(req.convId, oldConvInfo, allHeaders);
 
       yield ctx.finishTask({
         mutations: {

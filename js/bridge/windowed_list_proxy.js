@@ -78,33 +78,58 @@ WindowedListProxy.prototype = {
 
   seek: function(req) {
     // -- Index-based modes
-    if (req.mode === 'top' || req.mode === 'bottom') {
+    if (req.mode === 'top') {
       this.mode = req.mode;
       this.focusKey = null;
-      this.numAbove = req.above;
-      this.numBelow = req.below;
+      this.bufferAbove = 0;
+      this.visibleAbove = 0;
+      this.visibleBelow = req.visibleDesired;
+      this.bufferBelow = req.bufferDesired;
+    }
+    else if (req.mode === 'bottom') {
+      this.mode = req.mode;
+      this.focusKey = null;
+      this.bufferAbove = req.bufferDesired;
+      this.visibleAbove = req.visibleDesired;
+      this.visibleBelow = 0;
+      this.bufferBelow = 0;
     }
     else if (req.mode === 'focus') {
       this.mode = req.mode;
       this.focusKey = req.focusKey;
-      this.numAbove = req.above;
-      this.numBelow = req.below;
+      this.bufferAbove = req.bufferAbove;
+      this.visibleAbove = req.visibleAbove;
+      this.visibleBelow = req.visibleBelow;
+      this.bufferBelow = req.bufferBelow;
     }
     else if (req.mode === 'focusIndex') {
       this.mode = 'focus';
       this.focusKey = this.toc.getOrderingKeyForIndex(req.index);
-      this.numAbove = req.above;
-      this.numBelow = req.below;
+      this.bufferAbove = req.bufferAbove;
+      this.visibleAbove = req.visibleAbove;
+      this.visibleBelow = req.visibleBelow;
+      this.bufferBelow = req.bufferBelow;
     }
     // -- Height-aware modes
     else if (req.mode === 'coordinates') {
-      this.mode = req.mode;
+      if (this.toc.heightAware) {
+        this.mode = req.mode;
+      }
+      // if the TOC isn't height-aware we can just convert to focus mode with
+      // an assumption of uniform height.
+      else {
+        this.mode = 'focus';
+      }
       // In this case we want to anchor on the first visible item, so we take
       // the offset and add the si
-      let focalOffset = req.offset + req.singleBufferSize;
-      let { orderingKey, offset, cumulativeHeight } =
-        this.toc.getOrderingKeyForOffset(req.offset);
-
+      let focalOffset = req.offset + req.before;
+      let { orderingKey, offset } = this.toc.getInfoForOffset(focalOffset);
+      this.focusKey = orderingKey;
+      let focusUnitsNotVisible = Math.max(0, focalOffset - offset);
+      this.bufferAbove = req.before - focusUnitsNotVisible;
+      this.visibleAbove = 0;
+      this.visibleBelow = req.visible - (offset - focalOffset);
+      this.bufferBelow = req.after;
     }
     else {
       throw new Error('bogus seek mode: ' + req.mode);
@@ -150,31 +175,57 @@ WindowedListProxy.prototype = {
    * WindowedListView.  If all of the data isn't available synchronously, we
    * will be provided with a Promise for when the data is available, and we'll
    * dirty ourselves again when that promise resolves.  Happily, if things have
-   * changed by the time the promise is resolved, it's fine
+   * changed by the time the promise is resolved, it's fine.
+   *
    */
   flush: function() {
-    let beginInclusive, endExclusive;
+    let beginBufferedInclusive, beginVisibleInclusive, endVisibleExclusive,
+        endBufferedExclusive, heightOffset;
     if (this.mode === 'top') {
-      beginInclusive = 0;
-      endExclusive = Math.min(this.toc.length, this.numBelow + 1);
+      beginBufferedInclusive = beginVisibleInclusive = 0;
+      endVisibleExclusive = Math.min(this.toc.length, this.visibleBelow + 1);
+      endBufferedExclusive =
+        Math.min(this.toc.length, endVisibleExclusive + this.bufferBelow);
     }
     else if (this.mode === 'bottom') {
-      endExclusive = this.toc.length;
-      beginInclusive = Math.max(0, endExclusive - this.numAbove);
+      endBufferedExclusive = endVisibleExclusive = this.toc.length;
+      beginVisibleInclusive =
+        Math.max(0, endVisibleExclusive - this.visibleAbove);
+      beginBufferedInclusive =
+        Math.max(0, beginVisibleInclusive - this.bufferedAbove);
     }
     else if (this.mode === 'focus') {
       let focusIndex = this.toc.findIndexForOrderingKey(this.focusKey);
-      beginInclusive = Math.max(0, focusIndex - this.numAbove);
-      endExclusive = Math.min(this.toc.length, focusIndex + this.numBelow + 1);
+      beginVisibleInclusive = Math.max(0, focusIndex - this.visibleAbove);
+      beginBufferedInclusive =
+        Math.max(0, beginVisibleInclusive - this.bufferAbove);
+      // we add 1 because the above/below stuff does not include the item itself
+      endVisibleExclusive =
+        Math.min(this.toc.length, focusIndex + this.visibleBelow + 1);
+      endBufferedExclusive =
+        Math.min(this.toc.length, endVisibleExclusive + this.bufferBelow);
     }
     else if (this.mode === 'coordinates') {
-
+      // This is valid. JSHint bug: https://github.com/jshint/jshint/issues/2269
+      ({ beginBufferedInclusive, beginVisibleInclusive, endVisibleExclusive,
+         endBufferedExclusive, heightOffset } =
+        this.toc.findIndicesFromCoordinateSoup({
+          orderingKey: this.focusKey,
+          bufferAbove: this.bufferAbove,
+          visibleAbove: this.visibleAbove,
+          visibleBelow: this.visibleBelow,
+          bufferBelow: this.bufferBelow
+        }));
     }
 
     this.dirty = false;
 
+    // XXX prioritization hints should be generated as a result of the visible
+    // range!
+
     let { ids, state, readPromise, newKnownSet } =
-      this.toc.getDataForSliceRange(beginInclusive, endExclusive, this.viewSet);
+      this.toc.getDataForSliceRange(
+        beginBufferedInclusive, endBufferedExclusive, this.viewSet);
 
     this.viewSet = newKnownSet;
 
@@ -186,8 +237,10 @@ WindowedListProxy.prototype = {
     }
 
     return {
-      offset: beginInclusive,
+      offset: beginBufferedInclusive,
+      heightOffset: heightOffset || beginBufferedInclusive,
       totalCount: this.toc.length,
+      totalHeight: this.toc.totalHeight,
       ids: ids,
       values: state
     };

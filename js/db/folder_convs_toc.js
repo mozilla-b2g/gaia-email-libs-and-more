@@ -49,6 +49,7 @@ function FolderConversationsTOC(db, folderId) {
 }
 FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   type: 'FolderConversationsTOC',
+  heightAware: true,
 
   __activate: co.wrap(function*() {
     let { idsWithDates, drainEvents, eventId } =
@@ -56,12 +57,20 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
 
     this.idsWithDates = idsWithDates;
     this._eventId = eventId;
+
+    let totalHeight = 0;
+    for (let info of idsWithDates) {
+      totalHeight += info.height;
+    }
+    this.totalHeight = totalHeight;
+
     drainEvents(this._bound_onChange);
     this._db.on(eventId, this._bound_onTOCChange);
   }),
 
   __deactivate: function() {
     this.idsWithDates = [];
+    this.totalHeight = 0;
     this._db.removeListener(this._eventId, this._bound_onTOCChange);
   },
 
@@ -77,6 +86,7 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
    * @param {ConvInfo} item
    * @param {DateTS} removeDate
    * @param {DateTS} addDate
+   * @param {Number} oldHeight
    */
   onTOCChange: function(change) {
     let metadataOnly = change.removeDate === change.addDate;
@@ -87,16 +97,22 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
         let oldKey = { date: change.removeDate, id: change.id };
         oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
                                       folderConversationComparator);
-        // NB: if we computed the newIndex before splicing out, we could avoid
-        // potentially redundant operations, but it's not worth the complexity
-        // at this point.
-        this.idsWithDates.splice(oldIndex, 1);
+        if (oldIndex !== -1) {
+          // NB: if we computed the newIndex before splicing out, we could avoid
+          // potentially redundant operations, but it's not worth the complexity
+          // at this point.
+          this.totalHeight -= change.oldHeight;
+          this.idsWithDates.splice(oldIndex, 1);
+        } else {
+          throw new Error('freakout! item should exist');
+        }
       }
       let newIndex = -1;
       if (change.addDate) {
         let newKey = { date: change.addDate, id: change.id };
         newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                     folderConversationComparator);
+        this.totalHeight += change.item.height;
         this.idsWithDates.splice(newIndex, 0, newKey);
       }
 
@@ -105,7 +121,10 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       if (oldIndex === newIndex) {
         metadataOnly = true;
       }
+    } else {
+      this.totalHeight += change.item.height - change.oldHeight;
     }
+
 
     // We could expose more data, but WindowedListProxy doesn't need it, so
     // don't expose it yet.  If we end up with a fancier consumer (maybe a neat
@@ -130,22 +149,46 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     return this.idsWithDates[index];
   },
 
+  /**
+   * Generate an ordering key that is from the distant future, effectively
+   * latching us to the top.  We use this for the coordinate-space case where
+   * there is nothing loaded yet.
+   */
+  getTopOrderingKey: function() {
+    return {
+      date: new Date(2200, 0),
+      convId: '',
+      height: 0
+    };
+  },
+
   findIndexForOrderingKey: function(key) {
     let index = bsearchForInsert(this.idsWithDates, key,
                                  folderConversationComparator);
     return index;
   },
 
-
   /**
-   * Given a quantized height offset, find the item at that offset and return it
-   * and related information.
+   * Given a quantized height offset, find the item covering that offset and
+   * return it and related information.
+   *
+   * For example, if we have three items with height 3 (and therefore starting
+   * at offsets [0, 3, 6]), then getInfoForOffset(5) will find the item at
+   * offset
    *
    * NOTE! This is currently implemented as an iterative brute-force from the
    * front.  This is dumb, but probably good enough.  Since this ordering is
    * immutable most of the time, a primitive skip-list is probably even
    * overkill.  Just caching the last offset or two and their indices is
    * probably sufficient.  But even that's for the future.
+   *
+   * @return {Object}
+   * @prop {OrderingKey} orderingKey
+   * @prop {Number} offset
+   *   The height offset the item with the given ordering key starts at.
+   * @prop {Number} cumulativeHeight
+   *   The height offset the item with the given ordering key ends at.
+   *   (You can also think of this as the offset the next item starts at.)
    */
   getInfoForOffset: function(desiredOffset) {
     // NB: because this is brute-force, we are falling back to var since we know
@@ -157,10 +200,16 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     var meta;
     for (var i = 0; i < len; i++) {
       meta = idsWithDates[i];
-      if (desiredOffset >= actualOffset) {
+console.log('desiring', desiredOffset, 'at', i, 'cur actual', actualOffset, 'meta.height', meta.height);
+      // if this would put us over the limit, we've found it!
+      if (desiredOffset < actualOffset + meta.height) {
         break;
       }
       actualOffset += meta.height;
+    }
+    if (!len) {
+      console.log('generating top key');
+      meta = this.getTopOrderingKey();
     }
 
     return {
@@ -170,7 +219,93 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     };
   },
 
+  getHeightOffsetForIndex: function(desiredIndex) {
+    let height = 0;
+    let idsWithDates = this.idsWithDates;
+    desiredIndex = Math.min(desiredIndex, idsWithDates.length);
+    for (let i = 0; i < desiredIndex; i++) {
+      height += idsWithDates[i].height;
+    }
+    return height;
+  },
+
+  /**
+   * Traverse items covering a height.  All indices are inclusive because it's
+   * stable under successive calls and symmetric for the direction of traversal.
+   * Add one to the index if you want exclusive.
+   *
+   * @param {Number} startIndex
+   * @param {1,-1} delta
+   *   Should be +1 or -1.
+   * @param {Number} heightToConsume
+   *   The number of height units you want us to walk.  If negative, we'll just
+   *   immediately return with the state you provided to us.
+   *
+   * @return {Object}
+   * @prop {Number} overconsumed
+   *   Additional height units covered by this returned index.
+   */
+  _walkToCoverHeight: function(startIndex, delta, heightToConsume) {
+    let index = startIndex;
+    let idsWithDates = this.idsWithDates;
+    let info = (index < idsWithDates.length) && idsWithDates[index];
+    let tooHigh = idsWithDates.length - 1;
+
+    while (heightToConsume > 0 && index < tooHigh && index + delta >= 0) {
+      index += delta;
+      info = this.idsWithDates[index];
+      heightToConsume -= info.height;
+    }
+    return {
+      index,
+      overconsumed: Math.abs(heightToConsume)
+    };
+  },
+
+  /**
+   * Given an ordering key and a number of requested visible/buffer height
+   * units, return the set of appropriate indices.  Although this could be
+   * exposed as a series of smaller operations for the caller to make, since we
+   * may eventually want to have a clever representation of our list and the
+   * height information, it's better to let all the cleverness happen in one
+   * place.  When we inevitably need this logic someplace else, we should
+   * partition all this crap out into a mix-in or something we can subclass.
+   */
+  findIndicesFromCoordinateSoup: function(req) {
+    let focusIndex = this.findIndexForOrderingKey(req.orderingKey);
+    if (focusIndex >= this.idsWithDates.length && this.idsWithDates.length) {
+      // Don't try and display something that doesn't exist.  Display at least
+      // something!
+      focusIndex--;
+    }
+
+    let { index: beginVisibleInclusive, overconsumed: beforeOverconsumed } =
+      this._walkToCoverHeight(focusIndex, -1, req.visibleAbove);
+    let { index: beginBufferedInclusive } =
+      this._walkToCoverHeight(beginVisibleInclusive, -1,
+                              req.bufferAbove - beforeOverconsumed);
+
+    let { index: endVisibleInclusive, overconsumed: afterOverconsumed } =
+      this._walkToCoverHeight(focusIndex, 1, req.visibleBelow);
+    let { index: endBufferedInclusive } =
+      this._walkToCoverHeight(endVisibleInclusive, 1,
+                              req.bufferBelow - afterOverconsumed);
+
+    let rval = {
+      beginBufferedInclusive,
+      beginVisibleInclusive,
+      endVisibleExclusive: endVisibleInclusive + 1,
+      endBufferedExclusive: endBufferedInclusive + 1,
+      heightOffset: this.getHeightOffsetForIndex(beginBufferedInclusive)
+    };
+    console.log('findIndices', focusIndex, req, rval);
+    return rval;
+  },
+
   getDataForSliceRange: function(beginInclusive, endExclusive, alreadyKnown) {
+    beginInclusive = Math.max(0, beginInclusive);
+    endExclusive = Math.min(endExclusive, this.idsWithDates.length);
+
     // Things we were able to directly extract from the cache
     let haveData = new Map();
     // Things we need to request from the database.  (Although MailDB.read will

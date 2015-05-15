@@ -47,10 +47,12 @@ function WindowedListView(api, itemConstructor, handle) {
    * are at the top of the list.
    */
   this.offset = 0;
+  this.heightOffset = 0;
   /**
    *
    */
   this.totalCount = 0;
+  this.totalHeight = 0;
   /**
    * @type {Array<ItemInstance|null>}
    *
@@ -145,7 +147,9 @@ WindowedListView.prototype = evt.mix({
       itemContents: contentsChanged
     };
     this.offset = details.offset;
+    this.heightOffset = details.heightOffset;
     this.totalCount = details.totalCount;
+    this.totalHeight = details.totalHeight;
     this.items = newItems;
     this._itemsById = newSet;
 
@@ -184,12 +188,13 @@ WindowedListView.prototype = evt.mix({
    * Seek to the top of the list and latch there so that our slice will always
    * include the first `numDesired` items in the list.
    */
-  seekToTop: function(numDesired) {
+  seekToTop: function(visibleDesired, bufferDesired) {
     this._api.__bridgeSend({
       type: 'seekProxy',
+      handle: this._handle,
       mode: 'top',
-      above: 0,
-      below: numDesired
+      visibleDesired: visibleDesired,
+      bufferDesired: bufferDesired
     });
   },
 
@@ -202,17 +207,21 @@ WindowedListView.prototype = evt.mix({
    *   The item to focus on.  This must be a current item in `items` or
    *   we will throw.
    */
-  seekFocusedOnItem: function(item, numAbove, numBelow) {
+  seekFocusedOnItem: function(item, bufferAbove, visibleAbove, visibleBelow,
+                              bufferBelow) {
     let idx = this.items.indexOf(item);
     if (idx === -1) {
       throw new Error('item is not in list');
     }
     this._api.__bridgeSend({
       type: 'seekProxy',
+      handle: this._handle,
       mode: 'focus',
       focusKey: this._makeOrderingKeyFromItem(item),
-      above: numAbove,
-      below: numBelow
+      bufferAbove: bufferAbove,
+      visibleAbove: visibleAbove,
+      visibleBelow: visibleBelow,
+      bufferBelow: bufferBelow
     });
   },
 
@@ -222,13 +231,17 @@ WindowedListView.prototype = evt.mix({
    * the index correspond to the first visible message in your list or the
    * central one.
    */
-  seekFocusedOnAbsoluteIndex: function(index, numAbove, numBelow) {
+  seekFocusedOnAbsoluteIndex: function(index, bufferAbove, visibleAbove,
+                                       visibleBelow, bufferBelow) {
     this._api.__bridgeSend({
       type: 'seekProxy',
+      handle: this._handle,
       mode: 'focusIndex',
       index: index,
-      above: numAbove,
-      below: numBelow
+      bufferAbove: bufferAbove,
+      visibleAbove: visibleAbove,
+      visibleBelow: visibleBelow,
+      bufferBelow: bufferBelow
     });
   },
 
@@ -236,12 +249,13 @@ WindowedListView.prototype = evt.mix({
    * Seek to the bottom of the list and latch there so that our slice will
    * always include the last `numDesired` items in the list.
    */
-  seekToBottom: function(numDesired) {
+  seekToBottom: function(visibleDesired, bufferDesired) {
     this._api.__bridgeSend({
       type: 'seekProxy',
+      handle: this._handle,
       mode: 'bottom',
-      above: numDesired,
-      below: 0
+      visibleDesired: visibleDesired,
+      bufferDesired: bufferDesired
     });
   },
 
@@ -253,13 +267,15 @@ WindowedListView.prototype = evt.mix({
    * This mode of seeking assumes a virtual list widget with some concept of
    * the visible region and a buffer before it and after it.
    */
-  seekInCoordinateSpace: function(offset, height, singleBufferSize) {
+  seekInCoordinateSpace: function(offset, before, visible, after) {
     this._api.__bridgeSend({
       type: 'seekProxy',
+      handle: this._handle,
       mode: 'coordinates',
       offset: offset,
-      height: height,
-      singleBufferSize: singleBufferSize
+      before: before,
+      visible: visible,
+      after: after
     });
   },
 

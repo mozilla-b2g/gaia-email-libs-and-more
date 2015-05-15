@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 34;
+const CUR_VERSION = 38;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -884,6 +884,9 @@ MailDB.prototype = evt.mix({
     logic(this, 'loadFolderConversationIdsAndListen',
           { convCount: tuples.length, eventId: retval.eventId });
 
+    // These are sorted in ascending order, but we want them in descending
+    // order.
+    tuples.reverse();
     retval.idsWithDates = tuples.map(function(x) {
       return { date: x[1], id: x[2], height: x[3] };
     });
@@ -907,8 +910,8 @@ MailDB.prototype = evt.mix({
                   });
 
         convIdsStore.add(
-          [folderId, convInfo.date, convInfo.id],
-          [folderId, convInfo.date, convInfo.id, convInfo.height]);
+          [folderId, convInfo.date, convInfo.id, convInfo.height], // value
+          [folderId, convInfo.date, convInfo.id]); // key
       }
     }
   },
@@ -921,7 +924,7 @@ MailDB.prototype = evt.mix({
     let convStore = trans.objectStore(TBL_CONV_INFO);
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
     for (let [convId, convInfo] of convs) {
-      let preInfo = preStates[convId];
+      let preInfo = preStates.get(convId);
 
       // -- Deletion
       if (convInfo === null) {
@@ -958,7 +961,8 @@ MailDB.prototype = evt.mix({
                     id: convId,
                     item: convInfo,
                     removeDate: null,
-                    addDate: convInfo.date
+                    addDate: convInfo.date,
+                    oldHeight: 0
                   });
       }
       // (We still want to generate an event even if there is no date change
@@ -969,7 +973,8 @@ MailDB.prototype = evt.mix({
                     id: convId,
                     item: convInfo,
                     removeDate: preInfo.date,
-                    addDate: convInfo.date
+                    addDate: convInfo.date,
+                    oldHeight: preInfo.height
                   });
       }
       for (let folderId of removed) {
@@ -978,7 +983,8 @@ MailDB.prototype = evt.mix({
                     id: convId,
                     item: convInfo,
                     removeDate: preInfo.date,
-                    addDate: null
+                    addDate: null,
+                    oldHeight: preInfo.height
                   });
       }
 
@@ -992,8 +998,8 @@ MailDB.prototype = evt.mix({
         }
         for (let folderId of convInfo.folderIds) {
           convIdsStore.add(
-            [folderId, convInfo.date, convInfo.id],
-            [folderId, convInfo.date, convInfo.id, convInfo.height]);
+            [folderId, convInfo.date, convInfo.id, convInfo.height], // value
+            [folderId, convInfo.date, convInfo.id]); // key
         }
       }
       // Otherwise we need to cleverly compute the delta
@@ -1003,8 +1009,8 @@ MailDB.prototype = evt.mix({
         }
         for (let folderId of added) {
           convIdsStore.add(
-            [folderId, convInfo.date, convInfo.id],
-            [folderId, convInfo.date, convInfo.id, convInfo.height]);
+            [folderId, convInfo.date, convInfo.id, convInfo.height], // value
+            [folderId, convInfo.date, convInfo.id]); // key
         }
       }
     }

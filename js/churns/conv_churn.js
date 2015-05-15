@@ -43,6 +43,7 @@ function churnConversation(convId, oldConvInfo, headers) {
     // Add up to MAX_TIDBITS tidbits for unread messages
     if (tidbits.length < MAX_TIDBITS && !isRead) {
       tidbits.push({
+        id: header.id,
         date: header.date,
         isRead: isRead,
         isStarred: isStarred,

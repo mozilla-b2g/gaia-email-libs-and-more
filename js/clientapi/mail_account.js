@@ -1,12 +1,15 @@
 define(function(require) {
 'use strict';
 
-var MailSenderIdentity = require('./mail_sender_identity');
+var evt = require('evt');
+let MailSenderIdentity = require('./mail_sender_identity');
 
 /**
  *
  */
 function MailAccount(api, wireRep, acctsSlice) {
+  evt.Emitter.call(this);
+
   this._api = api;
   this.id = wireRep.id;
 
@@ -71,7 +74,7 @@ function MailAccount(api, wireRep, acctsSlice) {
     this.folders = api.viewFolders('account', this.id);
   }
 }
-MailAccount.prototype = {
+MailAccount.prototype = evt.mix({
   toString: function() {
     return '[MailAccount: ' + this.type + ' ' + this.id + ']';
   },
@@ -179,12 +182,13 @@ MailAccount.prototype = {
    * all accounts in the acctsSlice.
    */
   get isDefault() {
-    if (!this.acctsSlice)
+    if (!this.acctsSlice) {
       throw new Error('No account slice available');
+    }
 
     return this.acctsSlice.defaultAccount === this;
   },
-};
+});
 
 return MailAccount;
 });
