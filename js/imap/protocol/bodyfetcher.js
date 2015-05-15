@@ -59,8 +59,9 @@ BodyFetcher.prototype = {
             }
           }
 
-          if (!body) {
-            this.resolve('no body', request);
+          // We might have an empty body.
+          if (body === null) {
+            this._resolve('no body', request);
           } else {
             parser.parse(body);
             this._resolve(null, request, parser.complete());

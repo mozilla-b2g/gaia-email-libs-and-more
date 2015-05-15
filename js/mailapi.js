@@ -1336,8 +1336,9 @@ MailBody.prototype = {
     for (i = 0; i < this._relatedParts.length; i++) {
       var relPart = this._relatedParts[i];
       // Related parts should all be stored as Blobs-in-IndexedDB
-      if (relPart.file && !Array.isArray(relPart.file))
+      if (relPart.file && relPart.file.size) {
         cidToBlob[relPart.contentId] = relPart.file;
+      }
     }
 
     // - Transform the links
@@ -1440,7 +1441,13 @@ MailAttachment.prototype = {
   },
 
   get isDownloaded() {
-    return !!this._file;
+    // This will either be null, a Blob, or { parts: [] }.
+    return !!(this._file && this._file.size);
+  },
+
+  get isDownloading() {
+    // This will either be null, a Blob, or { parts: [] }.
+    return !!(this._file && this._file.parts);
   },
 
   /**

@@ -5,13 +5,18 @@ define(
     '../syncbase',
     '../allback',
     '../db/mail_rep',
+    'activesync/codepages',
     'activesync/codepages/AirSync',
     'activesync/codepages/AirSyncBase',
     'activesync/codepages/ItemEstimate',
     'activesync/codepages/Email',
     'activesync/codepages/ItemOperations',
     'safe-base64',
+    './activesync-streams',
     'mimetypes',
+    'co',
+    'util',
+    'mime-streams',
     'module',
     'require',
     'exports'
@@ -22,13 +27,18 @@ define(
     $sync,
     allback,
     mailRep,
+    ASCP,
     $AirSync,
     $AirSyncBase,
     $ItemEstimate,
     $Email,
     $ItemOperations,
     safeBase64,
+    activesyncStreams,
     mimetypes,
+    co,
+    util,
+    mimeStreams,
     $module,
     require,
     exports
@@ -90,22 +100,25 @@ var $wbxml, parseAddresses, $mailchew;
 function lazyConnection(cbIndex, fn, failString) {
   return function lazyRun() {
     var args = Array.slice(arguments),
-        errback = args[cbIndex],
         self = this;
+    return new Promise((resolve, reject) => {
+      // If cbIndex === 'promise', we'll use a promise instead of a callback.
+      var errback = (cbIndex === 'promise') ? reject : args[cbIndex];
 
-    require(['wbxml', 'addressparser', '../mailchew'],
-    function (wbxml, addressparser, mailchew) {
-      if (!$wbxml) {
-        $wbxml = wbxml;
-        parseAddresses = addressparser.parse.bind(addressparser);
-        $mailchew = mailchew;
-        initFilterTypes();
-      }
+      require(['wbxml', 'addressparser', '../mailchew'],
+      function (wbxml, addressparser, mailchew) {
+        if (!$wbxml) {
+          $wbxml = wbxml;
+          parseAddresses = addressparser.parse.bind(addressparser);
+          $mailchew = mailchew;
+          initFilterTypes();
+        }
 
-      self._account.withConnection(errback, function () {
-        fn.apply(self, args);
-      }, failString);
-    });
+        self._account.withConnection(errback, function () {
+          resolve(fn.apply(self, args));
+        }, failString);
+      });
+    })
   };
 }
 
@@ -1280,22 +1293,22 @@ ActiveSyncFolderConn.prototype = {
     });
   }),
 
-  // XXX: take advantage of multipart responses here.
-  // See http://msdn.microsoft.com/en-us/library/ee159875%28v=exchg.80%29.aspx
-  downloadMessageAttachments: lazyConnection(2, function(uid,
-                                                         partInfos,
-                                                         callback,
-                                                         progress) {
+  downloadMessageAttachments:
+  lazyConnection('promise', co.wrap(function* (uid, partInfos, handlers) {
+    // Send the request.
     var folderConn = this;
 
     var io = $ItemOperations.Tags;
     var ioStatus = $ItemOperations.Enums.Status;
     var asb = $AirSyncBase.Tags;
 
+    var partIdToAttachmentIndex = {};
+
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(io.ItemOperations);
     for (var iter in Iterator(partInfos)) {
       var part = iter[1];
+      partIdToAttachmentIndex[part.part] = iter[0];
       w.stag(io.Fetch)
          .tag(io.Store, 'Mailbox')
          .tag(asb.FileReference, part.part)
@@ -1303,78 +1316,138 @@ ActiveSyncFolderConn.prototype = {
     }
     w.etag();
 
+    // We're going to stream the command, rather than wait to recieve all the
+    // data immediately. We'll recieve data in chunks through postCommand's
+    // progress callback (via XHR's moz-chunked-arraybuffer option),
+    // and handle attachments as they come in.
+    var stream = new activesyncStreams.MultipartStream();
+
     this._account.conn.postCommand(w, function(aError, aResult) {
       if (aError) {
         console.error('postCommand error:', aError);
         folderConn._account._reportErrorIfNecessary(aError);
-        callback('unknown');
-        return;
+        stream.onerror('unknown');
       }
+      stream.writable.close();
+    },
+    /* aExtraParams: */ null,
+    /* aExtraHeaders: */ { 'MS-ASAcceptMultiPart': 'T' },
+    /* aProgressCallback: */ function(bytesLoaded, bytesTotal, data) {
+      stream.writable.write(new Uint8Array(data));
+    });
 
-      var globalStatus;
-      var attachments = {};
+    // The ActiveSync protocol indicates that we will receive an XML response
+    // in the first multipart-part, containing metadata about the attachments.
+    // If we don't find this part, there's been a problem.
+    var reader = stream.readable.getReader();
+    var { value, done } = yield reader.read();
+    if (done) {
+      console.warn('Invariant: no attachments?');
+      throw new Error('unknown');
+    }
 
-      var e = new $wbxml.EventParser();
-      e.addEventListener([io.ItemOperations, io.Status], function(node) {
-        globalStatus = node.children[0].textContent;
-      });
-      e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
-                         function(node) {
-        var part = null, attachment = {};
+    var { partStream } = value;
 
-        for (var iter in Iterator(node.children)) {
-          var child = iter[1];
-          switch (child.tag) {
-          case io.Status:
-            attachment.status = child.children[0].textContent;
-            break;
-          case asb.FileReference:
-            part = child.children[0].textContent;
-            break;
-          case io.Properties:
-            var contentType = null, data = null;
+    var error = null;
+    var attachments = {};
+    var partIndexToAttachmentInfo = {};
 
-            for (var iter2 in Iterator(child.children)) {
-              var grandchild = iter2[1];
-              var textContent = grandchild.children[0].textContent;
+    // Prepare to parse the XML metadata...
+    var e = new $wbxml.EventParser();
+    e.addEventListener([io.ItemOperations, io.Status], function(node) {
+      if (node.children[0].textContent !== ioStatus.Success) {
+        error = 'unknown';
+      }
+    });
 
-              switch (grandchild.tag) {
-              case asb.ContentType:
-                contentType = textContent;
-                break;
-              case io.Data:
-                data = safeBase64.decode(textContent);
-                break;
-              }
+    e.addEventListener([io.ItemOperations, io.Response, io.Fetch],
+                       function(node) {
+      var attachmentInfo = {};
+
+      for (var iter in Iterator(node.children)) {
+        var child = iter[1];
+        switch (child.tag) {
+        case io.Status:
+          attachmentInfo.status = child.children[0].textContent;
+          break;
+        case asb.FileReference:
+          attachmentInfo.part = child.children[0].textContent;
+          break;
+        case io.Properties:
+          var contentType = null, partIndex = null;
+
+          for (var iter2 in Iterator(child.children)) {
+            var grandchild = iter2[1];
+            var textContent = grandchild.children[0].textContent;
+
+            switch (grandchild.tag) {
+            case asb.ContentType:
+              contentType = textContent;
+              break;
+            case io.Part:
+              partIndex = parseInt(textContent, 10);
+              break;
             }
-
-            if (contentType && data)
-              attachment.data = new Blob([data], { type: contentType });
-            break;
           }
 
-          if (part)
-            attachments[part] = attachment;
+          if (contentType && partIndex !== null) {
+            attachmentInfo.contentType = contentType;
+            attachmentInfo.partIndex = partIndex;
+          }
+          break;
         }
-      });
-      e.run(aResult);
 
-      var error = globalStatus !== ioStatus.Success ? 'unknown' : null;
-      var bodies = [];
-      for (var iter in Iterator(partInfos)) {
-        var part = iter[1];
-        if (attachments.hasOwnProperty(part.part) &&
-            attachments[part.part].status === ioStatus.Success) {
-          bodies.push(attachments[part.part].data);
-        }
-        else {
-          error = 'unknown';
-          bodies.push(null);
+        if (attachmentInfo.part) {
+          attachments[attachmentInfo.part] =
+            partIndexToAttachmentInfo[attachmentInfo.partIndex] =
+              attachmentInfo;
         }
       }
-      callback(error, bodies);
     });
-  }),
+
+    var xmlBytes = util.concatBuffers.apply(
+            null, (yield mimeStreams.readAllChunks(partStream)));
+
+    // Synchronously parse the XML description of the list of attachments.
+    e.run(new $wbxml.Reader(xmlBytes, ASCP));
+
+    // Stream each subsequent multipart-part as we receive it.
+    var bodies = new Array(partInfos.length);
+    while (true) {
+      var { value, done } = yield reader.read();
+      if (!done) {
+        // Note the difference between partIndex and attachmentIndex:
+        //   - partIndex is what the XML metadata uses to refer to one of the
+        //     multipart parts (i.e. the first partIndex here is 1, since the
+        //     XML metadata was part 0.)
+        //   - attachmentIndex refers to an index into partInfos, i.e. the
+        //     index of the current attachment in the real message itself.
+        var { partIndex, partStream } = value;
+
+        var attachmentInfo = partIndexToAttachmentInfo[partIndex];
+        if (!attachmentInfo) {
+          console.error('No attachment found for index ' + partIndex + '!');
+          continue;
+        }
+        var attachmentIndex = partIdToAttachmentIndex[attachmentInfo.part];
+        if (attachmentInfo.status !== ioStatus.Success) {
+          console.warn('Failure status for index ' + partIndex + '!');
+          bodies[attachmentIndex] = null;
+          continue;
+        }
+
+        bodies[attachmentIndex] =
+          yield mimeStreams.readAttachmentStreamWithChunkFlushing(
+            attachmentInfo.contentType,
+            partStream.pipeThrough(new mimeStreams.BlobTransformStream()),
+            (file) => handlers.flushFileWithIndex(attachmentIndex, file)
+          );
+      } else {
+        // All done!
+        return bodies;
+      }
+    }
+  }))
 };
 
 function ActiveSyncFolderSyncer(account, folderStorage) {

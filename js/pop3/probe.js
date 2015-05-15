@@ -43,40 +43,39 @@ exports.probeAccount = function(credentials, connInfo) {
   // server doesn't have the support we need and we must give up.
   var conn = new pop3.Pop3Client(opts, function(err) {
     if (err) { reject(err); return; }
-    conn.protocol.sendRequest('UIDL', ['1'], false, function(err, rsp) {
-      if (rsp) {
-        conn.protocol.sendRequest('TOP', ['1', '0'], true, function(err, rsp) {
-          if (rsp) {
+    conn.sendRequest('UIDL', ['1'], false)
+      .then(() => {
+        conn.sendRequest('TOP', ['1', '0'], true)
+          .then(() => {
             // both UIDL and TOP work. Awesome!
             resolve(conn);
-          } else if (err.err) {
-            // Uh, this server must not support TOP. That sucks.
-            logic(scope, 'server-not-great', { why: 'no TOP' });
-            reject('pop-server-not-great');
-          } else {
-            // if the error was socket-level or something, let it pass
-            // through untouched
-            reject(rsp.err);
-          }
-        });
-      } else {
+          }, (err) => {
+            if (err.statusLine[0] === '-') {
+              // Uh, this server must not support TOP. That sucks.
+              logic(scope, 'server-not-great', { why: 'no TOP' });
+              reject('pop-server-not-great');
+            } else {
+              // if the error was socket-level or something, let it pass
+              // through untouched
+              reject(err);
+            }
+          });
+      }, (err) => {
         // Either their inbox is empty or they don't support UIDL.
-        conn.protocol.sendRequest('UIDL', [], true, function(err, rsp) {
-          if (rsp) {
+        conn.sendRequest('UIDL', [], true)
+          .then(() => {
             // It looks like they support UIDL, so let's go for it.
             resolve(conn);
-          } else if (err.err) {
-            // They must not support UIDL. Not good enough.
-            logic(scope, 'server-not-great', { why: 'no UIDL' });
-            reject('pop-server-not-great');
-          } else {
-            // if the error was socket-level or something, let it pass
-            // through untouched
-            reject(rsp.err);
-          }
-        });
-      }
-    });
+          }, (err) => {
+            if (err.statusLine[0] === '-') {
+              // They must not support UIDL. Not good enough.
+              logic(scope, 'server-not-great', { why: 'no UIDL' });
+              reject('pop-server-not-great');
+            } else {
+              reject(err);
+            }
+          });
+      });
   });
 
   return promise

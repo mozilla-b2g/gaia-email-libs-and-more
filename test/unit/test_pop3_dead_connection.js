@@ -20,7 +20,7 @@ define(function(require) {
 
 var LegacyGelamTest = require('./resources/legacy_gelamtest');
 var $fawlty = require('./resources/fault_injecting_socket');
-var $pop3 = require('pop3/pop3');
+var mimeStreams = require('mime-streams');
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
 
 return new LegacyGelamTest('various dead connections', function(T, RT) {
@@ -80,34 +80,24 @@ return new LegacyGelamTest('various dead connections', function(T, RT) {
       }
     });
 
-  // - Die during processing the message, triggering disaster_recovery
-  // This is notable because this will occur without any `pendingRequests` so
-  // we need an overarching 'onclose' handle to trigger this failure mode.
-  //
-  // We induce a failure here by forcing parseMime to throw an exception.  We
-  // do this by clobbering the method. so...
-  // NOTE NOTE NOTE this has to be the last test because we clobber a prototype
-  // and we don't care about the fallout!
-  T.group('connection dies because of disaster recovery');
+  // - Die during processing the message, triggering sync failure.
+  T.group('connection dies during MIME parsing');
   testAccount.do_viewFolder(
-    'syncs', inboxFolder,
-    { count: 0, full: 0, flags: 0, changed: 0, deleted: 0 },
-    { top: true, bottom: true, grow: false, newCount: 0 },
-    {
-      // we explicitly say batches: 0 here too because we did get far enough to
-      // do the UIDL thing above.
-      failure: 'deadconn', batches: 0,
-      expectFunc: function() {
-        // Make sure disaster recover is getting its chance to shine
-        T.actor('DisasterRecovery').expect('exception', function(details) {
-          return (details.errorMessage === 'ARTIFICE');
-        });
-
-        $pop3.Pop3Client.prototype.parseMime = function() {
-          throw new Error('ARTIFICE');
-        };
-      }
-    });
+   'syncs', inboxFolder,
+   { count: 0, full: 0, flags: 0, changed: 0, deleted: 0 },
+   { top: true, bottom: true, grow: false, newCount: 0 },
+   {
+     // we explicitly say batches: 0 here too because we did get far enough to
+     // do the UIDL thing above.
+     failure: 'deadconn', batches: 0,
+     expectFunc: function() {
+       // Make sure disaster recover is getting its chance to shine
+       T.actor('Pop3FolderSyncer').expect('sync:end', function(details) {
+         return (/TEST_ONLY_DIE_DURING_MIME_PROCESSING/.test(details.err));
+       });
+       mimeStreams.TEST_ONLY_DIE_DURING_MIME_PROCESSING = true;
+     }
+   });
 
   T.group('cleanup');
 });

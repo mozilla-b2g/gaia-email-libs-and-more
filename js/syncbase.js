@@ -284,6 +284,21 @@ exports.HEADER_EST_SIZE_IN_BYTES = 430;
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// MIME Size / Parsing / Streaming Constants
+
+/**
+ * How many bytes-worth of typed array data should we accumulate before
+ * condensing it into a Blob? Arbitrarily chosen.
+ */
+exports.BYTES_PER_BLOB_CHUNK = 1024 * 1024;
+
+/**
+ * How many bytes should we request for each IMAP FETCH chunk request?
+ * (Currently used only by attachment downloading, not body fetching).
+ */
+exports.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST = 1024 * 1024;
+
+////////////////////////////////////////////////////////////////////////////////
 // Error / Retry Constants
 
 /**

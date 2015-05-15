@@ -43,7 +43,7 @@ define(function(require) {
 
           // Instantiate the fake server.
 
-          var server = servers.bootNamedServer('server', {
+          servers.bootNamedServer('server', {
             type: (/imap/.test(opts.variant) ? 'imap' :
                    /pop3/.test(opts.variant) ? 'pop3' :
                    /activesync/.test(opts.variant) ? 'activesync' :
@@ -57,60 +57,52 @@ define(function(require) {
             date: null, // ???
             emailAddress: opts.emailAddress,
             password: opts.password
-          });
+          }).then((server) => {
+
+            $sync.TEST_adjustSyncValues({
+              fillSize: 15,
+              days: 7,
+              growDays: 7,
+              scaleFactor: 1.6,
+
+              // arbitrarily large value for tests
+              STALE_CONNECTION_TIMEOUT_MS: 60000,
+
+              // Don't kill jobless connections, as most of the tests don't
+              // expect the connections to die, and we test this independently
+              // within test_imap_kill_unused_connections.js.
+              KILL_CONNECTIONS_WHEN_JOBLESS: false,
+
+              // Don't trigger the whole-folder sync logic except when
+              // we explicitly want to test it.
+              SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 0,
+
+              // We don't want to test this at scale as part of our unit
+              // tests, so crank it way up so we don't ever accidentally
+              // run into this.
+              bisectThresh: 2000,
+              tooMany: 2000,
+
+              // For consistency with our original tests where we would
+              // always generate network traffic when opening a slice,
+              // set the threshold so that it is always exceeded. Tests
+              // that care currently explicitly set this. Note that our
+              // choice of -1 assumes that Date.now() is strictly
+              // increasing; this is usually pretty safe but ntpdate can
+              // do angry things, for one.
+              openRefreshThresh: -1,
+              // Same deal.
+              growRefreshThresh: -1,
+            });
 
 
-
-
-          $sync.TEST_adjustSyncValues({
-            fillSize: 15,
-            days: 7,
-            growDays: 7,
-            scaleFactor: 1.6,
-
-            // arbitrarily large value for tests
-            STALE_CONNECTION_TIMEOUT_MS: 60000,
-
-            // Don't kill jobless connections, as most of the tests don't expect
-            // the connections to die, and we test this independently within
-            // test_imap_kill_unused_connections.js.
-            KILL_CONNECTIONS_WHEN_JOBLESS: false,
-
-            // Don't trigger the whole-folder sync logic except when
-            // we explicitly want to test it.
-            SYNC_WHOLE_FOLDER_AT_N_MESSAGES: 0,
-
-            // We don't want to test this at scale as part of our unit
-            // tests, so crank it way up so we don't ever accidentally
-            // run into this.
-            bisectThresh: 2000,
-            tooMany: 2000,
-
-            // For consistency with our original tests where we would
-            // always generate network traffic when opening a slice,
-            // set the threshold so that it is always exceeded. Tests
-            // that care currently explicitly set this. Note that our
-            // choice of -1 assumes that Date.now() is strictly
-            // increasing; this is usually pretty safe but ntpdate can
-            // do angry things, for one.
-            openRefreshThresh: -1,
-            // Same deal.
-            growRefreshThresh: -1,
-          });
-
-
-
-
-
-
-
-
-          resolve({
-            __api: api,
-            universe: universe,
-            server: server,
-            bridge: bridge,
-            msggen: new msggen.MessageGenerator()
+            resolve({
+              __api: api,
+              universe: universe,
+              server: server,
+              bridge: bridge,
+              msggen: new msggen.MessageGenerator()
+            });
           });
         },
         true, // Assume online; MailUniverse assumes 'true' anyway.

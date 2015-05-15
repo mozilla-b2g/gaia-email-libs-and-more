@@ -131,8 +131,16 @@ Pop3FolderSyncer.prototype = {
 
     console.log('POP3: Downloading bodyReps for UIDL ' + header.srvid);
 
-    conn.downloadMessageByUidl(header.srvid, function(err, message) {
-      if (err) { callback(err); return; }
+    conn.downloadMessage(header.srvid, {
+      flushBodyInfo: (bodyInfo) => {
+        // Flush bodyInfo so that memory-blobs become disk-blobs.
+        return new Promise((resolve, reject) => {
+          this.storeMessage(header, bodyInfo, { flush: true }, () => {
+            resolve(bodyInfo);
+          });
+        });
+      }
+    }).then((message) => {
       // Don't overwrite the header, because it contains useful
       // identifiers like `suid` and things we want. Plus, with POP3,
       // the server's headers will always be the same.
@@ -142,24 +150,28 @@ Pop3FolderSyncer.prototype = {
       console.log('POP3: Storing message ' + header.srvid +
                   ' with ' + header.bytesToDownloadForBodyDisplay +
                   ' bytesToDownload.');
+
+      var bodyInfo = message.body;
       // Force a flush if there were any attachments so that any memory-backed
       // Blobs get replaced with their post-save disk-backed equivalent so they
       // can be garbage collected.
-      var flush = message.bodyInfo.attachments.length > 0;
-      this.storeMessage(header, message.bodyInfo, { flush: flush }, function() {
-        callback && callback(null, message.bodyInfo, flush);
+      var flush = bodyInfo.attachments.length > 0;
+      this.storeMessage(header, bodyInfo, { flush: flush }, function() {
+        callback && callback(null, bodyInfo, flush);
       });
-    }.bind(this));
+
+    }).catch((err) => {
+      callback(err);
+    });
   }),
 
-  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+  downloadMessageAttachments: function(uid, partInfos, handlers) {
     // We already retrieved the attachments in downloadBodyReps, so
     // this function should never be invoked (because callers would
     // have seen that all relevant partInfos have set `isDownloaded`
     // to true). Either way, there's nothing to do here.
     console.log('POP3: ERROR: downloadMessageAttachments called and ' +
                 'POP3 shouldn\'t do that.');
-    callback(null, null);
   },
 
   /**
@@ -189,11 +201,6 @@ Pop3FolderSyncer.prototype = {
    * @param {function()} callback
    */
   storeMessage: function(header, bodyInfo, options, callback) {
-    callback = callback || function() {};
-    var event = {
-      changeDetails: {}
-    };
-
     var knownId = this.getMessageIdForUidl(header.srvid);
 
     if (header.id == null) { // might be zero.
@@ -206,57 +213,27 @@ Pop3FolderSyncer.prototype = {
       header.guid = header.guid || header.srvid;
     }
 
-    // Save all included attachments before actually storing the
-    // message. Downloaded attachments must be converted from a blob
-    // to a file on disk.
     var latch = allback.latch();
-    var self = this;
 
-    for (var i = 0; i < bodyInfo.attachments.length; i++) {
-      var att = bodyInfo.attachments[i];
-      if (att.file instanceof Blob) {
-        // We want to save attachments to device storage (sdcard),
-        // rather than IndexedDB, for now.  It's a v3 thing to use IndexedDB
-        // as a cache.
-        console.log('Saving attachment', att.file);
-        // Always register all POP3 downloads with the download manager since
-        // the user didn't have to explicitly trigger download for each
-        // attachment.
-        var registerDownload = true;
-        jobmixins.saveToDeviceStorage(
-          self, att.file, 'sdcard', registerDownload, att.name, att,
-          latch.defer());
-        // When saveToDeviceStorage completes, att.file will
-        // be a reference to the file on the sdcard.
-      }
+    if (knownId == null) {
+      this.storeMessageUidlForMessageId(header.srvid, header.id);
+      this.storage.addMessageHeader(header, bodyInfo, latch.defer());
+      this.storage.addMessageBody(header, bodyInfo, latch.defer());
+    } else {
+      this.storage.updateMessageHeader(
+        header.date, header.id, true, header, bodyInfo, latch.defer());
+      this.storage.updateMessageBody(
+        header, bodyInfo,
+        options.flush ? { flushBecause: 'blobs' } : {}, {
+          changeDetails: {
+            attachments: range(bodyInfo.attachments.length),
+            bodyReps: range(bodyInfo.bodyReps.length)
+          }
+        }, latch.defer());
     }
 
     latch.then(function() {
-      // Once the attachments have been downloaded, we can store the
-      // message. Here, we wait to call back from storeMessage() until
-      // we've saved _both_ the header and body.
-      latch = allback.latch();
-
-      if (knownId == null) {
-        self.storeMessageUidlForMessageId(header.srvid, header.id);
-        self.storage.addMessageHeader(header, bodyInfo, latch.defer());
-        self.storage.addMessageBody(header, bodyInfo, latch.defer());
-      } else {
-        self.storage.updateMessageHeader(
-          header.date, header.id, true, header, bodyInfo, latch.defer());
-        event.changeDetails.attachments = range(bodyInfo.attachments.length);
-        event.changeDetails.bodyReps = range(bodyInfo.bodyReps.length);
-        var updateOptions = {};
-        if (options.flush) {
-          updateOptions.flushBecause = 'blobs';
-        }
-        self.storage.updateMessageBody(
-          header, bodyInfo, updateOptions, event, latch.defer());
-      }
-
-      latch.then(function() {
-        callback(null, bodyInfo);
-      });
+      callback && callback(null, bodyInfo);
     });
   },
 
@@ -384,7 +361,7 @@ Pop3FolderSyncer.prototype = {
     if (meta._TEST_pendingAdds) {
       meta._TEST_pendingAdds.forEach(function(msg) {
         saveNeeded = true;
-        this.storeMessage(msg.header, msg.bodyInfo, {}, latch.defer());
+        this.storeMessage(msg.header, msg.body, {}, latch.defer());
       }, this);
       meta._TEST_pendingAdds = null;
     }

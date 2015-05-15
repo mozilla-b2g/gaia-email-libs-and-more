@@ -12,7 +12,9 @@ define((require, exports) => {
       var TEST_PARAMS = self.RT.envOptions;
 
       var normName = self.__name.replace(/\d+/g, '');
-      var server = servers.bootNamedServer(normName, {
+      var eLazy = self.T.actor();
+      eLazy.expect('server booted');
+      servers.bootNamedServer(normName, {
         type: type,
         account: null, // set up later
         controlServerBaseUrl: TEST_PARAMS.controlServerBaseUrl,
@@ -23,16 +25,17 @@ define((require, exports) => {
         date: opts.testAccount.testUniverse._useDate,
         emailAddress: opts.testAccount.emailAddress,
         password: opts.testAccount.initialPassword
-      });
-
-      // Mixin a mixin, for the legacy test fixin'
-      for (var name in server) {
-        if (typeof server[name] === 'function') {
-          self[name] = server[name].bind(server);
-        } else {
-          self[name] = server[name];
+      }).then((server) => {
+        // Mixin a mixin, for the legacy test fixin'
+        for (var name in server) {
+          if (typeof server[name] === 'function') {
+            self[name] = server[name].bind(server);
+          } else {
+            self[name] = server[name];
+          }
         }
-      }
+        eLazy.log('server booted');
+      })
     });
   }
 

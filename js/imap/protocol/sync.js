@@ -175,16 +175,16 @@ Sync.prototype = {
 
             chewRep.header.bytesToDownloadForBodyDisplay =
               $imapchew.calculateBytesToDownloadForImapBodyDisplay(
-                chewRep.bodyInfo);
+                chewRep.body);
 
             pendingSnippets.push(chewRep);
 
             // flush our body/header information ? should we do some sorting,
             // etc.. here or just let the UI update ASAP?
             self.storage.addMessageHeader(
-              chewRep.header, chewRep.bodyInfo, latch.defer());
+              chewRep.header, chewRep.body, latch.defer());
             self.storage.addMessageBody(
-              chewRep.header, chewRep.bodyInfo, latch.defer());
+              chewRep.header, chewRep.body, latch.defer());
           }
           catch (ex) {
             // it's fine for us to not add bad messages to the database

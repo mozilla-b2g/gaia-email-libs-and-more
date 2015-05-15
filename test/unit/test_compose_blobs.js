@@ -201,26 +201,19 @@ return new LegacyGelamTest('large attachments', function(T, RT) {
           'attachment[' + iAtt + '].data', makeArrOfSize(numBytes));
 
         att.download(function() {
-          testStorage.get(
-            att._file[1],
-            function gotBlob(error, blob) {
-              if (error) {
-                console.error('blob fetch error:', error);
-                return;
-              }
-              var reader = new FileReaderSync();
-              try {
-                var data = new Uint8Array(reader.readAsArrayBuffer(blob));
-                console.log('got', data.length, 'bytes, readyState',
-                            reader.readyState);
-                eLazy.log('attachment[' + iAtt + '].size',
-                                 body.attachments[iAtt].sizeEstimateInBytes);
-                eLazy.log('attachment[' + iAtt + '].data', data);
-              }
-              catch(ex) {
-                console.error('reader error', ex);
-              }
-            });
+          var blob = att._file;
+          var reader = new FileReaderSync();
+          try {
+            var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+            console.log('got', data.length, 'bytes, readyState',
+                        reader.readyState);
+            eLazy.log('attachment[' + iAtt + '].size',
+                               body.attachments[iAtt].sizeEstimateInBytes);
+            eLazy.log('attachment[' + iAtt + '].data', data);
+          }
+          catch(ex) {
+            console.error('reader error', ex);
+          }
         });
       });
     });

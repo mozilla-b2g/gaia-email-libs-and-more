@@ -31,7 +31,8 @@ var rawSammySnake = '\u00dfnake, \u00dfammy',
     mwqSammySnake = '=?iso-8859-1?Q?=DFnake=2C_=DFammy?=',
     rawMultiBase64 = 'Sssś Lałalalala',
     mwbMultiBase64 = '=?UTF-8?B?U3NzxZsgTGHFgmFsYQ==?= =?UTF-8?B?bGFsYQ==?=',
-    rawBase64Gibberish = 'A\u0004\u0011E\u0014',
+    // Test that when we receive gibberish data, we just pass it through.
+    rawBase64Gibberish = '=?UTF-8?B?Q!Q#@Q$RR$RR=====?=',
     mwbBase64Gibberish = '=?UTF-8?B?Q!Q#@Q$RR$RR=====?=';
 
 var rawUnicodeName = 'Figui\u00e8re',

@@ -58,6 +58,21 @@ We reuse existing third-party libraries whenever possible. Most of these librari
 
 These dependencies live in the `js/ext` directory in GELAM, and our RequireJS configuration is set to allow you to refer to modules within that directory with an absolute path. (When you install GELAM into Gaia, you'll see `$GAIA/apps/email/js/ext/ext` -- don't be alarmed, you're just dealing with two layers of dependencies.)
 
+### WHATWG Streams Library
+
+E-mail protocol handling is simplified greatly by using some sort of streams abstraction. The [WHATWG Streams Specification](https://streams.spec.whatwg.org/) appears to be the long-term way forward, so we have chosen to adopt a snapshot of the [reference implementation](https://github.com/whatwg/streams/tree/master/reference-implementation), with the following modifications:
+
+1. Recompile with browserify to remove the ES6 stuff that's too cool for us.
+2. Patch in the following function to the class definition of TransformStream:
+
+   ```
+   abort(e) {
+     errorReadable(e);
+   },
+   ```
+
+Ideally this would be better integrated with a proper build step.
+
 ## More about unit tests
 
 The unit tests can run against real mail servers or fake ones (originally from Thunderbird). By default, we use fake servers, so no extra setup should be needed. As mentioned in the guide above, the tests run in a b2g-desktop instance, and you must point GELAM at your b2g directory first.

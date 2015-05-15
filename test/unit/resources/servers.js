@@ -2,6 +2,8 @@ define((require) => {
 
   var logic = require('logic');
   var pop3 = require('pop3/pop3');
+  var mimeStreams = require('mime-streams');
+  var mimefuncs = require('mimefuncs');
   var accountcommon = require('accountcommon');
 
 
@@ -35,6 +37,7 @@ define((require) => {
 
     // for pop3
     this.folderMessages = {};
+    this.readyPromise = Promise.resolve();
 
     logic.defineScope(this, 'FakeServer');
 
@@ -88,7 +91,8 @@ define((require) => {
         fakeMsgDate = new Date(
           options.date.valueOf() - 2 * 24 * 60 * 60 * 1000);
       }
-      this.addMessagesToFolder('INBOX', [{
+
+      this.readyPromise = this.addMessagesToFolder('INBOX', [{
         date: fakeMsgDate,
         metaState: {},
         toMessageString: function() {
@@ -232,7 +236,8 @@ define((require) => {
     addMessagesToFolder: function(folderPath, messages) {
       // ActiveSync is sufficiently weird to pull it out.
       if (this.type === 'activesync') {
-        return this.addMessagesToFolderActiveSync(folderPath, messages);
+        return Promise.resolve(
+          this.addMessagesToFolderActiveSync(folderPath, messages));
       }
 
       var transformedMessages = messages.map((message) => {
@@ -278,11 +283,11 @@ define((require) => {
           (this.type === 'pop3' &&
            (folderPath.path || folderPath) === 'INBOX')) {
 
-        return this.backdoor({
+        return Promise.resolve(this.backdoor({
           command: 'addMessagesToFolder',
           name: folderPath.path || folderPath,
           messages: transformedMessages
-        });
+        }));
 
       } else if (this.type === 'pop3') {
         var folderMeta = this.account.getFolderByPath(folderPath);
@@ -297,12 +302,15 @@ define((require) => {
             value: []
           });
         }
-        transformedMessages.forEach((obj) => {
-          var msg = pop3.Pop3Client.parseMime(obj.msgString);
-          folderMeta._TEST_pendingAdds.push(msg);
-        });
-
-        return null;
+        return Promise.all(transformedMessages.map((obj) => {
+          var duplex = new mimeStreams.LineTransformStream();
+          duplex.writable.write(mimefuncs.charset.encode(obj.msgString));
+          duplex.writable.close();
+          return pop3.Pop3Client.prototype.parseMessageFromLineStream(
+            duplex.readable).then((msg) => {
+              folderMeta._TEST_pendingAdds.push(msg);
+            });
+        }));
       }
     },
 
@@ -652,7 +660,7 @@ define((require) => {
       if (!instances[name]) {
         instances[name] = new FakeServer(opts);
       }
-      return instances[name];
+      return instances[name].readyPromise.then(() => instances[name]);
     }
   };
 

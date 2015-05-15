@@ -6,6 +6,8 @@ define(
     '../date',
     '../syncbase',
     '../util',
+    'co',
+    'mimefuncs',
     'module',
     'require',
     'exports'
@@ -17,6 +19,8 @@ define(
     $date,
     $sync,
     $util,
+    co,
+    mimefuncs,
     $module,
     require,
     exports
@@ -936,84 +940,87 @@ ImapFolderConn.prototype = {
     });
   },
 
-  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
-    require(['mimeparser'], function(MimeParser) {
-      var conn = this._conn;
-      var self = this;
+  downloadMessageAttachments: co.wrap(function*(uid, partInfos, handlers) {
+    var [mimeStreams, streams] = yield new Promise((resolve) => {
+      require(['mime-streams', 'streams'],
+       (mimeStreams, streams) => resolve([mimeStreams, streams]));
+    });
 
-      var latch = $allback.latch();
-      var anyError = null;
-      var bodies = [];
-
-      partInfos.forEach(function(partInfo, index) {
-        var partKey = 'body.peek[' + partInfo.part + ']';
-        var partDone = latch.defer(partInfo.part);
-        conn.listMessages(
+    // Grab one chunk of this message from the server.
+    var downloadChunk = co.wrap(function*(partInfo, offset, count) {
+      var msg = yield new Promise((resolve, reject) => {
+        console.log(`>>> Sending IMAP chunk request at offset ${offset}`);
+        this._conn.listMessages(
           uid,
-          [partKey],
+          ['body.peek[' + (partInfo._partInfo.partID || '1') +
+           ']<' + offset + '.' + count + '>'],
           { byUid: true },
-          function(err, messages) {
-            if (err) {
-              anyError = err;
-              console.error('attachments:download-error', {
-                error: err,
-                part: partInfo.part,
-                type: partInfo.type
-              });
-              partDone();
-              return;
-            }
-
-            // We only receive one message per each listMessages call.
-            var msg = messages[0];
-
-            // Find the proper response key of the message. Since this
-            // response object is a lightweight wrapper around the
-            // response returned from the IRC server and it's possible
-            // there are poorly-behaved servers out there, best to err
-            // on the side of safety.
-            var bodyPart;
-            for (var key in msg) {
-              if (/body\[/.test(key)) {
-                bodyPart = msg[key];
-                break;
-              }
-            }
-
-            if (!bodyPart) {
-              console.error('attachments:download-error', {
-                error: 'no body part?',
-                requestedPart: partKey,
-                responseKeys: Object.keys(msg)
-              });
-              partDone();
-              return;
-            }
-
-            // TODO: stream attachments, bug 1047032
-            var parser = new MimeParser();
-            // TODO: escape partInfo.type/encoding
-            parser.write('Content-Type: ' + partInfo.type + '\r\n');
-            parser.write('Content-Transfer-Encoding: ' + partInfo.encoding + '\r\n');
-            parser.write('\r\n');
-            parser.write(bodyPart);
-            parser.end(); // Parsing is actually synchronous.
-
-            var node = parser.node;
-
-            bodies[index] = new Blob([node.content], {
-              type: node.contentType.value
-            });
-
-            partDone();
-          });
+          (err, msgs) => {
+            err ? reject(err) : resolve(msgs[0]) }
+        );
       });
 
-      latch.then(function(results) {
-        callback(anyError, bodies);
-      });
+      // Return the body (Regex because key name may not be exact.)
+      for (var key in msg) {
+        // Check for null; an empty string is a valid value.
+        if (/body\[/.test(key) && msg[key] !== null) {
+          return mimefuncs.charset.encode(msg[key]);
+        }
+      }
+
+      // If we didn't find the body, we have problems.
+      throw new Error('no body part?');
     }.bind(this));
-  },
+
+    var partInfoToMimeStream = function(partInfo) {
+      var CHUNK_SIZE = $sync.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST;
+      var byteIndex = 0;
+      var out;
+      var byteStream = new streams.ReadableStream({
+        start(c) {
+          out = c;
+          out.enqueue(
+            mimefuncs.charset.encode(
+              'Content-Type: ' + partInfo.type + '\r\n' +
+              'Content-Transfer-Encoding: ' + partInfo.encoding + '\r\n' +
+              '\r\n'));
+        },
+        pull(out2) {
+          return downloadChunk(partInfo, byteIndex, CHUNK_SIZE)
+            .then((chunk) => {
+              out.enqueue(chunk);
+              byteIndex += chunk.byteLength;
+              if (chunk.length < CHUNK_SIZE) {
+                out.enqueue(mimefuncs.charset.encode('\r\n'));
+                out.close();
+              }
+            }, out.error);
+        }
+      });
+      // Turn partInfo into a MimeNode stream with stream magic.
+      return byteStream
+        .pipeThrough(new mimeStreams.MimeNodeTransformStream());
+    }
+
+    var downloadOneAttachment = co.wrap(function*(partInfo, index) {
+      var mimeReader = partInfoToMimeStream(partInfo).getReader();
+      var { value, done } = yield mimeReader.read();
+      var { headers, bodyStream } = value;
+
+      var file = yield mimeStreams.readAttachmentStreamWithChunkFlushing(
+        headers.contentType,
+        bodyStream,
+        (file) => handlers.flushFileWithIndex(index, file)
+      );
+
+      mimeReader.cancel(); // we don't need the reader anymore
+
+      return file;
+    });
+
+    var bodies = yield Promise.all(partInfos.map(downloadOneAttachment));
+    return bodies;
+  }),
 
   shutdown: function() {
   },

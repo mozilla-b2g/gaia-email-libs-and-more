@@ -153,9 +153,10 @@ AccountHelpers.prototype = {
         messageBodies = $.msggen.makeMessages(definitionOpts);
       }
 
-      $.server.addMessagesToFolder(folderPath, messageBodies);
-
-      return messageBodies;
+      return $.server.addMessagesToFolder(folderPath, messageBodies)
+        .then(() => {
+          return messageBodies;
+        });
     });
   },
 
