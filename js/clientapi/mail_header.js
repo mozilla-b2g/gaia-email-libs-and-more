@@ -50,7 +50,7 @@ function MailHeader(api, wireRep, slice) {
   // Store the wireRep so it can be used for caching.
   this._wireRep = wireRep;
 
-  this.id = wireRep.suid;
+  this.id = wireRep.id;
   this.guid = wireRep.guid;
 
   this.author = ContactCache.resolvePeep(wireRep.author);
