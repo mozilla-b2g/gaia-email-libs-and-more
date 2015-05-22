@@ -105,7 +105,7 @@ TaskManager.prototype = {
       this._registry.accountExists(accountInfo.id, 'gmail');
     });
     this._accountsTOC.on('remove', (accountInfo) => {
-      this._registry.accountRemove(accountInfo.id);
+      this._registry.accountRemoved(accountInfo.id);
     });
 
     // -- Trigger processing

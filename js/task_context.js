@@ -85,26 +85,28 @@ TaskContext.prototype = {
     this.state = 'finishing';
 
     let revisedTaskInfo;
-    if (finishData.taskState) {
-      // (Either this was the planning stage or an execution stage that didn't
-      // actually complete; we're still planned either way.)
-      this._taskThing.state = 'planned';
-      this._taskThing.plannedTask = finishData.taskState;
-      revisedTaskInfo = {
-        id: this.id,
-        value: this._taskThing
-      };
-      this.universe.taskManager.__prioritizeTaskOrMarker(this._taskThing);
-    } else {
-      revisedTaskInfo = {
-        id: this.id,
-        value: null
-      };
+    if (this.isTask) {
+      if (finishData.taskState) {
+        // (Either this was the planning stage or an execution stage that didn't
+        // actually complete; we're still planned either way.)
+        this._taskThing.state = 'planned';
+        this._taskThing.plannedTask = finishData.taskState;
+        revisedTaskInfo = {
+          id: this.id,
+          value: this._taskThing
+        };
+        this.universe.taskManager.__prioritizeTaskOrMarker(this._taskThing);
+      } else {
+        revisedTaskInfo = {
+          id: this.id,
+          value: null
+        };
+      }
     }
 
     // (Complex) task markers can be immediately prioritized.
     if (finishData.taskMarkers) {
-      for (let taskMarker of finishData.taskMarkers) {
+      for (let taskMarker of finishData.taskMarkers.values()) {
         this.universe.taskManager.__prioritizeTaskOrMarker(taskMarker);
       }
     }

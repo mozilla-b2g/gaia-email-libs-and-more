@@ -131,8 +131,10 @@ return TaskDefiner.defineComplexTask([
         `view:conv:${planned.convId}`
       ];
 
-      for (let messageId of planned.fullBodyMessageIds) {
-        priorityTags.push(`view:body:${messageId}`);
+      if (planned.fullBodyMessageIds) {
+        for (let messageId of planned.fullBodyMessageIds) {
+          priorityTags.push(`view:body:${messageId}`);
+        }
       }
 
       let modifyTaskMarkers = new Map([
@@ -159,6 +161,9 @@ return TaskDefiner.defineComplexTask([
 
     execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
+      // We need to clear this out before going async.
+      memoryState.delete(req.convId);
+
       // -- Retrieve the conversation, headers, and bodies for mutation
       let fromDb = yield ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
@@ -171,7 +176,7 @@ return TaskDefiner.defineComplexTask([
       let modifiedHeaderMap = new Map();
       let modifiedBodiesMap = new Map();
 
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
       // Determine our byte budget for each message.  If omitted, we fetch the
@@ -243,7 +248,7 @@ return TaskDefiner.defineComplexTask([
           let rawBody = yield account.pimap.fetchBody(
             allMailFolderInfo,
             {
-              uid: numericUidFromMessageId,
+              uid: numericUidFromMessageId(header.id),
               partInfo: rep._partInfo,
               bytes: byteRange
             });
@@ -257,7 +262,7 @@ return TaskDefiner.defineComplexTask([
             body,
             {
               bodyRepIndex: iBodyRep,
-              createSnippet: iMsg === bodyRepIndex,
+              createSnippet: iBodyRep === bodyRepIndex,
               bytes: byteRange
             },
             bodyResult

@@ -1198,7 +1198,7 @@ MailDB.prototype = evt.mix({
   },
 
   _processBodyMutations: function(trans, preStates, bodies) {
-    let store = trans.objectStore(TBL_HEADERS);
+    let store = trans.objectStore(TBL_BODIES);
     for (let [messageId, body] of bodies) {
       let convId = convIdFromMessageId(messageId);
       let date = preStates.get(messageId);

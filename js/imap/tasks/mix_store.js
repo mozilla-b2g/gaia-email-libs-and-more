@@ -114,7 +114,7 @@ let GmailStoreTaskMixin = {
   },
 
   deriveMemoryStateFromPersistentState: function(persistentState) {
-
+    return new Map();
   },
 
   /**
@@ -140,21 +140,12 @@ let GmailStoreTaskMixin = {
   /**
    * Process the provided request
    */
-  plan: function(ctx, perstate, memstate, request) {
+  plan: function(ctx, persistentState, memoryState, request) {
 
   },
 
-  moot_message: function(perstate, memstate, suid) {
-    function goMoot(map, suid) {
-      if (map.has(suid)) {
+  execute: function(ctx, persistentState, memoryState, marker) {
 
-        return true;
-      }
-      return false;
-    }
-
-    return goMoot(memstate.flags) ||
-           goMoot(memstate.labels);
   }
 };
 

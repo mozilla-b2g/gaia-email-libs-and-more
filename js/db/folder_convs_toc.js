@@ -109,7 +109,8 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       }
       let newIndex = -1;
       if (change.addDate) {
-        let newKey = { date: change.addDate, id: change.id };
+        let newKey = { date: change.addDate, id: change.id,
+                       height: change.item.height };
         newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                     folderConversationComparator);
         this.totalHeight += change.item.height;

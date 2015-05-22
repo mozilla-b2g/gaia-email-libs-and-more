@@ -42,6 +42,13 @@ ConversationsViewSlice.prototype.grow = function() {
  * just its messages/conversation.
  */
 ConversationsViewSlice.prototype.ensureSnippets = function(idxStart, idxEnd) {
+  if (idxStart === undefined) {
+    idxStart = 0;
+  }
+  if (idxEnd === undefined) {
+    idxEnd = this.items.length - 1;
+  }
+
   let convIds = [];
   for (let i = idxStart; i < idxEnd; i++) {
     let convInfo = this.items[i];

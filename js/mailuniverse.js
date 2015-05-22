@@ -651,7 +651,8 @@ MailUniverse.prototype = {
       return {
         type: 'sync_body',
         accountId: accountIdFromConvId(convId),
-        amount: 'snippet'
+        convId: convId,
+        amount: 'snippet',
       };
     });
     this.taskManager.scheduleTasks(tasks, why);
