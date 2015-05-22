@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 39;
+const CUR_VERSION = 41;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -369,16 +369,26 @@ function MailDB(testOptions) {
         // nuke like usual.  This is obviously a potentially data-lossy approach
         // to things; but this is a 'lazy' / best-effort approach to make us
         // more willing to bump revs during development, not the holy grail.
-        this._getConfig((configObj, accountInfos) => {
-          if (configObj) {
-            this._lazyConfigCarryover = {
-              oldVersion: event.oldVersion,
-              config: configObj,
-              accountInfos: accountInfos
-            };
-          }
+        let objectStores = Array.from(db.objectStoreNames);
+        if (objectStores.indexOf(TBL_CONFIG) !== -1 &&
+            objectStores.indexOf(TBL_FOLDER_INFO) !== -1) {
+          this._getConfig((configObj, accountInfos) => {
+            if (configObj) {
+              this._lazyConfigCarryover = {
+                oldVersion: event.oldVersion,
+                config: configObj,
+                accountInfos: accountInfos
+              };
+            }
+            this._nukeDB(db);
+          }, trans);
+        }
+        // in the catastrophic event we were missing our config object store,
+        // just go direct to the nuking.
+        else {
+          logic(this, 'failsafeNuke', { objectStores: objectStores });
           this._nukeDB(db);
-        }, trans);
+        }
       }
     };
     openRequest.onerror = analyzeAndRejectErrorEvent.bind(null, reject);
@@ -399,7 +409,7 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_SYNC_STATES);
     db.createObjectStore(TBL_TASKS);
-    db.createObjectStore(TBL_COMPLEX_TASKS, 'key');
+    db.createObjectStore(TBL_COMPLEX_TASKS, { keyPath: 'key' });
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
@@ -937,8 +947,8 @@ MailDB.prototype = evt.mix({
     let taskStore = trans.objectStore(TBL_TASKS);
     let complexTaskStore = trans.objectStore([TBL_COMPLEX_TASKS]);
     return Promise.all(
-      [wrapReq(taskStore.mozGetAll(), wrapReq(complexTaskStore.mozGetAll()))])
-    .then((wrappedTasks, complexTaskStates) => {
+      [wrapReq(taskStore.mozGetAll()), wrapReq(complexTaskStore.mozGetAll())])
+    .then(([wrappedTasks, complexTaskStates]) => {
       return { wrappedTasks, complexTaskStates };
     });
   },

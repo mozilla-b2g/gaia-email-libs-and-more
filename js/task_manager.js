@@ -90,7 +90,7 @@ TaskManager.prototype = {
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
       } else {
-        this.__prioritizeTask(wrappedTask);
+        this.__prioritizeTaskOrMarker(wrappedTask);
       }
     }
 

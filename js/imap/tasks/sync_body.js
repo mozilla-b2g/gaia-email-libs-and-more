@@ -2,7 +2,6 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
-let logic = require('logic');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -12,8 +11,8 @@ let imapchew = require('../imapchew');
 
 let churnConversation = require('../../churns/conv_churn');
 
-let { SnippetParser } = require('./snippetparser');
-let { TextParser } = require('./textparser');
+let { SnippetParser } = require('../protocol/snippetparser');
+let { TextParser } = require('../protocol/textparser');
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
@@ -89,7 +88,7 @@ return TaskDefiner.defineComplexTask([
      * @return {Array<ComplexTaskMarker>}
      */
     deriveMemoryStateFromPersistentState: function(persistentState) {
-      return [];
+      return new Map();
     },
 
     plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {

@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+let logic = require('logic');
+
 /**
  * Tracks the set of known tasks, both global and per-account-type, and manages
  * the global and per-account-instance instances for all cases.  It:
@@ -12,6 +14,7 @@ define(function(require) {
  *   the global registry.
  */
 function TaskRegistry() {
+  logic.defineScope(this, 'TaskRegistry');
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();
   this._perAccountTypeTasks = new Map();
@@ -22,10 +25,10 @@ function TaskRegistry() {
 TaskRegistry.prototype = {
   registerGlobalTasks: function(taskImpls) {
     for (let taskImpl of taskImpls) {
-      this._globalTasks.set(taskImpl.type, taskImpl);
+      this._globalTasks.set(taskImpl.name, taskImpl);
       // currently all global tasks must be simple
       this._globalTaskRegistry.set(
-        taskImpl.type,
+        taskImpl.name,
         {
           impl: taskImpl,
           persistent: null,
@@ -42,7 +45,7 @@ TaskRegistry.prototype = {
     }
 
     for (let taskImpl of taskImpls) {
-      perTypeTasks.set(taskImpl.type, taskImpl);
+      perTypeTasks.set(taskImpl.name, taskImpl);
     }
   },
 
@@ -64,6 +67,7 @@ TaskRegistry.prototype = {
 
 
   accountExists: function(accountId, accountType) {
+    logic(this, 'accountExists', { accountId });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
 
@@ -78,13 +82,16 @@ TaskRegistry.prototype = {
     this._perAccountIdTaskRegistry.set(accountId, taskMetas);
 
     for (let taskImpl of taskImpls.values()) {
-      let taskType = taskImpl.type;
+      let taskType = taskImpl.name;
       let meta = {
         impl: taskImpl,
         persistent: dataByTaskType.get(taskType),
         transient: null
       };
       if (taskImpl.isComplex) {
+        logic(
+          this, 'initializingComplexTask',
+          { accountId, taskType, hasPersistentState: !!meta.persistentState });
         if (!meta.persistentState) {
           meta.persistentState = taskImpl.initPersistentState();
         }
