@@ -1,3 +1,285 @@
 define(function(require) {
+'use strict';
 
+let co = require('co');
+let logic = require('logic');
+
+let TaskDefiner = require('../../task_definer');
+
+let { numericUidFromMessageId } = require('../../id_conversions');
+
+let imapchew = require('../imapchew');
+
+let churnConversation = require('../../churns/conv_churn');
+
+let { SnippetParser } = require('./snippetparser');
+let { TextParser } = require('./textparser');
+
+/**
+ * Maximum bytes to request from server in a fetch request (max uint32)
+ */
+let MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
+
+let FETCH_FOR_SNIPPET_BYTES = 4096;
+
+/**
+ * @typedef {null} SyncBodyPersistentState
+ *
+ * All sync_body requests are currently ephemeral.
+ **/
+
+/**
+ * @typedef {Object} SyncBodyPerConversation
+ *   The per-conversation requested state.
+ * @prop {ConversationId} convId
+ * @prop {'snippet'|Number} amount
+ *   If non-zero, this is a request to ensure that at least `amount` bytes of
+ *   each message are downloaded for every message in the conversation.
+ * @prop {Set} fullBodyMessageIds
+ *   The set of messages for which we want to perform a full download.
+ **/
+
+/**
+ * @typedef {Map<ConversationId, SyncBodyPerConversation>} SyncBodyMemoryState
+ *
+ *
+ **/
+
+/**
+ * @typedef {Object} SyncBodyTaskArgs
+ * @prop AccountId
+ * @prop ConvId
+ * @prop {'snippet'|Number} amount
+ *   How much of each message should be fetched.  If omitted, the entirety of
+ *   the message will be fetched.  If 'snippet' is provided, an appropriate
+ *   value will automatically be chosen.  (Currently, the constant
+ *   `FETCH_FOR_SNIPPET_BYTES` is used.)
+ * @prop {Set} fullBodyMessageIds
+ *   Messages for which we want to download the whole body.
+ **/
+
+/**
+ * Fetch the body of messages, or part of the bodies of messages if we just want
+ * a snippet.  We will also update the header and the conversation summary as
+ * part of this process.  This all happens along conversation boundaries for
+ * locality/parallelization reasons.
+ *
+ * This is currently a non-persisting complex task.  The rationale is:
+ * - Snippet and body display is currently (and historically) an on-demand
+ *   process.  When we restore state, it's possible the user won't exhibit the
+ *   same access pattern.
+ * - During the prototype phase, it's nice if things temporarily go off the
+ *   rails (especially because of front-end UI bugs), that the undesired
+ *   side-effects go away on restart.
+ */
+return TaskDefiner.defineComplexTask([
+  {
+    name: 'sync_body',
+
+    /**
+     * @return {SyncBodyPersistentState}
+     */
+    initPersistentState: function() {
+      return null;
+    },
+
+    /**
+     * Returns no task markers because we have no persistent state.
+     *
+     * @return {Array<ComplexTaskMarker>}
+     */
+    deriveMemoryStateFromPersistentState: function(persistentState) {
+      return [];
+    },
+
+    plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
+      // - Check whether we already have a pending request for the conversation.
+      let planned = memoryState.get(rawTask.convId);
+      if (planned) {
+        // If the new task has an amount and we either don't have an existing
+        // amount or the existing amount is 'snippet', just use whatever the new
+        // task specifies.  (This covers snippet=>snippet and a change to
+        // a number.  We're not doing any Math.max() but that's not particularly
+        // an expected use case.  It avoids converting a number to a 'snippet'
+        // which does cover the potential bounded-small-message-download logic
+        // we might support.)
+        if (rawTask.amount &&
+            (!planned.amount || planned.amount === 'snippet')) {
+          planned.amount = rawTask.amount;
+        }
+        if (rawTask.fullBodyMessageIds) {
+          if (planned.fullBodyMessageIds) {
+            // (copy-on-mutate)
+            planned.fullBodyMessageIds = new Set(planned.fullBodyMessageIds);
+            for (let messageId of rawTask.fullBodyMessageIds) {
+              planned.fullBodyMessageIds.add(messageId);
+            }
+          } else {
+            planned.fullBodyMessageIds = rawTask.fullBodyMessageIds;
+          }
+        }
+      } else {
+        planned = {
+          markerId: rawTask.id, // use the existing task id for the marker
+          convId: rawTask.convId,
+          amount: rawTask.amount,
+          fullBodyMessageIds: rawTask.fullBodyMessageIds
+        };
+        memoryState.set(planned.convId, planned);
+      }
+
+      let priorityTags = [
+        `view:conv:${planned.convId}`
+      ];
+
+      for (let messageId of planned.fullBodyMessageIds) {
+        priorityTags.push(`view:body:${messageId}`);
+      }
+
+      let modifyTaskMarkers = new Map([
+        [
+          planned.markerId,
+          {
+            type: this.name,
+            id: planned.markerId,
+            accountId: rawTask.accountId,
+            convId: planned.convId,
+            priorityTags: priorityTags,
+            exclusiveResources: [
+              `conv:${planned.convId}`
+            ]
+          }
+        ]
+      ]);
+
+      yield ctx.finishTask({
+        taskState: null,
+        taskMarkers: modifyTaskMarkers
+      });
+    }),
+
+    execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
+      let req = memoryState.get(marker.convId);
+      // -- Retrieve the conversation, headers, and bodies for mutation
+      let fromDb = yield ctx.beginMutate({
+        conversations: new Map([[req.convId, null]]),
+        headersByConversation: new Map([[req.convId, null]]),
+        bodiesByConversation: new Map([[req.convId, null]])
+      });
+
+      let loadedHeaders = fromDb.headersByConversation.get(req.convId);
+      let loadedBodies = fromDb.bodiesByConversation.get(req.convId);
+      let modifiedHeaderMap = new Map();
+      let modifiedBodiesMap = new Map();
+
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let allMailFolderInfo = account.getFirstFolderWithType('all');
+
+      // Determine our byte budget for each message.  If omitted, we fetch the
+      // whole thing.
+      let maxBytesPerMessage = 0;
+      if (req.amount === 'snippet') {
+        maxBytesPerMessage = FETCH_FOR_SNIPPET_BYTES;
+      } else if (req.amount) {
+        maxBytesPerMessage = req.amount;
+      }
+
+      // -- For each message...
+      for (let iMsg=0; iMsg < loadedHeaders.length; iMsg++) {
+        let header = loadedHeaders[iMsg];
+        let body = loadedBodies[iMsg];
+
+        let remainingByteBudget = maxBytesPerMessage;
+        let bodyRepIndex = imapchew.selectSnippetBodyRep(header, body);
+
+        // -- For each body part...
+        for (let iBodyRep=0; iBodyRep < body.bodyReps.length; iBodyRep++) {
+          let rep = body.bodyReps[iBodyRep];
+          // - Figure out what work, if any, to do.
+          if (rep.isDownloaded) {
+            continue;
+          }
+
+          // default to the entire remaining email. We use the estimate *
+          // largish multiplier so even if the size estimate is wrong we should
+          // fetch more then the requested number of bytes which if truncated
+          // indicates the end of the bodies content.
+          let bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
+
+          let bodyParser;
+          if (maxBytesPerMessage) {
+            // issued enough downloads
+            if (remainingByteBudget <= 0) {
+              break;
+            }
+
+            // if our estimate is greater then expected number of bytes
+            // request the maximum allowed.
+            if (rep.sizeEstimate > remainingByteBudget) {
+              bytesToFetch = remainingByteBudget;
+            }
+            // subtract the estimated byte size
+            remainingByteBudget -= rep.sizeEstimate;
+
+            bodyParser = new SnippetParser(rep._partInfo);
+          } else {
+            bodyParser = new TextParser(rep._partInfo);
+          }
+
+          // For a byte-serve request, we need to request at least 1 byte, so
+          // request some bytes.  This is a logic simplification that should not
+          // need to be used because imapchew.js should declare 0-byte files
+          // fully downloaded when their parts are created, but better a
+          // wasteful network request than breaking here.
+          if (bytesToFetch <= 0) {
+            bytesToFetch = 64;
+          }
+
+          let byteRange;
+          if (maxBytesPerMessage || rep.amountDownloaded) {
+            byteRange = [rep.amountDownloaded, bytesToFetch];
+          }
+
+          // - Issue the fetch
+          let rawBody = yield account.pimap.fetchBody(
+            allMailFolderInfo,
+            {
+              uid: numericUidFromMessageId,
+              partInfo: rep._partInfo,
+              bytes: byteRange
+            });
+
+          bodyParser.parse(rawBody);
+          let bodyResult = bodyParser.complete();
+
+          // - Update the message
+          imapchew.updateMessageWithFetch(
+            header,
+            body,
+            {
+              bodyRepIndex: iBodyRep,
+              createSnippet: iMsg === bodyRepIndex,
+              bytes: byteRange
+            },
+            bodyResult
+          );
+
+          modifiedHeaderMap.set(header.id, header);
+          modifiedBodiesMap.set(body.id, body);
+        }
+      }
+
+      // -- Update the conversation
+      let convInfo = churnConversation(req.convId, null, loadedHeaders);
+
+      yield ctx.finishTask({
+        mutations: {
+          conversations: new Map([[req.convId, convInfo]]),
+          headers: modifiedHeaderMap,
+          bodies: modifiedBodiesMap
+        },
+      });
+    })
+  }
+]);
 });

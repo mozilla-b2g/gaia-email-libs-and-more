@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 38;
+const CUR_VERSION = 39;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -66,6 +66,27 @@ const TBL_SYNC_STATES = 'syncStates';
  * commentary elsewhere.
  */
 const TBL_TASKS = 'tasks';
+
+/**
+ * Complex task state.  When a complex task plans a raw task, the state goes in
+ * here and the original task is nuked.
+ *
+ * The key is a composite of:
+ * - `AccountId`: Because complex tasks are managed on a per-account basis.
+ * - `ComplexTaskName`: Namespaces the task.
+ *
+ * key: [`AccountId`, `ComplexTaskName`, ...]
+ *
+ * The value must include `key` as a property that is the key.  This is because
+ * of mozGetAll limitations.
+ *
+ * This data is loaded at startup for task prioritization reasons.  Writes are
+ * made as part of task completing transactions.  Currently the complex task
+ * state has to be a simple (potentially giant) object because it's planned to
+ * simplify unit testing and we don't actually expect there to be that much
+ * data.
+ */
+const TBL_COMPLEX_TASKS = 'complexTasks';
 
 /**
  * The folder-info table stores meta-data about the known folders for each
@@ -163,7 +184,7 @@ const TBL_BODIES = 'bodies';
 const TASK_MUTATION_STORES = [
   TBL_CONFIG,
   TBL_SYNC_STATES,
-  TBL_TASKS,
+  TBL_TASKS, TBL_COMPLEX_TASKS,
   TBL_FOLDER_INFO,
   TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
   TBL_HEADERS, TBL_BODIES
@@ -378,6 +399,7 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_SYNC_STATES);
     db.createObjectStore(TBL_TASKS);
+    db.createObjectStore(TBL_COMPLEX_TASKS, 'key');
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
@@ -578,11 +600,18 @@ MailDB.prototype = evt.mix({
    *   cache.  This is a little weird but it's assumed you have previously
    *   loaded the (now potentially stale) HeaderInfo and so have the information
    *   at hand.
+   * @param {Map<ConversationId, HeaderInfo[]>} requests.bodiesByConversation
+   *   Load all of the known bodies for the given conversation, returning an
+   *   array ordered by the database storage order which is ascending by DateMS
+   *   and the encoded gmail message id.  Note that this mechanism currently
+   *   cannot take advantage of the `bodyCache`.  (There are some easy-ish
+   *   things we could do to accomplish this, but it's not believed to be a
+   *   major concern at this time.)  Also note that using this is potentially
+   *   reckless, at least until/unless the actual body contents are made into
+   *   Blobs.
    * @param {Map<[MessageId, DateMS], BodyInfo} requests.bodies
    *   Load specific bodies using the same idiom as `requests.headers` which
-   *   you should read.  Note that there is no "bodiesByConversation" matching
-   *   `requests.headersByConversation` because you should not want to do that
-   *   as a responsible user of memory.
+   *   you should read.
    */
   read: function(ctx, requests) {
     return new Promise((resolve, reject) => {
@@ -673,17 +702,20 @@ MailDB.prototype = evt.mix({
           req.onsuccess = handler;
           req.onerror = handler;
         }
-
       }
       if (requests.headers) {
         let headerStore = trans.objectStore(TBL_HEADERS);
         let headerCache = this.headerCache;
+        // The requests have keys for the form [messageId, date], but we want
+        // the results to be more sane, keyed by just the messageId and without
+        // the awkward tuples.
         let headerRequestsMap = requests.headers;
+        let headerResultsMap = requests.headers = new Map();
         for (let [unlatchedMessageId, date] of headerRequestsMap.keys()) {
           let messageId = unlatchedMessageId;
           // fill from cache if available
           if (headerCache.has(messageId)) {
-            headerRequestsMap.set(messageId, headerCache.get(messageId));
+            headerResultsMap.set(messageId, headerCache.get(messageId));
             continue;
           }
 
@@ -705,7 +737,42 @@ MailDB.prototype = evt.mix({
               if (!headerCache.has(messageId)) {
                 headerCache.set(messageId, header);
               }
-              headerRequestsMap.set(messageId, header);
+              headerResultsMap.set(messageId, header);
+            }
+          };
+          req.onsuccess = handler;
+          req.onerror = handler;
+        }
+      }
+      if (requests.bodiesByConversation) {
+        let bodyStore = trans.objectStore(TBL_BODIES);
+        let bodyCache = this.bodyCache;
+        let requestsMap = requests.bodiesByConversation;
+
+        for (let unlatchedConvId of requestsMap.keys()) {
+          let convId = unlatchedConvId;
+          let bodyRange = IDBKeyRange.bound([convId],
+                                            [convId, []],
+                                            true, true);
+          dbReqCount++;
+          let req = bodyStore.mozGetAll(bodyRange);
+          let handler = (event) => {
+            if (req.error) {
+              analyzeAndLogErrorEvent(event);
+            } else {
+              let bodies = req.result;
+              for (let body of bodies) {
+                // Put it in the cache unless it's already there (reads must
+                // not clobber writes/mutations!)
+                // NB: This does mean that there's potential inconsistency
+                // problems for this reader in the event the cache does know the
+                // header and the values are not the same.
+                // TODO: lock that down with checks or some fancy thinkin'
+                if (!bodyCache.has(body.id)) {
+                  bodyCache.set(body.id, body);
+                }
+              }
+              requestsMap.set(convId, bodies);
             }
           };
           req.onsuccess = handler;
@@ -715,12 +782,16 @@ MailDB.prototype = evt.mix({
       if (requests.bodies) {
         let bodyStore = trans.objectStore(TBL_BODIES);
         let bodyCache = this.bodyCache;
+        // The requests have keys for the form [messageId, date], but we want
+        // the results to be more sane, keyed by just the messageId and without
+        // the awkward tuples.
         let bodyRequestsMap = requests.bodies;
+        let bodyResultsMap = requests.bodies = new Map();
         for (let [unlatchedMessageId, date] of bodyRequestsMap.keys()) {
           let messageId = unlatchedMessageId;
           // fill from cache if available
           if (bodyCache.has(messageId)) {
-            bodyRequestsMap.set(messageId, bodyCache.get(messageId));
+            bodyResultsMap.set(messageId, bodyCache.get(messageId));
             continue;
           }
 
@@ -742,7 +813,7 @@ MailDB.prototype = evt.mix({
               if (!bodyCache.has(messageId)) {
                 bodyCache.set(messageId, value);
               }
-              bodyRequestsMap.set(messageId, value);
+              bodyResultsMap.set(messageId, value);
             }
           };
           req.onsuccess = handler;
@@ -832,10 +903,23 @@ MailDB.prototype = evt.mix({
 
       // - bodies
       // same deal as headers; we need the date
-      if (mutateRequests.bodies) {
+      if (mutateRequests.bodiesByConversation ||
+          mutateRequests.bodies) {
         let preBodies = preMutateStates.bodies = new Map();
-        for (let body of mutateRequests.bodies.values()) {
-          preBodies.set(body.id, body.date);
+
+        if (mutateRequests.bodiesByConversation) {
+          for (let convBodies of
+               mutateRequests.bodiesByConversation.values()) {
+            for (let body of convBodies) {
+              preBodies.set(body.id, body.date);
+            }
+          }
+        }
+
+        if (mutateRequests.bodies) {
+          for (let body of mutateRequests.bodies.values()) {
+            preBodies.set(body.id, body.date);
+          }
         }
       }
 
@@ -848,9 +932,15 @@ MailDB.prototype = evt.mix({
    * to addTasks if you want to avoid having a bad time.
    */
   loadTasks: function() {
-    let trans = this._db.transaction([TBL_TASKS], 'readonly');
+    let trans = this._db.transaction(
+      [TBL_TASKS, TBL_COMPLEX_TASKS], 'readonly');
     let taskStore = trans.objectStore(TBL_TASKS);
-    return wrapReq(taskStore.mozGetAll());
+    let complexTaskStore = trans.objectStore([TBL_COMPLEX_TASKS]);
+    return Promise.all(
+      [wrapReq(taskStore.mozGetAll(), wrapReq(complexTaskStore.mozGetAll()))])
+    .then((wrappedTasks, complexTaskStates) => {
+      return { wrappedTasks, complexTaskStates };
+    });
   },
 
   /**

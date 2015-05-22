@@ -46,8 +46,62 @@ define(function(require) {
  */
 
 /**
- * For gmail, flag and label manipulation is nearly identical.  Rather than
- * having the task handle both directly, mixins for the win.
+ * For gmail, flag and label manipulation are nearly identical.  Rather than
+ * having the task handle both directly, we use mixins.
+ *
+ * This complex task is not priority aware.  It's our goal to reflect all user
+ * manipulations of state to the server, and it does not matter what order it
+ * happens in.  This is made into a safe assumption by these tasks exposing a
+ * method to apply our pending local changes to the information we receive from
+ * the server.
+ *
+ * ## Pending Changes and Sync ##
+ *
+ * When it comes to the apparent flags/labels on a message, we have the
+ * following consumers and needs:
+ * - The set of interesting messages/conversations is impacted by the
+ *   flags/labels: sync_refresh and sync_grow
+ * - The set of flags/labels reported to the UI is impacted (but it's too late)
+ *   for this to impact anything: sync_conv
+ *
+ * Important invariants:
+ * - Consistency of our local database with the server for a given modseq
+ *   requires that if we interfere with sync_refresh/sync_grow's perception of
+ *   reality that when we remove that state that we are able to
+ *
+ * Relevant observations:
+ * - In order for a user to be able to manipulate a message and state to end up
+ *   in here, they have to be able to see the message.  This inherently means
+ *   that the conversation is already known to us.
+ * - The most upsetting thing to a user is if they have told us to mutate some
+ *   state and they don't see it reflected in the UI promptly and consistently.
+ *   The v1 implementation could result in flapping as the local change was
+ *   applied, sync clobbered the state to the server state, the online operation
+ *   was then run, and then the next sync clobbered it back to the desired
+ *   state.
+ *   - Therefore, the most important changes are metadata changes and (apparent)
+ *     deletion (usually label removing, but also moving to trash/spam which are
+ *     more irrevocable).
+ * - Until gmail supports QRESYNC, our deletion-inference mechanism will help
+ *   avoid worst-case database inconsistencies.
+ *
+ * Conslusions:
+ * - Metadata like read and flagged status are easy peasy.  (At least, if we
+ *   don't sync on those virtual folders.)
+ * - Apparent deletion via removal of a label that still leaves the conversation
+ *   interesting to us is not a problem.
+ * - Apparent deletion that makes the conversation no longer interesting seems
+ *   complex, but is not:
+ *   - By applying the flag/label transform to the message id/uid we are able to
+ *     impact the view of the world in a consistent fashion.
+ *   - There is no case where we need to make the sync process hear about things
+ *     that aren't real.  If we needed to insert synthetic data, we can do that
+ *     at any time in our local store.  Our only need is to ensure that what the
+ *     server tells us is transformed to not clobber our local state.  (And
+ *     ensure we don't resource leak data.)
+ *
+ * Therefore, we implement:
+ * -
  */
 let GmailStoreTaskMixin = {
   name: 'store_flags',
@@ -55,16 +109,12 @@ let GmailStoreTaskMixin = {
    * @return {StoreFlagState}
    *   The initial state of this task type for a newly created account.
    */
-  initPersistentStateForAccount: function(account)) {
+  initPersistentState: function() {
     return new Map();
   },
 
-  deriveMemoryStateFromPersistentState: function(account, persistentState) {
+  deriveMemoryStateFromPersistentState: function(persistentState) {
 
-  },
-
-  hasWork: function(account, persistentState) {
-    return persistentState.size > 0;
   },
 
   /**
@@ -85,16 +135,16 @@ let GmailStoreTaskMixin = {
     }
     s += req.remove.map(x => 'x' + JSON.stringify(x)).join(' ');
     return s;
-  }
+  },
 
   /**
    * Process the provided request
    */
-  planTask: function(account, perstate, memstate, request) {
+  plan: function(ctx, perstate, memstate, request) {
 
   },
 
-  moot_message: function(account, perstate, memstate, suid) {
+  moot_message: function(perstate, memstate, suid) {
     function goMoot(map, suid) {
       if (map.has(suid)) {
 

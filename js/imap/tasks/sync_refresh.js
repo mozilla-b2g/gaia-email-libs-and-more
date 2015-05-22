@@ -27,10 +27,18 @@ return TaskDefiner.defineSimpleTask([
     // and so a sync_grow is the appropriate course of action.
     args: ['accountId', 'folderId'],
 
-    exclusiveResources: [
-      // Only one of us/sync_grow is allowed to be active at a time.
-      (args) => `sync:${args.accountId}`,
-    ],
+    exclusiveResources: function(args) {
+      return [
+        // Only one of us/sync_grow is allowed to be active at a time.
+        `sync:${args.accountId}`
+      ];
+    },
+
+    priorityTags: function(args) {
+      return [
+        `view:folder:${args.folderId}`
+      ];
+    },
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the account

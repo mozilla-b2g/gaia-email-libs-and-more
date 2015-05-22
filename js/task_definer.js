@@ -3,45 +3,41 @@ define(function(require) {
 
 let co = require('co');
 let mix = require('mix');
+let { shallowClone } = require('./util');
 
 let SimpleTaskBase = {
+  isSimple: true,
+  isComplex: false,
+
   /**
    * No-op planning phase that just handles prioritization.
    */
   plan: co.wrap(function*(ctx, rawTask) {
+    let decoratedTask = shallowClone(rawTask);
+    if (this.exclusiveResources) {
+      decoratedTask.exclusiveResources = this.exclusiveResources(rawTask);
+    }
+    if (this.priorityTags) {
+      decoratedTask.priorityTags = this.priorityTags(rawTask);
+    }
     yield ctx.finishTask({
-      // Just pass the raw task state through, as-is
-      taskState: rawTask
+      taskState: decoratedTask
     });
   }),
   execute: null,
 };
 
+let ComplexTaskBase = {
+  isSimple: false,
+  isComplex: true,
+};
+
+/**
+ * Singleton support logic
+ */
 function TaskDefiner() {
-  this._registry = new Map();
 }
 TaskDefiner.prototype = {
-  __planTask: function(ctx, wrappedTask) {
-    let rawTask = wrappedTask.rawTask;
-    let taskImpl = this._registry.get(rawTask.type);
-
-    // All tasks have a plan stage.  Even if it's only the default one that
-    // just chucks it in the priority bucket.
-    return taskImpl.plan(ctx, rawTask);
-  },
-
-  __executeTask: function(ctx, wrappedTask) {
-    let plannedTask = wrappedTask.plannedTask;
-    let taskImpl = this._registry.get(plannedTask.type);
-
-    if (!taskImpl.execute) {
-      return Promise.resolve();
-    }
-
-    return taskImpl.execute(ctx, plannedTask);
-  },
-
-
   /**
    * Define a task that's fully characterized by its name an arguments and along
    * with some other simple configuration, the task infrastructure is able to
@@ -54,7 +50,7 @@ TaskDefiner.prototype = {
       mix(task, part, true);
     }
 
-    this._registry.set(task.name, task);
+    return task;
   },
 
   /**
@@ -62,7 +58,13 @@ TaskDefiner.prototype = {
    * mooting, unification, etc.
    */
   defineComplexTask: function(mixparts) {
+    let task = {};
+    mix(task, ComplexTaskBase, true);
+    for (let part of mixparts) {
+      mix(task, part, true);
+    }
 
+    return task;
   }
 };
 

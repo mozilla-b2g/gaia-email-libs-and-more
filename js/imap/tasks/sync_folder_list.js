@@ -13,15 +13,16 @@ return TaskDefiner.defineSimpleTask([
     name: 'sync_folder_list',
     args: ['accountId'],
 
-    exclusiveResources: function() {
+    exclusiveResources: function(args) {
       return [
         // Nothing else that touches folder info is allowed in here.
-        (args) => `folderInfo:${args.accountId}`,
+        `folderInfo:${args.accountId}`,
       ];
     },
 
     priorityTags: function() {
       return [
+        'view:folders'
       ];
     },
 

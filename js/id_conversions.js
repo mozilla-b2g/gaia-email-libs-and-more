@@ -48,5 +48,8 @@ return {
     return messageId.split(/\./g, 4)[3];
   },
 
+  numericUidFromMessageId: function(messageId) {
+    return parseInt(messageId.split(/\./g, 4)[3], 10);
+  }
 };
 });

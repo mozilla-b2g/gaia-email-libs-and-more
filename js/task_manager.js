@@ -4,18 +4,31 @@ define(function(require) {
 let co = require('co');
 let logic = require('logic');
 
-let TaskDefiner = require('./task_definer');
 let TaskContext = require('./task_context');
 
 let FibonacciHeap = require('./ext/fibonacci-heap');
 
 let DEFAULT_PRIORITY = 100;
 
-function TaskManager(universe, db) {
+/**
+ * The public API and ultimate coordinator of all tasks.  Tracks and prioritizes
+ * the pending tasks to be executed.  Also handles some glue logic and is likely
+ * to be the home of ugly hacks related to tasks.  Compare with:
+ * - `TaskDefiner`: Exposes helpers/mix-ins for the implementation of tasks.
+ * - `TaskRegistry`: Tracks the known global and per-account tasks and drives
+ *   the actual execution of the tasks once TaskManager has decided what should
+ *   get executed.  `TaskManager` and its creator, `MailUniverse` handle some
+ *   glue logic.
+ * - `TaskContext`: Provides the execution context and helpers for tasks as they
+ *   are run.
+ *
+ */
+function TaskManager(universe, db, registry, accountsTOC) {
   logic.defineScope(this, 'TaskManager');
   this._universe = universe;
   this._db = db;
-  this._registry = TaskDefiner;
+  this._registry = registry;
+  this._accountsTOC = accountsTOC;
 
   // XXX SADNESS.  So we wanted to use autoincrement to avoid collisions or us
   // having to manage a counter.  Unfortunately, we want to use mozGetAll for
@@ -37,14 +50,42 @@ function TaskManager(universe, db) {
    */
   this._tasksToPlan = [];
 
+  /**
+   *
+   */
   this._prioritizedTasks = new FibonacciHeap();
 
-  this._activePromise = null;
+  /**
+   * Maps priority tags to the FibonacciHeap nodes holding a simple wrappedTask
+   * or a complex task marker.
+   */
+  this._priorityTagToHeapNodes = new Map();
+  /**
+   * @type {Map<String, Map<String, Number>>}
+   * Maps owners to their current maps of priority tags and their relative
+   * priority boosts.  (Positive numbers are a boost, negative numbers are a
+   * penalty.)
+   */
+  this._priorityTagsByOwner = new Map();
+
+  /**
+   * Maps priority tags to the sum of all of the values in the maps stored in
+   * _priorityTagsByOwner.  Keys/values are deleted when they go to zero.  This
+   * is updated incrementally, not re-tallied.
+   */
+  this._summedPriorityTags = new Map();
+
+  // Wedge our processing infrastructure until we have loaded everything from
+  // the database.  Note that nothing will actually .then() off of this, and
+  // we're just using an already-resolved Promise for typing reasons.
+  this._activePromise = Promise.resolve(null);
 }
 TaskManager.prototype = {
   __restoreFromDB: co.wrap(function*() {
-    let wrappedTasks = yield this._db.loadTasks();
+    let { wrappedTasks, complexTaskStates } = yield this._db.loadTasks();
     logic(this, 'restoreFromDB', { count: wrappedTasks.length });
+
+    // -- Restore wrapped tasks
     for (let wrappedTask of wrappedTasks) {
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
@@ -52,6 +93,23 @@ TaskManager.prototype = {
         this.__prioritizeTask(wrappedTask);
       }
     }
+
+    // -- Push complex task state into complex tasks
+    this._registry.initializeFromDatabaseState(complexTaskStates);
+    this._accountsTOC.getAllItems().forEach((accountInfo) => {
+      // TODO: implement concept of 'gelamType' or something to convey the
+      // correct super-specific implementation type in use (at least for tasks).
+      this._registry.accountExists(accountInfo.id, 'gmail');
+    });
+    this._accountsTOC.on('add', (accountInfo) => {
+      this._registry.accountExists(accountInfo.id, 'gmail');
+    });
+    this._accountsTOC.on('remove', (accountInfo) => {
+      this._registry.accountRemove(accountInfo.id);
+    });
+
+    // -- Trigger processing
+    this._activePromise = null;
     this._maybeDoStuff();
   }),
 
@@ -79,6 +137,100 @@ TaskManager.prototype = {
     return this._db.addTasks(wrappedTasks).then(() => {
       this.__enqueuePersistedTasksForPlanning(wrappedTasks);
     });
+  },
+
+  _computePriorityForTags: function(priorityTags) {
+    let summedPriorityTags = this._summedPriorityTags;
+    let priority = 0;
+    for (let priorityTag of priorityTags) {
+      priority += (summedPriorityTags.get(priorityTag) || 0);
+    }
+    return priority;
+  },
+
+  /**
+   * Updates the priority boost tags associated with the given owningId, like
+   * when the user changes what they're looking at.  Pass null to clear the
+   * existing priority boost tags.
+   *
+   * @param {String} owningId
+   *   A non-colliding identifier amongst the other priority users.  The
+   *   tentative convention is to just use bridge handles or things prefixed
+   *   with them since all priorities flow from explicit user action.
+   * @param {Map} tagsWithValues
+   *   A map whose keys are tag names and values are (positive) priority boosts
+   *   for tasks/markers possessing that tag.  The Map must *not* be mutated
+   *   after it is passed-in.  (We could be defensive about this, but all our
+   *   callers should be in-GELAM so it shouldn't be hard to comply.)
+   */
+  setPriorityBoostTags: function(owningId, tagsWithValues) {
+    // This is a 2-pass implementation:
+    // 1) Accumulate per-task/marker priority deltas stored in a map.
+    // 2) Apply those deltas to the priority heap.
+    // We don't want to update the heap as we go because
+
+    let existingValues = this._priorityTagsByOwner.get(owningId) || new Map();
+    let newValues = tagsWithValues || new Map();
+    let perThingDeltas = new Map();
+
+    let summedPriorityTags = this._summedPriorityTags;
+    let priorityTagToHeapNodes = this._priorityTagToHeapNodes;
+
+    if (tagsWithValues) {
+      this._priorityTagsByOwner.set(owningId, tagsWithValues);
+    } else {
+      this._priorityTagsByOwner.delete(owningId);
+    }
+
+    // -- Phase 1: accumulate deltas (and update sums)
+    let applyDelta = (priorityTag, delta) => {
+      // - update sum
+      let newSum = (summedPriorityTags.get(priorityTag) || 0) + delta;
+      if (newSum) {
+        summedPriorityTags.set(priorityTag, newSum);
+      } else {
+        summedPriorityTags.delete(priorityTag);
+      }
+
+      // - per-taskthing deltas
+      let nodes = priorityTagToHeapNodes.get(priorityTag);
+      if (nodes) {
+        for (let node of nodes) {
+          let aggregateDelta = (perThingDeltas.get(node) || 0) + delta;
+          perThingDeltas.set(node, aggregateDelta);
+        }
+      }
+    };
+
+    // - Iterate over newValues for new/changed values.
+    for (let [priorityTag, newPriority] of newValues.items()) {
+      let oldPriority = existingValues.get(priorityTag) || 0;
+      let priorityDelta = newPriority - oldPriority;
+      applyDelta(priorityTag, priorityDelta);
+    }
+    // - Iterate over existingValues for deletions
+    for (let [priorityTag, oldPriority] of existingValues.items()) {
+      if (newValues.has(priorityTag)) {
+        continue;
+      }
+      applyDelta(priorityTag, -oldPriority);
+    }
+
+    // -- Phase 2: update the priority heap
+    let prioritizedTasks = this._prioritizedTasks;
+    for (let [node, aggregateDelta] of perThingDeltas.values()) {
+      // The heap allows us to reduce keys (Which, because we negate them, means
+      // priority increases) efficiently, but otherwise we need to remove the
+      // thing and re-add it.
+      let newKey = node.key - aggregateDelta; // (the keys are negated!)
+      if (aggregateDelta > 0) {
+        prioritizedTasks.decreaseKey(node, newKey);
+      } else if (aggregateDelta < 0) {
+        let taskThing = node.value;
+        prioritizedTasks.delete(node);
+        prioritizedTasks.insert(newKey, taskThing);
+      } // we intentionally do nothing for aggregateDelta === 0
+    }
   },
 
   /**
@@ -148,16 +300,28 @@ TaskManager.prototype = {
     let wrappedTask = this._tasksToPlan.shift();
     logic(this, 'planning', { task: wrappedTask });
     let ctx = new TaskContext(wrappedTask, this._universe);
-    return this._registry.__planTask(ctx, wrappedTask);
+    return this._registry.planTask(ctx, wrappedTask);
   },
 
-  __prioritizeTask: function(wrappedTask) {
-    logic(this, 'prioritizing', { task: wrappedTask });
-    if (!wrappedTask.priority) {
-      wrappedTask.priority = DEFAULT_PRIORITY;
-    }
-    this._prioritizedTasks.insert(wrappedTask.priority,
-                                  wrappedTask);
+  /**
+   * Called by `TaskContext` when a task completes being planned.
+   *
+   * @param {WrappedTask|TaskMarker} taskThing
+   */
+  __prioritizeTaskOrMarker: function(taskThing) {
+    logic(this, 'prioritizing', { task: taskThing });
+
+    // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
+    // the root (they're simple/flat).
+    let isTask = !taskThing.type;
+    let priorityTags = isTask ? taskThing.plannedTask.priorityTags
+                              : taskThing.priorityTags;
+    let relPriority = (isTask ? taskThing.plannedTask.relPriority
+                              : taskThing.relPriority) || 0;
+    let priority = relPriority + this._computePriorityForTags(priorityTags);
+
+    this._prioritizedTasks.insert(-priority, // it's a minheap, we negate keys
+                                  taskThing);
     // If nothing is happening, then we might need/want to call _maybeDoStuff
     // soon, but not until whatever's calling us has had a chance to finish.
     // And if something is happening, well, we already know we will call
@@ -175,10 +339,10 @@ TaskManager.prototype = {
   },
 
   _executeNextTask: function() {
-    let wrappedTask = this._prioritizedTasks.extractMinimum().value;
-    logic(this, 'executing', { task: wrappedTask });
-    let ctx = new TaskContext(wrappedTask, this._universe);
-    return this._registry.__executeTask(ctx, wrappedTask);
+    let taskThing = this._prioritizedTasks.extractMinimum().value;
+    logic(this, 'executing', { task: taskThing });
+    let ctx = new TaskContext(taskThing, this._universe);
+    return this._registry.executeTask(ctx, taskThing);
   }
 };
 

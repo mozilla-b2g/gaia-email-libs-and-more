@@ -46,6 +46,14 @@ let ContactCache = require('./contact_cache');
  * @property {Array<MailPeep>} authors
  *   The uniqueified list of authors participating in the conversation.  The 0th
  *   index should be the author who started the thread.
+ * @property {Number} headerCount
+ *   The number of messages/headers in this conversation that are currently
+ *   synchronized.  (There may exist other messages on the server we don't
+ *   yet know about or have not yet synchronized.)
+ * @property {Number} snippetCount
+ *   The number of messages in this conversation for which we have fetched a
+ *   snippet for.  (Or tried to fetch a snippet; sometimes we can't extract
+ *   a usable snippet until we've downloaded the entire message.)
  * @property {Array<ConvMsgTidbit>} messageTidbits
  *   You get up to 3 of these
  * @property {Boolean} hasUnread
@@ -97,6 +105,7 @@ MailConversation.prototype = evt.mix({
     this.mostRecentMessageDate = new Date(wireRep.date);
     this.firstSubject = wireRep.subject;
     this.headerCount = wireRep.headerCount;
+    this.snippetCount = wireRep.snippetCount;
     this.authors = ContactCache.resolvePeeps(wireRep.authors);
     this.messageTidbits = wireRep.tidbits.map((tidbit) => {
       return {

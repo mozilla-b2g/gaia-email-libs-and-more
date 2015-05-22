@@ -753,6 +753,12 @@ MailBridge.prototype = {
     });
   },
 
+  _cmd_fetchSnippets: function(msg) {
+    if (msg.convIds) {
+      this.universe.fetchConversationSnippets(msg.convIds, 'bridge');
+    }
+  },
+
   _cmd_getBody: function mb__cmd_getBody(msg) {
     var self = this;
     // map the message id to the folder storage

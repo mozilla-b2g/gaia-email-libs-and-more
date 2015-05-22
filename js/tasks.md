@@ -25,6 +25,23 @@ that the conversation summarizing will use as the snippet to show for the
 conversation.  Accordingly it gets a "conversation-snippet" priority tag unique
 amongst all its sibling messages.
 
+### Relative priorities and priority tags ###
+
+The priority needs to end up being an integer.  Divvying up a numeric priority
+space historically is a mess.  (See CSS z-index for example.)
+
+So the only numerical assignment done by tasks is to indicate a `relPriority`
+which is intended for use by tasks of a single type to differentiate amongst
+themselves.  For example, sync_refres/sync_grow will generate a number of
+sync_conv tasks.  We want the more recent conversations to be prioritized, and
+the sync_conv task can accomplish that itself by assigning a `relPriority`.
+
+The `relPriority` should be a value in the range [-99999, 99999] where more
+positive values are prioritized first.
+
+For all other prioritization, priority tags are used.  These are a combination
+of simple, static tags like `send` and `sync` that can be messed with in a
+single, centralized place, plus the dynamic priority tags.
 
 ### Dependencies and Priorities ###
 
@@ -127,3 +144,14 @@ Tasks have the following life-cycle states/transitions:
     multiple tasks.
 - Execution: The task manager eventually decides to execute your task based on
   its priority / resource needs / dependencies / etc.
+
+## Complex Tasks ##
+
+Complex tasks are responsible for maintaining their own aggregate state as a
+persistent, atomic state.  Given this state, they assert a set of task markers
+with priority tags.  The task manager treats these task markers like planned
+simple tasks, consuming them in the same fashion.  But when the TaskManager
+decides to execute a complex task, it instead hands the complex task a task
+marker.
+
+Task markers have an associated count in order to allow for parallelization.

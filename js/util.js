@@ -9,6 +9,7 @@ define(
   function(
     exports
   ) {
+'use strict';
 
 /**
  * Header info comparator that orders messages in order of numerically
@@ -16,14 +17,14 @@ define(
  * and messages with higher UIDs (newer-ish) before those with lower UIDs
  * (when the date is the same.)
  */
-var cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
-    function cmpHeaderYoungToOld(a, b) {
+exports.cmpHeaderYoungToOld = function cmpHeaderYoungToOld(a, b) {
   var delta = b.date - a.date;
-  if (delta)
+  if (delta) {
     return delta;
+  }
   // favor larger UIDs because they are newer-ish.
   return b.id - a.id;
-}
+};
 
 /**
  * Perform a binary search on an array to find the correct insertion point
@@ -35,44 +36,47 @@ var cmpHeaderYoungToOld = exports.cmpHeaderYoungToOld =
  *   range [0, arr.length].
  * }
  */
-var bsearchForInsert = exports.bsearchForInsert =
-    function bsearchForInsert(list, seekVal, cmpfunc) {
-  if (!list.length)
+exports.bsearchForInsert = function bsearchForInsert(list, seekVal, cmpfunc) {
+  if (!list.length) {
     return 0;
+  }
   var low  = 0, high = list.length - 1,
       mid, cmpval;
   while (low <= high) {
     mid = low + Math.floor((high - low) / 2);
     cmpval = cmpfunc(seekVal, list[mid]);
-    if (cmpval < 0)
+    if (cmpval < 0) {
       high = mid - 1;
-    else if (cmpval > 0)
+    } else if (cmpval > 0) {
       low = mid + 1;
-    else
+    } else {
       break;
+    }
   }
-  if (cmpval < 0)
+  if (cmpval < 0) {
     return mid; // insertion is displacing, so use mid outright.
-  else if (cmpval > 0)
+  } else if (cmpval > 0) {
     return mid + 1;
-  else
+  } else {
     return mid;
+  }
 };
 
-var bsearchMaybeExists = exports.bsearchMaybeExists =
-    function bsearchMaybeExists(list, seekVal, cmpfunc, aLow, aHigh) {
+exports.bsearchMaybeExists = function bsearchMaybeExists(list, seekVal, cmpfunc,
+                                                         aLow, aHigh) {
   var low  = ((aLow === undefined)  ? 0                 : aLow),
       high = ((aHigh === undefined) ? (list.length - 1) : aHigh),
       mid, cmpval;
   while (low <= high) {
     mid = low + Math.floor((high - low) / 2);
     cmpval = cmpfunc(seekVal, list[mid]);
-    if (cmpval < 0)
+    if (cmpval < 0) {
       high = mid - 1;
-    else if (cmpval > 0)
+    } else if (cmpval > 0) {
       low = mid + 1;
-    else
+    } else {
       return mid;
+    }
   }
   return null;
 };
@@ -133,6 +137,19 @@ exports.formatAddresses = function(nameAddrPairs) {
   }
 
   return addrstrings.join(', ');
+};
+
+/**
+ * Ridiculously simple shallow clone operation that just directly propagates the
+ * keys/values of a simple data-only JS object with only Object.prototype in
+ * its prototype chain.
+ */
+exports.shallowClone = function(sourceObj) {
+  var destObj = {};
+  for (var key in sourceObj) {
+    destObj[key] = sourceObj[key];
+  }
+  return destObj;
 };
 
 }); // end define

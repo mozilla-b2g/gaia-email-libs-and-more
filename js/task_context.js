@@ -6,10 +6,11 @@ let logic = require('./logic');
 /**
  * Provides helpers and standard arguments/context for tasks.
  */
-function TaskContext(wrappedTask, universe) {
-  logic.defineScope(this, 'TaskContext', { id: wrappedTask.id });
-  this.id = wrappedTask.id;
-  this._wrappedTask = wrappedTask;
+function TaskContext(taskThing, universe) {
+  logic.defineScope(this, 'TaskContext', { id: taskThing.id });
+  this.id = taskThing.id;
+  this.isTask = !taskThing.type; // it's a TaskMarker if the type is on the root
+  this._taskThing = taskThing;
   this.universe = universe;
 
   this._stuffToRelease = [];
@@ -87,18 +88,25 @@ TaskContext.prototype = {
     if (finishData.taskState) {
       // (Either this was the planning stage or an execution stage that didn't
       // actually complete; we're still planned either way.)
-      this._wrappedTask.state = 'planned';
-      this._wrappedTask.plannedTask = finishData.taskState;
+      this._taskThing.state = 'planned';
+      this._taskThing.plannedTask = finishData.taskState;
       revisedTaskInfo = {
         id: this.id,
-        value: this._wrappedTask
+        value: this._taskThing
       };
-      this.universe.taskManager.__prioritizeTask(this._wrappedTask);
+      this.universe.taskManager.__prioritizeTaskOrMarker(this._taskThing);
     } else {
       revisedTaskInfo = {
         id: this.id,
         value: null
       };
+    }
+
+    // (Complex) task markers can be immediately prioritized.
+    if (finishData.taskMarkers) {
+      for (let taskMarker of finishData.taskMarkers) {
+        this.universe.taskManager.__prioritizeTaskOrMarker(taskMarker);
+      }
     }
 
     // Normalize any tasks that should be byproducts of this task.
@@ -117,6 +125,10 @@ TaskContext.prototype = {
       })
     .then(() => {
       if (wrappedTasks) {
+        // (Even though we currently know the task id prior to this transaction
+        // running, the idea is that IndexedDB should really be assigning the
+        // id's as part of the transaction, so we will only have assigned id's
+        // at this point.  See the __wrapTasks documentation for more context.)
         this.universe.taskManager.__enqueuePersistedTasksForPlanning(
           wrappedTasks);
       }

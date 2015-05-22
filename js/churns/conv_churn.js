@@ -12,6 +12,9 @@ const MAX_TIDBITS = 3;
  */
 function churnConversation(convId, oldConvInfo, headers) {
   let authorsByEmail = new Map();
+  // The number of headers where we have already fetch snippets (or at least
+  // tried to).
+  let snippetCount = 0;
   let tidbits = [];
   let convHasUnread = false;
   let convHasStarred = false;
@@ -40,6 +43,10 @@ function churnConversation(convId, oldConvInfo, headers) {
       convFolderIds.add(folderId);
     }
 
+    if (header.snippet !== null) {
+      snippetCount++;
+    }
+
     // Add up to MAX_TIDBITS tidbits for unread messages
     if (tidbits.length < MAX_TIDBITS && !isRead) {
       tidbits.push({
@@ -64,6 +71,7 @@ function churnConversation(convId, oldConvInfo, headers) {
     height: height,
     subject: headers[0].subject,
     headerCount: headers.length,
+    snippetCount: snippetCount,
     authors: Array.from(authorsByEmail.values()),
     tidbits: tidbits,
     hasUnread: convHasUnread,

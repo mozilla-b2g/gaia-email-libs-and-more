@@ -3,10 +3,8 @@ define(function(require) {
 
 let logic = require('./logic');
 let slog = require('./slog');
-let $a64 = require('./a64');
 let $date = require('./date');
 let $syncbase = require('./syncbase');
-let $router = require('./worker-router');
 let MailDB = require('./maildb');
 let $acctcommon = require('./accountcommon');
 let $allback = require('./allback');
@@ -17,15 +15,13 @@ let FoldersTOC = require('./db/folders_toc');
 let ConversationTOC = require('./db/conv_toc');
 
 let TaskManager = require('./task_manager');
+let TaskRegistry = require('./task_registry');
 
 // require lazy_tasks for the side-effect of defining the tasks we implement.
-require('./lazy_tasks');
+let globalTasks = require('./global_tasks');
+let gmailTasks = require('./imap/gmail_tasks');
 
-/**
- * When debug logging is enabled, how many second's worth of samples should
- * we keep?
- */
-var MAX_LOG_BACKLOG = 30;
+let { accountIdFromConvId } = require('./id_conversions');
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,
@@ -58,7 +54,12 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   /** @type{Map<ConverastionId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
-  this.taskManager = new TaskManager(this, this.db);
+  this.taskRegistry = new TaskRegistry();
+  this.taskManager = new TaskManager(this, this.db, this.taskRegistry,
+                                     this.accountsTOC);
+
+  this.taskRegistry.registerGlobalTasks(globalTasks);
+  this.taskRegistry.registerPerAccountTypeTasks('gmail', gmailTasks);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -643,6 +644,17 @@ MailUniverse.prototype = {
         folderId: folderId
       }
     ], why);
+  },
+
+  fetchConversationSnippets: function(convIds, why) {
+    let tasks = convIds.map((convId) => {
+      return {
+        type: 'sync_body',
+        accountId: accountIdFromConvId(convId),
+        amount: 'snippet'
+      };
+    });
+    this.taskManager.scheduleTasks(tasks, why);
   },
 
   /**

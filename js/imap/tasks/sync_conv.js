@@ -2,8 +2,9 @@ define(function(require) {
 'use strict';
 
 let logic = require('logic');
-
 let co = require('co');
+let { shallowClone } = require('../../util');
+let { NOW } = require('../../date');
 
 let TaskDefiner = require('../../task_definer');
 let a64 = require('../../a64');
@@ -42,10 +43,24 @@ let INITIAL_FETCH_PARAMS = [
 ];
 
 /**
+ * @typedef {Object} SyncConvTaskArgs
+ * @prop accountId
+ * @prop convId
+ * @prop newConv
+ * @prop removeConv
+ * @prop newUids
+ * @prop removedUids
+ * @prop revisedUidState
+ **/
+
+const MAX_PRIORITY_BOOST = 99999;
+const ONE_HOUR_IN_MSECS = 60 * 60 * 1000;
+
+/**
  * Fetches the envelopes for new messages in a conversation and also applies
  * flag/label changes discovered by sync_refresh (during planning).
  *
- * XXX do the planning stuff in separate tasks.  just have the churner handle
+ * XXX??? do the planning stuff in separate tasks.  just have the churner handle
  * things.
  *
  * For a non-new conversation where we are told revisedUidState, in the planning
@@ -66,32 +81,47 @@ let INITIAL_FETCH_PARAMS = [
  * phase, FETCH their envelopes and add the headers/bodies to the database.
  * This does not require loading or mutating the syncState; sync_refresh already
  * updated itself.
- *
  */
 return TaskDefiner.defineSimpleTask([
   {
     name: 'sync_conv',
-    namingArgs: ['accountId', 'convId'],
-    unifyingArgs: [
-      'newConv', 'removeConv', 'newUids', 'removedUids', 'revisedUidState'
-    ],
 
-    exclusiveResources: function(args) {
-      return [
-        // In the newConv case, we need to load the sync-state for the account
-        // in order to add additional meh UIDs we learn about.  This is not
-        // particularly desirable, but not trivial to avoid.
-        // TODO: think about splitting out the newConv case or just allowing for
-        // a dynamic stall to occur in the newConv case.
-        `sync:${args.accountId}`
-      ];
-    },
+    plan: co.wrap(function*(ctx, rawTask) {
+      let plannedTask = shallowClone(rawTask);
 
-    priorityTags: function(args) {
-      return [
-        `view:conv:${args.convId}`
+      plannedTask.exclusiveResources = [
+        `conv:${rawTask.convId}`
       ];
-    },
+      // In the newConv case, we need to load the sync-state for the account
+      // in order to add additional meh UIDs we learn about.  This is not
+      // particularly desirable, but not trivial to avoid.
+      if (rawTask.newConv) {
+        plannedTask.exclusiveResources.push(`sync:${rawTask.accountId}`);
+      }
+
+      plannedTask.priorityTags = [
+        `view:conv:${rawTask.convId}`
+      ];
+
+      // If we know how recent the conversation is, use it to provide a priority
+      // boost.  This is a question of quantization/binning and how much range
+      // we have/need/care about.  Since we currently let relative priorities
+      // go from -10k to +10k (exclusive), using hours in the past provides
+      // useful differentiation for ~23 years which is sufficient for our needs.
+      // Note that this relative priority is frozen in time at the instance of
+      // planning
+      if (rawTask.mostRecent) {
+        plannedTask.relPriority = Math.max(
+          -MAX_PRIORITY_BOOST,
+          MAX_PRIORITY_BOOST -
+            (NOW() - rawTask.mostRecent) / ONE_HOUR_IN_MSECS
+        );
+      }
+
+      yield ctx.finishTask({
+        taskState: plannedTask
+      });
+    }),
 
     _fetchAndChewUids: function*(ctx, account, allMailFolderInfo, convId,
                                  uids) {

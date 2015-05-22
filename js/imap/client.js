@@ -93,9 +93,11 @@ define(function(require, exports) {
         };
         // Save the mailboxInfo off so we can use the precheck idiom.
         conn.onselectmailbox = function(path, mailboxInfo) {
+          this.selectedMailboxPath = path;
           this.selectedMailboxInfo = mailboxInfo;
         };
         conn.onclosemailbox = function() {
+          this.selectedMailboxPath = null;
           this.selectedMailboxInfo = null;
         };
 
