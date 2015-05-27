@@ -76,98 +76,104 @@ var RE_MAIL =
   /(^|[\s(,;<>])([^(,;<>@\s]+@[a-z0-9.\-]{2,250}[.][a-z0-9\-]{2,32})/im;
 var RE_MAILTO = /^mailto:/i;
 
-return {
-  /**
-   * Linkify the given plaintext, producing an Array of HTML nodes as a result.
-   */
-  linkifyPlain: function(body, doc) {
-    var nodes = [];
-    var match = true, contentStart;
-    while (true) {
-      var url = RE_URL.exec(body);
-      var email = RE_MAIL.exec(body);
-      // Pick the regexp with the earlier content; index will always be zero.
-      if (url &&
-          (!email || url.index < email.index)) {
-        contentStart = url.index + url[1].length;
-        if (contentStart > 0)
-          nodes.push(doc.createTextNode(body.substring(0, contentStart)));
+/**
+ * Linkify the given plaintext, producing an Array of HTML nodes as a result.
+ */
+function linkifyPlain(body, doc) {
+  var nodes = [];
+  var contentStart;
+  while (true) {
+    var url = RE_URL.exec(body);
+    var email = RE_MAIL.exec(body);
+    var link, text;
+    // Pick the regexp with the earlier content; index will always be zero.
+    if (url &&
+        (!email || url.index < email.index)) {
+      contentStart = url.index + url[1].length;
+      if (contentStart > 0) {
+        nodes.push(doc.createTextNode(body.substring(0, contentStart)));
+      }
 
-        // There are some final characters for a URL that are much more likely
-        // to have been part of the enclosing text rather than the end of the
-        // URL.
-        var useUrl = url[2];
-        var uneat = RE_UNEAT_LAST_URL_CHARS.exec(useUrl);
-        if (uneat) {
-          useUrl = useUrl.substring(0, uneat.index);
+      // There are some final characters for a URL that are much more likely
+      // to have been part of the enclosing text rather than the end of the
+      // URL.
+      var useUrl = url[2];
+      var uneat = RE_UNEAT_LAST_URL_CHARS.exec(useUrl);
+      if (uneat) {
+        useUrl = useUrl.substring(0, uneat.index);
+      }
+
+      link = doc.createElement('a');
+      link.className = 'moz-external-link';
+      // the browser app needs us to put a protocol on the front
+      if (RE_HTTP.test(url[2])) {
+        link.setAttribute('ext-href', useUrl);
+      } else {
+        link.setAttribute('ext-href', 'http://' + useUrl);
+      }
+      text = doc.createTextNode(useUrl);
+      link.appendChild(text);
+      nodes.push(link);
+
+      body = body.substring(url.index + url[1].length + useUrl.length);
+    }
+    else if (email) {
+      contentStart = email.index + email[1].length;
+      if (contentStart > 0) {
+        nodes.push(doc.createTextNode(body.substring(0, contentStart)));
+      }
+
+      link = doc.createElement('a');
+      link.className = 'moz-external-link';
+      if (RE_MAILTO.test(email[2])) {
+        link.setAttribute('ext-href', email[2]);
+      } else {
+        link.setAttribute('ext-href', 'mailto:' + email[2]);
+      }
+      text = doc.createTextNode(email[2]);
+      link.appendChild(text);
+      nodes.push(link);
+
+      body = body.substring(email.index + email[0].length);
+    }
+    else {
+      break;
+    }
+  }
+
+  if (body.length > 0) {
+    nodes.push(doc.createTextNode(body));
+  }
+
+  return nodes;
+}
+
+/**
+ * Process the document of an HTML iframe to linkify the text portions of the
+ * HTML document.  'A' tags and their descendants are not linkified, nor
+ * are the attributes of HTML nodes.
+ */
+function linkifyHTML (doc) {
+  function linkElem(elem) {
+    var children = elem.childNodes;
+    for (var i in children) {
+      var sub = children[i];
+      if (sub.nodeName == '#text') {
+        var nodes = linkifyPlain(sub.nodeValue, doc);
+
+        elem.replaceChild(nodes[nodes.length-1], sub);
+        for (var iNode = nodes.length-2; iNode >= 0; --iNode) {
+          elem.insertBefore(nodes[iNode], nodes[iNode+1]);
         }
-
-        var link = doc.createElement('a');
-        link.className = 'moz-external-link';
-        // the browser app needs us to put a protocol on the front
-        if (RE_HTTP.test(url[2]))
-          link.setAttribute('ext-href', useUrl);
-        else
-          link.setAttribute('ext-href', 'http://' + useUrl);
-        var text = doc.createTextNode(useUrl);
-        link.appendChild(text);
-        nodes.push(link);
-
-        body = body.substring(url.index + url[1].length + useUrl.length);
       }
-      else if (email) {
-        contentStart = email.index + email[1].length;
-        if (contentStart > 0)
-          nodes.push(doc.createTextNode(body.substring(0, contentStart)));
-
-        link = doc.createElement('a');
-        link.className = 'moz-external-link';
-        if (RE_MAILTO.test(email[2]))
-          link.setAttribute('ext-href', email[2]);
-        else
-          link.setAttribute('ext-href', 'mailto:' + email[2]);
-        text = doc.createTextNode(email[2]);
-        link.appendChild(text);
-        nodes.push(link);
-
-        body = body.substring(email.index + email[0].length);
-      }
-      else {
-        break;
+      else if (sub.nodeName != 'A') {
+        linkElem(sub);
       }
     }
+  }
 
-    if (body.length > 0)
-      nodes.push(doc.createTextNode(body));
+  linkElem(doc.body);
+}
 
-    return nodes;
-  },
-
-  /**
-   * Process the document of an HTML iframe to linkify the text portions of the
-   * HTML document.  'A' tags and their descendants are not linkified, nor
-   * are the attributes of HTML nodes.
-   */
-  linkifyHTML: function(doc) {
-    function linkElem(elem) {
-      var children = elem.childNodes;
-      for (var i in children) {
-        var sub = children[i];
-        if (sub.nodeName == '#text') {
-          var nodes = MailUtils.linkifyPlain(sub.nodeValue, doc);
-
-          elem.replaceChild(nodes[nodes.length-1], sub);
-          for (var iNode = nodes.length-2; iNode >= 0; --iNode) {
-            elem.insertBefore(nodes[iNode], nodes[iNode+1]);
-          }
-        }
-        else if (sub.nodeName != 'A') {
-          linkElem(sub);
-        }
-      }
-    }
-
-    linkElem(doc.body);
-  },
-};
+return { linkifyPlain, linkifyHTML };
 });

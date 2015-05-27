@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 41;
+const CUR_VERSION = 42;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -143,24 +143,10 @@ const TBL_CONV_INFO = 'convInfo';
 const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder';
 
 /**
- * Message headers.
- *
- * key: [`ConversationId`, `DateTS`, `GmailMessageId`]
- *
- * Ranges:
- * - [convId] lower-bounds all [convId, ...] keys because a shorter array
- *   is by definition less than a longer array that is equal up to their
- *   shared length.
- * - [convId, []] upper-bounds all [convId, ...] because arrays are always
- *   greater than strings/dates/numbers.
- *
- *
- * Managed by: MailDB
- */
-const TBL_HEADERS = 'headers';
-
-/**
- * Message bodies
+ * The messages, containing both header/envelope and body aspects.  The actual
+ * body parts are stored in Blobs which means that they may only be accessed
+ * asynchronously.  (Contrast: in v1, headers and bodies were stored
+ * separately for reasons you don't care about.)
  *
  * key: [`ConversationId`, `DateTS`, `GmailMessageId`]
  *
@@ -173,7 +159,7 @@ const TBL_HEADERS = 'headers';
  *
  * Managed by: MailDB
  */
-const TBL_BODIES = 'bodies';
+const TBL_MESSAGES = 'messages';
 
 
 /**
@@ -187,7 +173,7 @@ const TASK_MUTATION_STORES = [
   TBL_TASKS, TBL_COMPLEX_TASKS,
   TBL_FOLDER_INFO,
   TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
-  TBL_HEADERS, TBL_BODIES
+  TBL_MESSAGES
 ];
 
 /**
@@ -334,8 +320,7 @@ function MailDB(testOptions) {
   this._lazyConfigCarryover = null;
 
   this.convCache = new Map();
-  this.headerCache = new Map();
-  this.bodyCache = new Map();
+  this.messageCache = new Map();
 
   let dbVersion = CUR_VERSION;
   if (testOptions && testOptions.dbDelta) {
@@ -413,8 +398,7 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
-    db.createObjectStore(TBL_HEADERS);
-    db.createObjectStore(TBL_BODIES);
+    db.createObjectStore(TBL_MESSAGES);
   },
 
   close: function() {
@@ -542,8 +526,7 @@ MailDB.prototype = evt.mix({
     this.emit('cacheDrop');
 
     this.convCache.clear();
-    this.headerCache.clear();
-    this.bodyCache.clear();
+    this.messageCache.clear();
   },
 
   /**
@@ -597,31 +580,19 @@ MailDB.prototype = evt.mix({
    *   record).  See the specific
    * @param {Map<ConversationId, ConversationInfo>} requests.conversations
    *   Load the given ConversationInfo structure.
-   * @param {Map<ConversationId, HeaderInfo[]>} requests.headersByConversation
-   *   Load all of the known headers for the given conversation, returning an
+   * @param {Map<ConversationId, MessageInfo[]>} requests.messagesByConversation
+   *   Load all of the known messages for the given conversation, returning an
    *   array ordered by the database storage order which is ascending by DateMS
    *   and the encoded gmail message id.  Note that this mechanism currently
-   *   cannot take advantage of the `headerCache`.  (There are some easy-ish
+   *   cannot take advantage of the `messageCache`.  (There are some easy-ish
    *   things we could do to accomplish this, but it's not believed to be a
    *   major concern at this time.)
-   * @param {Map<[MessageId, DateMS], HeaderInfo} requests.headers
-   *   Load specific headers.  Note that we need the canonical MessageId plus
-   *   the DateMS associated with the header to find the record if it's not in
+   * @param {Map<[MessageId, DateMS], MessageInfo} requests.messages
+   *   Load specific messages.  Note that we need the canonical MessageId plus
+   *   the DateMS associated with the message to find the record if it's not in
    *   cache.  This is a little weird but it's assumed you have previously
-   *   loaded the (now potentially stale) HeaderInfo and so have the information
-   *   at hand.
-   * @param {Map<ConversationId, HeaderInfo[]>} requests.bodiesByConversation
-   *   Load all of the known bodies for the given conversation, returning an
-   *   array ordered by the database storage order which is ascending by DateMS
-   *   and the encoded gmail message id.  Note that this mechanism currently
-   *   cannot take advantage of the `bodyCache`.  (There are some easy-ish
-   *   things we could do to accomplish this, but it's not believed to be a
-   *   major concern at this time.)  Also note that using this is potentially
-   *   reckless, at least until/unless the actual body contents are made into
-   *   Blobs.
-   * @param {Map<[MessageId, DateMS], BodyInfo} requests.bodies
-   *   Load specific bodies using the same idiom as `requests.headers` which
-   *   you should read.
+   *   loaded the (now potentially stale) MessageInfo and so have the
+   *   information at hand.
    */
   read: function(ctx, requests) {
     return new Promise((resolve, reject) => {
@@ -678,54 +649,54 @@ MailDB.prototype = evt.mix({
           req.onerror = handler;
         }
       }
-      if (requests.headersByConversation) {
-        let headerStore = trans.objectStore(TBL_HEADERS);
-        let headerCache = this.headerCache;
-        let requestsMap = requests.headersByConversation;
+      if (requests.messagesByConversation) {
+        let messageStore = trans.objectStore(TBL_MESSAGES);
+        let messageCache = this.messageCache;
+        let requestsMap = requests.messagesByConversation;
 
         for (let unlatchedConvId of requestsMap.keys()) {
           let convId = unlatchedConvId;
-          let headerRange = IDBKeyRange.bound([convId],
-                                              [convId, []],
-                                              true, true);
+          let messageRange = IDBKeyRange.bound([convId],
+                                               [convId, []],
+                                               true, true);
           dbReqCount++;
-          let req = headerStore.mozGetAll(headerRange);
+          let req = messageStore.mozGetAll(messageRange);
           let handler = (event) => {
             if (req.error) {
               analyzeAndLogErrorEvent(event);
             } else {
-              let headers = req.result;
-              for (let header of headers) {
+              let messages = req.result;
+              for (let message of messages) {
                 // Put it in the cache unless it's already there (reads must
                 // not clobber writes/mutations!)
                 // NB: This does mean that there's potential inconsistency
                 // problems for this reader in the event the cache does know the
-                // header and the values are not the same.
+                // message and the values are not the same.
                 // TODO: lock that down with checks or some fancy thinkin'
-                if (!headerCache.has(header.id)) {
-                  headerCache.set(header.id, header);
+                if (!messageCache.has(message.id)) {
+                  messageCache.set(message.id, message);
                 }
               }
-              requestsMap.set(convId, headers);
+              requestsMap.set(convId, messages);
             }
           };
           req.onsuccess = handler;
           req.onerror = handler;
         }
       }
-      if (requests.headers) {
-        let headerStore = trans.objectStore(TBL_HEADERS);
-        let headerCache = this.headerCache;
+      if (requests.messages) {
+        let messageStore = trans.objectStore(TBL_MESSAGES);
+        let messageCache = this.messageCache;
         // The requests have keys for the form [messageId, date], but we want
         // the results to be more sane, keyed by just the messageId and without
         // the awkward tuples.
-        let headerRequestsMap = requests.headers;
-        let headerResultsMap = requests.headers = new Map();
-        for (let [unlatchedMessageId, date] of headerRequestsMap.keys()) {
+        let messageRequestsMap = requests.messages;
+        let messageResultsMap = requests.messages = new Map();
+        for (let [unlatchedMessageId, date] of messageRequestsMap.keys()) {
           let messageId = unlatchedMessageId;
           // fill from cache if available
-          if (headerCache.has(messageId)) {
-            headerResultsMap.set(messageId, headerCache.get(messageId));
+          if (messageCache.has(messageId)) {
+            messageResultsMap.set(messageId, messageCache.get(messageId));
             continue;
           }
 
@@ -736,94 +707,18 @@ MailDB.prototype = evt.mix({
             encodedGmailMessageIdFromMessageId(messageId)
           ];
           dbReqCount++;
-          let req = headerStore.get(key);
+          let req = messageStore.get(key);
           let handler = (event) => {
             if (req.error) {
               analyzeAndLogErrorEvent(event);
             } else {
-              let header = req.result;
+              let message = req.result;
               // Put it in the cache unless it's already there (reads must
               // not clobber writes/mutations!)
-              if (!headerCache.has(messageId)) {
-                headerCache.set(messageId, header);
+              if (!messageCache.has(messageId)) {
+                messageCache.set(messageId, message);
               }
-              headerResultsMap.set(messageId, header);
-            }
-          };
-          req.onsuccess = handler;
-          req.onerror = handler;
-        }
-      }
-      if (requests.bodiesByConversation) {
-        let bodyStore = trans.objectStore(TBL_BODIES);
-        let bodyCache = this.bodyCache;
-        let requestsMap = requests.bodiesByConversation;
-
-        for (let unlatchedConvId of requestsMap.keys()) {
-          let convId = unlatchedConvId;
-          let bodyRange = IDBKeyRange.bound([convId],
-                                            [convId, []],
-                                            true, true);
-          dbReqCount++;
-          let req = bodyStore.mozGetAll(bodyRange);
-          let handler = (event) => {
-            if (req.error) {
-              analyzeAndLogErrorEvent(event);
-            } else {
-              let bodies = req.result;
-              for (let body of bodies) {
-                // Put it in the cache unless it's already there (reads must
-                // not clobber writes/mutations!)
-                // NB: This does mean that there's potential inconsistency
-                // problems for this reader in the event the cache does know the
-                // header and the values are not the same.
-                // TODO: lock that down with checks or some fancy thinkin'
-                if (!bodyCache.has(body.id)) {
-                  bodyCache.set(body.id, body);
-                }
-              }
-              requestsMap.set(convId, bodies);
-            }
-          };
-          req.onsuccess = handler;
-          req.onerror = handler;
-        }
-      }
-      if (requests.bodies) {
-        let bodyStore = trans.objectStore(TBL_BODIES);
-        let bodyCache = this.bodyCache;
-        // The requests have keys for the form [messageId, date], but we want
-        // the results to be more sane, keyed by just the messageId and without
-        // the awkward tuples.
-        let bodyRequestsMap = requests.bodies;
-        let bodyResultsMap = requests.bodies = new Map();
-        for (let [unlatchedMessageId, date] of bodyRequestsMap.keys()) {
-          let messageId = unlatchedMessageId;
-          // fill from cache if available
-          if (bodyCache.has(messageId)) {
-            bodyResultsMap.set(messageId, bodyCache.get(messageId));
-            continue;
-          }
-
-          // otherwise we need to ask the database
-          dbReqCount++;
-          let key = [
-            convIdFromMessageId(messageId),
-            date,
-            encodedGmailMessageIdFromMessageId(messageId)
-          ];
-          let req = bodyStore.get(key);
-          let handler = (event) => {
-            if (req.error) {
-              analyzeAndLogErrorEvent(event);
-            } else {
-              let value = req.result;
-              // Put it in the cache unless it's already there (reads must
-              // not clobber writes/mutations!)
-              if (!bodyCache.has(messageId)) {
-                bodyCache.set(messageId, value);
-              }
-              bodyResultsMap.set(messageId, value);
+              messageResultsMap.set(messageId, message);
             }
           };
           req.onsuccess = handler;
@@ -889,46 +784,24 @@ MailDB.prototype = evt.mix({
         }
       }
 
-      // - headers
-      // we need the date for all headers, whether directly loaded or loaded via
-      // headersByConversation
-      if (mutateRequests.headersByConversation ||
-          mutateRequests.headers) {
-        let preHeaders = preMutateStates.headers = new Map();
+      // - messages
+      // we need the date for all messages, whether directly loaded or loaded
+      // via messagesByConversation
+      if (mutateRequests.messagesByConversation ||
+          mutateRequests.messages) {
+        let preMessages = preMutateStates.messages = new Map();
 
-        if (mutateRequests.headersByConversation) {
-          for (let convHeaders of
-               mutateRequests.headersByConversation.values()) {
-            for (let header of convHeaders) {
-              preHeaders.set(header.id, header.date);
+        if (mutateRequests.messagesByConversation) {
+          for (let convMessages of
+               mutateRequests.messagesByConversation.values()) {
+            for (let message of convMessages) {
+              preMessages.set(message.id, message.date);
             }
           }
         }
-        if (mutateRequests.headers) {
-          for (let header of mutateRequests.headers.values()) {
-            preHeaders.set(header.id, header.date);
-          }
-        }
-      }
-
-      // - bodies
-      // same deal as headers; we need the date
-      if (mutateRequests.bodiesByConversation ||
-          mutateRequests.bodies) {
-        let preBodies = preMutateStates.bodies = new Map();
-
-        if (mutateRequests.bodiesByConversation) {
-          for (let convBodies of
-               mutateRequests.bodiesByConversation.values()) {
-            for (let body of convBodies) {
-              preBodies.set(body.id, body.date);
-            }
-          }
-        }
-
-        if (mutateRequests.bodies) {
-          for (let body of mutateRequests.bodies.values()) {
-            preBodies.set(body.id, body.date);
+        if (mutateRequests.messages) {
+          for (let message of mutateRequests.messages.values()) {
+            preMessages.set(message.id, message.date);
           }
         }
       }
@@ -1030,17 +903,12 @@ MailDB.prototype = evt.mix({
       if (convInfo === null) {
         // - Delete the conversation summary
         convStore.delete(convId);
-        // - Delete all affiliated headers/bodies
-        let headerRange = IDBKeyRange.bound([convId],
-                                            [convId, []],
-                                            true, true);
+        // - Delete all affiliated messages
+        let messageRange = IDBKeyRange.bound([convId],
+                                             [convId, []],
+                                             true, true);
 
-        trans.objectStore(TBL_HEADERS).delete(headerRange);
-        // bodies currently use the same key representation.
-        let bodyRange = IDBKeyRange.bound([convId],
-                                          [convId, []],
-                                          true, true);
-        trans.objectStore(TBL_BODIES).delete(bodyRange);
+        trans.objectStore(TBL_MESSAGES).delete(messageRange);
       } else { // Modification
         convStore.put(convInfo, convId);
         this.convCache.set(convInfo.id, convInfo);
@@ -1120,47 +988,45 @@ MailDB.prototype = evt.mix({
     let eventId = 'conv!' + convId + '!messages!tocChange';
     let retval = this._bufferChangeEventsIdiom(eventId);
 
-    let trans = this._db.transaction(TBL_HEADERS, 'readonly');
-    let headerStore = trans.objectStore(TBL_HEADERS);
-    let headerRange = IDBKeyRange.bound([convId], [convId, []],
-                                        true, true);
-    let headers = yield wrapReq(headerStore.mozGetAll(headerRange));
-    let headerCache = this.headerCache;
-    retval.idsWithDates = headers.map(function(header) {
+    let trans = this._db.transaction(TBL_MESSAGES, 'readonly');
+    let messageStore = trans.objectStore(TBL_MESSAGES);
+    let messageRange = IDBKeyRange.bound([convId], [convId, []],
+                                         true, true);
+    let messages = yield wrapReq(messageStore.mozGetAll(messageRange));
+    let messageCache = this.messageCache;
+    retval.idsWithDates = messages.map(function(message) {
       // Put it in the cache unless it's already there (reads must
       // not clobber writes/mutations!)
-      if (!headerCache.has(header.id)) {
-        headerCache.set(header.id, header);
+      if (!messageCache.has(message.id)) {
+        messageCache.set(message.id, message);
       }
-      return { date: header.date, id: header.id };
+      return { date: message.date, id: message.id };
     });
     return retval;
   }),
 
-
-
-  _processHeaderAdditions: function(trans, headers) {
-    let store = trans.objectStore(TBL_HEADERS);
-    for (let header of valueIterator(headers)) {
-      let convId = convIdFromMessageId(header.id);
+  _processMessageAdditions: function(trans, messages) {
+    let store = trans.objectStore(TBL_MESSAGES);
+    for (let message of valueIterator(messages)) {
+      let convId = convIdFromMessageId(message.id);
       let key = [
         convId,
-        header.date,
-        encodedGmailMessageIdFromMessageId(header.id)
+        message.date,
+        encodedGmailMessageIdFromMessageId(message.id)
       ];
-      store.add(header, key);
+      store.add(message, key);
 
       let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, header.id, header.date, header, true);
+      this.emit(eventId, message.id, message.date, message, true);
     }
   },
 
   /**
-   * Process header modification and removal.
+   * Process message modification and removal.
    */
-  _processHeaderMutations: function(trans, preStates, headers) {
-    let store = trans.objectStore(TBL_HEADERS);
-    for (let [messageId, header] of headers) {
+  _processMessageMutations: function(trans, preStates, messages) {
+    let store = trans.objectStore(TBL_MESSAGES);
+    for (let [messageId, message] of messages) {
       let convId = convIdFromMessageId(messageId);
       let date = preStates.get(messageId);
       let key = [
@@ -1169,55 +1035,18 @@ MailDB.prototype = evt.mix({
         encodedGmailMessageIdFromMessageId(messageId)
       ];
 
-      if (header === null) {
+      if (message === null) {
         // -- Deletion
         store.delete(key);
       } else {
         // -- Modification
-        store.put(header, key);
+        store.put(message, key);
       }
 
-      let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, messageId, date, header, false);
-    }
-  },
-
-
-  _processBodyAdditions: function(trans, bodies) {
-    let store = trans.objectStore(TBL_BODIES);
-    for (let body of valueIterator(bodies)) {
-      let key = [
-        convIdFromMessageId(body.id),
-        body.date,
-        encodedGmailMessageIdFromMessageId(body.id)
-      ];
-      store.add(body, key);
-      // body addition does not generate an event since you technically can't
-      // know about them until after they're added.
-    }
-  },
-
-  _processBodyMutations: function(trans, preStates, bodies) {
-    let store = trans.objectStore(TBL_BODIES);
-    for (let [messageId, body] of bodies) {
-      let convId = convIdFromMessageId(messageId);
-      let date = preStates.get(messageId);
-      let key = [
-        convId,
-        date,
-        encodedGmailMessageIdFromMessageId(messageId)
-      ];
-
-      if (body === null) {
-        // -- Deletion
-        store.delete(key);
-      } else {
-        // -- Modification
-        store.put(body, key);
-      }
-
-      let eventId = 'body!' + body.id + '!change';
-      this.emit(eventId, body);
+      let convEventId = 'conv!' + convId + '!messages!tocChange';
+      this.emit(convEventId, messageId, date, message, false);
+      let messageEventId = 'msg!' + messageId + '!change';
+      this.emit(messageEventId, messageId, message);
     }
   },
 
@@ -1250,11 +1079,8 @@ MailDB.prototype = evt.mix({
       if (newData.conversations) {
         this._processConvAdditions(trans, newData.conversations);
       }
-      if (newData.headers) {
-        this._processHeaderAdditions(trans, newData.headers);
-      }
-      if (newData.bodies) {
-        this._processBodyAdditions(trans, newData.bodies);
+      if (newData.messages) {
+        this._processMessageAdditions(trans, newData.messages);
       }
       // newData.tasks is transformed by the TaskContext into
       // taskData.wrappedTasks
@@ -1280,14 +1106,9 @@ MailDB.prototype = evt.mix({
           trans, ctx._preMutateStates.conversations, mutations.conversations);
       }
 
-      if (mutations.headers) {
-        this._processHeaderMutations(
-          trans, ctx._preMutateStates.headers, mutations.headers);
-      }
-
-      if (mutations.bodies) {
-        this._processBodyMutations(
-          trans, ctx._preMutateStates.bodies, mutations.bodies);
+      if (mutations.messages) {
+        this._processMessageMutations(
+          trans, ctx._preMutateStates.messages, mutations.messages);
       }
 
       if (mutations.accounts) {
@@ -1301,8 +1122,8 @@ MailDB.prototype = evt.mix({
               .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
           } else {
             // - Account Deletion!
-            // We handle the syncStates, folders, conversations, headers, and
-            // bodies ranges here.
+            // We handle the syncStates, folders, conversations, and message
+            // ranges here.
             // Task fallout needs to be explicitly managed by the task in
             // coordination with the TaskManager.
             trans.objectStore(TBL_CONFIG)
@@ -1336,11 +1157,8 @@ MailDB.prototype = evt.mix({
             trans.objectStore(TBL_CONV_IDS_BY_FOLDER).delete(
               accountArrayItemPrefix);
 
-            // Headers: string ordering unicode tricks
-            trans.objectStore(TBL_HEADERS).delete(accountArrayItemPrefix);
-
-            // Bodies: string ordering unicode tricks
-            trans.objectStore(TBL_BODIES).delete(accountArrayItemPrefix);
+            // Messages: string ordering unicode tricks
+            trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
           }
 
           this.emit('accounts!tocChange', accountId, null);

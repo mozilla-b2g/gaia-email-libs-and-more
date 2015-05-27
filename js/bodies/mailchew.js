@@ -15,8 +15,8 @@
 define(
   [
     'exports',
-    './util',
-    './mailchew-strings',
+    '../util',
+    './mailchew_strings',
     './quotechew',
     './htmlchew'
   ],
@@ -27,6 +27,7 @@ define(
     $quotechew,
     $htmlchew
   ) {
+'use strict';
 
 var DESIRED_SNIPPET_LENGTH = 100;
 
@@ -76,15 +77,16 @@ var RE_RE = /^[Rr][Ee]:/;
 exports.generateReplySubject = function generateReplySubject(origSubject) {
   var re = 'Re: ';
   if (origSubject) {
-    if (RE_RE.test(origSubject))
+    if (RE_RE.test(origSubject)) {
       return origSubject;
+    }
 
     return re + origSubject;
   }
   return re;
 };
 
-var FWD_FWD = /^[Ff][Ww][Dd]:/;
+var RE_FWD = /^[Ff][Ww][Dd]:/;
 
 /**
  * Generate the foward subject for a message given the prior subject.  This is
@@ -94,8 +96,9 @@ var FWD_FWD = /^[Ff][Ww][Dd]:/;
 exports.generateForwardSubject = function generateForwardSubject(origSubject) {
   var fwd = 'Fwd: ';
   if (origSubject) {
-    if (FWD_FWD.test(origSubject))
+    if (RE_FWD.test(origSubject)) {
       return origSubject;
+    }
 
     return fwd + origSubject;
   }
@@ -117,7 +120,9 @@ var l10n_wroteString = '{name} wrote',
  * Our dictionary maps from the lowercased header name to the human-readable
  * string.
  *
- * XXX actually do the l10n hookup for this
+ * The front-end tells us the locale-appropriate strings at startup and as
+ * needed via a mechanism that eventually calls our `setLocalizedStrings`
+ * function.  (See the mailchew-strings module too.)
  */
 var l10n_forward_header_labels = {
   subject: 'Subject',
@@ -317,7 +322,26 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
 };
 
 /**
- * Generate the snippet and parsed body from the message body's content.
+ * Generate the snippet and parsed body from the message body's content.  This
+ * is currently a synchrnonous process that can take a while.
+ *
+ * TODO: Consider making async and (much further out) even farming this out to
+ * sub-workers.  This may be addressed by the conversion to a streaming
+ * implementation.
+ *
+ * @param {String} content
+ *   The decoded contents of the body.  (This means both transport encoding and
+ *   the character set encoding have been decoded.)  In the future this may
+ *   become a stream.
+ * @param {'plain'|'html'} type
+ *   The body type, so we know what to do.
+ * @param {Boolean} isDownloaded
+ *   Has this body part been fully downloaded?  We only try and create the final
+ *   body payload if it's been fully downloaded.  (Otherwise, we're limited to
+ *   generating a snippet.)
+ * @param {Boolean} generateSnippet
+ *   Should we try and generate a snippet from however much content we have
+ *   here.
  */
 exports.processMessageContent = function processMessageContent(
     content, type, isDownloaded, generateSnippet, _LOG) {
@@ -327,7 +351,7 @@ exports.processMessageContent = function processMessageContent(
     content = content.slice(0, -1);
   }
 
-  var parsedContent, snippet;
+  var parsedContent, contentBlob, snippet;
   switch (type) {
     case 'plain':
       try {
@@ -350,6 +374,8 @@ exports.processMessageContent = function processMessageContent(
           snippet = '';
         }
       }
+      contentBlob = new Blob([JSON.stringify(parsedContent)],
+                             { type: 'application/json' });
       break;
     case 'html':
       if (generateSnippet) {
@@ -364,6 +390,9 @@ exports.processMessageContent = function processMessageContent(
       if (isDownloaded) {
         try {
           parsedContent = $htmlchew.sanitizeAndNormalizeHtml(content);
+          // TODO: Should we use a MIME type to convey this is sanitized HTML?
+          // (Possibly also including our sanitizer version as a parameter?)
+          contentBlob = new Blob([parsedContent], { type: 'text/html' });
         }
         catch (ex) {
           _LOG.htmlParseError(ex);
@@ -373,7 +402,7 @@ exports.processMessageContent = function processMessageContent(
       break;
   }
 
-  return { content: parsedContent, snippet: snippet };
+  return { contentBlob, snippet };
 };
 
 }); // end define

@@ -93,7 +93,7 @@ function lazyConnection(cbIndex, fn, failString) {
         errback = args[cbIndex],
         self = this;
 
-    require(['wbxml', 'addressparser', '../mailchew'],
+    require(['wbxml', 'addressparser', '../bodies/mailchew'],
     function (wbxml, addressparser, mailchew) {
       if (!$wbxml) {
         $wbxml = wbxml;

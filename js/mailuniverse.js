@@ -658,6 +658,17 @@ MailUniverse.prototype = {
     this.taskManager.scheduleTasks(tasks, why);
   },
 
+  fetchMessageBody: function(messageId, messageDate, why) {
+    this.taskManager.scheduleTasks([
+      {
+        type: 'sync_body',
+        accountId: accountIdFromMessageId(messageId),
+        convId: convIdFromMessageId(messageId),
+        fullBodyMessageIds: new Set([messageId])
+      }
+    ], why);
+  },
+
   /**
    * Download entire bodyRep(s) representation.
    */

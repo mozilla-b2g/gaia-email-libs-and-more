@@ -12,7 +12,7 @@ let expandGmailConvId = a64.decodeUI64;
 
 let { encodedGmailConvIdFromConvId } = require('../../id_conversions');
 
-let { chewHeaderAndBodyStructure, parseImapDateTime } = require('../imapchew');
+let { chewMessageStructure } = require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
@@ -125,8 +125,7 @@ return TaskDefiner.defineSimpleTask([
 
     _fetchAndChewUids: function*(ctx, account, allMailFolderInfo, convId,
                                  uids) {
-      let headers = [];
-      let bodies = [];
+      let messages = [];
 
       if (uids && uids.length) {
         let foldersTOC =
@@ -141,17 +140,16 @@ return TaskDefiner.defineSimpleTask([
         );
 
         for (let rawMessage of rawMessages) {
-          let { headerInfo, bodyInfo } = chewHeaderAndBodyStructure(
+          let messageInfo = chewMessageStructure(
             rawMessage,
             labelMapper,
             convId
           );
-          headers.push(headerInfo);
-          bodies.push(bodyInfo);
+          messages.push(messageInfo);
         }
       }
 
-      return { headers, bodies };
+      return messages;
     },
 
     /**
@@ -191,11 +189,10 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      let { headers, bodies } =
-        yield* this._fetchAndChewUids(
-          ctx, account, allMailFolderInfo, req.convId, uids);
+      let messages = yield* this._fetchAndChewUids(
+        ctx, account, allMailFolderInfo, req.convId, uids);
 
-      let convInfo = churnConversation(req.convId, null, headers);
+      let convInfo = churnConversation(req.convId, null, messages);
 
       yield ctx.finishTask({
         mutations: {
@@ -203,8 +200,7 @@ return TaskDefiner.defineSimpleTask([
         },
         newData: {
           conversations: [convInfo],
-          headers: headers,
-          bodies: bodies
+          messages: messages
         }
       });
     }),
@@ -230,9 +226,9 @@ return TaskDefiner.defineSimpleTask([
     /**
      * We learned about new UIDs in a conversation:
      * - Load the existing data about the conversation
-     * - Apply any state changes to the already-known messages' headers
+     * - Apply any state changes to the already-known messages
      * - Fetch the envelopes for any new message
-     * - Rederive/update the ConversationInfo given all the headers.
+     * - Rederive/update the ConversationInfo given all the messages.
      */
     _execModifyConv: co.wrap(function*(ctx, req) {
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
@@ -240,52 +236,50 @@ return TaskDefiner.defineSimpleTask([
 
       let fromDb = yield ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
-        headersByConversation: new Map([[req.convId, null]])
+        messagesByConversation: new Map([[req.convId, null]])
       });
 
-      let loadedHeaders = fromDb.headersByConversation.get(req.convId);
-      let modifiedHeaderMap = new Map();
+      let loadedMessages = fromDb.messagesByConversation.get(req.convId);
+      let modifiedMessagesMap = new Map();
 
-      let keptHeaders = [];
-      for (let header of loadedHeaders) {
-        if (req.removedUids && req.removedUids.has(header.id)) {
+      let keptMessages = [];
+      for (let message of loadedMessages) {
+        if (req.removedUids && req.removedUids.has(message.id)) {
           // removed!
-          modifiedHeaderMap.set(header.id, null);
+          modifiedMessagesMap.set(message.id, null);
         } else {
           // kept, possibly modified
-          keptHeaders.push(header);
-          if (req.modifiedUids && req.modifiedUids.has(header.id)) {
-            let newState = req.modifiedUids.get(header.id);
+          keptMessages.push(message);
+          if (req.modifiedUids && req.modifiedUids.has(message.id)) {
+            let newState = req.modifiedUids.get(message.id);
 
-            header.flags = newState.flags;
-            header.labels = newState.labels;
+            message.flags = newState.flags;
+            message.labels = newState.labels;
 
-            modifiedHeaderMap.set(header.id, header);
+            modifiedMessagesMap.set(message.id, message);
           }
         }
       }
 
       // Fetch the envelopes from the server and create headers/bodies
-      let { headers: newHeaders, bodies: newBodies } =
-        yield* this._fetchAndChewUids(
-          ctx, account, allMailFolderInfo, req.convId,
-          req.newUids && Array.from(req.newUids));
+      let newMessages = yield* this._fetchAndChewUids(
+        ctx, account, allMailFolderInfo, req.convId,
+        req.newUids && Array.from(req.newUids));
 
-      // Ensure the headers are ordered correctly
-      let allHeaders = keptHeaders.concat(newHeaders);
-      allHeaders.sort(conversationMessageComparator);
+      // Ensure the messages are ordered correctly
+      let allMessages = keptMessages.concat(newMessages);
+      allMessages.sort(conversationMessageComparator);
 
       let oldConvInfo = fromDb.conversations.get(req.convId);
-      let convInfo = churnConversation(req.convId, oldConvInfo, allHeaders);
+      let convInfo = churnConversation(req.convId, oldConvInfo, allMessages);
 
       yield ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, convInfo]]),
-          headers: modifiedHeaderMap
+          messages: modifiedMessagesMap
         },
         newData: {
-          headers: newHeaders,
-          bodies: newBodies
+          messages: newMessages
         }
       });
     }),

@@ -1,5 +1,5 @@
 define(['rdcommon/log', 'slog', '../util', 'module', 'require', 'exports',
-        '../mailchew', '../syncbase', '../date', '../jobmixins',
+        '../bodies/mailchew', '../syncbase', '../date', '../jobmixins',
         '../allback', './pop3'],
 function(log, slog, util, module, require, exports,
          mailchew, sync, date, jobmixins,

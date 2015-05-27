@@ -6,6 +6,8 @@ var MailHeader = require('./mail_header');
 /**
  * Represents a mail message that matched some search criteria by providing
  * both the header and information about the matches that occurred.
+ *
+ * XXX search needs to be rebuilt to conform with messages
  */
 function MailMatchedHeader(slice, wireRep) {
   this.header = new MailHeader(slice, wireRep.header);
@@ -30,8 +32,8 @@ MailMatchedHeader.prototype = {
     this.header.__update(wireRep.header);
   },
 
-  __die: function() {
-    this.header.__die();
+  release: function() {
+    this.header.release();
   },
 };
 

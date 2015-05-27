@@ -83,8 +83,8 @@ MailConversation.prototype = evt.mix({
     };
   },
 
-  viewHeaders: function() {
-    return this._api.viewConversationHeaders(this);
+  viewMessages: function() {
+    return this._api.viewConversationMessages(this);
   },
 
   _forgetPeeps: function() {
@@ -104,7 +104,7 @@ MailConversation.prototype = evt.mix({
     this.height = wireRep.height;
     this.mostRecentMessageDate = new Date(wireRep.date);
     this.firstSubject = wireRep.subject;
-    this.headerCount = wireRep.headerCount;
+    this.messageCount = wireRep.messageCount;
     this.snippetCount = wireRep.snippetCount;
     this.authors = ContactCache.resolvePeeps(wireRep.authors);
     this.messageTidbits = wireRep.tidbits.map((tidbit) => {
@@ -128,7 +128,7 @@ MailConversation.prototype = evt.mix({
   /**
    * Clean up all the peeps.
    */
-  __die: function() {
+  release: function() {
     this._forgetPeeps();
   },
 

@@ -14,6 +14,9 @@ let churnConversation = require('../../churns/conv_churn');
 let { SnippetParser } = require('../protocol/snippetparser');
 let { TextParser } = require('../protocol/textparser');
 
+let asyncFetchBlob = require('../../async_blob_fetcher');
+
+
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
  */
@@ -59,7 +62,7 @@ let FETCH_FOR_SNIPPET_BYTES = 4096;
 
 /**
  * Fetch the body of messages, or part of the bodies of messages if we just want
- * a snippet.  We will also update the header and the conversation summary as
+ * a snippet.  We will also update the message and the conversation summary as
  * part of this process.  This all happens along conversation boundaries for
  * locality/parallelization reasons.
  *
@@ -164,17 +167,14 @@ return TaskDefiner.defineComplexTask([
       // We need to clear this out before going async.
       memoryState.delete(req.convId);
 
-      // -- Retrieve the conversation, headers, and bodies for mutation
+      // -- Retrieve the conversation and its messages for mutation
       let fromDb = yield ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
-        headersByConversation: new Map([[req.convId, null]]),
-        bodiesByConversation: new Map([[req.convId, null]])
+        messagesByConversation: new Map([[req.convId, null]])
       });
 
-      let loadedHeaders = fromDb.headersByConversation.get(req.convId);
-      let loadedBodies = fromDb.bodiesByConversation.get(req.convId);
-      let modifiedHeaderMap = new Map();
-      let modifiedBodiesMap = new Map();
+      let loadedMessages = fromDb.messagesByConversation.get(req.convId);
+      let modifiedMessagesMap = new Map();
 
       let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
@@ -189,16 +189,13 @@ return TaskDefiner.defineComplexTask([
       }
 
       // -- For each message...
-      for (let iMsg=0; iMsg < loadedHeaders.length; iMsg++) {
-        let header = loadedHeaders[iMsg];
-        let body = loadedBodies[iMsg];
-
+      for (let message of loadedMessages) {
         let remainingByteBudget = maxBytesPerMessage;
-        let bodyRepIndex = imapchew.selectSnippetBodyRep(header, body);
+        let bodyRepIndex = imapchew.selectSnippetBodyRep(message);
 
         // -- For each body part...
-        for (let iBodyRep=0; iBodyRep < body.bodyReps.length; iBodyRep++) {
-          let rep = body.bodyReps[iBodyRep];
+        for (let iBodyRep=0; iBodyRep < message.bodyReps.length; iBodyRep++) {
+          let rep = message.bodyReps[iBodyRep];
           // - Figure out what work, if any, to do.
           if (rep.isDownloaded) {
             continue;
@@ -211,6 +208,7 @@ return TaskDefiner.defineComplexTask([
           let bytesToFetch = Math.min(rep.sizeEstimate * 5, MAX_FETCH_BYTES);
 
           let bodyParser;
+          let partDef = rep._partInfo;
           if (maxBytesPerMessage) {
             // issued enough downloads
             if (remainingByteBudget <= 0) {
@@ -225,9 +223,9 @@ return TaskDefiner.defineComplexTask([
             // subtract the estimated byte size
             remainingByteBudget -= rep.sizeEstimate;
 
-            bodyParser = new SnippetParser(rep._partInfo);
+            bodyParser = new SnippetParser(partDef);
           } else {
-            bodyParser = new TextParser(rep._partInfo);
+            bodyParser = new TextParser(partDef);
           }
 
           // For a byte-serve request, we need to request at least 1 byte, so
@@ -244,11 +242,20 @@ return TaskDefiner.defineComplexTask([
             byteRange = [rep.amountDownloaded, bytesToFetch];
           }
 
+          // If we had already downloaded part of the body, be sure to parse it.
+          // It is stored out-of-line as a Blob, so must be (asynchronously)
+          // fetched.
+          if (partDef.pendingBuffer) {
+            let loadedBuffer = new Uint8Array(
+              yield asyncFetchBlob(partDef.pendingBuffer, 'arraybuffer'));
+            bodyParser.parse(loadedBuffer);
+          }
+
           // - Issue the fetch
           let rawBody = yield account.pimap.fetchBody(
             allMailFolderInfo,
             {
-              uid: numericUidFromMessageId(header.id),
+              uid: numericUidFromMessageId(message.id),
               partInfo: rep._partInfo,
               bytes: byteRange
             });
@@ -258,8 +265,7 @@ return TaskDefiner.defineComplexTask([
 
           // - Update the message
           imapchew.updateMessageWithFetch(
-            header,
-            body,
+            message,
             {
               bodyRepIndex: iBodyRep,
               createSnippet: iBodyRep === bodyRepIndex,
@@ -268,19 +274,17 @@ return TaskDefiner.defineComplexTask([
             bodyResult
           );
 
-          modifiedHeaderMap.set(header.id, header);
-          modifiedBodiesMap.set(body.id, body);
+          modifiedMessagesMap.set(message.id, message);
         }
       }
 
       // -- Update the conversation
-      let convInfo = churnConversation(req.convId, null, loadedHeaders);
+      let convInfo = churnConversation(req.convId, null, loadedMessages);
 
       yield ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, convInfo]]),
-          headers: modifiedHeaderMap,
-          bodies: modifiedBodiesMap
+          messages: modifiedMessagesMap
         },
       });
     })

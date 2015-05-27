@@ -12,6 +12,7 @@ define(
     exports,
     evt
   ) {
+'use strict';
 
 exports.events = new evt.Emitter();
 

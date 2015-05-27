@@ -10,7 +10,7 @@ const MAX_TIDBITS = 3;
  * Produce a conversationInfo summary given all of the currently existing
  * headers in the conversation ordered from oldest to newest.
  */
-function churnConversation(convId, oldConvInfo, headers) {
+function churnConversation(convId, oldConvInfo, messages) {
   let authorsByEmail = new Map();
   // The number of headers where we have already fetch snippets (or at least
   // tried to).
@@ -20,9 +20,9 @@ function churnConversation(convId, oldConvInfo, headers) {
   let convHasStarred = false;
   let convHasAttachments = false;
   let convFolderIds = new Set();
-  for (let header of headers) {
-    let isRead = header.flags.indexOf('\\Seen') !== -1;
-    let isStarred = header.flags.indexOf('\\Flagged') !== -1;
+  for (let message of messages) {
+    let isRead = message.flags.indexOf('\\Seen') !== -1;
+    let isStarred = message.flags.indexOf('\\Flagged') !== -1;
 
     if (!isRead) {
       convHasUnread = true;
@@ -30,33 +30,33 @@ function churnConversation(convId, oldConvInfo, headers) {
     if (isStarred) {
       convHasStarred = true;
     }
-    if (header.hasAttachments) {
+    if (message.hasAttachments) {
       convHasAttachments = true;
     }
 
-    if (!authorsByEmail.has(header.author.address)) {
-      authorsByEmail.set(header.author.address, header.author);
+    if (!authorsByEmail.has(message.author.address)) {
+      authorsByEmail.set(message.author.address, message.author);
     }
 
-    // union this header's folderId's into the conversation's.
-    for (let folderId of header.folderIds) {
+    // union this messages's folderId's into the conversation's.
+    for (let folderId of message.folderIds) {
       convFolderIds.add(folderId);
     }
 
-    if (header.snippet !== null) {
+    if (message.snippet !== null) {
       snippetCount++;
     }
 
     // Add up to MAX_TIDBITS tidbits for unread messages
     if (tidbits.length < MAX_TIDBITS && !isRead) {
       tidbits.push({
-        id: header.id,
-        date: header.date,
+        id: message.id,
+        date: message.date,
         isRead: isRead,
         isStarred: isStarred,
-        hasAttachments: header.hasAttachments,
-        author: header.author,
-        snippet: header.snippet
+        hasAttachments: message.hasAttachments,
+        author: message.author,
+        snippet: message.snippet
       });
     }
   }
@@ -66,11 +66,11 @@ function churnConversation(convId, oldConvInfo, headers) {
 
   return {
     id: convId,
-    date: headers[headers.length - 1].date,
+    date: messages[messages.length - 1].date,
     folderIds: convFolderIds,
     height: height,
-    subject: headers[0].subject,
-    headerCount: headers.length,
+    subject: messages[0].subject,
+    messageCount: messages.length,
     snippetCount: snippetCount,
     authors: Array.from(authorsByEmail.values()),
     tidbits: tidbits,

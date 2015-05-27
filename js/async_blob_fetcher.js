@@ -1,10 +1,5 @@
-define(
-  [
-    'exports'
-  ],
-  function(
-    exports
-  ) {
+define(function(require) {
+'use strict';
 
 /**
  * Asynchronously fetch the contents of a Blob, returning a Uint8Array.
@@ -16,37 +11,35 @@ define(
  * Uint8Array since that is more compactly represented than a binary string
  * would be.
  *
- * @param blob {Blob}
- * @param callback {Function(err, Uint8Array)}
+ * @param {Blob} blob
+ * @return {Promise}
  */
-function asyncFetchBlobAsUint8Array(blob, callback) {
-  var blobUrl = URL.createObjectURL(blob);
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', blobUrl, true);
-  xhr.responseType = 'arraybuffer';
-  xhr.onload = function() {
-    // blobs currently result in a status of 0 since there is no server.
-    if (xhr.status !== 0 && (xhr.status < 200 || xhr.status >= 300)) {
-      callback(xhr.status);
-      return;
+return function asyncFetchBlob(blob, responseType) {
+  return new Promise((resolve, reject) => {
+    var blobUrl = URL.createObjectURL(blob);
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', blobUrl, true);
+    xhr.responseType = responseType;
+    xhr.onload = function() {
+      // blobs currently result in a status of 0 since there is no server.
+      if (xhr.status !== 0 && (xhr.status < 200 || xhr.status >= 300)) {
+        reject(xhr.status);
+        return;
+      }
+      resolve(xhr.response);
+    };
+    xhr.onerror = function() {
+      reject('error');
+    };
+    try {
+      xhr.send();
     }
-    callback(null, new Uint8Array(xhr.response));
-  };
-  xhr.onerror = function() {
-    callback('error');
-  };
-  try {
-    xhr.send();
-  }
-  catch(ex) {
-    console.error('XHR send() failure on blob');
-    callback('error');
-  }
-  URL.revokeObjectURL(blobUrl);
-}
-
-return {
-  asyncFetchBlobAsUint8Array: asyncFetchBlobAsUint8Array
+    catch(ex) {
+      console.error('XHR send() failure on blob');
+      reject('exception');
+    }
+    URL.revokeObjectURL(blobUrl);
+  });
 };
 
 }); // end define

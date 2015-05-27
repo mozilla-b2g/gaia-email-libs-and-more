@@ -97,7 +97,6 @@ tasks, so that's what the TOC implementation would hang off of.
 - `fldr!FolderId!change`
 - `conv!ConvSuid!change`
 - `msg!MsgSuid!change`
-- `body!MsgSuid!change`
 - `tach!MsgSuid!AttId!change`
 
 ### Cache events ###

@@ -54,9 +54,9 @@ MessageComposition.prototype = {
     };
   },
 
-  die: function() {
+  release: function() {
     if (this._handle) {
-      this._api._composeDone(this._handle, 'die', null, null);
+      this._api._composeDone(this._handle, 'release', null, null);
       this._handle = null;
     }
   },

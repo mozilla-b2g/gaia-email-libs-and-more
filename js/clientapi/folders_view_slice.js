@@ -30,8 +30,9 @@ FoldersViewSlice.prototype.getFolderById = function(id) {
   var items = this.items;
   for (var i = 0; i < items.length; i++) {
     var folder = items[i];
-    if (folder.id === id)
+    if (folder.id === id) {
       return folder;
+    }
   }
   return null;
 };
@@ -41,14 +42,17 @@ FoldersViewSlice.prototype.getFolderById = function(id) {
  */
 FoldersViewSlice.prototype.eventuallyGetFolderById = function(id) {
   return new Promise(function(resolve, reject) {
+console.log('immediate consideration', this.items.length, 'items:', this.items,
+'looking for', id);
     var folder = this.getFolderById(id);
     if (folder) {
+console.log('immediate folder');
       resolve(folder);
       return;
     }
     // If already completed, immediately reject.
     if (this.complete) {
-      reject();
+      reject('already complete');
       return;
     }
 
@@ -56,51 +60,59 @@ FoldersViewSlice.prototype.eventuallyGetFolderById = function(id) {
     // inferred defeat when we get the completion notificaiton.
     var addListener = function(folder) {
       if (folder.id === id) {
+console.log('dynamic folder');
         this.removeListener('add', addListener);
         resolve(folder);
       }
     }.bind(this);
     var completeListener = function() {
+console.log('complete listener firing');
       this.removeListener('add', addListener);
       this.removeListener('complete', completeListener);
-      reject();
+      reject('async complete');
     }.bind(this);
     this.on('add', addListener);
     this.on('complete', completeListener);
   }.bind(this));
-}
+};
 
 FoldersViewSlice.prototype.getFirstFolderWithType = function(type, items) {
   // allow an explicit list of items to be provided, specifically for use in
   // onsplice handlers where the items have not yet been spliced in.
-  if (!items)
+  if (!items) {
     items = this.items;
+  }
   for (var i = 0; i < items.length; i++) {
     var folder = items[i];
-    if (folder.type === type)
+    if (folder.type === type) {
       return folder;
+    }
   }
   return null;
 };
 
 FoldersViewSlice.prototype.getFirstFolderWithName = function(name, items) {
-  if (!items)
+  if (!items) {
     items = this.items;
+  }
   for (var i = 0; i < items.length; i++) {
     var folder = items[i];
-    if (folder.name === name)
+    if (folder.name === name) {
       return folder;
+    }
   }
   return null;
 };
 
 FoldersViewSlice.prototype.getFirstFolderWithPath = function(path, items) {
-  if (!items)
+  if (!items) {
     items = this.items;
+  }
   for (var i = 0; i < items.length; i++) {
     var folder = items[i];
-    if (folder.path === path)
+    if (folder.path === path) {
       return folder;
+    }
   }
   return null;
 };

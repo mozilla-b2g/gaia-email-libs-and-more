@@ -23,31 +23,32 @@ AccountsViewSlice.prototype.getAccountById = function(id) {
   return null;
 };
 
+/**
+ * Return a promise that's resolved with the account with the given account id
+ * when it shows up.  This used to also reject if the account failed to show up,
+ * but it turned out that the emergent 'complete' semantics got rather complex
+ * and, well, I'm copping out here.  Just don't ask for invalid account id's,
+ * okay?
+ * XXX generate unambiguous/correct rejections
+ */
 AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
   return new Promise((resolve, reject) => {
     var account = this.getAccountById(id);
     if (account) {
+      console.log('initial resolve');
       resolve(account);
       return;
     }
 
-    // Otherwise we're still loading and we'll either find victory in an add or
-    // inferred defeat when we get the completion notificaiton.
-    let completeListener;
     let addListener = (account) => {
       if (account.id === id) {
+        console.log('asfasdf?');
         this.removeListener('add', addListener);
-        this.removeListener('complete', completeListener);
+        console.log('DYNANMICALLYASFASF');
         resolve(account);
       }
     };
-    completeListener = () => {
-      this.removeListener('add', addListener);
-      this.removeListener('complete', completeListener);
-      reject();
-    };
     this.on('add', addListener);
-    this.on('complete', completeListener);
   });
 };
 

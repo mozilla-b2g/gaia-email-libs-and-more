@@ -37,8 +37,7 @@
 define(function(require) {
 'use strict';
 
-var asyncFetchBlobAsUint8Array =
-      require('../async_blob_fetcher').asyncFetchBlobAsUint8Array;
+var asyncFetchBlob = require('../async_blob_fetcher');
 
 // Active sockets
 var sockInfoByUID = {};
@@ -91,7 +90,7 @@ function open(uid, host, port, options) {
     // an outstanding chunk fetch and it will issue the write directly.
     if (sockInfo.activeBlob && sockInfo.queuedData) {
       console.log('net-main(' + sockInfo.uid + '): Socket drained, sending.');
-      sock.send(sockInfo.queuedData.buffer, 0, sockInfo.queuedData.byteLength);
+      sock.send(sockInfo.queuedData, 0, sockInfo.queuedData.byteLength);
       sockInfo.queuedData = null;
       // fetch the next chunk or close out the blob; this method does both
       fetchNextBlobChunk(sockInfo);
@@ -160,27 +159,27 @@ function fetchNextBlobChunk(sockInfo) {
                     nextOffset);
   sockInfo.blobOffset = nextOffset;
 
-  function gotChunk(err, binaryDataU8) {
+  let gotChunk = (arraybuffer) => {
     console.log('net-main(' + sockInfo.uid + '): Retrieved chunk');
-    if (err) {
-      // I/O errors are fatal to the connection; our abstraction does not let us
-      // bubble the error.  The good news is that errors are highly unlikely.
-      sockInfo.sock.close();
-      return;
-    }
 
     // If the socket has already drained its buffer, then just send the data
     // right away and re-schedule ourselves.
     if (sockInfo.sock.bufferedAmount === 0) {
       console.log('net-main(' + sockInfo.uid + '): Sending chunk immediately.');
-      sockInfo.sock.send(binaryDataU8.buffer, 0, binaryDataU8.byteLength);
+      sockInfo.sock.send(arraybuffer, 0, arraybuffer.byteLength);
       fetchNextBlobChunk(sockInfo);
       return;
     }
 
-    sockInfo.queuedData = binaryDataU8;
+    sockInfo.queuedData = arraybuffer;
   };
-  asyncFetchBlobAsUint8Array(blobSlice, gotChunk);
+  asyncFetchBlob(blobSlice, 'arraybuffer').then(
+    gotChunk,
+    (err) => {
+      // I/O errors are fatal to the connection; our abstraction does not let us
+      // bubble the error.  The good news is that errors are highly unlikely.
+      sockInfo.sock.close();
+    });
 }
 
 function close(uid) {

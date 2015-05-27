@@ -4,12 +4,12 @@
  **/
 
 define(function(require, exports) {
+'use strict';
 
 var mailRep = require('../db/mail_rep');
 var draftRep = require('../drafts/draft_rep');
 var base64 = require('safe-base64');
-var asyncFetchBlobAsUint8Array =
-      require('../async_blob_fetcher').asyncFetchBlobAsUint8Array;
+var asyncFetchBlob = require('../async_blob_fetcher');
 
 var draftsMixins = exports.draftsMixins = {};
 
@@ -75,6 +75,7 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
       var wholeBlob = op.attachmentDef.blob;
 
       // - Retrieve the message
+      let convertNextChunk, gotChunk, bodyUpdatedAllDone;
       var header, body;
       console.log('attachBlobToDraft: retrieving message');
       folderStorage.getMessage(
@@ -102,7 +103,7 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
       }
 
       var blobOffset = 0;
-      function convertNextChunk(refreshedBody) {
+      convertNextChunk = (refreshedBody) => {
         body = refreshedBody;
         var nextOffset =
               Math.min(wholeBlob.size,
@@ -112,19 +113,19 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
         var slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
         blobOffset = nextOffset;
 
-        asyncFetchBlobAsUint8Array(slicedBlob, gotChunk);
-      }
+        asyncFetchBlob(slicedBlob, 'arraybuffer').then(
+          gotChunk,
+          (err) => {
+            // The Blob really should not be disappear out from under us, but it
+            // could happen.
+            callback('failure-give-up');
+          });
+      };
 
-      function gotChunk(err, binaryDataU8) {
+      gotChunk = (arraybuffer) => {
         console.log('attachBlobToDraft: fetched');
-        // The Blob really should not be disappear out from under us, but it
-        // could happen.
-        if (err) {
-          callback('failure-give-up');
-          return;
-        }
-
         var lastChunk = (blobOffset >= wholeBlob.size);
+        var binaryDataU8 = new Uint8Array(arraybuffer);
         var encodedU8 = base64.mimeStyleBase64Encode(binaryDataU8);
         body.attaching.file.push(new Blob([encodedU8],
                                           { type: wholeBlob.type }));
@@ -152,12 +153,12 @@ draftsMixins.local_do_attachBlobToDraft = function(op, callback) {
           header, body, { flushBecause: 'blobs' }, eventDetails,
           lastChunk ? bodyUpdatedAllDone : convertNextChunk);
         body = null;
-      }
+      };
 
-      function bodyUpdatedAllDone(newBodyInfo) {
+      bodyUpdatedAllDone = (newBodyInfo) => {
         console.log('attachBlobToDraft: blob fully attached');
         callback(null);
-      }
+      };
     },
     /* no conn => no deathback required */ null,
     'attachBlobToDraft');
@@ -185,7 +186,6 @@ draftsMixins.local_do_detachAttachmentFromDraft = function(op, callback) {
     callback('moot');
     return;
   }
-  var self = this;
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {
@@ -261,18 +261,17 @@ draftsMixins.local_do_saveDraft = function(op, callback) {
     callback('moot');
     return;
   }
-  var self = this;
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
-    function(nullFolderConn, folderStorage) {
+    (nullFolderConn, folderStorage) => {
       // there's always a header add and a body add
       var waitingForDbMods = 2;
-      function gotMessage(oldRecords) {
+      let gotMessage = (oldRecords) => {
         var newRecords = draftRep.mergeDraftStates(
           oldRecords.header, oldRecords.body,
           op.draftRep,
           op.newDraftInfo,
-          self.account.universe);
+          this.account.universe);
 
         // If there already was a draft saved, delete it.
         // Note that ordering of the removal and the addition doesn't really
@@ -295,7 +294,7 @@ draftsMixins.local_do_saveDraft = function(op, callback) {
               /* save account */ true);
           }
         }
-      }
+      };
 
       if (op.existingNamer) {
         folderStorage.getMessage(
@@ -346,7 +345,6 @@ draftsMixins.local_do_deleteDraft = function(op, callback) {
     callback('moot');
     return;
   }
-  var self = this;
   this._accessFolderForMutation(
     localDraftsFolder.id, /* needConn*/ false,
     function(nullFolderConn, folderStorage) {

@@ -4,7 +4,7 @@ define(function(require) {
 let co = require('co');
 
 let logic = require('./logic');
-let $mailchewStrings = require('./mailchew-strings');
+let $mailchewStrings = require('./bodies/mailchew_strings');
 let $date = require('./date');
 
 let $imaputil = require('./util');
@@ -52,15 +52,14 @@ function MailBridge(universe, db, name) {
 
   this.batchManager = new BatchManager(db);
   this.bridgeContext = new BridgeContext(this, this.batchManager);
-  this._pendingMessagesByHandle
+  this._pendingMessagesByHandle;
 
   this._trackedItemsByType = {
     accounts: new Map(),
     identities: new Map(),
     folders: new Map(),
     conv: new Map(),
-    header: new Map(),
-    body: new Map()
+    message: new Map()
   };
   /**
    * @type {Map<Handle, {type, id}>}
@@ -697,9 +696,9 @@ MailBridge.prototype = {
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
-  _cmd_viewConversationHeaders: co.wrap(function*(msg) {
+  _cmd_viewConversationMessages: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
-                                                    'ConversationHeadersView');
+                                                    'ConversationMessagesView');
     ctx.viewing = {
       type: 'conversation',
       conversationId: msg.conversationId
@@ -757,6 +756,10 @@ MailBridge.prototype = {
     if (msg.convIds) {
       this.universe.fetchConversationSnippets(msg.convIds, 'bridge');
     }
+  },
+
+  _cmd_downloadBodyReps: function(msg) {
+    this.universe.fetchMessageBody(msg.id, msg.date, 'bridge');
   },
 
   _cmd_getBody: function mb__cmd_getBody(msg) {

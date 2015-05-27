@@ -60,7 +60,7 @@ MailSenderIdentity.prototype = {
     this._api._modifyIdentity(this, mods, callback);
   },
 
-  __die: function() {
+  release: function() {
     // nothing to clean up currently
   },
 };

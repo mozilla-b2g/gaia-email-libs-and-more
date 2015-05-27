@@ -16,18 +16,15 @@ var MailSenderIdentity = require('./clientapi/mail_sender_identity');
 var MailFolder = require('./clientapi/mail_folder');
 var ContactCache = require('./clientapi/contact_cache');
 var UndoableOperation = require('./clientapi/undoable_operation');
-var MailHeader = require('./clientapi/mail_header');
-var MailMatchedHeader = require('./clientapi/mail_matched_header');
-var MailConversation = require('./clientapi/mail_conversation');
 
 var AccountsViewSlice = require('./clientapi/accounts_view_slice');
 var FoldersViewSlice = require('./clientapi/folders_view_slice');
-var ConversationsViewSlice = require('./clientapi/conversations_view_slice');
-var HeadersViewSlice = require('./clientapi/headers_view_slice');
+var ConversationsListView = require('./clientapi/conversations_list_view');
+var MessagesListView = require('./clientapi/messages_list_view');
 
 var MessageComposition = require('./clientapi/message_composition');
 
-var Linkify = require('./linkify');
+var Linkify = require('./clientapi/bodies/linkify');
 
 function objCopy(obj) {
   var copy = {};
@@ -157,7 +154,11 @@ MailAPI.prototype = evt.mix({
     var accountId = this.extractAccountIdFromFolderId(folderId);
     return this.accounts.eventuallyGetAccountById(accountId).then(
       function gotAccount(account) {
+        console.log('got the account');
         return account.folders.eventuallyGetFolderById(folderId);
+      },
+      function() {
+        console.log('SOMEHOW REJECTED?!');
       }
     );
   },
@@ -268,6 +269,9 @@ MailAPI.prototype = evt.mix({
     for (let handle of msg.handles) {
       let updateableObject = this._trackedItemHandles.get(handle);
       if (updateableObject) {
+        // XXX body updates used to relay delta information, primarily for the
+        // benefit of complex sub-objects like the MailAttachment instances.  It
+        // may be appropriate
         updateableObject.__update(msg.data);
       }
     }
@@ -281,56 +285,12 @@ MailAPI.prototype = evt.mix({
     this._trackedItemHandles.delete(msg.handle);
   },
 
-  _getBodyForMessage: function(header, options, callback) {
-    var downloadBodyReps = false, withBodyReps = false;
-
-    if (options && options.downloadBodyReps) {
-      downloadBodyReps = options.downloadBodyReps;
-    }
-    if (options && options.withBodyReps) {
-      withBodyReps = options.withBodyReps;
-    }
-
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'getBody',
-      suid: header.id,
-      callback: callback
-    };
+  _downloadBodyReps: function(messageId, messageDate) {
     this.__bridgeSend({
-      type: 'getBody',
-      handle: handle,
-      suid: header.id,
-      date: header.date.valueOf(),
-      downloadBodyReps: downloadBodyReps,
-      withBodyReps: withBodyReps
+      type: 'downloadBodyReps',
+      id: messageId,
+      date: messageDate
     });
-  },
-
-  _recv_gotBody: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    var body = msg.bodyInfo ?
-      new MailBody(this, req.suid, msg.bodyInfo, msg.handle) :
-      null;
-
-    if (body) {
-      this._liveBodies[msg.handle] = body;
-    }
-
-    req.callback.call(null, body, req.suid);
-  },
-
-  _recv_requestBodiesComplete: function(msg) {
-    var slice = this._slices[msg.handle];
-    // The slice may be dead now!
-    if (slice)
-      slice._notifyRequestBodiesComplete(msg.requestId);
   },
 
   _recv_bodyModified: function(msg) {
@@ -793,7 +753,7 @@ MailAPI.prototype = evt.mix({
    */
   viewFolderConversations: function(folder) {
     var handle = this._nextHandle++,
-        slice = new ConversationsViewSlice(this, handle);
+        slice = new ConversationsListView(this, handle);
     slice.folderId = folder.id;
     this._trackedItemHandles.set(handle, slice);
 
@@ -806,15 +766,15 @@ MailAPI.prototype = evt.mix({
     return slice;
   },
 
-  viewConversationHeaders: function(convOrId) {
+  viewConversationMessages: function(convOrId) {
     var handle = this._nextHandle++,
-        slice = new HeadersViewSlice(this, handle);
+        slice = new MessagesListView(this, handle);
     slice.conversationId = (typeof(convOrId) === 'string' ? convOrId :
                               convOrId.id);
     this._trackedItemHandles.set(handle, slice);
 
     this.__bridgeSend({
-      type: 'viewConversationHeaders',
+      type: 'viewConversationMessages',
       conversationId: slice.conversationId,
       handle: handle,
     });

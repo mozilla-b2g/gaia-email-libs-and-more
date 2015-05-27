@@ -9,7 +9,7 @@ define(
     mimefuncs,
     exports
   ) {
-
+'use strict';
 
 /**
  * Simple wrapper around mimeparser hacks allows us to reuse data from the
@@ -50,10 +50,6 @@ function TextParser(partDef) {
   }
 
   parser.write('\r\n'); // Finish headers.
-
-  if (partDef.pendingBuffer) {
-    this.parse(partDef.pendingBuffer);
-  }
 }
 
 TextParser.prototype = {

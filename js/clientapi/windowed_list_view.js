@@ -37,7 +37,7 @@ var evt = require('evt');
 function WindowedListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
-  this._handle = handle;
+  this.handle = handle;
   this._itemConstructor = itemConstructor;
 
   this.serial = 0;
@@ -79,13 +79,13 @@ function WindowedListView(api, itemConstructor, handle) {
 WindowedListView.prototype = evt.mix({
   toString: function() {
     return '[WindowedListView: ' + this._itemConstructor.name + ' ' +
-           this._handle + ']';
+           this.handle + ']';
   },
   toJSON: function() {
     return {
       type: 'WindowedListView',
       namespace: this._ns,
-      handle: this._handle
+      handle: this.handle
     };
   },
 
@@ -137,7 +137,7 @@ WindowedListView.prototype = evt.mix({
     // - If anything remained, kill it off
     for (let deadObj of existingSet.values()) {
       itemSetChanged = true;
-      deadObj.__die();
+      deadObj.release();
     }
 
     let whatChanged = {
@@ -191,7 +191,7 @@ WindowedListView.prototype = evt.mix({
   seekToTop: function(visibleDesired, bufferDesired) {
     this._api.__bridgeSend({
       type: 'seekProxy',
-      handle: this._handle,
+      handle: this.handle,
       mode: 'top',
       visibleDesired: visibleDesired,
       bufferDesired: bufferDesired
@@ -215,7 +215,7 @@ WindowedListView.prototype = evt.mix({
     }
     this._api.__bridgeSend({
       type: 'seekProxy',
-      handle: this._handle,
+      handle: this.handle,
       mode: 'focus',
       focusKey: this._makeOrderingKeyFromItem(item),
       bufferAbove: bufferAbove,
@@ -235,7 +235,7 @@ WindowedListView.prototype = evt.mix({
                                        visibleBelow, bufferBelow) {
     this._api.__bridgeSend({
       type: 'seekProxy',
-      handle: this._handle,
+      handle: this.handle,
       mode: 'focusIndex',
       index: index,
       bufferAbove: bufferAbove,
@@ -252,7 +252,7 @@ WindowedListView.prototype = evt.mix({
   seekToBottom: function(visibleDesired, bufferDesired) {
     this._api.__bridgeSend({
       type: 'seekProxy',
-      handle: this._handle,
+      handle: this.handle,
       mode: 'bottom',
       visibleDesired: visibleDesired,
       bufferDesired: bufferDesired
@@ -270,7 +270,7 @@ WindowedListView.prototype = evt.mix({
   seekInCoordinateSpace: function(offset, before, visible, after) {
     this._api.__bridgeSend({
       type: 'seekProxy',
-      handle: this._handle,
+      handle: this.handle,
       mode: 'coordinates',
       offset: offset,
       before: before,
@@ -281,17 +281,17 @@ WindowedListView.prototype = evt.mix({
 
   release: function() {
     // XXX we used to null out our event handlers here; it may be appropriate to
-    // do something to ensure that after die() is called no more events are
+    // do something to ensure that after release() is called no more events are
     // heard from us.  Like re-initing our Emitter or synchronously notifying
     // the API to forget about us or setting some flag, etc.
     this._api.__bridgeSend({
         type: 'cleanupContext',
-        handle: this._handle
+        handle: this.handle
       });
 
     for (let i = 0; i < this.items.length; i++) {
       let item = this.items[i];
-      item.__die();
+      item.release();
     }
   },
 });

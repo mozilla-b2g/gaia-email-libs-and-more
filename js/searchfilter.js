@@ -82,7 +82,7 @@ define(
     './allback',
     './syncbase',
     './date',
-    './htmlchew',
+    './bodies/htmlchew',
     'module',
     'exports'
   ],

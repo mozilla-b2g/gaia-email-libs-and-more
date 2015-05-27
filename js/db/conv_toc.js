@@ -182,7 +182,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     let newKnownSet = new Set();
 
     let idsWithDates = this.idsWithDates;
-    let headerCache = this._db.headerCache;
+    let messageCache = this._db.messageCache;
     let ids = [];
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
@@ -191,9 +191,9 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
         newKnownSet.add(id);
         continue;
       }
-      if (headerCache.has(id)) {
+      if (messageCache.has(id)) {
         newKnownSet.add(id);
-        haveData.set(id, headerCache.get(id));
+        haveData.set(id, messageCache.get(id));
       } else {
         let date = idsWithDates[i].date;
         needData.set([id, date], null);
@@ -203,7 +203,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     let readPromise = null;
     if (needData.size) {
       readPromise = this._db.read(this, {
-        headers: needData
+        messages: needData
       });
     } else {
       needData = null;

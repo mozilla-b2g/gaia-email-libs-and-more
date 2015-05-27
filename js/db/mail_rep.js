@@ -19,7 +19,7 @@ define(function() {
 'use strict';
 
 /**
- * @typedef {Object} HeaderInfo
+ * @typedef {Object} MessageInfo
  * @property {MessageId} id
  *   The canonical message identifier.  This is conceptually four components:
  *   "account.gmail conversation id.gmail message id.all mail folder uid".
@@ -44,6 +44,11 @@ define(function() {
  *   what is applied to the rest of the conversation.  Gmail tracks labels on a
  *   per-message basis, at least for IMAP purposes.
  * @property {Boolean} hasAttachments
+ *   Does the message potentially have attachments?
+ *   XXX This is potentially moot since headers/bodies got merged, but this
+ *   could make sense for POP3 for us to indicate uncertainty about the
+ *   existence of attachments here without having to tell lies in the
+ *   attachments array.
  * @property {String} [subject]
  * @property {String} [snippet]
  *   If null, we haven't tried to generate a snippet yet.
@@ -58,8 +63,24 @@ define(function() {
  *   still appropriate to regenerate the snippet if more body data is fetched
  *   since our snippet may be a fallback where we chose quoted text instead of
  *   text authored by the author of the message, etc.
+ * @property {AttachmentInfo} [attaching]
+ *   Because of memory limitations, we need to encode and attach attachments
+ *   in small pieces.  An attachment in the process of being attached is
+ *   stored here until fully processed.  Its 'file' field contains a list of
+ * @property {AttachmentInfo[]} attachments
+ *   Explicit attachments.
+ * @property {AttachmentInfo[]} [relatedParts]
+ *   Attachments for inline display in the contents of the (hopefully)
+ *   multipart/related message.
+ * @property {String[]} [references]
+ *   The contents of the references header as a list of de-quoted ('<' and
+ *   '>' removed) message-id's.  If there was no header, this is null.
+ * @property {BodyPartInfo[]} bodyReps
+ *   Information on the message body that is only for full message display.
+ *   The to/cc/bcc information may get moved up to the header in the future,
+ *   but our driving UI doesn't need it right now.
  */
-function makeHeaderInfo(raw) {
+function makeMessageInfo(raw) {
   // All messages absolutely need the following; the caller needs to make up
   // values if they're missing.
   if (!raw.author) {
@@ -67,6 +88,9 @@ function makeHeaderInfo(raw) {
   }
   if (!raw.date) {
     throw new Error('No date?!');
+  }
+  if (!raw.attachments || !raw.bodyReps) {
+    throw new Error('No attachments / bodyReps?!');
   }
   // We also want/require a valid id, but we check that at persistence time
   // since POP3 assigns the id/suid slightly later on.  We check the suid at
@@ -86,50 +110,7 @@ function makeHeaderInfo(raw) {
     hasAttachments: raw.hasAttachments || false,
     // These can be empty strings which are falsey, so no ||
     subject: (raw.subject != null) ? raw.subject : null,
-    snippet: (raw.snippet != null) ? raw.snippet : null
-  };
-}
-
-/**
- * @typedef {Object} BodyInfo
- * @property {MessageId} id
- *   The canonical message identifier, duplicates the HeaderInfo's id for
- *   self-identification purposes.
- * @property {DateMS} date
- *   The date of the message.  Redundantly stored for self-identification in
- *   conjunction with the id given that the HeaderInfo already includes this.
- * @property {Number} size
- *   An estimate of the size of the message; sortof legacy in nature.  This may
- *   go away if we don't end up using it for cache eviction logic.
- * @property {AttachmentInfo} [attaching]
- *   Because of memory limitations, we need to encode and attach attachments
- *   in small pieces.  An attachment in the process of being attached is
- *   stored here until fully processed.  Its 'file' field contains a list of
- * @property {AttachmentInfo[]} attachments
- *   Explicit attachments.
- * @property {AttachmentInfo[]} [relatedParts]
- *   Attachments for inline display in the contents of the (hopefully)
- *   multipart/related message.
- * @property {String[]} [references]
- *   The contents of the references header as a list of de-quoted ('<' and
- *   '>' removed) message-id's.  If there was no header, this is null.
- * @property {BodyPartInfo[]} bodyReps
- *   Information on the message body that is only for full message display.
- *   The to/cc/bcc information may get moved up to the header in the future,
- *   but our driving UI doesn't need it right now.
- */
-function makeBodyInfo(raw) {
-  if (!raw.date) {
-    throw new Error('No date?!');
-  }
-  if (!raw.attachments || !raw.bodyReps) {
-    throw new Error('No attachments / bodyReps?!');
-  }
-
-  return {
-    id: raw.id,
-    date: raw.date,
-    size: raw.size || 0,
+    snippet: (raw.snippet != null) ? raw.snippet : null,
     attachments: raw.attachments,
     relatedParts: raw.relatedParts || null,
     references: raw.references || null,
@@ -137,31 +118,40 @@ function makeBodyInfo(raw) {
   };
 }
 
-/*
- * @typedef[BodyPartInfo @dict[
- *   @key[type @oneof['plain' 'html']]{
- *     The type of body; this is actually the MIME sub-type.
- *   }
- *   @key[part String]{
- *     IMAP part number.
- *   }
- *   @key[sizeEstimate Number]
- *   @key[amountDownloaded Number]
- *   @key[isDownloaded Boolean]
- *   @key[_partInfo #:optional RawIMAPPartInfo]
- *   @key[content]{
- *     The representation for 'plain' values is a `quotechew.js` processed
- *     body representation which is pair-wise list where the first item in each
- *     pair is a packed integer identifier and the second is a string containing
- *     the text for that block.
- *
- *     The body representation for 'html' values is an already sanitized and
- *     already quote-normalized String representation that could be directly
- *     fed into innerHTML safely if you were so inclined.  See `htmlchew.js`
- *     for more on that process.
- *   }
- * ]]
- */
+ /**
+  * @typedef {Object} BodyPartInfo
+  * @prop {'plain'|'html'} type
+  *   The type/kind/variety of body-part.  This is not a MIME type or really
+  *   even sub-type.  We have specific representations for plain and HTML types,
+  *   this is saying which is which in a self-describing way.
+  * @prop {String} part
+  *   IMAP part number.  This comes from the server's BODYSTRUCTURE and should
+  *   be thought of as an opaque value.
+  * @prop {Number} sizeEstimate
+  *   The exact size of the body part as reported by the server to us.  But the
+  *   server itself may be estimating so care must be taken when specifying
+  *   exact byte ranges since the body part may end up being longer.  Note that
+  *   this differs from the AttachmentInfo's sizeEstimate which is a guess at
+  *   the size of the file after decoding.
+  * @prop {Number} amountDownloaded
+  *   How many bytes have we downloaded so far?  This happens when we do snippet
+  *   fetching.  In this case, this value should exactly match the size of the
+  *   `_partInfo.pendingBuffer` Blob.  As such, this value can probably be
+  *   discarded.  TODO: nuke this value.
+  * @prop {Boolean} isDownloaded
+  *   Has this part been fully downloaded?  Because sizeEstimate can be a lie,
+  *   it's possible for us to have downloaded sizeEstimate bytes but still not
+  *   have fully downloaded the body part.  So this value should stick around
+  *   forever.
+  * @prop {RawImapPartInfo} _partInfo
+  *   Raw info on the part from browserbox PLUS we annotated `pendingBuffer` on
+  *   to the object when doing snippet fetching (and therefore amountDownloaded
+  *   > 0 and !isDownloaded).
+  * @prop {Blob} contentBlob
+  *   A Blob either containing a JSON-serialized quotechew.js representation or
+  *   an htmlchew.js sanitized HTML representation, depending on our `type`.
+  *   See the relevant files for more detail.
+  */
 function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
   if (raw.type !== 'plain' &&
@@ -180,7 +170,7 @@ function makeBodyPart(raw) {
     amountDownloaded: raw.amountDownloaded || 0,
     isDownloaded: raw.isDownloaded || false,
     _partInfo: raw._partInfo || null,
-    content: raw.content || ''
+    contentBlob: raw.contentBlob || null
   };
 }
 
@@ -266,8 +256,7 @@ function makeAttachmentPart(raw) {
 }
 
 return {
-  makeHeaderInfo: makeHeaderInfo,
-  makeBodyInfo: makeBodyInfo,
+  makeMessageInfo: makeMessageInfo,
   makeBodyPart: makeBodyPart,
   makeAttachmentPart: makeAttachmentPart
 };

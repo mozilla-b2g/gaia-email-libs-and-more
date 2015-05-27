@@ -105,7 +105,7 @@ MailAccount.prototype = evt.mix({
     }
   },
 
-  __die: function() {
+  release: function() {
     // currently, nothing to clean up
   },
 

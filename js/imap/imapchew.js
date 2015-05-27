@@ -4,7 +4,7 @@ define(function(require, exports, module) {
 let a64 = require('../a64');
 let mimefuncs = require('mimefuncs');
 let mailRep = require('../db/mail_rep');
-let $mailchew = require('../mailchew');
+let $mailchew = require('../bodies/mailchew');
 let MimeParser = require('mimeparser');
 
 let parseGmailMsgId = a64.parseUI64;
@@ -271,7 +271,7 @@ function chewStructure(msg) {
             params: valuesOnly(partInfo.parameters),
             encoding: partInfo.encoding && partInfo.encoding.toLowerCase()
           } : null,
-          content: ''
+          contentBlob: null
         });
       };
 
@@ -337,7 +337,7 @@ function valuesOnly(item) {
   }
 }
 
-exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
+exports.chewMessageStructure = function(msg, labelMapper, convId) {
   // begin by splitting up the raw imap message
   let parts = chewStructure(msg);
 
@@ -373,40 +373,33 @@ exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
   let rawGmailLabels = valuesOnly(msg['x-gm-labels']);
   let folderIds = labelMapper.labelsToFolderIds(rawGmailLabels);
 
-  return {
-    headerInfo: mailRep.makeHeaderInfo({
-      id: messageId,
-      // The message-id header value; as GUID as get for now; on gmail we can
-      // use their unique value, or if we could convince dovecot to tell us.
-      guid: stripArrows(valuesOnly(firstHeader(msg, 'message-id'))),
-      date: msg.date,
-      // mimeparser models from as an array; we do not.
-      author: fromArray && fromArray[0] ||
-        // we require a sender e-mail; let's choose an illegal default as
-        // a stopgap so we don't die.
-        { address: 'missing-address@example.com' },
-      to: valuesOnly(firstHeader(msg, 'to')),
-      cc: valuesOnly(firstHeader(msg, 'cc')),
-      bcc: valuesOnly(firstHeader(msg, 'bcc')),
-      replyTo: valuesOnly(firstHeader(msg, 'reply-to')),
-      flags: msg.flags || [],
-      folderIds: folderIds,
-      hasAttachments: parts.attachments.length > 0,
-      subject: valuesOnly(firstHeader(msg, 'subject')),
+  return mailRep.makeMessageInfo({
+    id: messageId,
+    // The message-id header value; as GUID as get for now; on gmail we can
+    // use their unique value, or if we could convince dovecot to tell us.
+    guid: stripArrows(valuesOnly(firstHeader(msg, 'message-id'))),
+    date: msg.date,
+    // mimeparser models from as an array; we do not.
+    author: fromArray && fromArray[0] ||
+      // we require a sender e-mail; let's choose an illegal default as
+      // a stopgap so we don't die.
+      { address: 'missing-address@example.com' },
+    to: valuesOnly(firstHeader(msg, 'to')),
+    cc: valuesOnly(firstHeader(msg, 'cc')),
+    bcc: valuesOnly(firstHeader(msg, 'bcc')),
+    replyTo: valuesOnly(firstHeader(msg, 'reply-to')),
+    flags: msg.flags || [],
+    folderIds: folderIds,
+    hasAttachments: parts.attachments.length > 0,
+    subject: valuesOnly(firstHeader(msg, 'subject')),
 
-      // we lazily fetch the snippet later on
-      snippet: null
-    }),
-    bodyInfo: mailRep.makeBodyInfo({
-      id: messageId,
-      date: msg.date,
-      size: 0,
-      attachments: parts.attachments,
-      relatedParts: parts.relatedParts,
-      references: references ? stripArrows(references.split(/\s+/)) : null,
-      bodyReps: parts.bodyReps
-    })
-  };
+    // we lazily fetch the snippet later on
+    snippet: null,
+    attachments: parts.attachments,
+    relatedParts: parts.relatedParts,
+    references: references ? stripArrows(references.split(/\s+/)) : null,
+    bodyReps: parts.bodyReps
+  });
 };
 
 /**
@@ -439,8 +432,8 @@ exports.chewHeaderAndBodyStructure = function(msg, labelMapper, convId) {
  *    //    and set its value.
  *
  */
-exports.updateMessageWithFetch = function(header, body, req, res, _LOG) {
-  var bodyRep = body.bodyReps[req.bodyRepIndex];
+exports.updateMessageWithFetch = function(message, req, res, _LOG) {
+  var bodyRep = message.bodyReps[req.bodyRepIndex];
 
   // check if the request was unbounded or we got back less bytes then we
   // requested in which case the download of this bodyRep is complete.
@@ -452,30 +445,32 @@ exports.updateMessageWithFetch = function(header, body, req, res, _LOG) {
   }
 
   if (!bodyRep.isDownloaded && res.buffer) {
-    bodyRep._partInfo.pendingBuffer = res.buffer;
+    bodyRep._partInfo.pendingBuffer = new Blob(res.buffer);
   }
 
   bodyRep.amountDownloaded += res.bytesFetched;
 
-  var data = $mailchew.processMessageContent(
+  var { contentBlob, snippet } = $mailchew.processMessageContent(
     res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet, _LOG
   );
 
   if (req.createSnippet) {
-    header.snippet = data.snippet;
+    message.snippet = snippet;
   }
-  if (bodyRep.isDownloaded)
-    bodyRep.content = data.content;
+  if (bodyRep.isDownloaded) {
+    bodyRep.contentBlob = contentBlob;
+  }
 };
 
 /**
  * Selects a desirable snippet body rep if the given header has no snippet.
  */
-exports.selectSnippetBodyRep = function(header, body) {
-  if (header.snippet)
+exports.selectSnippetBodyRep = function(message) {
+  if (message.snippet) {
     return -1;
+  }
 
-  var bodyReps = body.bodyReps;
+  var bodyReps = message.bodyReps;
   var len = bodyReps.length;
 
   for (var i = 0; i < len; i++) {

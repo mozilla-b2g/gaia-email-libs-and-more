@@ -2,13 +2,13 @@ define(function(require) {
 'use strict';
 
 let WindowedListView = require('./windowed_list_view');
-let MailHeader = require('./mail_header');
+let MailMessage = require('./mail_message');
 
-function HeadersViewSlice(api, handle, ns) {
-  WindowedListView.call(this, api, MailHeader, handle);
+function MessagesListView(api, handle, ns) {
+  WindowedListView.call(this, api, MailMessage, handle);
   this._nextSnippetRequestValidAt = 0;
 }
-HeadersViewSlice.prototype = Object.create(WindowedListView.prototype);
+MessagesListView.prototype = Object.create(WindowedListView.prototype);
 
 /**
  * Ensure that we have snippets for all of the messages in this view.
@@ -19,20 +19,20 @@ HeadersViewSlice.prototype = Object.create(WindowedListView.prototype);
  * conversation.
  * TODO: generalize to have message-centric sync_body-style logic
  */
-HeadersViewSlice.prototype.ensureSnippets = function() {
+MessagesListView.prototype.ensureSnippets = function() {
   let snippetsNeeded = this.items.some((header) => {
     return header && header.snippet === null;
   });
 
   if (snippetsNeeded) {
-    // Forbid us from making snippet requests more than once every 10 seconds.
+    // Forbid us from making snippet requests more than once every 5 seconds.
     // We put this logic inside the snippetsNeeded guard so that we don't count
     // a case where no snippets are needed (because of lazy loading) and then
     // suppress the case where we would want to fire.
     if (this._nextSnippetRequestValidAt > Date.now()) {
       return;
     }
-    this._nextSnippetRequestValidAt = Date.now() + 10000;
+    this._nextSnippetRequestValidAt = Date.now() + 5000;
 
     // NB: We intentionally do not use a handle as there's no reason this needs
     // to be statefully associated with a list view.
@@ -43,5 +43,5 @@ HeadersViewSlice.prototype.ensureSnippets = function() {
   }
 };
 
-return HeadersViewSlice;
+return MessagesListView;
 });

@@ -1,7 +1,7 @@
 define(
   [
     'mailbuild',
-    '../mailchew',
+    '../bodies/mailchew',
     '../util'
   ],
   function(

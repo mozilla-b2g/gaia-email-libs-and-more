@@ -23,7 +23,7 @@ function EntireListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this._itemConstructor = itemConstructor;
-  this._handle = handle;
+  this.handle = handle;
 
   this.serial = 0;
 
@@ -38,13 +38,13 @@ function EntireListView(api, itemConstructor, handle) {
 }
 EntireListView.prototype = evt.mix({
   toString: function() {
-    return '[EntireListView: ' + this._ns + ' ' + this._handle + ']';
+    return '[EntireListView: ' + this._ns + ' ' + this.handle + ']';
   },
   toJSON: function() {
     return {
       type: 'EntireListView',
       namespace: this._ns,
-      handle: this._handle
+      handle: this.handle
     };
   },
 
@@ -74,15 +74,15 @@ EntireListView.prototype = evt.mix({
   },
 
 
-  die: function() {
+  release: function() {
     this._api.__bridgeSend({
         type: 'killSlice',
-        handle: this._handle
+        handle: this.handle
       });
 
     for (var i = 0; i < this.items.length; i++) {
       var item = this.items[i];
-      item.__die();
+      item.release();
     }
   },
 });
