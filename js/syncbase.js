@@ -391,6 +391,13 @@ exports.SYNC_RANGE_ENUMS_TO_MS = {
    'all': 30 * 365 * DAY_MILLIS,
 };
 
+/**
+ * What should our target be for snippet length?  In v1 this was 100, for v3
+ * we want two lines worth, so we're bumping a little bit.  But this should
+ * really just be parametrized by the consumer.
+ */
+exports.DESIRED_SNIPPET_LENGTH = 160;
+
 ////////////////////////////////////////////////////////////////////////////////
 // Cronsync/periodic sync stuff
 

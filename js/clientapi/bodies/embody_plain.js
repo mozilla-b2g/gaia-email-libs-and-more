@@ -36,7 +36,7 @@ let MAX_QUOTE_CLASS_NAME = 'msg-body-qmax';
  * to be children of the provided body node.
  */
 return co.wrap(function* embodyPlain(blob, bodyNode) {
-  var doc = bodyNode.ownderDocument;
+  var doc = bodyNode.ownerDocument;
   var rep = yield asyncFetchBlob(blob, 'json');
 
   for (var i = 0; i < rep.length; i += 2) {

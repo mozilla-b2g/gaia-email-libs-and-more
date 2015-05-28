@@ -31,7 +31,8 @@ const DEFAULT_STYLE_TAG =
 
   /**
    * Fetch the contents of the given sanitized text/html body and render it
-   * into an inert sandboxed iframe.
+   * into an inert sandboxed iframe.  Event handlers are added so that the
+   * iframe acts as if "seamless" were a thing that browsers implemented.
    *
    * Note that this helper is intended for trivial desktop-style use where
    * pinch/zoom behaviour is not required.  If you need pinch/zoom, you need to
@@ -73,6 +74,10 @@ const DEFAULT_STYLE_TAG =
       // The iframe does not want to process its own clicks!  that's what
       // bindSanitizedClickHandler is for!
       'pointer-events: none;');
+    // try and size the iframe to a standard email width thing
+    // XXX it'd be better to use the actual effective viewport here, if we could
+    // have that accessible without forcing a reflow.
+    iframe.style.width = '640px';
 
     let superBlob = new Blob(
       [
@@ -82,19 +87,81 @@ const DEFAULT_STYLE_TAG =
         blob,
         '</body>'
       ],
-      { type: 'text/html '});
-    let superBlobUrl = ownerDoc.createObjectURL(superBlob);
+      { type: 'text/html'});
+    let superBlobUrl = ownerDoc.defaultView.URL.createObjectURL(superBlob);
 
     iframe.setAttribute('src', superBlobUrl);
     containerNode.appendChild(iframe);
 
+    let RESIZE_POLL_RATE = 200;
+
     let loadedPromise = new Promise((resolve, reject) => {
-      let loadHandler = (evt) => {
-        iframe.removeEventListener('load', loadHandler);
-        ownerDoc.revokeObjectURL(superBlobUrl);
-        resolve();
+      let iframeBody = iframe.contentDocument.body;
+      let pollCount = 0;
+      let pendingResize = null;
+
+      // Check if we need to resize the iframe.  This is a self-rescheduling
+      // thing.  Note that this widget currently has no UI for embedded or
+      // external images, so that aspect isn't quite dealt with, but will need
+      // this.
+      // XXX implement external/embedded image disply
+      let resizeIframe = () => {
+        // if the iframe has been destroyed, stop trying to resize it
+        if (!iframe.parentNode) {
+          return;
+        }
+
+        let containerWidth = iframe.clientWidth;
+        let containerHeight = iframe.clientHeight;
+
+        let iframeWidth = iframeBody.scrollWidth;
+        let iframeHeight = iframeBody.scrollHeight;
+
+        console.log('sizing iframe:', iframe, 'container is:',
+                    containerWidth, containerHeight, 'body is:',
+                    iframeWidth, iframeHeight);
+
+        let needPoll = (pollCount-- > 0);
+        // enlarge width as needed.
+        if (containerWidth < iframeWidth) {
+          iframe.style.width = iframeWidth + 'px';
+          // This will necessitate a reflow since we upped the width.  yuck, I
+          // know.
+          iframe.style.height = iframeBody.scrollHeight + 'px';
+          needPoll = true;
+        }
+        else if (containerHeight !== iframeHeight) {
+          iframe.style.height = iframeHeight + 'px';
+          needPoll = true;
+        }
+        if (needPoll) {
+          pendingResize = setTimeout(resizeIframe, RESIZE_POLL_RATE);
+        } else {
+          pendingResize = null;
+        }
       };
-      iframe.addEventListener('load', loadHandler);
+      let pollForResize = (pollAtLeast) => {
+        pollCount = Math.max(pollCount, pollAtLeast);
+        if (!pendingResize) {
+          resizeIframe();
+        }
+      };
+
+      let loadStartHandler = (evt) => {
+        pollForResize(5);
+        iframe.removeEventListener('loadstart', loadStartHandler);
+      };
+      let loadEndHandler = (evt) => {
+        iframe.removeEventListener('loadend', loadEndHandler);
+        ownerDoc.defaultView.URL.revokeObjectURL(superBlobUrl);
+        resolve();
+        // load implies any images were loaded, so really just once is okay,
+        // but just in case there are some instabilities, ensure we check at
+        // least once more.
+        pollForResize(2);
+      };
+      iframe.addEventListener('loadstart', loadStartHandler);
+      iframe.addEventListener('loadend', loadEndHandler);
     });
 
     return { iframe, loadedPromise };

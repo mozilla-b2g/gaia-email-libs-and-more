@@ -21,7 +21,8 @@ let TaskRegistry = require('./task_registry');
 let globalTasks = require('./global_tasks');
 let gmailTasks = require('./imap/gmail_tasks');
 
-let { accountIdFromConvId } = require('./id_conversions');
+let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
+  require('./id_conversions');
 
 /**
  * The MailUniverse is the keeper of the database, the root logging instance,

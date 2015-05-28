@@ -13,15 +13,11 @@
  * that's a tall order to get right, so it's mightily postponed.
  **/
 
-define(
-  [
-    'exports',
-    'bleach'
-  ],
-  function(
-    exports,
-    $bleach
-  ) {
+define(function(require, exports) {
+'use strict';
+
+var $bleach = require('bleach');
+var { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
 
 /**
  * Whitelisted HTML tags list. Currently from nsTreeSanitizer.cpp which credits
@@ -498,7 +494,7 @@ var BLEACH_SNIPPET_SETTINGS = {
     'title' // (non-body)
   ],
   asNode: true,
-  maxLength: 100
+  maxLength: DESIRED_SNIPPET_LENGTH
 };
 
 /**

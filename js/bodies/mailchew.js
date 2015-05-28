@@ -12,25 +12,15 @@
  * message with any text/html parts, we generate an HTML block for all parts.
  **/
 
-define(
-  [
-    'exports',
-    '../util',
-    './mailchew_strings',
-    './quotechew',
-    './htmlchew'
-  ],
-  function(
-    exports,
-    $util,
-    $mailchewStrings,
-    $quotechew,
-    $htmlchew
-  ) {
+define(function(require, exports) {
 'use strict';
 
-var DESIRED_SNIPPET_LENGTH = 100;
+var $util = require('../util');
+var $mailchewStrings = require('./mailchew_strings');
+var $quotechew = require('./quotechew');
+var $htmlchew = require('./htmlchew');
 
+var { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
 
 /**
  * Generate the default compose body for a new e-mail
