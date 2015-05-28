@@ -433,7 +433,7 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       idxRegionStart = null,
       curRegionType = null,
       lastNonWhitespaceLine = null,
-      // The index of the last non-purely whitespace line.
+      // The index of the last non-purely whitespace line. (Its \n)
       idxLastNonWhitespaceLineEnd = null,
       // value of idxLastNonWhitespaceLineEnd prior to its current value
       idxPrevLastNonWhitespaceLineEnd = null,
@@ -476,8 +476,50 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         if (lastNonWhitespaceLine &&
             RE_WROTE_LINE.test(lastNonWhitespaceLine)) {
 
-          // count the newlines up to the lead-in's newline
+          // But surprise!  This could be a non-format-flowed message where the
+          // true lead-in line started on the previous line and the "wrote" bit
+          // that triggered us spills over.
+
+          // Let's start with just the line we've got...
+          // (count the newlines up to the lead-in's newline)
           var upToPoint = idxLastNonWhitespaceLineEnd;
+
+          // Now let's see if the preceding line had content.  We can infer this
+          // by whether we find a newline between the prevLast and last points.
+          // No newline means there's content on that preceding line.  (There
+          // could also be more content on the line(s) prior to that that flow
+          // into this, but that's not particularly likely unless something is
+          // going wrong with our heuristic.  At which point it's good for us
+          // to mitigate the damage.)
+          if (idxPrevLastNonWhitespaceLineEnd !== null) {
+            var considerIndex = idxPrevLastNonWhitespaceLineEnd + 1;
+            while (considerIndex < idxLastNonWhitespaceLineEnd) {
+              if (fullBodyText[considerIndex++] === '\n') {
+                break;
+              }
+            }
+
+            if (considerIndex === idxLastNonWhitespaceLineEnd) {
+              // We didn't encounter a newline.  So now we need to rewind the
+              // point to be at the start of the PrevLast line.
+              upToPoint =
+                fullBodyText.lastIndexOf(
+                  '\n', idxPrevLastNonWhitespaceLineEnd - 1);
+              lastNonWhitespaceLine =
+                fullBodyText.substring(upToPoint + 1,
+                                       idxLastNonWhitespaceLineEnd)
+                .replace(/\s*\n\s*/, ' ');
+              // Note, we really should be scanning further to elide whitespace,
+              // but this is largely a hack to mitigate worse-case snippet
+              // generating behaviour in the face of bottom-posting where the
+              // quoting lines are the first things observed.
+              idxPrevLastNonWhitespaceLineEnd = upToPoint - 1;
+              if (idxPrevLastNonWhitespaceLineEnd <= idxRegionStart) {
+                idxRegionStart = null;
+              }
+            }
+          }
+
           idxLastNonWhitespaceLineEnd = idxPrevLastNonWhitespaceLineEnd;
           // Nuke the content region if the lead-in was the start of the region;
           // this can be inferred by there being no prior content line.
