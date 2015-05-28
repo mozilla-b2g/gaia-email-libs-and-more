@@ -20,8 +20,8 @@ MessagesListView.prototype = Object.create(WindowedListView.prototype);
  * TODO: generalize to have message-centric sync_body-style logic
  */
 MessagesListView.prototype.ensureSnippets = function() {
-  let snippetsNeeded = this.items.some((header) => {
-    return header && header.snippet === null;
+  let snippetsNeeded = this.items.some((message) => {
+    return message && message.snippet === null;
   });
 
   if (snippetsNeeded) {

@@ -50,12 +50,12 @@ ConversationsListView.prototype.ensureSnippets = function(idxStart, idxEnd) {
   }
 
   let convIds = [];
-  for (let i = idxStart; i < idxEnd; i++) {
+  for (let i = idxStart; i <= idxEnd; i++) {
     let convInfo = this.items[i];
     if (!convInfo) {
       continue;
     }
-    if (convInfo.snippetCount < convInfo.headerCount) {
+    if (convInfo.snippetCount < convInfo.messageCount) {
       convIds.push(convInfo.id);
     }
   }

@@ -445,7 +445,7 @@ exports.updateMessageWithFetch = function(message, req, res, _LOG) {
   }
 
   if (!bodyRep.isDownloaded && res.buffer) {
-    bodyRep._partInfo.pendingBuffer = new Blob(res.buffer);
+    bodyRep._partInfo.pendingBuffer = new Blob([res.buffer]);
   }
 
   bodyRep.amountDownloaded += res.bytesFetched;
