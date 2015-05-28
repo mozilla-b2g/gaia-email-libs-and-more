@@ -1,7 +1,8 @@
-// COPIED FROM gaia/apps/emailjs/evt.js
-/*global define, setTimeout */
 /*
- * Custom events lib. Notable features:
+ * evt, an event lib. Version 1.0.0.
+ * Copyright 2013-2015, Mozilla Foundation
+ *
+ * Notable features:
  *
  * - the module itself is an event emitter. Useful for "global" pub/sub.
  * - evt.mix can be used to mix in an event emitter into existing object.
@@ -11,11 +12,20 @@
  *   code via a throw within the listener group notification.
  * - new evt.Emitter() can be used to create a new instance of an
  *   event emitter.
- * - Uses "this" insternally, so always call object with the emitter args
- *
+ * - Uses "this" internally, so always call object with the emitter args.
  */
-define(function() {
-
+//
+(function (root, factory) {
+  'use strict';
+  if (typeof define === 'function' && define.amd) {
+    define(factory);
+  } else if (typeof exports === 'object') {
+    module.exports = factory();
+  } else {
+    root.evt = factory();
+  }
+}(this, function () {
+  'use strict';
   var evt,
       slice = Array.prototype.slice,
       props = ['_events', '_pendingEvents', 'on', 'once', 'latest',
@@ -48,8 +58,9 @@ define(function() {
       var self = this,
           fired = false;
       function one() {
-        if (fired)
+        if (fired) {
           return;
+        }
         fired = true;
         fn.apply(null, arguments);
         // Remove at a further turn so that the event
@@ -87,10 +98,11 @@ define(function() {
      * @param  {Function} fn listener.
      */
     latestOnce: function(id, fn) {
-      if (this[id] && !this._pendingEvents[id])
+      if (this[id] && !this._pendingEvents[id]) {
         fn(this[id]);
-      else
+      } else {
         this.once(id, fn);
+      }
     },
 
     removeListener: function(id, fn) {
@@ -101,8 +113,9 @@ define(function() {
         if (i !== -1) {
           listeners.splice(i, 1);
         }
-        if (listeners.length === 0)
+        if (listeners.length === 0) {
           delete this._events[id];
+        }
       }
     },
 
@@ -117,8 +130,9 @@ define(function() {
       if (listeners) {
         this.emit.apply(this, arguments);
       } else {
-        if (!this._pendingEvents[id])
+        if (!this._pendingEvents[id]) {
           this._pendingEvents[id] = [];
+        }
         this._pendingEvents[id].push(slice.call(arguments, 1));
       }
     },
@@ -126,8 +140,13 @@ define(function() {
     emit: function(id) {
       var args = slice.call(arguments, 1),
           listeners = this._events[id];
+
       if (listeners) {
-        listeners.forEach(function(fn) {
+        // Use a for loop instead of forEach, in case the listener removes
+        // itself on the emit notification. In that case need to set the loop
+        // index back one.
+        for (var i = 0; i < listeners.length; i++) {
+          var fn = listeners[i];
           try {
             fn.apply(null, args);
           } catch (e) {
@@ -135,11 +154,19 @@ define(function() {
             // can complete. While this messes with the
             // stack for the error, continued operation is
             // valued more in this tradeoff.
+            // This also means we do not need to .catch()
+            // for the wrapping promise.
             setTimeout(function() {
               throw e;
             });
           }
-        });
+
+          // If listener removed itself, set the index back a number, so that
+          // a subsequent listener does not get skipped.
+          if (listeners[i] !== fn) {
+            i -= 1;
+          }
+        }
       }
     }
   };
@@ -159,4 +186,4 @@ define(function() {
   };
 
   return evt;
-});
+}));
