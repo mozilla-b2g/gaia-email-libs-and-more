@@ -35,6 +35,9 @@
       'activesync/codepages': 'ext/activesync-lib/codepages',
       'activesync/protocol': 'ext/activesync-lib/protocol',
 
+      // XXX bad bad bad bad bad bad bad, do not hardcode, bad bad bad bad
+      'mail_app_logic': '../../../www/felam',
+
       // This lists every top-level module in GELAM/js/ext.
       // CAUTION: It is automatically updated during the build step;
       // don't change or your edits will be as sticky as a dusty post-it.

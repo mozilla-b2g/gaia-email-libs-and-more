@@ -91,7 +91,7 @@ BridgeContext.prototype = {
       return this._namedContexts.get(name);
     }
 
-    throw new Error('no such namedContext');
+    throw new Error('no such namedContext: ' + name);
   },
 
   maybeGetNamedContext: function(name) {

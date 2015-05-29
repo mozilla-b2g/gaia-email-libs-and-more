@@ -9,7 +9,7 @@ let { numericUidFromMessageId } = require('../../id_conversions');
 
 let imapchew = require('../imapchew');
 
-let churnConversation = require('../../churns/conv_churn');
+let churnConversation = require('mail_app_logic/conv_churn');
 
 let { SnippetParser } = require('../protocol/snippetparser');
 let { TextParser } = require('../protocol/textparser');

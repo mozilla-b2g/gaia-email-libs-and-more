@@ -22,7 +22,7 @@ const DEFAULT_STYLE_TAG =
   // overflow: hidden actually works in either of these cases, but I did most of
   // the development and testing where things worked with the overflow: hidden
   // present and I'm worried about removing it now.
-  ' overflow: hidden; padding: 0; margin: 0; }\n' +
+  ' overflow: hidden; padding: 0; margin: 0; font-size: 80%; }\n' +
   // pre messes up wrapping very badly if left to its own devices
   'pre { white-space: pre-wrap; word-wrap: break-word; }\n' +
   '.moz-external-link { color: #00aac5; cursor: pointer; }\n' +

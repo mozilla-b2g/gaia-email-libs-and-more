@@ -16,7 +16,7 @@ let { chewMessageStructure } = require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
-let churnConversation = require('../../churns/conv_churn');
+let churnConversation = require('mail_app_logic/conv_churn');
 
 let SyncStateHelper = require('../sync_state_helper');
 let GmailLabelMapper = require('../gmail_label_mapper');
