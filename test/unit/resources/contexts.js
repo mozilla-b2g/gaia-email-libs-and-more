@@ -50,7 +50,8 @@ define(function(require) {
                    null),
             account: null, // set up later
             controlServerBaseUrl: opts.controlServerBaseUrl,
-            imapExtensions: opts.imapExtensions || opts.imapExtensions,
+            imapExtensions: opts.imapExtensions,
+            folderConfig: opts.folderConfig,
             smtpExtensions: opts.smtpExtensions,
             deliveryMode: opts.deliveryMode,
             oauth: opts.oauth,

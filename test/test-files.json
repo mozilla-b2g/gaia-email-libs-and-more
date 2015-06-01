@@ -124,6 +124,10 @@
       "variants": ["imap:fake:no_internaldate_tz"]
     },
 
+    "test_imap_sync_folder_list.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_incoming_prober.js": {
       "variants": ["imap:noserver", "pop3:noserver"]
     },

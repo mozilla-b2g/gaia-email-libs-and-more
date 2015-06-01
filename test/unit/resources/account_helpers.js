@@ -243,6 +243,24 @@ AccountHelpers.prototype = {
     return new Promise((resolve) => {
       header.getBody(opts, resolve);
     });
+  },
+
+  /**
+   * S.A.F.E.T.Y. Ping.  Safety Ping.
+   *
+   * This is a hack to ensure that the frontend/test context has received
+   * everything that the backend wanted to send us.  This matters for batching
+   * and things stuck in the double-bounced postmessage bridge.
+   *
+   * This is a reasonable thing to use for v2 stuff, but should be removed from
+   * v3.  Its very existence is a code smell.  Its use?  Code sulfur.
+   */
+  safetyPing() {
+    return new Promise((resolve) => {
+      this.MailAPI.ping(() => {
+        resolve();
+      });
+    });
   }
 };
 
