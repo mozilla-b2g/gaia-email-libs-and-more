@@ -42,11 +42,8 @@ FoldersViewSlice.prototype.getFolderById = function(id) {
  */
 FoldersViewSlice.prototype.eventuallyGetFolderById = function(id) {
   return new Promise(function(resolve, reject) {
-console.log('immediate consideration', this.items.length, 'items:', this.items,
-'looking for', id);
     var folder = this.getFolderById(id);
     if (folder) {
-console.log('immediate folder');
       resolve(folder);
       return;
     }
@@ -60,13 +57,11 @@ console.log('immediate folder');
     // inferred defeat when we get the completion notificaiton.
     var addListener = function(folder) {
       if (folder.id === id) {
-console.log('dynamic folder');
         this.removeListener('add', addListener);
         resolve(folder);
       }
     }.bind(this);
     var completeListener = function() {
-console.log('complete listener firing');
       this.removeListener('add', addListener);
       this.removeListener('complete', completeListener);
       reject('async complete');

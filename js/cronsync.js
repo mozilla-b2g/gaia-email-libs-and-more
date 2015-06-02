@@ -25,7 +25,6 @@ define(
   [
     'rdcommon/log',
     './worker-router',
-    './slice_bridge_proxy',
     './mailslice',
     './syncbase',
     './allback',
@@ -35,7 +34,6 @@ define(
   function(
     $log,
     $router,
-    $sliceBridgeProxy,
     $mailslice,
     $syncbase,
     $allback,

@@ -25,33 +25,18 @@ function showBlobInImg(imgNode, blob) {
   imgNode.addEventListener('load', revokeImageSrc);
 }
 
-// so, we could mutate in-place if we were sure the wire rep actually came
 function filterOutBuiltinFlags(flags) {
+  // so, we could mutate in-place if we were sure the wire rep actually came
   // over the wire.  Right now there is de facto rep sharing, so let's not
   // mutate and screw ourselves over.
   var outFlags = [];
   for (var i = flags.length - 1; i >= 0; i--) {
-    if (flags[i][0] !== '\\')
+    if (flags[i][0] !== '\\') {
       outFlags.push(flags[i]);
+    }
   }
   return outFlags;
 }
-
-/**
-* Extract the canonical naming attributes out of the MailHeader instance.
-*/
-function serializeMessageName(x) {
-  return {
-    date: x.date.valueOf(),
-    suid: x.id,
-    // NB: strictly speaking, this is redundant information.  However, it is
-    // also fairly handy to pass around for IMAP since otherwise we might need
-    // to perform header lookups later on.  It will likely also be useful for
-    // debugging.  But ideally we would not include this.
-    guid: x.guid
-  };
-}
-
 
 /**
  * Email overview information for displaying the message in the list as planned
@@ -125,6 +110,7 @@ MailMessage.prototype = evt.mix({
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
     this.tags = filterOutBuiltinFlags(wireRep.flags);
     // XXX we're not exposing folderIds/labels right now, and we should be.
+    this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
     // Messages in the outbox will have `sendStatus` populated like so:
     // {
@@ -179,10 +165,21 @@ MailMessage.prototype = evt.mix({
   },
 
   /**
-   * Delete this message
+   * In Gmail, removes the \Inbox label from a message.  For other account
+   * types, this currently does nothing.  But I guess the idea would be that
+   * we'd trigger a move to an archive folder.
+   */
+  archiveFromInbox: function() {
+
+  },
+
+  /**
+   * Delete this message by moving the messages to the trash folder if not
+   * currently in the trash folder.  Permanent deletion is triggered if the
+   * message is already in the trash folder.
    */
   deleteMessage: function() {
-    return this._slice._api.deleteMessages([this]);
+    return this._api.deleteMessages([this]);
   },
 
   /*
@@ -195,63 +192,40 @@ MailMessage.prototype = evt.mix({
   */
 
   /**
-   * Move this message to another folder.
+   * Move this message to another folder.  This should *not* be used on gmail,
+   * instead modifyLabels should be used.
    */
   moveMessage: function(targetFolder) {
-    return this._slice._api.moveMessages([this], targetFolder);
+    return this._api.moveMessages([this], targetFolder);
   },
 
   /**
    * Set or clear the read status of this message.
    */
   setRead: function(beRead) {
-    return this._slice._api.markMessagesRead([this], beRead);
+    return this._api.markMessagesRead([this], beRead);
   },
 
   /**
    * Set or clear the starred/flagged status of this message.
    */
   setStarred: function(beStarred) {
-    return this._slice._api.markMessagesStarred([this], beStarred);
+    return this._api.markMessagesStarred([this], beStarred);
   },
 
   /**
-   * Add and/or remove tags/flags from this messages.
+   * Add and/or remove tags/flags from this message.
    */
   modifyTags: function(addTags, removeTags) {
-    return this._slice._api.modifyMessageTags([this], addTags, removeTags);
+    return this._api.modifyMessageTags([this], addTags, removeTags);
   },
 
   /**
-   * Request the `MailBody` instance for this message, passing it to
-   * the provided callback function once retrieved. If you request the
-   * bodyReps as part of this call, the backend guarantees that it
-   * will only call the "onchange" notification when the body has
-   * actually changed. In other words, if you end up calling getBody()
-   * multiple times for some reason, the backend will be smart about
-   * only fetching the bodyReps the first time and generating change
-   * notifications as one would expect.
-   *
-   * @args[
-   *   @param[options @dict[
-   *     @key[downloadBodyReps #:default false]{
-   *       Asynchronously initiate download of the body reps.  The body may
-   *       be returned before the body parts are downloaded, but they will
-   *       eventually show up.  Use the 'onchange' event to hear as the body
-   *       parts get added.
-   *     }
-   *     @key[withBodyReps #:default false]{
-   *       Don't return until the body parts are fully downloaded.
-   *     }
-   *   ]]
-   * ]
+   * And and/or remove gmail labels from this message.  This only makes sense
+   * for gmail, and we expose lables as Folders.
    */
-  getBody: function(options, callback) {
-    if (typeof(options) === 'function') {
-      callback = options;
-      options = null;
-    }
-    this._slice._api._getBodyForMessage(this, options, callback);
+  modifyLabels: function(addFolders, removeFolders) {
+    return this._api.modifyMessageLables([this], addFolders, removeFolders);
   },
 
   /**
@@ -414,8 +388,9 @@ MailMessage.prototype = evt.mix({
     for (i = 0; i < this._relatedParts.length; i++) {
       var relPart = this._relatedParts[i];
       // Related parts should all be stored as Blobs-in-IndexedDB
-      if (relPart.file && !Array.isArray(relPart.file))
+      if (relPart.file && !Array.isArray(relPart.file)) {
         cidToBlob[relPart.contentId] = relPart.file;
+      }
     }
 
     // - Transform the links

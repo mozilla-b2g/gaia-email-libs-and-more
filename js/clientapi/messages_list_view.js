@@ -4,7 +4,7 @@ define(function(require) {
 let WindowedListView = require('./windowed_list_view');
 let MailMessage = require('./mail_message');
 
-function MessagesListView(api, handle, ns) {
+function MessagesListView(api, handle) {
   WindowedListView.call(this, api, MailMessage, handle);
   this._nextSnippetRequestValidAt = 0;
 }

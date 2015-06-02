@@ -35,16 +35,13 @@ AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
   return new Promise((resolve, reject) => {
     var account = this.getAccountById(id);
     if (account) {
-      console.log('initial resolve');
       resolve(account);
       return;
     }
 
     let addListener = (account) => {
       if (account.id === id) {
-        console.log('asfasdf?');
         this.removeListener('add', addListener);
-        console.log('DYNANMICALLYASFASF');
         resolve(account);
       }
     };

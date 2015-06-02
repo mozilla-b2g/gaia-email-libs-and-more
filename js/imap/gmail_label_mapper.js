@@ -77,6 +77,7 @@ GmailLabelMapper.prototype = {
    * Note that this is slightly more complex than mapping through the path.
    * Special folders are identified by their SPECIAL-USE rather than their path.
    *
+   * @return {FolderId[]}
    */
   labelsToFolderIds: function(gmailLabels) {
     let folderIds = [];
@@ -91,10 +92,25 @@ GmailLabelMapper.prototype = {
     return folderIds;
   },
 
+
+  /**
+   * Given a `FolderId`, return the "label" that X-GM-LABELS understands.  This
+   * string should never be exposed to the user.
+   *
+   * @param {FolderId}
+   * @return {String}
+   */
   folderIdToLabel: function(folderId) {
     return this._folderIdToLabel.get(folderId);
   },
 
+  /**
+   * Given an array of `FolderId`s, return an array of gmail label strings that
+   * X-GM-LABELS understands.  The values should never be exposed to the user.
+   *
+   * @param {FolderId[]} folderIds
+   * @return {String[]}
+   */
   folderIdsToLabels: function(folderIds) {
     return folderIds.map((folderId) => {
       return this._folderIdToLabel.get(folderId);

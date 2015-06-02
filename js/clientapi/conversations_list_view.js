@@ -19,14 +19,14 @@ ConversationsListView.prototype._makeOrderingKeyFromItem = function(item) {
 ConversationsListView.prototype.refresh = function() {
   this._api.__bridgeSend({
       type: 'refreshView',
-      handle: this._handle
+      handle: this.handle
     });
 };
 
 ConversationsListView.prototype.grow = function() {
   this._api.__bridgeSend({
       type: 'growView',
-      handle: this._handle
+      handle: this.handle
     });
 };
 

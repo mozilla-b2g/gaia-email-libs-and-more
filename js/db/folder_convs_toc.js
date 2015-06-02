@@ -147,6 +147,13 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   getOrderingKeyForIndex: function(index) {
+    if (this.idsWithDates.length === 0) {
+      return this.getTopOrderingKey();
+    } else if (index < 0) {
+      index = 0;
+    } else if (index >= this.idsWithDates.length) {
+      index = this.idsWithDates.length - 1;
+    }
     return this.idsWithDates[index];
   },
 

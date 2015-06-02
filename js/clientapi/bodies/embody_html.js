@@ -10,7 +10,7 @@ const DEFAULT_STYLE_TAG =
   'blockquote {' +
   'margin: 0; ' +
   // so, this is quoting styling, which makes less sense to have in here.
-  '-moz-border-start: 0.2rem solid gray;' +
+  '-moz-border-start: 0.2rem solid gray; ' +
   // padding-start isn't a thing yet, somehow.
   'padding: 0; -moz-padding-start: 0.5rem; ' +
   '}\n' +
@@ -70,7 +70,6 @@ const DEFAULT_STYLE_TAG =
       'style',
       // no border! no padding/margins.
       'padding: 0; border-width: 0; margin: 0; ' +
-      (ownerDoc.documentElement.dir === 'rtl' ? 'right' : 'left') + '; ' +
       // The iframe does not want to process its own clicks!  that's what
       // bindSanitizedClickHandler is for!
       'pointer-events: none;');
@@ -81,7 +80,7 @@ const DEFAULT_STYLE_TAG =
 
     let superBlob = new Blob(
       [
-        '<!doctype html><html><head>',
+        '<!doctype html><html><head><meta charset="utf-8">',
         DEFAULT_STYLE_TAG,
         '</head><body>',
         blob,
@@ -96,7 +95,6 @@ const DEFAULT_STYLE_TAG =
     let RESIZE_POLL_RATE = 200;
 
     let loadedPromise = new Promise((resolve, reject) => {
-      let iframeBody = iframe.contentDocument.body;
       let pollCount = 0;
       let pendingResize = null;
 
@@ -110,16 +108,13 @@ const DEFAULT_STYLE_TAG =
         if (!iframe.parentNode) {
           return;
         }
+        let iframeBody = iframe.contentDocument.body;
 
         let containerWidth = iframe.clientWidth;
         let containerHeight = iframe.clientHeight;
 
         let iframeWidth = iframeBody.scrollWidth;
         let iframeHeight = iframeBody.scrollHeight;
-
-        console.log('sizing iframe:', iframe, 'container is:',
-                    containerWidth, containerHeight, 'body is:',
-                    iframeWidth, iframeHeight);
 
         let needPoll = (pollCount-- > 0);
         // enlarge width as needed.
@@ -140,6 +135,7 @@ const DEFAULT_STYLE_TAG =
           pendingResize = null;
         }
       };
+      iframe.resizeIframe = resizeIframe;
       let pollForResize = (pollAtLeast) => {
         pollCount = Math.max(pollCount, pollAtLeast);
         if (!pendingResize) {
@@ -147,21 +143,17 @@ const DEFAULT_STYLE_TAG =
         }
       };
 
-      let loadStartHandler = (evt) => {
-        pollForResize(5);
-        iframe.removeEventListener('loadstart', loadStartHandler);
-      };
-      let loadEndHandler = (evt) => {
-        iframe.removeEventListener('loadend', loadEndHandler);
+      let loadHandler = (evt) => {
+        console.log('loadend!');
+        iframe.removeEventListener('load', loadHandler);
         ownerDoc.defaultView.URL.revokeObjectURL(superBlobUrl);
         resolve();
         // load implies any images were loaded, so really just once is okay,
         // but just in case there are some instabilities, ensure we check at
         // least once more.
-        pollForResize(2);
+        pollForResize(3);
       };
-      iframe.addEventListener('loadstart', loadStartHandler);
-      iframe.addEventListener('loadend', loadEndHandler);
+      iframe.addEventListener('load', loadHandler);
     });
 
     return { iframe, loadedPromise };

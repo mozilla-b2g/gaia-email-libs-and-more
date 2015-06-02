@@ -18,7 +18,7 @@ var ContactCache = require('./clientapi/contact_cache');
 var UndoableOperation = require('./clientapi/undoable_operation');
 
 var AccountsViewSlice = require('./clientapi/accounts_view_slice');
-var FoldersViewSlice = require('./clientapi/folders_view_slice');
+var FoldersListView = require('./clientapi/folders_list_view');
 var ConversationsListView = require('./clientapi/conversations_list_view');
 var MessagesListView = require('./clientapi/messages_list_view');
 
@@ -146,6 +146,11 @@ MailAPI.prototype = evt.mix({
     return folderId.substring(0, lastDot);
   },
 
+  extractAccountIdFromMessageId: function(messageId) {
+    var firstDot = messageId.indexOf('.');
+    return messageId.substring(0, firstDot);
+  },
+
   eventuallyGetAccountById: function(accountId) {
     return this.accounts.eventuallyGetAccountById(accountId);
   },
@@ -161,6 +166,27 @@ MailAPI.prototype = evt.mix({
         console.log('SOMEHOW REJECTED?!');
       }
     );
+  },
+
+  /**
+   * Convert the folder id's for a message into MailFolder instances by looking
+   * them up from the account's folders list view.
+   *
+   * XXX deal with the potential asynchrony of this method being called before
+   * the account is known to us.  We should generally be fine, but we don't have
+   * the guards in place to actually protect us.
+   */
+  _mapLabels: function(messageId, folderIds) {
+    let accountId = this.extractAccountIdFromMessageId(messageId);
+    let account = this.accounts.getAccountById(accountId);
+    if (!account) {
+      console.warn('the possible has happened; unable to find account with id',
+                   accountId);
+    }
+    let folders = account.folders;
+    return folderIds.map((folderId) => {
+      return folders.getFolderById(folderId);
+    });
   },
 
   /**
@@ -211,8 +237,9 @@ MailAPI.prototype = evt.mix({
   },
 
   _doneProcessingMessage: function(msg) {
-    if (this._processingMessage && this._processingMessage !== msg)
+    if (this._processingMessage && this._processingMessage !== msg) {
       throw new Error('Mismatched message completion!');
+    }
 
     this._processingMessage = null;
     while (this._processingMessage === null && this._deferredMessages.length) {
@@ -734,7 +761,7 @@ MailAPI.prototype = evt.mix({
    */
   viewFolders: function ma_viewFolders(mode, accountId) {
     var handle = this._nextHandle++,
-        slice = new FoldersViewSlice(this, handle);
+        slice = new FoldersListView(this, handle);
 
     this._trackedItemHandles.set(handle, slice);
 
