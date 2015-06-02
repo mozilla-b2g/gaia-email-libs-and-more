@@ -1,9 +1,6 @@
 /**
- * Ensure that if we connect to an IMAP server without Sent or Trash folders
- * that we will try and create them and succeed in creating them.
- *
- * This can only be done on a fake server.
- **/
+ * Tests of IMAP-specific folder logic.
+ */
 
 define(function(require) {
 
@@ -12,9 +9,11 @@ var $th_main = require('./resources/th_main');
 var deriveFolderPath = require('imap/jobs').deriveFolderPath;
 
 /**
- * Test the folder
+ * Tests the implementation of deriveFolderPath which is used in folder
+ * creation.
  */
-return new LegacyGelamTest('folder path logic', function(T, RT) {
+return [
+new LegacyGelamTest('folder path logic', function(T, RT) {
   $th_main.thunkConsoleForNonTestUniverse();
   var eCheck = T.lazyLogger('check');
 
@@ -166,9 +165,16 @@ return new LegacyGelamTest('folder path logic', function(T, RT) {
       eCheck.log('result', result, check);
     });
   });
-});
+}),
 
-TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
+/**
+ * Ensure that if we connect to an IMAP server without Sent or Trash folders
+ * that we will try and create them and succeed in creating them.
+ *
+ * This can only be done on a fake server.
+ */
+new LegacyGelamTest('create Sent and Trash folders when missing',
+                    function(T, RT) {
   T.group('setup');
 
   var testUniverse = T.actor('TestUniverse', 'U');
@@ -205,7 +211,7 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
       }
     });
   var eCheck = T.lazyLogger('check');
-  var eJobs = new T.actor('ImapJobDriver');
+  var eJobs = T.actor('ImapJobDriver');
 
   // hold onto this between steps so we can test object identity
   var backendSent;
@@ -285,6 +291,5 @@ TD.commonCase('create Sent and Trash folders when missing', function(T, RT) {
   });
 
   T.group('cleanup');
-});
-
+})];
 });

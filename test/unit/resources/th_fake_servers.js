@@ -17,6 +17,7 @@ define((require, exports) => {
         account: null, // set up later
         controlServerBaseUrl: TEST_PARAMS.controlServerBaseUrl,
         imapExtensions: opts.imapExtensions || TEST_PARAMS.imapExtensions,
+        folderConfig: opts.folderConfig,
         smtpExtensions: opts.smtpExtensions,
         deliveryMode: opts.deliveryMode,
         oauth: opts.oauth,

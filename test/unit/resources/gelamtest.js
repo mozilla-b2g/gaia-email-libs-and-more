@@ -18,7 +18,10 @@ define(function(require) {
    * @param {string} name
    *   Human-readable test name.
    * @param {object} [options]
-   *   Optional. Currently no public options are supported.
+   *   Stuff!  So much stuff!
+   * @param {FolderConfig} [options.folderConfig]
+   *   The "folderConfig" is directly passed-through to the fake-server when it
+   *   is initialized.  Currently only the imapd.js fake-server supports this.
    * @param {function(MailAPI)} fn
    *   Test function. Accepts the MailAPI instance as the first parameter.
    *   Should return a Promise with the result of your test.

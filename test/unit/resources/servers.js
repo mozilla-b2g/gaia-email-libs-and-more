@@ -48,7 +48,7 @@ define((require) => {
       },
       options: {
         imapExtensions: options.imapExtensions,
-        folderConfig: options.folderConfig || null,
+        folderConfig: options.folderConfig,
         useTimezoneMins: this.timezoneMins,
         smtpExtensions: options.smtpExtensions,
         oauth: options.oauth
