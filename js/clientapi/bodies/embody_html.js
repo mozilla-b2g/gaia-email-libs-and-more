@@ -105,7 +105,7 @@ const DEFAULT_STYLE_TAG =
       // XXX implement external/embedded image disply
       let resizeIframe = () => {
         // if the iframe has been destroyed, stop trying to resize it
-        if (!iframe.parentNode) {
+        if (!iframe.parentNode || !iframe.contentDocument) {
           return;
         }
         let iframeBody = iframe.contentDocument.body;

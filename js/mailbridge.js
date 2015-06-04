@@ -49,22 +49,11 @@ function MailBridge(universe, db, name) {
   this.name = name;
   this.universe = universe;
   this.universe.registerBridge(this);
+  this.db = db;
 
   this.batchManager = new BatchManager(db);
   this.bridgeContext = new BridgeContext(this, this.batchManager);
   this._pendingMessagesByHandle;
-
-  this._trackedItemsByType = {
-    accounts: new Map(),
-    identities: new Map(),
-    folders: new Map(),
-    conv: new Map(),
-    message: new Map()
-  };
-  /**
-   * @type {Map<Handle, {type, id}>}
-   */
-  this._trackedItemHandles = new Map();
 
   // outstanding persistent objects that aren't slices. covers: composition
   this._pendingRequests = {};
@@ -188,17 +177,6 @@ MailBridge.prototype = {
     this.universe.modifyConfig(msg.mods);
   },
 
-  /**
-   * Public api to verify if body has observers.
-   *
-   *
-   *   MailBridge.bodyHasObservers(header.id) // => true/false.
-   *
-   */
-  bodyHasObservers: function(suid) {
-    return this._trackedItemsByType.body.has(suid);
-  },
-
   notifyConfig: function(config) {
     this.__sendMessage({
       type: 'config',
@@ -228,24 +206,6 @@ MailBridge.prototype = {
 
   _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
     $mailchewStrings.set(msg.strings);
-  },
-
-  _cmd_trackItemUpdates: function(msg) {
-
-  },
-
-  _cmd_updateTrackedItemPriorityTags: function(msg) {
-
-  },
-
-  _cmd_stopTrackingItemUpdates: function(msg) {
-    let trackInfo = this._trackedItemHandles.get(msg.handle);
-    let tracksOfType = this._trackedItemsByType[trackInfo.type];
-    let listeningHandles = tracksOfType[trackInfo.id];
-    listeningHandles.splice(listeningHandles.indexOf(msg.handle), 1);
-    if (listeningHandles.length) {
-
-    }
   },
 
   _cmd_learnAboutAccount: function(msg) {
@@ -311,110 +271,7 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyAccount: function mb__cmd_modifyAccount(msg) {
-    var account = this.universe.getAccountForAccountId(msg.accountId),
-        accountDef = account.accountDef;
-
-    for (var key in msg.mods) {
-      var val = msg.mods[key];
-
-      switch (key) {
-        case 'name':
-          accountDef.name = val;
-          break;
-
-        case 'username':
-          // See the 'password' section below and/or
-          // MailAPI.modifyAccount docs for the rationale for this
-          // username equality check:
-          if (accountDef.credentials.outgoingUsername ===
-              accountDef.credentials.username) {
-            accountDef.credentials.outgoingUsername = val;
-          }
-          accountDef.credentials.username = val;
-          break;
-        case 'incomingUsername':
-          accountDef.credentials.username = val;
-          break;
-        case 'outgoingUsername':
-          accountDef.credentials.outgoingUsername = val;
-          break;
-        case 'password':
-          // 'password' is for changing both passwords, if they
-          // currently match. If this account contains an SMTP
-          // password (only composite ones will) and the passwords
-          // were previously the same, assume that they both need to
-          // remain the same. NOTE: By doing this, we save the user
-          // from typing their password twice in the extremely common
-          // case that both passwords are actually the same. If the
-          // SMTP password is actually different, we'll just prompt
-          // them for that independently if we discover it's still not
-          // correct.
-          if (accountDef.credentials.outgoingPassword ===
-              accountDef.credentials.password) {
-            accountDef.credentials.outgoingPassword = val;
-          }
-          accountDef.credentials.password = val;
-          break;
-        case 'incomingPassword':
-          accountDef.credentials.password = val;
-          break;
-        case 'outgoingPassword':
-          accountDef.credentials.outgoingPassword = val;
-          break;
-        case 'oauthTokens':
-          var oauth2 = accountDef.credentials.oauth2;
-          oauth2.accessToken = val.accessToken;
-          oauth2.refreshToken = val.refreshToken;
-          oauth2.expireTimeMS = val.expireTimeMS;
-          break;
-
-        case 'identities':
-          // TODO: support identity mutation
-          // we expect a list of identity mutation objects, namely an id and the
-          // rest are attributes to change
-          break;
-
-        case 'servers':
-          // TODO: support server mutation
-          // we expect a list of server mutation objects; namely, the type names
-          // the server and the rest are attributes to change
-          break;
-
-        case 'syncRange':
-          accountDef.syncRange = val;
-          break;
-
-        case 'syncInterval':
-          accountDef.syncInterval = val;
-          break;
-
-        case 'notifyOnNew':
-          accountDef.notifyOnNew = val;
-          break;
-
-        case 'playSoundOnSend':
-          accountDef.playSoundOnSend = val;
-          break;
-
-        case 'setAsDefault':
-          // Weird things can happen if the device's clock goes back in time,
-          // but this way, at least the user can change their default if they
-          // cycle through their accounts.
-          if (val) {
-            accountDef.defaultPriority = $date.NOW();
-          }
-          break;
-
-        default:
-          throw new Error('Invalid key for modifyAccount: "' + key + '"');
-      }
-    }
-
-    this.universe.saveAccountDef(accountDef, null);
-    this.__sendMessage({
-      type: 'modifyAccount',
-      handle: msg.handle,
-    });
+    // TODO: implement; existing logic has been moved to tasks/modify_account.js
   },
 
   _cmd_deleteAccount: function mb__cmd_deleteAccount(msg) {
@@ -422,46 +279,7 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyIdentity: function mb__cmd_modifyIdentity(msg) {
-    var account = this.universe.getAccountForSenderIdentityId(msg.identityId),
-        accountDef = account.accountDef,
-        identity = this.universe.getIdentityForSenderIdentityId(msg.identityId);
-
-    for (var key in msg.mods) {
-      var val = msg.mods[key];
-
-      switch (key) {
-        case 'name':
-          identity.name = val;
-          break;
-
-        case 'address':
-          identity.address = val;
-          break;
-
-        case 'replyTo':
-          identity.replyTo = val;
-          break;
-
-        case 'signature':
-          identity.signature = val;
-          break;
-
-        case 'signatureEnabled':
-          identity.signatureEnabled = val;
-          break;
-
-        default:
-          throw new Error('Invalid key for modifyIdentity: "' + key + '"');
-      }
-    }
-    // accountDef has the identity, so this persists it as well
-    this.universe.saveAccountDef(accountDef, null, function() {
-      this.__sendMessage({
-        type: 'modifyIdentity',
-        handle: msg.handle,
-      });
-    }.bind(this));
-
+    // TODO: implement; existing logic moved to tasks/modify_identity.js
   },
 
   /**
@@ -480,102 +298,6 @@ MailBridge.prototype = {
     });
   },
 
-  notifyAccountAdded: function mb_notifyAccountAdded(account) {
-    var accountWireRep = account.toBridgeWire();
-    var i, proxy, slices, wireSplice = null, markersSplice = null;
-    // -- notify account slices
-    slices = this._slicesByType['accounts'];
-    for (i = 0; i < slices.length; i++) {
-      proxy = slices[i];
-      proxy.sendSplice(proxy.markers.length, 0, [accountWireRep], false, false);
-      proxy.markers.push(account.id);
-    }
-
-    // -- notify folder slices
-    accountWireRep = account.toBridgeFolder();
-    slices = this._slicesByType['folders'];
-    var startMarker = makeFolderSortString(account, accountWireRep),
-        idxStart;
-    for (i = 0; i < slices.length; i++) {
-      proxy = slices[i];
-      // If it's filtered to an account, it can't care about us.  (You can't
-      // know about an account before it's created.)
-      if (proxy.mode === 'account')
-        continue;
-
-      idxStart = bsearchForInsert(proxy.markers, startMarker, strcmp);
-      wireSplice = [accountWireRep];
-      markersSplice = [startMarker];
-      for (var iFolder = 0; iFolder < account.folders.length; iFolder++) {
-        var folder = account.folders[iFolder],
-            folderMarker = makeFolderSortString(account, folder),
-            idxFolder = bsearchForInsert(markersSplice, folderMarker, strcmp);
-        wireSplice.splice(idxFolder, 0, folder);
-        markersSplice.splice(idxFolder, 0, folderMarker);
-      }
-      proxy.sendSplice(idxStart, 0, wireSplice, false, false);
-      proxy.markers.splice.apply(proxy.markers,
-                                 [idxStart, 0].concat(markersSplice));
-    }
-  },
-
-  /**
-   * Generate modifications for an account.  We only generate this for account
-   * queries proper and not the folder representations of accounts because we
-   * define that there is nothing interesting mutable for the folder
-   * representations.
-   */
-  notifyAccountModified: function(account) {
-    var slices = this._slicesByType['accounts'],
-        accountWireRep = account.toBridgeWire();
-    for (var i = 0; i < slices.length; i++) {
-      var proxy = slices[i];
-      var idx = proxy.markers.indexOf(account.id);
-      if (idx !== -1) {
-        proxy.sendUpdate([idx, accountWireRep]);
-      }
-    }
-  },
-
-  notifyAccountRemoved: function(accountId) {
-    var i, proxy, slices;
-    // -- notify account slices
-    slices = this._slicesByType['accounts'];
-    for (i = 0; i < slices.length; i++) {
-      proxy = slices[i];
-      var idx = proxy.markers.indexOf(accountId);
-      if (idx !== -1) {
-        proxy.sendSplice(idx, 1, [], false, false);
-        proxy.markers.splice(idx, 1);
-      }
-    }
-
-    // -- notify folder slices
-    slices = this._slicesByType['folders'];
-    var startMarker = accountId + '!!',
-        endMarker = accountId + '!|';
-    for (i = 0; i < slices.length; i++) {
-      proxy = slices[i];
-      var idxStart = bsearchForInsert(proxy.markers, startMarker,
-                                      strcmp),
-          idxEnd = bsearchForInsert(proxy.markers, endMarker,
-                                    strcmp);
-      if (idxEnd !== idxStart) {
-        proxy.sendSplice(idxStart, idxEnd - idxStart, [], false, false);
-        proxy.markers.splice(idxStart, idxEnd - idxStart);
-      }
-    }
-  },
-
-  _cmd_viewSenderIdentities: function mb__cmd_viewSenderIdentities(msg) {
-    var proxy = this._slices[msg.handle] =
-          new SliceBridgeProxy(this, 'identities', msg.handle);
-    this._slicesByType['identities'].push(proxy);
-    var wireReps = this.universe.identities;
-    // send all the identities in one go.
-    proxy.sendSplice(0, 0, wireReps, true, false);
-  },
-
   _cmd_requestBodies: function(msg) {
     var self = this;
     this.universe.downloadBodies(msg.messages, msg.options, function() {
@@ -585,83 +307,6 @@ MailBridge.prototype = {
         requestId: msg.requestId
       });
     });
-  },
-
-  notifyFolderAdded: function(account, folderMeta) {
-    var newMarker = makeFolderSortString(account, folderMeta);
-
-    var slices = this._slicesByType['folders'];
-    for (var i = 0; i < slices.length; i++) {
-      var proxy = slices[i];
-      var idx = bsearchForInsert(proxy.markers, newMarker, strcmp);
-      proxy.sendSplice(idx, 0, [folderMeta], false, false);
-      proxy.markers.splice(idx, 0, newMarker);
-    }
-  },
-
-  notifyFolderModified: function(account, folderMeta) {
-    var marker = makeFolderSortString(account, folderMeta);
-
-    var slices = this._slicesByType['folders'];
-    for (var i = 0; i < slices.length; i++) {
-      var proxy = slices[i];
-
-      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
-      if (idx === null)
-        continue;
-
-      proxy.sendUpdate([idx, folderMeta]);
-    }
-  },
-
-  notifyFolderRemoved: function(account, folderMeta) {
-    var marker = makeFolderSortString(account, folderMeta);
-
-    var slices = this._slicesByType['folders'];
-    for (var i = 0; i < slices.length; i++) {
-      var proxy = slices[i];
-
-      var idx = bsearchMaybeExists(proxy.markers, marker, strcmp);
-      if (idx === null)
-        continue;
-      proxy.sendSplice(idx, 1, [], false, false);
-      proxy.markers.splice(idx, 1);
-    }
-  },
-
-  /**
-   * Sends a notification of a change in the body.  Because FolderStorage is
-   * the authoritative store of body representations and access is currently
-   * mediated through mutexes, this method should really only be called by
-   * FolderStorage.updateMessageBody.
-   *
-   * @param suid {SUID}
-   *   The message whose body representation has been updated
-   * @param detail {Object}
-   *   See {{#crossLink "FolderStorage/updateMessageBody"}{{/crossLink}} for
-   *   more information on the structure of this object.
-   * @param body {BodyInfo}
-   *   The current representation of the body.
-   */
-  notifyBodyModified: function(suid, detail, body) {
-    var handles = this._observedBodies[suid];
-    var defaultHandler = this.__sendMessage;
-
-    if (handles) {
-      for (var handle in handles) {
-        // the suid may have an existing handler which captures the output of
-        // the notification instead of dispatching here... This allows us to
-        // aggregate pending notifications while fetching the bodies so updates
-        // never come before the actual body.
-        var emit = handles[handle] || defaultHandler;
-        emit.call(this, {
-          type: 'bodyModified',
-          handle: handle,
-          bodyInfo: body,
-          detail: detail
-        });
-      }
-    }
   },
 
   _cmd_viewAccounts: co.wrap(function*(msg) {
@@ -743,11 +388,59 @@ MailBridge.prototype = {
     ctx.proxy.seek(msg);
   },
 
+  _cmd_getItemAndTrackUpdates: co.wrap(function*(msg) {
+    let eventId = msg.itemType + '!' + msg.itemId + '!change';
+    let ctx = this.bridgeContext.createNamedContext(msg.handle, eventId);
+
+    // XXX implement priority tags support
+
+    // - Fetch the raw data from disk
+    let requests = {};
+    let idRequestMap = new Map();
+    idRequestMap.set(msg.itemId, null);
+    // Helper to normalize raw database reps to wire reps.  This matters for
+    // things like account info structures.
+    let rawToWireRep;
+    switch (msg.itemType) {
+      case 'conv':
+        requests.conversations = idRequestMap;
+        // no transformation is performed on conversation reps
+        rawToWireRep = (x => x);
+        break;
+      default:
+        throw new Error('unsupported item type: ' + msg.itemType);
+    }
+
+    yield this.db.read(ctx, requests);
+
+    // Normalize to wire rep form
+    let wireRep = rawToWireRep(idRequestMap.get(msg.itemId));
+
+    // - Register an event listener that will be removed at context cleanup
+    // (We only do this after we have loaded the up-to-date rep.  Note that
+    // under the current DB implementation there is a potential short-lived
+    // race here that will be addressed to support this idiom correctly.)
+    let eventHandler = (rawItem) => {
+      ctx.sendMessage('update', rawToWireRep(rawItem));
+    };
+    this.db.on(eventId, eventHandler);
+    ctx.runAtCleanup(() => {
+      this.db.removeListener(eventId, eventHandler);
+    });
+
+    // - Send the wire rep
+    ctx.sendMessage('gotItemNowTrackingUpdates', wireRep);
+  }),
+
+  _cmd_updateTrackedItemPriorityTags: function(msg) {
+    // XXX implement priority tags support
+  },
+
   _cmd_cleanupContext: function(msg) {
     this.bridgeContext.cleanupNamedContext(msg.handle);
 
     this.__sendMessage({
-      type: 'contextDead',
+      type: 'contextCleanedUp',
       handle: msg.handle,
     });
   },

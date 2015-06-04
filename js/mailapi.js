@@ -14,6 +14,9 @@ var evt = require('evt');
 var MailAccount = require('./clientapi/mail_account');
 var MailSenderIdentity = require('./clientapi/mail_sender_identity');
 var MailFolder = require('./clientapi/mail_folder');
+
+var MailConversation = require('./clientapi/mail_conversation');
+
 var ContactCache = require('./clientapi/contact_cache');
 var UndoableOperation = require('./clientapi/undoable_operation');
 
@@ -23,6 +26,9 @@ var ConversationsListView = require('./clientapi/conversations_list_view');
 var MessagesListView = require('./clientapi/messages_list_view');
 
 var MessageComposition = require('./clientapi/message_composition');
+
+var { accountIdFromConvId, accountIdFromMessageId } =
+  require('./id_conversions');
 
 var Linkify = require('./clientapi/bodies/linkify');
 
@@ -72,11 +78,17 @@ function MailAPI() {
   this._nextHandle = 1;
 
   /**
-   * @type {Map<Handle, UpdateableObject>}
+   * @type Map<BridgeHandle, Object>
    *
-   * The current mapping for listeners registered with _trackItemUpdates and
-   * not yet canceled with _stopTrackingItemUpdates.  This uses the same handle
-   * space as _slices and _pendingRequests.
+   * Holds live list views (what were formerly called slices) and live tracked
+   * one-off items (ex: viewConversation/friends that call
+   * _getItemAndTrackUpdates).
+   *
+   * In many ways this is nearly identically to _pendingRequests, but this was
+   * split off because different semantics were originally intended.  Probably
+   * it makes sense to keep this for "persistent subscriptions" and eventually
+   * replace things using _pendingRequests with an explicitly supported
+   * co.wrap() idiom.
    */
   this._trackedItemHandles = new Map();
   this._pendingRequests = {};
@@ -141,22 +153,12 @@ MailAPI.prototype = evt.mix({
   // probably just move consumers to directly require the module.
   utils: Linkify,
 
-  extractAccountIdFromFolderId: function(folderId) {
-    var lastDot = folderId.lastIndexOf('.');
-    return folderId.substring(0, lastDot);
-  },
-
-  extractAccountIdFromMessageId: function(messageId) {
-    var firstDot = messageId.indexOf('.');
-    return messageId.substring(0, firstDot);
-  },
-
   eventuallyGetAccountById: function(accountId) {
     return this.accounts.eventuallyGetAccountById(accountId);
   },
 
   eventuallyGetFolderById: function(folderId) {
-    var accountId = this.extractAccountIdFromFolderId(folderId);
+    var accountId = accountIdFromConvId(folderId);
     return this.accounts.eventuallyGetAccountById(accountId).then(
       function gotAccount(account) {
         console.log('got the account');
@@ -177,14 +179,14 @@ MailAPI.prototype = evt.mix({
    * the guards in place to actually protect us.
    */
   _mapLabels: function(messageId, folderIds) {
-    let accountId = this.extractAccountIdFromMessageId(messageId);
+    let accountId = accountIdFromMessageId(messageId);
     let account = this.accounts.getAccountById(accountId);
     if (!account) {
       console.warn('the possible has happened; unable to find account with id',
                    accountId);
     }
     let folders = account.folders;
-    return folderIds.map((folderId) => {
+    return Array.from(folderIds).map((folderId) => {
       return folders.getFolderById(folderId);
     });
   },
@@ -215,7 +217,7 @@ MailAPI.prototype = evt.mix({
     }
   },
 
-  _processMessage: function ma__processMessage(msg) {
+  _processMessage: function(msg) {
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
       unexpectedBridgeDataError('Unsupported message type:', msg.type);
@@ -247,35 +249,88 @@ MailAPI.prototype = evt.mix({
     }
   },
 
-  _recv_badLogin: function ma__recv_badLogin(msg) {
+  _recv_badLogin: function(msg) {
     this.emit('badlogin',
               new MailAccount(this, msg.account, null),
               msg.problem,
               msg.whichSide);
   },
 
-
   /**
-   * Internal-only API for tracking updates for use by instantiated objects to
-   * register to receive updates of themselves independent of the slice
-   * mechanism for updates.
-   *
-   * @return {Handle}
-   *   A handle that you must use in a call to _stopTrackingItemUpdates at some
-   *   point unless you like leaks.
+   * Return a promise that's resolved with a MailConversation instance that is
+   * live-updating with events until `release` is called on it.
    */
-  _trackItemUpdates: function(itemType, itemId, updateableObject, priorityTags){
-    var handle = this._nextHandle++;
-    this._trackedItemHandles.set(handle, updateableObject);
-    this.__bridgeSend({
-      type: 'trackItemUpdates',
-      handle: handle,
-      itemType: itemType,
-      itemId: itemId
-    });
-    return handle;
+  getConversation: function(conversationId, priorityTags) {
+    // We need the account for the conversation in question to be loaded for
+    // safety, dependency reasons.
+    return this.eventuallyGetAccountById(accountIdFromConvId(conversationId))
+      .then(() => {
+        // account is ignored, we just needed to ensure it existed for
+        // _mapLabels to be a friendly, happy, synchronous API.
+        return this._getItemAndTrackUpdates(
+          'conv', conversationId, MailConversation, priorityTags);
+      });
   },
 
+  /**
+   * Ask the back-end for an item by its id.  The current state will be loaded
+   * from the db and then logically consistent updates provided until release
+   * is called on the object.
+   *
+   * In the future we may support also taking an existing wireRep so that the
+   * object can be provided synchronously.  I want to try to avoid that at first
+   * because it's the type of thing that really wants to be implemented when
+   * we've got our unit tests stood up again.
+   *
+   * `_cleanupContext` should be invoked by the release method of whatever
+   * object we create when all done.
+   *
+   * XXX there's a serious potential for resource-leak/clobbering races where by
+   * the time we resolve our promise the caller will not correctly call release
+   * on our value or we'll end up clobbering the value from a chronologically
+   * later call to our method.
+   */
+  _getItemAndTrackUpdates: function(itemType, itemId, itemConstructor,
+                                    priorityTags) {
+    return new Promise((resolve, reject) => {
+      let handle = this._nextHandle++;
+      this._trackedItemHandles.set(handle, {
+        type: itemType,
+        id: itemId,
+        callback: (msg) => {
+          if (msg.err) {
+            reject(msg.err);
+            return;
+          }
+
+          let obj = new itemConstructor(this, msg.data);
+          resolve(obj);
+          this._trackedItemHandles.set(handle, {
+            type: itemType,
+            id: itemId,
+            obj: obj
+          });
+        }
+      });
+      this.__bridgeSend({
+        type: 'getItemAndTrackUpdates',
+        handle: handle,
+        itemType: itemType,
+        itemId: itemId
+      });
+      return handle;
+    });
+  },
+
+  _recv_gotItemNowTrackingUpdates: function(msg) {
+    let details = this._trackedItemHandles.get(msg.handle);
+    details.callback(msg);
+  },
+
+  /**
+   * Internal-only API to update the priority associated with an instantiated
+   * object.
+   */
   _updateTrackedItemPriorityTags: function(handle, priorityTags) {
     this.__bridgeSend({
       type: 'updateTrackedItemPriorityTags',
@@ -284,31 +339,41 @@ MailAPI.prototype = evt.mix({
     });
   },
 
-  _stopTrackingItemUpdates: function(handle) {
-    this._trackedItemHandles.delete(handle);
-    this.__bridgeSend({
-      type: 'stopTrackingItemUpdates',
-      handle: handle
-    });
-  },
-
   _recv_update: function(msg) {
-    for (let handle of msg.handles) {
-      let updateableObject = this._trackedItemHandles.get(handle);
-      if (updateableObject) {
-        // XXX body updates used to relay delta information, primarily for the
-        // benefit of complex sub-objects like the MailAttachment instances.  It
-        // may be appropriate
-        updateableObject.__update(msg.data);
+    // TODO: there should also be a _recv_removed handler so that when a thing
+    // becomes mooted/deleted we can provide an event so that the UI can know
+    // to handle it.
+    let details = this._trackedItemHandles.get(msg.handle);
+    if (details && details.obj) {
+      let obj = details.obj;
+      obj.__update(msg.data);
+      // If this is a single object (and not a list view), then bump its serial
+      // and emit a change event.  In the case of list views, the list view is
+      // handling all that.
+      if (obj._handle) {
+        obj.serial++;
+        obj.emit('change', obj);
       }
     }
   },
 
-  _recv_contextDead: function(msg) {
-    let thing = this._trackedItemHandles.get(msg.handle);
-    if (thing && thing.__dead) {
-      thing.__dead();
-    }
+  _cleanupContext: function(handle) {
+    this.__bridgeSend({
+      type: 'cleanupContext',
+      handle: handle
+    });
+  },
+
+  /**
+   * The mailbridge response to a "cleanupContext" command, triggered by a call
+   * to our sibling `_cleanupContext` function which should be invoked by public
+   * `release` calls.
+   *
+   * TODO: Conclusively decide whether it could make sense for this, or a
+   * variant of this for cases where the mailbridge/backend can send effectively
+   * unsolicited notifications of this.
+   */
+  _recv_contextCleanedUp: function(msg) {
     this._trackedItemHandles.delete(msg.handle);
   },
 
@@ -730,14 +795,14 @@ MailAPI.prototype = evt.mix({
    */
   viewAccounts: function ma_viewAccounts(opts) {
     var handle = this._nextHandle++,
-        slice = new AccountsViewSlice(this, handle, opts);
-    this._trackedItemHandles.set(handle, slice);
+        view = new AccountsViewSlice(this, handle, opts);
+    this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({
       type: 'viewAccounts',
       handle: handle,
     });
-    return slice;
+    return view;
   },
 
   /**
@@ -761,9 +826,9 @@ MailAPI.prototype = evt.mix({
    */
   viewFolders: function ma_viewFolders(mode, accountId) {
     var handle = this._nextHandle++,
-        slice = new FoldersListView(this, handle);
+        view = new FoldersListView(this, handle);
 
-    this._trackedItemHandles.set(handle, slice);
+    this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({
       type: 'viewFolders',
@@ -772,7 +837,7 @@ MailAPI.prototype = evt.mix({
       accountId: accountId
     });
 
-    return slice;
+    return view;
   },
 
   /**
@@ -780,9 +845,9 @@ MailAPI.prototype = evt.mix({
    */
   viewFolderConversations: function(folder) {
     var handle = this._nextHandle++,
-        slice = new ConversationsListView(this, handle);
-    slice.folderId = folder.id;
-    this._trackedItemHandles.set(handle, slice);
+        view = new ConversationsListView(this, handle);
+    view.folderId = folder.id;
+    this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({
       type: 'viewFolderConversations',
@@ -790,23 +855,23 @@ MailAPI.prototype = evt.mix({
       handle: handle,
     });
 
-    return slice;
+    return view;
   },
 
   viewConversationMessages: function(convOrId) {
     var handle = this._nextHandle++,
-        slice = new MessagesListView(this, handle);
-    slice.conversationId = (typeof(convOrId) === 'string' ? convOrId :
+        view = new MessagesListView(this, handle);
+    view.conversationId = (typeof(convOrId) === 'string' ? convOrId :
                               convOrId.id);
-    this._trackedItemHandles.set(handle, slice);
+    this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({
       type: 'viewConversationMessages',
-      conversationId: slice.conversationId,
+      conversationId: view.conversationId,
       handle: handle,
     });
 
-    return slice;
+    return view;
   },
 
   /**
@@ -864,7 +929,7 @@ MailAPI.prototype = evt.mix({
 
     var undoableOp = new UndoableOperation(this, 'delete', messages.length,
                                            handle),
-        msgSuids = messages.map(serializeMessageName);
+        msgSuids = messages.map(x => x.id);
 
     this._pendingRequests[handle] = {
       type: 'mutation',
@@ -893,7 +958,7 @@ MailAPI.prototype = evt.mix({
 
     var undoableOp = new UndoableOperation(this, 'move', messages.length,
                                            handle),
-        msgSuids = messages.map(serializeMessageName);
+        msgSuids = messages.map(x => x.id);
 
     this._pendingRequests[handle] = {
       type: 'mutation',

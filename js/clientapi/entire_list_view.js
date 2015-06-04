@@ -76,7 +76,7 @@ EntireListView.prototype = evt.mix({
 
   release: function() {
     this._api.__bridgeSend({
-        type: 'killSlice',
+        type: 'cleanupContext',
         handle: this.handle
       });
 

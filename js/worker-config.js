@@ -1,7 +1,24 @@
-/*global require, setTimeout */
+/*global requirejs, setTimeout */
 // Note: No AMD module here since this file configures RequireJS.
 (function(root) {
   'use strict';
+
+  // inlined from the query_string module.
+  function queryToObject(value) {
+    if (!value) {
+      return null;
+    }
+
+    var result = {};
+
+    value.split('&').forEach(function(keyValue) {
+      var pair = keyValue.split('=');
+      result[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1]);
+    });
+    return result;
+  }
+
+  var params = queryToObject(self.location.href.split('#')[1]);
 
   requirejs.config({
     baseUrl: '.',
@@ -25,6 +42,8 @@
     },
 
     paths: {
+      'app_logic': params.appLogic,
+
       // Configure any manual paths here:
       'bleach': 'ext/bleach.js/lib/bleach',
       'imap-formal-syntax': 'ext/imap-handler/src/imap-formal-syntax',
@@ -34,9 +53,6 @@
       'wbxml': 'ext/activesync-lib/wbxml/wbxml',
       'activesync/codepages': 'ext/activesync-lib/codepages',
       'activesync/protocol': 'ext/activesync-lib/protocol',
-
-      // XXX bad bad bad bad bad bad bad, do not hardcode, bad bad bad bad
-      'mail_app_logic': '../../../www/felam',
 
       // This lists every top-level module in GELAM/js/ext.
       // CAUTION: It is automatically updated during the build step;

@@ -41,14 +41,32 @@ NamedContext.prototype = {
     return acquireable.__acquire(this);
   },
 
+  /**
+   * Helper to send a message with the given `data` to the associated bridge
+   * using the handle that names us.
+   */
   sendMessage: function(type, data) {
     this._bridgeContext.bridge.__sendMessage({
       type: type,
-      handles: [this.name],
+      handle: this.name,
       data: data
     });
   },
 
+  /**
+   * Schedule a function to be run at cleanup-time.
+   */
+  runAtCleanup: function(func) {
+    // Currently we normalize to a fakae acquireable instance, but if we start
+    // doing more useful stuff with _stuffToRelease,
+    this._stuffToRelease.push({
+      __release: func
+    });
+  },
+
+  /**
+   * Run through the list of acquired stuff to release and release it all.
+   */
   cleanup: function() {
     this._active = false;
 

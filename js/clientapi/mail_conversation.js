@@ -61,10 +61,11 @@ let ContactCache = require('./contact_cache');
  * @property {Boolean} hasDraft
  * @property {Boolean} hasAttachment
  */
-function MailConversation(api, wireRep, slice) {
+function MailConversation(api, wireRep, slice, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;
+  this._handle = handle;
 
   // Store the wireRep so it can be used for caching.
   this._wireRep = wireRep;
@@ -117,6 +118,7 @@ MailConversation.prototype = evt.mix({
         snippet: tidbit.snippet
       };
     });
+    this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
     // Are there any unread messages in this
     this.hasUnread = wireRep.hasUnread;
@@ -130,6 +132,10 @@ MailConversation.prototype = evt.mix({
    */
   release: function() {
     this._forgetPeeps();
+    if (this._handle) {
+      this._api._cleanupContext(this._handle);
+      this._handle = null;
+    }
   },
 
 });

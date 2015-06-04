@@ -33,6 +33,7 @@ AccountsViewSlice.prototype.getAccountById = function(id) {
  */
 AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
   return new Promise((resolve, reject) => {
+console.warn('eventuallyGetAccountById', id);
     var account = this.getAccountById(id);
     if (account) {
       resolve(account);
@@ -40,6 +41,7 @@ AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
     }
 
     let addListener = (account) => {
+      console.log('add!!', account.id, id, account);
       if (account.id === id) {
         this.removeListener('add', addListener);
         resolve(account);

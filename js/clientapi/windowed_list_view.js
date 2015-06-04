@@ -280,10 +280,6 @@ WindowedListView.prototype = evt.mix({
   },
 
   release: function() {
-    // XXX we used to null out our event handlers here; it may be appropriate to
-    // do something to ensure that after release() is called no more events are
-    // heard from us.  Like re-initing our Emitter or synchronously notifying
-    // the API to forget about us or setting some flag, etc.
     this._api.__bridgeSend({
         type: 'cleanupContext',
         handle: this.handle
