@@ -42,8 +42,6 @@
     },
 
     paths: {
-      'app_logic': params.appLogic,
-
       // Configure any manual paths here:
       'bleach': 'ext/bleach.js/lib/bleach',
       'imap-formal-syntax': 'ext/imap-handler/src/imap-formal-syntax',
@@ -100,6 +98,16 @@
     // so set this to zero always.
     waitSeconds: 0
   });
+
+  // Separate out this config since it is runtime-specific, not a static config
+  // that can be parsed by build tools.
+  if (params.appLogic) {
+    requirejs.config({
+      paths: {
+        'app_logic': params.appLogic
+      }
+    });
+  }
 
   // Allow baseUrl override for things like tests
   if (typeof gelamWorkerBaseUrl === 'string') {
