@@ -19,6 +19,18 @@ window.console = {
 };
 */
 
+// XXX adopt a better solution for logic.js and Maps/Sets
+
+Map.prototype.toJSON = function toJSON() {
+  'use strict';
+  return [...Map.prototype.entries.call(this)];
+};
+
+Set.prototype.toJSON = function toJSON() {
+  'use strict';
+  return [...Set.prototype.values.call(this)];
+};
+
 // These pragmas are for r.js and tell it to remove this code section. It will
 // be replaced with inline content after a build.
 //>>excludeStart('buildExclude', pragmas.buildExclude);

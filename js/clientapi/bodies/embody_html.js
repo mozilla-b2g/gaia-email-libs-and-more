@@ -88,7 +88,6 @@ const DEFAULT_STYLE_TAG =
       ],
       { type: 'text/html'});
     let superBlobUrl = ownerDoc.defaultView.URL.createObjectURL(superBlob);
-
     iframe.setAttribute('src', superBlobUrl);
     containerNode.appendChild(iframe);
 

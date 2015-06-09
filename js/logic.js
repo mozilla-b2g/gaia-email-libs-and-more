@@ -697,8 +697,8 @@ define(function(require) {
       // XXX handle coloring more responsibly.  (not all toString invocations
       // want color codes... but the ones we hvae do do :)
       return '<LogicEvent \x1b[34m' + this.namespace + '\x1b[0m/\x1b[36m' +
-        this.type + '\x1b[0m \x1b[37m' +
-        JSON.stringify(this.jsonRepresentation.details) + '\x1b[0m>';
+        this.type + '\x1b[0m\n\x1b[37m' +
+        JSON.stringify(this.jsonRepresentation.details, null, 2) + '\x1b[0m>';
     },
 
     /**

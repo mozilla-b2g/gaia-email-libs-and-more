@@ -75,6 +75,17 @@ function TaskManager(universe, db, registry, accountsTOC) {
    */
   this._summedPriorityTags = new Map();
 
+  /**
+   * Maps a marker id to the priority heap node that contains it.  Used so that
+   * as complex tasks update their markers (functional-style, they do not
+   * retain a reference to their marker and are forbidden from manipulating the
+   * markers after the fact for sanity reasons) we can re-prioritize the
+   * markers.
+   *
+   * Markers are removed from this map exactly as they are triggered to execute.
+   */
+  this._markerIdToHeapNode = new Map();
+
   // Wedge our processing infrastructure until we have loaded everything from
   // the database.  Note that nothing will actually .then() off of this, and
   // we're just using an already-resolved Promise for typing reasons.
@@ -223,13 +234,7 @@ TaskManager.prototype = {
       // priority increases) efficiently, but otherwise we need to remove the
       // thing and re-add it.
       let newKey = node.key - aggregateDelta; // (the keys are negated!)
-      if (aggregateDelta > 0) {
-        prioritizedTasks.decreaseKey(node, newKey);
-      } else if (aggregateDelta < 0) {
-        let taskThing = node.value;
-        prioritizedTasks.delete(node);
-        prioritizedTasks.insert(newKey, taskThing);
-      } // we intentionally do nothing for aggregateDelta === 0
+      this._reprioritizeHeapNode(node, newKey);
     }
   },
 
@@ -304,12 +309,28 @@ TaskManager.prototype = {
   },
 
   /**
+   * Helper to decide whether to use decreaseKey for a node or remove it and
+   * re-add it.  Centralized because this seems easy to screw up.  All values
+   * are in the key-space, which is just the negated priority.
+   */
+  _reprioritizeHeapNode: function(node, newKey) {
+    let prioritizedTasks = this._prioritizedTasks;
+    if (newKey < node.key) {
+      prioritizedTasks.decreaseKey(node, newKey);
+    } else if (newKey > node.key) {
+      let taskThing = node.value;
+      prioritizedTasks.delete(node);
+      prioritizedTasks.insert(newKey, taskThing);
+    } // we intentionally do nothing for a delta of 0
+  },
+
+  /**
    * Called by `TaskContext` when a task completes being planned.
    *
    * @param {WrappedTask|TaskMarker} taskThing
    */
   __prioritizeTaskOrMarker: function(taskThing) {
-    logic(this, 'prioritizing', { task: taskThing });
+    logic(this, 'prioritizing', { taskOrMarker: taskThing });
 
     // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
     // the root (they're simple/flat).
@@ -319,9 +340,22 @@ TaskManager.prototype = {
     let relPriority = (isTask ? taskThing.plannedTask.relPriority
                               : taskThing.relPriority) || 0;
     let priority = relPriority + this._computePriorityForTags(priorityTags);
+    // it's a minheap, we negate keys
+    let nodeKey = -priority;
 
-    this._prioritizedTasks.insert(-priority, // it's a minheap, we negate keys
-                                  taskThing);
+    if (!isTask) {
+      // There may already exist a node for this in the map, in which case we
+      // need to
+      let priorityNode = this._markerIdToHeapNode.get(taskThing.id);
+      if (priorityNode) {
+        this._reprioritizeHeapNode(priorityNode, nodeKey);
+      } else {
+        this._prioritizedTasks.insert(nodeKey, taskThing);
+      }
+    } else {
+      this._prioritizedTasks.insert(nodeKey, taskThing);
+    }
+
     // If nothing is happening, then we might need/want to call _maybeDoStuff
     // soon, but not until whatever's calling us has had a chance to finish.
     // And if something is happening, well, we already know we will call
@@ -340,7 +374,13 @@ TaskManager.prototype = {
 
   _executeNextTask: function() {
     let taskThing = this._prioritizedTasks.extractMinimum().value;
+    let isTask = !taskThing.type;
     logic(this, 'executing', { task: taskThing });
+
+    // If this is a marker, remove it from the heap node or it will leak.
+    if (!isTask) {
+      this._markerIdToHeapNode.delete(taskThing.id);
+    }
     let ctx = new TaskContext(taskThing, this._universe);
     return this._registry.executeTask(ctx, taskThing);
   }

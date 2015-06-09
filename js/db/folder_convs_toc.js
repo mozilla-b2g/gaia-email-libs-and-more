@@ -45,7 +45,7 @@ function FolderConversationsTOC(db, folderId) {
 
   this._bound_onTOCChange = this.onTOCChange.bind(this);
 
-  this.__deactivate();
+  this.__deactivate(true);
 }
 FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   type: 'FolderConversationsTOC',
@@ -68,10 +68,12 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     this._db.on(eventId, this._bound_onTOCChange);
   }),
 
-  __deactivate: function() {
+  __deactivate: function(firstTime) {
     this.idsWithDates = [];
     this.totalHeight = 0;
-    this._db.removeListener(this._eventId, this._bound_onTOCChange);
+    if (!firstTime) {
+      this._db.removeListener(this._eventId, this._bound_onTOCChange);
+    }
   },
 
   get length() {

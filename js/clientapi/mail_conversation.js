@@ -4,6 +4,8 @@ define(function(require) {
 let evt = require('evt');
 let ContactCache = require('./contact_cache');
 
+let { accountIdFromConvId } = require('../id_conversions');
+
 /**
  * @typedef {Object} ConvMsgTidbit
  *
@@ -86,6 +88,23 @@ MailConversation.prototype = evt.mix({
 
   viewMessages: function() {
     return this._api.viewConversationMessages(this);
+  },
+
+  /**
+   * Return the list of folders that correspond to labels that can be applied to
+   * this conversation.
+   *
+   * XXX currently this is just the list of folders on the given account.  We
+   * need to perform filtering based on selectability/etc.
+   *
+   * @return {MailFolder[]}
+   *   A shallow copy of the list of folders.  The items will update, but the
+   *  contents of the list won't change.
+   */
+  getKnownLabels: function() {
+    let accountId = accountIdFromConvId(this.id);
+    let account = this._api.getAccountById(accountId);
+    return account.folders.items.concat();
   },
 
   _forgetPeeps: function() {

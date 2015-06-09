@@ -381,10 +381,6 @@ MailBridge.prototype = {
 
   _cmd_seekProxy: function(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
-    if (!ctx.proxy) {
-      console.error('you lost the ordering war!  eating seek!');
-      return;
-    }
     ctx.proxy.seek(msg);
   },
 
@@ -400,12 +396,15 @@ MailBridge.prototype = {
     idRequestMap.set(msg.itemId, null);
     // Helper to normalize raw database reps to wire reps.  This matters for
     // things like account info structures.
-    let rawToWireRep;
+    let rawToWireRep, eventArgsToRaw;
     switch (msg.itemType) {
       case 'conv':
         requests.conversations = idRequestMap;
         // no transformation is performed on conversation reps
         rawToWireRep = (x => x);
+        // The change idiom is currently somewhat one-off; we may be able to
+        // just fold this into the eventHandler once things stabilize.
+        eventArgsToRaw = ((id, convInfo) => { return convInfo; });
         break;
       default:
         throw new Error('unsupported item type: ' + msg.itemType);
@@ -420,8 +419,14 @@ MailBridge.prototype = {
     // (We only do this after we have loaded the up-to-date rep.  Note that
     // under the current DB implementation there is a potential short-lived
     // race here that will be addressed to support this idiom correctly.)
-    let eventHandler = (rawItem) => {
-      ctx.sendMessage('update', rawToWireRep(rawItem));
+    let eventHandler = (arg1, arg2) => {
+      let rawRep = eventArgsToRaw(arg1, arg2);
+      if (rawRep) {
+        let wireRep = rawToWireRep();
+        if (wireRep) {
+          ctx.sendMessage('update', wireRep);
+        }
+      }
     };
     this.db.on(eventId, eventHandler);
     ctx.runAtCleanup(() => {

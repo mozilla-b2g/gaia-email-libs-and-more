@@ -2,7 +2,7 @@ define(function(require) {
 'use strict';
 
 /**
- * @typedef {Map<FlagStoreAggrString, FlagChangeAggr>} MixStorePersistentState
+ * @typedef {Map<MixStoreAggrString, MixStoreChangeAggr>} MixStorePersistentState
  *
  * We aggregate the manipulations we want to perform to leverage IMAP's ability
  * to batch things.  If two separate store requests would issue the same IMAP
@@ -55,6 +55,46 @@ define(function(require) {
  * method to apply our pending local changes to the information we receive from
  * the server.
  *
+ * ## Conversation / Message Granularity ##
+ *
+ * ### How does gmail work?!?! ###
+ *
+ * At least back in the day (2009/2010) per some support threads:
+ * - The conversations web UI shows conversations based on a union of those
+ *   labels.
+ * - Applying a label to a conversation applies the labels on the messages then
+ *   in the conversation.
+ * - New messages in the conversation do not magically receive those labels.
+ *   (There may be a filter/rule that applies the labels uniformly, but that's
+ *   it.)
+ * - A particular example of this was sent messages.  They would not get the
+ *   magic label and really confuse IMAP clients.
+ *
+ * ### Okay, let's do what gmail does ###
+ *
+ * Yeah, that works for me.  The standard idiom shall be to apply labels across
+ * all things.
+ *
+ * ### Optimizing based on that assumption ###
+ *
+ * The local task has to manipulate the ConversationInfo and MessageInfo
+ * structures.  Accordingly, it makes sense to issue the request on the
+ * conversation itself.
+ *
+ * Once planned, we no longer actually need to orient along conversation lines.
+ * We can split out based on UID (and for Trash/Spam, a tuple of folderId and
+ * UID or something like that.)  This coincidentally is exactly what the sync
+ * logic wants from us.  Hooray!
+ *
+ * ## Normalization of flags/labels ##
+ *
+ * The execute stage uses the IMAP strings we will tell the server, which is
+ * the label string and/or flag name.
+ *
+ * The planning stage for labels deals in folderIds (an opaque string) as its
+ * inputs.  Tags stay the same string all the way through.  This difference is
+ * handled by a custom method by our consumers.
+ *
  * ## Pending Changes and Sync ##
  *
  * When it comes to the apparent flags/labels on a message, we have the
@@ -67,7 +107,8 @@ define(function(require) {
  * Important invariants:
  * - Consistency of our local database with the server for a given modseq
  *   requires that if we interfere with sync_refresh/sync_grow's perception of
- *   reality that when we remove that state that we are able to
+ *   reality that when we remove that state that we are able to undo any side
+ *   effects of that altered perception.
  *
  * Relevant observations:
  * - In order for a user to be able to manipulate a message and state to end up
@@ -85,7 +126,7 @@ define(function(require) {
  * - Until gmail supports QRESYNC, our deletion-inference mechanism will help
  *   avoid worst-case database inconsistencies.
  *
- * Conslusions:
+ * Conclusions:
  * - Metadata like read and flagged status are easy peasy.  (At least, if we
  *   don't sync on those virtual folders.)
  * - Apparent deletion via removal of a label that still leaves the conversation
@@ -104,17 +145,20 @@ define(function(require) {
  * -
  */
 let GmailStoreTaskMixin = {
-  name: 'store_flags',
+
   /**
    * @return {StoreFlagState}
    *   The initial state of this task type for a newly created account.
    */
   initPersistentState: function() {
-    return new Map();
+    return {
+      nextId: 1,
+
+    };
   },
 
   deriveMemoryStateFromPersistentState: function(persistentState) {
-    return new Map();
+    return markers;
   },
 
   /**
@@ -137,14 +181,31 @@ let GmailStoreTaskMixin = {
     return s;
   },
 
-  /**
-   * Process the provided request
-   */
-  plan: function(ctx, persistentState, memoryState, request) {
+  plan: co.wrap(function*(ctx, persistentState, memoryState, request) {
+    // -- Load the conversation and messages
+    let fromDb = yield ctx.beginMutate({
+      conversations: new Map([[req.convId, null]]),
+      messagesByConversation: new Map([[req.convId, null]])
+    });
 
-  },
+    let loadedMessages = fromDb.messagesByConversation.get(req.convId);
+    let modifiedMessagesMap = new Map();
+
+    // -- Per message, compute the changes required and issue/update markers
+    for (let message of loadedMessages) {
+    }
+    // (The local database state will already include any accumulated changes
+    // requested by the user but not yet reflected to the server.  There is no
+    // need to perform any transformation based on what is currently pending
+    // because inbound sync does that and so we always seem a post-transform
+    // view when looking in our database.)
+
+    // See
+  }),
 
   execute: function(ctx, persistentState, memoryState, marker) {
+    let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+    let allMailFolderInfo = account.getFirstFolderWithType('all');
 
   }
 };

@@ -91,7 +91,7 @@ return TaskDefiner.defineComplexTask([
      * @return {Array<ComplexTaskMarker>}
      */
     deriveMemoryStateFromPersistentState: function(persistentState) {
-      return new Map();
+      return [];
     },
 
     plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
@@ -122,7 +122,9 @@ return TaskDefiner.defineComplexTask([
         }
       } else {
         planned = {
-          markerId: rawTask.id, // use the existing task id for the marker
+          // Uniqueify with our task name/prefix and the sufficiently unique
+          // conversation id.
+          markerId: 'sync_body:' + rawTask.convId,
           convId: rawTask.convId,
           amount: rawTask.amount,
           fullBodyMessageIds: rawTask.fullBodyMessageIds

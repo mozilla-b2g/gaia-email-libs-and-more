@@ -214,6 +214,9 @@ MailMessage.prototype = evt.mix({
 
   /**
    * Add and/or remove tags/flags from this message.
+   *
+   * @param {String[]} [addTags]
+   * @param {String[]} [removeTags]
    */
   modifyTags: function(addTags, removeTags) {
     return this._api.modifyMessageTags([this], addTags, removeTags);
@@ -222,9 +225,12 @@ MailMessage.prototype = evt.mix({
   /**
    * And and/or remove gmail labels from this message.  This only makes sense
    * for gmail, and we expose lables as Folders.
+   *
+   * @param {MailFolder[]} [addFolders]
+   * @param {MailFolder[]} [removeFolders]
    */
   modifyLabels: function(addFolders, removeFolders) {
-    return this._api.modifyMessageLables([this], addFolders, removeFolders);
+    return this._api.modifyMessageLabels([this], addFolders, removeFolders);
   },
 
   /**

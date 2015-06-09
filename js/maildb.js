@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 42;
+const CUR_VERSION = 43;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -727,8 +727,12 @@ MailDB.prototype = evt.mix({
       }
 
       if (!dbReqCount) {
-        throw new Error('IndexeDB does *NOT* like empty transactions');
-        //resolve(requests);
+        // XXX ugh, just issue a useless read since IndexedDB currently can
+        // hang on workers if given an empty transaction.  we don't have to wait
+        // for it, though.
+        trans.objectStore(TBL_CONFIG).get('doesnotexist');
+        console.warn('creating useless read to avoid hanging IndexedDB');
+        resolve(requests);
         // it would be nice if we could have avoided creating the transaction...
       } else {
         trans.oncomplete = () => {
@@ -985,8 +989,9 @@ MailDB.prototype = evt.mix({
   },
 
   loadConversationMessageIdsAndListen: co.wrap(function*(convId) {
-    let eventId = 'conv!' + convId + '!messages!tocChange';
-    let retval = this._bufferChangeEventsIdiom(eventId);
+    let tocEventId = 'conv!' + convId + '!messages!tocChange';
+    let convEventId = 'conv!' + convId + '!change';
+    let { drainEvents } = this._bufferChangeEventsIdiom(tocEventId);
 
     let trans = this._db.transaction(TBL_MESSAGES, 'readonly');
     let messageStore = trans.objectStore(TBL_MESSAGES);
@@ -994,7 +999,7 @@ MailDB.prototype = evt.mix({
                                          true, true);
     let messages = yield wrapReq(messageStore.mozGetAll(messageRange));
     let messageCache = this.messageCache;
-    retval.idsWithDates = messages.map(function(message) {
+    let idsWithDates = messages.map(function(message) {
       // Put it in the cache unless it's already there (reads must
       // not clobber writes/mutations!)
       if (!messageCache.has(message.id)) {
@@ -1002,7 +1007,7 @@ MailDB.prototype = evt.mix({
       }
       return { date: message.date, id: message.id };
     });
-    return retval;
+    return { tocEventId, convEventId, idsWithDates, drainEvents };
   }),
 
   _processMessageAdditions: function(trans, messages) {
@@ -1197,6 +1202,22 @@ MailDB.prototype._emit = MailDB.prototype.emit;
 MailDB.prototype.emit = function(eventName) {
   logic(this, 'emit', { name: eventName });
   this._emit.apply(this, arguments);
+};
+MailDB.prototype._on = MailDB.prototype.on;
+MailDB.prototype.on = function(eventName) {
+  if (!eventName) {
+    throw new Error('no event type provided!');
+  }
+  logic(this, 'on', { name: eventName });
+  this._on.apply(this, arguments);
+};
+MailDB.prototype._removeListener = MailDB.prototype.removeListener;
+MailDB.prototype.removeListener = function(eventName) {
+  if (!eventName) {
+    throw new Error('no event type provided!');
+  }
+  logic(this, 'removeListener', { name: eventName });
+  this._removeListener.apply(this, arguments);
 };
 
 return MailDB;

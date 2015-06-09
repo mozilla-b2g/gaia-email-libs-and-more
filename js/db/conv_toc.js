@@ -51,7 +51,7 @@ function ConversationTOC(db, convId) {
   this._bound_onTOCChange = this.onTOCChange.bind(this);
   this._bound_onConvChange = this.onConvChange.bind(this);
 
-  this.__deactivate();
+  this.__deactivate(true);
 }
 ConversationTOC.prototype = evt.mix(RefedResource.mix({
   type: 'ConversationTOC',
@@ -72,9 +72,11 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     this._db.on(convEventId, this._bound_onConvChange);
   }),
 
-  __deactivate: function() {
+  __deactivate: function(firstTime) {
     this.idsWithDates = [];
-    this._db.removeListener(this._tocEventId, this._bound_onTOCChange);
+    if (!firstTime) {
+      this._db.removeListener(this._tocEventId, this._bound_onTOCChange);
+    }
   },
 
   get length() {
