@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+let co = require('co');
+
 /**
  * @typedef {Map<MixStoreAggrString, MixStoreChangeAggr>} MixStorePersistentState
  *
@@ -158,6 +160,7 @@ let GmailStoreTaskMixin = {
   },
 
   deriveMemoryStateFromPersistentState: function(persistentState) {
+    let markers = [];
     return markers;
   },
 
